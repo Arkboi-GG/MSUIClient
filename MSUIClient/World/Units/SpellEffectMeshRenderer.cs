@@ -19,6 +19,42 @@ public readonly record struct SpellMeshDraw(
     Vector3 Tint,
     float Opacity);
 
+/// <summary>A depth-tested, camera-facing world quad with a bottom-center anchor.</summary>
+public readonly record struct WorldBillboardDraw(
+    Vector3 BottomCenter,
+    float WorldSize,
+    string Texture,
+    Vector2 UvMin,
+    Vector2 UvMax,
+    Vector3 Tint,
+    float Opacity);
+
+public static class WorldBillboardLaw
+{
+    /// <summary>The reference quad LUT: TL, TR, BL / BL, TR, BR, bottom-centered.</summary>
+    public static float[] Vertices(Vector3 bottom, float size, Vector3 right, Vector3 up,
+        Vector2 uvMin, Vector2 uvMax)
+    {
+        Vector3 halfRight = right * (size * .5f);
+        Vector3 fullUp = up * size;
+        Vector3 tl = bottom - halfRight + fullUp;
+        Vector3 tr = bottom + halfRight + fullUp;
+        Vector3 br = bottom + halfRight;
+        Vector3 bl = bottom - halfRight;
+        float u0 = uvMin.X, v0 = uvMin.Y;
+        float u1 = uvMax.X, v1 = uvMax.Y;
+        return
+        [
+            tl.X, tl.Y, tl.Z, u0, v0,
+            tr.X, tr.Y, tr.Z, u1, v0,
+            bl.X, bl.Y, bl.Z, u0, v1,
+            bl.X, bl.Y, bl.Z, u0, v1,
+            tr.X, tr.Y, tr.Z, u1, v0,
+            br.X, br.Y, br.Z, u1, v1,
+        ];
+    }
+}
+
 /// <summary>
 /// Draws the mesh half of SpellVisualEffectName M2s. The particle half stays in
 /// ParticleRenderer; both consume the same SpellEffectSource instances so a
@@ -122,7 +158,9 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     }
     private Shader? _shader;
     private Shader? _groundShader;
+    private Shader? _billboardShader;
     private uint _groundVao, _groundVbo;
+    private uint _billboardVao, _billboardVbo;
     private readonly Matrix4x4[] _skin = new Matrix4x4[M2Animator.MaxBones];
     private readonly float[] _packed = new float[M2Animator.MaxBones * 12];
     public int DrawnLastFrame { get; private set; }
@@ -153,6 +191,8 @@ public sealed class SpellEffectMeshRenderer : IDisposable
             SpellMeshSkinningLaw.VertexShaderSource, FragmentSource);
         _groundShader = Shader.FromSource(_gl, "spell-ground-decal", GroundVertexSource,
             GroundFragmentSource);
+        _billboardShader = Shader.FromSource(_gl, "world-billboard", BillboardVertexSource,
+            BillboardFragmentSource);
         _groundVao = _gl.GenVertexArray();
         _groundVbo = _gl.GenBuffer();
         _gl.BindVertexArray(_groundVao);
@@ -167,6 +207,77 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         _gl.VertexAttribPointer(2, 1, VertexAttribPointerType.Float, false, stride,
             (void*)(5 * sizeof(float)));
         _gl.BindVertexArray(0);
+
+        _billboardVao = _gl.GenVertexArray();
+        _billboardVbo = _gl.GenBuffer();
+        _gl.BindVertexArray(_billboardVao);
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _billboardVbo);
+        const uint billboardStride = 5 * sizeof(float);
+        _gl.EnableVertexAttribArray(0);
+        _gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, billboardStride,
+            (void*)0);
+        _gl.EnableVertexAttribArray(1);
+        _gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, billboardStride,
+            (void*)(3 * sizeof(float)));
+        _gl.BindVertexArray(0);
+    }
+
+    /// <summary>
+    /// Draw small authored UI cells as real world geometry. The pass depth-tests against terrain,
+    /// WMOs and units, skips depth writes for blended edges, and uses a camera-facing unit basis.
+    /// </summary>
+    public unsafe void RenderWorldBillboards(Camera camera,
+        IEnumerable<WorldBillboardDraw> instances)
+    {
+        if (!Enabled || _billboardShader is null || _billboardVao == 0) return;
+        WorldBillboardDraw[] ready = instances
+            .Where(x => x.WorldSize > 0f && x.Opacity > 0f && x.Texture.Length > 0)
+            .ToArray();
+        if (ready.Length == 0) return;
+
+        Vector3 forward = camera.Forward;
+        Vector3 right = Vector3.Cross(forward, Vector3.UnitZ);
+        right = right.LengthSquared() > 1e-6f ? Vector3.Normalize(right) : camera.FlatRight;
+        Vector3 up = Vector3.Normalize(Vector3.Cross(right, forward));
+
+        bool hadDepthTest = _gl.IsEnabled(EnableCap.DepthTest);
+        bool hadBlend = _gl.IsEnabled(EnableCap.Blend);
+        bool hadCull = _gl.IsEnabled(EnableCap.CullFace);
+        _gl.Enable(EnableCap.DepthTest);
+        _gl.Enable(EnableCap.Blend);
+        _gl.Disable(EnableCap.CullFace);
+        _gl.DepthMask(false);
+        ApplyBlend(2);
+
+        _billboardShader.Use();
+        _billboardShader.Set("uViewProjection", camera.RelativeViewProjection);
+        _billboardShader.Set("uView", camera.RelativeView);
+        _billboardShader.Set("uTexture", 0);
+        _billboardShader.Set("uFarClip", FarClip);
+        _gl.BindVertexArray(_billboardVao);
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _billboardVbo);
+
+        foreach (WorldBillboardDraw draw in ready)
+        {
+            Texture? texture = ResolveTexture(draw.Texture);
+            if (texture is null) continue;
+            Vector3 bottom = draw.BottomCenter - camera.Position;
+            float[] vertices = WorldBillboardLaw.Vertices(bottom, draw.WorldSize, right, up,
+                draw.UvMin, draw.UvMax);
+            fixed (float* p = vertices)
+                _gl.BufferData(BufferTargetARB.ArrayBuffer,
+                    (nuint)(vertices.Length * sizeof(float)), p, BufferUsageARB.StreamDraw);
+            texture.Bind(0);
+            _billboardShader.Set("uTint", draw.Tint);
+            _billboardShader.Set("uOpacity", draw.Opacity);
+            _gl.DrawArrays(PrimitiveType.Triangles, 0, 6);
+        }
+
+        _gl.BindVertexArray(0);
+        _gl.DepthMask(true);
+        if (hadCull) _gl.Enable(EnableCap.CullFace); else _gl.Disable(EnableCap.CullFace);
+        if (hadBlend) _gl.Enable(EnableCap.Blend); else _gl.Disable(EnableCap.Blend);
+        if (hadDepthTest) _gl.Enable(EnableCap.DepthTest); else _gl.Disable(EnableCap.DepthTest);
     }
 
     public unsafe void Render(Camera camera,
@@ -1144,8 +1255,11 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         foreach (Texture? texture in _textures.Values) texture?.Dispose();
         if (_groundVbo != 0) _gl.DeleteBuffer(_groundVbo);
         if (_groundVao != 0) _gl.DeleteVertexArray(_groundVao);
+        if (_billboardVbo != 0) _gl.DeleteBuffer(_billboardVbo);
+        if (_billboardVao != 0) _gl.DeleteVertexArray(_billboardVao);
         _meshes.Clear(); _textures.Clear(); _shader?.Dispose();
         _groundShader?.Dispose();
+        _billboardShader?.Dispose();
         _rtsRingTexture?.Dispose();
         _rtsChevronTexture?.Dispose();
         foreach (Texture texture in _devDiscTextures.Values) texture.Dispose();
@@ -1239,6 +1353,30 @@ void main(){
         else if(uFogPolicy==3)target=vec3(0.50196078);
         FragColor.rgb=mix(target,FragColor.rgb,visibility);
     }
+}";
+
+    private const string BillboardVertexSource = @"#version 330 core
+layout(location=0) in vec3 aPosition;
+layout(location=1) in vec2 aUV;
+uniform mat4 uViewProjection;
+uniform mat4 uView;
+out vec2 vUV;
+out float vEyeDepth;
+void main(){vUV=aUV;vEyeDepth=-(uView*vec4(aPosition,1.0)).z;gl_Position=uViewProjection*vec4(aPosition,1.0);}";
+
+    private const string BillboardFragmentSource = @"#version 330 core
+in vec2 vUV;
+in float vEyeDepth;
+uniform sampler2D uTexture;
+uniform vec3 uTint;
+uniform float uOpacity;
+uniform float uFarClip;
+out vec4 FragColor;
+void main(){
+    if(uFarClip>0.0 && vEyeDepth>uFarClip)discard;
+    vec4 t=texture(uTexture,vUV);
+    FragColor=vec4(t.rgb*uTint,t.a*uOpacity);
+    if(FragColor.a<=0.001)discard;
 }";
 }
 

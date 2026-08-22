@@ -1,5 +1,6 @@
 using System.Numerics;
 using MSUIClient.Engine.UI;
+using MSUIClient.Net;
 using MSUIClient.World.Sound;
 
 namespace MSUIClient;
@@ -18,6 +19,10 @@ public sealed partial class GameLoop
     private double _soundscapeNextResolveAt;
     private uint _soundscapeAreaId;
     private (uint Music, uint Ambience, uint Intro) _soundscapeInterior;
+    private bool _soundscapeIndoors;
+    private uint _weatherSoundKit;
+    private readonly Dictionary<ulong, int> _knownMountSoundDisplays = [];
+    private const string DismountSoundName = "SpiritWolf (DONOTRENAME)";
     private bool _soundscapePlaybackArmed;
     private bool _audioSelfTestStarted;
     private int _soundscapeSettledFrames;
@@ -51,12 +56,18 @@ public sealed partial class GameLoop
                        !GlueFrontDoorActive && _controller is not null;
         if (!inWorld)
         {
+            StopCreatureBodyLoops();
+            _knownMountSoundDisplays.Clear();
             _soundscape?.Reset();
             _soundscapePlaybackArmed = false;
             _soundscapeSettledFrames = 0;
             _soundscapeArmDeadline = 0;
             return;
         }
+
+        // The mount-up attach is silent. Only a live nonzero->zero edge plays
+        // the fixed global dismount kit; first sight merely seeds the observer.
+        ObserveDismountSoundTransitions(_soundscapePlaybackArmed);
 
         // DO NOT LET THE FIRST MCI/DirectShow VOICES COME INTO EXISTENCE WHILE THE
         // LOADER STILL OWNS THE MACHINE. On Windows a graph built under that
@@ -122,13 +133,17 @@ public sealed partial class GameLoop
             float? terrainZ = _terrain!.SampleHeight(probe.X, probe.Y);
             uint areaId = 0;
             _soundscapeInterior = (0, 0, 0);
+            _soundscapeIndoors = false;
 
-            if (_wmo?.ResolveAreaMinimapIdentity(feet, terrainZ) is { } interior &&
-                _wmoAreas?.Resolve(interior.RootWmoId, interior.NameSetId,
-                    interior.GroupWmoId) is { } row)
+            if (_wmo?.ResolveAreaMinimapIdentity(feet, terrainZ) is { } interior)
             {
-                _soundscapeInterior = (row.ZoneMusicId, row.AmbienceId, row.IntroSoundId);
-                areaId = row.AreaTableId;
+                _soundscapeIndoors = true;
+                if (_wmoAreas?.Resolve(interior.RootWmoId, interior.NameSetId,
+                        interior.GroupWmoId) is { } row)
+                {
+                    _soundscapeInterior = (row.ZoneMusicId, row.AmbienceId, row.IntroSoundId);
+                    areaId = row.AreaTableId;
+                }
             }
 
             if (areaId == 0)
@@ -152,9 +167,82 @@ public sealed partial class GameLoop
         _soundscape.InteriorZoneMusicId = _soundscapeInterior.Music;
         _soundscape.InteriorAmbienceId = _soundscapeInterior.Ambience;
         _soundscape.InteriorIntroSoundId = _soundscapeInterior.Intro;
+        _soundscape.Interior = _soundscapeIndoors;
+        _soundscape.WeatherAmbienceKit = _weatherSoundKit;
         _soundscape.DayPhase = hours >= 5.5f && hours < 21f;   // vanilla's hard step
         _soundscape.Submerged = submerged;
         _soundscape.Update(now);
+    }
+
+    private void ObserveDismountSoundTransitions(bool playbackAllowed)
+    {
+        HashSet<ulong> seen = [];
+        Vector3 listener = _controller?.Position ?? Vector3.Zero;
+        foreach (WorldEntity unit in _entities.Entities.Values.Where(entity => entity.IsUnit))
+        {
+            seen.Add(unit.Guid);
+            int mount = unit.MountDisplayId;
+            if (_knownMountSoundDisplays.TryGetValue(unit.Guid, out int previous) &&
+                previous != 0 && mount == 0 && playbackAllowed)
+            {
+                _spellSounds?.Play(DismountSoundName, unit.Guid, unit.Position, listener,
+                    category: "sfx");
+            }
+            _knownMountSoundDisplays[unit.Guid] = mount;
+        }
+        foreach (ulong stale in _knownMountSoundDisplays.Keys.Where(guid => !seen.Contains(guid)).ToArray())
+            _knownMountSoundDisplays.Remove(stale);
+    }
+
+    /// <summary>
+    /// Apply one of the server's scripted SoundEntries triggers. Packets that
+    /// arrive while the loading curtain owns the world are intentionally dropped,
+    /// matching Benilla's world-hold gate rather than being replayed late.
+    /// </summary>
+    private void ApplyServerSound(Op opcode, byte[] body)
+    {
+        switch (opcode)
+        {
+            case Op.SMSG_PLAY_SOUND:
+                {
+                    ServerSoundPacket sound = ServerSoundPackets.ParseSound(body);
+                    if (ServerSoundPlaybackHeld) return;
+                    _soundscape!.PlayServerSound2d(sound.SoundId);
+                }
+                break;
+            case Op.SMSG_PLAY_MUSIC:
+                {
+                    ServerSoundPacket music = ServerSoundPackets.ParseMusic(body);
+                    if (ServerSoundPlaybackHeld) return;
+                    _soundscape!.PlayServerMusic(music.SoundId, NowSeconds());
+                }
+                break;
+            case Op.SMSG_PLAY_OBJECT_SOUND:
+                {
+                    ServerObjectSoundPacket sound = ServerSoundPackets.ParseObjectSound(body);
+                    if (ServerSoundPlaybackHeld) return;
+                    Vector3 listener = _controller?.Position ?? Vector3.Zero;
+                    var pose = SpellEffectUnitPose(sound.SourceGuid);
+                    Vector3 source = pose.Found ? pose.Position : listener;
+                    _spellSounds?.Play(sound.SoundId, sound.SourceGuid, source, listener,
+                        forceLoop: false, trackHold: false, category: "sfx");
+                }
+                break;
+        }
+    }
+
+    private bool ServerSoundPlaybackHeld
+        => !_soundscapePlaybackArmed || _worldLoading || _soundscape is null;
+
+    private void ApplyWeather(byte[] body)
+    {
+        WeatherPacket weather = WeatherPackets.Parse(body);
+        // The sound kit is state, unlike the three one-shot/server-music pushes:
+        // retain it through a loading cover so the ambience selector sees the
+        // destination zone's weather when playback arms. Grade is visual-only.
+        _weatherSoundKit = weather.SoundId;
+        Console.WriteLine($"[weather] type={weather.WeatherType} grade={weather.Grade:F2} " +
+                          $"sound={weather.SoundId} instant={weather.Instant}");
     }
 
     /// <summary>Push the persisted audio settings onto the mix. Called from

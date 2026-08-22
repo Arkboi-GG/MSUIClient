@@ -7,17 +7,18 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/nameplates.rs",
-      "fileSha256": "ec866c6868a549eabcc993369fef4a8ae803dfd4ab33b0d090d06626282c7da1",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "1a9e8d8ec94adbc3f28e327c1eb6f0a92833e833e8e1ae2daf071e1555c7a9d7",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.Nameplates.cs",
-    "MSUIClient/Program.Targeting.cs",
-    "MSUIClient/Program.UnitFrames.cs"
+    "MSUIClient/Engine/UI/NameplateUiLaw.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.Nameplates.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Targeting.cs",
+    "tools/interface-wire-check/NameplateClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI draws overhead unit names with the core of Benilla's law, and cites it: the height-scale formula (d>4 ? d/4*1.5*0.2 : 0.2) projected as a true world pitch so distance shrinks names, reaction coloring shared with the selection-ring palette, the show gates (own name on, dead creatures only via the target rescue, players/NPCs on), plus the separate enemy V-plate layer whose last-frame rects feed the shared hover/selection pick. Several byte-verified aspects of the reference presentation are missing.",
+  "summary": "MSUI's overhead identity stack now consumes one law for the selection-circle palette and its first-priority 1 Hz red-to-orange auto-attack pulse, player <AFK><DND><GM> flag decorations, creature <Subname> lines, and 1:1 line pitch. The same palette law paints the ground selection ring. The remaining known divergence is architectural: names are still ImGui background-list text rather than depth-tested world geometry, so walls do not occlude them.",
   "openItems": [
     {
       "id": "item-triage-1c763f6a",
@@ -33,7 +34,8 @@
       "text": "NPC subname line missing: the creature-query subname (<Stable Master>) is cached but the overhead block renders only the name line",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: GameLoop.Nameplates reads CreatureQueryInfo.Subname and NameplateUiLaw emits the non-empty second line as <Subname> at the reference 1:1 line pitch."
     },
     {
       "id": "item-triage-be7bd015",
@@ -41,7 +43,8 @@
       "text": "Player AFK/DND/GM prefixes from PLAYER_FLAGS (<AFK><DND><GM> concatenated before the name) are not rendered",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: NameplateUiLaw reads PLAYER_FLAGS bits 0x2/0x4/0x8 and concatenates <AFK><DND><GM> in slot order directly before the player name."
     },
     {
       "id": "item-triage-a636b43c",
@@ -49,12 +52,13 @@
       "text": "The combat-flash red-orange pulse (first-priority branch of the shared color selector) is applied to the selection ring but not to the overhead name color",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: The ground ring and overhead name now call the same NameplateUiLaw.SelectionRgb selector; an active attack target takes its first-priority G-byte 128-to-0-to-128 triangle over red/orange."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T01:34:50.6138300Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

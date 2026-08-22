@@ -8,21 +8,30 @@
     {
       "path": "crates/benilla-protocol/src/messages/progression.rs",
       "fileSha256": "1b13f4141215ba5106a3ad34d627842a5eeef92e01ede7eeb992460798fc0ad9",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-protocol/src/world/writer/progression.rs",
       "fileSha256": "5169cc6581a202fdce7743b9b367ea8706d45bbcd602488a62b9d90e44fcbb24",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-formats/src/race_sound.rs",
+      "fileSha256": "cb8f0b70b7ef0b9aef12fdc848a0a3afb15ead048272568a9718ef6d8888402a",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/CombatPackets.cs",
+    "MSUIClient/Net/ExplorationPackets.cs",
     "MSUIClient/Net/WorldSession.cs",
-    "MSUIClient/Program.Net.cs"
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Chat.cs",
+    "MSUIClient/Formats/ExplorationSoundCatalog.cs",
+    "tools/interface-wire-check/ExplorationClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "Benilla's progression arc is SMSG_LOG_XPGAIN (with the kill-only base/groupBonus tail), SMSG_LEVELUP_INFO, CMSG_LEARN_TALENT (talentId + 0-based requestedRank), and SMSG_EXPLORATION_EXPERIENCE (areaId + xp, sent even at 0 xp). MSUI implements the first three; exploration experience is unhandled.",
+  "status": "implemented-unverified",
+  "summary": "MSUI implements SMSG_LOG_XPGAIN (including the kill-only tail), SMSG_LEVELUP_INFO, CMSG_LEARN_TALENT, and the exact eight-byte SMSG_EXPLORATION_EXPERIENCE. Exploration resolves the packet AreaTable row, always raises the Discovered toast, adds the XP chat line only above zero, and independently plays the race-keyed ChrRaces column-3 SoundEntries jingle.",
   "openItems": [
     {
       "id": "item-triage-e413e289",
@@ -30,7 +39,8 @@
       "text": "SMSG_EXPLORATION_EXPERIENCE not parsed - no 'Discovered: <area>' line; the packet is what names the newly explored AreaTable row (the XP itself also rides a separate non-kill XPGAIN)",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: opcode 0x01F8 is strictly decoded as areaId+xp; the live handler resolves the exact AreaTable row, emits the always-on toast and positive-XP-only system line, and plays the race-specific exploration SoundEntries kit even when the name cannot resolve. Focused packet/copy/wiring checks pass."
     }
   ],
   "claims": [],

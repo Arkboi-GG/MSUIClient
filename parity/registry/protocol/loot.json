@@ -8,22 +8,25 @@
     {
       "path": "crates/benilla-protocol/src/messages/loot.rs",
       "fileSha256": "084b03fff43d459f55f68a3e0920c58f376f764996c28e3b548b99c01186906c",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-protocol/src/world/writer/loot.rs",
       "fileSha256": "80ca2e46d80eeec391ad97ffcca3414da31a5605b253c50fe03365a71c8db013",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/LootState.cs",
     "MSUIClient/Net/WorldSession.cs",
-    "MSUIClient/Program.Loot.cs",
-    "MSUIClient/Program.Net.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Loot.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.GroupLoot.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "tools/interface-wire-check/GroupLootClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "Benilla implements solo looting (CMSG_LOOT/AUTOSTORE_LOOT_ITEM/LOOT_MONEY/LOOT_RELEASE; SMSG_LOOT_RESPONSE both shapes, LOOT_REMOVED, LOOT_CLEAR_MONEY, LOOT_RELEASE_RESPONSE, LOOT_MONEY_NOTIFY, ITEM_PUSH_RESULT) plus the group-roll family. MSUI fully implements the solo family and CMSG_LOOT_METHOD, but has no group-roll support at all.",
+  "status": "complete",
+  "summary": "MSUI implements the current solo-loot and group-roll protocol surface, including exact CMSG_LOOT_ROLL bytes; strict START/ROLL/WON/ALL_PASSED parsing; vote-versus-dice disambiguation; winner placement; and ALL_PASSED's swapped property/suffix tail.",
   "openItems": [
     {
       "id": "item-triage-ff0dab23",
@@ -31,7 +34,8 @@
       "text": "CMSG_LOOT_ROLL (u64 lootedTarget, u32 itemSlot, u8 rollType) has no sender",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: exact u64 target, u32 slot, u8 vote body is built, sent, and golden-byte checked."
     },
     {
       "id": "item-triage-61907435",
@@ -39,7 +43,8 @@
       "text": "SMSG_LOOT_START_ROLL not parsed (no roll window/countdown)",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: strict 28-byte START_ROLL parsing opens the four-frame client state with its server countdown."
     },
     {
       "id": "item-triage-150244a9",
@@ -47,7 +52,8 @@
       "text": "SMSG_LOOT_ROLL not parsed, including the overloaded (roll_number, roll_type) vote-vs-dice disambiguation Benilla encodes in LootRoll::is_dice",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: strict 34-byte ROLL parsing implements the exact Need/Pass/Greed vote sentinels and 1..100 dice range."
     },
     {
       "id": "item-triage-f71632b6",
@@ -55,7 +61,8 @@
       "text": "SMSG_LOOT_ROLL_WON not parsed (winner guid rides AFTER the item block)",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: strict 34-byte WON parsing reads the winner after the item block and closes the matching roll."
     },
     {
       "id": "item-triage-12348334",
@@ -63,12 +70,13 @@
       "text": "SMSG_LOOT_ALL_PASSED not parsed (note its swapped randomPropId/randomSuffix tail order)",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: strict 24-byte ALL_PASSED parsing preserves its unique randomPropertyId-then-randomSuffix order."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-21T12:00:00+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

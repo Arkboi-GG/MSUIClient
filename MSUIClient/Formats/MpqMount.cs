@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Collections.Concurrent;
+using System.Text;
 using MSUIClient.Formats.Mpq;
 
 namespace MSUIClient.Formats;
@@ -209,6 +210,36 @@ public sealed class MpqMount : IDisposable
             return data is null ? null : (data, selected.Name);
         }
         finally { _lock.ExitReadLock(); }
+    }
+
+    /// <summary>
+    /// Union the mounted archives' authored listfiles. The vanilla macro-icon chooser enumerates
+    /// actual Interface\Icons files rather than trusting SpellIcon.dbc, whose table contains
+    /// entries with no corresponding art. Names are returned once, case-insensitively; consumers
+    /// that need reference ordering apply their own sort after filtering.
+    /// </summary>
+    public IReadOnlyList<string> ListedFiles()
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach ((_, MpqArchive archive) in _archives)
+            {
+                byte[]? bytes;
+                try { bytes = archive.ReadFile("(listfile)"); }
+                catch { continue; }
+                if (bytes is null || bytes.Length == 0) continue;
+                foreach (string line in Encoding.UTF8.GetString(bytes)
+                             .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    if (line.Length > 0) names.Add(line);
+            }
+            return names.ToArray();
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
     }
 
     private readonly record struct PatchName(string Locale, int? Number);

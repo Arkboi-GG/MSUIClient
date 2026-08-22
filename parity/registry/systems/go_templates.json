@@ -7,17 +7,21 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/go_templates.rs",
-      "fileSha256": "f37e93c10ed3037ed0377f8624f86c28e76547577e0db794e92733f75f184035",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "8070d6f86e5f1eb3adfa8a8a491f0253341c5b1ccfab2e58770d1152554417ae",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.GameObjects.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.GameObjects.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.GameObjectRender.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.GameTooltip.WorldGameObject.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.WorldCursor.cs",
+    "MSUIClient/Engine/UI/WorldCursorUiLaw.cs",
     "MSUIClient/Formats/LockCatalog.cs",
     "MSUIClient/Net/WorldSession.cs"
   ],
   "status": "partial",
-  "summary": "MSUI mirrors the ask-once GameObject template cache faithfully: RequireGameObjectTemplate dedupes per entry with a pending set, ApplyGameObjectQuery decodes the 5875 response (high-bit miss cached), and the LockId property reproduces Benilla's exact type->data[] slot map (DOOR/BUTTON slot 1, CHEST family slot 0, FISHINGHOLE slot 4). Lock.dbc is loaded and drives the use-vs-cast routing: UseGameObject casts a known OPEN_LOCK spell (effect 33 matched against the lock's skill lock-types) or sends CMSG_GAMEOBJ_USE, with the mailbox local-open exception. Tracked-resource matching (PLAYER_TRACK_RESOURCES vs lock type) is live for gathering nodes. The consumers Benilla feeds beyond that are absent.",
+  "summary": "MSUI mirrors the ask-once GameObject template cache, exact type-to-lock slot mapping and Lock.dbc-driven use/cast routing. Template names and GENERIC data[1] now feed shared world hover, and the first cursor lock type selects PickLock/GatherHerbs/Mine with exact inability rules. Tracked-resource matching is live; MO_TRANSPORT timetable consumption remains open.",
   "openItems": [
     {
       "id": "item-triage-5d2d8a28",
@@ -25,7 +29,8 @@
       "text": "GO template name/highlight never feeds a world hover: no GameObject mouseover tooltip and no GENERIC (type 5) data[1] highlight-eligibility gate, since GameObjects are not hover-pickable at all",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: Dynamic GameObjects own a shared world tooltip from their queried template name, and GENERIC type 5 objects are only pick/highlight eligible when template data[1] opts in."
     },
     {
       "id": "item-triage-af124be9",
@@ -33,7 +38,8 @@
       "text": "LockType.dbc cursor-stem chain (PickLock/GatherHerbs/Mine cursor over lockable nodes) has no counterpart - there is no contextual world cursor for GameObjects",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: WorldCursorUiLaw consumes LockCatalog's first cursor lock type and selects PickLock, GatherHerbs or Mine with Benilla's lock/range inability semantics."
     },
     {
       "id": "item-triage-b9b0980f",
@@ -47,6 +53,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T03:06:43.5083010Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

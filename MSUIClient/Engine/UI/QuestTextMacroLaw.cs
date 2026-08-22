@@ -12,11 +12,20 @@ public static class QuestTextMacroLaw
 {
     public readonly record struct Subject(string Name, string Race, string Class, byte Gender);
 
+    public readonly record struct Expansion(string Text, bool Clean);
+
     public static string Expand(string text, Subject? subject,
+        IReadOnlyDictionary<uint, uint>? worldStates = null) =>
+        ExpandChecked(text, subject, worldStates).Text;
+
+    /// <summary>Expand text and retain the reference driver's success bit. Chat uses the bit to
+    /// defer or drop an unresolved server-authored macro rather than showing a literal '$'.</summary>
+    public static Expansion ExpandChecked(string text, Subject? subject,
         IReadOnlyDictionary<uint, uint>? worldStates = null)
     {
-        if (string.IsNullOrEmpty(text)) return text;
+        if (string.IsNullOrEmpty(text)) return new Expansion(text, true);
         var output = new StringBuilder(text.Length);
+        bool clean = true;
         int i = 0;
         while (i < text.Length)
         {
@@ -105,9 +114,10 @@ public static class QuestTextMacroLaw
                 // is restored and the token letter is copied by the ordinary path next.
                 output.Append('$');
                 i = token;
+                clean = false;
             }
         }
-        return output.ToString();
+        return new Expansion(output.ToString(), clean);
     }
 
     private static ReadOnlySpan<char> TrimSpaces(ReadOnlySpan<char> value)

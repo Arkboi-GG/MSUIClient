@@ -15,6 +15,7 @@ public sealed partial class GameLoop
     private SpellCatalog? _spellCatalog;
     private EnchantCatalog? _enchantCatalog;
     private SpellVisualCatalog? _spellVisualCatalog;
+    private ShapeshiftFormCatalog? _shapeshiftForms;
     private GameplayArt? _gameplayArt;
     private readonly bool[] _actionKeyWasDown = new bool[12];
     private readonly bool[] _multiActionKeyWasDown = new bool[24];
@@ -25,6 +26,7 @@ public sealed partial class GameLoop
     private ActionSlot? _actionCursor;
     private bool _actionCursorChangedThisFrame;
     private bool _mainMenuMicroPressedThroughModal;
+    private readonly bool[] _microBindingWasDown = new bool[3];
     private Vector2 _actionPressPosition;
     private PreparedSharedSpellTooltip? _hoveredActionSpellTooltip;
     private int _hoveredActionSlot = -1;
@@ -46,6 +48,7 @@ public sealed partial class GameLoop
             _spellCatalog = SpellCatalog.Load(_mpq);
             _enchantCatalog = EnchantCatalog.Load(_mpq);
             _spellVisualCatalog = SpellVisualCatalog.Load(_mpq);
+            _shapeshiftForms = ShapeshiftFormCatalog.Load(_mpq);
             _gameplayArt = new GameplayArt(gl, _mpq);
             // These immutable catalogs are needed by the first WMO-interior
             // minimap frame. Pay their MPQ read/parse cost here behind startup
@@ -95,6 +98,24 @@ public sealed partial class GameLoop
                     UseAction(MultiActionBarUiLaw.WireSlot(bar, i));
                 _multiActionKeyWasDown[stateIndex] = down;
             }
+        }
+        UpdateMicroMenuBindingInput(typing);
+    }
+
+    private void UpdateMicroMenuBindingInput(bool typing)
+    {
+        (GameBinding Binding, MicroMenuButtonId Button)[] bindings =
+        [
+            (GameBinding.OpenTalents, MicroMenuButtonId.Talents),
+            (GameBinding.OpenQuestLog, MicroMenuButtonId.QuestLog),
+            (GameBinding.OpenSocial, MicroMenuButtonId.Social),
+        ];
+        for (int i = 0; i < bindings.Length; i++)
+        {
+            bool down = BindingDown(bindings[i].Binding);
+            if (down && !_microBindingWasDown[i] && !typing && _net is { IsInWorld: true })
+                ActivateMicroMenuButton(bindings[i].Button);
+            _microBindingWasDown[i] = down;
         }
     }
 
@@ -671,7 +692,8 @@ public sealed partial class GameLoop
                 // Hotkey: red (1.0,0.1,0.1) while the selection is out of range, grey otherwise.
                 uint hotkeyColor = verdict.Range == ButtonRange.OutOfRange
                     ? 0xff1a1affu : 0xff999999u;
-                DrawActionText(dl, buttonMin, FriendlyKey(BoundKey(ActionBinding(i))), scale, hotkeyColor);
+                DrawActionText(dl, buttonMin,
+                    FriendlyHotkey(BoundKeys(ActionBinding(i)).Primary), scale, hotkeyColor);
 
                 if (verdict.IsItem && verdict.StackCount > 0)
                     DrawActionCount(dl, buttonMax, verdict.StackCount, scale);
@@ -687,7 +709,8 @@ public sealed partial class GameLoop
                     verdict.CarriedGrid
                         ? @"Interface\Buttons\UI-Quickslot"
                         : @"Interface\Buttons\UI-Quickslot2", scale, emptySlot: true);
-                DrawActionText(dl, buttonMin, FriendlyKey(BoundKey(ActionBinding(i))), scale, 0xff999999);
+                DrawActionText(dl, buttonMin,
+                    FriendlyHotkey(BoundKeys(ActionBinding(i)).Primary), scale, 0xff999999);
             }
         }
 
@@ -1054,7 +1077,8 @@ public sealed partial class GameLoop
                         "item-action-not-equipped");
                 GameBinding? binding = bindingBar is { } hotkeyBar
                     ? MultiActionBinding(hotkeyBar, i) : null;
-                string hotkey = binding is { } command ? FriendlyKey(BoundKey(command)) ?? "" : "";
+                string hotkey = binding is { } command
+                    ? FriendlyHotkey(BoundKeys(command).Primary) : "";
                 if (hotkey.Length == 0 && verdict.Range == ButtonRange.OutOfRange) hotkey = "·";
                 uint hotkeyColor = verdict.Range == ButtonRange.OutOfRange
                     ? 0xff1a1affu : 0xff999999u;
@@ -1314,22 +1338,14 @@ public sealed partial class GameLoop
         if (!ImGui.Begin("##micro-menu", flags)) { ImGui.End(); return; }
 
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
-        (string Art, string Label, bool Enabled, bool Pushed)[] buttons =
-        [
-            ("Character", "Character Info (C)", true, _characterOpen),
-            ("Spellbook", "Spellbook & Abilities (P)", true, _spellbookOpen),
-            ("Talents", "Talents", TalentsUnlocked(), _talentOpen),
-            ("Quest", "Quest Log", true, _questLogOpen),
-            ("Socials", "Social", true, _socialOpen),
-            ("World", "World Map", true, _worldMapOpen),
-            ("MainMenu", "Game Menu (Esc)", true, _settingsOpen),
-            ("Help", "Help Request", true, _helpOpen),
-        ];
+        uint playerLevel = _entities.TryGet(ControlledGuid, out WorldEntity player)
+            ? player.Level : 0;
+        MicroMenuButtonSpec[] buttons = [.. MicroMenuUiLaw.VisibleButtons(playerLevel)];
 
         for (int i = 0; i < buttons.Length; i++)
         {
             var button = buttons[i];
-            Vector2 min = windowMin + new Vector2(26f * i, 0f) * scale;
+            Vector2 min = windowMin + new Vector2(MicroMenuUiLaw.ButtonX(i), 0f) * scale;
             Vector2 max = min + new Vector2(29f, 58f) * scale;
             CollectGameplayLayout($"micro-{button.Art.ToLowerInvariant()}",
                 552f + 26f * i, 710f, 29f, 58f, min, max - min);
@@ -1337,27 +1353,28 @@ public sealed partial class GameLoop
             bool held = ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
                 mouse.X >= min.X && mouse.X <= max.X &&
                 mouse.Y >= min.Y + 18f * scale && mouse.Y <= max.Y;
-            bool pushed = button.Pushed || held;
-            string state = !button.Enabled ? "Disabled" : pushed ? "Down" : "Up";
-            string path = i == 0
+            bool pushed = MicroMenuButtonPushed(button.Id) || held;
+            string state = pushed ? "Down" : "Up";
+            string path = button.Id == MicroMenuButtonId.Character
                 ? $@"Interface\Buttons\UI-MicroButtonCharacter-{state}"
                 : $@"Interface\Buttons\UI-MicroButton-{button.Art}-{state}";
             uint texture = _gameplayArt.Handle(path);
             if (texture != 0) dl.AddImage((nint)texture, min, max);
             // MicroMenu.xml puts MicroButtonPortrait in OVERLAY, above the button state art.
-            if (i == 0) DrawCharacterMicroPortrait(dl, min, scale, pushed);
+            if (button.Id == MicroMenuButtonId.Character)
+                DrawCharacterMicroPortrait(dl, min, scale, pushed);
 
             // The transparent top 18 pixels are authored decoration, not part of the hit rect.
             Vector2 hitMin = min + new Vector2(0f, 18f) * scale;
             Vector2 hitMax = max;
             ImGui.SetCursorScreenPos(hitMin);
-            bool clicked = ImGui.InvisibleButton($"##micro-{i}", hitMax - hitMin) && button.Enabled;
+            bool clicked = ImGui.InvisibleButton($"##micro-{button.Id}", hitMax - hitMin);
 
             // BeginPopupModal correctly blocks every underlying HUD control, but MainMenuButton's
             // authored contract is a true toggle. Remember only a press that began in its real
             // 29x40 hit rectangle and consume only the matching release; no other micro button is
             // allowed to click through the modal.
-            if (i == 6 && _settingsOpen)
+            if (button.Id == MicroMenuButtonId.MainMenu && _settingsOpen)
             {
                 bool over = mouse.X >= hitMin.X && mouse.X <= hitMax.X &&
                             mouse.Y >= hitMin.Y && mouse.Y <= hitMax.Y;
@@ -1369,62 +1386,96 @@ public sealed partial class GameLoop
                     _mainMenuMicroPressedThroughModal = false;
                 }
             }
-            else if (i == 6 && ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+            else if (button.Id == MicroMenuButtonId.MainMenu &&
+                     ImGui.IsMouseReleased(ImGuiMouseButton.Left))
                 _mainMenuMicroPressedThroughModal = false;
 
             if (clicked)
             {
-                if (i != 6 && !GameMenuUiLaw.PlayerPanelMayOpen(_settingsOpen)) continue;
-                switch (i)
-                {
-                    case 0:
-                        ToggleCharacterPageThroughUiPanel();
-                        break;
-                    case 1:
-                        ToggleSpellbookThroughUiPanel();
-                        break;
-                    case 2:
-                        OpenTalentPanel();
-                        break;
-                    case 3:
-                        _questLogOpen = !_questLogOpen;
-                        if (_questLogOpen) CloseQuestNpcFrame(playSound: true);
-                        break;
-                    case 4:
-                        if (_socialOpen) _socialOpen = false; else OpenSocial();
-                        break;
-                    case 5:
-                        ToggleWorldMap();
-                        break;
-                    case 6:
-                        ToggleSettingsFromMicroButton();
-                        break;
-                    case 7:
-                        if (_helpOpen) _helpOpen = false; else OpenHelp();
-                        break;
-                }
+                if (button.Id != MicroMenuButtonId.MainMenu &&
+                    !GameMenuUiLaw.PlayerPanelMayOpen(_settingsOpen)) continue;
+                ActivateMicroMenuButton(button.Id);
             }
             if (ImGui.IsItemHovered())
             {
                 uint highlight = _gameplayArt.AdditiveHandle(@"Interface\Buttons\UI-MicroButton-Hilight");
                 if (highlight != 0) dl.AddImage((nint)highlight, min, max);
-                GameTooltipOwnerKey tooltipOwner = new("micro-button", (ulong)(i + 1));
-                string tooltipLabel = button.Label;
-                bool tooltipEnabled = button.Enabled;
-                // The Talents button is the only conditionally-disabled micro button, and
-                // 1.12 names the gate (UnitLevel < 10) rather than a generic message.
-                string? tooltipReason = tooltipEnabled ? null
-                    : i == 2 ? $"Available at Level {TalentUnlockLevel}" : "Not available yet";
+                GameTooltipOwnerKey tooltipOwner = new("micro-button", (ulong)button.Id + 1);
+                string tooltipLabel = MicroMenuUiLaw.TooltipTitle(button.Label,
+                    MicroMenuBindingText(button.Id));
+                string newbieText = button.NewbieText;
                 OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
                 {
                     ImGui.BeginTooltip();
                     ImGui.TextUnformatted(tooltipLabel);
-                    if (tooltipReason is not null) ImGui.TextDisabled(tooltipReason);
+                    ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + 300f * scale);
+                    ImGui.TextWrapped(newbieText);
+                    ImGui.PopTextWrapPos();
                     ImGui.EndTooltip();
                 });
             }
         }
         ImGui.End();
+    }
+
+    private bool MicroMenuButtonPushed(MicroMenuButtonId button) => button switch
+    {
+        MicroMenuButtonId.Character => _characterOpen,
+        MicroMenuButtonId.Spellbook => _spellbookOpen,
+        MicroMenuButtonId.Talents => _talentOpen,
+        MicroMenuButtonId.QuestLog => _questLogOpen,
+        MicroMenuButtonId.Social => _socialOpen,
+        MicroMenuButtonId.WorldMap => _worldMapOpen,
+        MicroMenuButtonId.MainMenu => _settingsOpen,
+        MicroMenuButtonId.Help => _helpOpen,
+        _ => false,
+    };
+
+    private string? MicroMenuBindingText(MicroMenuButtonId button)
+    {
+        GameBinding? binding = button switch
+        {
+            MicroMenuButtonId.Character => GameBinding.OpenCharacter,
+            MicroMenuButtonId.Spellbook => GameBinding.OpenSpellbook,
+            MicroMenuButtonId.Talents => GameBinding.OpenTalents,
+            MicroMenuButtonId.QuestLog => GameBinding.OpenQuestLog,
+            MicroMenuButtonId.Social => GameBinding.OpenSocial,
+            MicroMenuButtonId.WorldMap => GameBinding.OpenWorldMap,
+            _ => null,
+        };
+        return binding is { } action ? FriendlyHotkey(BoundKeys(action).Primary) : null;
+    }
+
+    private void ActivateMicroMenuButton(MicroMenuButtonId button)
+    {
+        switch (button)
+        {
+            case MicroMenuButtonId.Character:
+                ToggleCharacterPageThroughUiPanel();
+                break;
+            case MicroMenuButtonId.Spellbook:
+                ToggleSpellbookThroughUiPanel();
+                break;
+            case MicroMenuButtonId.Talents:
+                if (_talentOpen) _talentOpen = false; else OpenTalentPanel();
+                break;
+            case MicroMenuButtonId.QuestLog:
+                _questLogOpen = !_questLogOpen;
+                if (_questLogOpen) CloseQuestNpcFrame(playSound: true);
+                break;
+            case MicroMenuButtonId.Social:
+                if (_socialOpen) _socialOpen = false; else OpenSocial();
+                break;
+            case MicroMenuButtonId.WorldMap:
+                ToggleWorldMap();
+                break;
+            case MicroMenuButtonId.MainMenu:
+                ToggleSettingsFromMicroButton();
+                break;
+            case MicroMenuButtonId.Help:
+                if (_helpOpen) _helpOpen = false; else OpenHelp();
+                break;
+        }
     }
 
     private void DrawCharacterMicroPortrait(ImDrawListPtr dl, Vector2 buttonMin,

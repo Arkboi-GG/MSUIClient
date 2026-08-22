@@ -12,28 +12,78 @@
     },
     {
       "path": "crates/benilla-app/src/sound/combat.rs",
-      "fileSha256": "e3224b716bc4e8d17e69bba674a5d2e0cf9155f2784ce714afb26627056acd1e",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "93ae301f0e2cec94ac386da971fee537beb87270514ea822f5c98cd0339b0d51",
+      "snapshotId": "benilla-current-2026-08-22"
     },
     {
       "path": "crates/benilla-app/src/sound/creature.rs",
-      "fileSha256": "97228a42b0452e4345473660e4d34c51851dc6a742b233caa80ee6b3246c301e",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "c36b480da484f479c610fd5347fc9a66416cb1b1822dcc4a32d9c7ddd60045e5",
+      "snapshotId": "benilla-current-2026-08-22"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/env_damage.rs",
+      "fileSha256": "5595c9c9f1b622afee069bb5b23b42720cdd730d16a6c7316811023fcd3f6b16",
+      "snapshotId": "benilla-current-2026-08-22"
+    },
+    {
+      "path": "crates/benilla-app/src/player.rs",
+      "fileSha256": "9b0996bade22ba875bd3b5b07add112bb7257af280ff08645f449452320925ea",
+      "snapshotId": "benilla-current-2026-08-22"
     },
     {
       "path": "crates/benilla-app/src/sound/emote.rs",
-      "fileSha256": "dcbf7902601d6dbe85254e292561b9a7b5a94866c1519d6b194230fd876cc339",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "ef3bcbd0a44cdf84b9a17942718e944e5e1acf76fa55c7718665060c9f84794d",
+      "snapshotId": "benilla-current-2026-08-22"
+    },
+    {
+      "path": "crates/benilla-formats/src/emotes.rs",
+      "fileSha256": "56ff7973227ae43f74e27e392206d81cfb1f48174d8547c84ee53b5d6d4f39ba",
+      "snapshotId": "benilla-current-2026-08-22"
     },
     {
       "path": "crates/benilla-app/src/sound/footsteps.rs",
-      "fileSha256": "4bb1afa604f961b71f10a4c064d401ca98b51d7ee76f10fbb8d0a6df18a6b85e",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "c5f0967c7372c0942c0498d6437f154c8ac1fa7a8fd5251aaf1cdab8c962b987",
+      "snapshotId": "benilla-current-2026-08-22"
+    },
+    {
+      "path": "crates/benilla-formats/src/footsteps.rs",
+      "fileSha256": "a646f88b0798c386c16b4ada78ff61670e43817aa1f42e9fdd241e6e0e424c8f",
+      "snapshotId": "benilla-current-2026-08-22"
+    },
+    {
+      "path": "crates/benilla-formats/src/creature_sound.rs",
+      "fileSha256": "b115f53b9229f6ff8ba68bde3720494918e7b5ba68ae31fe9a63ea690b6941e4",
+      "snapshotId": "benilla-current-2026-08-22"
+    },
+    {
+      "path": "crates/benilla-formats/src/creatures.rs",
+      "fileSha256": "e5cd4421030e4cc58eb849f62a8cd578fb4f1ead3abe554804103eb438bca4e8",
+      "snapshotId": "benilla-current-2026-08-22"
+    },
+    {
+      "path": "crates/benilla-formats/src/weapon_impact.rs",
+      "fileSha256": "8b7710e042f2a5770146799146afe80644cbd922a3ae39c452401c4a78e74905",
+      "snapshotId": "benilla-current-2026-08-22"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/wmo/group.rs",
+      "fileSha256": "fb4f99384d0ec4cb6389a64f4e4f215d678d556d8fb1019c53a3e8fc176462f5",
+      "snapshotId": "benilla-current-2026-08-22"
+    },
+    {
+      "path": "crates/benilla-world/src/surface.rs",
+      "fileSha256": "688296af6f1a9e73c3313680850ea7ffd9923f06c799b98487541ec7784f3fe4",
+      "snapshotId": "benilla-current-2026-08-22"
     },
     {
       "path": "crates/benilla-app/src/sound/gameobject.rs",
-      "fileSha256": "d139eb5248c69ff64be619ab7454022bc0f5bb8a4af3c26f5b8e02fe3a79efaa",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "5936142a2a9025b3c17cc30811d26b1573ecf9c3398b1ad056eab4b1502e995e",
+      "snapshotId": "benilla-current-2026-08-22"
+    },
+    {
+      "path": "crates/benilla-formats/src/gameobjects.rs",
+      "fileSha256": "3b72a0f8706f74bb3f256a4519c6000cf676b517d06b48b8b249a2923e5ec742",
+      "snapshotId": "benilla-current-2026-08-22"
     },
     {
       "path": "crates/benilla-app/src/sound/glue.rs",
@@ -42,8 +92,13 @@
     },
     {
       "path": "crates/benilla-app/src/sound/greeting.rs",
-      "fileSha256": "04073f23757e4009454393f3506055d3ab80a8e7987f65ddc3baf45cc7cb4b0f",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "2e0464669800824b73a9de62c7df45d66f76cdbc9cc81d76ee0509fcd85850b7",
+      "snapshotId": "benilla-current-2026-08-22"
+    },
+    {
+      "path": "crates/benilla-formats/src/npc_greeting.rs",
+      "fileSha256": "9b0e697ad78d6cb49a33602442f384b539d43aea44a3c30ff9aaa1c294728590",
+      "snapshotId": "benilla-current-2026-08-22"
     },
     {
       "path": "crates/benilla-app/src/sound/interior.rs",
@@ -82,13 +137,13 @@
     },
     {
       "path": "crates/benilla-app/src/sound/money.rs",
-      "fileSha256": "e7d8a680c04b093f8f0fe7089b09c604f53ddd596c107c3c3a1c86fc86b77a3f",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "a4603a5ac1aa0a1417b0989b175d91aec8a43cced17fa3edf11d4475a5448f4b",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/sound/mount.rs",
-      "fileSha256": "6e136e2e4f22568beb2c51754ea9c2a4216188c09bfca000f40ddc19ebdd0b38",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "c56e258e5de82067971a200f79a8e580a263dc830c03ab631fc74db764803021",
+      "snapshotId": "benilla-current-2026-08-22"
     },
     {
       "path": "crates/benilla-app/src/sound/reverb.rs",
@@ -97,8 +152,13 @@
     },
     {
       "path": "crates/benilla-app/src/sound/sheathe.rs",
-      "fileSha256": "88d0024a349387adb212f08ed4f26bc142f0c477f5b14e767d22e7a11db8d32e",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "f0a315574d67582b6b601458afe768c699f9f0fb379c437896e37c461cf308fe",
+      "snapshotId": "benilla-current-2026-08-22"
+    },
+    {
+      "path": "crates/benilla-formats/src/sheathe.rs",
+      "fileSha256": "c8652ae74ceeed1f84e6b2708ecfa46626810c111356c6adc0520a0bcbec11b0",
+      "snapshotId": "benilla-current-2026-08-22"
     },
     {
       "path": "crates/benilla-app/src/sound/spell.rs",
@@ -107,8 +167,8 @@
     },
     {
       "path": "crates/benilla-app/src/sound/ui.rs",
-      "fileSha256": "d5136623660a9e79b72f7bac25195ec7fd38237a4d0e0a8c9280fc644216adfc",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "3806d2b957cc898bbfd920857c06bc11a586aff4c38954c8476447d7f1cb590c",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/sound/water.rs",
@@ -117,23 +177,54 @@
     },
     {
       "path": "crates/benilla-app/src/sound/weather.rs",
-      "fileSha256": "901c9baca4a97482c429c1ec6b508d40262ea99ac340e166a74cf5b5c5a64ea0",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "0121f97ba00ad147000b15a6dd7bedfbcfaa300cdd076ac060de9639c4bb0d00",
+      "snapshotId": "benilla-current-2026-08-22"
     },
     {
       "path": "crates/benilla-app/src/sound/zone.rs",
-      "fileSha256": "99ec2154f444a6815d780a921199a72a4df244ec7793c7d0d861827eab5e0226",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "c2956d1059a6abd725e0550b0cd0b4b30ba1714597796cae633d218244c4ffd0",
+      "snapshotId": "benilla-current-2026-08-22"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/World/Spells/SpellSoundSystem.cs",
     "MSUIClient/Formats/SoundEntriesCatalog.cs",
-    "MSUIClient/Program.Inventory.cs",
-    "MSUIClient/Program.Casting.cs"
+    "MSUIClient/Formats/EmoteCatalog.cs",
+    "MSUIClient/Formats/ItemGroupSoundsCatalog.cs",
+    "MSUIClient/Engine/UI/AcquisitionSoundLaw.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Emotes.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Inventory.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Loot.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Casting.cs",
+    "MSUIClient/Net/ServerSoundPackets.cs",
+    "MSUIClient/Net/WeatherPackets.cs",
+    "MSUIClient/Formats/SheatheSoundCatalog.cs",
+    "MSUIClient/Formats/EmoteTextSoundCatalog.cs",
+    "MSUIClient/Formats/NpcGreetingCatalog.cs",
+    "MSUIClient/Formats/GameObjectSoundCatalog.cs",
+    "MSUIClient/Formats/FootstepCatalog.cs",
+    "MSUIClient/Formats/CreatureVoiceCatalog.cs",
+    "MSUIClient/Formats/WeaponImpactCatalog.cs",
+    "MSUIClient/Net/NpcGreetingLaw.cs",
+    "MSUIClient/Net/GameObjectSoundLaw.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Sheath.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Sound.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.NpcGreetings.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.GameObjectSounds.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Footsteps.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.CreatureVoices.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.MeleeSounds.cs",
+    "MSUIClient/Net/MeleeSoundLaw.cs",
+    "MSUIClient/World/Units/FootstepAnimationLaw.cs",
+    "MSUIClient/World/Units/CreatureAnimationSoundLaw.cs",
+    "MSUIClient/World/Units/HardLandingSoundLaw.cs",
+    "MSUIClient/World/TerrainRenderer.cs",
+    "MSUIClient/World/Wmo/WmoRenderer.cs",
+    "MSUIClient/World/Doodads/DoodadRenderer.cs",
+    "MSUIClient/World/Sound/WorldSoundscape.cs"
   ],
   "status": "partial",
-  "summary": "MSUI has a real SoundEntries.dbc-driven audio path (weighted variant selection with no-immediate-repeat, per-entry volume/distance policy, loops and holds, off-thread MCI playback) covering spell kit sounds, missile audio, and a broad set of UI panel cues routed through PlayUiSound. Everything else in Benilla's sound surface - the ambient world soundscape and all server-driven sound opcodes - is absent.",
+  "summary": "MSUI has a shared SoundEntries.dbc-driven mixer with weighted variants, no-immediate-repeat, positional gain, loops/holds, zone/weather music and ambience, spell/missile audio, broad UI/acquisition cues, server-scripted sound, AI-reaction, death, authored fidget/stand/wing, alive-only mount-preferred ambient body loops, melee exertion/injury, client-predicted controlled-unit hard-landing injury, and Emotes/EventSound voices, race/sex-specific SMSG_TEXT_EMOTE voices, exact NPC selection/interaction greeting vocals, GameObject state/event-slot emitters, data-driven self/observed/mount footsteps, authored-timed weapon/natural impacts and defense clangs, the fixed mounted-to-unmounted sound, and material-correct ceremonial weapon draw/stow sounds. Liquid/reverb and unpinned stun/jump vocals remain; observed-unit hard landings depend on the separately tracked inbound movement-relay gap.",
   "openItems": [
     {
       "id": "item-triage-0dfa4962",
@@ -141,7 +232,8 @@
       "text": "No zone music or zone/interior ambience (Benilla sound/zone.rs, interior.rs): entering a zone plays nothing; no music/ambience category volumes (Sound Options button is disabled with 'There is no sound subsystem yet' - Program.Settings.cs:636), so the reference CVar defaults (music 0.4, ambience 0.6) have no counterpart.",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-14: WorldSoundscape resolves AreaTable/WMO audio through ZoneMusic, ZoneIntroMusicTable, and SoundAmbience; it implements the reference day/night phase, 6-second cold start, 4-second music fade, 5-second ambience crossfade, underwater instant swap, and live music/ambience volume categories."
     },
     {
       "id": "item-triage-fddc5856",
@@ -149,7 +241,8 @@
       "text": "No footstep audio (sound/footsteps.rs) for self or observed units.",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: self, observed units, and mounts now fire only authored $FSD crossings (never per-foot decal tags), resolve display/model-fallback CreatureSoundData footstep class, and join the exact GroundEffectTexture/TerrainType/FootstepTerrainLookup chain. Indoor WMO columns use accepted render faces (MOPY & 0x88 == 0) and MOMT GroundType, with silent ownership instead of falling through to outdoor ADT; outdoor wading selects splash down to 0.75 times the display's CreatureModelData collision height and deeper water is silent. Hover, root-unit CREEP/stealth, and player-ghost states suppress playback. Focused Footstep clinical verification and the client build pass; WMO-liquid point depth remains part of the broader liquid query gap."
     },
     {
       "id": "item-triage-1b82246b",
@@ -157,23 +250,26 @@
       "text": "No weather audio and no SMSG_WEATHER handling at all (sound/weather.rs; opcode absent from Program.Net.cs dispatch).",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: SMSG_WEATHER strict-decodes u32 type, f32 grade, u32 SoundEntries kit, and u8 instant. The retained sound kit replaces outdoor zone ambience, is ignored indoors, yields to underwater audio, and crossfades through the existing five-second ambience transport. Grade remains visual-only."
     },
     {
       "id": "item-triage-e3bbeb23",
       "kind": "gap",
-      "text": "No melee combat impact sounds and no creature vocalizations - aggro/wound/death cries (sound/combat.rs, creature.rs, anim_events.rs).",
+      "text": "CreatureSoundData hard-landing injury remains absent; stun/jump start/end columns have no pinned trigger in current Benilla. AI_REACTION, live death/Feign edges, $FD1..4/$FDX/$WNG/$WGG animation vocals, alive-only mount-preferred ambient body loops with out-of-range re-arm, melee $CSS/$CAH/$AH0..3 miss/exertion/contact timing, weapon/natural impacts, defense clangs, and injury vocals are implemented.",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: the controlled movement path now latches launch Z on grounded-to-airborne, retains it through the arc, and on landing plays the display-resolved CreatureSoundData normal injury kit only for finite descent strictly greater than 13 yards. The event is immediate client prediction, not SMSG_ENVIRONMENTALDAMAGELOG-driven; flying, NEW_WORLD, teleports/control reseating, and mover changes clear the arc. Focused clinical verification covers the strict boundary and arc edges. Benilla also predicts observed-unit landings from inbound MSG_MOVE relays; MSUI's existing separately registered missing-relay-dispatch gap prevents that broader path without duplicating movement authority here. Stun/jump columns remain intentionally unassigned because current Benilla has no pinned trigger for them."
     },
     {
       "id": "item-triage-6ad823bd",
       "kind": "gap",
-      "text": "No emote sounds and no CMSG/SMSG_TEXT_EMOTE sound path (sound/emote.rs; SMSG_TEXT_EMOTE is declared in Opcodes.cs but never dispatched).",
+      "text": "Emotes.dbc EventSoundID now plays with SMSG_EMOTE one-shots, but the race/sex-specific EmotesTextSound voice selected from SMSG_TEXT_EMOTE remains absent.",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: EmotesTextSound.dbc now maps the received text-emote id plus the performer's UNIT_BYTES_0 race/sex descriptor to a positional SFX kit. The server echo covers the controlled player through the same receive path; absent descriptors and voiceless rows remain silent, and loading-cover events are dropped."
     },
     {
       "id": "item-triage-98ea4353",
@@ -181,7 +277,8 @@
       "text": "No money/coin sounds on loot or coinage change (sound/money.rs) and no item-push pickup cue (SMSG_ITEM_PUSH_RESULT is handled for bags/loot but plays nothing).",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: current Benilla corrected the old triage premise: SMSG_ITEM_PUSH_RESULT is intentionally silent; the per-item pickup cue fires optimistically at the loot-row click. MSUI now matches that exact call site for single, first, and take-all paths via ItemDisplayInfo.groupSoundIndex -> ItemGroupSounds pickup kit, and its PLAYER_FIELD_COINAGE watcher plays LOOTWINDOWCOINSOUND on every post-seed increase or decrease. Focused AcquisitionSound plus LootFrame and InventoryFailure regressions pass."
     },
     {
       "id": "item-triage-f04a43c0",
@@ -189,7 +286,8 @@
       "text": "No mount/dismount audio (sound/mount.rs) and no sheathe/unsheathe weapon sounds (sound/sheathe.rs - MSUI tracks sheath state on the wire but plays no cue).",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: current Benilla refutes the old mount-up premise: attach is silent, while every live mounted-to-unmounted unit plays the fixed positional 'SpiritWolf (DONOTRENAME)' kit and first sight/remount stay silent. Manual Z ceremonies now load SheatheSoundLookups.dbc and play the material-correct draw/stow kit once per occupied melee arm at the delayed hand-swap moment; attack/reactive/remote snaps stay silent."
     },
     {
       "id": "item-triage-09a45dd5",
@@ -205,7 +303,8 @@
       "text": "No GameObject sound emitters (sound/gameobject.rs) and no NPC greeting/farewell voice lines on interaction open/close (sound/greeting.rs).",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: NPC voices now join CreatureDisplayInfo.NPCSoundID to NPCSounds, latch per live creature, follow the exact five-hello/ordered-pissed/wrapping selection sequence, and implement interaction open/swap/close hello-goodbye suppression with despawn stop. GameObjects now silently seed first-seen state, play display Open/Close kits on GO_STATE edges, and fold M2 $GO0..5/$GC0..3 markers into Sound0..9 on the existing dynamic-model timeline, including the fishing-bobber Custom0 event. Both paths are positional SFX and preserve server-event overlap."
     },
     {
       "id": "item-triage-4218e97b",
@@ -221,7 +320,8 @@
       "text": "No exploration fanfare - SMSG_EXPLORATION_EXPERIENCE unhandled (sound/zone.rs ExplorationSounds).",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: ExplorationSoundCatalog joins the controlled player's race to ChrRaces.dbc column 3 and plays that SoundEntries kit on every SMSG_EXPLORATION_EXPERIENCE, independent of area-name resolution and XP amount."
     },
     {
       "id": "item-triage-d74d62d6",
@@ -229,7 +329,8 @@
       "text": "Server-scripted SMSG_PLAY_SOUND and SMSG_PLAY_MUSIC are not handled - scripted world moments stay silent.",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: SMSG_PLAY_SOUND, SMSG_PLAY_MUSIC, and SMSG_PLAY_OBJECT_SOUND now have exact 4/4/12-byte decoders and dispatch. Sound is 2D SFX; object sound is GUID-positioned 3D with flat fallback; music takes the shared slot, ignores a repeat only while the same kit is live, and fades a displaced track for four seconds. Loading-cover pushes are parsed then dropped rather than deferred."
     },
     {
       "id": "item-triage-88c76a39",
@@ -243,6 +344,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T01:30:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

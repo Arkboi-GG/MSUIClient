@@ -7,16 +7,18 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/MicroMenu.xml",
-      "fileSha256": "9c06e7e37e233d0ecc5c3589e739b3f031076bceab6a6bef72814d346a6bfa1a",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "2a4cb1fa10382c623b6c787d649245360789dbe247f1bcbc9529efc452c01a74",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.ActionBars.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/GameMenuUiLaw.cs"
+    "MSUIClient/Engine/UI/MicroMenuUiLaw.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.ActionBars.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Bindings.cs",
+    "tools/interface-wire-check/MicroMenuClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "MSUI's micro menu (Program.ActionBars.cs DrawMicroMenu) matches the reference row: eight 29x58 buttons at the bar's x=552 recess with real UI-MicroButton-* Up/Down art, the character button's live portrait overlay, the 18px top hit-rect inset, shared additive highlight, pushed-state tracking against each panel's open flag, and all eight clicks wired (Character, Spellbook, Talents, Quest Log, Social, World Map, Game Menu incl. the modal click-through law, Help). Benilla still has Help as a no-op, so MSUI is ahead there.",
+  "status": "implemented-unverified",
+  "summary": "MSUI's micro menu uses a dedicated law for the current eight-button order, 29x58 art and 26px chain, level-10 talent visibility/reflow, live binding suffixes, and the exact detailed 1.12 newbie tooltip paragraphs. N/L/O are real rebindable Talent/Quest/Social actions; Character, Spellbook, and World Map likewise resolve their current binding at hover time. Pushed states and all clicks remain live, including MSUI's ahead-of-Benilla Help panel.",
   "openItems": [
     {
       "id": "item-triage-da8a60d5",
@@ -24,7 +26,8 @@
       "text": "Tooltip is a single line - no NEWBIE_TOOLTIP_* second paragraph (1.12 ships detailed tips ON by default)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: MicroMenuUiLaw owns the exact eight NEWBIE_TOOLTIP paragraphs and DrawMicroMenu renders each as the wrapped second tooltip line."
     },
     {
       "id": "item-triage-522cc56a",
@@ -32,7 +35,8 @@
       "text": "Binding-key suffix is hardcoded in the labels ('(C)', '(P)', '(Esc)') instead of resolved live from the binding table, so rebinding does not update the tooltips and most buttons show no key at all",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: Tooltip titles resolve FriendlyKey(BoundKey(...)) at hover time. Talent, Quest Log, and Social gained real N/L/O binding rows and rising-edge input paths; unbound buttons keep the bare label."
     },
     {
       "id": "item-triage-ab2e0aa7",
@@ -40,12 +44,13 @@
       "text": "No talent-button level gating (reference disables/re-labels below level 10)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: Current Benilla hides (rather than merely disables) Talent below level 10. VisibleButtons omits it and the 26px ordinal chain closes Quest Log left; the panel remains gated too."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T01:39:21.3033935Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

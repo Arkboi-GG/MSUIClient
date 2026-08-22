@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Numerics;
 using MSUIClient;
 using MSUIClient.Engine.UI;
 
@@ -16,6 +17,8 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
         new("BenillaCharacterFrame", UiPanelOwnershipLaw.Area.Left);
     private static readonly UiPanelOwnershipLaw.Panel SpellBook =
         new("BenillaSpellBookFrame", UiPanelOwnershipLaw.Area.Left);
+    private static readonly UiPanelOwnershipLaw.Panel Talent =
+        new("BenillaTalentFrame", UiPanelOwnershipLaw.Area.Left, 6);
     private static readonly UiPanelOwnershipLaw.Panel Friends =
         new("BenillaFriendsFrame", UiPanelOwnershipLaw.Area.Left, WhileDead: true);
     private static readonly UiPanelOwnershipLaw.Panel TradeSkill =
@@ -31,6 +34,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
     {
         CheckExactRegistry();
         CheckSingleEdgeAndIdempotence();
+        CheckAuthoredSeatOrigins();
         CheckUnknownLatchAndAllClosedRecovery();
         CheckRefusalAndLegacyInconsistencies();
         CheckHostConfirmedCharacterSpellbookPair();
@@ -61,7 +65,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
             Character,
             new("BenillaInspectFrame", UiPanelOwnershipLaw.Area.Left),
             SpellBook,
-            new("BenillaTalentFrame", UiPanelOwnershipLaw.Area.Left, 6),
+            Talent,
             Friends,
             new("BenillaMacroFrame", UiPanelOwnershipLaw.Area.Left, 5, WhileDead: true),
             TradeSkill,
@@ -77,6 +81,32 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
               actual.SequenceEqual(expected) && actual.Select(panel => panel.Id).Distinct(
                   StringComparer.Ordinal).Count() == 21,
             "UI-panel observer 21-row id/area/pushable/whileDead registry drift");
+    }
+
+    private static void CheckAuthoredSeatOrigins()
+    {
+        UiPanelOwnershipLaw.Seats seats = UiPanelOwnershipLaw.Show(
+            UiPanelOwnershipLaw.Show(UiPanelOwnershipLaw.Seats.Empty, SpellBook).Seats,
+            Talent).Seats;
+        Check(seats == new UiPanelOwnershipLaw.Seats(SpellBook, Talent, null) &&
+              UiPanelOwnershipLaw.TryLogicalSeatOrigin(seats, SpellBook,
+                  out Vector2 spellbookOrigin) && spellbookOrigin == new Vector2(0, 104) &&
+              UiPanelOwnershipLaw.TryLogicalSeatOrigin(seats, Talent,
+                  out Vector2 talentOrigin) && talentOrigin == new Vector2(384, 104),
+            "SpellBookFrame/TalentFrame must consume separate left/center authored seats");
+
+        string root = ClientConfig.FindRepoRoot();
+        string spellbook = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "Program.Spellbook.cs"));
+        string talents = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "Program.Talents.cs"));
+        Check(spellbook.Contains(
+                  "UiPanelFrameOrigin(UiPanelOwnershipRegistry[12], s)",
+                  StringComparison.Ordinal) &&
+              talents.Contains(
+                  "UiPanelFrameOrigin(UiPanelOwnershipRegistry[13], s)",
+                  StringComparison.Ordinal),
+            "SpellBookFrame/TalentFrame rendering bypassed the authored panel-seat law");
     }
 
     private static void CheckSingleEdgeAndIdempotence()
@@ -588,7 +618,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
 
         string[] exactCensus =
         [
-            "IncludeWhen(_gossipMenu is not null || _gossipText is not null, 0);",
+            "IncludeWhen(_gossipMenu is not null || _gossipGreeting is not null, 0);",
             "IncludeWhen(_vendor is not null, 1);",
             "IncludeWhen(_mailOpen, 2);",
             "IncludeWhen(_tradeOpen, 3);",
@@ -647,13 +677,24 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
                       System.Text.RegularExpressions.Regex.Escape(field) + @"\s*=(?!=)")),
             "UI-panel observer adapter writes a host-owned visibility flag or payload");
 
-        string adjacent = "UpdateQuestNpcLifecycle();\n" +
-            "        UpdateVendorLifecycle();\n" +
-            "        ObserveUiPanelOwnership();";
-        Check(program.Replace("\r\n", "\n", StringComparison.Ordinal)
-                  .Contains(adjacent, StringComparison.Ordinal) &&
-              Count(program, "ObserveUiPanelOwnership();") == 1,
-            "UI-panel census is not after the quest/vendor lifecycle passes in normal Update");
+        string normalizedProgram = program.Replace("\r\n", "\n", StringComparison.Ordinal);
+        string[] lifecycleOrder =
+        [
+            "UpdateQuestNpcLifecycle();", "UpdateVendorLifecycle();",
+            "UpdateGossipLifecycle();", "UpdateTrainerLifecycle();",
+            "UpdateTaxiLifecycle();", "UpdateBankLifecycle();",
+            "UpdateNpcGreetingLifecycle();", "ObserveUiPanelOwnership();",
+        ];
+        int previousLifecycle = -1;
+        bool orderedLifecycle = true;
+        foreach (string call in lifecycleOrder)
+        {
+            int currentLifecycle = normalizedProgram.IndexOf(call, StringComparison.Ordinal);
+            orderedLifecycle &= currentLifecycle > previousLifecycle;
+            previousLifecycle = currentLifecycle;
+        }
+        Check(orderedLifecycle && Count(program, "ObserveUiPanelOwnership();") == 1,
+            "UI-panel census is not after the registered NPC lifecycle passes in normal Update");
     }
 
     private static void CheckHostTransitionSourceFence()

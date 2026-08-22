@@ -45,6 +45,23 @@ public static class GameText
             uiScale, color);
     }
 
+    /// <summary>
+    /// Draw centered while multiplying the complete FontString alpha. Unlike a SetTextColor-style
+    /// override this fades both the glyph and its inherited shadow, matching Frame:SetAlpha.
+    /// </summary>
+    public static void DrawCenteredWithAlpha(ImDrawListPtr dl, string fontObject, string text,
+        Vector2 center, float uiScale, float alpha)
+    {
+        FontObjectSpec spec = FontObjectLaw.Get(fontObject);
+        float width = MeasureWidth(fontObject, text, uiScale);
+        int em = GameTextLaw.EmPixels(spec.Height, uiScale);
+        Vector2 position = new(center.X - width * .5f, center.Y - em * .5f);
+        GameTextLaw.Draw(dl, spec.Face, text, spec.Height, uiScale, position,
+            MultiplyAlpha(spec.Color, alpha),
+            spec.ShadowColor is uint shadow ? MultiplyAlpha(shadow, alpha) : null,
+            spec.Outline, snap: true);
+    }
+
     /// <summary>Draw with the text's RIGHT edge at <paramref name="rightEdge"/>.X (justifyH
     /// RIGHT columns - tooltip right cells, money numbers).</summary>
     public static void DrawRightAligned(ImDrawListPtr dl, string fontObject, string text,
@@ -69,6 +86,13 @@ public static class GameText
     /// <summary>The device-pixel em (law 1) - the single-line text height.</summary>
     public static int EmPixels(string fontObject, float uiScale)
         => GameTextLaw.EmPixels(FontObjectLaw.Get(fontObject).Height, uiScale);
+
+    private static uint MultiplyAlpha(uint color, float alpha)
+    {
+        byte source = checked((byte)(color >> 24));
+        byte result = checked((byte)MathF.Round(source * Math.Clamp(alpha, 0f, 1f)));
+        return (color & 0x00ff_ffffu) | ((uint)result << 24);
+    }
 
     /// <summary>
     /// The text top for a FIXED-height FontString box (justifyV MIDDLE default): the box's

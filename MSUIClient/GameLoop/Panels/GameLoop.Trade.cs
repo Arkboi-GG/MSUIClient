@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 
@@ -15,24 +16,45 @@ public sealed partial class GameLoop
     private ulong _tradeInviteGuid;
     private int _tradeMoney;
     private uint _tradePartnerMoney;
+    private uint _tradeMineEnchantSpell;
+    private uint _tradePartnerEnchantSpell;
     private int _tradePlaceSlot = -1;
     private readonly TradeItem?[] _tradeMine = new TradeItem?[7];
     private readonly TradeItem?[] _tradeTheirs = new TradeItem?[7];
 
     private void ApplyTradeStatus(byte[] body)
     {
-        var r = new PacketReader(body); uint status = r.ReadU32();
-        switch (status)
+        TradePackets.Status wire = TradePackets.ParseStatus(body);
+        uint status = wire.Code;
+        string statusPartner = _playerNames.GetValueOrDefault(_tradePartnerGuid, "That player");
+        if (TradeFrameUiLaw.ErrorForStatus(status) is { } statusError)
+            ShowUiError(TradeFrameUiLaw.FormatStatusError(statusError, statusPartner,
+                InventoryGlobalString));
+        if (TradeFrameUiLaw.StatusCloses(status))
+        {
+            ResetTrade();
+        }
+        else switch (status)
         {
             case 1:
-                _tradeInviteGuid = r.ReadU64();
+                ulong initiator = wire.Partner;
+                TradeFrameUiLaw.IncomingRequestAction action = TradeFrameUiLaw.IncomingRequest(
+                    _ignored.Contains(initiator), _tradeOpen || _tradeInviteGuid != 0);
+                if (action == TradeFrameUiLaw.IncomingRequestAction.Ignore)
+                {
+                    _net?.IgnoreTrade();
+                    break;
+                }
+                if (action == TradeFrameUiLaw.IncomingRequestAction.Busy)
+                {
+                    _net?.BusyTrade();
+                    break;
+                }
+                _tradeInviteGuid = initiator;
                 if (!_playerNames.ContainsKey(_tradeInviteGuid)) _net?.NameQuery(_tradeInviteGuid);
                 break;
             case 2:
                 _tradeInviteGuid = 0; _tradeOpen = true; _tradeAccepted = _tradePartnerAccepted = false;
-                break;
-            case 3 or 8 or 9 or 12 or 13:
-                ResetTrade();
                 break;
             case 4: _tradePartnerAccepted = true; break;
             case 7: _tradeAccepted = _tradePartnerAccepted = false; break;
@@ -43,22 +65,28 @@ public sealed partial class GameLoop
 
     private void ApplyTradeExtended(byte[] body)
     {
-        var r = new PacketReader(body); bool partner = r.ReadU8() != 0;
-        uint slots = r.ReadU32(); r.ReadU32(); uint money = r.ReadU32(); r.ReadU32();
+        TradePackets.Extended wire = TradePackets.ParseExtended(body);
+        bool partner = wire.TheirWindow;
         TradeItem?[] target = partner ? _tradeTheirs : _tradeMine;
         Array.Clear(target);
-        for (int i = 0; i < slots && r.Remaining >= 61; i++)
+        for (int i = 0; i < wire.Slots.Length; i++)
         {
-            byte slot = r.ReadU8(); uint entry = r.ReadU32(); r.ReadU32(); uint count = r.ReadU32();
-            r.ReadU32(); r.ReadU64(); r.ReadU32(); r.ReadU64(); r.ReadU32(); r.ReadU32(); r.ReadU32(); r.ReadU32();
-            uint maxDurability = r.ReadU32(); uint durability = r.ReadU32();
-            if (slot < 7 && entry != 0)
+            if (wire.Slots[i] is TradePackets.Item item)
             {
-                target[slot] = new(entry, count, maxDurability, durability);
-                _items?.Require(entry, 0, _net!);
+                target[i] = new(item.Entry, item.Count, item.MaxDurability, item.Durability);
+                _items?.Require(item.Entry, 0, _net!);
             }
         }
-        if (partner) _tradePartnerMoney = money; else _tradeMoney = (int)Math.Min(int.MaxValue, money);
+        if (partner)
+        {
+            _tradePartnerMoney = wire.Gold;
+            _tradePartnerEnchantSpell = wire.EnchantSpellId;
+        }
+        else
+        {
+            _tradeMoney = (int)Math.Min(int.MaxValue, wire.Gold);
+            _tradeMineEnchantSpell = wire.EnchantSpellId;
+        }
         _tradeAccepted = _tradePartnerAccepted = false;
     }
 
@@ -66,6 +94,7 @@ public sealed partial class GameLoop
     {
         _tradeOpen = false; _tradeInviteGuid = 0; _tradePartnerGuid = 0;
         _tradeMoney = 0; _tradePartnerMoney = 0; _tradePlaceSlot = -1;
+        _tradeMineEnchantSpell = _tradePartnerEnchantSpell = 0;
         _tradeAccepted = _tradePartnerAccepted = false; Array.Clear(_tradeMine); Array.Clear(_tradeTheirs);
     }
 
@@ -81,49 +110,147 @@ public sealed partial class GameLoop
     {
         if (_tradeInviteGuid != 0) DrawTradeInvitation();
         if (!_tradeOpen || _gameplayArt is null) return;
-        if (!BeginVanillaWindow("##trade", new Vector2(0, 104), new Vector2(384, 512),
+        if (!BeginVanillaWindow("##trade", TradeFrameUiLaw.FrameOrigin(1f),
+                TradeFrameUiLaw.FrameSize(1f),
                 out ImDrawListPtr dl, out Vector2 origin, out float s)) { ImGui.End(); return; }
+        if (_entities.TryGet(ControlledGuid, out WorldEntity player))
+            DrawUnitPortraitImage(dl, player,
+                origin + TradeFrameUiLaw.PlayerPortrait.Min * s,
+                TradeFrameUiLaw.PlayerPortrait.Width * s, 0, true);
+        if (_entities.TryGet(_tradePartnerGuid, out WorldEntity recipient))
+            DrawUnitPortraitImage(dl, recipient,
+                origin + TradeFrameUiLaw.RecipientPortrait.Min * s,
+                TradeFrameUiLaw.RecipientPortrait.Width * s, 0, false);
         DrawFourPieceShell(dl, origin, s,
             @"Interface\TradeFrame\UI-TradeFrame-TopLeft", @"Interface\TradeFrame\UI-TradeFrame-TopRight",
             @"Interface\TradeFrame\UI-TradeFrame-BotLeft", @"Interface\TradeFrame\UI-TradeFrame-BotRight");
-        DrawCenteredText(dl, origin + new Vector2(192, 18) * s, "Trade", 14f * s, VanillaGold);
         string partner = _playerNames.GetValueOrDefault(_tradePartnerGuid, "Trade Partner");
-        DrawCenteredText(dl, origin + new Vector2(101, 68) * s, _net?.PlayerName ?? "Player", 11f * s, 0xffffffff);
-        DrawCenteredText(dl, origin + new Vector2(279, 68) * s, partner, 11f * s, 0xffffffff);
+        GameText.Draw(dl, "GameFontNormal", _net?.PlayerName ?? "Player",
+            origin + TradeFrameUiLaw.PlayerName.Min * s, s);
+        GameText.Draw(dl, "GameFontNormal", partner,
+            origin + TradeFrameUiLaw.RecipientName.Min * s, s);
+        DrawTradeAcceptHighlight(dl, origin, s, playerSide: true, _tradeAccepted);
+        DrawTradeAcceptHighlight(dl, origin, s, playerSide: false, _tradePartnerAccepted);
+        GameText.Draw(dl, "GameFontHighlightSmall", TradeFrameUiLaw.EnchantLabel,
+            origin + TradeFrameUiLaw.PlayerEnchantLabel * s, s);
+        GameText.Draw(dl, "GameFontHighlightSmall", TradeFrameUiLaw.EnchantLabel,
+            origin + TradeFrameUiLaw.RecipientEnchantLabel * s, s);
         for (int i = 0; i < 7; i++)
         {
-            DrawTradeSlot(dl, origin + new Vector2(42, 91 + i * 43) * s, s, _tradeMine[i], i, true);
-            DrawTradeSlot(dl, origin + new Vector2(220, 91 + i * 43) * s, s, _tradeTheirs[i], i, false);
+            DrawTradeSlot(dl, origin, s, _tradeMine[i], i, true);
+            DrawTradeSlot(dl, origin, s, _tradeTheirs[i], i, false);
         }
-        dl.AddText(ImGui.GetFont(), 10f * s, origin + new Vector2(41, 398) * s, VanillaGold, $"Money: {FormatMoney((uint)Math.Max(0, _tradeMoney))}");
-        dl.AddText(ImGui.GetFont(), 10f * s, origin + new Vector2(219, 398) * s, VanillaGold, $"Money: {FormatMoney(_tradePartnerMoney)}");
+        GameText.Draw(dl, "GameFontHighlightSmall", FormatMoney(_tradePartnerMoney),
+            origin + TradeFrameUiLaw.RecipientMoney * s, s);
         if (VanillaInputInt(dl,"##trade-money",ref _tradeMoney,
-                origin+new Vector2(41,415)*s,new Vector2(120,22),s))
+                origin + TradeFrameUiLaw.PlayerMoneyInput.Min * s,
+                TradeFrameUiLaw.PlayerMoneyInput.Size, s))
         { _tradeMoney = Math.Max(0, _tradeMoney); _net?.SetTradeGold((uint)_tradeMoney); }
         if (VanillaButton(dl, "##trade-accept", _tradeAccepted ? "Accepted" : "Trade",
-                origin + new Vector2(89, 459) * s, new Vector2(80, 22), s, !_tradeAccepted))
+                origin + TradeFrameUiLaw.TradeButton.Min * s,
+                TradeFrameUiLaw.TradeButton.Size, s, !_tradeAccepted))
         { _tradeAccepted = _net?.AcceptTrade() == true; }
-        if (VanillaButton(dl, "##trade-cancel", "Cancel", origin + new Vector2(217, 459) * s,
-                new Vector2(80, 22), s)) { _net?.CancelTrade(); ResetTrade(); }
-        if (_tradePartnerAccepted)
-            DrawCenteredText(dl, origin + new Vector2(279, 443) * s, "Trade accepted", 10f * s, 0xff40ff40);
-        DrawImageButton(dl, "##trade-close", origin + new Vector2(326, 14) * s, new Vector2(32) * s,
+        if (VanillaButton(dl, "##trade-cancel", "Cancel",
+                origin + TradeFrameUiLaw.CancelButton.Min * s,
+                TradeFrameUiLaw.CancelButton.Size, s))
+        {
+            if (TradeFrameUiLaw.CancelClick(_tradeAccepted) ==
+                TradeFrameUiLaw.CancelAction.Unaccept)
+            {
+                if (_net?.UnacceptTrade() == true) _tradeAccepted = false;
+            }
+            else
+            {
+                _net?.CancelTrade();
+                ResetTrade();
+            }
+        }
+        DrawImageButton(dl, "##trade-close", origin + TradeFrameUiLaw.CloseButton.Min * s,
+            TradeFrameUiLaw.CloseButton.Size * s,
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up", @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         if (ImGui.IsItemClicked()) { _net?.CancelTrade(); ResetTrade(); }
         ImGui.End();
     }
 
-    private void DrawTradeSlot(ImDrawListPtr dl, Vector2 min, float s, TradeItem? row, int slot, bool mine)
+    private void DrawTradeAcceptHighlight(ImDrawListPtr dl, Vector2 origin, float s,
+        bool playerSide, bool accepted)
     {
-        uint ring = _gameplayArt?.Handle(@"Interface\Buttons\UI-Quickslot2") ?? 0;
-        if (row is not null && _items?.TryGet(row.Entry, out ItemTemplate? item) == true && item is not null)
+        if (!accepted) return;
+        DrawTradeHighlightSlices(dl, origin, s, playerSide
+            ? TradeFrameUiLaw.PlayerHighlight : TradeFrameUiLaw.RecipientHighlight);
+        DrawTradeHighlightSlices(dl, origin, s, playerSide
+            ? TradeFrameUiLaw.PlayerEnchantHighlight : TradeFrameUiLaw.RecipientEnchantHighlight);
+    }
+
+    private void DrawTradeHighlightSlices(ImDrawListPtr dl, Vector2 origin, float s,
+        TradeFrameUiLaw.LogicalRect logical)
+    {
+        uint art = _gameplayArt?.AdditiveHandle(TradeFrameUiLaw.HighlightPath) ?? 0;
+        if (art == 0) return;
+        Vector2 min = origin + logical.Min * s;
+        Vector2 max = min + logical.Size * s;
+        float cap = 16 * s;
+        dl.AddImage((nint)art, min, new Vector2(max.X, min.Y + cap),
+            Vector2.Zero, new Vector2(.62890625f, .0625f));
+        dl.AddImage((nint)art, new Vector2(min.X, min.Y + cap),
+            new Vector2(max.X, max.Y - cap), new Vector2(0, .0625f),
+            new Vector2(.62890625f, .9375f));
+        dl.AddImage((nint)art, new Vector2(min.X, max.Y - cap), max,
+            new Vector2(0, .9375f), new Vector2(.62890625f, 1));
+    }
+
+    private void DrawTradeSlot(ImDrawListPtr dl, Vector2 origin, float s, TradeItem? row,
+        int slot, bool mine)
+    {
+        TradeFrameUiLaw.LogicalRect button = TradeFrameUiLaw.SlotButton(mine, slot);
+        Vector2 min = origin + button.Min * s;
+        Vector2 max = min + button.Size * s;
+        TradeFrameUiLaw.LogicalRect empty = TradeFrameUiLaw.EmptySlot(mine, slot);
+        DrawArt(dl, TradeFrameUiLaw.EmptySlotPath, origin + empty.Min * s, empty.Size, s);
+        TradeFrameUiLaw.LogicalRect nameFrame = TradeFrameUiLaw.NameFrame(mine, slot);
+        DrawArt(dl, TradeFrameUiLaw.ItemNameFramePath, origin + nameFrame.Min * s,
+            nameFrame.Size, s);
+        ItemTemplate? item = null;
+        if (row is not null && _items?.TryGet(row.Entry, out ItemTemplate? resolved) == true &&
+            resolved is not null)
         {
+            item = resolved;
             uint icon = _gameplayArt?.Handle(item.IconPath) ?? 0;
-            if (icon != 0) dl.AddImage((nint)icon, min, min + new Vector2(37) * s);
+            if (icon != 0) dl.AddImage((nint)icon, min, max);
+            bool enchantSlot = slot == TradeFrameUiLaw.SlotCount - 1;
+            uint enchantSpell = mine ? _tradeMineEnchantSpell : _tradePartnerEnchantSpell;
+            string? enchantName = enchantSlot && enchantSpell != 0 &&
+                _spellCatalog?.TryGet(enchantSpell, out SpellInfo proposed) == true
+                ? proposed.Name : null;
+            TradeFrameUiLaw.SlotText slotText = TradeFrameUiLaw.ItemSlotText(
+                item.Name, enchantSlot, enchantName);
+            GameText.Draw(dl, "GameFontNormalSmall", slotText.Text,
+                origin + TradeFrameUiLaw.NameText(mine, slot) * s, s,
+                slotText.Color);
+            if (row.Count > 1)
+                GameText.DrawRightAligned(dl, "NumberFontNormal", row.Count.ToString(),
+                    max - new Vector2(2, GameText.EmPixels("NumberFontNormal", s) + 2 * s), s);
         }
-        if (ring != 0) dl.AddImage((nint)ring, min - new Vector2(14) * s, min + new Vector2(50) * s);
-        ImGui.SetCursorScreenPos(min); ImGui.InvisibleButton($"##trade-{(mine ? "mine" : "theirs")}-{slot}", new Vector2(37) * s);
+        if (slot == TradeFrameUiLaw.SlotCount - 1)
+        {
+            TradeFrameUiLaw.LogicalRect enchant = TradeFrameUiLaw.EnchantIcon(mine);
+            DrawArt(dl, TradeFrameUiLaw.EnchantIconPath, origin + enchant.Min * s,
+                enchant.Size, s);
+        }
+        ImGui.SetCursorScreenPos(min);
+        ImGui.InvisibleButton($"##trade-{(mine ? "mine" : "theirs")}-{slot}", button.Size * s);
+        bool hovered = ImGui.IsItemHovered();
+        if (hovered)
+        {
+            uint highlight = _gameplayArt?.BrightHighlightHandle(
+                @"Interface\Buttons\ButtonHilight-Square") ?? 0;
+            if (highlight != 0) dl.AddImage((nint)highlight, min, max);
+            if (row is not null && item is not null)
+                OfferPreparedItemTooltip(new($"item:trade-{(mine ? "player" : "target")}",
+                    (ulong)(slot + 1)), PrepareItemTooltipBodySnapshot(item, row.Count,
+                    row.Durability, row.MaxDurability));
+        }
         if (mine && ImGui.IsItemClicked())
         {
             if (row is null) _tradePlaceSlot = slot;
@@ -133,16 +260,22 @@ public sealed partial class GameLoop
 
     private void DrawTradeInvitation()
     {
-        float s = GameplayUiScale(); Vector2 origin = new(374, 270);
-        if (!BeginVanillaWindow("##trade-invite", origin, new Vector2(276, 120),
+        float s = GameplayUiScale();
+        TradeInvitationUiLaw.ScreenRect frame = TradeInvitationUiLaw.PopupRect(
+            ImGui.GetIO().DisplaySize, s);
+        if (!BeginVanillaWindow("##trade-invite", frame.Min, frame.Size,
                 out ImDrawListPtr dl, out Vector2 p, out s)) { ImGui.End(); return; }
-        dl.AddRectFilled(p, p + new Vector2(276, 120) * s, 0xee101010, 8f * s);
+        dl.AddRectFilled(p, p + new Vector2(TradeInvitationUiLaw.Width,
+            TradeInvitationUiLaw.Height) * s, 0xee101010, 8f * s);
         string name = _playerNames.GetValueOrDefault(_tradeInviteGuid, "Another player");
-        DrawCenteredText(dl, p + new Vector2(138, 32) * s, $"{name} wants to trade with you.", 11f * s, 0xffffffff);
-        if (VanillaButton(dl, "##trade-invite-accept", "Accept", p + new Vector2(48, 72) * s, new Vector2(80, 22), s))
+        DrawCenteredText(dl, p + TradeInvitationUiLaw.MessageCenter * s,
+            $"{name} wants to trade with you.", 11f * s, 0xffffffff);
+        if (VanillaButton(dl, "##trade-invite-accept", "Accept",
+                p + TradeInvitationUiLaw.Accept * s, TradeInvitationUiLaw.ButtonSize, s))
         { _tradePartnerGuid = _tradeInviteGuid; _net?.BeginTrade(); _tradeInviteGuid = 0; }
-        if (VanillaButton(dl, "##trade-invite-decline", "Cancel", p + new Vector2(148, 72) * s, new Vector2(80, 22), s))
-        { _net?.CancelTrade(); _tradeInviteGuid = 0; }
+        if (VanillaButton(dl, "##trade-invite-decline", "Cancel",
+                p + TradeInvitationUiLaw.Decline * s, TradeInvitationUiLaw.ButtonSize, s))
+        { _net?.BusyTrade(); _tradeInviteGuid = 0; }
         ImGui.End();
     }
 }

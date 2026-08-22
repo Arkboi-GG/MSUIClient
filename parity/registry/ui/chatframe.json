@@ -7,56 +7,60 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/ChatFrame.xml",
-      "fileSha256": "55758509bf59b7bafef6051f9789a4de7643d9eb963634adf59bdec886bf1e35",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "f6f3d45028c905934c8cdcc1557af9cf3bba9d6e81e847b6c63bae450f8e1515",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_chat.rs",
-      "fileSha256": "36ff3e04b4ba5ce1be31d03eecf929967d9ac7ef449a9f05eea7c8537f4bc1bc",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "b7f827552cd9c17845048c6ff7033ea4267d70abb12314ddfd75250fa872081a",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_chat/commands.rs",
-      "fileSha256": "61447849d3423729e7de5fcec23997ab1411b4c74efde209c41fe636673ce9d1",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "177bc23d96f95f28df89f2684a003ef2f8bb93e83a213ef9f7f6bbf2e6610c8a",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_chat/edit.rs",
-      "fileSha256": "667937506bbc6fbb01aa512b3e12fd25c042af11c7441386c57c2ad51781e0d6",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "2db8f8d07ff89b9d5264c208e7a74f0c6140fd0edfb33923e552f7b783e6963c",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_chat/event.rs",
-      "fileSha256": "a44ec5c222a3faf7bde09d3f304b955b7ca6d643d3d97135456457043c0816a8",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "c6987d7a2ad282a9bac3c1a4b399818a6b89a0b7042b5b3d392a0d001766847c",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_chat/feed.rs",
-      "fileSha256": "598183f0f975b378ecc62ef17cff714e10c35714a13f464675d3abc2bb1e160d",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "2a9038052acca91ff2ca556684052363abca5626d8cc1513703f7482f8f56690",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_chat/frames.rs",
-      "fileSha256": "9d44530231b6494d27ddb576b0ba3a125da1d5192ff2a3ccbdac896beca17e5b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "de5ada639164a929f1e30a0134ec6fa9c3b98f8ce0f557b21e388da5417a94b1",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_chat/input/mod.rs",
-      "fileSha256": "0a696a495449515b497bc7ebf22f03a557e29d1e1a4860ca79432af0f0717b08",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "15a9d70980f1077dd29693b81cd902aa2f93858736ccc2e48a09f84a8e40e494",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_chat/input/parse.rs",
-      "fileSha256": "9f75275c3b01d43004303549906b959b01ad682b26dd95a954e4931859ce0089",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "4ee3a7c49fc198ff535369d862449133882e043ff99ba405e346e8fda7015d26",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Chat.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/ChatFrameLaw.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Chat.cs",
+    "MSUIClient/Engine/UI/ChatFrameLaw.cs",
+    "MSUIClient/Engine/UI/GroupSlashCommandLaw.cs",
+    "MSUIClient/Engine/UI/ChatMenuUiLaw.cs",
+    "MSUIClient/Engine/UI/ChatChannelLaw.cs",
+    "MSUIClient/Net/ChannelPackets.cs"
   ],
   "status": "partial",
-  "summary": "Chat frame exists with the reference presentation: scrolling message area with word wrap, hover-reveal chrome, General/Combat Log tabs with real tab art, scroll up/down/bottom buttons, the chat menu bubble button (visual), the 3-piece edit box with channel-typed header/color, SMSG_MESSAGECHAT decode across the monster/say/channel variants, name-cache resolution, and slash routing for /s /y /g /o /p /raid /w.",
+  "summary": "Chat frame has the reference presentation plus current typed composition, group utilities, distinct General/Combat Log feeds and canonical XP lines. The bubble button opens the full law-positioned ChatMenu with both nested emote tables, freeform /e and last-teller /r. Channel parity now includes exact join/leave/list writers and server parsers, stable server-confirmed /1-/10 slots with hole preservation, /c sends, numbered incoming lines, all 1.12 channel-notice strings with deferred player names, and roster-count replies. Scrolling, hover chrome, tabs, controls and the edit box remain intact.",
   "openItems": [
     {
       "id": "item-triage-a7efe951",
@@ -64,15 +68,17 @@
       "text": "Text emotes do not exist - no /wave //dance/emote alias table and CMSG_TEXT_EMOTE is never sent (Benilla builds the full EMOTE<i>_CMD alias table from GlobalStrings)",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: EmoteCommandLaw builds the alias table and the chat submit path sends/receives CMSG/SMSG_TEXT_EMOTE."
     },
     {
       "id": "item-triage-ce3973e4",
       "kind": "gap",
-      "text": "No utility slash commands: /roll (MSG_RANDOM_ROLL), /played (CMSG_PLAYED_TIME), /sit (CMSG_STANDSTATECHANGE), /invite //uninvite //promote group management (CMSG_GROUP_SET_LEADER, CMSG_GROUP_UNINVITE) are all absent from ParseChatCommand",
+      "text": "Remaining utility slash commands: /invite //uninvite //promote group management are absent from ParseChatCommand. /sit, /sleep, /kneel, /stand, /lay, /roll and /played are implemented.",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: all posture aliases and the /invite /inv /i, /uninvite /un /u /kick, and /promote /pr families are routed through exact existing group writers, including vanilla bare-command selected-player fallback and roster name-to-guid promotion."
     },
     {
       "id": "item-triage-b4b2652f",
@@ -80,7 +86,8 @@
       "text": "No channel join/leave or numbered-channel sends, and SMSG_CHANNEL_NOTIFY is not consumed (channel RECEIVE formatting exists)",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: exact CMSG_JOIN_CHANNEL, CMSG_LEAVE_CHANNEL and CMSG_CHANNEL_LIST cstring writers and strict SMSG_CHANNEL_NOTIFY/LIST parsers are wired. ChatChannelLaw owns the ten stable server-confirmed slots, preserves holes on leave, decorates incoming and member lines, resolves /N and /c sends, and composes the full 1.12 notice table; guid-tail notices defer through name queries. /join aliases, /leave aliases and /chatlist aliases dispatch through the new writers. Focused ChatChannel plus ChatMenu, ChatTab and Chat regressions pass."
     },
     {
       "id": "item-triage-4c9b2034",
@@ -88,7 +95,8 @@
       "text": "The Combat Log tab does not filter - DrawChatMessages ignores _chatSelectedTab, so both tabs show the same stream",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: ChatFrameLaw now owns the default General versus Combat Log group routing. DrawChatMessages filters through that law, and CombatXpGain posts Benilla's canonical named, rested-bonus, or unnamed line after deferred victim-name resolution. Focused ChatTab, Chat, and GroupSlash clinical checks pass."
     },
     {
       "id": "item-triage-141e8522",
@@ -96,12 +104,13 @@
       "text": "Chat menu button is draw-only - the emote/channel popup menu it opens in the reference is unwired",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: ChatMenuUiLaw owns the exact 104x16 row pool, 12px tooltip borders, button-relative root and nested anchors, viewport clamping, hit testing, two-second timeout, root table and both Emote/Voice Emote tables. The draw path uses no ImGui window placement, opens the edit pipeline with reference prefixes, supports freeform /e and last-teller /r, and submits nested commands through the same posture/text-emote router. Focused ChatMenu plus ChatTab, Chat and EmoteAnimation regressions pass."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T01:01:10.5124167Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

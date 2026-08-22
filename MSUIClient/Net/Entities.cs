@@ -201,10 +201,13 @@ public sealed class EntityStore
     {
         if (!_entities.TryGetValue(mm.Guid, out var e)) return;   // unknown guid — not streamed to us
 
+        float? dictatedFacing = MonsterMoveFacingLaw.Resolve(mm.Facing, mm.Start, guid =>
+            _entities.TryGetValue(guid, out WorldEntity? target) ? target.Position : null);
+        if (dictatedFacing is { } snap) e.Orientation = snap;
+
         if (mm.Stop || mm.DurationMs == 0 || mm.Points.Length < 2)
         {
             e.Spline = null;                                       // freeze where the unit is
-            if (mm.FacingAngle is { } fa) e.Orientation = fa;      // path-less re-face
             return;
         }
         // SMSG_MONSTER_MOVE is a server-owned path even when its subject is a Player bot.

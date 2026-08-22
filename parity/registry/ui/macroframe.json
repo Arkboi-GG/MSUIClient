@@ -7,18 +7,23 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/MacroFrame.xml",
-      "fileSha256": "566b5d7465f4222baadc4ec878973b5a9f914addb7cf43729ad98d49ba6c8ef5",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "85156b2454a60c4275a64b580b902d800845d8bee0f89509ea145a07c844d9c0",
+      "snapshotId": "benilla-current-2026-08-22"
     },
     {
       "path": "crates/benilla-app/src/ui_macro/mod.rs",
-      "fileSha256": "9baaacadc5dad95306f1f00eb91a77d770ba086be6118e683f264eff65322326",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "50b5aa094257b2eff7572efe1999c4999d18b44ab7df4be40ab975ccff19bb1a",
+      "snapshotId": "benilla-current-2026-08-22"
     },
     {
       "path": "crates/benilla-app/src/ui_macro/run.rs",
       "fileSha256": "98a8dd4f382512678f24295ee394a4ad78811172ff27cd46fbf63d6a4c3560b4",
       "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/macro_icons.rs",
+      "fileSha256": "e6f1f71fa82dfc11ad14edbd0b4f6dbb4b9e7b224a54969b5c9bf9a6016150fa",
+      "snapshotId": "benilla-current-2026-08-22"
     },
     {
       "path": "crates/benilla-app/src/ui_macro/store.rs",
@@ -27,10 +32,14 @@
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Macro.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Macro.cs",
+    "MSUIClient/Engine/UI/MacroFrameUiLaw.cs",
+    "MSUIClient/Formats/MacroIconCatalog.cs",
+    "MSUIClient/Formats/MpqMount.cs",
+    "tools/interface-wire-check/MacroFrameClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI has a macro window (Program.Macro.cs): 384x512 shell with MacroFrame-BotLeft/BotRight + MacroFrame-Icon art, an 18-slot icon grid with selection ring, name and multi-line body editors, New/Delete/Run/Exit buttons, drag-from-grid to the action bar, double-click-to-run, and persistence to macros.json. Macro icons are auto-derived from the body (#cast/#use spell/item lookup) rather than picked.",
+  "summary": "MSUI has a 384x512 macro editor plus current Benilla's rule-seated 297x298 name/icon popup: exact four-slice art, 16-character edit field, archive-derived 5x4 chooser with faux-row scrolling, Okay/Cancel rules, persistent chosen icons and reference open/close/accept sounds. Remaining gaps are the account/character split, body scroll frame and broader macro command engine.",
   "openItems": [
     {
       "id": "item-triage-97d800c2",
@@ -38,7 +47,8 @@
       "text": "No name/icon picker popup (the reference MacroPopup: 20-icon paged grid + name editbox on Okay/Cancel) - macros are created in place and the icon cannot be chosen",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: MacroFrameUiLaw owns the exact 297x298 TOPLEFT-on-frame-TOPRIGHT (-40,-40) popup, name/grid/scroll/button geometry and Okay state. GameLoop.Macro renders the authored four-slice shell and 5x4 picker, persists selected icons, and supports both New and Change Name/Icon. MacroIconCatalog mirrors BuildMacroIconList by enumerating mounted MPQ listfiles, filtering actual top-level Spell_/Ability_ BLP/TGA art, then case-insensitive sorting/deduping. Focused clinical checks pass."
     },
     {
       "id": "item-triage-7fd4e541",
@@ -46,6 +56,14 @@
       "text": "No General vs Character-specific tab split (reference: two tabbed macro sets; MSUI has one flat 18-slot set)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-macro-popup-live-verify",
+      "kind": "verify",
+      "text": "The geometry, state and actual-file catalog laws plus source fences pass. Needs owner-run live acceptance for 517-icon catalog population, scrolling, new/edit/cancel/escape persistence, selected art on the macro grid/action bar, and all three sound cues.",
+      "source": "review-2026-08-22/current-benilla-macro-popup",
+      "added": "2026-08-22",
       "resolved": false
     },
     {
@@ -70,12 +88,13 @@
       "text": "No open/close/save sounds (reference keeps igCharacterInfoOpen/Close, gsTitleOptionOK)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: Opening/closing the macro frame now plays igCharacterInfoOpen/Close; opening and accepting/canceling the name/icon popup plays igCharacterInfoOpen and gsTitleOptionOK through the shared UI sound path. Escape and panel-replacement closure use the same centralized close routines."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T07:00:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

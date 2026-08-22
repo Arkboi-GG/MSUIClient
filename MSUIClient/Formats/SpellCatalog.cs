@@ -23,7 +23,9 @@ public readonly record struct SpellInfo(
     uint DispelType = 0,
     int EquippedItemClass = -1, uint EquippedItemSubclassMask = 0,
     uint EquippedItemInventoryTypeMask = 0,
-    uint ActiveIconId = 0, string ActiveIconPath = "")
+    uint ActiveIconId = 0, string ActiveIconPath = "",
+    uint[]? EffectTriggerSpells = null,
+    int StanceBarOrder = 0)
 {
     public bool Passive => (Attributes & 0x40) != 0;
     public bool HiddenClientSide => (Attributes & 0x80) != 0;
@@ -31,7 +33,13 @@ public readonly record struct SpellInfo(
     public bool InSpellbook => !HiddenClientSide && !TradeSkill && CastUi == 0;
     public bool Ranged => (Attributes & 0x2) != 0 || AutoRepeat;
     public bool AutoRepeat => (AttributesEx2 & 0x20) != 0;
+    /// <summary>
+    /// SPELL_ATTR3_NORMAL_RANGED_ATTACK. Build 5875 routes these spell-log numbers through
+    /// the melee color branch (Auto Shot/Throw), despite their non-melee wire opcode.
+    /// </summary>
+    public bool MeleeWhiteDamage => (AttributesEx3 & 0x8000) != 0;
     public bool OnNextSwing => (Attributes & 0x404) != 0;
+    public bool CooldownOnEvent => (Attributes & 0x0200_0000) != 0;
     // SpellRec InterruptFlags: bit 0 is SPELL_INTERRUPT_FLAG_MOVEMENT. Bit 3 belongs
     // to a different interrupt reason; treating it as movement made instant, movement-
     // castable spells such as Blink send CMSG_CANCEL_CAST on the next move edge.
@@ -209,7 +217,10 @@ public sealed class SpellCatalog
                 EquippedItemClass: spells.GetInt(row, 58),
                 EquippedItemSubclassMask: spells.GetUInt(row, 59),
                 EquippedItemInventoryTypeMask: spells.GetUInt(row, 60),
-                ActiveIconId: activeIconId, ActiveIconPath: activeIcon ?? "");
+                ActiveIconId: activeIconId, ActiveIconPath: activeIcon ?? "",
+                EffectTriggerSpells: Enumerable.Range(0, 3)
+                    .Select(i => spells.GetUInt(row, 109 + i)).ToArray(),
+                StanceBarOrder: spells.GetInt(row, 166));
             uint[] tools = Enumerable.Range(0, 2).Select(i => spells.GetUInt(row, 39 + i))
                 .Where(x => x != 0).ToArray();
             if (tools.Length > 0) result._tools[id] = tools;

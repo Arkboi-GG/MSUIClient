@@ -4,6 +4,7 @@ using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.Engine.UI;
 using Shader = MSUIClient.Engine.Shader;
 using Texture = MSUIClient.Engine.Texture;
 
@@ -428,6 +429,10 @@ public sealed class PlayerRenderer : IDisposable
             rate = RateFor(clip);
             return clip;
         }
+
+        int pose = StandStateUiLaw.LoopAnimation(e.Fields.UnitStandState);
+        if (pose != 0)
+            return animator.Resolve(unit, BaseAnimationTrack, pose, true, 0);
 
         // Standing: turn-in-place shuffle (turn key, no translation), else engaged ready, else Stand.
         if ((flags & (uint)MovementFlags.TurnLeft) != 0)

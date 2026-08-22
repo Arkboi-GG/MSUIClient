@@ -7,13 +7,31 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/ui_follow.rs",
-      "fileSha256": "4a9e292b49c4bfc330f305985c1aecfcac067388c8701f97955f79c7d3344a58",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "d11ec203925779ab2bd541fa95f6279853a038d8499d2c5973db2e4983788618",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/player/follow.rs",
+      "fileSha256": "40ff0829ef1d6323fd4519fa0546323c8ad11d5e078466c19e3032dfe11f2e9f",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/target/by_name.rs",
+      "fileSha256": "310db35e7a676909948f218c0ee9b7f0904e7f05f0cf026f7170b574132853b4",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
-  "msuiAnchors": [],
-  "status": "missing",
-  "summary": "No auto-follow exists in MSUI at any layer: no follow movement mode, no /follow or FollowUnit entry point, no AUTOFOLLOW_BEGIN/AUTOFOLLOW_END transitions, and no AutoFollowStatus 'Following %s.' / 'You stop following %s.' fading status line.",
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/AutoFollowUiLaw.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Follow.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.UnitPopup.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Chat.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.CombatFeedback.cs",
+    "MSUIClient/Program.cs",
+    "tools/interface-wire-check/AutoFollowClinicalChecks.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI now carries current Benilla's client-only auto-follow: UnitPopup's exact-name row and /follow, /fol, /f target/name forms converge on the ordered player/assist/dead/stunned/casting gate; the mode re-resolves every tick, steers at pi rad/s, synthesizes ordinary forward input, uses the exact speed-scaled 3/4.5-yard hysteresis, and ends on manual movement start, mouse-look, lost mover, root/taxi, target loss/death or vertical degeneracy. Begin/End produce the latched-name centered GameFontNormalHuge status, with End fading linearly for four seconds. No dedicated packet exists or was added.",
   "openItems": [
     {
       "id": "item-triage-4a0ba2c8",
@@ -21,7 +39,8 @@
       "text": "No follow intent path (unit-popup Follow row / slash command) and no follow movement mode to bridge.",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: UnitPopup Follow plus /follow, /fol and /f resolve live player subjects into AutoFollowUiLaw; GameLoop synthesizes the normal forward axis and bounded facing while the ordinary controller and movement sender retain ownership."
     },
     {
       "id": "item-triage-186d4aa7",
@@ -29,12 +48,21 @@
       "text": "No AUTOFOLLOW_BEGIN/END equivalent events or on-screen status text with the reference's latched-name and 4-second linear fade semantics.",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: Begin and End state now latch the subject name and draw the exact centered 20px gold status on BACKGROUND; active is full alpha and stop fades linearly over four seconds before hiding."
+    },
+    {
+      "id": "item-msui-follow-live-verify",
+      "kind": "verify",
+      "text": "Focused gate, threshold, steering, fade, source-order and no-wire checks pass. Needs a live friendly-player run covering far approach, 3/4.5-yard hysteresis, W/S/A/D/Q/E and right-mouse cancellation, jump survival, target death/despawn, refusal ordering, and the centered Begin/End line at multiple UI scales.",
+      "source": "implementation-2026-08-22",
+      "added": "2026-08-22",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T04:35:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

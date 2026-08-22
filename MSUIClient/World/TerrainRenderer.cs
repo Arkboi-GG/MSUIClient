@@ -36,6 +36,7 @@ public sealed class TerrainRenderer : IDisposable
         public float[] Heights = [];
         public float[] InnerHeights = [];
         public byte[] Holes = [];
+        public int[] GroundEffects = [];
     }
     private HashSet<(int col, int row)> _desired = [];
 
@@ -48,6 +49,9 @@ public sealed class TerrainRenderer : IDisposable
     /// projection needs it to re-emit geometry exactly coplanar with the drawn ground.
     /// </summary>
     private readonly Dictionary<(int col, int row), float[]> _innerHeights = [];
+
+    /// <summary>Per-quad dominant MCLY ground-effect id, retained for footsteps.</summary>
+    private readonly Dictionary<(int col, int row), int[]> _groundEffects = [];
 
     /// <summary>
     /// Per-quad hole masks, one per loaded tile, in lockstep with _heights.
@@ -229,6 +233,7 @@ public sealed class TerrainRenderer : IDisposable
             _tiles.Remove(key);
             _heights.Remove(key);
             _innerHeights.Remove(key);
+            _groundEffects.Remove(key);
             RemoveHoles(key);
             changed = true;
         }
@@ -259,6 +264,8 @@ public sealed class TerrainRenderer : IDisposable
                 }
                 _tiles[(col, row)] = TerrainTile.Adopt(_gl, ready.Uploaded);
                 _heights[(col, row)] = ready.Heights;
+                _innerHeights[(col, row)] = ready.InnerHeights;
+                _groundEffects[(col, row)] = ready.GroundEffects;
                 SetHoles((col, row), ready.Holes);
                 changed = true;
                 continue;
@@ -270,6 +277,8 @@ public sealed class TerrainRenderer : IDisposable
 
             _tiles[(col, row)] = tile;
             _heights[(col, row)] = BuildHeightGrid(adt);
+            _innerHeights[(col, row)] = BuildInnerHeightGrid(adt);
+            _groundEffects[(col, row)] = BuildGroundEffectGrid(adt);
             SetHoles((col, row), BuildHoleGrid(adt));
             changed = true;
         }
@@ -339,7 +348,9 @@ public sealed class TerrainRenderer : IDisposable
         var cpu = await _workers.Run(() => new PreloadedTile
             {
                 Heights = BuildHeightGrid(adt),
+                InnerHeights = BuildInnerHeightGrid(adt),
                 Holes = BuildHoleGrid(adt),
+                GroundEffects = BuildGroundEffectGrid(adt),
                 Uploaded = null,
             }).ConfigureAwait(false);
 
@@ -370,6 +381,8 @@ public sealed class TerrainRenderer : IDisposable
                 if (ready?.Uploaded is null) { _missingPreloads.Add(key); continue; }
                 _tiles[key] = TerrainTile.Adopt(_gl, ready.Uploaded);
                 _heights[key] = ready.Heights;
+                _innerHeights[key] = ready.InnerHeights;
+                _groundEffects[key] = ready.GroundEffects;
                 SetHoles(key, ready.Holes);
             }
             catch (Exception ex)
@@ -429,6 +442,45 @@ public sealed class TerrainRenderer : IDisposable
             }
         }
         return grid;
+    }
+
+    private static int[] BuildGroundEffectGrid(AdtTerrainReader.AdtResult? adt)
+    {
+        var grid = Enumerable.Repeat(-1, QuadGridSide * QuadGridSide).ToArray();
+        if (adt?.Chunks is null) return grid;
+        foreach (AdtTerrainReader.McnkChunk? chunk in adt.Chunks)
+        {
+            if (chunk is null || chunk.Layers.Length == 0) continue;
+            for (int row = 0; row < 8; row++)
+            for (int col = 0; col < 8; col++)
+            {
+                int layer = chunk.HasGroundEffectLayerMap
+                    ? chunk.GroundEffectLayer(col, row)
+                    : DominantGroundLayer(chunk, col, row);
+                if ((uint)layer >= (uint)chunk.Layers.Length) layer = 0;
+                int gridRow = chunk.IndexY * 8 + row;
+                int gridCol = chunk.IndexX * 8 + col;
+                if (gridRow < QuadGridSide && gridCol < QuadGridSide)
+                    grid[gridRow * QuadGridSide + gridCol] = chunk.Layers[layer].EffectId;
+            }
+        }
+        return grid;
+    }
+
+    private static int DominantGroundLayer(AdtTerrainReader.McnkChunk chunk, int col, int row)
+    {
+        int pixelX = Math.Clamp(col * 8 + 4, 0, 63);
+        int pixelY = Math.Clamp(row * 8 + 4, 0, 63);
+        int best = 0, bestAlpha = 0, sum = 0;
+        for (int layer = 1; layer < chunk.Layers.Length; layer++)
+        {
+            byte[]? alpha = chunk.Layers[layer].AlphaMap;
+            if (alpha is null || alpha.Length < 64 * 64) continue;
+            int value = alpha[pixelY * 64 + pixelX];
+            sum += value;
+            if (value > bestAlpha) { bestAlpha = value; best = layer; }
+        }
+        return bestAlpha > 255 - Math.Min(sum, 255) ? best : 0;
     }
 
     /// <summary>
@@ -539,6 +591,26 @@ public sealed class TerrainRenderer : IDisposable
     /// </summary>
     public float? SampleHeight(float worldX, float worldY)
         => SampleHeight(worldX, worldY, out _);
+
+    /// <summary>The dominant ADT ground-effect id beneath a loaded, non-holed quad.</summary>
+    public int? SampleGroundEffect(float worldX, float worldY)
+    {
+        var key = TileAt(worldX, worldY);
+        if (!_groundEffects.TryGetValue(key, out int[]? grid)) return null;
+        float originX = (32 - key.row) * GridSize;
+        float originY = (32 - key.col) * GridSize;
+        const float cell = GridSize / QuadGridSide;
+        int row = (int)MathF.Floor((originX - worldX) / cell);
+        int col = (int)MathF.Floor((originY - worldY) / cell);
+        if (row < 0 || col < 0 || row >= QuadGridSide || col >= QuadGridSide)
+            return null;
+        if (ApplyHoles && _holes.TryGetValue(key, out byte[]? holes) &&
+            holes.Length == QuadGridSide * QuadGridSide &&
+            holes[row * QuadGridSide + col] != 0)
+            return null;
+        int effect = grid[row * QuadGridSide + col];
+        return effect >= 0 ? effect : null;
+    }
 
     /// <summary>
     /// As above, but also reports whether the query landed in a terrain hole.
@@ -737,6 +809,8 @@ public sealed class TerrainRenderer : IDisposable
         int released = _tiles.Count;
         _tiles.Clear();
         _heights.Clear();
+        _innerHeights.Clear();
+        _groundEffects.Clear();
         _holes.Clear();
         _holeCountDirty = true;
         _preloads.Clear();

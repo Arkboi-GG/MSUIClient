@@ -105,8 +105,7 @@ public sealed partial class GameLoop
             throw new InvalidDataException("bad SMSG_SPELL_COOLDOWN body");
         var r = new PacketReader(body);
         ulong caster = r.ReadU64();
-        PlayerActions? store = caster != 0 && caster == _petGuid ? _petCooldowns :
-            caster == LocalPlayerGuid || caster == ControlledGuid ? ActionsFor(caster) : null;
+        PlayerActions? store = AddressedCooldownStore(caster);
         double now = MovementInfo.ClientUptimeMs() / 1000.0;
         while (r.Remaining > 0)
         {
@@ -118,8 +117,40 @@ public sealed partial class GameLoop
             uint category = resolved ? spell.Category : 0;
             uint spellMs = wireMs != 0 ? wireMs : resolved ? spell.RecoveryMs : 0;
             uint categoryMs = wireMs == 0 && resolved ? spell.CategoryRecoveryMs : 0;
-            store.StartCooldown(spellId, category, spellMs, categoryMs, now);
+            store.StartCooldown(spellId, category, spellMs, categoryMs, now,
+                resolved && spell.CooldownOnEvent);
         }
+    }
+
+    private PlayerActions? AddressedCooldownStore(ulong caster) =>
+        caster != 0 && caster == _petGuid ? _petCooldowns :
+        caster == LocalPlayerGuid || caster == ControlledGuid ? ActionsFor(caster) : null;
+
+    private void ApplyItemCooldown(byte[] body, PlayerActions? forcedStore = null)
+    {
+        CooldownPackets.ItemCooldown packet = CooldownPackets.ParseItem(body);
+        if (!_entities.TryGet(packet.ItemGuid, out WorldEntity item) ||
+            item.Type is not (ObjectTypeId.Item or ObjectTypeId.Container)) return;
+        (forcedStore ?? OwnActions).StartCooldown(packet.SpellId, 0, 30_000,
+            MovementInfo.ClientUptimeMs() / 1000.0);
+    }
+
+    private void ApplyCooldownEvent(byte[] body, bool clear)
+    {
+        string packetName = clear ? "SMSG_CLEAR_COOLDOWN" : "SMSG_COOLDOWN_EVENT";
+        CooldownPackets.AddressedSpell packet =
+            CooldownPackets.ParseAddressedSpell(body, packetName);
+        PlayerActions? store = AddressedCooldownStore(packet.CasterGuid);
+        if (store is null) return;
+        if (clear) store.ClearCooldown(packet.SpellId);
+        else store.StartCooldownEvent(packet.SpellId,
+            MovementInfo.ClientUptimeMs() / 1000.0);
+    }
+
+    private void ApplyCooldownCheat(byte[] body)
+    {
+        ulong caster = CooldownPackets.ParseCheat(body);
+        AddressedCooldownStore(caster)?.ClearAllCooldowns();
     }
 
     private void ApplyPetMode(byte[] body)
@@ -232,7 +263,7 @@ public sealed partial class GameLoop
             pet.HealthFraction, new Vector4(0, 1, 0, 1));
         DrawVanillaStatusBar(dl, p + new Vector2(39, 21) * s, new Vector2(75, 7) * s,
             pet.PowerFraction, PowerColor(pet.Fields.PowerType));
-        string name = _creatureNames.GetValueOrDefault(pet.Entry, "Pet");
+        string name = ResolveCreatureOrPetName(pet, "Pet");
         DrawUnitFrameText(dl, p + new Vector2(75, 7) * s, name, 9 * s, UiGoldU32());
         dl.PopClipRect();
         ImGui.End();

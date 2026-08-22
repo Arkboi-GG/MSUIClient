@@ -121,11 +121,13 @@
     "MSUIClient/World/Units/CharacterRenderer.cs",
     "MSUIClient/World/Units/CharacterEquipment.cs",
     "MSUIClient/World/Units/AttachedItemRenderer.cs",
+    "MSUIClient/World/Units/CreatureRenderer.Mounts.cs",
     "MSUIClient/World/Units/SpellEffectSource.cs",
-    "MSUIClient/World/Units/SpellMissileLaw.cs"
+    "MSUIClient/World/Units/SpellMissileLaw.cs",
+    "tools/interface-wire-check/MountRenderingClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI's World/Units stack realizes the bulk of the entity-visual layer: display-id resolution for creatures and players (with live re-resolve), character dress/redress from public item fields (CharacterEquipment paints streamed players' gear, geosets and attached weapon/helm/shoulder items via AttachedItemRenderer), spell missiles (SpellMissileLaw), per-unit spell-FX lifecycle with precast/channel holds and aura-state owners (SpellEffectSource), scale, and collision. 8/10 tracked opcodes hit. Several distinct observables from the reference's sub-modules are absent.",
+  "summary": "MSUI's World/Units stack realizes the bulk of the entity-visual layer: display-id resolution, character dress/redress and attached gear, spell missiles and per-unit spell-FX lifecycle, scale and collision. UNIT_MOUNTDISPLAYID drives a full local/observed steed pipeline with attachment-0 saddle parenting, rider animation 91, moving/flying gait selection, flourish 94, mount-sized shadows/selection and mounted name clearance. Chain beams, enchant glow and carried lights remain.",
   "openItems": [
     {
       "id": "item-triage-e0a2c68a",
@@ -133,6 +135,15 @@
       "text": "Mounts are not rendered: UNIT_MOUNTDISPLAYID is read for UI rules (cast refusal, pet bar) but no renderer consumes it - a mounted unit shows standing on foot with no mount model.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: Registry was stale. CreatureRenderer.Mounts resolves and renders UNIT_MOUNTDISPLAYID as a steed, evaluates attachment 0 into a world saddle, seats local and observed riders in animation 91, selects stand/walk/run/flying gait, plays mount-special 94, and supplies the steed radius/height to shadows, selection and overhead clearance. Local predicted and streamed observer paths are both wired; focused source checks pass."
+    },
+    {
+      "id": "item-msui-mount-rendering-live-verify",
+      "kind": "verify",
+      "text": "Focused mount model/seat/gait/flourish/local-observer/shadow/name-clearance source checks pass. Needs owner-run live acceptance on ordinary ground mounts, a flying taxi mount, remote mounted players, mount-special, streaming pop-in, dismount retirement and representative attachment-0 saddle alignment.",
+      "source": "review-2026-08-22/current-msui-mount-pipeline",
+      "added": "2026-08-22",
       "resolved": false
     },
     {

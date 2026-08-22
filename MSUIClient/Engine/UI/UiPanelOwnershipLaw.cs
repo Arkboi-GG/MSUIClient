@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace MSUIClient.Engine.UI;
 
 /// <summary>
@@ -8,6 +10,10 @@ namespace MSUIClient.Engine.UI;
 /// </summary>
 public static class UiPanelOwnershipLaw
 {
+    public const float LeftSeatX = 0f;
+    public const float CenterSeatX = 384f;
+    public const float PanelTop = 104f;
+
     public enum Area
     {
         /// <summary>An unregistered top-level frame: show directly and never claim a panel seat.</summary>
@@ -26,6 +32,27 @@ public static class UiPanelOwnershipLaw
     public readonly record struct Seats(Panel? Left, Panel? Center, Panel? Fullscreen)
     {
         public static Seats Empty => new(null, null, null);
+    }
+
+    /// <summary>
+    /// Resolves the authored TOPLEFT anchor owned by SetLeftFrame/SetCenterFrame. Rendering code
+    /// consumes this seat instead of independently hard-coding an ImGui window position.
+    /// </summary>
+    public static bool TryLogicalSeatOrigin(Seats seats, Panel panel, out Vector2 origin)
+    {
+        if (Same(seats.Left, panel))
+        {
+            origin = new(LeftSeatX, PanelTop);
+            return true;
+        }
+        if (Same(seats.Center, panel))
+        {
+            origin = new(CenterSeatX, PanelTop);
+            return true;
+        }
+
+        origin = default;
+        return false;
     }
 
     public enum EffectKind

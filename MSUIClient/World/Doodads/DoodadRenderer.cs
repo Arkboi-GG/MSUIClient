@@ -224,6 +224,10 @@ public sealed class DoodadRenderer : IDisposable
         /// the model has no named Stand sequence.</summary>
         public M2Animator.Clip? BoneClip;
 
+        /// <summary>Retained only when the M2 has event markers. Dynamic
+        /// GameObject audio reads this parsed timeline; it never reloads the model.</summary>
+        public M2Model? EventSource;
+
         /// <summary>Interleaved skinned vertices, reused every frame.</summary>
         public float[]? AnimVertexScratch;
 
@@ -1199,6 +1203,26 @@ public sealed class DoodadRenderer : IDisposable
     public bool HasDynamic(ulong key) => _dynamicByKey.ContainsKey(key);
 
     /// <summary>
+    /// Expose the already-parsed animation event timeline for one dynamic
+    /// GameObject. The renderer remains the model owner; callers receive a
+    /// read-only reference and the exact sequence its idle evaluator uses.
+    /// </summary>
+    public bool TryGetDynamicEventTimeline(ulong key, out M2Model model,
+        out int sequenceIndex)
+    {
+        model = null!;
+        sequenceIndex = -1;
+        if (!_dynamicByKey.TryGetValue(key, out var entry) ||
+            entry.Model.EventSource is not { } source || source.Sequences.Count == 0)
+            return false;
+        model = source;
+        sequenceIndex = entry.Model.BoneClip?.SequenceIndex ??
+            source.TryFindSequenceIndexByAnimationId(0);
+        if (sequenceIndex < 0) sequenceIndex = 0;
+        return true;
+    }
+
+    /// <summary>
     /// The dynamic placement (gameobject GUID) currently under the mouse, or 0.
     /// Set per frame by the targeting pass, exactly like
     /// CreatureRenderer.HoveredGuid; the matching instance draws with an
@@ -1720,6 +1744,7 @@ public sealed class DoodadRenderer : IDisposable
         model.Attach(_gl);
 
         BuildBatches(m2, model, indices.Length);
+        if (m2.Events.Count > 0) model.EventSource = m2;
         ClassifyBoneAnimation(m2, model, hasGeometry);
         model.CollisionTriangles = BuildCollision(m2, CollisionBasisIndex);
         model.Emitters = m2.ParticleEmitters;

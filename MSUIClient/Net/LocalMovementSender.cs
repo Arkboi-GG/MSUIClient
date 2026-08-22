@@ -50,6 +50,28 @@ public sealed class LocalMovementSender
     public void ParkForRoot(NetworkClient net, CharacterController controller)
         => Park(net, controller.Position, Normalize(controller.Yaw));
 
+    /// <summary>Live mover state used by addressed movement acknowledgements.</summary>
+    public MovementInfo SnapshotForAck(CharacterController controller, float jumpLaunchSpeed,
+        MovementFlags extraFlags = MovementFlags.None)
+    {
+        const MovementFlags grantedMask = MovementFlags.WaterWalking |
+            MovementFlags.FeatherFalling | MovementFlags.Hover;
+        MovementFlags flags = (MovementFlags)_previousFlags & ~grantedMask;
+        flags |= controller.GrantedMovementFlags;
+        flags |= extraFlags;
+        var info = MovementInfo.Create(controller.Position, Normalize(controller.Yaw), flags);
+        info.FallTime = (uint)Math.Clamp(MathF.Round(controller.FallTimeMs), 0f, uint.MaxValue);
+        if ((flags & MovementFlags.Falling) != 0)
+        {
+            Vector2 horizontal = new(controller.HorizontalVelocity.X, controller.HorizontalVelocity.Y);
+            float speed = horizontal.Length();
+            float cos = speed > 1e-4f ? horizontal.X / speed : MathF.Cos(controller.Yaw);
+            float sin = speed > 1e-4f ? horizontal.Y / speed : MathF.Sin(controller.Yaw);
+            info.Jump = new JumpInfo(-MathF.Abs(jumpLaunchSpeed), cos, sin, speed);
+        }
+        return info;
+    }
+
     public void Update(
         NetworkClient net,
         CharacterController controller,
@@ -80,6 +102,7 @@ public sealed class LocalMovementSender
         if (turn > 0.01f) flags |= MovementFlags.TurnLeft;
         else if (turn < -0.01f) flags |= MovementFlags.TurnRight;
         if (input.Walking) flags |= MovementFlags.WalkMode;
+        flags |= controller.GrantedMovementFlags;
         if (!controller.Grounded)
         {
             flags |= MovementFlags.Falling;

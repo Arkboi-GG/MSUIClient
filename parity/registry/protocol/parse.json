@@ -7,21 +7,29 @@
   "benillaSources": [
     {
       "path": "crates/benilla-protocol/src/messages/parse.rs",
-      "fileSha256": "9b6b18a3ad2c4ff31f54125b0dc43c0b5ef5f906074e99777d94e049708bb37b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "aa50a3f187d9a9703369658334dd1a2549820c0e58fe8b22bc3454ef610fc853",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Program.Net.cs",
-    "MSUIClient/Net/NetworkClient.cs"
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/Net/EmotePackets.cs",
+    "MSUIClient/Net/ProficiencyPackets.cs",
+    "MSUIClient/Net/ServerSoundPackets.cs",
+    "MSUIClient/Net/WeatherPackets.cs",
+    "MSUIClient/Net/MovementModePackets.cs",
+    "MSUIClient/Net/CooldownPackets.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Emotes.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Sound.cs"
   ],
   "status": "partial",
-  "summary": "parse.rs is Benilla's opcode->parser dispatch covering 193 server opcodes. MSUI's counterpart is the Program.Net.cs switch (plus NetworkClient.cs pre-world handling); roughly 123 of the 193 have real MSUI handlers, 70 have no reference outside the opcode table. The pre-pass missing list contained several false negatives (SMSG_SPELL_COOLDOWN, SMSG_PARTY_COMMAND_RESULT, SMSG_GROUP_SET_LEADER/DESTROYED/UNINVITE, SMSG_INIT_WORLD_STATES, SMSG_UPDATE_WORLD_STATE, MSG_MINIMAP_PING, MSG_RAID_TARGET_UPDATE, MSG_RAID_READY_CHECK, SMSG_CHANNEL_NOTIFY are all handled).",
+  "summary": "parse.rs is Benilla's opcode-to-parser dispatch. MSUI's counterpart is the GameLoop.Net switch plus NetworkClient pre-world handling. The pre-pass contained many false negatives now corrected, including the complete cooldown follow-up family, movement modes, mirror timers, group loot, emotes, weather/sound, group administration, world states, minimap ping, raid targets/ready checks, and channel notifications. Remaining gaps are tracked explicitly below rather than by the stale original recount.",
   "openItems": [
     {
       "id": "item-triage-cc5cda52",
       "kind": "gap",
-      "text": "Force/spline/relay speed families unhandled: SMSG_FORCE_*_SPEED_CHANGE (6), SMSG_SPLINE_SET_* (6), MSG_MOVE_SET_*_SPEED relays (6)",
+      "text": "Spline/relay observer speed families remain unhandled: SMSG_SPLINE_SET_* (6), MSG_MOVE_SET_*_SPEED relays (6). The six SMSG_FORCE_*_SPEED_CHANGE controller packets are implemented.",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
       "resolved": false
@@ -32,7 +40,8 @@
       "text": "Move modes unhandled: SMSG_MOVE_WATER_WALK/LAND_WALK, FEATHER_FALL/NORMAL_FALL, SET_HOVER/UNSET_HOVER",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: The six non-root movement-mode SMSGs and root/unroot share strict packed-guid/u32-counter decoding through MovementModePackets."
     },
     {
       "id": "item-triage-e8619e0b",
@@ -40,7 +49,8 @@
       "text": "Mirror timers unhandled: SMSG_START/PAUSE/STOP_MIRROR_TIMER",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: all three strict mirror-timer bodies are dispatched to the server-rate integrated bar state."
     },
     {
       "id": "item-triage-86abbea9",
@@ -48,7 +58,8 @@
       "text": "Duel family unhandled: SMSG_DUEL_REQUESTED/COUNTDOWN/COMPLETE/WINNER/INBOUNDS/OUTOFBOUNDS",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: DuelPackets strictly parses all six inbound shapes and GameLoop.Net dispatches request, bounds, completion, winner, and countdown state; DuelFrame clinical checks pin opcodes, bodies, state, and wiring."
     },
     {
       "id": "item-triage-2369e1ed",
@@ -56,7 +67,8 @@
       "text": "Loot rolls unhandled: SMSG_LOOT_START_ROLL/ROLL/ROLL_WON/ALL_PASSED",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: all four strict group-loot packet shapes are dispatched through LootPackets and covered by focused goldens."
     },
     {
       "id": "item-triage-24c68eca",
@@ -64,20 +76,22 @@
       "text": "Cooldown extras unhandled: SMSG_CLEAR_COOLDOWN, SMSG_COOLDOWN_EVENT, SMSG_ITEM_COOLDOWN, SMSG_COOLDOWN_CHEAT",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: all four strict cooldown follow-up shapes are decoded and dispatched through CooldownPackets to addressed player/pet state; the focused cooldown protocol suite pins bytes and state transitions."
     },
     {
       "id": "item-triage-f1f9c5ca",
       "kind": "gap",
-      "text": "Emotes/AI unhandled: SMSG_EMOTE, SMSG_TEXT_EMOTE, SMSG_AI_REACTION",
+      "text": "SMSG_EMOTE remains unhandled. SMSG_TEXT_EMOTE and SMSG_AI_REACTION are decoded and dispatched.",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: SMSG_EMOTE now strict-parses u32 Emotes.dbc id + raw u64 guid, resolves AnimationData/EventSoundID, applies the reference sleep/swim/channel/combat receive gate, and routes the one-shot to local or streamed bodies. SMSG_TEXT_EMOTE and SMSG_AI_REACTION were already covered."
     },
     {
       "id": "item-triage-5faaf637",
       "kind": "gap",
-      "text": "World ambience unhandled: SMSG_WEATHER, SMSG_PLAY_SOUND/MUSIC/OBJECT_SOUND, SMSG_COMPRESSED_MOVES",
+      "text": "SMSG_COMPRESSED_MOVES remains unhandled. SMSG_WEATHER and SMSG_PLAY_SOUND/MUSIC/OBJECT_SOUND now use exact strict decoders and world-audio dispatch.",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
       "resolved": false
@@ -85,7 +99,7 @@
     {
       "id": "item-triage-383c1c28",
       "kind": "gap",
-      "text": "Misc unhandled: SMSG_LOGIN_SETTIMESPEED, SMSG_TRANSFER_ABORTED, SMSG_INVENTORY_CHANGE_FAILURE, SMSG_AREA_TRIGGER_MESSAGE, SMSG_EXPLORATION_EXPERIENCE, SMSG_SET_PROFICIENCY, SMSG_ITEM_ENCHANT_TIME_UPDATE, SMSG_DURABILITY_DAMAGE_DEATH, SMSG_MOUNTRESULT/DISMOUNTRESULT/MOUNTSPECIAL_ANIM, SMSG_NEW_TAXI_PATH, SMSG_SPIRIT_HEALER_CONFIRM, SMSG_PET_NAME_QUERY_RESPONSE, SMSG_PLAYED_TIME, SMSG_SPELL_UPDATE_CHAIN_TARGETS, SMSG_CHANNEL_LIST, SMSG_CHAT_PLAYER_NOT_FOUND, SMSG_CHAT_WRONG_FACTION, MSG_RANDOM_ROLL, MSG_CORPSE_QUERY",
+      "text": "The remaining misc parse gap is SMSG_SPELL_UPDATE_CHAIN_TARGETS. SMSG_CHANNEL_LIST is now strict-decoded and dispatched, alongside SET_PROFICIENCY, transfer-aborted, exploration-experience, pet-name response, login time-speed, item-enchant-time, mount-special, played-time, random-roll, area-trigger, durability-death, inventory-change-failure, mount/dismount-result, new-taxi-path, spirit-healer, chat-error, and corpse-query events.",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
       "resolved": false
@@ -94,6 +108,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T15:26:03.6287134Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

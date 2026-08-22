@@ -9,7 +9,7 @@ public sealed partial class GameLoop
     private void ShowSpellError(uint spellId, string reason, string text, string source)
     {
         bool displayed = text.Length > 0;
-        if (displayed) PushCenterText(text, CenterCombatTextStyle.Damage);
+        if (displayed) ShowUiError(text);
         SpellInfo? info = _spellCatalog?.TryGet(spellId, out SpellInfo found) == true ? found : null;
         var verdict = new SpellErrorVerdict(NowSeconds(), _net?.PlayerName ?? "", spellId,
             info?.Name ?? $"Spell {spellId}", reason, text, displayed, source);

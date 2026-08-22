@@ -1,4 +1,5 @@
 using System.Numerics;
+using MSUIClient.Net;
 using MSUIClient.World;
 using MSUIClient.World.Collision;
 
@@ -121,8 +122,39 @@ public sealed class CharacterController
     /// </summary>
     public float SpeedMultiplier { get; set; } = 1f;
 
+    private float? _serverWalkSpeed;
+    private float? _serverRunSpeed;
+    private float? _serverRunBackSpeed;
+
+    public float EffectiveWalkSpeed => _serverWalkSpeed ?? _opts.WalkSpeed;
+    public float EffectiveRunSpeed => _serverRunSpeed ?? _opts.RunSpeed;
+    public float EffectiveRunBackSpeed => _serverRunBackSpeed ?? _opts.BackwardSpeed;
+
+    public void ApplyServerSpeed(MovementSpeedKind kind, float speed)
+    {
+        if (!float.IsFinite(speed) || speed < 0f) return;
+        switch (kind)
+        {
+            case MovementSpeedKind.Walk: _serverWalkSpeed = speed; break;
+            case MovementSpeedKind.Run: _serverRunSpeed = speed; break;
+            case MovementSpeedKind.RunBack: _serverRunBackSpeed = speed; break;
+        }
+    }
+
+    public void ResetServerSpeeds() =>
+        (_serverWalkSpeed, _serverRunSpeed, _serverRunBackSpeed) = (null, null, null);
+
     /// <summary>Scales launch velocity, same prediction caveat as <see cref="SpeedMultiplier"/>.</summary>
     public float JumpMultiplier { get; set; } = 1f;
+
+    public bool WaterWalking { get; set; }
+    public bool FeatherFalling { get; set; }
+    public bool Hovering { get; set; }
+    public float? ExternalWalkableSurfaceZ { get; set; }
+    public MovementFlags GrantedMovementFlags =>
+        (WaterWalking ? MovementFlags.WaterWalking : MovementFlags.None) |
+        (FeatherFalling ? MovementFlags.FeatherFalling : MovementFlags.None) |
+        (Hovering ? MovementFlags.Hover : MovementFlags.None);
 
     /// <summary>
     /// How close to the ground counts as standing on it. Small, because it only
@@ -393,8 +425,8 @@ public sealed class CharacterController
         // 7 yd/s in every direction, making backpedalling as fast as running
         // forward even though the server and original client use 4.5 yd/s.
         float speed = (input.Walking
-            ? _opts.WalkSpeed
-            : input.Forward < -0.01f ? _opts.BackwardSpeed : _opts.RunSpeed)
+            ? EffectiveWalkSpeed
+            : input.Forward < -0.01f ? EffectiveRunBackSpeed : EffectiveRunSpeed)
             * MathF.Max(0.05f, SpeedMultiplier);
 
         var wish = forward * input.Forward + right * input.Strafe;
@@ -420,7 +452,8 @@ public sealed class CharacterController
         MoveHorizontal(ref move);
 
         Velocity.Z -= _opts.Gravity * dt;
-        if (Velocity.Z < -_opts.TerminalVelocity) Velocity.Z = -_opts.TerminalVelocity;
+        float terminalVelocity = FeatherFalling ? 7f : _opts.TerminalVelocity;
+        if (Velocity.Z < -terminalVelocity) Velocity.Z = -terminalVelocity;
         float verticalStartZ = Position.Z;
         Position.Z += Velocity.Z * dt;
 
@@ -759,6 +792,14 @@ public sealed class CharacterController
             }
         }
 
+        if (WaterWalking && ExternalWalkableSurfaceZ is float liquidZ &&
+            liquidZ - Position.Z <= _opts.StepHeight &&
+            (groundZ is null || liquidZ > groundZ.Value))
+        {
+            groundZ = liquidZ;
+            GroundSource = "liquid-water-walk";
+        }
+        if (Hovering && groundZ is not null) groundZ += 1f;
         GroundZ = groundZ;
 
         if (groundZ is null &&

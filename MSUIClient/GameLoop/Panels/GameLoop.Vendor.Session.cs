@@ -1,11 +1,11 @@
 using System.Numerics;
+using MSUIClient.Engine.UI;
 using MSUIClient.Net;
 
 namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    private const float VendorServiceDistance = 5.5556f;
     private readonly bool[] _vendorOpenedBags = new bool[5];
     private bool _vendorRepairMode;
     private int _vendorHoveredRow = -1;
@@ -23,8 +23,9 @@ public sealed partial class GameLoop
             (candidate.NpcFlags & NpcVendor) == 0)
             return false;
         vendor = candidate;
-        distance = Vector3.Distance(_controller.Position, candidate.Position);
-        return distance <= VendorServiceDistance;
+        Vector3 delta = _controller.Position - candidate.Position;
+        distance = delta.Length();
+        return NpcSessionUiLaw.InRange(delta.LengthSquared());
     }
 
     private void OpenVendorSession(VendorInventory inventory)
@@ -103,8 +104,11 @@ public sealed partial class GameLoop
         // range. Opener-only type/death/service-bit gates must not tear down a live window, and a
         // temporarily unavailable player transform is not evidence of departure.
         if (_controller is null) return;
-        if (!_entities.TryGet(_vendor.VendorGuid, out WorldEntity vendor) ||
-            Vector3.Distance(_controller.Position, vendor.Position) > VendorServiceDistance)
+        bool sourceAvailable = _entities.TryGet(_vendor.VendorGuid, out WorldEntity vendor);
+        float distanceSquared = sourceAvailable
+            ? Vector3.DistanceSquared(_controller.Position, vendor.Position)
+            : float.PositiveInfinity;
+        if (NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
             CloseVendorSession(playSound: true);
     }
 }

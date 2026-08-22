@@ -213,7 +213,7 @@ public sealed partial class GameLoop
             BottomRightShown: true,
             RightLeftShown: rightLeftShown,
             RightRightShown: rightRightShown,
-            PetOrStanceShown: PetActionBarVisible,
+            PetOrStanceShown: PetOrStanceActionBarVisible,
             ReputationShown: false,
             MaxLevelShown: false);
         Vector2 display = ImGui.GetIO().DisplaySize;

@@ -1,34 +1,52 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 
 namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
+    private readonly UiErrorsFrameState _uiErrors = new();
     private bool _uiErrorsParityOpen;
+
+    private void ResetUiErrors() => _uiErrors.Clear();
 
     private void DrawUiErrorsParityFrame()
     {
-        if (!_uiErrorsParityOpen) return;
-        float s = GameplayUiScale();
-        Vector2 display = ImGui.GetIO().DisplaySize;
-        Vector2 size = new(512 * s, 60 * s);
-        Vector2 origin = new((display.X - size.X) * .5f, 96 * s);
-        BeginUiParityFrame(origin, s);
+        double now = NowSeconds();
+        IReadOnlyList<UiErrorsFrameState.VisibleMessage> live = _uiErrors.Visible(now);
+        bool parityFixture = _uiErrorsParityOpen && live.Count == 0;
+        if (live.Count == 0 && !parityFixture) return;
 
-        ImDrawListPtr draw = ImGui.GetForegroundDrawList();
-        ImFontPtr font = ImGui.GetFont();
-        const string message = "You are too far away!";
-        float fontSize = 16 * s;
-        Vector2 measured = ImGui.CalcTextSize(message) * (fontSize / MathF.Max(ImGui.GetFontSize(), 1));
-        Vector2 textAt = origin + new Vector2((size.X - measured.X) * .5f, 2 * s);
-        uint red = ImGui.ColorConvertFloat4ToU32(new Vector4(1, .0627f, .0627f, 1));
-        draw.AddText(font, fontSize, textAt, red, message);
+        float scale = GameplayUiScale();
+        UiErrorsFrameUiLaw.ScreenRect frame = UiErrorsFrameUiLaw.FrameRect(
+            ImGui.GetIO().DisplaySize, scale);
+        if (_uiErrorsParityOpen) BeginUiParityFrame(frame.Min, scale);
+        ImDrawListPtr draw = ImGui.GetForegroundDrawList(); // HIGH strata
 
-        CollectUiParityDraw("UIErrorsFrame", "MessageFrame", origin, size, "",
-            new("", 0, "IMGUI_FOREGROUND", "TOP", "", "", 0, -96));
-        CollectUiParityDraw("UIErrorsFrame/FontString", "FontString", origin, size, "UIErrorsFrame",
-            new("", red, "IMGUI_FOREGROUND", "", "", "", 0, 0, @"Fonts\FRIZQT__.TTF", 16));
-        if (_uiParityArmed && _uiParityPanel == "ui-errors") MarkUiParityFrameComplete();
+        int count = parityFixture ? 1 : live.Count;
+        for (int row = 0; row < count; row++)
+        {
+            UiErrorsFrameState.VisibleMessage message = parityFixture
+                ? new("You are too far away!", UiMessageKind.Error, 1f)
+                : live[row];
+            Vector4 color = UiErrorsFrameUiLaw.Color(message.Kind);
+            color.W *= message.Alpha;
+            GameText.DrawCentered(draw, UiErrorsFrameUiLaw.Font, message.Text,
+                frame.Min + UiErrorsFrameUiLaw.LineCenter(row) * scale, scale,
+                ImGui.ColorConvertFloat4ToU32(color));
+        }
+
+        if (_uiErrorsParityOpen)
+        {
+            uint red = ImGui.ColorConvertFloat4ToU32(UiErrorsFrameUiLaw.ErrorColor);
+            CollectUiParityDraw("UIErrorsFrame", "MessageFrame", frame.Min, frame.Size, "",
+                new("", 0, "IMGUI_FOREGROUND", "TOP", "", "", 0,
+                    -UiErrorsFrameUiLaw.TopOffset));
+            CollectUiParityDraw("UIErrorsFrame/FontString", "FontString", frame.Min,
+                frame.Size, "UIErrorsFrame", new("", red, "IMGUI_FOREGROUND", "", "", "",
+                    0, 0, @"Fonts\FRIZQT__.TTF", 16));
+            if (_uiParityArmed && _uiParityPanel == "ui-errors") MarkUiParityFrameComplete();
+        }
     }
 }

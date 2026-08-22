@@ -66,7 +66,7 @@ public sealed partial class GameLoop
     {
         if (!_spellbookOpen || _gameplayArt is null || _spellCatalog is null) return;
         float s = GameplayUiScale();
-        Vector2 p = new(0, 104f * s);
+        Vector2 p = UiPanelFrameOrigin(UiPanelOwnershipRegistry[12], s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
         ImGui.SetNextWindowSize(new Vector2(416, 512) * s, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
@@ -168,6 +168,28 @@ public sealed partial class GameLoop
     // character's learned set, but the 1.12 client never offers them as actions.
     private static bool IsClientStatusAura(uint id) => id is 2479 or 15007 or 26013;
 
+    private void PickupSpellToCursor(uint spellId)
+    {
+        _actionCursor = null;
+        _draggingMacroId = 0;
+        ClearPetActionCursor();
+        _draggingSpellId = spellId;
+        _pressedActionSlot = -1;
+    }
+
+    /// <summary>
+    /// Frozen MacroFrame_AddMacroLine branch: while the macro body editor is visible a shifted
+    /// book click appends the complete /cast token with no inserted separator. Passive spells
+    /// consume the gesture but append nothing.
+    /// </summary>
+    private bool TryAppendSpellToOpenMacro(in SpellInfo spell)
+    {
+        if (!_macroOpen) return false;
+        EnsureMacrosLoaded();
+        if (SpellbookLaw.MacroCastLine(spell) is string line) _macroBody += line;
+        return true;
+    }
+
     private void DrawSpellbookArt(ImDrawListPtr dl, Vector2 p, float s)
     {
         (string Element,string Path,Vector2 Offset,Vector2 Size)[] regions =
@@ -216,6 +238,22 @@ public sealed partial class GameLoop
             dl.AddImage((nint)ring, Snap(center - half), Snap(center + half),
                 Vector2.Zero, Vector2.One, spell.Passive ? 0xff000000 : 0xffffffff);
         }
+        bool professionCurrent = _professionOpen && _professionOpenerSpell == id;
+        if (SpellbookLaw.Checked(spell, player?.Fields.ShapeshiftForm ?? 0, professionCurrent))
+        {
+            uint checkedArt = _gameplayArt.AdditiveHandle(SpellbookLaw.CheckedTexture);
+            if (checkedArt != 0) dl.AddImage((nint)checkedArt, iconMin, max);
+        }
+        if (_actions.TryCooldownDisplay(id, NowSeconds(), spell.Category,
+                out CooldownDisplay cooldown))
+        {
+            Vector2 cooldownMin = Snap(SpellbookLaw.CooldownMin(min, s));
+            Vector2 cooldownMax = Snap(SpellbookLaw.CooldownMax(min, s));
+            if (cooldown.SweepFraction is float sweep)
+                DrawCooldownSwipe(dl, cooldownMin, cooldownMax, sweep);
+            if (cooldown.FlashProgress is float flash)
+                DrawCooldownFlash(dl, cooldownMin, cooldownMax, flash);
+        }
         // SpellName inherits GameFontNormal; passive names are the Lua SetTextColor override.
         uint? nameColor = spell.Passive ? SpellbookLaw.PassiveNameColor : null;
         bool hasRank = !string.IsNullOrWhiteSpace(spell.Rank);
@@ -253,9 +291,22 @@ public sealed partial class GameLoop
                 snap: _spellbookFontPixelSnap);
         }
         ImGui.SetCursorScreenPos(min);
-        bool clicked = ImGui.InvisibleButton($"##spell-{id}", new Vector2(145, 37) * s);
+        bool clicked = ImGui.InvisibleButton($"##spell-{id}", new Vector2(145, 37) * s,
+            ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
         if (ImGui.IsItemActivated()) { _pressedSpellId = id; _spellPressPosition = ImGui.GetIO().MousePos; }
-        if (clicked && _draggingSpellId == 0 && !TryOpenProfession(id)) TryCast(id);
+        bool receiveDrag = ImGui.IsItemHovered() && HasActionBarCursor &&
+            (ImGui.IsMouseReleased(ImGuiMouseButton.Left) ||
+             ImGui.IsMouseReleased(ImGuiMouseButton.Right));
+        if (receiveDrag)
+            PickupSpellToCursor(id);
+        else if (clicked && _draggingSpellId == 0)
+        {
+            if (ShiftHeld())
+            {
+                if (!TryAppendSpellToOpenMacro(spell)) PickupSpellToCursor(id);
+            }
+            else if (!TryOpenProfession(id)) TryCast(id);
+        }
         if (ImGui.IsItemActive())
         {
             uint depress = _gameplayArt.Handle(@"Interface\Buttons\UI-Quickslot-Depress");

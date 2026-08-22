@@ -160,6 +160,7 @@ public sealed class ItemDisplayRow
     public string[] BodyTextures = new string[8];
 
     public uint ItemVisualId;
+    public uint GroupSoundIndex;
     /// <summary>Ranged fallback SpellVisual (vanilla ItemDisplayInfo field 10).</summary>
     public uint SpellVisualId;
 
@@ -400,6 +401,7 @@ public sealed class ItemDisplayTable
                 GeosetGroup = [dbc.GetInt(r, 6), dbc.GetInt(r, 7), dbc.GetInt(r, 8)],
                 HelmetGeosetVis1 = dbc.GetUInt(r, 12),
                 HelmetGeosetVis2 = dbc.GetUInt(r, 13),
+                GroupSoundIndex = dbc.GetUInt(r, 11),
                 ItemVisualId = dbc.GetUInt(r, 22),
                 SpellVisualId = dbc.GetUInt(r, 10),
             };

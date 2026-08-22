@@ -8,26 +8,31 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    private const uint NpcQuestGiver = 0x0000_0002;
-    private const uint NpcVendor = 0x0000_0004;
-    private const uint NpcFlightMaster = 0x0000_0008;
-    private const uint NpcTrainer = 0x0000_0010;
-    private const uint NpcInnkeeper = 0x0000_0080;
-    private const uint NpcBanker = 0x0000_0100;
-    private const uint NpcAuctioneer = 0x0000_1000;
-    private const uint NpcTabardDesigner = 0x0000_0400;
-    private const uint GossipNpcFlags = NpcQuestGiver | NpcVendor | NpcFlightMaster |
-        NpcTrainer | NpcInnkeeper | NpcBanker | NpcAuctioneer | NpcTabardDesigner;
-    private const float GossipInteractDistance = 6f;
+    private const uint NpcGossip = WorldCursorUiLaw.Gossip;
+    private const uint NpcQuestGiver = WorldCursorUiLaw.Questgiver;
+    private const uint NpcVendor = WorldCursorUiLaw.Vendor;
+    private const uint NpcFlightMaster = WorldCursorUiLaw.FlightMaster;
+    private const uint NpcTrainer = WorldCursorUiLaw.Trainer;
+    private const uint NpcInnkeeper = WorldCursorUiLaw.Innkeeper;
+    private const uint NpcBanker = WorldCursorUiLaw.Banker;
+    private const uint NpcAuctioneer = WorldCursorUiLaw.Auctioneer;
+    private const uint NpcTabardDesigner = WorldCursorUiLaw.TabardDesigner;
+    private const uint GossipNpcFlags = NpcGossip | NpcQuestGiver | NpcVendor |
+        NpcFlightMaster | NpcTrainer | WorldCursorUiLaw.SpiritHealer |
+        WorldCursorUiLaw.SpiritGuide | NpcInnkeeper | NpcBanker |
+        WorldCursorUiLaw.Petitioner | NpcTabardDesigner | WorldCursorUiLaw.Battlemaster |
+        NpcAuctioneer | WorldCursorUiLaw.StableMaster;
+    private const float GossipInteractDistance = NpcSessionUiLaw.ServiceRange;
 
     private GossipMenu? _gossipMenu;
-    private NpcText? _gossipText;
+    private string? _gossipGreeting;
+    private readonly Dictionary<uint, NpcText> _npcTextRecords = [];
     private uint _gossipSourceFlags;
 
     private void ResetGossip()
     {
         _gossipMenu = null;
-        _gossipText = null;
+        _gossipGreeting = null;
         _gossipSourceFlags = 0;
     }
 
@@ -57,8 +62,10 @@ public sealed partial class GameLoop
             outcome = "REFUSED_NO_SUPPORTED_NPC_FLAG";
             detail = $"npcFlags=0x{target.NpcFlags:X8}";
         }
-        else if ((distance = Vector3.Distance(_controller.Position, target.Position)) > GossipInteractDistance)
+        else if (!NpcSessionUiLaw.InRange(
+                     Vector3.DistanceSquared(_controller.Position, target.Position)))
         {
+            distance = Vector3.Distance(_controller.Position, target.Position);
             outcome = "REFUSED_RANGE";
             detail = $"distance={distance:R};limit={GossipInteractDistance:R};npcFlags=0x{target.NpcFlags:X8}";
         }
@@ -70,12 +77,30 @@ public sealed partial class GameLoop
             if (sent)
             {
                 _gossipMenu = null;
-                _gossipText = null;
+                _gossipGreeting = null;
                 _gossipSourceFlags = target.NpcFlags;
             }
         }
         EmitInterface("gossip", "hello", outcome, guid, detail);
         return outcome == "SENT";
+    }
+
+    private bool UpdateGossipLifecycle()
+    {
+        if (_gossipMenu is null || _controller is null) return false;
+        ulong sourceGuid = _gossipMenu.SourceGuid;
+        bool sourceAvailable = _entities.TryGet(sourceGuid, out WorldEntity source);
+        float distanceSquared = sourceAvailable
+            ? Vector3.DistanceSquared(_controller.Position, source.Position)
+            : float.PositiveInfinity;
+        if (!NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
+            return false;
+        ResetGossip();
+        EmitInterface("gossip", "lifecycle-close", "CLOSED", sourceGuid,
+            sourceAvailable
+                ? $"distanceSquared={distanceSquared:R};limitSquared={NpcSessionUiLaw.ServiceRangeSquared:R}"
+                : "source-despawned");
+        return true;
     }
 
     private void ApplyGossipMenu(byte[] body)
@@ -94,28 +119,50 @@ public sealed partial class GameLoop
             return;
         }
         _gossipMenu = menu;
-        _gossipText = null;
-        if (_entities.TryGet(menu.SourceGuid, out WorldEntity source)) _gossipSourceFlags = source.NpcFlags;
+        _gossipGreeting = null;
+        byte sourceGender = 0;
+        if (_entities.TryGet(menu.SourceGuid, out WorldEntity source))
+        {
+            _gossipSourceFlags = source.NpcFlags;
+            sourceGender = source.Fields.Bytes0.Gender;
+        }
         EmitInterface("gossip", "menu", "DECODED", menu.SourceGuid,
             $"textId={menu.TextId};options={menu.Options.Count};quests={menu.Quests.Count};npcFlags=0x{_gossipSourceFlags:X8}");
-        bool sent = _net?.NpcTextQuery(menu.TextId, menu.SourceGuid) == true;
-        EmitInterface("gossip", "text-query", sent ? "SENT" : "SEND_FAILED", menu.SourceGuid,
-            $"textId={menu.TextId}");
+        if (_npcTextRecords.TryGetValue(menu.TextId, out NpcText? cached))
+        {
+            _gossipGreeting = DrawGossipGreeting(cached, sourceGender);
+            EmitInterface("gossip", "text-query", "CACHE_HIT", menu.SourceGuid,
+                $"textId={menu.TextId};gender={sourceGender}");
+        }
+        else
+        {
+            bool sent = _net?.NpcTextQuery(menu.TextId, menu.SourceGuid) == true;
+            EmitInterface("gossip", "text-query", sent ? "SENT" : "SEND_FAILED", menu.SourceGuid,
+                $"textId={menu.TextId}");
+        }
     }
 
     private void ApplyNpcText(byte[] body)
     {
         NpcText text = GossipPackets.ParseText(body);
+        _npcTextRecords[text.TextId] = text;
         if (_gossipMenu is null || text.TextId != _gossipMenu.TextId)
         {
             EmitInterface("gossip", "text", "IGNORED_STALE", 0,
                 $"textId={text.TextId};openTextId={_gossipMenu?.TextId ?? 0}");
             return;
         }
-        _gossipText = text;
+        byte sourceGender = _entities.TryGet(_gossipMenu.SourceGuid, out WorldEntity source)
+            ? source.Fields.Bytes0.Gender
+            : (byte)0;
+        _gossipGreeting = DrawGossipGreeting(text, sourceGender);
         EmitInterface("gossip", "text", "DECODED", _gossipMenu.SourceGuid,
-            $"textId={text.TextId};maleChars={text.MaleText.Length};femaleChars={text.FemaleText.Length}");
+            $"textId={text.TextId};blocks={text.Blocks.Count};gender={sourceGender};selectedChars={_gossipGreeting.Length}");
     }
+
+    private static string DrawGossipGreeting(NpcText text, byte sourceGender) =>
+        GossipUiLaw.SelectGreeting(text.Blocks, sourceGender,
+            GossipUiLaw.GreetingRoll(Random.Shared)) ?? "";
 
     private bool SelectGossipOption(int visualIndex)
     {
@@ -213,7 +260,7 @@ public sealed partial class GameLoop
         // Match the established NPC-frame title box used by QuestFrame: centered in the header
         // bar at y=30, not centered on the bar's upper border.
         DrawNpcModalTitle(dl,sourceName,p+new Vector2(192,30)*s,s);
-        string greeting = _gossipText?.MaleText ?? $"Loading text {_gossipMenu.TextId}...";
+        string greeting = _gossipGreeting ?? $"Loading text {_gossipMenu.TextId}...";
         // GossipGreetingScrollFrame TOPLEFT (23,-81), then GossipGreetingText
         // TOPLEFT (10,-10), width 270, inherits QuestFont.
         float used=DrawQuestWrappedText(dl,ExpandQuestText(greeting),
@@ -226,7 +273,7 @@ public sealed partial class GameLoop
         {
             GossipOption option = _gossipMenu.Options[i];
             if (DrawGossipTitleRow(dl,$"##gossip-option-{i}",
-                    p+new Vector2(23,rowY)*s,s,option.Text,GossipOptionIcon(option.Icon),
+                    p+new Vector2(23,rowY)*s,s,option.Text,GossipUiLaw.OptionIcon(option.Icon),
                     out float rowHeight)) SelectGossipOption(i);
             rowY+=rowHeight;
         }
@@ -235,7 +282,7 @@ public sealed partial class GameLoop
             string title = $"[{quest.Level}] {ExpandQuestText(quest.Title)}";
             if (DrawGossipTitleRow(dl,$"##gossip-quest-{quest.QuestId}",
                     p+new Vector2(23,rowY)*s,s,title,
-                    @"Interface\GossipFrame\AvailableQuestIcon",out float rowHeight))
+                    GossipUiLaw.QuestIcon(quest.Icon),out float rowHeight))
             {
                 if (QuestFrameUiLaw.GreetingAction(quest.Icon) == QuestGreetingAction.Complete)
                     RequestQuestCompletion(_gossipMenu.SourceGuid, quest.QuestId);
@@ -272,18 +319,4 @@ public sealed partial class GameLoop
         return clicked;
     }
 
-    private static string GossipOptionIcon(byte icon) => icon switch
-    {
-        1 => @"Interface\GossipFrame\VendorGossipIcon",
-        2 => @"Interface\GossipFrame\TaxiGossipIcon",
-        3 => @"Interface\GossipFrame\TrainerGossipIcon",
-        4 => @"Interface\GossipFrame\HealerGossipIcon",
-        5 => @"Interface\GossipFrame\BinderGossipIcon",
-        6 => @"Interface\GossipFrame\BankerGossipIcon",
-        7 => @"Interface\GossipFrame\PetitionGossipIcon",
-        8 => @"Interface\GossipFrame\TabardGossipIcon",
-        9 => @"Interface\GossipFrame\BattleMasterGossipIcon",
-        10 => @"Interface\GossipFrame\AuctioneerGossipIcon",
-        _ => @"Interface\GossipFrame\GossipGossipIcon",
-    };
 }

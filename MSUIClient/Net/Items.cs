@@ -4,6 +4,13 @@ namespace MSUIClient.Net;
 
 public readonly record struct ItemStat(uint Type, int Value);
 public readonly record struct ItemDamage(float Min, float Max, uint School);
+public readonly record struct ItemSpellTemplate(
+    uint SpellId,
+    uint Trigger,
+    int Charges,
+    int CooldownMs,
+    uint Category,
+    int CategoryCooldownMs);
 
 public sealed class ItemTemplate
 {
@@ -25,6 +32,8 @@ public sealed class ItemTemplate
     public uint RequiredSkill;
     public uint RequiredSkillRank;
     public uint RequiredSpell;
+    public uint RequiredReputationFaction;
+    public uint RequiredReputationRank;
     public uint MaxCount;
     public uint Stackable;
     public uint ContainerSlots;
@@ -32,11 +41,15 @@ public sealed class ItemTemplate
     public List<ItemDamage> Damages = [];
     public uint Armor;
     public uint Block;
+    public uint MaxDurability;
     public uint[] Resistances = new uint[6];
     public uint DelayMs;
     public uint Bonding;
     public string Description = "";
+    public uint PageText;
+    public uint PageMaterial;
     public uint StartQuest;
+    public uint LockId;
     public uint Material;
     public uint Sheath;
     public byte UseSpellIndex;
@@ -45,6 +58,9 @@ public sealed class ItemTemplate
     public int UseSpellCharges;
     public bool HasNegativeOnUseCharges;
     public int SpellCharges0;
+    public ItemSpellTemplate[] Spells = new ItemSpellTemplate[5];
+    public uint RandomProperty;
+    public uint ItemSet;
     public uint BagFamily;
 
     public static ItemTemplate? Parse(byte[] body)
@@ -73,7 +89,9 @@ public sealed class ItemTemplate
         item.RequiredSkill = r.ReadU32();
         item.RequiredSkillRank = r.ReadU32();
         item.RequiredSpell = r.ReadU32();
-        r.ReadU32(); r.ReadU32(); r.ReadU32(); r.ReadU32(); // honor/city/reputation
+        r.ReadU32(); r.ReadU32(); // honor rank / city rank
+        item.RequiredReputationFaction = r.ReadU32();
+        item.RequiredReputationRank = r.ReadU32();
         item.MaxCount = r.ReadU32();
         item.Stackable = r.ReadU32();
         item.ContainerSlots = r.ReadU32();
@@ -97,7 +115,11 @@ public sealed class ItemTemplate
             uint spell = r.ReadU32();
             uint trigger = r.ReadU32();
             int charges = r.ReadI32();
-            r.ReadI32(); uint category = r.ReadU32(); r.ReadI32();
+            int cooldown = r.ReadI32();
+            uint category = r.ReadU32();
+            int categoryCooldown = r.ReadI32();
+            item.Spells[block] = new ItemSpellTemplate(spell, trigger, charges, cooldown,
+                category, categoryCooldown);
             if (block == 0) item.SpellCharges0 = charges;
             if (spell != 0 && trigger == 0 && charges < 0)
                 item.HasNegativeOnUseCharges = true;
@@ -112,15 +134,17 @@ public sealed class ItemTemplate
         }
         item.Bonding = r.ReadU32();
         item.Description = r.ReadCString();
-        r.Skip(3 * 4);              // page text/language/page material
+        item.PageText = r.ReadU32();
+        r.ReadU32();                // language
+        item.PageMaterial = r.ReadU32();
         item.StartQuest = r.ReadU32();
-        r.ReadU32();                // lock id
+        item.LockId = r.ReadU32();
         item.Material = r.ReadU32();
         item.Sheath = r.ReadU32();
-        r.ReadU32();                 // random property
+        item.RandomProperty = r.ReadU32();
         item.Block = r.ReadU32();
-        r.ReadU32();                 // item set
-        r.ReadU32();                 // max durability
+        item.ItemSet = r.ReadU32();
+        item.MaxDurability = r.ReadU32();
         r.ReadU32();                 // area
         r.ReadU32();                 // map
         item.BagFamily = r.ReadU32();

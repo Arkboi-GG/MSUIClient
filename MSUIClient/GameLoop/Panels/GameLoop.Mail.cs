@@ -128,7 +128,8 @@ public sealed partial class GameLoop
         if (_net is null || _controller is null ||
             !_entities.TryGet(guid, out WorldEntity mailbox) || !mailbox.IsGameObject ||
             mailbox.GameObjectType != 19 ||
-            Vector3.Distance(_controller.Position, mailbox.Position) > MailUiLaw.InteractionDistance)
+            !NpcSessionUiLaw.InRange(
+                Vector3.DistanceSquared(_controller.Position, mailbox.Position)))
             return false;
 
         bool newMailbox = !_mailOpen || _mailboxGuid != guid;
@@ -213,8 +214,12 @@ public sealed partial class GameLoop
         // Synthetic/live-run mail panels deliberately have no world mailbox. Only enforce
         // the vanilla five-yard auto-close rule for a panel opened from a real mailbox.
         if (_mailboxGuid == 0) return;
-        if (_controller is null || !_entities.TryGet(_mailboxGuid, out WorldEntity mailbox) ||
-            Vector3.Distance(_controller.Position, mailbox.Position) > MailUiLaw.InteractionDistance)
+        if (_controller is null) return;
+        bool sourceAvailable = _entities.TryGet(_mailboxGuid, out WorldEntity mailbox);
+        float distanceSquared = sourceAvailable
+            ? Vector3.DistanceSquared(_controller.Position, mailbox.Position)
+            : float.PositiveInfinity;
+        if (NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
             CloseMailSession();
     }
 

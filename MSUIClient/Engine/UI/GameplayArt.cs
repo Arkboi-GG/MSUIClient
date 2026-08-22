@@ -12,6 +12,7 @@ public sealed class GameplayArt : IDisposable
     private readonly GL _gl;
     private readonly MpqMount _mpq;
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Texture?> _repeatTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _additiveTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _brightHighlightTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _circularTextures = new(StringComparer.OrdinalIgnoreCase);
@@ -37,6 +38,25 @@ public sealed class GameplayArt : IDisposable
     }
 
     public uint Handle(string path) => Get(path)?.Handle ?? 0;
+
+    /// <summary>Resolve UI art with repeat addressing (Backdrop edge strips).</summary>
+    public uint RepeatHandle(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return 0;
+        if (!path.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)) path += ".blp";
+        if (_repeatTextures.TryGetValue(path, out Texture? cached)) return cached?.Handle ?? 0;
+        try
+        {
+            byte[]? bytes = _mpq.ReadFile(path);
+            if (bytes is null) { _repeatTextures[path] = null; return 0; }
+            byte[] bgra = BlpDecoder.GetPixels(bytes, 0, out int width, out int height);
+            Texture texture = Texture.From2D(_gl, bgra, width, height,
+                mipmaps: false, repeat: true);
+            _repeatTextures[path] = texture;
+            return texture.Handle;
+        }
+        catch { _repeatTextures[path] = null; return 0; }
+    }
 
     /// <summary>Return only an already-resolved UI texture; never reads MPQ data.</summary>
     public bool TryHandle(string path, out uint handle)
@@ -291,12 +311,14 @@ public sealed class GameplayArt : IDisposable
     public void Dispose()
     {
         foreach (Texture texture in _textures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
+        foreach (Texture texture in _repeatTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _additiveTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _brightHighlightTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _circularTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         // Styled copies are owned solely by this cache - nothing else holds them.
         ClearPainterlyCache();
         _textures.Clear();
+        _repeatTextures.Clear();
         _additiveTextures.Clear();
         _brightHighlightTextures.Clear();
         _circularTextures.Clear();

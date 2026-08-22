@@ -84,8 +84,9 @@ public sealed class GameSettings
     /// v6: Lighting.UseAuthoredData became Lighting.Mode (MSUI Lighting / 1.12 Parity)
     ///     and the WMO doorway-spill multiplier became persisted (InteriorSpill).
     /// v7: Lighting.CycleTimeOfDay became Lighting.TimeSource, defaulting to tracking
-    ///     the server's game clock instead of a world pinned at noon.</summary>
-    public int Version { get; set; } = 7;
+    ///     the server's game clock instead of a world pinned at noon.
+    /// v8: Escape/Options menu scale became independent from gameplay Interface scale.</summary>
+    public int Version { get; set; } = 9;
 
     /// <summary>Name of the preset last selected, or "Custom". Cosmetic; the values below are the truth.</summary>
     public string ActivePreset { get; set; } = "Custom";
@@ -217,10 +218,26 @@ public sealed class GameSettings
     /// </summary>
     public sealed class MenuLayoutSettings
     {
+        /// <summary>
+        /// Escape/Options chrome scale. It is deliberately independent of Display.UiScale so the
+        /// menu containing that global slider never resizes itself through a feedback loop.
+        /// </summary>
+        public float Scale { get; set; } = 1.8f;
+
+        /// <summary>
+        /// Escape/Options text size. This lives beside the menu's own chrome scale because the
+        /// ImGui font is used by these menus, not by the exact-pixel gameplay frames.
+        /// </summary>
+        public float TextScale { get; set; } = 1f;
+
+        public float MainWidth { get; set; }
+        public float MainHeight { get; set; }
         public float VideoWidth { get; set; }
         public float VideoHeight { get; set; }
         public float ControlsWidth { get; set; }
         public float ControlsHeight { get; set; }
+        public float SoundWidth { get; set; }
+        public float SoundHeight { get; set; }
     }
 
     /// <summary>
@@ -374,7 +391,8 @@ public sealed class GameSettings
         public bool MultisamplingEnabled { get; set; } = true;    // live (the GL enable, not the count)
         public float Anisotropy { get; set; } = 8f;               // restart
         public float UiScale { get; set; } = 1.8f;                // live
-        public float FontScale { get; set; } = 1f;                // live - text only, independent of UiScale
+        // Legacy v8 migration source. MenuLayout.TextScale now owns Escape/Options text.
+        public float FontScale { get; set; } = 1f;
         public bool TexturedFrame { get; set; } = true;           // live - WowSkin.Textured
 
         // Painterly mode (Engine/PainterlyPass.cs) - all live. The shipped
@@ -772,6 +790,11 @@ public sealed class GameSettings
         public float MaxCameraDistance { get; set; } = 40f;
         public float EyeHeight { get; set; } = 2.2f;
         public float TurnSpeedDegrees { get; set; } = 180f;
+        public bool ShowPlayerNames { get; set; } = true;
+        public bool ShowNpcNames { get; set; } = true;
+        public bool ShowOwnName { get; set; } = true;
+        public bool ChatBubbles { get; set; } = true;
+        public bool PartyChatBubbles { get; set; } = true;
 
         /// <summary>CRPG/RTS command strips beside the party portraits (roles, hold, patrol).</summary>
         public bool RtsCommands { get; set; }
@@ -1313,6 +1336,25 @@ public sealed class SettingsStore
         {
             s.Lighting.TimeSource = legacyCycleTimeOfDay ? TimeSource.Cycle : TimeSource.Server;
             s.Version = 7;
+        }
+
+        // v7 -> v8: the Escape/Options windows get their own scale. Seed it from the user's
+        // existing Interface scale once so the menu opens at exactly the size they already chose,
+        // then the two controls are permanently independent.
+        if (s.Version < 8)
+        {
+            s.MenuLayout ??= new GameSettings.MenuLayoutSettings();
+            s.MenuLayout.Scale = Math.Clamp(s.Display.UiScale, 0.5f, 4f);
+            s.Version = 8;
+        }
+
+        // v8 -> v9: FontScale only ever sized the ImGui Escape/Options type. Move ownership next
+        // to the menu's independent chrome scale and preserve the user's existing value once.
+        if (s.Version < 9)
+        {
+            s.MenuLayout ??= new GameSettings.MenuLayoutSettings();
+            s.MenuLayout.TextScale = Math.Clamp(s.Display.FontScale, 0.5f, 3f);
+            s.Version = 9;
         }
     }
 

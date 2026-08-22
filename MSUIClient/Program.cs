@@ -309,8 +309,7 @@ public static partial class Program
         {
             UiFontPath = uiFontPath,
             UiFontSize = MSUIClient.Engine.UI.UiFont.SizeFor(config.Window.UiScale),
-            // Same conversion GameplayUiScale applies at runtime, for the load-time retarget
-            // (a window that opens maximised must bake for its real size, not the config's).
+            // Same live-framebuffer proportional law GameplayUiScale applies at runtime.
             GameplayTextScaleRule = (w, h) =>
                 GameLoop.GameplayUiScaleFor(w, h, config.Window.UiScale),
         };
@@ -361,7 +360,8 @@ public static partial class Program
         config.Window.VSync = settings.Display.VSync;
         config.Window.Fullscreen = settings.Display.Fullscreen;
         config.Window.UiScale = Math.Clamp(settings.Display.UiScale, 0.5f, 4f);
-        config.Window.FontScale = Math.Clamp(settings.Display.FontScale, 0.5f, 3f);
+        config.Window.FontScale = Math.Clamp(
+            settings.MenuLayout?.TextScale ?? settings.Display.FontScale, 0.5f, 3f);
 
         config.Render.MsaaSamples = Math.Clamp(settings.Display.MsaaSamples, 1, 16);
         config.Render.Anisotropy = Math.Clamp(settings.Display.Anisotropy, 1f, 16f);
@@ -402,6 +402,7 @@ public sealed partial class GameLoop : IDisposable
     private TerrainRenderer? _terrain;
     private CharacterController? _controller;
     private bool _movementRooted;
+    private float? _serverTurnRate;
     private bool _iceBlockFrozen;
     private float _iceBlockFacing;
     private CollisionWorld? _collision;
@@ -500,6 +501,7 @@ public sealed partial class GameLoop : IDisposable
 
     /// <summary>Edge detection for the fly toggle — IsDown reports held, not pressed.</summary>
     private bool _flyKeyDown;
+    private bool _mountSpecialJumpDown;
     private bool _collisionKeyDown;
     private bool _pickButtonDown;
 
@@ -1637,6 +1639,7 @@ public sealed partial class GameLoop : IDisposable
             ImGui.GetIO().WantTextInput,
             _settingsOpen,
             _bindingCapture is not null);
+        UpdateBindingLatches(typing);
         UpdateSpellFxInspectorInput(typing);
         UpdateActionBarInput(typing);
         UpdateInventoryInput(typing);
@@ -1645,6 +1648,7 @@ public sealed partial class GameLoop : IDisposable
         UpdateWorldMapInput(typing);
         UpdateTargetBinding(typing);
         UpdateNameplateInput(typing);
+        UpdateUiHideBinding(typing);
         UpdateControlInput(typing);
         UpdateCommanderMap();
         UpdateRunBinding(typing);
@@ -1652,6 +1656,11 @@ public sealed partial class GameLoop : IDisposable
         UpdatePortraitLabInput(typing);
         UpdateQuestNpcLifecycle();
         UpdateVendorLifecycle();
+        UpdateGossipLifecycle();
+        UpdateTrainerLifecycle();
+        UpdateTaxiLifecycle();
+        UpdateBankLifecycle();
+        UpdateNpcGreetingLifecycle();
         // Encounter Lab playback: the ONLY place wall clock reaches the simulator,
         // and it only ever decides how many fixed steps to take. No-op while the
         // window is closed or paused.
@@ -1775,6 +1784,8 @@ public sealed partial class GameLoop : IDisposable
             BindingAxis(GameBinding.MoveForward, GameBinding.MoveBackward) +
             _window.Axis(Key.Up, Key.Down), -1f, 1f);
 
+        ApplyAutoFollowInput(ref forward, dt, typing, mouseSteering);
+
         bool scriptedJump = false;
         OverrideMovementInput(ref forward, ref strafe, ref turn, ref shift, ref scriptedJump);
         ApplyTaxiInputLockout(ref forward, ref strafe, ref turn, ref scriptedJump);
@@ -1805,7 +1816,8 @@ public sealed partial class GameLoop : IDisposable
         // Mouse steering is deliberately NOT rate-limited: it is a direct
         // pointing device and the client does not throttle it either.
         bool translating = MathF.Abs(forward) > 0.01f || MathF.Abs(strafe) > 0.01f;
-        float turnRate = _turnSpeed * (translating ? TurnRateMoving : 1f) * MountTurnMultiplier();
+        float baseTurnRate = _serverTurnRate ?? _turnSpeed;
+        float turnRate = baseTurnRate * (translating ? TurnRateMoving : 1f) * MountTurnMultiplier();
 
         if (turn != 0f) _window.Camera.Rotate(turn * turnRate * dt, 0f);
 
@@ -1832,11 +1844,32 @@ public sealed partial class GameLoop : IDisposable
             Boost = shift && _controller.Flying,
         };
 
+        // Vanilla diverts a grounded, idle mounted Jump press into MountSpecial(94). Turning
+        // alone consumes the press silently; translating keeps the ordinary jump. The opcode is
+        // guidless, so never volunteer the logged-in character's flourish while driving a bot.
+        bool jumpCommandDown = input.Jump;
+        if (ControlledGuid == LocalPlayerGuid && SelfMountDisplayId() != 0 &&
+            input.Jump && !translating && _controller.Grounded)
+        {
+            input.Jump = false;
+            input.Up = 0f;
+            if (!_mountSpecialJumpDown && MathF.Abs(turn) <= 0.01f && _net?.MountSpecial() == true)
+                _creatures?.TriggerMountFlourish(LocalPlayerGuid);
+        }
+        _mountSpecialJumpDown = jumpCommandDown;
+
         UpdateCastMovementInput(translating || input.Jump);
 
         ApplyMountHandling();
 
+        _controller.ExternalWalkableSurfaceZ = null;
+        if (_controller.WaterWalking && _liquid is not null &&
+            _liquid.TryGetSurface(_controller.Position.X, _controller.Position.Y,
+                out float walkableLiquidZ, out _))
+            _controller.ExternalWalkableSurfaceZ = walkableLiquidZ;
+
         bool movementWasGrounded = _controller.Grounded;
+        bool movementWasFlying = _controller.Flying;
         float movementPreviousFallMs = _controller.FallTimeMs;
         Vector3 movementPreviousPosition = _controller.Position;
         long phaseStarted = Stopwatch.GetTimestamp();
@@ -1849,6 +1882,10 @@ public sealed partial class GameLoop : IDisposable
         // where we picked it up — the selection ring is the visible one, sitting on the ground
         // behind you as you run off.
         SyncDrivenEntityToController();
+        ObserveControlledHardLanding(
+            movementWasGrounded, _controller.Grounded,
+            movementWasFlying, _controller.Flying,
+            movementPreviousPosition.Z, _controller.Position.Z);
         if (_net is { IsInWorld: true })
         {
             bool movementJumped = movementWasGrounded && !_controller.Grounded &&
@@ -1873,7 +1910,7 @@ public sealed partial class GameLoop : IDisposable
         // Portals (PLAN_13 stage 2b). AFTER residency, so the volume test runs
         // against the map we are actually on rather than the one we were on
         // when the frame began.
-        UpdatePortals();
+        UpdateAreaTriggers();
         _residencyMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
 
         // WoWee gives ready assets a small main-thread integration budget.
@@ -1891,6 +1928,7 @@ public sealed partial class GameLoop : IDisposable
         // Server gameobjects (signs, mailboxes, chests) ride the same doodad
         // renderer as dynamic per-GUID placements, resynced every frame.
         UpdateGameObjectDoodads();
+        UpdateGameObjectSounds();
         _doodadDemandMilliseconds = Stopwatch.GetElapsedTime(subStarted).TotalMilliseconds;
 
         // NOTE the budget only gates the SECOND WMO/doodad warm call. Those
@@ -1957,6 +1995,7 @@ public sealed partial class GameLoop : IDisposable
         // Target picking uses the final camera and final collision world for this frame.
         UpdateTargeting();
         UpdateCombatFeedback(dt);
+        UpdateDuel();
         UpdateSpellPresentation();
         UpdateCreatorSpellLoop();
         UpdateCreatorLocationPersist();
@@ -2149,6 +2188,8 @@ public sealed partial class GameLoop : IDisposable
         Walking = _walking,
         Flying = _controller?.Flying ?? false,
         Engaged = _net is not null && _combat.IsEngaged(ControlledGuid),
+        StandState = _entities.TryGet(ControlledGuid, out WorldEntity poseUnit)
+            ? poseUnit.Fields.UnitStandState : (byte)0,
         FreezePose = _iceBlockFrozen,
 
         Forward = _moveForward,
@@ -2424,7 +2465,9 @@ public sealed partial class GameLoop : IDisposable
                 spellNow, SpellEffectUnitPose);
             if (_spellParticles is not null)
                 spellMeshes = spellMeshes.Concat(_spellParticles.GeometryInstances());
+            spellMeshes = spellMeshes.Concat(QuestMarkerMeshInstances(spellNow));
             _spellEffectMeshes.Render(_window.Camera, spellMeshes, SpellGroundHeight);
+            _spellEffectMeshes.RenderWorldBillboards(_window.Camera, RaidMarkerBillboards());
             // Armed location-target reticle: the rune circle follows the cursor and spans the
             // largest populated Spell.dbc effect radius. The compatibility fallback is reached
             // only by placement spells whose effect lanes author no radius at all.
@@ -2814,7 +2857,11 @@ public sealed partial class GameLoop : IDisposable
         // or a UI-scale change retargets the em sizes and ClientWindow rebuilds the atlas
         // between frames. Without this, gameplay text silently upscales the nearest bake and
         // goes soft (the exact defect GameTextLaw exists to remove).
-        _window.EnsureGameplayTextScale(GameplayUiScale());
+        float gameplayScale = GameplayUiScale();
+        _window.EnsureGameplayTextScale(gameplayScale);
+        // WowSkin is shared chrome state. Establish gameplay's proportional value before NetHud
+        // draws, then the Escape menu may temporarily replace it with its independent gear scale.
+        if (_skin is not null) _skin.Scale = gameplayScale;
 
         // The native loading curtain is an exclusive screen. ImGui is composited
         // after the world pass, so allowing it to run here would paint gameplay

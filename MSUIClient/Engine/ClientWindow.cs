@@ -1,11 +1,13 @@
 using System.Numerics;
 using System.Diagnostics;
 using Silk.NET.Input;
+using Silk.NET.Core;
 using Silk.NET.Maths;
 using Silk.NET.OpenGL;
 using Silk.NET.OpenGL.Extensions.ImGui;
 using Silk.NET.Windowing;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 
 namespace MSUIClient.Engine;
 
@@ -66,6 +68,8 @@ public sealed class ClientWindow : IDisposable
     private IInputContext _input = null!;
     private ImGuiController _imgui = null!;
     private IMouse? _mouse;
+    private string _hardwareCursorKey = "";
+    private bool _hardwareCursorRequested;
 
     public GL Gl => _gl;
     public Camera Camera { get; } = new();
@@ -327,9 +331,11 @@ public sealed class ClientWindow : IDisposable
         _rightWorldPress = default;
     }
 
-    /// <summary>Window size in pixels, for unprojecting the cursor into a ray.</summary>
+    /// <summary>Live framebuffer size in physical pixels, for UI layout and cursor unprojection.</summary>
     public Vector2 FramebufferSize
-        => _window is null ? Vector2.One : new Vector2(_window.Size.X, _window.Size.Y);
+        => _window is null
+            ? Vector2.One
+            : new Vector2(_window.FramebufferSize.X, _window.FramebufferSize.Y);
 
     /// <summary>Motion events seen since start. Frozen means no events arrive at all.</summary>
     public int MouseMoveEvents { get; private set; }
@@ -342,6 +348,59 @@ public sealed class ClientWindow : IDisposable
 
     /// <summary>What the cursor mode actually ended up as, which is not always what was asked for.</summary>
     public string CursorModeName { get; private set; } = "Normal";
+
+    /// <summary>Starts one cursor-authority frame. A custom cursor must renew its claim.</summary>
+    public void BeginHardwareCursorFrame() => _hardwareCursorRequested = false;
+
+    /// <summary>
+    /// Installs a real OS cursor. Silk owns the platform handle; MSUI retains the RGBA memory in
+    /// its cursor cache and only changes the native image when the classified stem changes.
+    /// </summary>
+    public bool UseHardwareCursor(string key, in HardwareCursorImage image)
+    {
+        if (_mouse is null || _mouseCaptured || string.IsNullOrWhiteSpace(key)) return false;
+        _hardwareCursorRequested = true;
+        try
+        {
+            ICursor cursor = _mouse.Cursor;
+            cursor.CursorMode = CursorMode.Normal;
+            if (_hardwareCursorKey.Equals(key, StringComparison.OrdinalIgnoreCase) &&
+                cursor.Type == CursorType.Custom)
+                return true;
+
+            cursor.Image = new RawImage(image.Width, image.Height, image.Rgba);
+            cursor.HotspotX = 0;
+            cursor.HotspotY = 0;
+            cursor.Type = CursorType.Custom;
+            _hardwareCursorKey = key;
+            CursorModeName = $"Custom:{key}";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _hardwareCursorRequested = false;
+            _hardwareCursorKey = "";
+            Console.WriteLine($"[input] hardware cursor {key} failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>Releases stale custom authority when no surface requested one this frame.</summary>
+    public void EndHardwareCursorFrame()
+    {
+        if (_hardwareCursorRequested || _mouse is null || _hardwareCursorKey.Length == 0) return;
+        try
+        {
+            _mouse.Cursor.Type = CursorType.Standard;
+            _mouse.Cursor.StandardCursor = StandardCursor.Default;
+            _hardwareCursorKey = "";
+            CursorModeName = _mouse.Cursor.CursorMode.ToString();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[input] standard cursor restore failed: {ex.Message}");
+        }
+    }
 
     /// <summary>
     /// Raw cursor mode: unbounded look, cursor hidden and locked. Turn it OFF if
@@ -364,9 +423,9 @@ public sealed class ClientWindow : IDisposable
     public int UiFontSize { get; set; } = 13;
 
     /// <summary>
-    /// Maps a framebuffer size to the gameplay text scale (set by Program.Main to the same rule
-    /// GameplayUiScale uses). Load-time seed for GameTextLaw so a window that opens maximised
-    /// still bakes exact-size gameplay fonts for its REAL size, not the configured one.
+    /// Maps the current framebuffer callback to the gameplay text scale (set by Program.Main to
+    /// the same proportional current-window law GameplayUiScale uses), so maximising also rebakes
+    /// exact gameplay fonts at their new draw size.
     /// </summary>
     public Func<float, float, float>? GameplayTextScaleRule { get; set; }
 

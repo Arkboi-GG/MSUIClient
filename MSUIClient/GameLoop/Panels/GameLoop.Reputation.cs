@@ -65,4 +65,26 @@ public sealed partial class GameLoop
         < 42000 => ("Revered", 21000, 42000, 0xff1a9900),
         _ => ("Exalted", 42000, 43000, 0xff1a9900),
     };
+
+    private static byte ReputationRankIndex(int standing) => standing switch
+    {
+        < -6000 => 0,
+        < -3000 => 1,
+        < 0 => 2,
+        < 3000 => 3,
+        < 9000 => 4,
+        < 21000 => 5,
+        < 42000 => 6,
+        _ => 7,
+    };
+
+    private byte CurrentReputationRank(uint factionId, byte race, byte playerClass)
+    {
+        if (_factionCatalog?.TryGetById(factionId, out FactionInfo info) != true ||
+            info.ReputationIndex is < 0 or >= 64)
+            return 0;
+        ReputationState? state = _reputation[info.ReputationIndex];
+        int standing = info.BaseStanding(race, playerClass) + (state?.Standing ?? 0);
+        return ReputationRankIndex(standing);
+    }
 }

@@ -463,6 +463,18 @@ public sealed partial class GameLoop
                 // Addressed packet — self-routes to the right store by embedded caster guid.
                 ApplyAddressedSpellCooldowns(inner);
                 break;
+            case Op.SMSG_ITEM_COOLDOWN:
+                ApplyItemCooldown(inner, store);
+                break;
+            case Op.SMSG_COOLDOWN_EVENT:
+                ApplyCooldownEvent(inner, clear: false);
+                break;
+            case Op.SMSG_CLEAR_COOLDOWN:
+                ApplyCooldownEvent(inner, clear: true);
+                break;
+            case Op.SMSG_COOLDOWN_CHEAT:
+                ApplyCooldownCheat(inner);
+                break;
             case Op.SMSG_CAST_RESULT:
                 {
                     var result = SpellPacketParser.ParseResult(inner);
@@ -471,7 +483,6 @@ public sealed partial class GameLoop
                 }
                 break;
             default:
-                // COOLDOWN_EVENT / CLEAR_COOLDOWN and future whitelist growth: ignored in v1.0.
                 break;
         }
     }
@@ -668,6 +679,7 @@ public sealed partial class GameLoop
     /// </summary>
     private void SeatControllerOnControlled(float x, float y, float z, float o)
     {
+        ResetControlledHardLandingArc();
         if (_freeView)
         {
             _freecamRequested = false;
@@ -1394,7 +1406,7 @@ public sealed partial class GameLoop
     {
         if (_playerNames.TryGetValue(guid, out string? playerName)) return playerName;
         if (_entities.TryGet(guid, out WorldEntity unit) && unit.IsCreature &&
-            _creatureNames.TryGetValue(unit.Entry, out string? creatureName)) return creatureName;
+            ResolveCreatureOrPetName(unit, "") is { Length: > 0 } creatureName) return creatureName;
         return "target";
     }
 

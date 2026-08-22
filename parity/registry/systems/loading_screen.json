@@ -7,18 +7,20 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/loading_screen.rs",
-      "fileSha256": "e90afd49bc4039bfb0e9856787a6bad158d46f4c2eb7e5ebcac986fec3c3e807",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "6ae8c703e93df6c5444166552b8d46910a1675389303315c2f256f7ce08eb6fa",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.Loading.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Loading.cs",
     "MSUIClient/Engine/LoadingScreen.cs",
-    "MSUIClient/Program.Net.cs",
-    "MSUIClient/Net/NetworkClient.cs"
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/Net/SessionTransferPackets.cs",
+    "tools/interface-wire-check/SessionTransferClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "MSUI implements the same event-raised, readiness-cleared model, explicitly patterned on Benilla (BENILLA_VS_MSUI_LOADING.md): the curtain arms at the Enter World click (ArmEnterWorldCurtain), per-map art resolves through the verified Map.dbc -> LoadingScreens.dbc -> BLP chain with a per-path decode cache, the bar draws the 1.12 two-layer Loading-BarBorder/Loading-BarFill art, progress is monotonic (BumpProgress), and the clear is gated on real residency: terrain ring, warmed+placed WMOs, near doodads drained behind the curtain, collision built under the player, appearance-ready avatar, then a pipeline-warm fade. Cross-map SMSG_NEW_WORLD re-arms the whole cycle via the world-entry transition stages.",
+  "status": "implemented-unverified",
+  "summary": "MSUI implements the same event-raised, readiness-cleared model: the curtain arms at Enter World and immediately on an ordinary SMSG_TRANSFER_PENDING, while transport crossings remain visible; per-map art resolves through Map.dbc -> LoadingScreens.dbc -> BLP with a decode cache; the bar uses the 1.12 border/fill art; progress is monotonic; and reveal waits for terrain, WMO/doodad/liquid placement, collision, avatar appearance, and pipeline warmup. A parsed SMSG_TRANSFER_ABORTED lowers a merely pending curtain without interrupting an adopted load.",
   "openItems": [
     {
       "id": "item-triage-d36645f8",
@@ -26,7 +28,8 @@
       "text": "SMSG_TRANSFER_PENDING does not raise the cover: the curtain only rises when SMSG_NEW_WORLD lands, so a portal walk-in shows the old (already-unloading) world for the server's transfer gap where the reference covers immediately",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: the ordered net drain parses TRANSFER_PENDING and raises ArmEnterWorldCurtain immediately for ordinary far transfers, before NEW_WORLD; the optional transport block deliberately suppresses that cover, and TRANSFER_ABORTED cancels the pending curtain. Focused golden/body and source-wiring checks pass."
     }
   ],
   "claims": [],

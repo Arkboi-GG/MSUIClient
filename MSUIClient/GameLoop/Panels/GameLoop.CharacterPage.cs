@@ -15,6 +15,8 @@ public sealed partial class GameLoop
     private bool _skillsKeyWasDown;
     private int _characterTab;
     private SkillLineCatalog? _skillLines;
+    private ItemSubClassCatalog? _itemSubClasses;
+    private ItemSetCatalog? _itemSets;
     private readonly HashSet<uint> _collapsedSkillCategories = new();
     private readonly HashSet<uint> _collapsedReputationHeaders = new();
     private int _skillScroll;
@@ -25,6 +27,10 @@ public sealed partial class GameLoop
         if (_mpq is null) return;
         try { _skillLines = SkillLineCatalog.Load(_mpq); }
         catch (Exception ex) { Console.WriteLine($"[character] skill catalog failed: {ex.Message}"); }
+        try { _itemSubClasses = ItemSubClassCatalog.Load(_mpq); }
+        catch (Exception ex) { Console.WriteLine($"[character] item subclass catalog failed: {ex.Message}"); }
+        try { _itemSets = ItemSetCatalog.Load(_mpq); }
+        catch (Exception ex) { Console.WriteLine($"[character] item set catalog failed: {ex.Message}"); }
         InitReputation();
     }
 
@@ -525,7 +531,9 @@ public sealed partial class GameLoop
                 ItemTooltipBodySnapshot body = PrepareItemTooltipBodySnapshot(item,
                     instance?.Fields.ItemStackCount ?? 1,
                     instance?.Fields.ItemDurability ?? 0,
-                    instance?.Fields.ItemMaxDurability ?? 0);
+                    instance?.Fields.ItemMaxDurability ?? 0,
+                    instanceFlags: instance?.Fields.ItemFlags,
+                    liveInstance: instance);
                 OfferPreparedItemTooltip(tooltipOwner, body);
             }
             else
@@ -650,7 +658,7 @@ public sealed partial class GameLoop
         else return false;
         if (!sent) return false;
         // SET_AMMO selects the carried stack's entry; it does not move that stack.
-        if (!isAmmo) AddPendingBagLock(_carriedContainer, _carriedSlot);
+        if (!isAmmo) AddPendingBagLock(_carriedContainer, _carriedSlot, ++_pendingBagOperation);
         ClearCarriedItem();
         _paperDollDirty = true;
         return true;

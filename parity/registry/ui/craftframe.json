@@ -7,22 +7,24 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/CraftFrame.xml",
-      "fileSha256": "44d42e921c574f2d1b1993610ce3923a7c5f216ed8f977b62f08cc7c26ea5e1a",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "fcb8cb351718175c4037d1d884f9e8f92f04b10c7c836b2a93e738a263e56517",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_craft.rs",
-      "fileSha256": "68a1889b5934b60c03ce3ebb2bdc306f79bcb05aece2c598538d6897fb98fd50",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "26f0394100ccdc974d9794c5ee647cbd625d4b6e9ca5692b6c10a0e4d888cbf1",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Professions.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Professions.cs",
+    "MSUIClient/Engine/UI/ProfessionFrameUiLaw.cs",
+    "MSUIClient/Formats/ItemSubClassCatalog.cs",
     "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/ProfessionPanelOpenerLaw.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.UiPanelOwnership.cs"
+    "MSUIClient/GameLoop/Hud/GameLoop.UiPanelOwnership.cs"
   ],
-  "status": "partial",
-  "summary": "MSUI implements the Craft window through its shared profession panel: ProfessionPanelOpenerLaw forks effect-47 openers into TradeSkill vs Craft by EffectMiscValue (exactly the reference law), Program.UiPanelOwnership registers 'BenillaCraftFrame' in the left panel area, and DrawProfessionFrame renders the 384x512 four-quadrant shell with skill name + value/max, an 8-row difficulty-colored recipe list with wheel scroll, product icon/name, reagent grid with have/need counts, tool and spell-focus requirement lines, and Create / Create All / Exit-Cancel buttons with batch casting.",
+  "status": "implemented-unverified",
+  "summary": "MSUI implements current CraftFrame through the shared law-positioned profession panel: exact effect-47 Craft routing, player portrait, 384x512 shell, 268x15 rank StatusBar, flat eight-row Craft list with rank subtext and faux-scroll controls, spell description, product/reagent hover tooltips, dynamic reagent grid, tool/focus requirements, and the Craft-specific Create/Exit action row (no TradeSkill Create All/count controls). Current Benilla's shipped Craft collapse tab remains observably hidden because its engine emits no header rows, so MSUI's absent visible tab is equivalent.",
   "openItems": [
     {
       "id": "item-triage-7d0ca691",
@@ -30,7 +32,8 @@
       "text": "No rank StatusBar (BenillaCraftRankFrame) - skill shown as plain 'value / max' text, no bar fill",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "ProfessionFrameUiLaw defines the exact 268x15 (73,37) rank geometry and stock skill-bar fill/border art; DrawProfessionRankBar paints value/max over the bounded blue fill."
     },
     {
       "id": "item-triage-f8604a59",
@@ -38,7 +41,8 @@
       "text": "No scrollbar widget on the recipe list (Benilla ships the faux-scroll kit with up/down buttons; MSUI is mouse-wheel only)",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "DrawProfessionScrollBar implements the current 16px faux-scroll arrows, cropped stock textures, draggable knob, disabled endpoints, and wheel-linked eight-row offset from ProfessionFrameUiLaw."
     },
     {
       "id": "item-triage-3f721ff4",
@@ -46,7 +50,8 @@
       "text": "No expand/collapse header row or CollapseAll button (Benilla ships them, engine no-op; MSUI omits entirely)",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Adjudicated against current Benilla: CraftExpandButtonFrame ships but Update always hides it because GetCraftInfo never returns a header and Expand/CollapseCraftSkillLine are engine no-ops. MSUI's flat list and absent visible control match that observable behavior."
     },
     {
       "id": "item-triage-17312cff",
@@ -54,12 +59,13 @@
       "text": "No craft description/subtext lines (BenillaCraftDescription, $parentSubText) in the detail pane",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "ProfessionRecipe retains Spell.dbc Rank and Description; Craft rows render the parenthesized rank subtext and the selected recipe renders its wrapped description before the dynamically displaced reagent label/grid."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T01:54:53.6009770+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

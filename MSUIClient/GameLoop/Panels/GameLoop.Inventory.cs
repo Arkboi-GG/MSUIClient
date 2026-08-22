@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Numerics;
 using ImGuiNET;
 using Silk.NET.Input;
@@ -13,12 +14,16 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private ItemTemplateCache? _items;
+    private ItemDisplayTable? _itemDisplays;
+    private ItemGroupSoundsCatalog? _itemGroupSounds;
+    private uint? _previousCoinage;
     private bool _backpackOpen;
     private bool _backpackKeyWasDown;
     private int _carriedContainer = InventoryUiLaw.EmptyContainer;
     private int _carriedSlot = -1;
     private int? _carriedCount;
     private readonly bool[] _equippedBagOpen = new bool[4];
+    private readonly bool[] _bankBagOpen = new bool[InventoryUiLaw.BankBagCount];
     private bool _keyringOpen;
     private readonly List<int> _bagWindowOrder = [];
     private readonly Dictionary<int, Vector2> _bagWindowPositions = [];
@@ -26,6 +31,9 @@ public sealed partial class GameLoop
     private int _splitContainer = InventoryUiLaw.EmptyContainer;
     private int _splitSlot = -1;
     private int _splitMaximum;
+    private Vector2 _splitOwnerTopRight;
+    private bool _splitOwnerVisible;
+    private bool _splitTyped;
     private bool _shoppingTooltipParityCompletionPending;
     private bool _shoppingTooltipParityRendererCollected;
     private ImmutableArray<ShoppingTooltipParityExpectation>
@@ -37,10 +45,16 @@ public sealed partial class GameLoop
     private readonly Dictionary<int, Vector2> _bagButtonPositions = [];
     private int _liveEquipmentSignature;
     private InventoryTransition? _pendingInventoryTransition;
+    private long _pendingBagOperation;
+    private readonly Dictionary<string, string> _inventoryGlobalStrings = [];
+    private bool _inventoryGlobalStringsLoaded;
+    private string? _inventoryGlobalStringsSource;
+    private readonly ItemEnchantTimerState _itemEnchantTimers = new();
+    private readonly Dictionary<uint, uint> _itemProficiencies = [];
 
     private sealed record InventoryTransition(string Kind, ulong ItemGuid, uint Entry, int SourceSlot,
         int DestinationSlot, double SentAt);
-    private sealed record PendingBagLock(ulong Guid, uint Count, double SentAt);
+    private sealed record PendingBagLock(ulong Guid, uint Count, double SentAt, long Operation);
 
     private void InitInventory()
     {
@@ -52,6 +66,9 @@ public sealed partial class GameLoop
             displays = bytes is null ? null : ItemDisplayTable.Parse(bytes);
         }
         catch (Exception ex) { Console.WriteLine($"[items] display catalog failed: {ex.Message}"); }
+        _itemDisplays = displays;
+        try { _itemGroupSounds = ItemGroupSoundsCatalog.Load(_mpq); }
+        catch (Exception ex) { Console.WriteLine($"[items] sound catalog failed: {ex.Message}"); }
         _items = new ItemTemplateCache(displays);
         if (_creatures is not null)
             _creatures.PlayerItemResolver = entry =>
@@ -102,6 +119,30 @@ public sealed partial class GameLoop
         ObserveProfessionSkillTransition();
         ObserveProfessionProductTransition();
         ObserveTalentTransition();
+        ObserveMoneySound();
+    }
+
+    private void ObserveMoneySound()
+    {
+        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        {
+            _previousCoinage = null;
+            return;
+        }
+        uint money = player.Fields.Coinage;
+        uint? previous = _previousCoinage;
+        _previousCoinage = money;
+        if (AcquisitionSoundLaw.PlayCoin(previous, money))
+            PlayUiSound(AcquisitionSoundLaw.CoinCue, AcquisitionSoundLaw.CoinCategory);
+    }
+
+    private void PlayItemPickupSound(uint displayInfoId)
+    {
+        uint? kit = AcquisitionSoundLaw.PickupKit(displayInfoId, _itemDisplays, _itemGroupSounds);
+        if (kit is null) return;
+        Vector3 listener = _controller?.Position ?? Vector3.Zero;
+        _spellSounds?.Play(kit, LocalPlayerGuid, listener, listener,
+            forceLoop: false, trackHold: false, category: AcquisitionSoundLaw.ItemPickupCategory);
     }
 
     private void ObserveInventoryTransition()
@@ -241,14 +282,17 @@ public sealed partial class GameLoop
     private void DrawInventory()
     {
         if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
+        _splitOwnerVisible = false;
         LayoutBagWindows(player);
         DrawBagBar();
         DrawBackpack();
         DrawEquippedBagWindows();
+        DrawBankBagWindows();
         DrawKeyringWindow(player);
         DrawStackSplit();
         DrawItemPushAnimation();
         DrawCarriedItem(player, GameplayUiScale());
+        TryOpenDeleteItemConfirmation();
     }
 
     private void DrawBackpack()
@@ -497,23 +541,35 @@ public sealed partial class GameLoop
                         "KeyRingButton", "CENTER", 0, 0,
                         TexCoords: "0|0|0.5625|0.609375", BlendMode: "BLEND"));
             }
-            uint icon = _gameplayArt.Handle(@"Interface\Buttons\UI-Button-KeyRing");
+            uint icon = _gameplayArt.Handle(InventoryUiLaw.KeyringNormalTexture);
             if (icon != 0) dl.AddImage((nint)icon, min, min + new Vector2(18f, 39f) * s,
-                Vector2.Zero, new Vector2(.5625f, .609375f), 0xffffffff);
+                Vector2.Zero, InventoryUiLaw.KeyringUvMaximum, 0xffffffff);
             ImGui.SetCursorScreenPos(min);
             ImGui.InvisibleButton("##keyring-button", new Vector2(18f, 39f) * s);
+            bool keyringPushed = ImGui.IsItemActive();
+            bool keyringHovered = ImGui.IsItemHovered();
             if (!_settingsOpen && ImGui.IsItemClicked())
             {
                 if (HasCarriedItem) PutCarriedItemInKeyring(player);
                 else SetBagWindowOpen(InventoryUiLaw.KeyringContainer, !_keyringOpen);
+            }
+            if (keyringPushed)
+            {
+                uint pushed = _gameplayArt.Handle(InventoryUiLaw.KeyringPushedTexture);
+                if (pushed != 0) dl.AddImage((nint)pushed, min, min + new Vector2(18f, 39f) * s,
+                    Vector2.Zero, InventoryUiLaw.KeyringUvMaximum);
             }
             if (_keyringOpen)
             {
                 uint check = _gameplayArt.AdditiveHandle(@"Interface\Buttons\CheckButtonHilight");
                 if (check != 0) dl.AddImage((nint)check, min, min + new Vector2(18f, 39f) * s);
             }
-            if (ImGui.IsItemHovered())
+            if (keyringHovered)
             {
+                uint highlight = _gameplayArt.AdditiveHandle(InventoryUiLaw.KeyringHighlightTexture);
+                if (highlight != 0) dl.AddImage((nint)highlight, min,
+                    min + new Vector2(18f, 39f) * s, Vector2.Zero,
+                    InventoryUiLaw.KeyringUvMaximum);
                 OfferPreservedSharedGameTooltipRenderer(new("keyring-button", 0), () =>
                 {
                     ImGui.BeginTooltip();
@@ -542,11 +598,36 @@ public sealed partial class GameLoop
             _items.TryGet(bag.Entry, out ItemTemplate? template);
             int slots = (int)Math.Clamp(bag.Fields.ContainerNumSlots, 1, InventoryUiLaw.MaxContainerSlots);
             if (!_bagWindowPositions.TryGetValue(bagIndex + 1, out Vector2 frameMin)) continue;
-            DrawEquippedBagWindow(frameMin, s, bagIndex, bag, template, slots);
+            DrawContainerBagWindow(frameMin, s, bagIndex + 1, bag, template, slots);
         }
     }
 
-    private void DrawEquippedBagWindow(Vector2 p, float s, int bagIndex, WorldEntity bag,
+    private void DrawBankBagWindows()
+    {
+        if (!_bankOpen || _net is null || _gameplayArt is null || _items is null ||
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
+        float scale = GameplayUiScale();
+        for (int index = 0; index < InventoryUiLaw.BankBagCount; index++)
+        {
+            int container = InventoryUiLaw.BankBagContainerFirst + index;
+            if (!_bankBagOpen[index]) continue;
+            ulong guid = player.Fields.PlayerBankBagSlot(index);
+            if (guid == 0 || !_entities.TryGet(guid, out WorldEntity bag) ||
+                bag.Type is not ObjectTypeId.Container)
+            {
+                SetBagWindowOpen(container, false);
+                continue;
+            }
+            _items.Require(bag.Entry, bag.Guid, _net);
+            _items.TryGet(bag.Entry, out ItemTemplate? template);
+            int slots = (int)Math.Clamp(bag.Fields.ContainerNumSlots, 1,
+                InventoryUiLaw.MaxContainerSlots);
+            if (!_bagWindowPositions.TryGetValue(container, out Vector2 frameMin)) continue;
+            DrawContainerBagWindow(frameMin, scale, container, bag, template, slots);
+        }
+    }
+
+    private void DrawContainerBagWindow(Vector2 p, float s, int container, WorldEntity bag,
         ItemTemplate? bagTemplate, int slots)
     {
         InventoryUiLaw.BackgroundGeometry geometry = InventoryUiLaw.Background(slots);
@@ -554,15 +635,15 @@ public sealed partial class GameLoop
         ImGui.SetNextWindowPos(p - new Vector2(64, 0) * s, ImGuiCond.Always);
         ImGui.SetNextWindowSize(new Vector2(256, height) * s, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
-        if (!ImGui.Begin($"##bag-window-{bagIndex}", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+        if (!ImGui.Begin($"##bag-window-{container}", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav))
         { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
         Vector2 artMin = p - new Vector2(64, 0) * s;
         Vector2 portraitMin = p + new Vector2(7, 5) * s;
         bool parityProof = _uiParityArmed && _uiParityPanel == "equipped-bag" &&
-            bagIndex + 1 == _uiParityEquippedBagContainer;
-        string parityRoot = $"ContainerFrameBag{bagIndex + 1}";
+            container is >= 1 and <= 4 && container == _uiParityEquippedBagContainer;
+        string parityRoot = $"ContainerFrameBag{container}";
         if (parityProof)
         {
             BeginUiParityFrame(p, s);
@@ -629,7 +710,7 @@ public sealed partial class GameLoop
         {
             InventoryUiLaw.SlotGeometry cell = InventoryUiLaw.Slot(slots, slot, height, backpack: false);
             Vector2 min = p + new Vector2(cell.X, cell.Y) * s;
-            DrawInventorySlot(dl, bag, bagIndex + 1, slot, min, s, $"bag-{bagIndex}-{slot}");
+            DrawInventorySlot(dl, bag, container, slot, min, s, $"bag-{container}-{slot}");
         }
         Vector2 closeMin = p + new Vector2(160, 1) * s;
         if (parityProof)
@@ -646,8 +727,8 @@ public sealed partial class GameLoop
         uint close = _gameplayArt.Handle(@"Interface\Buttons\UI-Panel-MinimizeButton-Up");
         if (close != 0) dl.AddImage((nint)close, closeMin, closeMin + new Vector2(32) * s);
         ImGui.SetCursorScreenPos(closeMin);
-        ImGui.InvisibleButton($"##bag-close-{bagIndex}", new Vector2(32) * s);
-        if (ImGui.IsItemClicked()) SetBagWindowOpen(bagIndex + 1, false);
+        ImGui.InvisibleButton($"##bag-close-{container}", new Vector2(32) * s);
+        if (ImGui.IsItemClicked()) SetBagWindowOpen(container, false);
         if (parityProof) MarkUiParityFrameComplete();
         ImGui.End();
     }
@@ -683,8 +764,9 @@ public sealed partial class GameLoop
             sent = _net.SwapItems(plan.Destination.Bag, plan.Destination.Slot,
                 plan.Source.Bag, plan.Source.Slot);
         if (!sent) return;
-        AddPendingBagLock(_carriedContainer, _carriedSlot);
-        AddPendingBagLock(container, slot);
+        long operation = ++_pendingBagOperation;
+        AddPendingBagLock(_carriedContainer, _carriedSlot, operation);
+        AddPendingBagLock(container, slot, operation);
         ClearCarriedItem();
     }
 
@@ -847,16 +929,41 @@ public sealed partial class GameLoop
         Plain,
         Disabled,
         Colored,
+        Paired,
         Separator,
     }
 
     private readonly record struct PreparedItemTooltipPaintOp(
         PreparedItemTooltipPaintKind Kind,
         string Text,
-        Vector4 Color);
+        Vector4 Color,
+        string? RightText = null,
+        Vector4 RightColor = default,
+        bool Wrap = false);
 
     private readonly record struct ItemTooltipBodySnapshot(
         ImmutableArray<PreparedItemTooltipPaintOp> Operations);
+
+    private readonly record struct PreparedInventoryTooltipLine(
+        string FontObject,
+        string Text,
+        Vector2 Position,
+        uint Color,
+        string? RightText = null,
+        Vector2 RightPosition = default,
+        uint RightColor = 0);
+
+    private sealed record PreparedInventoryTooltipRenderer(
+        WowSkin Skin,
+        Vector2 Position,
+        Vector2 Size,
+        float Scale,
+        ImmutableArray<PreparedInventoryTooltipLine> Lines,
+        Vector4 BackdropFillTint,
+        Vector4 BackdropEdgeTint,
+        Vector2 ThickenMinimum,
+        Vector2 ThickenMaximum,
+        Vector4 ThickenTint);
 
     private readonly record struct PreparedPaperDollComparisonTooltip(
         int TooltipNumber,
@@ -894,8 +1001,16 @@ public sealed partial class GameLoop
 
     private static PreparedItemTooltipPaintOp PreparedItemTooltipColored(
         string text,
-        Vector4 color)
-        => new(PreparedItemTooltipPaintKind.Colored, text, color);
+        Vector4 color,
+        bool wrap = false)
+        => new(PreparedItemTooltipPaintKind.Colored, text, color, Wrap: wrap);
+
+    private static PreparedItemTooltipPaintOp PreparedItemTooltipPair(
+        string left,
+        Vector4 leftColor,
+        string right,
+        Vector4 rightColor)
+        => new(PreparedItemTooltipPaintKind.Paired, left, leftColor, right, rightColor);
 
     private static PreparedItemTooltipPaintOp PreparedItemTooltipSeparator()
         => new(PreparedItemTooltipPaintKind.Separator, "", default);
@@ -911,12 +1026,14 @@ public sealed partial class GameLoop
         return new(body.Operations.AddRange(tail));
     }
 
-    private static ItemTooltipBodySnapshot PrepareItemTooltipBodySnapshot(
+    private ItemTooltipBodySnapshot PrepareItemTooltipBodySnapshot(
         ItemTemplate item,
         uint count,
         uint durability = 0,
         uint maxDurability = 0,
-        bool compact = false)
+        bool compact = false,
+        uint? instanceFlags = null,
+        WorldEntity? liveInstance = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         var operations = ImmutableArray.CreateBuilder<PreparedItemTooltipPaintOp>();
@@ -925,38 +1042,341 @@ public sealed partial class GameLoop
         // immutable paint operation before the terminal tooltip stratum can invoke a renderer.
         operations.Add(PreparedItemTooltipColored(item.Name,
             compact ? Vector4.One : ItemTooltipQualityColor(item.Quality)));
-        if (item.Bonding == 1)
-            operations.Add(PreparedItemTooltipPlain("Binds when picked up"));
-        else if (item.Bonding == 2)
-            operations.Add(PreparedItemTooltipPlain("Binds when equipped"));
-        foreach (ItemDamage damage in item.Damages)
-            operations.Add(PreparedItemTooltipPlain(
-                $"{damage.Min:0.#} - {damage.Max:0.#} Damage"));
+        Vector4 white = Vector4.One;
+        Vector4 red = new(1f, 32f / 255f, 32f / 255f, 1f);
+        Vector4 green = new(0f, 1f, 0f, 1f);
+        Vector4 gold = new(1f, 210f / 255f, 0f, 1f);
+        uint actualInstanceFlags = instanceFlags ?? liveInstance?.Fields.ItemFlags ?? 0;
+        if ((item.Flags & 0x0000_2000) != 0)
+            operations.Add(PreparedItemTooltipColored("<Right Click for Details>", green));
+        if ((item.Flags & 0x0000_0002) != 0)
+            operations.Add(PreparedItemTooltipPlain("Conjured Item"));
+        switch (item.Bonding)
+        {
+            case 1: operations.Add(PreparedItemTooltipPlain("Binds when picked up")); break;
+            case 2: operations.Add(PreparedItemTooltipPlain("Binds when equipped")); break;
+            case 3: operations.Add(PreparedItemTooltipPlain("Binds when used")); break;
+            case 4:
+            case 5: operations.Add(PreparedItemTooltipPlain("Quest Item")); break;
+        }
+        if (item.MaxCount == 1)
+            operations.Add(PreparedItemTooltipPlain("Unique"));
+        else if (item.MaxCount > 1)
+            operations.Add(PreparedItemTooltipPlain($"Unique ({item.MaxCount})"));
+        if (item.StartQuest != 0)
+            operations.Add(PreparedItemTooltipPlain("This Item Begins a Quest"));
+        if (item.LockId != 0 && (actualInstanceFlags &
+                InventoryUiLaw.ItemDynamicUnlocked) == 0)
+            operations.Add(PreparedItemTooltipColored("Locked", red));
+        if (item.ContainerSlots > 0)
+        {
+            operations.Add(PreparedItemTooltipPlain($"{item.ContainerSlots} Slot Bag"));
+        }
+        else
+        {
+            string? slot = InventoryUiLaw.InventoryTypeName(item.InventoryType);
+            ItemSubClassTooltipInfo subclassInfo =
+                _itemSubClasses?.TooltipInfo(item.Class, item.Subclass) ?? default;
+            string? type = item.InventoryType == 16 || subclassInfo.HidesDisplayName
+                ? null
+                : _itemSubClasses?.DisplayName(item.Class, item.Subclass);
+            if (string.IsNullOrWhiteSpace(type)) type = null;
+            if (slot is not null || type is not null)
+            {
+                bool canDualWield = _spellCatalog is not null && OwnActions.KnownSpells.Any(id =>
+                    _spellCatalog.TryGet(id, out SpellInfo spell) &&
+                    spell.EffectIds is { Length: > 0 } && spell.EffectIds[0] == 40);
+                InventoryUiLaw.ProficiencyColors proficiency =
+                    InventoryUiLaw.ItemProficiencyColors(item.Class, item.Subclass,
+                        item.InventoryType, _itemProficiencies,
+                        subclassInfo.ProficiencyAlternative, canDualWield);
+                if (slot is not null && type is not null)
+                    operations.Add(PreparedItemTooltipPair(slot,
+                        proficiency.SlotRed ? red : Vector4.One, type,
+                        proficiency.TypeRed ? red : Vector4.One));
+                else if (slot is not null)
+                    operations.Add(PreparedItemTooltipColored(slot,
+                        proficiency.SlotRed ? red : Vector4.One));
+                else if (type is not null)
+                    operations.Add(PreparedItemTooltipColored(type,
+                        proficiency.TypeRed ? red : Vector4.One));
+            }
+        }
+        ItemDamage[] damages = item.Damages.Where(static damage => damage.Max > 0f).ToArray();
+        if (damages.Length > 0)
+        {
+            static string DamageText(in ItemDamage damage, bool extra)
+            {
+                long minimum = (long)Math.Floor(damage.Min + .5f);
+                long maximum = (long)Math.Floor(damage.Max + .5f);
+                string school = damage.School switch
+                {
+                    1 => " Holy", 2 => " Fire", 3 => " Nature", 4 => " Frost",
+                    5 => " Shadow", 6 => " Arcane", _ => "",
+                };
+                return $"{(extra ? "+ " : "")}{minimum} - {maximum}{school} Damage";
+            }
+            double speed = item.DelayMs / 1000d;
+            string firstDamage = DamageText(damages[0], extra: false);
+            if (speed > 0d)
+                operations.Add(PreparedItemTooltipPair(firstDamage, white,
+                    $"Speed {speed.ToString("0.00", CultureInfo.InvariantCulture)}", white));
+            else
+                operations.Add(PreparedItemTooltipPlain(firstDamage));
+            foreach (ItemDamage extraDamage in damages.Skip(1))
+                operations.Add(PreparedItemTooltipPlain(DamageText(extraDamage, extra: true)));
+            if (speed > 0d && item.Class == 2)
+            {
+                double average = damages.Sum(static damage =>
+                    ((double)damage.Min + damage.Max) * .5d);
+                operations.Add(PreparedItemTooltipPlain(
+                    $"({(average / speed).ToString("0.0", CultureInfo.InvariantCulture)} damage per second)"));
+            }
+        }
         if (item.Armor > 0)
             operations.Add(PreparedItemTooltipPlain($"{item.Armor} Armor"));
-        string[] statNames =
-            ["Mana", "Health", "Agility", "Strength", "Intellect", "Spirit", "Stamina"];
-        foreach (ItemStat stat in item.Stats)
+        if (item.Block > 0)
+            operations.Add(PreparedItemTooltipPlain($"{item.Block} Block"));
+        uint[] statOrder = [4, 3, 7, 5, 6, 1, 0];
+        foreach (uint wanted in statOrder)
+            foreach (ItemStat stat in item.Stats)
+            {
+                string? name = stat.Type switch
+                {
+                    0 => "Mana", 1 => "Health", 3 => "Agility", 4 => "Strength",
+                    5 => "Intellect", 6 => "Spirit", 7 => "Stamina", _ => null,
+                };
+                if (stat.Type != wanted || stat.Value == 0 || name is null) continue;
+                operations.Add(PreparedItemTooltipPlain(
+                    $"{(stat.Value > 0 ? "+" : "-")}{Math.Abs((long)stat.Value)} {name}"));
+            }
+        uint firstResistance = item.Resistances.Length == 0 ? 0 : item.Resistances[0];
+        if (firstResistance != 0 && item.Resistances.All(value => value == firstResistance))
         {
-            string statName = stat.Type < statNames.Length
-                ? statNames[stat.Type]
-                : $"Stat {stat.Type}";
             operations.Add(PreparedItemTooltipPlain(
-                $"{(stat.Value >= 0 ? "+" : "")}{stat.Value} {statName}"));
+                $"+{firstResistance} to All Resistances"));
         }
-        if (item.RequiredLevel > 0)
-            operations.Add(PreparedItemTooltipPlain($"Requires Level {item.RequiredLevel}"));
-        if (item.ItemLevel > 0)
-            operations.Add(PreparedItemTooltipDisabled($"Item Level {item.ItemLevel}"));
-        if (maxDurability > 0)
+        else
+        {
+            string[] resistanceNames = ["Holy", "Fire", "Nature", "Frost", "Shadow", "Arcane"];
+            for (int i = 1; i < Math.Min(item.Resistances.Length, resistanceNames.Length); i++)
+                if (item.Resistances[i] != 0)
+                    operations.Add(PreparedItemTooltipPlain(
+                        $"+{item.Resistances[i]} {resistanceNames[i]} Resistance"));
+        }
+        if ((item.Flags & 0x0000_2000) == 0 &&
+            liveInstance is not null && _enchantCatalog is not null)
+        {
+            for (int slot = 0; slot < 7; slot++)
+            {
+                int signedId = unchecked((int)liveInstance.Fields.ItemEnchantmentId(slot));
+                if (signedId == 0) continue;
+                uint id = (uint)Math.Abs((long)signedId);
+                if (!_enchantCatalog.TryGet(id, out EnchantInfo enchant) ||
+                    enchant.HidesTooltipName || enchant.Name.Length == 0) continue;
+                ulong? remaining = _itemEnchantTimers.RemainingMilliseconds(
+                    liveInstance.Guid, (uint)slot, NowSeconds());
+                string text = ItemEnchantUiLaw.Text(enchant.Name, remaining,
+                    liveInstance.Fields.ItemEnchantmentCharges(slot));
+                operations.Add(PreparedItemTooltipColored(text,
+                    ItemEnchantUiLaw.Color(slot, signedId)));
+            }
+        }
+        bool noEnchantIdSource = liveInstance is null ||
+            (actualInstanceFlags & InventoryUiLaw.ItemDynamicWrapped) != 0;
+        if ((item.Flags & 0x0000_2000) == 0 && noEnchantIdSource &&
+            item.RandomProperty != 0)
+            operations.Add(PreparedItemTooltipColored("<Random enchantment>", green));
+        uint authoredMaximum = maxDurability > 0 ? maxDurability : item.MaxDurability;
+        if (authoredMaximum > 0)
+        {
+            uint current = maxDurability > 0 ? durability : authoredMaximum;
+            operations.Add(PreparedItemTooltipColored(
+                $"Durability {current} / {authoredMaximum}", current == 0 ? red : white));
+        }
+
+        WorldEntity? player = null;
+        if (_entities is not null && LocalPlayerGuid != 0 &&
+            _entities.TryGet(LocalPlayerGuid, out WorldEntity foundPlayer))
+            player = foundPlayer;
+        byte playerRace = 0, playerClass = 0;
+        uint playerLevel = 0;
+        if (player is not null)
+        {
+            (playerRace, playerClass, _, _) = player.Fields.Bytes0;
+            playerLevel = player.Level;
+        }
+        static int FullMask((int Id, string Name)[] values) =>
+            values.Aggregate(0, static (mask, value) => mask | 1 << (value.Id - 1));
+        void AddMaskLine(string label, int mask, (int Id, string Name)[] values, byte ownId)
+        {
+            if (mask <= 0 || mask == FullMask(values)) return;
+            string[] names = values
+                .Where(value => (mask & 1 << (value.Id - 1)) != 0)
+                .Select(static value => value.Name)
+                .ToArray();
+            if (names.Length == 0) return;
+            bool allowed = ownId > 0 && (mask & 1 << (ownId - 1)) != 0;
+            operations.Add(PreparedItemTooltipColored(
+                $"{label}: {string.Join(", ", names)}", allowed ? white : red));
+        }
+        AddMaskLine("Classes", item.AllowableClass,
+            [(1, "Warrior"), (2, "Paladin"), (3, "Hunter"), (4, "Rogue"),
+             (5, "Priest"), (7, "Shaman"), (8, "Mage"), (9, "Warlock"),
+             (11, "Druid")], playerClass);
+        AddMaskLine("Races", item.AllowableRace,
+            [(1, "Human"), (2, "Orc"), (3, "Dwarf"), (4, "Night Elf"),
+             (5, "Undead"), (6, "Tauren"), (7, "Gnome"), (8, "Troll")], playerRace);
+        if (item.RequiredLevel > 1)
+            operations.Add(PreparedItemTooltipColored($"Requires Level {item.RequiredLevel}",
+                playerLevel >= item.RequiredLevel ? white : red));
+        if (item.RequiredSkill != 0 &&
+            _skillLines?.TryGet(item.RequiredSkill, out SkillLineInfo skill) == true)
+        {
+            bool hasSkill = GetSkillValue(item.RequiredSkill, out ushort value, out _) &&
+                value >= Math.Max(1u, item.RequiredSkillRank);
+            string line = item.RequiredSkillRank > 0
+                ? $"Requires {skill.Name} ({item.RequiredSkillRank})"
+                : $"Requires {skill.Name}";
+            operations.Add(PreparedItemTooltipColored(line, hasSkill ? white : red));
+        }
+        if (item.RequiredSpell != 0 &&
+            _spellCatalog?.TryGet(item.RequiredSpell, out SpellInfo requiredSpell) == true)
+        {
+            bool known = _actionsByGuid is not null &&
+                _actionsByGuid.TryGetValue(LocalPlayerGuid, out PlayerActions? ownActions) &&
+                ownActions.KnownSpells.Contains(item.RequiredSpell);
+            operations.Add(PreparedItemTooltipColored($"Requires {requiredSpell.Name}",
+                known ? white : red));
+        }
+
+        IReadOnlySet<uint> knownSpells = _actionsByGuid is not null &&
+            _actionsByGuid.TryGetValue(LocalPlayerGuid, out PlayerActions? actions)
+                ? actions.KnownSpells
+                : new HashSet<uint>();
+        if (item.RequiredReputationFaction != 0 && _factionCatalog is not null &&
+            _factionCatalog.TryGetName(item.RequiredReputationFaction,
+                out string? factionName) && factionName.Length > 0)
+        {
+            string[] standings =
+                ["Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored",
+                 "Revered", "Exalted"];
+            uint requiredRank = Math.Min(item.RequiredReputationRank, 7u);
+            byte currentRank = CurrentReputationRank(item.RequiredReputationFaction,
+                playerRace, playerClass);
+            operations.Add(PreparedItemTooltipColored(
+                $"Requires {factionName} - {standings[(int)requiredRank]}",
+                currentRank >= requiredRank ? white : red));
+        }
+
+        if (item.Spells.Any(spell => spell.Trigger == 6 && spell.SpellId != 0 &&
+                knownSpells.Contains(spell.SpellId)))
+            operations.Add(PreparedItemTooltipColored("Already known", red));
+
+        if (_spellCatalog is not null)
+            foreach (ItemSpellTemplate itemSpell in item.Spells)
+            {
+                string? prefix = itemSpell.Trigger switch
+                {
+                    0 or 5 => "Use: ",
+                    1 => "Equip: ",
+                    2 => "Chance on hit: ",
+                    _ => null,
+                };
+                if (prefix is null || itemSpell.SpellId == 0 ||
+                    !_spellCatalog.TryGet(itemSpell.SpellId, out SpellInfo spell) ||
+                    string.IsNullOrEmpty(spell.Description))
+                    continue;
+                string description = SpellTooltipLaw.Substitute(spell.Description, spell,
+                    _spellCatalog, playerLevel);
+                if (description.Length != 0)
+                    operations.Add(PreparedItemTooltipColored(prefix + description, green,
+                        wrap: true));
+            }
+
+        int charges = item.Spells
+            .Where(static spell => spell.SpellId != 0 && spell.Charges is not 0 and not -1)
+            .Select(static spell => (int)Math.Min(int.MaxValue, Math.Abs((long)spell.Charges)))
+            .FirstOrDefault();
+        if (charges > 0)
             operations.Add(PreparedItemTooltipPlain(
-                $"Durability {durability} / {maxDurability}"));
-        if (count > 1)
-            operations.Add(PreparedItemTooltipDisabled(
-                $"Stack: {count} / {Math.Max(1, item.Stackable)}"));
+                charges == 1 ? "1 Charge" : $"{charges} Charges"));
+
+        if (item.ItemSet != 0 && _itemSets?.TryGet(item.ItemSet, out ItemSetInfo set) == true)
+        {
+            Vector4 gray = new(128f / 255f, 128f / 255f, 128f / 255f, 1f);
+            Vector4 cream = new(1f, 1f, 151f / 255f, 1f);
+            var equippedEntries = new HashSet<uint>();
+            if (player is not null && _entities is not null)
+                for (int slot = 0; slot < 19; slot++)
+                {
+                    ulong guid = player.Fields.PlayerInventorySlot(slot);
+                    if (guid != 0 && _entities.TryGet(guid, out WorldEntity equippedItem))
+                        equippedEntries.Add(equippedItem.Entry);
+                }
+            int owned = set.Members.Count(equippedEntries.Contains);
+            operations.Add(PreparedItemTooltipColored("", gold, wrap: true));
+            operations.Add(PreparedItemTooltipColored(
+                $"{set.Name} ({owned}/{set.Members.Length})", gold));
+            bool setSkillMet = set.RequiredSkill == 0;
+            if (set.RequiredSkill != 0 &&
+                _skillLines?.TryGet(set.RequiredSkill, out SkillLineInfo setSkill) == true)
+            {
+                setSkillMet = GetSkillValue(set.RequiredSkill, out ushort setValue, out _) &&
+                    setValue >= set.RequiredSkillRank;
+                string setRequirement = set.RequiredSkillRank > 0
+                    ? $"Requires {setSkill.Name} ({set.RequiredSkillRank})"
+                    : $"Requires {setSkill.Name}";
+                operations.Add(PreparedItemTooltipColored(setRequirement,
+                    setSkillMet ? white : red));
+            }
+            foreach (uint member in set.Members)
+            {
+                if (_items is not null && _net is not null) _items.Require(member, 0, _net);
+                if (_items?.TryGet(member, out ItemTemplate? memberItem) != true ||
+                    memberItem is null || memberItem.Name.Length == 0)
+                    continue;
+                operations.Add(PreparedItemTooltipColored($"  {memberItem.Name}",
+                    equippedEntries.Contains(member) ? cream : gray));
+            }
+            operations.Add(PreparedItemTooltipColored("", gold, wrap: true));
+            if (_spellCatalog is not null)
+                foreach ((uint threshold, uint spellId) in set.Bonuses
+                             .OrderBy(static bonus => bonus.Threshold))
+                {
+                    if (!_spellCatalog.TryGet(spellId, out SpellInfo bonusSpell) ||
+                        string.IsNullOrEmpty(bonusSpell.Description))
+                        continue;
+                    string bonus = SpellTooltipLaw.Substitute(bonusSpell.Description,
+                        bonusSpell, _spellCatalog, playerLevel);
+                    if (bonus.Length == 0) continue;
+                    operations.Add(PreparedItemTooltipColored(
+                        $"({threshold}) Set: {bonus}",
+                        setSkillMet && (uint)owned >= threshold ? green : gray, wrap: true));
+                }
+        }
+
         if (!compact && !string.IsNullOrWhiteSpace(item.Description))
-            operations.Add(PreparedItemTooltipColored(item.Description,
-                new Vector4(1f, .82f, 0f, 1f)));
+            operations.Add(PreparedItemTooltipColored($"\"{item.Description}\"", gold,
+                wrap: true));
+        if (!compact && liveInstance is not null)
+        {
+            ulong creator = liveInstance.Fields.ItemCreator;
+            if ((liveInstance.Fields.ItemFlags & InventoryUiLaw.ItemDynamicWrapped) == 0 &&
+                creator != 0 && _playerNames.TryGetValue(creator, out string? creatorName) &&
+                creatorName.Length > 0)
+            {
+                string creatorLine = liveInstance.Fields.ItemTextId != 0
+                    ? $"Written by {creatorName}"
+                    : $"<Made by {creatorName}>";
+                operations.Add(PreparedItemTooltipColored(creatorLine,
+                    liveInstance.Fields.ItemTextId != 0 ? white : green));
+            }
+            if (InventoryUiLaw.ShowsOpenLine(item.Flags, item.LockId, actualInstanceFlags))
+                operations.Add(PreparedItemTooltipColored("<Right Click to Open>", green));
+            else if (item.PageText != 0 || liveInstance.Fields.ItemTextId != 0)
+                operations.Add(PreparedItemTooltipColored("<Right Click to Read>", green));
+        }
 
         return new(operations.ToImmutable());
     }
@@ -966,18 +1386,38 @@ public sealed partial class GameLoop
         if (body.Operations.IsDefault)
             throw new ArgumentException("The prepared item tooltip body is uninitialized.",
                 nameof(body));
+        int pairIndex = 0;
         foreach (PreparedItemTooltipPaintOp operation in body.Operations)
         {
             switch (operation.Kind)
             {
                 case PreparedItemTooltipPaintKind.Plain:
-                    ImGui.TextUnformatted(operation.Text);
+                    if (operation.Wrap) ImGui.TextWrapped(operation.Text);
+                    else ImGui.TextUnformatted(operation.Text);
                     break;
                 case PreparedItemTooltipPaintKind.Disabled:
                     ImGui.TextDisabled(operation.Text);
                     break;
                 case PreparedItemTooltipPaintKind.Colored:
-                    ImGui.TextColored(operation.Color, operation.Text);
+                    if (operation.Wrap)
+                    {
+                        ImGui.PushStyleColor(ImGuiCol.Text, operation.Color);
+                        ImGui.TextWrapped(operation.Text);
+                        ImGui.PopStyleColor();
+                    }
+                    else ImGui.TextColored(operation.Color, operation.Text);
+                    break;
+                case PreparedItemTooltipPaintKind.Paired:
+                    if (ImGui.BeginTable($"##prepared-item-tooltip-pair-{pairIndex++}", 2,
+                            ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.NoSavedSettings))
+                    {
+                        ImGui.TableNextRow();
+                        ImGui.TableNextColumn();
+                        ImGui.TextColored(operation.Color, operation.Text);
+                        ImGui.TableNextColumn();
+                        ImGui.TextColored(operation.RightColor, operation.RightText ?? "");
+                        ImGui.EndTable();
+                    }
                     break;
                 case PreparedItemTooltipPaintKind.Separator:
                     ImGui.Separator();
@@ -989,26 +1429,175 @@ public sealed partial class GameLoop
         }
     }
 
+    private PreparedInventoryTooltipRenderer? PrepareInventoryItemTooltipRenderer(
+        in ItemTooltipBodySnapshot body,
+        Vector2 anchor,
+        Vector2 pivot)
+    {
+        if (_skin is null || body.Operations.IsDefault || body.Operations.Length == 0)
+            return null;
+
+        float scale = GameplayUiScale();
+        float padding = GameTooltipUiLaw.Padding * scale;
+        float gap = GameTooltipUiLaw.LogicalRowGap * scale;
+        float wrapWidth = SpellTooltipLaw.WrapWidth * scale;
+        var widths = new float[body.Operations.Length];
+        var heights = new float[body.Operations.Length];
+        var fonts = new string[body.Operations.Length];
+        var physicalLines = new string[body.Operations.Length][];
+        float contentWidth = 0f;
+        float contentHeight = 0f;
+        for (int i = 0; i < body.Operations.Length; i++)
+        {
+            PreparedItemTooltipPaintOp operation = body.Operations[i];
+            string font = i == 0 ? "GameTooltipHeaderText" : "GameTooltipText";
+            fonts[i] = font;
+            if (operation.Kind == PreparedItemTooltipPaintKind.Separator)
+            {
+                heights[i] = gap;
+                physicalLines[i] = [];
+            }
+            else
+            {
+                string[] wrapped = operation.Wrap
+                    ? GameTooltipUiLaw.WrapText(operation.Text, wrapWidth,
+                        text => GameText.MeasureWidth(font, text, scale))
+                    : [operation.Text];
+                physicalLines[i] = wrapped;
+                float left = wrapped.Length == 0 ? 0f : wrapped.Max(text =>
+                    GameText.MeasureWidth(font, text, scale));
+                float right = operation.RightText is null
+                    ? 0f
+                    : GameText.MeasureWidth(font, operation.RightText, scale);
+                widths[i] = operation.RightText is null ? left : left + 20f * scale + right;
+                heights[i] = Math.Max(1, wrapped.Length) * GameText.LinePitch(font, scale);
+            }
+            contentWidth = MathF.Max(contentWidth, widths[i]);
+            contentHeight += heights[i];
+            if (i + 1 < body.Operations.Length) contentHeight += gap;
+        }
+
+        Vector2 size = new(contentWidth + padding * 2f, contentHeight + padding * 2f);
+        Vector2 position = anchor - new Vector2(size.X * pivot.X, size.Y * pivot.Y);
+        position = SharedGameTooltipClampToScreen(position, size, ImGui.GetIO().DisplaySize);
+        var lines = ImmutableArray.CreateBuilder<PreparedInventoryTooltipLine>(
+            body.Operations.Length);
+        float y = position.Y + padding;
+        for (int i = 0; i < body.Operations.Length; i++)
+        {
+            PreparedItemTooltipPaintOp operation = body.Operations[i];
+            if (operation.Kind != PreparedItemTooltipPaintKind.Separator)
+            {
+                Vector4 leftColor = operation.Kind switch
+                {
+                    PreparedItemTooltipPaintKind.Plain => Vector4.One,
+                    PreparedItemTooltipPaintKind.Disabled => new(.5f, .5f, .5f, 1f),
+                    _ => operation.Color,
+                };
+                uint leftTint = ImGui.ColorConvertFloat4ToU32(leftColor);
+                string? rightText = operation.RightText;
+                Vector2 rightPosition = default;
+                uint rightTint = 0;
+                if (rightText is not null)
+                {
+                    float rightWidth = GameText.MeasureWidth(fonts[i], rightText, scale);
+                    rightPosition = new(position.X + size.X - padding - rightWidth, y);
+                    rightTint = ImGui.ColorConvertFloat4ToU32(operation.RightColor);
+                }
+                string[] wrapped = physicalLines[i];
+                float linePitch = GameText.LinePitch(fonts[i], scale);
+                for (int lineIndex = 0; lineIndex < Math.Max(1, wrapped.Length); lineIndex++)
+                {
+                    string text = wrapped.Length == 0 ? "" : wrapped[lineIndex];
+                    Vector2 leftPosition = new(position.X + padding,
+                        y + lineIndex * linePitch);
+                    lines.Add(new(fonts[i], text, leftPosition, leftTint,
+                        lineIndex == 0 ? rightText : null, rightPosition, rightTint));
+                }
+            }
+            y += heights[i];
+            if (i + 1 < body.Operations.Length) y += gap;
+        }
+
+        (Vector4 fillTint, Vector4 edgeTint) = SharedGameTooltipBackdropTints(1f);
+        Vector2 thickenInset = new(5f * scale);
+        return new(_skin, position, size, scale, lines.ToImmutable(), fillTint, edgeTint,
+            position + thickenInset, position + size - thickenInset,
+            new Vector4(.09f, .09f, .19f, .4f));
+    }
+
+    private static void DrawPreparedInventoryItemTooltip(
+        PreparedInventoryTooltipRenderer prepared)
+    {
+        ImGui.SetNextWindowPos(prepared.Position, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(prepared.Size, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0f);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        bool begun = ImGui.Begin("##prepared-inventory-item-tooltip",
+            ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground |
+            ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoInputs |
+            ImGuiWindowFlags.Tooltip);
+        ImGui.PopStyleVar(2);
+        if (!begun) { ImGui.End(); return; }
+
+        ImDrawListPtr draw = ImGui.GetWindowDrawList();
+        draw.PushClipRectFullScreen();
+        float savedScale = prepared.Skin.Scale;
+        try
+        {
+            prepared.Skin.Scale = prepared.Scale;
+            prepared.Skin.DrawBackdrop(draw, prepared.Position,
+                prepared.Position + prepared.Size, WowSkin.Tooltip,
+                prepared.BackdropFillTint, prepared.BackdropEdgeTint);
+        }
+        finally
+        {
+            prepared.Skin.Scale = savedScale;
+        }
+        draw.AddRectFilled(prepared.ThickenMinimum, prepared.ThickenMaximum,
+            ImGui.ColorConvertFloat4ToU32(prepared.ThickenTint));
+        foreach (PreparedInventoryTooltipLine line in prepared.Lines)
+        {
+            GameText.Draw(draw, line.FontObject, line.Text, line.Position,
+                prepared.Scale, line.Color);
+            if (line.RightText is not null)
+                GameText.Draw(draw, line.FontObject, line.RightText, line.RightPosition,
+                    prepared.Scale, line.RightColor);
+        }
+        draw.PopClipRect();
+        ImGui.End();
+    }
+
     private bool OfferPreparedItemTooltip(
         in GameTooltipOwnerKey owner,
         in ItemTooltipBodySnapshot body,
         Vector2? nextWindowPosition = null,
         int comparisonCount = 0,
-        Action? preparedFollowingRenderer = null)
+        Action? preparedFollowingRenderer = null,
+        Vector2? nextWindowPivot = null)
     {
         if (body.Operations.IsDefault)
             throw new ArgumentException("The prepared item tooltip body is uninitialized.",
                 nameof(body));
-        ItemTooltipBodySnapshot preparedBody = body;
         Vector2? preparedPosition = nextWindowPosition;
+        Vector2 preparedPivot = nextWindowPivot ?? Vector2.Zero;
         Action? preparedFollowing = preparedFollowingRenderer;
+        PreparedInventoryTooltipRenderer? inventoryRenderer = preparedPosition is { } at
+            ? PrepareInventoryItemTooltipRenderer(body, at, preparedPivot)
+            : null;
+        ItemTooltipBodySnapshot preparedBody = body;
         bool offered = OfferPreservedSharedGameTooltipRenderer(owner, () =>
         {
-            if (preparedPosition is Vector2 at)
-                ImGui.SetNextWindowPos(at, ImGuiCond.Always);
-            ImGui.BeginTooltip();
-            DrawPreparedItemTooltipBody(preparedBody);
-            ImGui.EndTooltip();
+            if (inventoryRenderer is not null)
+                DrawPreparedInventoryItemTooltip(inventoryRenderer);
+            else
+            {
+                ImGui.BeginTooltip();
+                DrawPreparedItemTooltipBody(preparedBody);
+                ImGui.EndTooltip();
+            }
             preparedFollowing?.Invoke();
         });
         if (!offered) return false;
@@ -1060,7 +1649,8 @@ public sealed partial class GameLoop
             prepared.Add(new(tooltipNumber, slot,
                 PrepareItemTooltipBodySnapshot(equippedTemplate,
                     equipped.Fields.ItemStackCount, equipped.Fields.ItemDurability,
-                    equipped.Fields.ItemMaxDurability, compact: true),
+                    equipped.Fields.ItemMaxDurability, compact: true,
+                    liveInstance: equipped),
                 windowAt, new Vector2(anchor.PivotX, anchor.PivotY), scale,
                 anchor.Point, anchor.RelativePoint, PaperDollSlotElement(slot), captureParity));
         }
@@ -1231,7 +1821,8 @@ public sealed partial class GameLoop
             InventoryUiLaw.ToWire(container, slot) is { } trade)
             PlaceTradeItem(trade.Bag, trade.Slot);
         else if (click == InventoryUiLaw.SlotClickAction.Split)
-            OpenStackSplit(container, slot, (int)(instance?.Fields.ItemStackCount ?? 0));
+            OpenStackSplit(container, slot, (int)(instance?.Fields.ItemStackCount ?? 0),
+                new(max.X, min.Y));
         else if (click == InventoryUiLaw.SlotClickAction.PickupOrPlace)
         {
             CancelStackSplit();
@@ -1248,9 +1839,22 @@ public sealed partial class GameLoop
             if (instance is not null && item is not null && InventoryUiLaw.ToWire(container, slot) is { } wire)
             {
                 if (_vendor is not null) SellToOpenVendor(instance.Guid);
-                else if (_bankOpen) DepositBankEntry(instance.Entry);
+                else if (_bankOpen) DepositBankItem(wire.Bag, wire.Slot, instance);
                 else if (_mailOpen && _mailTab == 1) AttachMailItem(instance.Guid, instance.Entry);
                 else if (_auctionOpen && _auctionTab == 2) _auctionSellEntry = instance.Entry;
+                else if (instance.Fields.ItemTextId != 0)
+                    OpenItemTextLetter(instance, item);
+                else if (item.PageText != 0)
+                    OpenItemTextPages(instance.Guid, item.Name, item.PageText, item.PageMaterial);
+                else if (InventoryUiLaw.UnwrapsGift(item.Flags, instance.Fields.ItemFlags))
+                    _net.OpenItem(wire.Bag, wire.Slot);
+                else if (item.StartQuest != 0)
+                    _net.QuestgiverQuery(instance.Guid, item.StartQuest);
+                else if (InventoryUiLaw.OpensLoot(item.Flags))
+                {
+                    AddPendingBagLock(container, slot, ++_pendingBagOperation);
+                    _net.OpenItem(wire.Bag, wire.Slot);
+                }
                 else if (item.InventoryType != 0) _net.AutoEquipItem(wire.Bag, wire.Slot);
                 else _net.UseItem(wire.Bag, wire.Slot, item.UseSpellIndex);
             }
@@ -1292,6 +1896,18 @@ public sealed partial class GameLoop
             if (cooldown.FlashProgress is float flash) DrawCooldownFlash(dl, cdMin, cdMax, flash);
         }
         uint count = instance?.Fields.ItemStackCount ?? 0;
+        if (_splitContainer == container && _splitSlot == slot)
+        {
+            _splitOwnerVisible = true;
+            _splitOwnerTopRight = new(max.X, min.Y);
+            if (count < 2)
+                CancelStackSplit();
+            else
+            {
+                _splitMaximum = (int)count;
+                _splitCount = StackSplitUiLaw.Clamp(_splitCount, _splitMaximum);
+            }
+        }
         if (count > 1)
         {
             GameText.DrawRightAligned(dl, "NumberFontNormal", count.ToString(),
@@ -1304,23 +1920,23 @@ public sealed partial class GameLoop
         }
         if (hovered && item is not null)
         {
-            Vector2 display = ImGui.GetIO().DisplaySize;
-            Vector2 mouse = ImGui.GetIO().MousePos;
-            Vector2 tooltipPosition = mouse +
-                new Vector2(mouse.X < display.X * .5f ? 24f : -300f, 18f);
+            InventoryUiLaw.TooltipSeat tooltipSeat = InventoryUiLaw.ItemTooltipSeat(
+                min, max, ImGui.GetIO().DisplaySize.X);
             ItemTooltipBodySnapshot body = PrepareItemTooltipBodySnapshot(item, count,
                 instance?.Fields.ItemDurability ?? 0,
-                instance?.Fields.ItemMaxDurability ?? 0);
+                instance?.Fields.ItemMaxDurability ?? 0,
+                instanceFlags: instance?.Fields.ItemFlags,
+                liveInstance: instance);
             ImmutableArray<PreparedPaperDollComparisonTooltip> comparisons =
                 PreparePaperDollComparisonTooltips(item);
             Action? drawComparisons = comparisons.IsEmpty
                 ? null
                 : () => DrawPreparedPaperDollComparisonTooltips(comparisons);
             bool offered = OfferPreparedItemTooltip(
-                InventoryItemGameTooltipOwner(container, physical), body, tooltipPosition,
+                InventoryItemGameTooltipOwner(container, physical), body, tooltipSeat.Position,
                 HighestLiveComparisonOrdinal(
                     comparisons.Select(comparison => comparison.TooltipNumber)),
-                drawComparisons);
+                drawComparisons, tooltipSeat.Pivot);
             if (offered) ArmDeferredShoppingTooltipParityCapture(comparisons);
             string? cursor = _vendorRepairMode ? "Repair" :
                 InventoryUiLaw.HoverCursor(_vendor is not null,
@@ -1377,9 +1993,30 @@ public sealed partial class GameLoop
         ImGui.EndDragDropTarget();
     }
 
+    private readonly Dictionary<string, HardwareCursorImage?> _hardwareCursorImages =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private bool TryUseHardwareCursor(string stem)
+    {
+        if (_gameplayArt is null || string.IsNullOrWhiteSpace(stem)) return false;
+        if (!_hardwareCursorImages.TryGetValue(stem, out HardwareCursorImage? image))
+        {
+            GameplayArt.PreparedTexture? prepared =
+                _gameplayArt.Prepare($@"Interface\Cursor\{stem}");
+            image = prepared is { } pixels
+                ? HardwareCursorLaw.FromBgra(pixels.Pixels, pixels.Width, pixels.Height)
+                : null;
+            _hardwareCursorImages[stem] = image;
+        }
+        if (image is not { } resolved || !_window.UseHardwareCursor(stem, resolved)) return false;
+        ImGui.GetIO().ConfigFlags |= ImGuiConfigFlags.NoMouseCursorChange;
+        return true;
+    }
+
     private void DrawBagHoverCursor(string stem)
     {
         if (_gameplayArt is null) return;
+        if (TryUseHardwareCursor(stem)) return;
         uint cursor = _gameplayArt.Handle($@"Interface\Cursor\{stem}");
         if (cursor == 0) return;
         ImGui.SetMouseCursor(ImGuiMouseCursor.None);
@@ -1391,7 +2028,7 @@ public sealed partial class GameLoop
     {
         0 => owner.Fields.PlayerBackpackSlot(slot),
         InventoryUiLaw.KeyringContainer => owner.Fields.PlayerKeyringSlot(slot),
-        >= 1 and <= 4 => owner.Fields.ContainerSlot(slot),
+        >= 1 and <= InventoryUiLaw.BankBagContainerLast => owner.Fields.ContainerSlot(slot),
         InventoryUiLaw.EquipmentContainer => owner.Fields.PlayerInventorySlot(slot),
         _ => 0,
     };
@@ -1400,12 +2037,23 @@ public sealed partial class GameLoop
     {
         if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return null;
         ulong guid;
-        if (container == 0) guid = player.Fields.PlayerBackpackSlot(slot);
+        if (container == InventoryUiLaw.BankContainer) guid = player.Fields.PlayerBankSlot(slot);
+        else if (container == InventoryUiLaw.BankBagEquipmentContainer)
+            guid = player.Fields.PlayerBankBagSlot(slot);
+        else if (container == 0) guid = player.Fields.PlayerBackpackSlot(slot);
         else if (container == InventoryUiLaw.KeyringContainer) guid = player.Fields.PlayerKeyringSlot(slot);
         else if (container == InventoryUiLaw.EquipmentContainer) guid = player.Fields.PlayerInventorySlot(slot);
         else if (container is >= 1 and <= 4)
         {
             ulong bagGuid = player.Fields.PlayerInventorySlot(18 + container);
+            guid = bagGuid != 0 && _entities.TryGet(bagGuid, out WorldEntity bag)
+                ? bag.Fields.ContainerSlot(slot) : 0;
+        }
+        else if (container is >= InventoryUiLaw.BankBagContainerFirst and
+                 <= InventoryUiLaw.BankBagContainerLast)
+        {
+            ulong bagGuid = player.Fields.PlayerBankBagSlot(
+                container - InventoryUiLaw.BankBagContainerFirst);
             guid = bagGuid != 0 && _entities.TryGet(bagGuid, out WorldEntity bag)
                 ? bag.Fields.ContainerSlot(slot) : 0;
         }
@@ -1417,12 +2065,135 @@ public sealed partial class GameLoop
         HasCarriedItem && _carriedContainer == container && _carriedSlot == slot ||
         _pendingBagLocks.ContainsKey((container, slot));
 
-    private void AddPendingBagLock(int container, int slot)
+    private void AddPendingBagLock(int container, int slot, long operation)
     {
         WorldEntity? item = ResolveInventoryItem(container, slot);
         _pendingBagLocks[(container, slot)] = new(item?.Guid ?? 0,
-            item?.Fields.ItemStackCount ?? 0, NowSeconds());
+            item?.Fields.ItemStackCount ?? 0, NowSeconds(), operation);
     }
+
+    private void ResetPendingInventoryOps()
+    {
+        if (DeleteItemUiLaw.Visible(_staticPopupSlots) is not null)
+            ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.HideByType(
+                _staticPopupSlots, DeleteItemUiLaw.PopupType));
+        _deleteItemConfirmation = null;
+        _pendingBagLocks.Clear();
+        _pendingInventoryTransition = null;
+        _pendingBankTransition = null;
+        _itemEnchantTimers.Clear();
+    }
+
+    private void ApplyItemEnchantTime(byte[] body)
+    {
+        ItemEnchantTimePacket packet = ItemEnchantTimePackets.Parse(body);
+        _itemEnchantTimers.Set(packet.ItemGuid, packet.Slot, packet.Seconds, NowSeconds());
+        EmitInterface("inventory", "enchant-time", packet.Seconds == 0 ? "CLEARED" : "UPDATED",
+            packet.ItemGuid,
+            $"slot={packet.Slot};seconds={packet.Seconds};player={packet.PlayerGuid:X16}");
+    }
+
+    private void ApplyInventoryChangeFailure(byte[] body)
+    {
+        InventoryChangeFailurePacket packet = InventoryFailurePackets.Parse(body);
+        if (packet.Reason == 0) return;
+
+        HashSet<long> matchedOperations = packet.ItemGuid == 0
+            ? []
+            : _pendingBagLocks.Values
+                .Where(value => value.Guid == packet.ItemGuid)
+                .Select(value => value.Operation)
+                .ToHashSet();
+        if (matchedOperations.Count == 0)
+            _pendingBagLocks.Clear();
+        else
+            foreach ((int Container, int Slot) key in _pendingBagLocks
+                         .Where(pair => matchedOperations.Contains(pair.Value.Operation))
+                         .Select(pair => pair.Key).ToArray())
+                _pendingBagLocks.Remove(key);
+
+        _pendingInventoryTransition = null;
+        _pendingBankTransition = null;
+        EmitInterface("inventory", "change-failure", "REFUSED", packet.ItemGuid,
+            $"reason={packet.Reason};requiredLevel={packet.RequiredLevel ?? 0};bagSlot={packet.BagSlot};" +
+            $"locks={_pendingBagLocks.Count}");
+
+        string text = InventoryFailureText(packet);
+        if (text.Length > 0) ShowUiError(text);
+    }
+
+    private string InventoryFailureText(InventoryChangeFailurePacket packet)
+    {
+        if (InventoryErrorUiLaw.IsSilent(packet.Reason)) return "";
+
+        string? family = packet.Reason == 16 ? InventoryFailureBagFamily(packet.BagSlot) : null;
+        string key = family is null
+            ? InventoryErrorUiLaw.GlobalStringKey(packet.Reason)
+            : "ERR_WRONG_BAG_TYPE_SUBCLASS";
+        string format = InventoryGlobalString(key);
+        if (format.Length == 0) return "";
+        if (packet.RequiredLevel is uint level)
+            format = format.Replace("%d", level.ToString(), StringComparison.Ordinal);
+        if (family is not null)
+            format = format.Replace("%s", family, StringComparison.Ordinal);
+        return format;
+    }
+
+    private string? InventoryFailureBagFamily(byte bagSlot)
+    {
+        if (bagSlot == byte.MaxValue || _items is null ||
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return null;
+        ulong bagGuid = player.Fields.PlayerInventorySlot(bagSlot);
+        if (bagGuid == 0 || !_entities.TryGet(bagGuid, out WorldEntity bag) ||
+            !_items.TryGet(bag.Entry, out ItemTemplate? template) || template is null) return null;
+        return InventoryErrorUiLaw.BagFamilyName(template.BagFamily);
+    }
+
+    private string InventoryGlobalString(string key, string fallback = "That item can't be moved.")
+    {
+        if (!_inventoryGlobalStringsLoaded)
+        {
+            _inventoryGlobalStringsLoaded = true;
+            byte[]? bytes = _mpq?.ReadFile(@"Interface\FrameXML\GlobalStrings.lua");
+            if (bytes is not null)
+            {
+                string luaSource = System.Text.Encoding.UTF8.GetString(bytes);
+                _inventoryGlobalStringsSource = luaSource;
+                HashSet<string> keys = Enumerable.Range(1, 255)
+                    .Select(reason => InventoryErrorUiLaw.GlobalStringKey((byte)reason))
+                    .Append("ERR_WRONG_BAG_TYPE_SUBCLASS")
+                    .ToHashSet(StringComparer.Ordinal);
+                foreach (string wanted in keys)
+                    if (TryReadLuaString(luaSource, wanted, out string loadedValue))
+                        _inventoryGlobalStrings[wanted] = loadedValue;
+            }
+        }
+
+        if (_inventoryGlobalStrings.TryGetValue(key, out string? value)) return value;
+        if (_inventoryGlobalStringsSource is { } cachedSource &&
+            TryReadLuaString(cachedSource, key, out string dynamicValue))
+        {
+            _inventoryGlobalStrings[key] = dynamicValue;
+            return dynamicValue;
+        }
+        return key == "ERR_CANT_BE_DISENCHANTED" ? "" :
+            InventoryErrorFallbacks.GetValueOrDefault(key, fallback);
+    }
+
+    private static readonly IReadOnlyDictionary<string, string> InventoryErrorFallbacks =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["ERR_CANT_EQUIP_LEVEL_I"] = "You must reach level %d to use that item.",
+            ["ERR_WRONG_SLOT"] = "That item does not go in that slot.",
+            ["ERR_BAG_FULL"] = "That bag is full.",
+            ["ERR_INV_FULL"] = "Inventory is full.",
+            ["ERR_BANK_FULL"] = "Your bank is full",
+            ["ERR_WRONG_BAG_TYPE"] = "That item doesn't go in that container.",
+            ["ERR_WRONG_BAG_TYPE_SUBCLASS"] = "Only %s can be placed in that.",
+            ["ERR_ITEM_LOCKED"] = "Item is locked.",
+            ["ERR_NOT_ENOUGH_MONEY"] = "You don't have enough money.",
+            ["ERR_PLAYER_DEAD"] = "You can't do that when you're dead.",
+        };
 
     private void ObserveBagLocks()
     {
@@ -1436,12 +2207,20 @@ public sealed partial class GameLoop
         }
     }
 
-    private void OpenStackSplit(int container, int slot, int stackCount)
+    private void OpenStackSplit(int container, int slot, int stackCount, Vector2 ownerTopRight)
     {
+        if (stackCount < 2)
+        {
+            CancelStackSplit();
+            return;
+        }
         _splitContainer = container;
         _splitSlot = slot;
-        _splitMaximum = Math.Max(1, stackCount - 1);
-        _splitCount = Math.Clamp(stackCount / 2, 1, _splitMaximum);
+        _splitMaximum = stackCount;
+        _splitCount = 1;
+        _splitTyped = false;
+        _splitOwnerTopRight = ownerTopRight;
+        _splitOwnerVisible = true;
     }
 
     private void CancelStackSplit()
@@ -1449,6 +2228,7 @@ public sealed partial class GameLoop
         _splitContainer = InventoryUiLaw.EmptyContainer;
         _splitSlot = -1;
         _splitMaximum = 0;
+        _splitTyped = false;
     }
 
     private bool TryCancelStackSplitOnEscape()
@@ -1461,32 +2241,108 @@ public sealed partial class GameLoop
     private void DrawStackSplit()
     {
         if (_splitContainer == InventoryUiLaw.EmptyContainer) return;
-        Vector2 mouse = ImGui.GetIO().MousePos;
-        ImGui.SetNextWindowPos(mouse + new Vector2(16f), ImGuiCond.Appearing);
-        ImGui.SetNextWindowSize(new Vector2(190f, 92f) * GameplayUiScale(), ImGuiCond.Always);
-        bool open = true;
-        if (ImGui.Begin("Split Stack", ref open, ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoSavedSettings))
+        if (!_splitOwnerVisible || _gameplayArt is null)
         {
-            ImGui.SliderInt("##split-count", ref _splitCount, 1, _splitMaximum);
-            if (ImGui.Button("Split"))
-            {
-                _carriedContainer = _splitContainer;
-                _carriedSlot = _splitSlot;
-                _carriedCount = _splitCount;
-                CancelStackSplit();
-            }
-            ImGui.SameLine();
-            if (ImGui.Button("Cancel")) CancelStackSplit();
+            CancelStackSplit();
+            return;
         }
+
+        float scale = GameplayUiScale();
+        Vector2 origin = StackSplitUiLaw.Origin(_splitOwnerTopRight, scale);
+        Vector2 size = StackSplitUiLaw.FrameSize * scale;
+        ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav;
+        bool begun = ImGui.Begin("##stack-split-frame", flags);
+        ImGui.PopStyleVar(2);
+        if (!begun) { ImGui.End(); return; }
+
+        ImDrawListPtr draw = ImGui.GetWindowDrawList();
+        uint plate = _gameplayArt.Handle(StackSplitUiLaw.PlatePath);
+        if (plate != 0)
+            draw.AddImage((nint)plate, origin, origin + size, Vector2.Zero,
+                StackSplitUiLaw.PlateUvMax);
+        GameText.DrawRightAligned(draw, "GameFontHighlight", _splitCount.ToString(),
+            origin + StackSplitUiLaw.CountRightEdge * scale, scale);
+
+        bool left = DrawStackSplitArrow(draw, left: true, origin, scale,
+            enabled: _splitCount > 1);
+        bool right = DrawStackSplitArrow(draw, left: false, origin, scale,
+            enabled: _splitCount < _splitMaximum);
+        bool okay = VanillaButton(draw, "##stack-split-okay", "OKAY",
+            origin + StackSplitUiLaw.OkayButton * scale, StackSplitUiLaw.ButtonSize, scale);
+        bool cancel = VanillaButton(draw, "##stack-split-cancel", "CANCEL",
+            origin + StackSplitUiLaw.CancelButton * scale, StackSplitUiLaw.ButtonSize, scale);
+
+        bool enter = ImGui.IsKeyPressed(ImGuiKey.Enter, false) ||
+            ImGui.IsKeyPressed(ImGuiKey.KeypadEnter, false);
+        if (left || ImGui.IsKeyPressed(ImGuiKey.LeftArrow, false))
+            _splitCount = StackSplitUiLaw.Clamp(_splitCount - 1, _splitMaximum);
+        if (right || ImGui.IsKeyPressed(ImGuiKey.RightArrow, false))
+            _splitCount = StackSplitUiLaw.Clamp(_splitCount + 1, _splitMaximum);
+        if (ImGui.IsKeyPressed(ImGuiKey.Backspace, false))
+            (_splitCount, _splitTyped) = StackSplitUiLaw.Backspace(_splitCount, _splitMaximum);
+        for (int digit = 0; digit <= 9; digit++)
+            if (StackSplitDigitPressed(digit))
+                (_splitCount, _splitTyped) = StackSplitUiLaw.AppendDigit(
+                    _splitCount, _splitTyped, digit, _splitMaximum);
+
         ImGui.End();
-        if (!open) CancelStackSplit();
+        if (okay || enter)
+        {
+            _carriedContainer = _splitContainer;
+            _carriedSlot = _splitSlot;
+            _carriedCount = _splitCount;
+            CancelStackSplit();
+        }
+        else if (cancel) CancelStackSplit();
+    }
+
+    private bool DrawStackSplitArrow(ImDrawListPtr draw, bool left, Vector2 origin, float scale,
+        bool enabled)
+    {
+        Vector2 logical = left ? StackSplitUiLaw.LeftArrow : StackSplitUiLaw.RightArrow;
+        Vector2 min = origin + logical * scale;
+        Vector2 size = StackSplitUiLaw.ArrowSize * scale;
+        ImGui.SetCursorScreenPos(min);
+        if (!enabled) ImGui.BeginDisabled();
+        bool clicked = ImGui.InvisibleButton(left ? "##stack-split-left" : "##stack-split-right", size);
+        bool held = enabled && ImGui.IsItemActive();
+        if (!enabled) ImGui.EndDisabled();
+        string stem = left ? StackSplitUiLaw.LeftArrowStem : StackSplitUiLaw.RightArrowStem;
+        string suffix = !enabled ? "-Disabled" : held ? "-Down" : "-Up";
+        uint art = _gameplayArt?.Handle(stem + suffix) ?? 0;
+        if (art != 0) draw.AddImage((nint)art, min, min + size);
+        return enabled && clicked;
+    }
+
+    private static bool StackSplitDigitPressed(int digit)
+    {
+        ImGuiKey row = digit switch
+        {
+            0 => ImGuiKey._0, 1 => ImGuiKey._1, 2 => ImGuiKey._2, 3 => ImGuiKey._3,
+            4 => ImGuiKey._4, 5 => ImGuiKey._5, 6 => ImGuiKey._6, 7 => ImGuiKey._7,
+            8 => ImGuiKey._8, _ => ImGuiKey._9,
+        };
+        ImGuiKey keypad = digit switch
+        {
+            0 => ImGuiKey.Keypad0, 1 => ImGuiKey.Keypad1, 2 => ImGuiKey.Keypad2,
+            3 => ImGuiKey.Keypad3, 4 => ImGuiKey.Keypad4, 5 => ImGuiKey.Keypad5,
+            6 => ImGuiKey.Keypad6, 7 => ImGuiKey.Keypad7, 8 => ImGuiKey.Keypad8,
+            _ => ImGuiKey.Keypad9,
+        };
+        return ImGui.IsKeyPressed(row, false) || ImGui.IsKeyPressed(keypad, false);
     }
 
     private string BindingText(GameBinding binding)
     {
         BindingPair keys = BoundKeys(binding);
         string[] names = new[] { keys.Primary, keys.Secondary }
-            .Where(key => key != Key.Unknown).Select(key => key.ToString()).ToArray();
+            .Where(chord => chord.IsBound).Select(chord => FriendlyHotkey(chord)).ToArray();
         return names.Length == 0 ? "Unbound" : string.Join(" / ", names);
     }
 
@@ -1528,6 +2384,10 @@ public sealed partial class GameLoop
         int[] visible = [.. _bagWindowOrder.Where(IsBagWindowOpen)];
         foreach (int container in new[] { 0, 1, 2, 3, 4, InventoryUiLaw.KeyringContainer })
             if (IsBagWindowOpen(container) && !visible.Contains(container)) visible = [.. visible, container];
+        for (int container = InventoryUiLaw.BankBagContainerFirst;
+             container <= InventoryUiLaw.BankBagContainerLast; container++)
+            if (IsBagWindowOpen(container) && !visible.Contains(container))
+                visible = [.. visible, container];
         _bagWindowOrder.Clear(); _bagWindowOrder.AddRange(visible);
         var windows = new List<InventoryUiLaw.StackWindow>();
         foreach (int container in visible)
@@ -1537,7 +2397,7 @@ public sealed partial class GameLoop
                 0 => 240f,
                 InventoryUiLaw.KeyringContainer => InventoryUiLaw.Background(
                     InventoryUiLaw.KeyringSize(player.Level)).Height,
-                _ => EquippedBagHeight(player, container),
+                _ => BagContainerHeight(player, container),
             };
             if (height > 0) windows.Add(new(container, height));
         }
@@ -1551,9 +2411,15 @@ public sealed partial class GameLoop
                 display.Y - (placement.BottomOffset + placement.Height) * scale);
     }
 
-    private float EquippedBagHeight(WorldEntity player, int container)
+    private float BagContainerHeight(WorldEntity player, int container)
     {
-        ulong guid = container is >= 1 and <= 4 ? player.Fields.PlayerInventorySlot(18 + container) : 0;
+        ulong guid = container switch
+        {
+            >= 1 and <= 4 => player.Fields.PlayerInventorySlot(18 + container),
+            >= InventoryUiLaw.BankBagContainerFirst and <= InventoryUiLaw.BankBagContainerLast =>
+                player.Fields.PlayerBankBagSlot(container - InventoryUiLaw.BankBagContainerFirst),
+            _ => 0,
+        };
         if (guid == 0 || !_entities.TryGet(guid, out WorldEntity bag)) return 0;
         return InventoryUiLaw.Background((int)Math.Clamp(bag.Fields.ContainerNumSlots, 1,
             InventoryUiLaw.MaxContainerSlots)).Height;
@@ -1564,6 +2430,8 @@ public sealed partial class GameLoop
         0 => _backpackOpen,
         InventoryUiLaw.KeyringContainer => _keyringOpen,
         >= 1 and <= 4 => _equippedBagOpen[container - 1],
+        >= InventoryUiLaw.BankBagContainerFirst and <= InventoryUiLaw.BankBagContainerLast =>
+            _bankBagOpen[container - InventoryUiLaw.BankBagContainerFirst],
         _ => false,
     };
 
@@ -1576,6 +2444,9 @@ public sealed partial class GameLoop
             case 0: _backpackOpen = open; break;
             case InventoryUiLaw.KeyringContainer: _keyringOpen = open; break;
             case >= 1 and <= 4: _equippedBagOpen[container - 1] = open; break;
+            case >= InventoryUiLaw.BankBagContainerFirst and <= InventoryUiLaw.BankBagContainerLast:
+                _bankBagOpen[container - InventoryUiLaw.BankBagContainerFirst] = open;
+                break;
             default: return false;
         }
         _bagWindowOrder.Remove(container);
@@ -1620,7 +2491,8 @@ public sealed partial class GameLoop
 
     private bool CloseAllBagWindows()
     {
-        if (!_backpackOpen && !_keyringOpen && !_equippedBagOpen.Any(x => x)) return false;
+        if (!_backpackOpen && !_keyringOpen && !_equippedBagOpen.Any(x => x) &&
+            !_bankBagOpen.Any(x => x)) return false;
         if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player))
             SetAllNormalBagWindows(player, false);
         else
@@ -1630,6 +2502,9 @@ public sealed partial class GameLoop
                 SetBagWindowOpen(container, false, playSound: false);
         }
         SetBagWindowOpen(InventoryUiLaw.KeyringContainer, false);
+        for (int container = InventoryUiLaw.BankBagContainerFirst;
+             container <= InventoryUiLaw.BankBagContainerLast; container++)
+            SetBagWindowOpen(container, false, playSound: false);
         return true;
     }
 

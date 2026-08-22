@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Numerics;
+using MSUIClient.Formats;
 
 namespace MSUIClient.Net;
 
@@ -26,12 +27,15 @@ public sealed class ObjectFields
     // summoned objects and lets portal cast prewarm bind to the caster's exact
     // spawned GameObject instead of guessing by entry or proximity.
     public const ushort GAMEOBJECT_CREATED_BY = 6;   // guid
+    public const ushort GAMEOBJECT_FLAGS = 9;
 
     public const ushort UNIT_FIELD_CHARM = 6;        // guid of controlled/charmed unit
     public const ushort UNIT_FIELD_SUMMON = 8;       // guid of owned summon/pet
     public const ushort UNIT_FIELD_CHARMEDBY = 10;   // guid of controlling unit
     public const ushort UNIT_FIELD_SUMMONEDBY = 12;  // guid of summoner
+    public const ushort UNIT_FIELD_CREATEDBY = 14;   // guid of creator (guardian/totem ownership)
     public const ushort UNIT_TARGET = 16;            // guid
+    public const ushort UNIT_FIELD_CHANNEL_OBJECT = 20; // guid
     public const ushort UNIT_HEALTH = 22;
     public const ushort UNIT_POWER1 = 23;            // five slots, indexed by power type
     public const ushort UNIT_MAXHEALTH = 28;
@@ -56,6 +60,7 @@ public sealed class ObjectFields
     public const ushort UNIT_MAXDAMAGE = 135;
     public const ushort UNIT_MINOFFHANDDAMAGE = 136;
     public const ushort UNIT_MAXOFFHANDDAMAGE = 137;
+    public const ushort UNIT_FIELD_BYTES_1 = 138;      // byte0: stand state
     public const ushort UNIT_FIELD_PETNUMBER = 139; // nonzero for a permanent pet/charm
     public const ushort UNIT_DYNAMIC_FLAGS = 143;
     public const ushort UNIT_CHANNEL_SPELL = 144;
@@ -73,9 +78,14 @@ public sealed class ObjectFields
 
     public const ushort GAMEOBJECT_DISPLAYID = 8;
     public const ushort GAMEOBJECT_ROTATION = 10;    // f32 x4 quaternion (vmangos packs sin/cos of the half-yaw into z/w)
+    public const ushort GAMEOBJECT_DYN_FLAGS = 19;
+    public const ushort GAMEOBJECT_FACTION = 20;
     public const ushort GAMEOBJECT_TYPE_ID = 21;
+    public const ushort GAMEOBJECT_STATE = 14;
+    public const ushort GAMEOBJECT_LEVEL = 22;
 
     public const ushort ITEM_STACK_COUNT = 14;
+    public const ushort ITEM_FIELD_CREATOR = 10;     // guid
     public const ushort ITEM_SPELL_CHARGES = 16;
     public const ushort ITEM_FLAGS = 21;
     public const ushort ITEM_FIELD_ENCHANTMENT = 22; // seven triples: id, duration, charges
@@ -98,6 +108,8 @@ public sealed class ObjectFields
     // vmangos header are six fields low here; the compiled enum arithmetic is not.
     public const ushort PLAYER_VENDOR_BUYBACK_SLOT_1 = 624;
     public const ushort PLAYER_KEYRING_SLOT_1 = 648;
+    // Private combo-point owner GUID (two dwords); PLAYER_XP follows immediately at 716.
+    public const ushort PLAYER_FIELD_COMBO_TARGET = 714;
     public const ushort PLAYER_XP = 716;
     public const ushort PLAYER_NEXT_LEVEL_XP = 717;
     public const ushort PLAYER_SKILL_INFO_1_1 = 718;
@@ -121,6 +133,7 @@ public sealed class ObjectFields
     public const ushort PLAYER_FIELD_MOD_DAMAGE_DONE_POS = 1201;
     public const ushort PLAYER_FIELD_MOD_DAMAGE_DONE_NEG = 1208;
     public const ushort PLAYER_FIELD_MOD_DAMAGE_DONE_PCT = 1215;
+    public const ushort PLAYER_FIELD_BYTES = 1222;
     public const ushort PLAYER_FIELD_BUYBACK_PRICE_1 = 1226;
     public const ushort PLAYER_FIELD_BUYBACK_TIMESTAMP_1 = 1238;
     public const ushort PLAYER_AMMO_ID = 1223;
@@ -137,6 +150,7 @@ public sealed class ObjectFields
 
     public const ushort PLAYER_BYTES = 193;          // skin/face/hairstyle/haircolor
     public const ushort PLAYER_BYTES_2 = 194;        // facial hair, etc.
+    public const ushort PLAYER_FLAGS = 190;
 
     private readonly Dictionary<ushort, uint> _fields;
     private bool _created;
@@ -191,6 +205,11 @@ public sealed class ObjectFields
     // (bags, talent points, coinage) for a possessed bot, which the wire never
     // streams to a non-owner session. See Program.Control.cs ApplySuiSnapshot. ---
     public void SetU32(ushort index, uint value) => _fields[index] = value;
+    public void SetUnitStandState(byte state)
+    {
+        uint value = GetU32(UNIT_FIELD_BYTES_1) ?? 0;
+        _fields[UNIT_FIELD_BYTES_1] = (value & 0xffff_ff00u) | state;
+    }
     public void SetGuid(ushort index, ulong guid)
     {
         _fields[index] = unchecked((uint)guid);
@@ -234,9 +253,17 @@ public sealed class ObjectFields
     public float Scale => GetF32(OBJECT_SCALE_X) ?? 1f;
     public int DisplayId => GetI32(UNIT_DISPLAYID) ?? 0;
     public uint GameObjectDisplayId => GetU32(GAMEOBJECT_DISPLAYID) ?? 0;
+    public uint GameObjectFlags => GetU32(GAMEOBJECT_FLAGS) ?? 0;
+    public uint GameObjectDynamicFlags => GetU32(GAMEOBJECT_DYN_FLAGS) ?? 0;
+    public uint GameObjectFaction => GetU32(GAMEOBJECT_FACTION) ?? 0;
     public uint GameObjectType => GetU32(GAMEOBJECT_TYPE_ID) ?? 0;
+    public uint GameObjectState => _fields.TryGetValue(GAMEOBJECT_STATE, out uint state)
+        ? state : LockCatalog.StateReady;
+    public uint GameObjectLevel => GetU32(GAMEOBJECT_LEVEL) ?? 0;
     public ulong? GameObjectCreatedBy =>
         GetGuid(GAMEOBJECT_CREATED_BY) is { } g && g != 0 ? g : null;
+    public ulong? ChannelObject =>
+        GetGuid(UNIT_FIELD_CHANNEL_OBJECT) is { } g && g != 0 ? g : null;
     /// <summary>GAMEOBJECT_ROTATION as a quaternion. All-zero when the server
     /// left the fields unset — the renderer then falls back to the movement
     /// block's Orientation (see <see cref="WorldEntity.GameObjectFacing"/>).</summary>
@@ -257,6 +284,7 @@ public sealed class ObjectFields
     public ulong? Summon => GetGuid(UNIT_FIELD_SUMMON) is { } g && g != 0 ? g : null;
     public ulong? CharmedBy => GetGuid(UNIT_FIELD_CHARMEDBY) is { } g && g != 0 ? g : null;
     public ulong? SummonedBy => GetGuid(UNIT_FIELD_SUMMONEDBY) is { } g && g != 0 ? g : null;
+    public ulong? CreatedBy => GetGuid(UNIT_FIELD_CREATEDBY) is { } g && g != 0 ? g : null;
     public uint PetNumber => GetU32(UNIT_FIELD_PETNUMBER) ?? 0;
     public bool IsPetOrCharm => PetNumber != 0;
 
@@ -269,6 +297,11 @@ public sealed class ObjectFields
         ? Math.Clamp((float)ActivePower / ActiveMaxPower, 0f, 1f)
         : 1f;
     public bool InCombat => (UnitFlags & 0x0008_0000u) != 0;
+    public byte UnitStandState => (byte)(GetU32(UNIT_FIELD_BYTES_1) ?? 0);
+    /// <summary>`UNIT_FIELD_BYTES_1` byte two — the active shapeshift form id.</summary>
+    public byte ShapeshiftForm => (byte)((GetU32(UNIT_FIELD_BYTES_1) ?? 0) >> 16);
+    /// <summary>UNIT_FIELD_BYTES_1 byte three bit 0x2: the archived CREEP/stealth gate.</summary>
+    public bool UnitIsStealthed => (((GetU32(UNIT_FIELD_BYTES_1) ?? 0) >> 24) & 0x02u) != 0;
     public byte SheathState => (byte)(GetU32(UNIT_BYTES_2) ?? 0);
 
     /// <summary>`UNIT_DYNAMIC_FLAGS` — per-viewer dynamic state. Absent counts as 0.</summary>
@@ -276,6 +309,12 @@ public sealed class ObjectFields
     /// <summary>Bit 0x1 of UNIT_DYNAMIC_FLAGS — lootable BY ME (the server strips the bit
     /// per viewer before it ships). Gates the right-click loot route.</summary>
     public bool Lootable => (DynamicFlags & 0x1) != 0;
+    /// <summary>
+    /// The render/client-read death predicate: health death, UNIT_DYNFLAG_DEAD
+    /// (Feign Death), or dead stand state. This is intentionally broader than
+    /// server-health death and drives death presentation/audio.
+    /// </summary>
+    public bool ReadsDead => IsDead || (DynamicFlags & 0x20u) != 0 || UnitStandState == 7;
     /// <summary>Melee reach term for the edge-to-edge range gate. Vanilla default 1.5 when absent.</summary>
     public float CombatReach => GetF32(UNIT_COMBATREACH) ?? 1.5f;
     public float BoundingRadius => GetF32(UNIT_BOUNDINGRADIUS) ?? 0f;
@@ -341,7 +380,10 @@ public sealed class ObjectFields
     public uint ItemFlags => GetU32(ITEM_FLAGS) ?? 0;
     public uint ItemEnchantmentId(int slot) => slot is >= 0 and < 7
         ? GetU32((ushort)(ITEM_FIELD_ENCHANTMENT + slot * 3)) ?? 0 : 0;
+    public uint ItemEnchantmentCharges(int slot) => slot is >= 0 and < 7
+        ? GetU32((ushort)(ITEM_FIELD_ENCHANTMENT + slot * 3 + 2)) ?? 0 : 0;
     public uint ItemTextId => GetU32(ITEM_TEXT_ID) ?? 0;
+    public ulong ItemCreator => GetGuid(ITEM_FIELD_CREATOR) ?? 0;
     public uint ItemDurability => GetU32(ITEM_DURABILITY) ?? 0;
     public uint ItemMaxDurability => GetU32(ITEM_MAXDURABILITY) ?? 0;
     public uint ContainerNumSlots => GetU32(CONTAINER_NUM_SLOTS) ?? 0;
@@ -372,6 +414,8 @@ public sealed class ObjectFields
     public uint TalentPoints => GetU32(PLAYER_CHARACTER_POINTS1) ?? 0;
     public uint FreeProfessions => GetU32(PLAYER_CHARACTER_POINTS2) ?? 0;
     public uint Coinage => GetU32(PLAYER_COINAGE) ?? 0;
+    public byte PlayerComboPoints => (byte)((GetU32(PLAYER_FIELD_BYTES) ?? 0) >> 8);
+    public ulong PlayerComboTarget => GetGuid(PLAYER_FIELD_COMBO_TARGET) ?? 0;
     public byte BankBagSlotCount => (byte)((GetU32(PLAYER_BYTES_2) ?? 0) >> 16);
     public IEnumerable<(byte Slot, uint QuestId, uint Counters, uint Timer)> QuestLog()
     {
@@ -382,6 +426,36 @@ public sealed class ObjectFields
             if (questId != 0)
                 yield return (slot, questId, GetU32((ushort)(first + 1)) ?? 0, GetU32((ushort)(first + 2)) ?? 0);
         }
+    }
+
+    /// <summary>
+    /// The 128 vanilla PLAYER_SKILL_INFO triples. The status-refresh watch consumes
+    /// only id + current rank; maximum and temporary-bonus changes are not rank-ups.
+    /// </summary>
+    public IEnumerable<(byte Slot, ushort SkillId, ushort Value)> PlayerSkills()
+    {
+        for (byte slot = 0; slot < 128; slot++)
+        {
+            ushort first = (ushort)(PLAYER_SKILL_INFO_1_1 + slot * 3);
+            ushort skillId = (ushort)(GetU32(first) ?? 0);
+            if (skillId == 0) continue;
+            ushort value = (ushort)(GetU32((ushort)(first + 1)) ?? 0);
+            yield return (slot, skillId, value);
+        }
+    }
+
+    public uint PlayerSkillValueWithBonuses(uint skillId)
+    {
+        for (byte slot = 0; slot < 128; slot++)
+        {
+            ushort first = (ushort)(PLAYER_SKILL_INFO_1_1 + slot * 3);
+            if ((ushort)(GetU32(first) ?? 0) != skillId) continue;
+            int value = (ushort)(GetU32((ushort)(first + 1)) ?? 0);
+            uint bonuses = GetU32((ushort)(first + 2)) ?? 0;
+            value += (short)(bonuses & 0xffff) + (short)(bonuses >> 16);
+            return (uint)Math.Max(0, value);
+        }
+        return 0;
     }
 
     public uint ChannelSpell => GetU32(UNIT_CHANNEL_SPELL) ?? 0;
@@ -431,6 +505,10 @@ public sealed class ObjectFields
     public uint YesterdayContribution => GetU32(PLAYER_FIELD_YESTERDAY_CONTRIBUTION) ?? 0;
     public uint LastWeekContribution => GetU32(PLAYER_FIELD_LAST_WEEK_CONTRIBUTION) ?? 0;
     public uint LastWeekRank => GetU32(PLAYER_FIELD_LAST_WEEK_RANK) ?? 0;
+    public uint PlayerFlags => GetU32(PLAYER_FLAGS) ?? 0;
+    /// <summary>PLAYER_FLAGS 0x10: the in-world ghost presentation flag.</summary>
+    public bool PlayerIsGhost => (PlayerFlags & 0x10u) != 0;
+    public uint PlayerFieldBytes => GetU32(PLAYER_FIELD_BYTES) ?? 0;
 
     private (ushort Honorable, ushort Dishonorable) PackedKills(ushort index)
     {

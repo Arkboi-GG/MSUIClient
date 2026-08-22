@@ -57,6 +57,10 @@ public static class GameMenuUiLaw
     public const float OptionsMinHeight = 360f;
     public const float OptionsViewportWidth = .96f;
     public const float OptionsViewportHeight = .92f;
+    public const float MenuScaleMinimum = .65f;
+    public const float MenuScaleMaximum = 2.5f;
+    public const float LayoutPopupWidth = 200f;
+    public const float LayoutPopupHeight = 205f;
     public const string OpenSound = "igMainMenuOpen";
     public const string EscapeCloseSound = "igMainMenuQuit";
     public const string PopupOpenSound = "igMainMenuOpen";
@@ -67,6 +71,16 @@ public static class GameMenuUiLaw
 
     public static float ButtonTop(int row) => RowTops[Math.Clamp(row, 0, RowTops.Length - 1)];
 
+    public static float ResolveMenuScale(float scale) =>
+        float.IsFinite(scale)
+            ? Math.Clamp(scale, MenuScaleMinimum, MenuScaleMaximum)
+            : 1f;
+
+    public static Vector2 ResolveGameMenuSize(
+        Vector2 logicalSize, float scale, Vector2 display) =>
+        ResolveWindowSize(logicalSize, new(FrameWidth, FrameHeight),
+            true, scale, display);
+
     /// <summary>
     /// Resolves a remembered logical option-window size into safe framebuffer pixels.
     /// The minimum never exceeds the current viewport, which keeps a saved desktop-sized
@@ -74,18 +88,38 @@ public static class GameMenuUiLaw
     /// </summary>
     public static Vector2 ResolveOptionsSize(Vector2 logicalSize, float scale, Vector2 display)
     {
-        scale = float.IsFinite(scale) ? MathF.Max(scale, .001f) : 1f;
+        return ResolveWindowSize(logicalSize,
+            new(OptionsDefaultWidth, OptionsDefaultHeight),
+            false, scale, display);
+    }
+
+    public static (Vector2 Minimum, Vector2 Maximum) WindowSizeLimits(
+        bool gameMenu, float scale, Vector2 display)
+    {
+        scale = ResolveMenuScale(scale);
         var maximum = new Vector2(
             MathF.Max(1f, display.X * OptionsViewportWidth),
             MathF.Max(1f, display.Y * OptionsViewportHeight));
-        var minimum = Vector2.Min(
-            new Vector2(OptionsMinWidth, OptionsMinHeight) * scale,
-            maximum);
+        Vector2 authoredMinimum = gameMenu
+            ? new(FrameWidth, FrameHeight)
+            : new(OptionsMinWidth, OptionsMinHeight);
+        return (Vector2.Min(authoredMinimum * scale, maximum), maximum);
+    }
+
+    private static Vector2 ResolveWindowSize(
+        Vector2 logicalSize,
+        Vector2 authoredDefault,
+        bool gameMenu,
+        float scale,
+        Vector2 display)
+    {
+        scale = ResolveMenuScale(scale);
+        (Vector2 minimum, Vector2 maximum) = WindowSizeLimits(gameMenu, scale, display);
 
         float width = float.IsFinite(logicalSize.X) && logicalSize.X > 0f
-            ? logicalSize.X : OptionsDefaultWidth;
+            ? logicalSize.X : authoredDefault.X;
         float height = float.IsFinite(logicalSize.Y) && logicalSize.Y > 0f
-            ? logicalSize.Y : OptionsDefaultHeight;
+            ? logicalSize.Y : authoredDefault.Y;
         return Vector2.Clamp(new Vector2(width, height) * scale, minimum, maximum);
     }
 
@@ -94,6 +128,32 @@ public static class GameMenuUiLaw
     {
         scale = float.IsFinite(scale) ? MathF.Max(scale, .001f) : 1f;
         return physicalSize / scale;
+    }
+
+    /// <summary>Law-owned top-left seat for both the fixed GameMenu and resizable option pages.</summary>
+    public static Vector2 CenteredOrigin(Vector2 display, Vector2 physicalSize) =>
+        Vector2.Max(Vector2.Zero, (display - physicalSize) * .5f);
+
+    /// <summary>Top-right header seat for the always-reachable menu-only layout gear.</summary>
+    public static Vector2 LayoutGearMinimum(Vector2 frameMinimum, Vector2 frameSize, float scale)
+    {
+        scale = ResolveMenuScale(scale);
+        float side = Math.Clamp(14f * scale, 12f, 24f);
+        return frameMinimum + new Vector2(frameSize.X - side - 8f * scale, 8f * scale);
+    }
+
+    public static float LayoutGearSide(float scale) =>
+        Math.Clamp(14f * ResolveMenuScale(scale), 12f, 24f);
+
+    /// <summary>Law-owned popup seat: right of the menu when possible, left otherwise, clamped.</summary>
+    public static Vector2 LayoutPopupOrigin(
+        Vector2 frameMinimum, Vector2 frameSize, Vector2 popupSize, Vector2 display)
+    {
+        Vector2 proposed = new(frameMinimum.X + frameSize.X + 8f, frameMinimum.Y);
+        if (proposed.X + popupSize.X > display.X)
+            proposed.X = frameMinimum.X - popupSize.X - 8f;
+        Vector2 maximum = Vector2.Max(Vector2.Zero, display - popupSize);
+        return Vector2.Clamp(proposed, Vector2.Zero, maximum);
     }
 
     /// <summary>

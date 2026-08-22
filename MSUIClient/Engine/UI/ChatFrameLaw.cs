@@ -12,6 +12,13 @@ namespace MSUIClient.Engine.UI;
 /// </summary>
 public static class ChatFrameLaw
 {
+    public enum IgnoredSenderAction
+    {
+        Continue,
+        Drop,
+        DropAndNotify,
+    }
+
     // ── message types (wire CHAT_MSG_* order; the enum value IS the 1.12 type
     //    byte so an SMSG_MESSAGECHAT parse can cast straight to it) ────────────
     public enum MsgType : byte
@@ -23,15 +30,17 @@ public static class ChatFrameLaw
         Yell = 0x05, Whisper = 0x06, WhisperInform = 0x07, Emote = 0x08,
         TextEmote = 0x09, System = 0x0A, MonsterSay = 0x0B, MonsterYell = 0x0C,
         MonsterEmote = 0x0D, Channel = 0x0E, Afk = 0x14, Dnd = 0x15, Ignored = 0x16,
-        MonsterWhisper = 0x1A, RaidLeader = 0x57, RaidWarning = 0x58,
+        MonsterWhisper = 0x1A,
+        BgSystemNeutral = 0x52, BgSystemAlliance = 0x53, BgSystemHorde = 0x54,
+        RaidLeader = 0x57, RaidWarning = 0x58,
         RaidBossWhisper = 0x59, RaidBossEmote = 0x5A,
+        Battleground = 0x5C, BattlegroundLeader = 0x5D,
         // Client-composed lines - NEVER SMSG_MESSAGECHAT wire in 1.12 (loot/skill/
         // money ride their own packets; channel notices ride SMSG_CHANNEL_NOTIFY).
         // Private values above the wire range so a raw wire byte never casts onto one.
         Loot = 0xF0, Skill = 0xF1, Money = 0xF2, CombatXpGain = 0xF3,
         ChannelJoin = 0xF4, ChannelLeave = 0xF5, ChannelList = 0xF6,
         ChannelNotice = 0xF7, ChannelNoticeUser = 0xF8,
-        Battleground = 0xF9, BattlegroundLeader = 0xFA,
     }
 
     /// <summary>
@@ -65,11 +74,134 @@ public static class ChatFrameLaw
         MsgType.Loot                                  => Rgb(  0, 170,   0),
         MsgType.Money                                 => Rgb(255, 255,   0),
         MsgType.CombatXpGain                          => Rgb(111, 111, 255),
-        MsgType.RaidLeader or MsgType.RaidWarning or MsgType.RaidBossWhisper
+        MsgType.RaidLeader or MsgType.RaidWarning
             or MsgType.RaidBossEmote or MsgType.BattlegroundLeader
                                                       => Rgb(255, 219, 183),
+        MsgType.RaidBossWhisper                       => Rgb(179, 179, 179),
+        MsgType.BgSystemNeutral                       => Rgb(255, 120,  10),
+        MsgType.BgSystemAlliance                      => Rgb(  0, 174, 239),
+        MsgType.BgSystemHorde                         => Rgb(255,   0,   0),
         _                                             => Rgb(255, 255,   0),
     };
+
+    /// <summary>The only eight wire types passed through the build-5875 NPC-text expander.</summary>
+    public static bool MacroExpanded(MsgType type) => type is
+        MsgType.MonsterSay or MsgType.MonsterYell or MsgType.MonsterEmote or
+        MsgType.MonsterWhisper or MsgType.BgSystemNeutral or MsgType.BgSystemAlliance or
+        MsgType.BgSystemHorde or MsgType.RaidBossEmote;
+
+    public static string ChatFlag(byte tag) => tag switch
+    {
+        1 => "<AFK>",
+        2 => "<DND>",
+        3 => "<GM>",
+        _ => "",
+    };
+
+    /// <summary>
+    /// Build-5875's receive-side ignore gate. Every line from an ignored GUID is dropped;
+    /// only an ordinary WHISPER earns CMSG_CHAT_IGNORED. LANG_ADDON (-1 on the wire) is
+    /// filtered before that response gate and therefore never sends the notification.
+    /// </summary>
+    public static IgnoredSenderAction IgnoredSender(bool ignored, MsgType type, uint language)
+    {
+        if (!ignored) return IgnoredSenderAction.Continue;
+        if (language == uint.MaxValue) return IgnoredSenderAction.Drop;
+        return type == MsgType.Whisper
+            ? IgnoredSenderAction.DropAndNotify
+            : IgnoredSenderAction.Drop;
+    }
+
+    /// <summary>FrameXML's CHAT_*_GET composition, with player hyperlinks represented by their
+    /// visible bracketed text because MSUI's scrolling-message renderer is not a hyperlink VM.</summary>
+    public static string FormatLine(MsgType type, string sender, string channel, string message,
+        byte chatTag = 0)
+    {
+        if (type is MsgType.System or MsgType.TextEmote or MsgType.Skill or MsgType.Loot or
+            MsgType.Money or MsgType.CombatXpGain or MsgType.BgSystemNeutral or
+            MsgType.BgSystemAlliance or MsgType.BgSystemHorde)
+            return message;
+        if (type == MsgType.Ignored) return $"{sender} is ignoring you.";
+
+        string flag = ChatFlag(chatTag);
+        bool monster = type is MsgType.MonsterSay or MsgType.MonsterYell or MsgType.MonsterEmote or
+            MsgType.MonsterWhisper or MsgType.RaidBossWhisper or MsgType.RaidBossEmote;
+        string named = sender.Length == 0 ? "" : monster || type == MsgType.Emote
+            ? flag + sender
+            : $"{flag}|Hplayer:{sender}|h[{sender}]|h";
+
+        string body = type switch
+        {
+            MsgType.Say or MsgType.MonsterSay => $"{named} says: {message}",
+            MsgType.Yell or MsgType.MonsterYell => $"{named} yells: {message}",
+            MsgType.Whisper or MsgType.MonsterWhisper or MsgType.RaidBossWhisper =>
+                $"{named} whispers: {message}",
+            MsgType.WhisperInform => $"To {named}: {message}",
+            MsgType.Emote => $"{named} {message}",
+            MsgType.MonsterEmote or MsgType.RaidBossEmote => message.Replace("%s", named),
+            MsgType.Afk => $"{named} is Away From Keyboard: {message}",
+            MsgType.Dnd => $"{named} does not wish to be disturbed: {message}",
+            MsgType.Party => $"[Party] {named}: {message}",
+            MsgType.Guild => $"[Guild] {named}: {message}",
+            MsgType.Officer => $"[Officer] {named}: {message}",
+            MsgType.Raid => $"[Raid] {named}: {message}",
+            MsgType.RaidLeader => $"[Raid Leader] {named}: {message}",
+            MsgType.RaidWarning => $"[Raid Warning] {named}: {message}",
+            MsgType.Battleground => $"[Battleground] {named}: {message}",
+            MsgType.BattlegroundLeader => $"[Battleground Leader] {named}: {message}",
+            MsgType.Channel => $"{named}: {message}",
+            _ => message,
+        };
+        return channel.Length == 0 ? body : $"[{StripChannelZone(channel)}] {body}";
+    }
+
+    public static string StripChannelZone(string channel)
+    {
+        int split = channel.IndexOf(" - ", StringComparison.Ordinal);
+        return split < 0 ? channel : channel[..split];
+    }
+
+    public static string FormatRandomRoll(string name, uint result, uint minimum, uint maximum) =>
+        $"{name} rolls {result} ({minimum}-{maximum})";
+
+    public static string FormatExplorationToast(string areaName) =>
+        $"Discovered: {areaName}";
+
+    public static string FormatExplorationLine(string areaName, uint experience) =>
+        $"Discovered {areaName}: {experience} experience gained";
+
+    /// <summary>
+    /// The two default 1.12 chat windows do not share a feed. General owns the
+    /// ordinary system/social/loot/skill groups; Combat Log currently owns the
+    /// MONEY and COMBAT_XP_GAIN groups.
+    /// </summary>
+    public static bool VisibleInTab(MsgType type, int tab) => tab switch
+    {
+        1 => type is MsgType.Money or MsgType.CombatXpGain,
+        _ => type is not MsgType.Money and not MsgType.CombatXpGain,
+    };
+
+    /// <summary>GlobalStrings COMBATLOG_XPGAIN_FIRSTPERSON and its rested/unnamed forms.</summary>
+    public static string FormatXpGain(string? victim, uint total, uint bonus)
+    {
+        if (string.IsNullOrEmpty(victim)) return $"You gain {total} experience.";
+        return bonus > 0
+            ? $"{victim} dies, you gain {total} experience. (+{bonus} exp Rested bonus)"
+            : $"{victim} dies, you gain {total} experience.";
+    }
+
+    public static (string Total, string Level) FormatPlayedTime(uint total, uint level) =>
+        ($"Total time played: {FormatDuration(total)}",
+         $"Time played this level: {FormatDuration(level)}");
+
+    private static string FormatDuration(uint seconds)
+    {
+        uint days = seconds / 86_400;
+        uint rem = seconds % 86_400;
+        uint hours = rem / 3_600;
+        rem %= 3_600;
+        return $"{days} days, {hours} hours, {rem / 60} minutes, {rem % 60} seconds";
+    }
 
     /// <summary>The edit-box header string for a send type ("Say: ", "Guild: "...).</summary>
     public static string Header(MsgType type) => type switch
@@ -82,6 +214,7 @@ public static class ChatFrameLaw
         MsgType.Guild => "Guild: ",
         MsgType.Officer => "Officer: ",
         MsgType.Battleground => "Battleground: ",
+        MsgType.Channel => "Channel: ",
         _ => "Say: ",
     };
 

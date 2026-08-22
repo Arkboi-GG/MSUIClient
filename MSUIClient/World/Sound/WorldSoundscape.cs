@@ -59,6 +59,13 @@ public sealed class WorldSoundscape
     public uint InteriorAmbienceId { get; set; }
     public uint InteriorIntroSoundId { get; set; }
 
+    /// <summary>The WMO/zonetext indoor verdict. Outdoor weather replaces the
+    /// area ambience; indoors the WMO/area bed wins and the storm goes quiet.</summary>
+    public bool Interior { get; set; }
+
+    /// <summary>Last SMSG_WEATHER SoundEntries loop kit (0 = clear).</summary>
+    public uint WeatherAmbienceKit { get; set; }
+
     /// <summary>Hard day/night step: day iff 05:30 &lt;= clock &lt; 21:00.</summary>
     public bool DayPhase { get; set; } = true;
 
@@ -273,6 +280,43 @@ public sealed class WorldSoundscape
         Console.WriteLine($"[soundscape] {Status}");
     }
 
+    /// <summary>
+    /// Put a server-pushed SoundEntries kit on the one music slot. Event emitters
+    /// re-push the same id every few seconds to keep a finished track alive, so a
+    /// repeat is ignored only while that exact kit is still playing. A different
+    /// push takes the slot immediately while the outgoing stream receives the
+    /// ordinary four-second music fade.
+    /// </summary>
+    public void PlayServerMusic(uint kit, double now)
+    {
+        if (kit == 0 ||
+            (_musicKit == kit && _musicVoice != 0 && _mixer.IsLive(_musicVoice))) return;
+
+        if (_musicVoice != 0)
+        {
+            if (_mixer.IsLive(_musicVoice))
+            {
+                StopVoice(ref _fadingMusicVoice);
+                _fadingMusicVoice = _musicVoice;
+                _fadingMusicEntryVolume = _musicEntryVolume;
+                _musicFadeStartedAt = now;
+                _fadeSentVolume = -1;
+            }
+            _musicVoice = 0;
+        }
+
+        StartMusicKit(kit, "server push");
+    }
+
+    /// <summary>Play the flat SFX form of SMSG_PLAY_SOUND through the shared
+    /// SoundEntries resolver and effects-volume lane.</summary>
+    public long PlayServerSound2d(uint kit)
+    {
+        if (!_library.TryGet(kit, out SoundEntry entry) || entry.Variants.Count == 0) return 0;
+        float gain = Math.Clamp(entry.Volume, 0f, 1f) * _mixer.CategoryAmp("sfx");
+        return PlayKit(kit, "sfx", forceLoop: false, gain);
+    }
+
     // ── ambience ─────────────────────────────────────────────────────────────
 
     private void UpdateAmbience(double now)
@@ -337,6 +381,7 @@ public sealed class WorldSoundscape
     private uint DesiredAmbienceKit()
     {
         if (Submerged) return UnderwaterLoopKit;
+        if (!Interior && WeatherAmbienceKit != 0) return WeatherAmbienceKit;
 
         uint rowId = InteriorAmbienceId;
         if (rowId == 0 && _areas is not null) (rowId, _, _) = _areas.ResolveAudio(AreaId);

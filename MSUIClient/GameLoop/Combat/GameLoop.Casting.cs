@@ -85,7 +85,8 @@ public sealed partial class GameLoop
             if (info is { } completed)
             {
                 _actions.StartCooldown(packet.SpellId, completed.Category,
-                    completed.RecoveryMs, completed.CategoryRecoveryMs, now);
+                    completed.RecoveryMs, completed.CategoryRecoveryMs, now,
+                    completed.CooldownOnEvent);
             }
         }
         else _creatures?.ReleaseSpellVisual(packet.Caster, anim);
@@ -291,6 +292,7 @@ public sealed partial class GameLoop
         UpdateAuraStateVisuals(now);
         UpdateObservedChannels(now);
         UpdateDynamicObjectVisuals(now);
+        UpdateCreatureBodyLoops();
         _spellSounds?.Tick(_controller?.Position ?? Vector3.Zero, guid =>
         {
             SpellUnitPose pose = SpellEffectUnitPose(guid);
@@ -441,7 +443,7 @@ public sealed partial class GameLoop
         // visibility, not whether an action happens to occupy a slot, drives UIParent's
         // bottomEither term. The old occupancy check left an empty but visible row crossing
         // the cast bar at the unmanaged 60 px offset.
-        bool petOrStance = PetActionBarVisible;
+        bool petOrStance = PetOrStanceActionBarVisible;
         float bottom = CastingBarUiLaw.BottomOffsetForMsui(petOrStance, reputation: false);
         Vector2 barMin = new((display.X - CastingBarUiLaw.Width * s) * .5f,
             display.Y - (bottom + CastingBarUiLaw.Height) * s);

@@ -85,6 +85,9 @@ public sealed partial class GameLoop
     private Vector2 _measuredMenuSize;
     private Vector2 _measuredMenuDisplay;
     private float _measuredMenuScale;
+    private bool _menuLayoutReflowRequested;
+    private bool _menuLayoutPopupOpen;
+    private bool _menuLayoutPopupCloseRequested;
 
     /// <summary>Last frame's measured height per group box, so the backdrop can be drawn first.</summary>
     private readonly Dictionary<string, float> _boxHeights = new();
@@ -97,7 +100,11 @@ public sealed partial class GameLoop
     private GameSettings Settings => SettingsFile?.Settings ?? _fallbackSettings;
     private readonly GameSettings _fallbackSettings = GameSettings.Defaults();
 
-    private float S => _skin?.Scale ?? 1f;
+    // Escape/Options scale is deliberately independent of gameplay Interface scale. Keeping this
+    // window on _skin.Scale made the Interface slider resize and re-center the modal containing
+    // the slider itself, producing the visible feedback-loop jitter.
+    private float S => GameMenuUiLaw.ResolveMenuScale(
+        Settings.MenuLayout?.Scale ?? 1f);
 
     // ── lifecycle ────────────────────────────────────────────────────────────
 
@@ -152,8 +159,14 @@ public sealed partial class GameLoop
         {
             GameMenuEscapePlan plan = GameMenuUiLaw.ResolveEscape(new(
                 HasCarriedItem || HasActionBarCursor,
-                _logoutDialog != LogoutDialogKind.None ||
-                    PartyFrameUiLaw.IsPartyInviteVisible(_staticPopupSlots) ||
+                _settingsOpen && _menuLayoutPopupOpen ||
+                    _logoutDialog != LogoutDialogKind.None ||
+                    _binderConfirmOpen ||
+                    _bankPurchaseConfirmOpen ||
+                    _groupLootConfirm is not null ||
+                    _deathRezOpen ||
+                    StaticPopupCoordinatorLaw.AnyVisible(_staticPopupSlots) ||
+                    _questAbandonConfirmation is not null ||
                     _mailConfirmation is not null || _enchantConfirmation is not null ||
                     _skillUnlearnConfirmation is not null,
                 _settingsOpen && _menuPage != MenuPage.GameMenu,
@@ -172,7 +185,13 @@ public sealed partial class GameLoop
             switch (plan.Layer)
             {
                 case GameMenuEscapeLayer.Popup:
-                    _ = TryCancelLogoutOnEscape() || TryDismissStaticPopupOnEscape() ||
+                    _ = TryDismissMenuLayoutPopupOnEscape() ||
+                        TryDismissDeathConfirmationOnEscape() ||
+                        TryCancelLogoutOnEscape() || TryDismissBinderConfirmationOnEscape() ||
+                        TryDismissBankPurchaseConfirmationOnEscape() ||
+                        TryDismissGroupLootConfirmationOnEscape() ||
+                        TryDismissStaticPopupOnEscape() ||
+                        TryDismissQuestAbandonOnEscape() ||
                         TryDismissMailConfirmationOnEscape() ||
                         TryDismissEnchantConfirmationOnEscape() ||
                         TryDismissSkillUnlearnConfirmationOnEscape();
@@ -213,17 +232,25 @@ public sealed partial class GameLoop
 
     private bool HasPlayerPanelForEscape() =>
         _bindingCapture is not null || _keybindingsOpen || _tradeOpen || _inspectOpen ||
-        _auctionOpen || _mailOpen || _gossipMenu is not null || _gossipText is not null ||
+        _auctionOpen || _mailOpen || _gossipMenu is not null || _gossipGreeting is not null ||
         QuestNpcPanelNow() != QuestNpcPanel.None ||
         _vendor is not null || _trainer is not null || _gameObjectGuid != 0 || _worldMapOpen ||
         _commanderMapOpen || _rtsControlGroupCommandOpen ||
         _macroOpen || _helpOpen || _socialOpen || _guildOpen || _professionOpen || _bankOpen ||
         _tabardOpen || _taxiOpen && !_taxiLocked || _talentOpen || _questLogOpen ||
         _spellbookOpen || _characterOpen || _backpackOpen || _keyringOpen ||
-        _equippedBagOpen.Any(open => open);
+        _equippedBagOpen.Any(open => open) || _itemRefEntry != 0;
+
+    private bool TryDismissMenuLayoutPopupOnEscape()
+    {
+        if (!_settingsOpen || !_menuLayoutPopupOpen) return false;
+        _menuLayoutPopupCloseRequested = true;
+        return true;
+    }
 
     private bool TryClosePlayerPanelOnEscape()
     {
+        if (CloseItemRefTooltip()) return true;
         if (_rtsControlGroupCommandOpen) { _rtsControlGroupCommandOpen = false; return true; }
         if (_bindingCapture is not null) { _bindingCapture = null; return true; }
         if (_keybindingsOpen)
@@ -236,21 +263,22 @@ public sealed partial class GameLoop
         if (_inspectOpen) { CloseInspect(playSound: true); return true; }
         if (_auctionOpen) { ResetAuction(); return true; }
         if (_mailOpen) { CloseMailSession(); return true; }
-        if (_gossipMenu is not null || _gossipText is not null) { ResetGossip(); return true; }
+        if (_gossipMenu is not null || _gossipGreeting is not null) { ResetGossip(); return true; }
         if (QuestNpcPanelNow() != QuestNpcPanel.None) { CloseQuestNpcFrame(playSound: true); return true; }
         if (_vendor is not null) { CloseVendorSession(); return true; }
-        if (_trainer is not null) { _trainer = null; return true; }
+        if (_trainer is not null) return CloseTrainerSession();
         if (_gameObjectGuid != 0) { _gameObjectGuid = 0; return true; }
         if (_worldMapOpen) { _worldMapOpen = false; return true; }
         if (_commanderMapOpen) { _commanderMapOpen = false; return true; }
-        if (_macroOpen) { _macroOpen = false; return true; }
+        if (_macroPopupOpen) { CloseMacroPopup(accepted: false); return true; }
+        if (_macroOpen) { CloseMacros(); return true; }
         if (_helpOpen) { _helpOpen = false; return true; }
         if (_socialOpen) { _socialOpen = false; return true; }
         if (_guildOpen) { _guildOpen = false; return true; }
         if (_professionOpen) { _professionOpen = false; return true; }
-        if (_bankOpen) { _bankOpen = false; return true; }
+        if (_bankOpen) return CloseBankSession();
         if (_tabardOpen) { _tabardOpen = false; return true; }
-        if (_taxiOpen && !_taxiLocked) { _taxiOpen = false; return true; }
+        if (_taxiOpen && !_taxiLocked) return CloseTaxiMap();
         if (_talentOpen) { _talentOpen = false; return true; }
         if (_questLogOpen) { _questLogOpen = false; return true; }
         if (_spellbookOpen) { SetSpellbookOpen(false); return true; }
@@ -317,35 +345,32 @@ public sealed partial class GameLoop
         }
 
         if (!_settingsOpen && !_settingsPopupCloseRequested)
-        { _escapePressed = false; return; }
+        {
+            _menuLayoutPopupOpen = false;
+            _menuLayoutPopupCloseRequested = false;
+            _escapePressed = false;
+            return;
+        }
 
         var io = ImGui.GetIO();
-        var centre = new Vector2(io.DisplaySize.X * 0.5f, io.DisplaySize.Y * 0.5f);
         var size = PageSize(io.DisplaySize);
-        bool optionsPage = _menuPage != MenuPage.GameMenu;
-        bool optionsEnvironmentChanged = optionsPage && _measuredMenuPage == _menuPage &&
-            GameMenuUiLaw.OptionsEnvironmentChanged(
+        bool gameMenuPage = _menuPage == MenuPage.GameMenu;
+        bool menuEnvironmentChanged = _menuLayoutReflowRequested ||
+            _measuredMenuPage == _menuPage && GameMenuUiLaw.OptionsEnvironmentChanged(
                 _measuredMenuDisplay, io.DisplaySize, _measuredMenuScale, S);
-        ImGuiCond optionsPlacement = optionsEnvironmentChanged
+        ImGuiCond menuPlacement = menuEnvironmentChanged
             ? ImGuiCond.Always
             : ImGuiCond.Appearing;
 
-        ImGui.SetNextWindowPos(centre,
-            optionsPage ? optionsPlacement : ImGuiCond.Always,
-            new Vector2(0.5f, 0.5f));
-        ImGui.SetNextWindowSize(size, optionsPage ? optionsPlacement : ImGuiCond.Always);
-        if (optionsPage)
-        {
-            var maximum = new Vector2(
-                MathF.Max(1f, io.DisplaySize.X * GameMenuUiLaw.OptionsViewportWidth),
-                MathF.Max(1f, io.DisplaySize.Y * GameMenuUiLaw.OptionsViewportHeight));
-            var minimum = Vector2.Min(
-                new Vector2(GameMenuUiLaw.OptionsMinWidth,
-                    GameMenuUiLaw.OptionsMinHeight) * S,
-                maximum);
-            ImGui.SetNextWindowSizeConstraints(minimum, maximum);
-        }
+        ImGui.SetNextWindowPos(GameMenuUiLaw.CenteredOrigin(io.DisplaySize, size),
+            menuPlacement);
+        ImGui.SetNextWindowSize(size, menuPlacement);
+        _menuLayoutReflowRequested = false;
+        (Vector2 minimum, Vector2 maximum) = GameMenuUiLaw.WindowSizeLimits(
+            gameMenuPage, S, io.DisplaySize);
+        ImGui.SetNextWindowSizeConstraints(minimum, maximum);
 
+        if (_skin is not null) _skin.Scale = S;
         _skin?.PushStyle();
 
         ImGuiWindowFlags flags =
@@ -355,7 +380,6 @@ public sealed partial class GameLoop
             ImGuiWindowFlags.NoScrollbar |
             ImGuiWindowFlags.NoScrollWithMouse |
             ImGuiWindowFlags.NoSavedSettings;
-        if (!optionsPage) flags |= ImGuiWindowFlags.NoResize;
 
         // p_open is here only so ImGui's own Escape handling reaches us. It is
         // read as "the user pressed Escape", not as "close everything" - Video
@@ -389,6 +413,7 @@ public sealed partial class GameLoop
                 ImGui.CloseCurrentPopup();
                 ImGui.EndPopup();
                 _skin?.PopStyle();
+                RestoreGameplaySkinScale();
                 _escapePressed = false;
                 return;
             }
@@ -396,8 +421,7 @@ public sealed partial class GameLoop
             var min = ImGui.GetWindowPos();
             size = ImGui.GetWindowSize();
             var max = min + size;
-            if (optionsPage)
-                RememberPageSize(size, io.DisplaySize, optionsEnvironmentChanged);
+            RememberPageSize(size, io.DisplaySize, menuEnvironmentChanged);
             var dl = ImGui.GetWindowDrawList();
             bool parityProof = _uiParityArmed &&
                 (_uiParityPanel == "game-menu" || _uiParityPanel == "options");
@@ -492,6 +516,8 @@ public sealed partial class GameLoop
                         Visible:true,Strata:"DIALOG"));
             dl.PopClipRect();
 
+            DrawMenuLayoutGear(dl, min, size, io.DisplaySize);
+
             // The plaque hangs 12 above the frame and its VISIBLE metal ends about
             // 23 below the frame top - the 256x64 art is mostly transparent
             // padding. Blizzard puts the first game-menu button's centre at 37,
@@ -522,6 +548,7 @@ public sealed partial class GameLoop
         if (!showing) _settingsPopupCloseRequested = false;
 
         _skin?.PopStyle();
+        RestoreGameplaySkinScale();
 
         // A held slider re-scatters on release, not on every frame of the drag.
         if (_clutterRescatterPending && !ImGui.IsAnyItemActive())
@@ -533,6 +560,12 @@ public sealed partial class GameLoop
         // notEscaped is ignored on purpose: ImGui never clears it for a modal.
         // It exists only because BeginPopupModal has no (name, flags) overload.
         _escapePressed = false;
+    }
+
+    private void RestoreGameplaySkinScale()
+    {
+        if (_skin is not null)
+            _skin.Scale = GameplayUiScale();
     }
 
     /// <summary>
@@ -577,18 +610,20 @@ public sealed partial class GameLoop
     /// </summary>
     private Vector2 PageSize(Vector2 display)
     {
-        if (_menuPage == MenuPage.GameMenu)
-        {
-            // patch.MPQ's build-5875 GameMenuFrame.xml is authoritative: 195x246.
-            return new Vector2(GameMenuUiLaw.FrameWidth, GameMenuUiLaw.FrameHeight) * S;
-        }
-
-        // FrameXML's OptionsFrame supplies the first-open size. From then on each
-        // options page owns its remembered size, still clamped to this viewport.
         var layout = Settings.MenuLayout ??= new GameSettings.MenuLayoutSettings();
-        var logical = _menuPage == MenuPage.Video
-            ? new Vector2(layout.VideoWidth, layout.VideoHeight)
-            : new Vector2(layout.ControlsWidth, layout.ControlsHeight);
+        if (_menuPage == MenuPage.GameMenu)
+            return GameMenuUiLaw.ResolveGameMenuSize(
+                new Vector2(layout.MainWidth, layout.MainHeight), S, display);
+
+        // FrameXML's OptionsFrame supplies the first-open size. From then on every submenu owns
+        // an independent remembered size, still clamped to this viewport.
+        Vector2 logical = _menuPage switch
+        {
+            MenuPage.Video => new(layout.VideoWidth, layout.VideoHeight),
+            MenuPage.Controls => new(layout.ControlsWidth, layout.ControlsHeight),
+            MenuPage.Sound => new(layout.SoundWidth, layout.SoundHeight),
+            _ => Vector2.Zero,
+        };
         return GameMenuUiLaw.ResolveOptionsSize(logical, S, display);
     }
 
@@ -613,7 +648,12 @@ public sealed partial class GameLoop
 
         Vector2 logical = GameMenuUiLaw.ToLogicalOptionsSize(physicalSize, S);
         var layout = Settings.MenuLayout ??= new GameSettings.MenuLayoutSettings();
-        if (_menuPage == MenuPage.Video)
+        if (_menuPage == MenuPage.GameMenu)
+        {
+            layout.MainWidth = logical.X;
+            layout.MainHeight = logical.Y;
+        }
+        else if (_menuPage == MenuPage.Video)
         {
             layout.VideoWidth = logical.X;
             layout.VideoHeight = logical.Y;
@@ -623,9 +663,145 @@ public sealed partial class GameLoop
             layout.ControlsWidth = logical.X;
             layout.ControlsHeight = logical.Y;
         }
+        else if (_menuPage == MenuPage.Sound)
+        {
+            layout.SoundWidth = logical.X;
+            layout.SoundHeight = logical.Y;
+        }
     }
 
     // ── the Game Menu ────────────────────────────────────────────────────────
+
+    private void DrawMenuLayoutGear(
+        ImDrawListPtr draw,
+        Vector2 frameMinimum,
+        Vector2 frameSize,
+        Vector2 display)
+    {
+        float side = GameMenuUiLaw.LayoutGearSide(S);
+        Vector2 minimum = GameMenuUiLaw.LayoutGearMinimum(frameMinimum, frameSize, S);
+        ImGui.SetCursorScreenPos(minimum);
+        bool clicked = ImGui.InvisibleButton("##game-menu-layout-gear", new Vector2(side));
+        bool hovered = ImGui.IsItemHovered();
+
+        uint color = hovered || ImGui.IsPopupOpen("##game-menu-layout-popup")
+            ? 0xffffffffu
+            : VanillaGold;
+        Vector2 center = minimum + new Vector2(side * .5f);
+        float rim = side * .31f;
+        float stroke = MathF.Max(1.1f, 1.35f * S);
+        draw.AddCircle(center, rim, color, 12, stroke);
+        draw.AddCircleFilled(center, side * .095f, color);
+        for (int spoke = 0; spoke < 8; spoke++)
+        {
+            float angle = spoke * MathF.PI / 4f;
+            Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
+            draw.AddLine(center + direction * rim,
+                center + direction * (rim + side * .16f), color, stroke);
+        }
+
+        if (hovered) ImGui.SetTooltip("Resize and scale Escape menus only");
+        if (clicked)
+        {
+            PlayUiSound(GameMenuUiLaw.PopupOpenSound);
+            ImGui.OpenPopup("##game-menu-layout-popup");
+        }
+
+        Vector2 popupSize = new(GameMenuUiLaw.LayoutPopupWidth,
+            GameMenuUiLaw.LayoutPopupHeight);
+        popupSize *= Math.Clamp(S, .85f, 1.5f);
+        Vector2 popupOrigin = GameMenuUiLaw.LayoutPopupOrigin(
+            frameMinimum, frameSize, popupSize, display);
+        ImGui.SetNextWindowPos(popupOrigin, ImGuiCond.Appearing);
+        ImGui.SetNextWindowSize(popupSize, ImGuiCond.Appearing);
+        ImGui.SetNextWindowSizeConstraints(new Vector2(190f, 165f),
+            Vector2.Max(new Vector2(190f, 165f), display * .60f));
+
+        if (!ImGui.BeginPopup("##game-menu-layout-popup",
+                ImGuiWindowFlags.NoSavedSettings))
+        {
+            _menuLayoutPopupOpen = false;
+            _menuLayoutPopupCloseRequested = false;
+            return;
+        }
+
+        _menuLayoutPopupOpen = true;
+        if (_menuLayoutPopupCloseRequested)
+        {
+            _menuLayoutPopupCloseRequested = false;
+            _menuLayoutPopupOpen = false;
+            ImGui.CloseCurrentPopup();
+            ImGui.EndPopup();
+            return;
+        }
+
+        GameSettings.MenuLayoutSettings layout = Settings.MenuLayout ??= new();
+        ImGui.TextUnformatted("Menu layout");
+        ImGui.Separator();
+        float scale = GameMenuUiLaw.ResolveMenuScale(layout.Scale);
+        ImGui.TextUnformatted("Menu scale");
+        ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X);
+        if (ImGui.SliderFloat("##menu-layout-scale", ref scale,
+                GameMenuUiLaw.MenuScaleMinimum, GameMenuUiLaw.MenuScaleMaximum, "%.2fx"))
+        {
+            layout.Scale = scale;
+            _menuLayoutReflowRequested = true;
+        }
+
+        float textScale = Math.Clamp(layout.TextScale, 0.5f, 3f);
+        ImGui.TextUnformatted("Menu text");
+        ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X);
+        if (ImGui.SliderFloat("##menu-layout-text", ref textScale, 0.5f, 3f, "%.2fx"))
+        {
+            layout.TextScale = textScale;
+            _window.ApplyUiFontScale(
+                InterfaceScaleLaw.Resolve(Settings.Display.UiScale), textScale);
+        }
+
+        Vector2 logicalSize = GameMenuUiLaw.ToLogicalOptionsSize(frameSize, S);
+        ImGui.TextDisabled($"This window: {logicalSize.X:0} x {logicalSize.Y:0}");
+        ImGui.TextWrapped("Drag an Escape-menu edge or corner to resize it.");
+
+        if (ImGui.Button("Reset window"))
+        {
+            ResetCurrentMenuWindowSize(layout);
+            _menuLayoutReflowRequested = true;
+        }
+        ImGui.SameLine();
+        if (ImGui.Button("Reset all"))
+        {
+            layout.MainWidth = layout.MainHeight = 0f;
+            layout.VideoWidth = layout.VideoHeight = 0f;
+            layout.ControlsWidth = layout.ControlsHeight = 0f;
+            layout.SoundWidth = layout.SoundHeight = 0f;
+            var defaults = new GameSettings.MenuLayoutSettings();
+            layout.Scale = defaults.Scale;
+            layout.TextScale = defaults.TextScale;
+            _window.ApplyUiFontScale(
+                InterfaceScaleLaw.Resolve(Settings.Display.UiScale), layout.TextScale);
+            _menuLayoutReflowRequested = true;
+        }
+        ImGui.EndPopup();
+    }
+
+    private void ResetCurrentMenuWindowSize(GameSettings.MenuLayoutSettings layout)
+    {
+        switch (_menuPage)
+        {
+            case MenuPage.GameMenu:
+                layout.MainWidth = layout.MainHeight = 0f;
+                break;
+            case MenuPage.Video:
+                layout.VideoWidth = layout.VideoHeight = 0f;
+                break;
+            case MenuPage.Controls:
+                layout.ControlsWidth = layout.ControlsHeight = 0f;
+                break;
+            case MenuPage.Sound:
+                layout.SoundWidth = layout.SoundHeight = 0f;
+                break;
+        }
+    }
 
     private void DrawGameMenu(Vector2 size)
     {
@@ -905,19 +1081,9 @@ public sealed partial class GameLoop
                     // the atlas is supersampled and overwriting its compensation scales
                     // this very menu off the screen. See ClientWindow.ApplyUiFontScale.
                     float v = Math.Clamp(s.Display.UiScale, 0.5f, 4f);
-                    _window.ApplyUiFontScale(v, s.Display.FontScale);
+                    _window.ApplyUiFontScale(v,
+                        Math.Clamp(s.MenuLayout?.TextScale ?? 1f, 0.5f, 3f));
                     if (_skin is not null) _skin.Scale = v;
-                }
-
-                if (Slider("fontscale", "Font size", () => s.Display.FontScale,
-                        v => s.Display.FontScale = v, 0.5f, 3f, "x{0:F2}",
-                        "Text size on its own - panels and buttons stay put, only the type\n" +
-                        "grows. For a 4K panel where the interface is the right size but the\n" +
-                        "words are too small to read. Stays crisp all the way to 3.00x,\n" +
-                        "because the typeface is rasterised that much larger than it draws."))
-                {
-                    _window.ApplyUiFontScale(
-                        Math.Clamp(s.Display.UiScale, 0.5f, 4f), s.Display.FontScale);
                 }
 
                 if (ImGui.TreeNode("Advanced##display"))
@@ -1673,6 +1839,31 @@ public sealed partial class GameLoop
             }
             EndBox();
 
+            BeginBox("nameplates", "Nameplates");
+            {
+                Check("Player Names", () => s.Controls.ShowPlayerNames,
+                    value => s.Controls.ShowPlayerNames = value,
+                    "Show names and health plates for other players when nameplates are enabled.");
+                Check("NPC Names", () => s.Controls.ShowNpcNames,
+                    value => s.Controls.ShowNpcNames = value,
+                    "Show names and health plates for creatures when nameplates are enabled.");
+                Check("Show Own Name", () => s.Controls.ShowOwnName,
+                    value => s.Controls.ShowOwnName = value,
+                    "Include your controlled character in the nameplate pass.");
+            }
+            EndBox();
+
+            BeginBox("chat-bubbles", "Chat Bubbles");
+            {
+                Check("Speech bubbles", () => s.Controls.ChatBubbles,
+                    value => s.Controls.ChatBubbles = value,
+                    "Show SAY, YELL and monster speech over a nearby speaker.");
+                Check("Party chat bubbles", () => s.Controls.PartyChatBubbles,
+                    value => s.Controls.PartyChatBubbles = value,
+                    "Show party lines over nearby party members. Benilla enables this by default.");
+            }
+            EndBox();
+
             BeginBox("crpg", "CRPG / RTS");
             {
                 Check("RTS commands on party portraits", () => s.Controls.RtsCommands,
@@ -2144,7 +2335,8 @@ public sealed partial class GameLoop
         // outlived a Cancel: the scale reverted in the file and stayed changed
         // on screen, which reads as "I can no longer change it".
         float uiScale = Math.Clamp(s.Display.UiScale, 0.5f, 4f);
-        _window.ApplyUiFontScale(uiScale, s.Display.FontScale);
+        _window.ApplyUiFontScale(uiScale,
+            Math.Clamp(s.MenuLayout?.TextScale ?? 1f, 0.5f, 3f));
         if (_skin is not null) _skin.Scale = uiScale;
 
         if (_painterly is not null)

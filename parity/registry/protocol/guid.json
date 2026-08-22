@@ -8,14 +8,14 @@
     {
       "path": "crates/benilla-protocol/src/guid.rs",
       "fileSha256": "fd22819f0cae8054d5bcfe07ab1f0e3e1bb38710a7b09d6fd37523e00c63703b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/GuidInfo.cs"
   ],
-  "status": "partial",
-  "summary": "Benilla's guid.rs decodes the 1.12 guid bit layout (high-16 family tags, entry bits 24-47, MO_TRANSPORT full-low-32 entry, pet-number-not-entry rule). MSUI's GuidInfo.cs is a direct port with matching constants and the same Entry() special cases including MO_TRANSPORT and the pet exclusion.",
+  "status": "implemented-unverified",
+  "summary": "GuidInfo implements the current 1.12 GUID layout including family tags, ordinary 24-bit entries, MO_TRANSPORT's low-32 entry, explicit pet exclusion from Entry(), and HIGHGUID_PET's 24-bit pet-number extraction consumed by pet-name queries.",
   "openItems": [
     {
       "id": "item-triage-39e464b6",
@@ -23,12 +23,13 @@
       "text": "pet_number() extraction and its consumer CMSG_PET_NAME_QUERY are absent - the one guid decode Benilla ships for pet naming has no MSUI counterpart, so pet guids can never be resolved to names",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: GuidInfo.PetNumber returns bits 24..47 only for HIGHGUID_PET, and the name ingress uses it for exact CMSG_PET_NAME_QUERY requests."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T02:57:35.1951358Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

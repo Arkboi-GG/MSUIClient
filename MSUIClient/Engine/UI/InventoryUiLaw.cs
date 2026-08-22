@@ -4,22 +4,41 @@ namespace MSUIClient.Engine.UI;
 
 /// <summary>
 /// Build-5875 ContainerFrame/MainMenuBarBagButtons laws shared by the live inventory UI and
-/// deterministic verification. Container ids use the FrameXML space: 0 backpack, 1..4 equipped
-/// bags, -2 keyring, and <see cref="EquipmentContainer"/> for paper-doll/bag-bar inventory slots.
+/// deterministic verification. Container ids use the FrameXML space: -1 bank, 0 backpack,
+/// 1..4 equipped bags, -2 keyring, and <see cref="EquipmentContainer"/> for
+/// paper-doll/bag-bar inventory slots.
 /// </summary>
 public static class InventoryUiLaw
 {
     public const int EmptyContainer = int.MinValue;
     public const int EquipmentContainer = -100;
+    public const int BankBagEquipmentContainer = -101;
+    public const int BankContainer = -1;
     public const int KeyringContainer = -2;
     public const byte PlayerInventoryBag = 255;
     public const int BackpackSlots = 16;
+    public const int BankSlots = 24;
+    public const int BankBagContainerFirst = 5;
+    public const int BankBagContainerLast = 10;
+    public const int BankBagWireFirst = 63;
+    public const int BankBagCount = 6;
     public const int KeyringAddressableSlots = 16;
     public const int MaxContainerSlots = 36;
     public const int KeyringWireFirst = 81;
     public const float ContainerWidth = 192f;
     public const float ContainerOffsetY = 70f;
     public const float VisibleContainerSpacing = 3f;
+    public const uint ItemFlagLootable = 0x0000_0004;
+    public const uint ItemFlagWrapper = 0x0000_0200;
+    public const uint ItemDynamicUnlocked = 0x0000_0004;
+    public const uint ItemDynamicWrapped = 0x0000_0008;
+    public const string KeyringNormalTexture = @"Interface\Buttons\UI-Button-KeyRing";
+    public const string KeyringPushedTexture = @"Interface\Buttons\UI-Button-KeyRing-Down";
+    public const string KeyringHighlightTexture = @"Interface\Buttons\UI-Button-KeyRing-Highlight";
+    public static readonly Vector2 KeyringUvMaximum = new(0.5625f, 0.609375f);
+
+    public static string KeyringStateTexture(bool pushed) =>
+        pushed ? KeyringPushedTexture : KeyringNormalTexture;
 
     public readonly record struct WirePosition(byte Bag, byte Slot);
     public readonly record struct BackgroundGeometry(
@@ -34,6 +53,9 @@ public static class InventoryUiLaw
         float BottomOffset, float Height);
     public readonly record struct ItemPushSample(bool Visible, float Alpha, float Size,
         Vector2 Offset);
+    public readonly record struct TooltipSeat(Vector2 Position, Vector2 Pivot,
+        string Point, string RelativePoint);
+    public readonly record struct ProficiencyColors(bool SlotRed, bool TypeRed);
     public readonly record struct MoneyDenomination(int Index, uint Value);
     public enum MoveKind { Refuse, Cancel, SwapInventory, SwapItems, Split }
     public enum BagBindingAction { ToggleBackpack, ToggleAllBags }
@@ -81,11 +103,86 @@ public static class InventoryUiLaw
     public static string? HoverCursor(bool merchantOpen, bool readable) => merchantOpen
         ? "Buy" : readable ? "Inspect" : null;
 
+    /// <summary>The build-5875 INVTYPE_* GlobalString vocabulary used by item tooltips.</summary>
+    public static string? InventoryTypeName(uint type) => type switch
+    {
+        1 => "Head", 2 => "Neck", 3 => "Shoulder", 4 => "Shirt",
+        5 or 20 => "Chest", 6 => "Waist", 7 => "Legs", 8 => "Feet",
+        9 => "Wrist", 10 => "Hands", 11 => "Finger", 12 => "Trinket",
+        13 => "One-Hand", 14 or 22 => "Off Hand", 15 or 26 => "Ranged",
+        16 => "Back", 17 => "Two-Hand", 19 => "Tabard", 21 => "Main Hand",
+        23 => "Held In Off-hand", 24 => "Projectile", 25 => "Thrown",
+        28 => "Relic", _ => null,
+    };
+
+    /// <summary>
+    /// The tooltip's two proficiency cells recolor independently. A missing own-subclass bit
+    /// normally reds the type. For weapons only, a permitted ItemSubClass alternate covers the
+    /// type but reds the slot; an off-hand weapon also reds its slot until Dual Wield is known.
+    /// No class entry means the server has not declared a restriction and leaves both white.
+    /// </summary>
+    public static ProficiencyColors ItemProficiencyColors(
+        uint itemClass,
+        uint subclass,
+        uint inventoryType,
+        IReadOnlyDictionary<uint, uint> proficiencies,
+        uint? weaponAlternative,
+        bool canDualWield)
+    {
+        ArgumentNullException.ThrowIfNull(proficiencies);
+        bool slotRed = inventoryType == 22 && !canDualWield;
+        bool typeRed = false;
+        if (proficiencies.TryGetValue(itemClass, out uint mask) &&
+            (subclass >= 32 || (mask & (1u << (int)subclass)) == 0))
+        {
+            bool alternativeAllowed = itemClass == 2 &&
+                weaponAlternative is uint alternative && alternative < 32 &&
+                (mask & (1u << (int)alternative)) != 0;
+            if (alternativeAllowed) slotRed = true;
+            else typeRed = true;
+        }
+        return new(slotRed, typeRed);
+    }
+
+    public static bool IsItemProficient(uint itemClass, uint subclass,
+        IReadOnlyDictionary<uint, uint> proficiencies) =>
+        !proficiencies.TryGetValue(itemClass, out uint mask) ||
+        subclass < 32 && (mask & (1u << (int)subclass)) != 0;
+
+    public static bool UnwrapsGift(uint templateFlags, uint instanceFlags) =>
+        (templateFlags & ItemFlagWrapper) != 0 &&
+        (instanceFlags & ItemDynamicWrapped) != 0;
+
+    /// <summary>The click's deliberately bare LOOTABLE test; locked boxes still reach the server.</summary>
+    public static bool OpensLoot(uint templateFlags) =>
+        (templateFlags & ItemFlagLootable) != 0;
+
+    /// <summary>The tooltip promise is narrower than the click: a locked box needs UNLOCKED.</summary>
+    public static bool ShowsOpenLine(uint templateFlags, uint lockId, uint instanceFlags) =>
+        OpensLoot(templateFlags) && (lockId == 0 || (instanceFlags & ItemDynamicUnlocked) != 0) ||
+        UnwrapsGift(templateFlags, instanceFlags);
+
+    /// <summary>
+    /// ContainerFrameItemButton_OnEnter: slots in the right screen half use ANCHOR_LEFT
+    /// (tooltip TOPRIGHT to slot TOPLEFT); slots in the left half use ANCHOR_RIGHT.
+    /// </summary>
+    public static TooltipSeat ItemTooltipSeat(Vector2 slotMinimum, Vector2 slotMaximum,
+        float screenWidth) => slotMaximum.X >= MathF.Max(0f, screenWidth) * .5f
+        ? new(slotMinimum, new Vector2(1f, 0f), "TOPRIGHT", "TOPLEFT")
+        : new(new Vector2(slotMaximum.X, slotMinimum.Y), Vector2.Zero,
+            "TOPLEFT", "TOPRIGHT");
+
     public static WirePosition? ToWire(int container, int slot)
     {
         if (slot < 0) return null;
         return container switch
         {
+            BankContainer when slot < BankSlots =>
+                new(PlayerInventoryBag, (byte)(39 + slot)),
+            >= BankBagContainerFirst and <= BankBagContainerLast when slot < MaxContainerSlots =>
+                new((byte)(BankBagWireFirst + container - BankBagContainerFirst), (byte)slot),
+            BankBagEquipmentContainer when slot < BankBagCount =>
+                new(PlayerInventoryBag, (byte)(BankBagWireFirst + slot)),
             0 when slot < BackpackSlots => new(PlayerInventoryBag, (byte)(23 + slot)),
             >= 1 and <= 4 when slot < MaxContainerSlots => new((byte)(18 + container), (byte)slot),
             KeyringContainer when slot < KeyringAddressableSlots =>

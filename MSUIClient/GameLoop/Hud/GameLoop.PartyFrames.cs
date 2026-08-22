@@ -229,9 +229,72 @@ public sealed partial class GameLoop
         _staticPopupSlots = plan.Slots;
         foreach (StaticPopupCoordinatorLaw.Effect effect in plan.Effects)
         {
-            // PARTY_INVITE is the only production entry integrated in this bounded slice.
-            if (!string.Equals(effect.Type, PartyInvitePopupType, StringComparison.Ordinal))
+            if (effect.Kind is StaticPopupCoordinatorLaw.EffectKind.MainMenuOpenSound or
+                StaticPopupCoordinatorLaw.EffectKind.MainMenuCloseSound or
+                StaticPopupCoordinatorLaw.EffectKind.EntrySound)
+            {
+                if (!string.IsNullOrEmpty(effect.Value)) PlayUiSound(effect.Value);
                 continue;
+            }
+            if (string.Equals(effect.Type, DeleteItemUiLaw.PopupType, StringComparison.Ordinal))
+            {
+                switch (effect.Kind)
+                {
+                    case StaticPopupCoordinatorLaw.EffectKind.Accept:
+                        AcceptDeleteItem();
+                        break;
+                    case StaticPopupCoordinatorLaw.EffectKind.CancelWithoutReason:
+                    case StaticPopupCoordinatorLaw.EffectKind.CancelOverride:
+                    case StaticPopupCoordinatorLaw.EffectKind.CancelClicked:
+                    case StaticPopupCoordinatorLaw.EffectKind.CancelTimeout:
+                        CancelDeleteItem();
+                        break;
+                }
+                continue;
+            }
+            if (string.Equals(effect.Type, DuelFrameUiLaw.RequestedPopupType,
+                    StringComparison.Ordinal))
+            {
+                if (effect.Kind == StaticPopupCoordinatorLaw.EffectKind.Accept)
+                    _net?.DuelAccepted(_duelArbiter);
+                else if (effect.Kind == StaticPopupCoordinatorLaw.EffectKind.CancelClicked)
+                    _net?.DuelCancelled(_duelArbiter);
+                // Timeout, replacement and a no-free-slot refusal are silent in the 1.12 entry.
+                continue;
+            }
+            if (string.Equals(effect.Type, DuelFrameUiLaw.OutOfBoundsPopupType,
+                    StringComparison.Ordinal))
+                continue;
+            if (FriendsFrameUiLaw.IsNamePopup(effect.Type))
+            {
+                switch (effect.Kind)
+                {
+                    case StaticPopupCoordinatorLaw.EffectKind.ClearEditBox:
+                        Array.Clear(_friendNameInput);
+                        break;
+                    case StaticPopupCoordinatorLaw.EffectKind.OnShow:
+                        _socialPopupFocusRequested = true;
+                        break;
+                    case StaticPopupCoordinatorLaw.EffectKind.Hide:
+                    case StaticPopupCoordinatorLaw.EffectKind.ClearEditBoxFocus:
+                        _socialPopupFocusRequested = false;
+                        _socialPopupEditFocused = false;
+                        break;
+                    case StaticPopupCoordinatorLaw.EffectKind.Accept:
+                    case StaticPopupCoordinatorLaw.EffectKind.EditBoxEnter:
+                        SubmitSocialNamePopup(effect.Type);
+                        break;
+                }
+                continue;
+            }
+            if (string.Equals(effect.Type, CharacterBindingsUiLaw.PopupType,
+                    StringComparison.Ordinal))
+            {
+                if (effect.Kind == StaticPopupCoordinatorLaw.EffectKind.Accept)
+                    AcceptDeleteCharacterSpecificBindings();
+                continue;
+            }
+            if (!string.Equals(effect.Type, PartyInvitePopupType, StringComparison.Ordinal)) continue;
             switch (effect.Kind)
             {
                 case StaticPopupCoordinatorLaw.EffectKind.Accept:
@@ -243,11 +306,6 @@ public sealed partial class GameLoop
                 case StaticPopupCoordinatorLaw.EffectKind.CancelClicked:
                 case StaticPopupCoordinatorLaw.EffectKind.CancelTimeout:
                     _net?.GroupDecline();
-                    break;
-                case StaticPopupCoordinatorLaw.EffectKind.MainMenuOpenSound:
-                case StaticPopupCoordinatorLaw.EffectKind.MainMenuCloseSound:
-                case StaticPopupCoordinatorLaw.EffectKind.EntrySound:
-                    if (!string.IsNullOrEmpty(effect.Value)) PlayUiSound(effect.Value);
                     break;
                 case StaticPopupCoordinatorLaw.EffectKind.OnShow:
                     _partyInviteAccepted = false;
@@ -265,7 +323,13 @@ public sealed partial class GameLoop
 
     private bool TryDismissStaticPopupOnEscape()
     {
-        StaticPopupCoordinatorLaw.Plan plan = StaticPopupCoordinatorLaw.Escape(_staticPopupSlots);
+        StaticPopupCoordinatorLaw.Plan plan;
+        (int Slot, StaticPopupCoordinatorLaw.Instance Instance)? social =
+            FriendsFrameUiLaw.NamePopup(_staticPopupSlots);
+        if (_socialPopupEditFocused && social is { } focused)
+            plan = StaticPopupCoordinatorLaw.EditBoxEscape(_staticPopupSlots, focused.Slot);
+        else
+            plan = StaticPopupCoordinatorLaw.Escape(_staticPopupSlots);
         ExecuteStaticPopupPlan(plan);
         return plan.Outcome != StaticPopupCoordinatorLaw.Outcome.NothingVisible;
     }
@@ -281,6 +345,9 @@ public sealed partial class GameLoop
         for (int slot = 1; slot <= StaticPopupCoordinatorLaw.SlotCount; slot++)
             ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Advance(
                 _staticPopupSlots, slot, elapsedSeconds));
+        if (DeleteItemUiLaw.Visible(_staticPopupSlots) is not null && !HasCarriedItem)
+            ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.HideByType(
+                _staticPopupSlots, DeleteItemUiLaw.PopupType));
     }
 
     private PartyMemberView BuildPartyMemberView(PartyMember member)
@@ -821,7 +888,7 @@ public sealed partial class GameLoop
         // watch exists; the parity-only fixture is not allowed to move an observational tooltip.
         float tooltipBottomOffset = PartyFrameUiLaw.TooltipBottomOffset(
             bottomLeftVisible: true, bottomRightVisible: true,
-            petOrStanceVisible: PetActionBarVisible, reputationVisible: false);
+            petOrStanceVisible: PetOrStanceActionBarVisible, reputationVisible: false);
         Vector2 pos = new(display.X + tooltipRightOffset * s - width,
             display.Y - tooltipBottomOffset * s - height);
         Vector2 size = new(width, height);
@@ -913,9 +980,7 @@ public sealed partial class GameLoop
     {
         (int Slot, StaticPopupCoordinatorLaw.Instance Instance)? popup =
             PartyFrameUiLaw.PartyInvitePopup(_staticPopupSlots);
-        // PARTY_INVITE is currently the sole participant and therefore owns slot one. Shared
-        // slot-two presentation remains an explicit later integration boundary.
-        if (popup is not { } visible || visible.Slot != 1 || _skin is null) return;
+        if (popup is not { } visible || _skin is null) return;
         float s = GameplayUiScale();
         string text = $"{visible.Instance.DataToken ?? ""} invites you to a group.";
         string[] lines = WrapTooltipText(text, "GameFontHighlight", s,
@@ -924,7 +989,7 @@ public sealed partial class GameLoop
         Vector2 display = ImGui.GetIO().DisplaySize;
         Vector2 size = new(PartyFrameUiLaw.PopupWidth * s,
             PartyFrameUiLaw.PopupHeight(textHeight / s) * s);
-        Vector2 origin = new((display.X - size.X) * .5f, 128 * s);
+        Vector2 origin = StaticPopupOrigin(visible.Slot, PartyFrameUiLaw.PopupWidth, s);
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);

@@ -41,6 +41,7 @@ public sealed partial class GameLoop
     private CreatureRenderer? _creatures;              // draws streamed creatures and remote players (UPDATE_OBJECT)
     private SelectionRingRenderer? _selectionRing;
     private SpellEffectSource? _spellEffects;
+    private QuestMarkerModelSource? _questMarkerModels;
     private SpellEffectMeshRenderer? _spellEffectMeshes;
     private SpellRibbonRenderer? _spellRibbons;
     private World.Spells.SpellParticleSystem? _spellParticles;
@@ -50,6 +51,10 @@ public sealed partial class GameLoop
     private World.Sound.AudioMixer? _audioMixer;
     private World.Sound.SoundKitLibrary? _soundKits;
     private World.Spells.SpellSoundSystem? _spellSounds;
+    private CreatureVoiceCatalog? _creatureVoices;
+    private EmoteCatalog? _emotes;
+    private EmoteTextSoundCatalog? _emoteTextSounds;
+    private readonly Dictionary<ulong, long> _creatureHostileVoices = [];
     private bool _worldLoadStarted;                   // false until BeginWorldLoad has run (offline or on login)
     private int _worldEntryTransitionStage;           // 1=booth avatar, 2=HUD prime, 3=begin load, 4=adopt; never in network pump
     private EnterWorldInfo? _queuedWorldEntry;        // captured at the ordered inbound NEW_WORLD boundary
@@ -144,6 +149,9 @@ public sealed partial class GameLoop
         if (_mpq is not null)
         {
             _spellEffects = new SpellEffectSource(_mpq);
+            _questMarkerModels = new QuestMarkerModelSource(_mpq);
+            _emotes = EmoteCatalog.Load(_mpq);
+            _emoteTextSounds = EmoteTextSoundCatalog.Load(_mpq);
             // MSUI_AUDIO_OFF=1 builds no audio at all: no mixer, no worker thread,
             // no waveOut device, no decode. A BISECT SWITCH, so "the audio rewrite
             // changed something visual" can be answered by running rather than by
@@ -157,7 +165,13 @@ public sealed partial class GameLoop
                 _audioMixer = new World.Sound.AudioMixer(_mpq);
                 _soundKits = new World.Sound.SoundKitLibrary(_mpq);
                 _spellSounds = new World.Spells.SpellSoundSystem(_audioMixer, _soundKits);
+                _creatureVoices = CreatureVoiceCatalog.Load(_mpq);
+                _npcGreetings = NpcGreetingCatalog.Load(_mpq);
+                _gameObjectSounds = GameObjectSoundCatalog.Load(_mpq);
             }
+            WireFootstepPlayback();
+            WireCreatureAnimationVoices();
+            WireMeleeSounds();
             _spellEffects.AnimationSoundEvent = (sound, unit, position) =>
                 PlaySpellSoundAt(unit, sound, position, forceLoop: false, trackHold: false);
             try
@@ -343,22 +357,28 @@ public sealed partial class GameLoop
             if (_pendingObjectParse is not null)
                 _objectUpdateBuffer = new ObjectUpdateBuffer(12_000);
             _entities.Clear();
+            ClearChatBubbles();
+            ResetControlledHardLandingArc();
             _combat.Clear();
             ResetActionStores();
             // NEW_WORLD is a map boundary, but group state is session-owned and must
             // survive zoning; the disconnected/session edge above is the authoritative reset.
             ResetPetActionBar();
             EnterPlayerAuraWorld(_net.PlayerGuid);
-            _movementRooted = false;
+            ResetMovementModes();
+            ResetControlledSpeeds();
             _iceBlockFrozen = false;
             _iceBlockFacing = enter.Orientation;
             _movementSender.Reset(enter.Orientation);
             ResetTargeting();
             ResetCombatFeedback();
+            ResetUiErrors();
+            ResetPendingInventoryOps();
             ResetLoot();
             ResetGameObjects();
             ResetRestXp();
             ResetDeathRez();
+            ResetMirrorTimers();
             ResetHearth();
             ResetTaxi();
             ResetGossip();
@@ -501,35 +521,44 @@ public sealed partial class GameLoop
             NoteLoadPacketPumped(loadActiveAtPumpEntry);
             try
             {
-                switch ((Op)opcode)
+                Op packetOpcode = (Op)opcode;
+                switch (packetOpcode)
                 {
                     case Op.SMSG_TRANSFER_PENDING:
                         {
-                            // The old world is about to disappear. Cover it now,
-                            // but wait for NEW_WORLD before changing any client
-                            // map identity or position.
-                            var transfer = new PacketReader(body);
-                            uint destinationMap = transfer.ReadU32();
-                            BeginRealPortalWorldTransfer(destinationMap);
-                            if (_gl is not null)
-                                ArmEnterWorldCurtain(_gl, (int)destinationMap);
-                            _travelStatus = $"server transferring to map {destinationMap}";
+                            TransferPendingPacket transfer =
+                                SessionTransferPackets.ParsePending(body);
+                            // An ordinary portal is about to unload this world: cover it now,
+                            // while NEW_WORLD remains the only map/position authority. A boat or
+                            // zeppelin seam remains visibly in-world until the worldport lands.
+                            if (!transfer.RidingTransport)
+                            {
+                                BeginRealPortalWorldTransfer(transfer.MapId);
+                                if (_gl is not null)
+                                    ArmEnterWorldCurtain(_gl, checked((int)transfer.MapId));
+                            }
+                            _travelStatus = transfer.RidingTransport
+                                ? $"server transferring aboard transport {transfer.TransportEntry} to map {transfer.MapId}"
+                                : $"server transferring to map {transfer.MapId}";
                             _hitch.SuppressFor(5.0);
                         }
                         break;
                     case Op.SMSG_TRANSFER_ABORTED:
-                        CancelPendingWorldCurtain();
-                        _travelStatus = "server refused the portal transfer";
-                        Console.WriteLine("[portal] server aborted the world transfer");
+                        {
+                            byte reason = SessionTransferPackets.ParseAborted(body);
+                            CancelPendingWorldCurtain();
+                            _travelStatus = $"server refused the portal transfer (reason {reason})";
+                            ShowUiError("Transfer aborted.");
+                            Console.WriteLine($"[portal] server aborted the world transfer (reason {reason})");
+                        }
                         break;
                     case Op.SMSG_AREA_TRIGGER_MESSAGE:
                         {
-                            var message = new PacketReader(body);
-                            uint declaredLength = message.ReadU32();
-                            string text = message.Remaining > 0 ? message.ReadCString() : "portal refused";
+                            string text = AreaTriggerPackets.ParseMessage(body);
                             _lastPortalMessage = text;
                             _travelStatus = text;
-                            Console.WriteLine($"[portal] server message ({declaredLength} byte(s)): {text}");
+                            ShowUiError(text);
+                            Console.WriteLine($"[area-trigger] server message: {text}");
                         }
                         break;
                     case Op.SMSG_LOGOUT_RESPONSE:
@@ -583,6 +612,8 @@ public sealed partial class GameLoop
                                     "LOGIN_VERIFY_WORLD arrived while a world was already active");
                             }
                             _queuedWorldEntry = worldEntry;
+                            if (_net?.QueryTime() == true)
+                                _questTimeAskedStamp = Stopwatch.GetTimestamp();
                         }
                         break;
                     case Op.SMSG_LOGIN_SETTIMESPEED:
@@ -593,16 +624,22 @@ public sealed partial class GameLoop
                             // (vanilla 0.01666667 = real time). The world clock advances
                             // it locally from the receive stamp; TimeSource.Server feeds
                             // it to the atmosphere every frame (UpdateWorldClock).
-                            var timeReader = new PacketReader(body);
-                            uint packedTime = timeReader.ReadU32();
-                            float timescale = timeReader.Remaining >= 4
-                                ? timeReader.ReadF32()
-                                : WorldClock.VanillaTimescale;
-                            _worldClock.SetServerTime(packedTime, timescale, receivedStamp);
+                            LoginTimeSpeedPacket time =
+                                SessionTransferPackets.ParseTimeSpeed(body);
+                            _worldClock.SetServerTime(
+                                time.PackedDateTime, time.Timescale, receivedStamp);
                             Console.WriteLine(
                                 $"[net] server game time {_worldClock.ServerHour:D2}:{_worldClock.ServerMinute:D2} " +
-                                $"(timescale {timescale:F7} game-min/s)");
+                                $"(timescale {time.Timescale:F7} game-min/s)");
                         }
+                        break;
+                    case Op.SMSG_PLAY_SOUND:
+                    case Op.SMSG_PLAY_MUSIC:
+                    case Op.SMSG_PLAY_OBJECT_SOUND:
+                        ApplyServerSound(packetOpcode, body);
+                        break;
+                    case Op.SMSG_WEATHER:
+                        ApplyWeather(body);
                         break;
                     case Op.SMSG_GROUP_LIST:
                         ApplyPartyRoster(body);
@@ -657,6 +694,18 @@ public sealed partial class GameLoop
                     case Op.SMSG_SPELL_COOLDOWN:
                         ApplyAddressedSpellCooldowns(body);
                         break;
+                    case Op.SMSG_ITEM_COOLDOWN:
+                        ApplyItemCooldown(body);
+                        break;
+                    case Op.SMSG_COOLDOWN_EVENT:
+                        ApplyCooldownEvent(body, clear: false);
+                        break;
+                    case Op.SMSG_CLEAR_COOLDOWN:
+                        ApplyCooldownEvent(body, clear: true);
+                        break;
+                    case Op.SMSG_COOLDOWN_CHEAT:
+                        ApplyCooldownCheat(body);
+                        break;
                     case Op.SMSG_INSPECT:
                         ApplyInspect(body);
                         break;
@@ -678,6 +727,24 @@ public sealed partial class GameLoop
                     case Op.SMSG_TRADE_STATUS_EXTENDED:
                         ApplyTradeExtended(body);
                         break;
+                    case Op.SMSG_DUEL_REQUESTED:
+                        ApplyDuelRequested(body);
+                        break;
+                    case Op.SMSG_DUEL_OUTOFBOUNDS:
+                        ApplyDuelBounds(body, outside: true);
+                        break;
+                    case Op.SMSG_DUEL_INBOUNDS:
+                        ApplyDuelBounds(body, outside: false);
+                        break;
+                    case Op.SMSG_DUEL_COMPLETE:
+                        ApplyDuelComplete(body);
+                        break;
+                    case Op.SMSG_DUEL_WINNER:
+                        ApplyDuelWinner(body);
+                        break;
+                    case Op.SMSG_DUEL_COUNTDOWN:
+                        ApplyDuelCountdown(body);
+                        break;
                     case Op.SMSG_GMTICKET_CREATE:
                     case Op.SMSG_GMTICKET_UPDATETEXT:
                     case Op.SMSG_GMTICKET_DELETETICKET:
@@ -693,6 +760,13 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_SET_FACTION_STANDING:
                         ApplyFactionStanding(body);
+                        break;
+                    case Op.SMSG_SET_PROFICIENCY:
+                        {
+                            ProficiencyPacket proficiency = ProficiencyPackets.Parse(body);
+                            _itemProficiencies[proficiency.ItemClass] =
+                                proficiency.SubclassMask;
+                        }
                         break;
                     case Op.MSG_MOVE_TELEPORT_ACK:
                         {
@@ -806,31 +880,23 @@ public sealed partial class GameLoop
                             net.TeleportAck(moverGuid, counter);
                         }
                         break;
+                    case Op.SMSG_FORCE_WALK_SPEED_CHANGE:
+                    case Op.SMSG_FORCE_RUN_SPEED_CHANGE:
+                    case Op.SMSG_FORCE_RUN_BACK_SPEED_CHANGE:
+                    case Op.SMSG_FORCE_SWIM_SPEED_CHANGE:
+                    case Op.SMSG_FORCE_SWIM_BACK_SPEED_CHANGE:
+                    case Op.SMSG_FORCE_TURN_RATE_CHANGE:
+                        ApplyForceSpeedChange(net, (Op)opcode, body);
+                        break;
                     case Op.SMSG_FORCE_MOVE_ROOT:
                     case Op.SMSG_FORCE_MOVE_UNROOT:
-                        {
-                            var rootReader = new PacketReader(body);
-                            ulong moverGuid = rootReader.ReadPackedGuid();
-                            uint counter = rootReader.ReadU32();
-                            if (rootReader.Remaining != 0)
-                                throw new InvalidDataException(
-                                    $"{(Op)opcode} has {rootReader.Remaining} trailing byte(s)");
-                            if (_controller is null || moverGuid != net.PlayerGuid)
-                            {
-                                Console.WriteLine($"[movement] ignored {(Op)opcode} for mover " +
-                                                  $"0x{moverGuid:X16}");
-                                break;
-                            }
-
-                            bool rooted = (Op)opcode == Op.SMSG_FORCE_MOVE_ROOT;
-                            _movementRooted = rooted;
-                            if (rooted) _movementSender.ParkForRoot(net, _controller);
-                            MovementInfo ack = MovementInfo.Create(_controller.Position,
-                                _controller.Yaw, rooted ? MovementFlags.Root : MovementFlags.None);
-                            net.MoveRootAck(moverGuid, counter, rooted, ack);
-                            Console.WriteLine($"[movement] mover {(rooted ? "rooted" : "unrooted")} " +
-                                              $"counter={counter} ackFlags=0x{ack.Flags:X8}");
-                        }
+                    case Op.SMSG_MOVE_WATER_WALK:
+                    case Op.SMSG_MOVE_LAND_WALK:
+                    case Op.SMSG_MOVE_FEATHER_FALL:
+                    case Op.SMSG_MOVE_NORMAL_FALL:
+                    case Op.SMSG_MOVE_SET_HOVER:
+                    case Op.SMSG_MOVE_UNSET_HOVER:
+                        ApplyMovementModeChange(net, (Op)opcode, body);
                         break;
                     case Op.SMSG_UPDATE_OBJECT:
                         _pendingObjectReceivedStamp = receivedStamp;
@@ -987,6 +1053,9 @@ public sealed partial class GameLoop
                     case Op.SMSG_BINDPOINTUPDATE:
                         ApplyBindPoint(body);
                         break;
+                    case Op.SMSG_PLAYERBOUND:
+                        ApplyPlayerBound(body);
+                        break;
                     case Op.SMSG_TAXINODE_STATUS:
                         ApplyTaxiNodeStatus(body);
                         break;
@@ -995,6 +1064,9 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_ACTIVATETAXIREPLY:
                         ApplyTaxiReply(body);
+                        break;
+                    case Op.SMSG_NEW_TAXI_PATH:
+                        ApplyNewTaxiPath(body);
                         break;
                     case Op.MSG_TALENT_WIPE_CONFIRM:
                         ApplyTalentWipeConfirm(body);
@@ -1109,10 +1181,20 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_NAME_QUERY_RESPONSE:
                         {
-                            var r = new PacketReader(body);
-                            ulong guid = r.ReadU64();
-                            string name = r.ReadCString();
-                            if (name.Length > 0) _playerNames[guid] = name;
+                            PlayerNameQueryResponse response =
+                                PlayerNamePackets.ParseResponse(body);
+                            _queriedPlayerNames.Remove(response.Guid);
+                            // Keep a negative answer too. ContainsKey is the ask-once gate, so an
+                            // unknown GUID must not spin another query every frame.
+                            _playerNames[response.Guid] = response.Name;
+                            if (response.Name.Length > 0)
+                                _playerTraits[response.Guid] = response.Traits;
+                            else
+                                _playerTraits.Remove(response.Guid);
+                            FlushPendingChatMacros(response.Guid);
+                            FlushPendingChatXp(response.Guid);
+                            FlushPendingChatChannelNotices(response.Guid);
+                            FlushPendingFriendStatus(response.Guid);
                         }
                         break;
                     case Op.SMSG_CREATURE_QUERY_RESPONSE:
@@ -1121,9 +1203,13 @@ public sealed partial class GameLoop
                             _queriedCreatureNames.Remove(response.Entry);
                             _creatureQueryRecords[response.Entry] = response.Info;
                             if (response.Info is { Name.Length: > 0 } info)
+                            {
                                 _creatureNames[response.Entry] = info.Name;
+                                FlushPendingChatMacros();
+                            }
                             else
                                 _creatureNames.Remove(response.Entry);
+                            FlushPendingChatXp();
                         }
                         break;
                     case Op.SMSG_SPELL_START:
@@ -1170,6 +1256,9 @@ public sealed partial class GameLoop
                         }
                         break;
                     case Op.SMSG_CANCEL_AUTO_REPEAT:
+                        if (body.Length != 0)
+                            throw new InvalidDataException(
+                                $"SMSG_CANCEL_AUTO_REPEAT expected empty body, got {body.Length}");
                         EnqueueSpellPresentation(new SpellAutoRepeatCancelledEvent());
                         break;
                     case Op.SMSG_LOOT_RESPONSE:
@@ -1186,9 +1275,41 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_LOOT_MONEY_NOTIFY:
                         break; // the purse rides PLAYER_FIELD_COINAGE; nothing to do
+                    case Op.SMSG_LOOT_START_ROLL:
+                        ApplyLootStartRoll(body);
+                        break;
+                    case Op.SMSG_LOOT_ROLL:
+                        ApplyLootRoll(body);
+                        break;
+                    case Op.SMSG_LOOT_ROLL_WON:
+                        ApplyLootRollWon(body);
+                        break;
+                    case Op.SMSG_LOOT_ALL_PASSED:
+                        ApplyLootAllPassed(body);
+                        break;
                     case Op.SMSG_ITEM_PUSH_RESULT:
                         ApplyItemPushResult(body);
                         break;
+                    case Op.SMSG_ITEM_ENCHANT_TIME_UPDATE:
+                        ApplyItemEnchantTime(body);
+                        break;
+                    case Op.SMSG_INVENTORY_CHANGE_FAILURE:
+                        ApplyInventoryChangeFailure(body);
+                        break;
+                    case Op.SMSG_MOUNTRESULT:
+                        ApplyMountResult(body, mount: true);
+                        break;
+                    case Op.SMSG_DISMOUNTRESULT:
+                        ApplyMountResult(body, mount: false);
+                        break;
+                    case Op.SMSG_MOUNTSPECIAL_ANIM:
+                    {
+                        ulong rider = MountSpecialPackets.ParseGuid(body);
+                        // The sender already played locally on the key edge. Some VMaNGOS
+                        // configurations echo this broadcast to self and some do not.
+                        if (rider != LocalPlayerGuid) _creatures?.TriggerMountFlourish(rider);
+                        break;
+                    }
                     case Op.SMSG_ATTACKSTART:
                     case Op.SMSG_ATTACKSTOP:
                     case Op.SMSG_ATTACKERSTATEUPDATE:
@@ -1206,17 +1327,41 @@ public sealed partial class GameLoop
                         ObserveChannelCombat(combatEvent);
                         ApplyCombatAnimation(combatEvent);
                         break;
+                    case Op.SMSG_PVP_CREDIT:
+                        ApplyPvpCredit(body);
+                        break;
                     case Op.SMSG_GAMEOBJECT_QUERY_RESPONSE:
                         ApplyGameObjectQuery(body);
                         break;
                     case Op.SMSG_LEVELUP_INFO:
                         ApplyLevelUpInfo(body);
                         break;
+                    case Op.SMSG_EXPLORATION_EXPERIENCE:
+                        ApplyExplorationExperience(body);
+                        break;
                     case Op.SMSG_RESURRECT_REQUEST:
                         ApplyResurrectRequest(body);
                         break;
+                    case Op.MSG_CORPSE_QUERY:
+                        ApplyCorpseQuery(body);
+                        break;
                     case Op.SMSG_CORPSE_RECLAIM_DELAY:
                         ApplyCorpseReclaimDelay(body);
+                        break;
+                    case Op.SMSG_SPIRIT_HEALER_CONFIRM:
+                        ApplySpiritHealerConfirm(body);
+                        break;
+                    case Op.SMSG_DURABILITY_DAMAGE_DEATH:
+                        ApplyDurabilityDamageDeath(body);
+                        break;
+                    case Op.SMSG_START_MIRROR_TIMER:
+                        ApplyMirrorTimerStart(body);
+                        break;
+                    case Op.SMSG_PAUSE_MIRROR_TIMER:
+                        ApplyMirrorTimerPause(body);
+                        break;
+                    case Op.SMSG_STOP_MIRROR_TIMER:
+                        ApplyMirrorTimerStop(body);
                         break;
                     case Op.SMSG_ATTACKSWING_NOTINRANGE:
                     case Op.SMSG_ATTACKSWING_BADFACING:
@@ -1229,6 +1374,44 @@ public sealed partial class GameLoop
                         HandleMessageChat(body);       // typed+coloured display
                         ObserveGmChatResponse(body);   // devtools GM-mode probe (no display)
                         break;
+                    case Op.SMSG_CHANNEL_NOTIFY:
+                        HandleChannelNotice(body);
+                        break;
+                    case Op.SMSG_CHANNEL_LIST:
+                        HandleChannelList(body);
+                        break;
+                    case Op.SMSG_CHAT_PLAYER_NOT_FOUND:
+                        AddChatMessage($"No player named '{ChatPackets.ParsePlayerNotFound(body)}' is currently playing.");
+                        break;
+                    case Op.SMSG_CHAT_WRONG_FACTION:
+                        if (body.Length != 0) throw new InvalidDataException("SMSG_CHAT_WRONG_FACTION body must be empty");
+                        AddChatMessage("You can only whisper to members of your alliance.");
+                        break;
+                    case Op.SMSG_PLAYED_TIME:
+                        HandlePlayedTime(body);
+                        break;
+                    case Op.SMSG_QUERY_TIME_RESPONSE:
+                        {
+                            var clock = new PacketReader(body);
+                            _questServerUnix = clock.ReadU32();
+                            if (clock.Remaining != 0)
+                                throw new InvalidDataException("SMSG_QUERY_TIME_RESPONSE must be one u32");
+                            _questServerUnixStamp = receivedStamp;
+                        }
+                        break;
+                    case Op.SMSG_PET_NAME_QUERY_RESPONSE:
+                        {
+                            PetNameQueryResponse response = PetNamePackets.ParseResponse(body);
+                            _queriedPetNames.Remove(response.PetNumber);
+                            if (response.Name.Length > 0)
+                                _petNames[response.PetNumber] = response.Name;
+                            else
+                                _petNames.Remove(response.PetNumber);
+                        }
+                        break;
+                    case Op.MSG_RANDOM_ROLL:
+                        HandleRandomRoll(body);
+                        break;
                     case Op.SMSG_NOTIFICATION:
                         HandleNotification(body);      // clean system line
                         ObserveGmChatResponse(body);   // devtools GM-mode probe (no display)
@@ -1236,7 +1419,15 @@ public sealed partial class GameLoop
                     case Op.SMSG_TEXT_EMOTE:
                         HandleTextEmoteReceive(body);
                         break;
+                    case Op.SMSG_EMOTE:
+                        ApplyEmote(EmotePackets.Parse(body));
+                        break;
                 }
+                // Packet-side half of the questgiver status refresh law. This runs only after
+                // the selected handler returned successfully, so a malformed packet never
+                // invalidates every visible giver's cached answer.
+                if (QuestStatusRefreshLaw.PacketReasks(packetOpcode))
+                    BumpQuestStatusReask();
             }
             catch (Exception ex)
             {
@@ -1297,20 +1488,34 @@ public sealed partial class GameLoop
     private void ApplyUpdate(ObjectUpdate u, long receivedStamp)
     {
         _entities.TryGet(u.Guid, out WorldEntity? auraUnitBefore);
+        bool? readsDeadBefore = auraUnitBefore?.Fields.ReadsDead;
         Dictionary<byte, AuraSnapshot> aurasBefore = SnapshotAuras(auraUnitBefore);
         if ((u.Kind is UpdateKind.CreateObject or UpdateKind.CreateObject2) &&
             u.Type == ObjectTypeId.Unit)
             _creatureLifecycle.NoteSpawnPacket(
                 u.Guid, u.Fields?.DisplayId ?? 0, receivedStamp);
         if (u.Kind == UpdateKind.OutOfRange && u.Guids is not null)
+        {
             foreach (ulong guid in u.Guids)
                 _creatureLifecycle.NoteReason(
                     guid, CreatureLifecycleTracker.ReasonCode.NOT_IN_WORLD);
+            ForgetCreatureVoiceState(u.Guids);
+        }
         _entities.Apply(u);
+        if (u.Guid != 0) ObserveCreatureDeathVoice(u.Guid, readsDeadBefore);
+        if (u.Guid == ControlledGuid && _entities.TryGet(u.Guid, out WorldEntity controlledMover))
+            SyncControlledSpeeds(controlledMover);
         if ((u.Kind is UpdateKind.CreateObject or UpdateKind.CreateObject2) &&
             u.Type == ObjectTypeId.GameObject && _entities.TryGet(u.Guid, out WorldEntity streamedGo))
             RequireGameObjectTemplate(streamedGo);
-        if (u.Guid == _net?.PlayerGuid) { ObserveQuestLog(); ObserveRestXp(); ObserveDeathRez(); }
+        if (u.Guid == _net?.PlayerGuid)
+        {
+            ObserveQuestLog();
+            ObserveRestXp();
+            ObserveDeathRez();
+            if (_entities.TryGet(u.Guid, out WorldEntity player))
+                ObservePlayerCombatTextState(player);
+        }
         ObserveProfessionProductTransition();
         if (u.Type == ObjectTypeId.Corpse || (u.Guid != 0 && _entities.TryGet(u.Guid, out WorldEntity corpse) && corpse.Type == ObjectTypeId.Corpse)) ObserveCorpseStore();
         ObserveAuraObjectUpdate(u.Guid, aurasBefore);

@@ -8,16 +8,29 @@
     {
       "path": "crates/benilla-protocol/src/world/writer/names.rs",
       "fileSha256": "2d6f33faa021b7f781286a3843b7039dd9ae0000cb6f5899b1b03db43f4f9a8d",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-protocol/src/messages/parse.rs",
+      "fileSha256": "aa50a3f187d9a9703369658334dd1a2549820c0e58fe8b22bc3454ef610fc853",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-protocol/src/messages/packet.rs",
+      "fileSha256": "ddc83ff403913b08ebd16d38f8609238ecfcf653e26d71f7c7369fc42f299a59",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/WorldSession.cs",
-    "MSUIClient/Program.Net.cs",
-    "MSUIClient/Net/CreatureQuery.cs"
+    "MSUIClient/Net/CreatureQuery.cs",
+    "MSUIClient/Net/PlayerNamePackets.cs",
+    "MSUIClient/Net/PetNamePackets.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Targeting.cs"
   ],
-  "status": "partial",
-  "summary": "Benilla's names writer has three ask-once queries: CMSG_NAME_QUERY (full guid), CMSG_CREATURE_QUERY (entry+guid), CMSG_PET_NAME_QUERY (pet number+guid). MSUI implements the first two with their SMSG responses handled; the pet-name pair is absent.",
+  "status": "implemented-unverified",
+  "summary": "MSUI implements all three ask-once name paths: player GUID, creature template entry plus GUID, and pet number plus GUID. Player answers strictly parse the full 1.12 guid/name/realm/race/gender/class body, cache negative answers, and retain positive traits; pet answers are strictly parsed, cached by pet number, and consumed by nameplates, target frame, world tooltip, pet frame, and command labels.",
   "openItems": [
     {
       "id": "item-triage-37fdc1b7",
@@ -25,7 +38,8 @@
       "text": "CMSG_PET_NAME_QUERY (u32 petNumber + u64 guid) has no sender - a pet's guid embeds a pet number, not a template entry, so CreatureQuery cannot name one",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: WorldSession and NetworkClient send opcode 0x0052 with exact u32 pet number + full u64 GUID bytes; the ask-once pending set is keyed by pet number."
     },
     {
       "id": "item-triage-1efed146",
@@ -33,12 +47,13 @@
       "text": "SMSG_PET_NAME_QUERY_RESPONSE not parsed (pets/other players' pets stay nameless)",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: PetNamePackets strictly parses u32 pet number, cstring name, and u32 timestamp from opcode 0x0053, and GameLoop caches the display name by pet number."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T02:57:35.1951358Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -9,12 +9,16 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    private sealed record ProfessionRecipe(uint SpellId, string Name, uint Product,
+    private sealed record ProfessionRecipe(uint SpellId, string Name, string Rank,
+        string Description, uint Product,
         IReadOnlyList<SpellReagent> Reagents, IReadOnlyList<uint> Tools, uint RequiredFocus,
         SkillRecipeInfo Skill);
+    private readonly record struct ProfessionDisplayRow(bool Header, ulong GroupKey,
+        string Text, int RecipeIndex, bool Expanded);
 
     private bool _professionOpen;
     private ProfessionPanelKind? _professionPanelKind;
+    private uint _professionOpenerSpell;
     private uint _professionLine;
     private int _professionSelected;
     private int _professionScroll;
@@ -32,6 +36,11 @@ public sealed partial class GameLoop
     private uint _professionLastCreatedProduct;
     private uint _professionLastCreatedDelta;
     private int _professionBatchRemaining;
+    private int _professionCreateCount = 1;
+    private readonly HashSet<ulong> _professionCollapsedGroups = [];
+    private ulong? _professionSubclassFilter;
+    private int? _professionInventorySlotFilter;
+    private int _professionFilterMenu;
 
     private void InitProfessions() { }
 
@@ -109,8 +118,8 @@ public sealed partial class GameLoop
             IReadOnlyList<SpellReagent> reagents = _spellCatalog.Reagents(recipe.SpellId);
             if (product == 0 && reagents.Count == 0) continue;
             IReadOnlyList<uint> tools = _spellCatalog.Tools(recipe.SpellId);
-            _professionRecipes.Add(new(recipe.SpellId, spell.Name, product, reagents, tools,
-                spell.RequiredFocus, recipe));
+            _professionRecipes.Add(new(recipe.SpellId, spell.Name, spell.Rank,
+                spell.Description, product, reagents, tools, spell.RequiredFocus, recipe));
             if (product != 0) _items?.Require(product, 0, _net!);
             foreach (SpellReagent reagent in reagents) _items?.Require(reagent.ItemId, 0, _net!);
             foreach (uint tool in tools) _items?.Require(tool, 0, _net!);
@@ -123,8 +132,10 @@ public sealed partial class GameLoop
             return reagents != 0 ? reagents : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
         });
         _professionLine = line; _professionSelected = 0; _professionScroll = 0;
+        _professionCreateCount = 1;
         _professionOpen = _professionRecipes.Count > 0;
         _professionPanelKind = _professionOpen ? panelKind : null;
+        _professionOpenerSpell = _professionOpen ? opener : 0;
         _professionKnownSnapshot.Clear();
         foreach (uint known in _actions.KnownSpells) _professionKnownSnapshot.Add(known);
         GetSkillValue(line, out ushort value, out ushort max);
@@ -432,8 +443,13 @@ public sealed partial class GameLoop
     private void DrawProfessionFrame()
     {
         if (!_professionOpen || _gameplayArt is null) return;
-        if (!BeginVanillaWindow("##profession", new Vector2(0, 104), new Vector2(384, 512),
+        if (!BeginVanillaWindow("##profession", ProfessionFrameUiLaw.FrameOrigin(1f),
+                ProfessionFrameUiLaw.FrameSize(1f),
                 out ImDrawListPtr dl, out Vector2 origin, out float s)) { ImGui.End(); return; }
+        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+            DrawUnitPortraitImage(dl, player,
+                origin + ProfessionFrameUiLaw.PortraitOffset * s,
+                ProfessionFrameUiLaw.PortraitSize * s, 0, false);
         DrawFourPieceShell(dl, origin, s,
             @"Interface\ClassTrainerFrame\UI-ClassTrainer-TopLeft",
             @"Interface\ClassTrainerFrame\UI-ClassTrainer-TopRight",
@@ -441,45 +457,106 @@ public sealed partial class GameLoop
             @"Interface\ClassTrainerFrame\UI-ClassTrainer-BotRight");
         string lineName = _skillLines?.TryGet(_professionLine, out SkillLineInfo line) == true ? line.Name : $"Skill {_professionLine}";
         GetSkillValue(_professionLine, out ushort value, out ushort max);
-        DrawCenteredText(dl, origin + new Vector2(190, 18) * s, lineName, 14f * s, VanillaGold);
-        dl.AddText(ImGui.GetFont(), 10f * s, origin + new Vector2(25, 72) * s, 0xffffffff,
-            $"{value} / {max}");
+        DrawCenteredText(dl, origin + ProfessionFrameUiLaw.TitleCenter * s,
+            lineName, 14f * s, VanillaGold);
+        DrawProfessionRankBar(dl, origin, s, lineName, value, max);
 
-        _professionScroll = Math.Clamp(_professionScroll, 0, Math.Max(0, _professionRecipes.Count - 8));
-        Vector2 listMin = origin + new Vector2(22, 96) * s;
+        bool tradeSkill = _professionPanelKind != ProfessionPanelKind.Craft;
+        IReadOnlyList<ProfessionDisplayRow> displayRows = ProfessionDisplayRows(tradeSkill, value);
+        int maximumScroll = ProfessionFrameUiLaw.MaximumScroll(displayRows.Count);
+        _professionScroll = ProfessionFrameUiLaw.ClampScroll(_professionScroll, displayRows.Count);
+        Vector2 listMin = origin + ProfessionFrameUiLaw.List.Min * s;
         ImGui.SetCursorScreenPos(listMin);
-        ImGui.InvisibleButton("##profession-list", new Vector2(296, 128) * s);
+        ImGui.InvisibleButton("##profession-list", ProfessionFrameUiLaw.List.Size * s);
         if (ImGui.IsItemHovered() && ImGui.GetIO().MouseWheel != 0)
-            _professionScroll = Math.Clamp(_professionScroll - Math.Sign(ImGui.GetIO().MouseWheel),
-                0, Math.Max(0, _professionRecipes.Count - 8));
-        for (int visible = 0; visible < 8 && visible + _professionScroll < _professionRecipes.Count; visible++)
+            _professionScroll = Math.Clamp(_professionScroll - Math.Sign(ImGui.GetIO().MouseWheel), 0, maximumScroll);
+        for (int visible = 0; visible < ProfessionFrameUiLaw.VisibleRows &&
+             visible + _professionScroll < displayRows.Count; visible++)
         {
-            int i = visible + _professionScroll;
+            ProfessionDisplayRow displayRow = displayRows[visible + _professionScroll];
+            ProfessionFrameUiLaw.LogicalRect logicalRow = ProfessionFrameUiLaw.Row(visible);
+            Vector2 rowMin = origin + logicalRow.Min * s;
+            if (displayRow.Header)
+            {
+                ImGui.SetCursorScreenPos(rowMin);
+                if (ImGui.InvisibleButton($"##profession-header-{displayRow.GroupKey}",
+                        logicalRow.Size * s))
+                {
+                    if (!_professionCollapsedGroups.Add(displayRow.GroupKey))
+                        _professionCollapsedGroups.Remove(displayRow.GroupKey);
+                    _professionScroll = Math.Min(_professionScroll,
+                        ProfessionFrameUiLaw.MaximumScroll(displayRows.Count));
+                }
+                GameText.Draw(dl, "GameFontNormalSmall", displayRow.Expanded ? "−" : "+",
+                    rowMin + new Vector2(1, 1) * s, s, VanillaGold);
+                GameText.Draw(dl, "GameFontNormalSmall", displayRow.Text,
+                    rowMin + new Vector2(18, 1) * s, s, VanillaGold);
+                continue;
+            }
+            int i = displayRow.RecipeIndex;
             ProfessionRecipe recipe = _professionRecipes[i];
             string difficulty = ProfessionSkillColor(value, recipe.Skill.TrivialLow, recipe.Skill.TrivialHigh);
             Vector4 c = ProfessionColor(difficulty);
             uint color = ImGui.ColorConvertFloat4ToU32(c);
+            int craftable = ProfessionCraftableCount(recipe);
             if (VanillaListRow(dl, $"##recipe-{recipe.SpellId}",
-                    origin + new Vector2(22, 96 + visible * 16) * s,
-                    new Vector2(296, 16), s, recipe.Name, _professionSelected == i, color))
+                    rowMin, logicalRow.Size, s,
+                    ProfessionFrameUiLaw.RowLabel(recipe.Name, craftable),
+                    _professionSelected == i, color))
+            {
                 _professionSelected = i;
+                _professionCreateCount = 1;
+            }
+            if (!tradeSkill && recipe.Rank.Length > 0)
+                GameText.Draw(dl, "GameFontNormalSmall",
+                    ProfessionFrameUiLaw.CraftSubText(recipe.Rank),
+                    rowMin + new Vector2(190, 1) * s, s, color);
+            if (tradeSkill && ImGui.IsItemHovered() && recipe.Product != 0 &&
+                _items?.TryGet(recipe.Product, out ItemTemplate? rowProduct) == true && rowProduct is not null)
+                OfferPreparedItemTooltip(new("item:profession-row",
+                        ((ulong)recipe.SpellId << 32) | recipe.Product),
+                    PrepareItemTooltipBodySnapshot(rowProduct, 1));
         }
+        if (tradeSkill)
+            DrawProfessionTradeSkillControls(dl, origin, s, displayRows);
+        if (maximumScroll > 0)
+            DrawProfessionScrollBar(dl, origin, s, maximumScroll);
         DrawArt(dl, @"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar",
-            origin + new Vector2(15, 221) * s, new Vector2(331, 16), s);
+            origin + ProfessionFrameUiLaw.HorizontalBar * s, new Vector2(331, 16), s);
         if (_professionRecipes.Count > 0)
         {
             ProfessionRecipe recipe = _professionRecipes[Math.Clamp(_professionSelected, 0, _professionRecipes.Count - 1)];
+            int craftable = ProfessionCraftableCount(recipe);
+            _professionCreateCount = ProfessionFrameUiLaw.ClampCreateCount(_professionCreateCount, craftable);
             string productIcon = "";
-            if (recipe.Product != 0 && _items?.TryGet(recipe.Product, out ItemTemplate? product) == true && product is not null)
+            ItemTemplate? product = null;
+            if (recipe.Product != 0 && _items?.TryGet(recipe.Product, out product) == true && product is not null)
                 productIcon = product.IconPath;
             if (productIcon.Length > 0)
             {
                 uint icon = _gameplayArt.Handle(productIcon);
-                if (icon != 0) dl.AddImage((nint)icon, origin + new Vector2(24, 240) * s,
-                    origin + new Vector2(56, 272) * s);
+                Vector2 productMin = origin + ProfessionFrameUiLaw.ProductTexture.Min * s;
+                if (icon != 0) dl.AddImage((nint)icon, productMin,
+                    productMin + ProfessionFrameUiLaw.ProductTexture.Size * s);
             }
-            dl.AddText(ImGui.GetFont(), 12f * s, origin + new Vector2(62, 242) * s, VanillaGold, recipe.Name);
-            dl.AddText(ImGui.GetFont(), 10f * s, origin + new Vector2(24, 282) * s, VanillaGold, "Requires");
+            Vector2 productHit = origin + ProfessionFrameUiLaw.DetailProduct.Min * s;
+            ImGui.SetCursorScreenPos(productHit);
+            ImGui.InvisibleButton("##profession-product", ProfessionFrameUiLaw.DetailProduct.Size * s);
+            if (ImGui.IsItemHovered() && product is not null)
+                OfferPreparedItemTooltip(new("item:profession-product",
+                        ((ulong)recipe.SpellId << 32) | product.Entry),
+                    PrepareItemTooltipBodySnapshot(product, 1));
+            GameText.Draw(dl, "GameFontNormal", recipe.Name,
+                origin + ProfessionFrameUiLaw.ProductName * s, s, VanillaGold);
+
+            float descriptionHeight = 0;
+            if (!tradeSkill && !string.IsNullOrWhiteSpace(recipe.Description))
+                descriptionHeight = DrawWrappedText(dl, recipe.Description,
+                    origin + ProfessionFrameUiLaw.Description * s, 290, 9f * s,
+                    s, 0xffffffff, maxLines: 2) / s;
+            GameText.Draw(dl, "GameFontNormalSmall", "Reagents:",
+                origin + (ProfessionFrameUiLaw.ReagentLabel + new Vector2(0, descriptionHeight)) * s,
+                s, VanillaGold);
             for (int i = 0; i < recipe.Reagents.Count && i < 8; i++)
             {
                 SpellReagent reagent = recipe.Reagents[i];
@@ -487,16 +564,27 @@ public sealed partial class GameLoop
                 if (_items?.TryGet(reagent.ItemId, out ItemTemplate? found) == true) item = found;
                 string name = item?.Name ?? $"Item {reagent.ItemId}";
                 uint have = BackpackCount(reagent.ItemId);
-                Vector2 row = origin + new Vector2(32 + (i % 2) * 145, 305 + (i / 2) * 24) * s;
+                ProfessionFrameUiLaw.LogicalRect reagentRect = ProfessionFrameUiLaw.Reagent(i, descriptionHeight);
+                Vector2 row = origin + reagentRect.Min * s;
                 if (item is not null)
                 {
                     uint icon = _gameplayArt.Handle(item.IconPath);
-                    if (icon != 0) dl.AddImage((nint)icon, row, row + new Vector2(20) * s);
+                    if (icon != 0) dl.AddImage((nint)icon, row, row + new Vector2(28) * s);
                 }
-                dl.AddText(ImGui.GetFont(), 9f * s, row + new Vector2(24, 3) * s,
-                    have >= reagent.Count ? 0xffffffff : 0xff4040ff, $"{name} {have}/{reagent.Count}");
+                uint reagentColor = have >= reagent.Count ? 0xffffffff : 0xff4040ff;
+                GameText.Draw(dl, "GameFontHighlightSmall", name,
+                    row + new Vector2(34, 1) * s, s, reagentColor);
+                GameText.Draw(dl, "GameFontHighlightSmall", $"{have} /{reagent.Count}",
+                    row + new Vector2(34, 15) * s, s, reagentColor);
+                ImGui.SetCursorScreenPos(row);
+                ImGui.InvisibleButton($"##profession-reagent-{i}", reagentRect.Size * s);
+                if (ImGui.IsItemHovered() && item is not null)
+                    OfferPreparedItemTooltip(new("item:profession-reagent",
+                            ((ulong)recipe.SpellId << 32) | reagent.ItemId),
+                        PrepareItemTooltipBodySnapshot(item, reagent.Count));
             }
-            int requirementLine = 305 + ((Math.Min(recipe.Reagents.Count, 8) + 1) / 2) * 24;
+            int requirementLine = (int)(ProfessionFrameUiLaw.ReagentGrid.Y + descriptionHeight +
+                ((Math.Min(recipe.Reagents.Count, 8) + 1) / 2) * 32);
             foreach (uint tool in recipe.Tools)
             {
                 bool have = CarriedCount(tool) > 0;
@@ -514,25 +602,281 @@ public sealed partial class GameLoop
             }
             bool ready = recipe.Reagents.All(r => BackpackCount(r.ItemId) >= r.Count) &&
                 recipe.Tools.All(t => CarriedCount(t) > 0) && HasNearbySpellFocus(recipe.RequiredFocus);
-            if (VanillaButton(dl, "##profession-create-all", "Create All",
-                    origin + new Vector2(18, 411) * s, new Vector2(80, 22), s, ready))
-                CraftAllProfessionRecipe(_professionSelected);
+            if (tradeSkill)
+            {
+                if (VanillaButton(dl, "##profession-create-all", "Create All",
+                        origin + ProfessionFrameUiLaw.CreateAll.Min * s,
+                        ProfessionFrameUiLaw.CreateAll.Size, s, ready))
+                    CraftAllProfessionRecipe(_professionSelected);
+                DrawProfessionCountSpinner(dl, origin, s, craftable);
+            }
             if (VanillaButton(dl, "##profession-create", "Create",
-                    origin + new Vector2(184, 411) * s, new Vector2(80, 22), s, ready))
-                CraftProfessionRecipe(_professionSelected);
+                    origin + ProfessionFrameUiLaw.Create.Min * s,
+                    ProfessionFrameUiLaw.Create.Size, s, ready))
+            {
+                if (tradeSkill) CraftProfessionRecipeCount(_professionSelected, _professionCreateCount);
+                else CraftProfessionRecipe(_professionSelected);
+            }
         }
         if (VanillaButton(dl, "##profession-exit", _professionBatchRemaining > 0 ? "Cancel" : "Exit",
-                origin + new Vector2(265, 411) * s, new Vector2(80, 22), s))
+                origin + ProfessionFrameUiLaw.Exit.Min * s,
+                ProfessionFrameUiLaw.Exit.Size, s))
         {
             if (_professionBatchRemaining > 0) { _professionBatchRemaining = 0; _net?.CancelCast(_professionCraftSpell); }
             else _professionOpen = false;
         }
-        DrawImageButton(dl, "##profession-close", origin + new Vector2(323, 8) * s, new Vector2(32) * s,
+        DrawImageButton(dl, "##profession-close", origin + ProfessionFrameUiLaw.Close * s, new Vector2(32) * s,
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         if (ImGui.IsItemClicked()) _professionOpen = false;
         ImGui.End();
+    }
+
+    private IReadOnlyList<ProfessionFrameUiLaw.TradeSkillNode> ProfessionTradeSkillNodes(ushort rank)
+    {
+        var nodes = new List<ProfessionFrameUiLaw.TradeSkillNode>(_professionRecipes.Count);
+        for (int i = 0; i < _professionRecipes.Count; i++)
+        {
+            ProfessionRecipe recipe = _professionRecipes[i];
+            uint itemClass = uint.MaxValue, subclass = uint.MaxValue, inventoryType = 0, itemLevel = 0;
+            string groupName = "";
+            if (recipe.Product != 0 && _items?.TryGet(recipe.Product, out ItemTemplate? product) == true &&
+                product is not null)
+            {
+                itemClass = product.Class;
+                subclass = product.Subclass;
+                inventoryType = product.InventoryType;
+                itemLevel = product.ItemLevel;
+                groupName = _itemSubClasses?.Name(itemClass, subclass) ?? "";
+            }
+            string difficulty = ProfessionSkillColor(rank, recipe.Skill.TrivialLow, recipe.Skill.TrivialHigh);
+            int tier = difficulty switch { "orange" => 0, "yellow" => 1, "green" => 2, _ => 3 };
+            nodes.Add(new(i, itemClass, subclass, groupName, inventoryType, itemLevel, tier, recipe.Name));
+        }
+        return nodes;
+    }
+
+    private IReadOnlyList<ProfessionDisplayRow> ProfessionDisplayRows(bool tradeSkill, ushort rank)
+    {
+        if (!tradeSkill)
+            return _professionRecipes.Select((recipe, index) =>
+                new ProfessionDisplayRow(false, 0, recipe.Name, index, false)).ToArray();
+        return ProfessionFrameUiLaw.BuildTradeSkillTree(ProfessionTradeSkillNodes(rank),
+                _professionCollapsedGroups, _professionSubclassFilter,
+                _professionInventorySlotFilter)
+            .Select(row => new ProfessionDisplayRow(row.Header, row.GroupKey, row.Text,
+                row.RecipeIndex, row.Expanded)).ToArray();
+    }
+
+    private void DrawProfessionTradeSkillControls(ImDrawListPtr dl, Vector2 origin, float scale,
+        IReadOnlyList<ProfessionDisplayRow> rows)
+    {
+        ulong[] groupKeys = rows.Where(row => row.Header).Select(row => row.GroupKey).ToArray();
+        if (groupKeys.Length > 0)
+        {
+            bool anyCollapsed = groupKeys.Any(_professionCollapsedGroups.Contains);
+            if (VanillaButton(dl, "##profession-collapse-all", anyCollapsed ? "+ All" : "− All",
+                    origin + ProfessionFrameUiLaw.CollapseAll.Min * scale,
+                    ProfessionFrameUiLaw.CollapseAll.Size, scale))
+            {
+                if (anyCollapsed)
+                    foreach (ulong key in groupKeys) _professionCollapsedGroups.Remove(key);
+                else
+                    foreach (ulong key in groupKeys) _professionCollapsedGroups.Add(key);
+                _professionScroll = 0;
+            }
+        }
+
+        IReadOnlyList<ProfessionFrameUiLaw.TradeSkillNode> nodes =
+            ProfessionTradeSkillNodes(GetProfessionRank());
+        string subclassCaption = "All Subclasses";
+        if (_professionSubclassFilter is ulong subclassKey)
+            subclassCaption = nodes.FirstOrDefault(node =>
+                ProfessionFrameUiLaw.GroupKey(node.ItemClass, node.Subclass) == subclassKey).GroupName;
+        if (string.IsNullOrWhiteSpace(subclassCaption)) subclassCaption = "Other";
+        string inventoryCaption = _professionInventorySlotFilter is int slotBit
+            ? ProfessionFrameUiLaw.InventorySlotName(slotBit) : "All Slots";
+        if (VanillaButton(dl, "##profession-subclass-filter", subclassCaption,
+                origin + ProfessionFrameUiLaw.SubClassFilter.Min * scale,
+                ProfessionFrameUiLaw.SubClassFilter.Size, scale))
+            _professionFilterMenu = _professionFilterMenu == 1 ? 0 : 1;
+        if (VanillaButton(dl, "##profession-inventory-filter", inventoryCaption,
+                origin + ProfessionFrameUiLaw.InvSlotFilter.Min * scale,
+                ProfessionFrameUiLaw.InvSlotFilter.Size, scale))
+            _professionFilterMenu = _professionFilterMenu == 2 ? 0 : 2;
+        if (_professionFilterMenu != 0)
+            DrawProfessionFilterMenu(dl, origin, scale, nodes);
+    }
+
+    private ushort GetProfessionRank()
+    {
+        GetSkillValue(_professionLine, out ushort value, out _);
+        return value;
+    }
+
+    private void DrawProfessionFilterMenu(ImDrawListPtr dl, Vector2 origin, float scale,
+        IReadOnlyList<ProfessionFrameUiLaw.TradeSkillNode> nodes)
+    {
+        const float rowHeight = 18;
+        bool subclass = _professionFilterMenu == 1;
+        var choices = new List<(string Text, ulong? Subclass, int? Slot)>
+        {
+            (subclass ? "All Subclasses" : "All Slots", null, null),
+        };
+        if (subclass)
+        {
+            choices.AddRange(nodes.GroupBy(node => new
+                {
+                    Key = ProfessionFrameUiLaw.GroupKey(node.ItemClass, node.Subclass),
+                    node.GroupName,
+                })
+                .OrderBy(group => group.Key.GroupName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(group => group.Key.Key)
+                .Select(group => (string.IsNullOrWhiteSpace(group.Key.GroupName)
+                        ? "Other" : group.Key.GroupName,
+                    (ulong?)group.Key.Key, (int?)null)));
+        }
+        else
+        {
+            choices.AddRange(ProfessionFrameUiLaw.PresentInventorySlots(
+                    nodes.Select(node => node.InventoryType))
+                .Select(bit => (ProfessionFrameUiLaw.InventorySlotName(bit),
+                    (ulong?)null, (int?)bit)));
+        }
+        Vector2 logicalMin = subclass ? ProfessionFrameUiLaw.FilterMenu :
+            ProfessionFrameUiLaw.InventoryFilterMenu;
+        float width = subclass ? ProfessionFrameUiLaw.SubClassFilter.Width :
+            ProfessionFrameUiLaw.InvSlotFilter.Width;
+        Vector2 min = origin + logicalMin * scale;
+        Vector2 size = new(width, choices.Count * rowHeight + 4);
+        dl.AddRectFilled(min, min + size * scale, 0xf0100804);
+        dl.AddRect(min, min + size * scale, VanillaGold, 0, ImDrawFlags.None, scale);
+        for (int i = 0; i < choices.Count; i++)
+        {
+            (string text, ulong? subclassKey, int? slot) = choices[i];
+            bool selected = subclass ? _professionSubclassFilter == subclassKey :
+                _professionInventorySlotFilter == slot;
+            if (VanillaListRow(dl, $"##profession-filter-{_professionFilterMenu}-{i}",
+                    min + new Vector2(2, 2 + i * rowHeight) * scale,
+                    new Vector2(width - 4, rowHeight), scale,
+                    (selected ? "✓ " : "  ") + text, selected, VanillaGold))
+            {
+                if (subclass) _professionSubclassFilter = subclassKey;
+                else _professionInventorySlotFilter = slot;
+                _professionFilterMenu = 0;
+                _professionScroll = 0;
+            }
+        }
+    }
+
+    private int ProfessionCraftableCount(ProfessionRecipe recipe) =>
+        ProfessionFrameUiLaw.CraftableCount(recipe.Reagents.Select(r =>
+            (BackpackCount(r.ItemId), r.Count)));
+
+    private bool CraftProfessionRecipeCount(int index, int count)
+    {
+        if (index < 0 || index >= _professionRecipes.Count) return false;
+        int possible = ProfessionCraftableCount(_professionRecipes[index]);
+        _professionBatchRemaining = Math.Clamp(count, 1, Math.Max(1, possible));
+        return possible > 0 && CraftProfessionRecipe(index);
+    }
+
+    private void DrawProfessionRankBar(ImDrawListPtr dl, Vector2 origin, float scale,
+        string name, uint value, uint maximum)
+    {
+        ProfessionFrameUiLaw.LogicalRect logical = ProfessionFrameUiLaw.Rank;
+        Vector2 min = origin + logical.Min * scale;
+        Vector2 size = logical.Size * scale;
+        dl.AddRectFilled(min, min + size, 0x33ffffff);
+        float fraction = ProfessionFrameUiLaw.RankFraction(value, maximum);
+        uint fill = _gameplayArt?.Handle(ProfessionFrameUiLaw.RankFillPath) ?? 0;
+        if (fill != 0 && fraction > 0)
+            dl.AddImage((nint)fill, min, min + new Vector2(size.X * fraction, size.Y),
+                Vector2.Zero, new Vector2(fraction, 1), 0xffbf4040);
+        ProfessionFrameUiLaw.LogicalRect borderLogical = ProfessionFrameUiLaw.RankBorder;
+        uint border = _gameplayArt?.Handle(ProfessionFrameUiLaw.RankBorderPath) ?? 0;
+        if (border != 0)
+        {
+            Vector2 borderMin = origin + borderLogical.Min * scale;
+            dl.AddImage((nint)border, borderMin, borderMin + borderLogical.Size * scale);
+        }
+        Vector2 text = min + new Vector2(6, 1) * scale;
+        GameText.Draw(dl, "GameFontNormalSmall", name, text, scale, VanillaGold);
+        float nameWidth = GameText.MeasureWidth("GameFontNormalSmall", name, scale);
+        GameText.Draw(dl, "GameFontHighlightSmall", $"{value} / {maximum}",
+            text + new Vector2(nameWidth + 13 * scale, 0), scale, 0xffffffff);
+    }
+
+    private void DrawProfessionScrollBar(ImDrawListPtr dl, Vector2 origin, float scale, int maximum)
+    {
+        void Arrow(string id, ProfessionFrameUiLaw.LogicalRect logical, bool upward)
+        {
+            bool enabled = upward ? _professionScroll > 0 : _professionScroll < maximum;
+            Vector2 min = origin + logical.Min * scale;
+            ImGui.SetCursorScreenPos(min);
+            if (!enabled) ImGui.BeginDisabled();
+            ImGui.InvisibleButton(id, logical.Size * scale);
+            bool active = enabled && ImGui.IsItemActive();
+            bool hovered = enabled && ImGui.IsItemHovered();
+            bool clicked = enabled && ImGui.IsItemClicked();
+            if (!enabled) ImGui.EndDisabled();
+            string direction = upward ? "Up" : "Down";
+            string state = !enabled ? "Disabled" : active ? "Down" : "Up";
+            uint texture = _gameplayArt?.Handle(
+                $@"Interface\Buttons\UI-ScrollBar-Scroll{direction}Button-{state}") ?? 0;
+            if (texture != 0)
+                dl.AddImage((nint)texture, min, min + logical.Size * scale,
+                    new Vector2(.25f), new Vector2(.75f));
+            if (hovered)
+            {
+                uint highlight = _gameplayArt?.AdditiveHandle(
+                    $@"Interface\Buttons\UI-ScrollBar-Scroll{direction}Button-Highlight") ?? 0;
+                if (highlight != 0)
+                    dl.AddImage((nint)highlight, min, min + logical.Size * scale,
+                        new Vector2(.25f), new Vector2(.75f));
+            }
+            if (clicked) _professionScroll += upward ? -1 : 1;
+        }
+
+        Arrow("##profession-scroll-up", ProfessionFrameUiLaw.ScrollUp, upward: true);
+        Arrow("##profession-scroll-down", ProfessionFrameUiLaw.ScrollDown, upward: false);
+        float thumbY = ProfessionFrameUiLaw.ScrollThumbY(_professionScroll, maximum);
+        Vector2 thumbMin = origin + new Vector2(ProfessionFrameUiLaw.ScrollSlider.X, thumbY) * scale;
+        Vector2 thumbSize = ProfessionFrameUiLaw.ScrollUp.Size * scale;
+        uint knob = _gameplayArt?.Handle(ProfessionFrameUiLaw.ScrollKnobPath) ?? 0;
+        if (knob != 0)
+            dl.AddImage((nint)knob, thumbMin, thumbMin + thumbSize,
+                new Vector2(.25f), new Vector2(.75f));
+        Vector2 sliderMin = origin + ProfessionFrameUiLaw.ScrollSlider.Min * scale;
+        ImGui.SetCursorScreenPos(sliderMin);
+        ImGui.InvisibleButton("##profession-scroll-track",
+            ProfessionFrameUiLaw.ScrollSlider.Size * scale);
+        if (ImGui.IsItemActive())
+        {
+            float logicalY = (ImGui.GetIO().MousePos.Y - origin.Y) / scale;
+            _professionScroll = ProfessionFrameUiLaw.ScrollFromThumb(logicalY, maximum);
+        }
+    }
+
+    private void DrawProfessionCountSpinner(ImDrawListPtr dl, Vector2 origin, float scale,
+        int craftable)
+    {
+        bool canDecrease = _professionCreateCount > 1;
+        bool canIncrease = _professionCreateCount < Math.Max(1, craftable);
+        if (VanillaButton(dl, "##profession-count-down", "−",
+                origin + ProfessionFrameUiLaw.CountDecrement.Min * scale,
+                ProfessionFrameUiLaw.CountDecrement.Size, scale, canDecrease))
+            _professionCreateCount--;
+        if (VanillaInputInt(dl, "##profession-count", ref _professionCreateCount,
+                origin + ProfessionFrameUiLaw.CountInput.Min * scale,
+                ProfessionFrameUiLaw.CountInput.Size, scale))
+            _professionCreateCount = ProfessionFrameUiLaw.ClampCreateCount(
+                _professionCreateCount, craftable);
+        if (VanillaButton(dl, "##profession-count-up", "+",
+                origin + ProfessionFrameUiLaw.CountIncrement.Min * scale,
+                ProfessionFrameUiLaw.CountIncrement.Size, scale, canIncrease))
+            _professionCreateCount++;
     }
 
     private static Vector4 ProfessionColor(string color) => color switch

@@ -195,6 +195,7 @@ public class WmoReader
                         BlendMode = BitConverter.ToUInt32(data, mOfs + 8),
                         Texture0Offset = BitConverter.ToUInt32(data, mOfs + 0x0C),
                         Texture1Offset = BitConverter.ToUInt32(data, mOfs + 0x18),
+                        GroundType = BitConverter.ToUInt32(data, mOfs + 0x20),
                         Texture2Offset = BitConverter.ToUInt32(data, mOfs + 0x24),
                     });
                 }
@@ -908,6 +909,8 @@ public class WmoMaterial
     public uint BlendMode { get; set; }
     public uint Texture0Offset { get; set; }
     public uint Texture1Offset { get; set; }
+    /// <summary>MOMT +0x20: TerrainType.dbc id used by the WMO footstep surface ray.</summary>
+    public uint GroundType { get; set; }
     public uint Texture2Offset { get; set; }
     public string Texture0Name { get; set; } = "";
     public string Texture1Name { get; set; } = "";

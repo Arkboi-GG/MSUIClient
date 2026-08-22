@@ -8,12 +8,18 @@
     {
       "path": "crates/benilla-protocol/src/messages/mirror_timer.rs",
       "fileSha256": "6aa01d8d3acb2fbfbdfaf81c1d2895b39d3081fc76cb8d8135f596d8fd2c2fe7",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
-  "msuiAnchors": [],
-  "status": "missing",
-  "summary": "Benilla decodes the three mirror-timer packets (SMSG_START_MIRROR_TIMER u32 type/remaining/duration/i32 scale/u8 paused/u32 spellId; SMSG_PAUSE_MIRROR_TIMER; SMSG_STOP_MIRROR_TIMER) driving the breath/fatigue/feign-death bars, with START treated as idempotent re-statement. MSUI has no reference to any mirror-timer opcode outside the opcode table and no breath/fatigue bar consumer.",
+  "msuiAnchors": [
+    "MSUIClient/Net/MirrorTimerState.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.MirrorTimer.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "tools/interface-wire-check/MirrorTimerClinicalChecks.cs"
+  ],
+  "status": "complete",
+  "summary": "MSUI strictly decodes the complete build-5875 mirror family: 21-byte START with signed scale and spell id, 5-byte PAUSE, and 4-byte STOP. The fixed three-slot state treats START as an idempotent full restatement and integrates value plus signed scale times elapsed between packets.",
   "openItems": [
     {
       "id": "item-triage-63706829",
@@ -21,7 +27,8 @@
       "text": "SMSG_START_MIRROR_TIMER not parsed (including the signed scale field and START-as-full-restate semantics)",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: the exact 21-byte body is parsed in server field order, preserving signed scale and START-as-full-restatement semantics."
     },
     {
       "id": "item-triage-42f0e83b",
@@ -29,7 +36,8 @@
       "text": "SMSG_PAUSE_MIRROR_TIMER not parsed",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: the exact u32 kind plus u8 paused body settles accumulated time and freezes/unfreezes the addressed timer."
     },
     {
       "id": "item-triage-cdfec9a9",
@@ -37,7 +45,8 @@
       "text": "SMSG_STOP_MIRROR_TIMER not parsed",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: the exact u32 kind body releases only its matching frame."
     },
     {
       "id": "item-triage-d1a35e4e",
@@ -45,12 +54,13 @@
       "text": "No breath/fatigue/feign-death bar state or client-side integration of remaining_ms between packets",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: MirrorTimerState owns the fixed three-frame pool and smoothly integrates the server's signed per-second rate."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-21T16:00:00+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

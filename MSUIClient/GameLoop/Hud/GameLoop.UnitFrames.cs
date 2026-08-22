@@ -78,7 +78,14 @@ public sealed partial class GameLoop
             DrawVanillaStatusBar(dl, p + new Vector2(barX, 52) * s, new Vector2(119, 12) * s,
                 unit.PowerFraction, PowerColor(unit.Fields.PowerType));
 
-        string framePath = @"Interface\TargetingFrame\UI-TargetingFrame";
+        uint creatureRank = 0;
+        if (!playerFrame && unit.IsCreature &&
+            _creatureQueryRecords.TryGetValue(unit.Entry, out CreatureQueryInfo? creatureInfo) &&
+            creatureInfo is not null)
+            creatureRank = creatureInfo.Rank;
+        string framePath = playerFrame
+            ? @"Interface\TargetingFrame\UI-TargetingFrame"
+            : UnitFrameUiLaw.TargetFrameTexture(creatureRank);
         uint frame = _gameplayArt.Handle(framePath);
         if (PainterlyUi)
         {
@@ -98,7 +105,26 @@ public sealed partial class GameLoop
             if (_uiParityArmed && _uiParityPanel == parityPanel)
                 CollectUiParityDraw(playerFrame ? "PlayerFrameTexture" : "TargetFrameTexture", "Texture", p,
                     size * s, playerFrame ? "PlayerFrame/Frame/Frame" : "TargetFrameTextureFrame",
-                    new(framePath, 0xffffffff, "IMGUI_IMAGE", "ANCHOR:ABSOLUTE", "", "", authoredOrigin.X, authoredOrigin.Y));
+                        new(framePath, 0xffffffff, "IMGUI_IMAGE", "ANCHOR:ABSOLUTE", "", "", authoredOrigin.X, authoredOrigin.Y));
+        }
+
+        if (playerFrame && !PainterlyUi)
+            DrawPlayerFrameStatus(dl, unit, p, s);
+
+        string? pvpPath = UnitFrameUiLaw.PvpIcon(unit.Fields.Bytes0.Race,
+            unit.Fields.UnitFlags, unit.Fields.PlayerFlags);
+        if (pvpPath is not null)
+        {
+            Vector2 pvpMin = p + new Vector2(playerFrame ? 18f : 171f, 20f) * s;
+            uint pvpTexture = _gameplayArt.Handle(pvpPath);
+            if (pvpTexture != 0)
+                dl.AddImage((nint)pvpTexture, pvpMin, pvpMin + new Vector2(64f) * s);
+            if (_uiParityArmed && _uiParityPanel == parityPanel)
+                CollectUiParityDraw(playerFrame ? "PlayerPVPIcon" : "TargetPVPIcon",
+                    "Texture", pvpMin, new Vector2(64f) * s, root,
+                    new(pvpPath, 0xffffffff, "ARTWORK",
+                        playerFrame ? "TOPLEFT" : "TOPRIGHT", root,
+                        playerFrame ? "TOPLEFT" : "TOPRIGHT", playerFrame ? 18 : 3, -20));
         }
 
         Vector2 nameCenter = p + new Vector2(playerFrame ? 166 : 66, 31) * s;
@@ -129,24 +155,86 @@ public sealed partial class GameLoop
             dl.AddCircle(portraitMin + new Vector2(32) * s, 29f * s,
                 ImGui.ColorConvertFloat4ToU32(new Vector4(1, 0.12f, 0.08f,
                     Math.Clamp(combatFlash / 0.35f, 0, 1))), 48, 2f * s);
-        if (!playerFrame) DrawTargetAuras(dl, unit, p, s);
+        if (!playerFrame)
+        {
+            DrawTargetAuras(dl, unit, p, s);
+            DrawComboFrame(dl, p, s);
+        }
         if (_uiParityArmed && _uiParityPanel == parityPanel)
         {
             string[] absent = playerFrame
                 ? ["PlayerFrame/Frame", "PlayerFrame/Frame/Frame", "PlayerFrameHealthBarText", "PlayerFrameManaBarText",
-                    "PlayerStatusTexture", "PlayerAttackBackground", "PlayerPVPIcon", "PlayerHitIndicator", "PlayerLeaderIcon",
-                    "PlayerMasterIcon", "PlayerRestIcon", "PlayerAttackIcon", "PlayerPVPIconHitArea", "PlayerStatusGlow",
-                    "PlayerRestGlow", "PlayerAttackGlow", "PlayerPlayTime", "PlayerPlayTimeIcon", "PlayerFrameDropDown",
-                    "PlayerFrameGroupIndicator", "PlayerFrameGroupIndicatorLeft", "PlayerFrameGroupIndicatorRight",
-                    "PlayerFrameGroupIndicatorMiddle", "PlayerFrameGroupIndicatorText"]
-                : ["TargetFrameTextureFrame", "TargetDeadText", "TargetHighLevelTexture", "TargetLeaderIcon", "TargetPVPIcon",
-                    "TargetRaidTargetIcon", "TargetFrameDropDown", .. Enumerable.Range(1,16).Select(i=>$"TargetFrameDebuff{i}"),
+                    "PlayerHitIndicator", "PlayerPVPIconHitArea",
+                    "PlayerPlayTime", "PlayerPlayTimeIcon", "PlayerFrameDropDown",
+                    ]
+                : ["TargetFrameTextureFrame", "TargetDeadText", "TargetHighLevelTexture",
+                    "TargetFrameDropDown", .. Enumerable.Range(1,16).Select(i=>$"TargetFrameDebuff{i}"),
                     .. Enumerable.Range(1,5).Select(i=>$"TargetFrameBuff{i}")];
             foreach (string element in absent) ClassifyUiParity(element, "", root, "NOT-DRAWN");
+            if (pvpPath is null)
+                ClassifyUiParity(playerFrame ? "PlayerPVPIcon" : "TargetPVPIcon",
+                    "Texture", root, "NOT-DRAWN", "unit-is-not-pvp-flagged");
             MarkUiParityFrameComplete();
         }
         ImGui.End();
         DrawUnitFrameHitRect(unit, authoredOrigin, playerFrame, s);
+    }
+
+    private void DrawPlayerFrameStatus(ImDrawListPtr dl, WorldEntity player, Vector2 frameMin,
+        float scale)
+    {
+        bool autoAttacking = _attackTargetGuid != 0;
+        // PLAYER_REGEN_DISABLED/ENABLED is derived from UNIT_FLAG_IN_COMBAT in current Benilla.
+        bool onHateList = player.InCombat;
+        PlayerFrameStatus status = UnitFrameUiLaw.Status(player.Fields.PlayerFlags,
+            autoAttacking, onHateList);
+        if (status == PlayerFrameStatus.None) return;
+
+        bool resting = status == PlayerFrameStatus.Resting;
+        bool attacking = status == PlayerFrameStatus.Attacking;
+        bool pulsing = resting || attacking;
+        float alpha = pulsing ? UnitFrameUiLaw.StatusPulse(NowSeconds()) : 1f;
+        if (pulsing)
+        {
+            string ringPath = @"Interface\CharacterFrame\UI-Player-Status";
+            uint ring = _gameplayArt!.AdditiveHandle(ringPath);
+            Vector2 ringMin = frameMin + new Vector2(35, 8) * scale;
+            Vector4 ringColor = resting
+                ? new Vector4(1f, .88f, .25f, alpha)
+                : new Vector4(1f, 0f, 0f, alpha);
+            if (ring != 0)
+                dl.AddImage((nint)ring, ringMin, ringMin + new Vector2(190, 66) * scale,
+                    Vector2.Zero, new Vector2(.74609375f, .53125f),
+                    ImGui.ColorConvertFloat4ToU32(ringColor));
+        }
+
+        if (attacking)
+        {
+            uint background = _gameplayArt!.Handle(
+                @"Interface\TargetingFrame\UI-TargetingFrame-AttackBackground");
+            Vector2 backgroundMin = frameMin + new Vector2(37, 50) * scale;
+            if (background != 0)
+                dl.AddImage((nint)background, backgroundMin,
+                    backgroundMin + new Vector2(32) * scale, Vector2.Zero, Vector2.One,
+                    ImGui.ColorConvertFloat4ToU32(new Vector4(.8f, .1f, .1f, .4f)));
+        }
+
+        uint state = _gameplayArt!.Handle(@"Interface\CharacterFrame\UI-StateIcon");
+        Vector2 iconMin = frameMin + new Vector2(resting ? 37 : 38, resting ? 49 : 50) * scale;
+        Vector2 iconSize = new(resting ? 31 : 32, resting ? 33 : 32);
+        Vector2 uv0 = resting ? Vector2.Zero : new Vector2(.5f, 0f);
+        Vector2 uv1 = resting ? new Vector2(.5f, .421875f) : new Vector2(1f, .5f);
+        if (state != 0)
+            dl.AddImage((nint)state, iconMin, iconMin + iconSize * scale, uv0, uv1);
+
+        if (pulsing && state != 0)
+        {
+            Vector2 glowUv0 = resting ? new Vector2(0f, .5f) : new Vector2(.5f, .5f);
+            Vector2 glowUv1 = resting ? new Vector2(.5f, 1f) : Vector2.One;
+            uint tint = ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 1f, 1f, alpha));
+            dl.AddImage((nint)state, iconMin, iconMin + new Vector2(32) * scale,
+                glowUv0, glowUv1, tint);
+        }
     }
 
     /// <summary>

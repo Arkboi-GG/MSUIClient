@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine;
 using MSUIClient.Formats;
 using MSUIClient.World;
 
@@ -126,12 +127,12 @@ public sealed partial class GameLoop
             ImGui.TextDisabled($"({back.Position.X:F0}, {back.Position.Y:F0}, {back.Position.Z:F0})");
         }
 
-        ImGui.Checkbox("Portals fire on contact", ref _portalsEnabled);
+        ImGui.TextDisabled("Area triggers: server-authoritative");
         if (_teleports is null || _teleports.Count == 0)
         {
             ImGui.SameLine();
             ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f),
-                $"no {AreaTriggerTeleportTable.FileName} - portals disabled");
+                $"no {AreaTriggerTeleportTable.FileName} - destination labels unavailable");
         }
         else if (_lastPortalMessage.Length > 0)
         {
@@ -539,6 +540,7 @@ public sealed partial class GameLoop
             // the next frame sends you straight back in. Same for "Travel
             // straight in", which deliberately arrives at a trigger centre.
             _portalLatch = _areaTriggers?.Containing(_config.Start.Map, _controller.Position)?.Id ?? 0;
+            _portalLatchMap = _config.Start.Map;
 
             _travelStatus =
                 $"{map.Name}: {_terrain.TileCount} tile(s), {_wmo?.InstanceCount ?? 0} WMO, " +
@@ -675,6 +677,7 @@ public sealed partial class GameLoop
         _foliage?.ForceRescatter();
 
         _portalLatch = _areaTriggers?.Containing(_config.Start.Map, _controller.Position)?.Id ?? 0;
+        _portalLatchMap = _config.Start.Map;
 
         Console.WriteLine($"[travel] restored {from.DisplayName} at " +
                           $"({from.Position.X:F0}, {from.Position.Y:F0}, {from.Position.Z:F0})");
@@ -733,55 +736,49 @@ public sealed partial class GameLoop
     /// only just, and one step is enough to make an infinite loop.
     /// </summary>
     private int _portalLatch;
+    private int _portalLatchMap = int.MinValue;
 
-    private bool _portalsEnabled = true;
     private string _lastPortalMessage = "";
 
     /// <summary>
     /// Report a portal if the player has walked into one. Called once per Update.
     ///
-    /// Deliberately NOT gated on DevTools: this is world behaviour, not an
-    /// instrument. It is gated on having the teleport table at all, which a
-    /// shipping build without the .tsv simply does not.
+    /// Deliberately not gated on DevTools or the optional teleport-name table:
+    /// every AreaTrigger.dbc volume is server-owned gameplay, including quest,
+    /// inn, battleground, script and portal triggers.
     /// </summary>
-    private void UpdatePortals()
+    private void UpdateAreaTriggers()
     {
-        if (!_portalsEnabled || _controller is null ||
-            _areaTriggers is null || _teleports is null || _teleports.Count == 0) return;
+        if (_controller is null || _areaTriggers is null) return;
         if (_travelInProgress) return;
 
-        var inside = _areaTriggers.Containing(_config.Start.Map, _controller.Position);
-        if (inside is null)
+        int mapId = _config.Start.Map;
+        if (_portalLatchMap != mapId)
         {
-            // Left every volume, so the next one may fire.
             _portalLatch = 0;
-            return;
+            _portalLatchMap = mapId;
         }
+        bool stillInsideLatched = _portalLatch != 0 &&
+            _areaTriggers.ForMap(mapId).FirstOrDefault(row => row.Id == _portalLatch)
+                ?.Contains(_controller.Position) == true;
+        AreaTriggerRow? first = stillInsideLatched
+            ? null : _areaTriggers.Containing(mapId, _controller.Position);
+        AreaTriggerLatchStep step = AreaTriggerLaw.Step(
+            _portalLatch, stillInsideLatched, first?.Id);
+        _portalLatch = step.LatchedId;
+        if (step.ReportId is not int reportId) return;
 
-        if (inside.Id == _portalLatch) return;
-
-        var dest = _teleports.Get(inside.Id);
-        if (dest is null)
+        AreaTriggerTeleport? dest = _teleports?.Get(reportId);
+        string label = dest?.Name is { Length: > 0 } name
+            ? name : $"trigger {reportId}";
+        Console.WriteLine($"[area-trigger] entered {reportId} '{label}' on map {mapId}");
+        if (dest is not null)
         {
-            // A quest or script trigger, not a doorway. Latch it anyway so we
-            // do not look it up again every frame while standing in it.
-            _portalLatch = inside.Id;
-            return;
+            _lastPortalMessage = dest.RequiredLevel > 0
+                ? $"{dest.Name} (vanilla requires level {dest.RequiredLevel})"
+                : dest.Name;
         }
-
-        Console.WriteLine($"[portal] entered trigger {inside.Id} '{dest.Name}' " +
-                          $"-> asking server for map {dest.TargetMap}");
-
-        // The level requirement is recorded and shown, never enforced: there is
-        // no character level here yet, and refusing a portal we cannot evaluate
-        // would make the feature untestable.
-        if (dest.RequiredLevel > 0)
-            _lastPortalMessage = $"{dest.Name} (vanilla requires level {dest.RequiredLevel})";
-        else
-            _lastPortalMessage = dest.Name;
-
-        _portalLatch = inside.Id;
-        if (_net?.AreaTrigger((uint)inside.Id) == true)
+        if (_net?.AreaTrigger((uint)reportId) == true)
         {
             // Do not mutate map, position, collision, or entities here. VMaNGOS
             // validates the trigger against its authoritative player pose and
@@ -789,12 +786,12 @@ public sealed partial class GameLoop
             // path rendered the destination without moving the server, allowing
             // subsequent movement packets to save an outdoor position on the
             // dungeon map and poisoning the next login.
-            _travelStatus = $"waiting for server: {dest.Name}";
+            if (dest is not null) _travelStatus = $"waiting for server: {dest.Name}";
         }
         else
         {
-            _travelStatus = $"portal request failed: {dest.Name}";
-            Console.WriteLine($"[portal] could not send CMSG_AREATRIGGER {inside.Id}");
+            if (dest is not null) _travelStatus = $"portal request failed: {dest.Name}";
+            Console.WriteLine($"[area-trigger] could not send CMSG_AREATRIGGER {reportId}");
         }
     }
 

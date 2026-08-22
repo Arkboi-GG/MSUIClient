@@ -160,7 +160,7 @@ public sealed partial class GameLoop
         if (!_freeView || !ShiftHeld()) return false;
         BindingPair bound = BoundKeys(binding);
         foreach (Key key in RtsControlGroupKeys)
-            if (InputKeyDown(key) && bound.Contains(key)) return true;
+            if (InputKeyDown(key) && bound.ContainsBase(key)) return true;
         return false;
     }
 

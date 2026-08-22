@@ -637,41 +637,30 @@ public sealed partial class GameLoop
         5 => "Intellect", 6 => "Spirit", 7 => "Stamina", _ => null,
     };
 
-    private static void DrawPreparedVendorTemplateTooltip(
+    private bool OfferVendorTemplateTooltip(
+        in GameTooltipOwnerKey owner,
         in PreparedVendorTemplateTooltip tooltip,
         Vector2 ownerTopRight)
     {
         if (tooltip.Lines.IsDefault)
             throw new ArgumentException("The prepared vendor tooltip is uninitialized.",
                 nameof(tooltip));
-        ImGui.SetNextWindowPos(ownerTopRight, ImGuiCond.Always, new Vector2(0, 1));
-        ImGui.BeginTooltip();
-        if (ImGui.BeginTable("##vendor-template-tooltip-columns", 2,
-                ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.NoSavedSettings))
-        {
-            foreach (PreparedVendorTooltipLine line in tooltip.Lines)
-            {
-                ImGui.TableNextRow();
-                ImGui.TableNextColumn();
-                ImGui.TextColored(line.LeftColor, line.Left);
-                ImGui.TableNextColumn();
-                if (line.Right is not null)
-                    ImGui.TextColored(line.RightColor, line.Right);
-            }
-            ImGui.EndTable();
-        }
-        ImGui.EndTooltip();
-    }
 
-    private bool OfferVendorTemplateTooltip(
-        in GameTooltipOwnerKey owner,
-        in PreparedVendorTemplateTooltip tooltip,
-        Vector2 ownerTopRight)
-    {
-        PreparedVendorTemplateTooltip prepared = tooltip;
-        Vector2 preparedOwnerTopRight = ownerTopRight;
+        var operations = ImmutableArray.CreateBuilder<PreparedItemTooltipPaintOp>(
+            tooltip.Lines.Length);
+        foreach (PreparedVendorTooltipLine line in tooltip.Lines)
+            operations.Add(new(
+                line.Right is null
+                    ? PreparedItemTooltipPaintKind.Colored
+                    : PreparedItemTooltipPaintKind.Paired,
+                line.Left, line.LeftColor, line.Right, line.RightColor));
+
+        ItemTooltipBodySnapshot body = new(operations.ToImmutable());
+        PreparedInventoryTooltipRenderer? renderer = PrepareInventoryItemTooltipRenderer(
+            body, ownerTopRight, new Vector2(0, 1));
+        if (renderer is null) return false;
         return OfferPreservedSharedGameTooltipRenderer(owner,
-            () => DrawPreparedVendorTemplateTooltip(prepared, preparedOwnerTopRight));
+            () => DrawPreparedInventoryItemTooltip(renderer));
     }
 
     private bool VendorItemUsable(WorldEntity player, ItemTemplate? item)
@@ -688,6 +677,8 @@ public sealed partial class GameLoop
         if (item.RequiredSkill != 0 &&
             (!GetSkillValue(item.RequiredSkill, out ushort value, out _) ||
              value < item.RequiredSkillRank)) return false;
+        if (!InventoryUiLaw.IsItemProficient(item.Class, item.Subclass, _itemProficiencies))
+            return false;
         return true;
     }
 

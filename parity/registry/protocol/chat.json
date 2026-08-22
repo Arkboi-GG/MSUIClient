@@ -7,23 +7,26 @@
   "benillaSources": [
     {
       "path": "crates/benilla-protocol/src/messages/chat.rs",
-      "fileSha256": "9e4edf16fce10c3f3a30d7446fcfd14fdef4c4b06b96422efebb68e693859c47",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "daacbf294db70db74e54d8f3a4faf48775149743c111d0cd75e64c93d8acd27c",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-protocol/src/world/writer/chat.rs",
-      "fileSha256": "7711e3029d44d1559ce7351a14d582eed4271ef4b4e922dc48c7b27c427c7cfd",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "87e6110a9545e988dcebd4a2d5ce67c3d4070479556714e17db9405ec00f103a",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.Chat.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Chat.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Net/ChatPackets.cs",
     "MSUIClient/Net/WorldSession.cs",
-    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
     "MSUIClient/Engine/UI/ChatFrameLaw.cs"
   ],
-  "status": "partial",
-  "summary": "Benilla defines SMSG_MESSAGECHAT with per-type sender prefixes plus the chat-adjacent small bodies (SMSG_NOTIFICATION, SMSG_CHAT_PLAYER_NOT_FOUND, SMSG_PLAYED_TIME, MSG_RANDOM_ROLL) and the wire-gated $-macro expansion set. MSUI's Program.Chat.cs HandleMessageChat matches every per-type shape Benilla reads (monster inline-name shapes, SAY/PARTY/YELL double guid, CHANNEL, single-guid default) and handles SMSG_NOTIFICATION; CMSG_MESSAGECHAT sends match messagechat_kind.",
+  "status": "implemented-unverified",
+  "summary": "MSUI now matches the current Benilla build-5875 chat packet family: every SMSG_MESSAGECHAT sender shape, retained sender/target GUIDs and chatTag, the exact eight-type $-macro gate with deferred name resolution, BG_SYSTEM faction colors, battleground send bytes, player-not-found/wrong-faction feedback, /played, /random, text-emote send/receive, and the receive-side ignore gate. Ignored speakers are dropped before composition; an ordinary ignored whisper sends the byte-exact raw-GUID CMSG_CHAT_IGNORED response while LANG_ADDON traffic does not. Focused packet, composition, color, macro, suppression and wire-body clinical checks cover the slice.",
   "openItems": [
     {
       "id": "item-triage-382ba354",
@@ -31,7 +34,8 @@
       "text": "chatTag trailing byte is read but discarded - no <AFK>/<DND>/<GM> sender prefix behavior",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: ChatPackets retains chatTag and ChatFrameLaw composes the exact <AFK>/<DND>/<GM> prefix before the visible player name."
     },
     {
       "id": "item-triage-f488b0b7",
@@ -39,7 +43,8 @@
       "text": "target_guid (the monster shapes' macro subject) is discarded and no $-macro expansion runs for the 8 wire-gated types (monster say/yell/emote/whisper, BG_SYSTEM_*, RAID_BOSS_EMOTE) - '$n has taken the flag!' style lines stay literal",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: ChatPackets retains target_guid; the runtime defers unknown subjects, expands the exact eight wire-gated types through QuestTextMacroLaw.ExpandChecked, and drops known-unexpandable lines."
     },
     {
       "id": "item-triage-8df21e2d",
@@ -47,7 +52,8 @@
       "text": "SMSG_CHAT_PLAYER_NOT_FOUND: no handler (bad whisper target is silent)",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: strict cstring decoder, dispatcher handler and exact ERR_CHAT_PLAYER_NOT_FOUND_S line added."
     },
     {
       "id": "item-triage-654dc424",
@@ -55,7 +61,8 @@
       "text": "SMSG_CHAT_WRONG_FACTION: no handler",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: empty-body handler now emits the exact wrong-faction whisper feedback."
     },
     {
       "id": "item-triage-cbc40da0",
@@ -63,7 +70,8 @@
       "text": "CMSG_PLAYED_TIME / SMSG_PLAYED_TIME: absent (/played)",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: /played sends the empty CMSG, strictly parses the two-u32 response and prints the reference total/level breakdown."
     },
     {
       "id": "item-triage-1b68ff14",
@@ -71,7 +79,8 @@
       "text": "MSG_RANDOM_ROLL: absent (both request and broadcast shapes)",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: /random aliases and 1-N/min-max grammar send the two-u32 request; the strict four-field broadcast decoder prints the reference result line."
     },
     {
       "id": "item-triage-c5542288",
@@ -79,7 +88,8 @@
       "text": "CMSG_TEXT_EMOTE: no sender; SMSG_TEXT_EMOTE is opcode-table-only with no handler",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: EmoteCommandLaw aliases send the full 16-byte CMSG_TEXT_EMOTE and SMSG_TEXT_EMOTE composes the perspective/gender sentence."
     },
     {
       "id": "item-triage-91b4738d",
@@ -87,12 +97,21 @@
       "text": "CMSG_CHAT_IGNORED: absent",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: the authoritative local ignore list now suppresses incoming SMSG_MESSAGECHAT before any name/macro/UI side effect; ignored ordinary whispers send opcode 0x0225 with the sender's raw eight-byte GUID, while LANG_ADDON traffic remains silent. Focused clinical and production builds pass."
+    },
+    {
+      "id": "item-msui-chat-ignored-live-verify",
+      "kind": "verify",
+      "text": "Focused suppression, opcode and golden-body checks pass. Needs an owner-run two-client session to confirm an ignored whisper stays absent locally and the sender receives the red '<name> is ignoring you.' server response; also confirm ignored say/yell traffic is silent without an outbound response.",
+      "source": "implementation-2026-08-22",
+      "added": "2026-08-22",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T00:00:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

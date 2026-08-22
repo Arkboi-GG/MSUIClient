@@ -7,21 +7,25 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/GroupLootFrame.xml",
-      "fileSha256": "22e9a061463448902d52ab4dfaf1d5f6ee48525c327229b180df5d28fd55883f",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "7fbe5a8d586713f818205db5775f25006947ef16ab920854b3731f3bcec49430",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_loot_roll.rs",
-      "fileSha256": "7d4522588bfe04bffc3d5c5072724e0c33ecad194bb0e836d689ef028a17880b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "4aac1d24de783173705a327c24627480ee14e9dfab85de16d84a5ec7ea7c5926",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/UiParentUiLaw.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Net/WorldSession.cs"
+    "MSUIClient/Engine/UI/GroupLootFrameUiLaw.cs",
+    "MSUIClient/Engine/UI/UiParentUiLaw.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.GroupLoot.cs",
+    "MSUIClient/Net/LootState.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "tools/interface-wire-check/GroupLootClinicalChecks.cs"
   ],
-  "status": "missing",
-  "summary": "Benilla ships the full Need/Greed/Pass roll dialog family (4 stacked DIALOG popups, BoP gold-backdrop swap, CONFIRM_LOOT_ROLL popup, 60s timer bar, START/CANCEL/UPDATE_LOOT_ROLL driver). MSUIClient has no group-loot roll surface at all: no roll dialog, no LOOT_ROLL/START_ROLL/ALL_PASSED opcodes in Net/Opcodes.cs, no CMSG_LOOT_ROLL sender. The only trace is the UiParent managed-frame placement row (UiParentManagedConsumer.GroupLoot, BaseY 60) waiting for a consumer, plus CMSG_LOOT_METHOD (setting the group loot method) in WorldSession.",
+  "status": "complete",
+  "summary": "MSUI implements the current four-frame Need/Greed/Pass family: strict group-roll packets, first-hidden managed stacking, authored dialog/name/icon/button/timer art, saturated server-owned lifetime, immediate predicted close on vote, loot-chat announcements, BoP gold treatment, and a separately law-positioned CONFIRM_LOOT_ROLL popup.",
   "openItems": [
     {
       "id": "item-triage-3ea8aa1c",
@@ -29,7 +33,8 @@
       "text": "No GroupLootFrame dialog (icon, name plate, Pass/Need/Greed buttons, countdown StatusBar) exists anywhere in MSUI",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: GameLoop.GroupLoot renders the authored icon/name plate, vote controls, and countdown through GroupLootFrameUiLaw."
     },
     {
       "id": "item-triage-7f531906",
@@ -37,7 +42,8 @@
       "text": "SMSG_LOOT_START_ROLL / SMSG_LOOT_ROLL / SMSG_LOOT_ROLL_WON / SMSG_LOOT_ALL_PASSED not decoded (absent from Opcodes.cs)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: all four strict inbound packet shapes and opcode values are implemented in LootState/Opcodes and dispatched in GameLoop.Net."
     },
     {
       "id": "item-triage-2b8f998b",
@@ -45,7 +51,8 @@
       "text": "CMSG_LOOT_ROLL never sent (no RollOnLoot equivalent)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: LootPackets.BuildRollBody plus WorldSession/NetworkClient send the exact u64/u32/u8 CMSG_LOOT_ROLL body."
     },
     {
       "id": "item-triage-444c351f",
@@ -53,7 +60,8 @@
       "text": "No bind-on-pickup CONFIRM_LOOT_ROLL confirmation popup",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: BoP Need/Greed raises an exclusive Escape-dismissible confirmation whose geometry belongs to GroupLootFrameUiLaw; only accept sends."
     },
     {
       "id": "item-triage-486294fe",
@@ -61,12 +69,13 @@
       "text": "No 4-frame stacking / UIParent managed-position consumer wired (the GroupLoot placement row in UiParentUiLaw is currently unused)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: GroupLootRollState owns four first-hidden slots and GroupLootFrameUiLaw consumes UiParentUiLaw's GroupLoot managed placement, including bar/pet offsets."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-21T12:00:00+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -8,32 +8,40 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    private const float TaxiInteractDistance = 6f;
     private ulong _taxiMasterGuid;
     private uint _taxiCurrentNode;
     private readonly SortedSet<uint> _taxiKnownNodes = [];
+    private readonly Dictionary<ulong, bool> _taxiNodeKnown = [];
+    private readonly HashSet<ulong> _taxiStatusAsked = [];
+    private ulong _taxiStatusLastHover;
     private bool _taxiOpen, _taxiLocked;
     private CreatureSpline? _taxiSpline;
     private Vector3 _taxiStart;
     private TaxiNodeCatalog? _taxiNodes;
+    private TaxiPathCatalog? _taxiPaths;
+    private TaxiContinentCatalog? _taxiContinents;
+    private TaxiRouteView[] _taxiRoutes = [];
     private bool _taxiNodesLoaded;
-
-    private const string NoConnectedFlightPaths =
-        "You don't know any flight locations connected to this one.";
 
     private void ResetTaxi()
     {
         _taxiMasterGuid = 0; _taxiCurrentNode = 0; _taxiKnownNodes.Clear();
+        _taxiNodeKnown.Clear(); _taxiStatusAsked.Clear(); _taxiStatusLastHover = 0;
         _taxiOpen = false; _taxiLocked = false; _taxiSpline = null;
+        _taxiRoutes = [];
     }
 
     private bool TaxiMasterEligible(ulong guid, out WorldEntity? master, out float distance)
     {
-        master = null; distance = float.PositiveInfinity;
-        return _net is { IsInWorld: true } && _controller is not null &&
-            _entities.TryGet(guid, out master) && master.IsCreature && !master.IsDead &&
-            (master.NpcFlags & NpcFlightMaster) != 0 &&
-            (distance = Vector3.Distance(_controller.Position, master.Position)) <= TaxiInteractDistance;
+        master = null;
+        distance = float.PositiveInfinity;
+        if (_net is not { IsInWorld: true } || _controller is null ||
+            !_entities.TryGet(guid, out master) || !master.IsCreature || master.IsDead ||
+            (master.NpcFlags & NpcFlightMaster) == 0)
+            return false;
+        Vector3 delta = _controller.Position - master.Position;
+        distance = delta.Length();
+        return NpcSessionUiLaw.InRange(delta.LengthSquared());
     }
 
     private bool RequestTaxiStatus(ulong guid)
@@ -49,7 +57,7 @@ public sealed partial class GameLoop
     {
         bool eligible = TaxiMasterEligible(guid, out WorldEntity? master, out float distance);
         bool sent = eligible && _net!.TaxiQueryAvailableNodes(guid);
-        if (sent) { _taxiMasterGuid = guid; _taxiOpen = true; }
+        if (sent) _taxiMasterGuid = guid;
         EmitInterface("taxi", "map-query", sent ? "SENT" : "REFUSED", guid,
             $"eligible={eligible};distance={distance:R};npcFlags=0x{master?.NpcFlags ?? 0:X8};body={Convert.ToHexString(BitConverter.GetBytes(guid))}");
         return sent;
@@ -57,44 +65,135 @@ public sealed partial class GameLoop
 
     private void ApplyTaxiNodeStatus(byte[] body)
     {
-        if (body.Length < 9) throw new InvalidDataException($"taxi status bytes={body.Length}");
-        var r = new PacketReader(body); ulong guid = r.ReadU64(); byte status = r.ReadU8();
-        EmitInterface("taxi", "node-status", "RECEIVED", guid, $"status={status};known={status != 0};bytes={body.Length}");
+        TaxiNodeStatusPacket packet = TaxiPackets.ParseNodeStatus(body);
+        _taxiNodeKnown[packet.FlightMasterGuid] = packet.Known;
+        EmitInterface("taxi", "node-status", "RECEIVED", packet.FlightMasterGuid,
+            $"known={packet.Known};bytes={body.Length}");
+    }
+
+    /// <summary>
+    /// Current Benilla's unit-refresh plus mouseover query triggers. An unknown node feeds the
+    /// green TalkToMe marker through the shared overhead marker renderer.
+    /// </summary>
+    private void UpdateTaxiNodeStatusQueries()
+    {
+        if (_net is not { IsInWorld: true } net) return;
+        HashSet<ulong> visible = _entities.Entities.Values
+            .Where(unit => unit.IsCreature && !unit.IsDead &&
+                (unit.NpcFlags & NpcFlightMaster) != 0 && !CanAttack(unit))
+            .Select(unit => unit.Guid)
+            .ToHashSet();
+        _taxiStatusAsked.RemoveWhere(guid => !visible.Contains(guid));
+        foreach (ulong guid in _taxiNodeKnown.Keys.Where(guid => !visible.Contains(guid)).ToArray())
+            _taxiNodeKnown.Remove(guid);
+
+        ulong hoveredFlightMaster = visible.Contains(_hoveredGuid) ? _hoveredGuid : 0;
+        if (hoveredFlightMaster != _taxiStatusLastHover && hoveredFlightMaster != 0)
+            _taxiStatusAsked.Remove(hoveredFlightMaster);
+        _taxiStatusLastHover = hoveredFlightMaster;
+
+        foreach (ulong guid in visible)
+            if (_taxiStatusAsked.Add(guid)) net.TaxiNodeStatusQuery(guid);
     }
 
     private void ApplyTaxiNodes(byte[] body)
     {
-        if (body.Length < 20) throw new InvalidDataException($"taxi map bytes={body.Length}");
-        var r = new PacketReader(body); uint mode = r.ReadU32(); ulong guid = r.ReadU64(); uint current = r.ReadU32();
-        _taxiMasterGuid = guid; _taxiCurrentNode = current; _taxiKnownNodes.Clear();
-        int words = r.Remaining / 4;
-        for (int word = 0; word < words; word++)
+        ShowTaxiNodesPacket packet = TaxiPackets.ParseShowNodes(body);
+        if (packet.Gate == 0)
         {
-            uint mask = r.ReadU32();
+            EmitInterface("taxi", "map", "GATED_OFF", 0, $"bytes={body.Length}");
+            return;
+        }
+        bool switched = _taxiOpen && _taxiMasterGuid != packet.FlightMasterGuid;
+        if (switched) CloseTaxiMap(playSound: true);
+        _taxiMasterGuid = packet.FlightMasterGuid;
+        _taxiCurrentNode = packet.NearestNode;
+        _taxiKnownNodes.Clear();
+        for (int word = 0; word < packet.KnownMask.Length; word++)
+        {
+            uint mask = packet.KnownMask[word];
             for (int bit = 0; bit < 32; bit++) if ((mask & (1u << bit)) != 0) _taxiKnownNodes.Add((uint)(word * 32 + bit + 1));
         }
-        bool hasDestination = _taxiKnownNodes.Any(node => node != _taxiCurrentNode);
-        _taxiOpen = hasDestination;
-        if (!hasDestination)
-            ShowUiError(NoConnectedFlightPaths);
-        EmitInterface("taxi", "map", "DISPLAYED", guid,
-            $"mode={mode};current={current};maskWords={words};hasDestination={hasDestination};known={string.Join(',', _taxiKnownNodes)};bytes={body.Length}");
+        EnsureTaxiCatalogs();
+        RebuildTaxiRoutes();
+        bool catalogsReady = _taxiNodes is not null && _taxiPaths is not null &&
+            _taxiContinents is not null;
+        bool hasVisibleDestination = catalogsReady
+            ? _taxiRoutes.Any(route => !route.Current)
+            : _taxiKnownNodes.Any(node => node != _taxiCurrentNode);
+        bool hasOneHop = catalogsReady
+            ? _taxiRoutes.Any(route => !route.Current && route.Segments.Length == 1)
+            : hasVisibleDestination;
+        if (!_taxiOpen)
+        {
+            _taxiOpen = true;
+            PlayUiSound(TaxiFrameUiLaw.OpenSound, TaxiFrameUiLaw.SoundCategory);
+        }
+        if (!hasOneHop)
+        {
+            CloseTaxiMap(playSound: true);
+            ShowUiError(TaxiFrameUiLaw.NoConnectedFlightPaths);
+        }
+        EmitInterface("taxi", "map", "DISPLAYED", packet.FlightMasterGuid,
+            $"gate={packet.Gate};current={packet.NearestNode};maskWords={packet.KnownMask.Length};hasVisibleDestination={hasVisibleDestination};hasOneHop={hasOneHop};visibleRoutes={_taxiRoutes.Length};known={string.Join(',', _taxiKnownNodes)};bytes={body.Length}");
+    }
+
+    private void ApplyNewTaxiPath(byte[] body)
+    {
+        TaxiPackets.RequireNewPathBody(body);
+        ShowUiInfo(TaxiFrameUiLaw.DiscoveredText);
+        PlayUiSound(TaxiFrameUiLaw.DiscoveredSound, TaxiFrameUiLaw.SoundCategory);
+        EmitInterface("taxi", "discover", "DISPLAYED", _taxiMasterGuid,
+            $"text={TaxiFrameUiLaw.DiscoveredText};sound={TaxiFrameUiLaw.DiscoveredSound}");
+    }
+
+    private bool CloseTaxiMap(bool playSound = true)
+    {
+        if (!_taxiOpen) return false;
+        _taxiOpen = false;
+        if (playSound) PlayUiSound(TaxiFrameUiLaw.CloseSound, TaxiFrameUiLaw.SoundCategory);
+        EmitInterface("taxi", "close", "CLOSED", _taxiMasterGuid, $"sound={playSound}");
+        return true;
     }
 
     private bool ActivateTaxi(uint destination)
     {
+        TaxiRouteView route = _taxiRoutes.FirstOrDefault(candidate => candidate.Node.Id == destination);
         bool known = _taxiKnownNodes.Contains(destination), distinct = destination != _taxiCurrentNode;
-        bool sent = known && distinct && _taxiMasterGuid != 0 && _net?.ActivateTaxi(_taxiMasterGuid, _taxiCurrentNode, destination) == true;
+        bool resolved = route.Node.Id != 0 && route.Chain.Length >= 2;
+        bool direct = resolved && _taxiPaths?.TryBetween(
+            _taxiCurrentNode, destination, out _) == true;
+        bool sent = false;
+        byte[] body = [];
+        string wire = "none";
+        if (known && distinct && resolved && _taxiMasterGuid != 0 && _net is not null)
+        {
+            if (direct)
+            {
+                body = WorldSession.BuildActivateTaxiBody(
+                    _taxiMasterGuid, _taxiCurrentNode, destination);
+                sent = _net.ActivateTaxi(_taxiMasterGuid, _taxiCurrentNode, destination);
+                wire = "CMSG_ACTIVATETAXI";
+            }
+            else
+            {
+                body = TaxiPackets.BuildActivateExpressBody(
+                    _taxiMasterGuid, route.Fare, route.Chain);
+                sent = _net.ActivateTaxiExpress(_taxiMasterGuid, route.Fare, route.Chain);
+                wire = "CMSG_ACTIVATETAXIEXPRESS";
+            }
+        }
         EmitInterface("taxi", "activate", sent ? "SENT" : "REFUSED", _taxiMasterGuid,
-            $"source={_taxiCurrentNode};destination={destination};known={known};distinct={distinct};body={Convert.ToHexString(WorldSession.BuildActivateTaxiBody(_taxiMasterGuid, _taxiCurrentNode, destination))}");
+            $"source={_taxiCurrentNode};destination={destination};known={known};distinct={distinct};resolved={resolved};direct={direct};fare={route.Fare};chain={string.Join(',', route.Chain)};wire={wire};body={Convert.ToHexString(body)}");
         return sent;
     }
 
     private void ApplyTaxiReply(byte[] body)
     {
-        if (body.Length < 4) throw new InvalidDataException($"taxi reply bytes={body.Length}");
-        uint code = BitConverter.ToUInt32(body, 0); bool accepted = code == 0;
+        uint code = TaxiPackets.ParseActivateReply(body); bool accepted = code == 0;
         _taxiLocked = accepted; _taxiStart = _controller?.Position ?? Vector3.Zero;
+        if (accepted) CloseTaxiMap(playSound: true);
+        else if (TaxiFrameUiLaw.ActivateErrorText(code) is { } error) ShowUiError(error);
         EmitInterface("taxi", "purchase", accepted ? "ACCEPTED" : $"REJECTED_{code}", _taxiMasterGuid,
             $"code={code};controlLocked={_taxiLocked};bytes={body.Length}");
     }
@@ -103,9 +202,26 @@ public sealed partial class GameLoop
     {
         if (_net is null || move.Guid != _net.PlayerGuid || !move.Flying || move.Points.Length < 2) return;
         _taxiLocked = true; _taxiSpline = new CreatureSpline(move.Points, move.DurationMs, true, MovementInfo.ClientUptimeMs());
-        _taxiStart = move.Points[0]; _taxiOpen = true;
+        _taxiStart = move.Points[0];
         EmitInterface("taxi", "flight", "STARTED", move.Guid,
             $"points={move.Points.Length};durationMs={move.DurationMs};flying={move.Flying};controlLocked=true");
+    }
+
+    private bool UpdateTaxiLifecycle()
+    {
+        if (!_taxiOpen || _taxiLocked || _controller is null) return false;
+        bool sourceAvailable = _entities.TryGet(_taxiMasterGuid, out WorldEntity master);
+        float distanceSquared = sourceAvailable
+            ? Vector3.DistanceSquared(_controller.Position, master.Position)
+            : float.PositiveInfinity;
+        if (!NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
+            return false;
+        CloseTaxiMap(playSound: true);
+        EmitInterface("taxi", "lifecycle-close", "CLOSED", _taxiMasterGuid,
+            sourceAvailable
+                ? $"distanceSquared={distanceSquared:R};limitSquared={NpcSessionUiLaw.ServiceRangeSquared:R}"
+                : "source-despawned");
+        return true;
     }
 
     private void ApplyTaxiInputLockout(ref float forward, ref float strafe, ref float turn, ref bool jump)
@@ -132,7 +248,10 @@ public sealed partial class GameLoop
     private void SimulateTaxiFlow()
     {
         ulong guid = 0xF130000160000001;
-        var map = new PacketWriter(); map.WriteU32(1); map.WriteU64(guid); map.WriteU32(2); map.WriteU32((1u << 1) | (1u << 5) | (1u << 11)); ApplyTaxiNodes(map.ToArray());
+        var map = new PacketWriter(); map.WriteU32(1); map.WriteU64(guid); map.WriteU32(2);
+        map.WriteU32((1u << 1) | (1u << 5) | (1u << 11));
+        for (int i = 1; i < TaxiPackets.MaskWords; i++) map.WriteU32(0);
+        ApplyTaxiNodes(map.ToArray());
         EmitInterface("taxi", "activate", "SENT", guid, $"source=2;destination=6;known=true;distinct=true;body={Convert.ToHexString(WorldSession.BuildActivateTaxiBody(guid, 2, 6))};source=replay");
         var reply = new PacketWriter(); reply.WriteU32(0); ApplyTaxiReply(reply.ToArray());
         _taxiLocked = true; EmitInterface("taxi", "input", "LOCKED_OUT", 1, "axes=0;jump=false;source=replay");
@@ -142,10 +261,14 @@ public sealed partial class GameLoop
 
     private void DrawTaxiFrame()
     {
-        if (!_taxiOpen||_gameplayArt is null) return;float s=GameplayUiScale();Vector2 origin=new(0,104*s),logicalSize=new(384,512);
-        ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
+        if (!_taxiOpen||_gameplayArt is null) return;float s=GameplayUiScale();Vector2 origin=TaxiFrameUiLaw.FrameOrigin(s),size=TaxiFrameUiLaw.FrameSize(s);
+        ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(size,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
         if (!ImGui.Begin("##taxi",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
-        ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="taxi"){BeginUiParityFrame(origin,s);CollectUiParityDraw("TaxiFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
+        ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="taxi"){BeginUiParityFrame(origin,s);CollectUiParityDraw("TaxiFrame","Frame",origin,size,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
+        if (_entities.TryGet(_taxiMasterGuid, out WorldEntity portraitMaster))
+            DrawUnitPortraitImage(dl, portraitMaster,
+                origin + TaxiFrameUiLaw.PortraitOffset * s,
+                TaxiFrameUiLaw.PortraitSize * s, 0, false);
         (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[
             ("TaxiFrame/Texture",@"Interface\TaxiFrame\UI-TaxiFrame-TopLeft",Vector2.Zero,new(256,256)),
             ("TaxiFrame/Texture#2",@"Interface\TaxiFrame\UI-TaxiFrame-TopRight",new(256,0),new(128,256)),
@@ -169,7 +292,7 @@ public sealed partial class GameLoop
             else if (ImGui.Button($"Fly to node {node}##taxi-{node}")) ActivateTaxi(node);
         }
         if (_taxiKnownNodes.Count == 0) ImGui.TextDisabled("No discovered flight nodes received.");
-        ImGui.EndChild();Vector2 close=origin+new Vector2(323,8)*s;DrawImageButton(dl,"##taxi-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())_taxiOpen=false;
+        ImGui.EndChild();Vector2 close=origin+TaxiFrameUiLaw.CloseButton*s;DrawImageButton(dl,"##taxi-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())CloseTaxiMap();
         if(_uiParityArmed&&_uiParityPanel=="taxi")MarkUiParityFrameComplete();
         ImGui.End();
     }
@@ -178,43 +301,130 @@ public sealed partial class GameLoop
     {
         EnsureTaxiNodes();
         uint mapId=_taxiNodes?.TryGet(_taxiCurrentNode,out TaxiNodeInfo currentInfo)==true?currentInfo.MapId:0;
-        string merchant=_entities.TryGet(_taxiMasterGuid,out WorldEntity master)
-            ?_creatureNames.GetValueOrDefault(master.Entry,"Flight Master"):"Flight Master";
+        string merchant="Flight Master";
+        if(_entities.TryGet(_taxiMasterGuid,out WorldEntity master))
+        {
+            if(master.Entry!=0&&TryBeginCreatureQuery(master.Entry))
+                _net?.CreatureQuery(master.Entry,master.Guid);
+            merchant=_creatureNames.GetValueOrDefault(master.Entry,"Flight Master");
+        }
         float titleEm=GameText.EmPixels("GameFontNormal",s);
         DrawNpcModalTitle(dl,merchant,
             origin+new Vector2(192,17+titleEm/(2f*s))*s,s);
-        Vector2 mapMin=origin+new Vector2(21,75)*s,mapSize=new Vector2(316,352)*s;
+        EnsureTaxiCatalogs();
+        RebuildTaxiRoutes();
+        Vector2 mapMin=origin+TaxiFrameUiLaw.MapOffset*s,mapSize=TaxiFrameUiLaw.MapSize*s;
         uint map=_gameplayArt!.Handle($@"Interface\TaxiFrame\TAXIMAP{mapId}.blp");
         if(map==0)map=_gameplayArt.Handle($@"textures\TaxiMaps\TaxiMap0{mapId}.blp");
         if(map!=0)dl.AddImage((nint)map,mapMin,mapMin+mapSize);
-        TaxiNodeInfo[] continent=_taxiNodes?.Nodes.Where(x=>x.MapId==mapId&&MathF.Abs(x.Position.X)<15500&&MathF.Abs(x.Position.Y)<15500).ToArray()??[];
-        float minX=continent.Length==0?-15000:continent.Min(x=>x.Position.X),maxX=continent.Length==0?4000:continent.Max(x=>x.Position.X);
-        float minY=continent.Length==0?-5000:continent.Min(x=>x.Position.Y),maxY=continent.Length==0?5000:continent.Max(x=>x.Position.Y);
-        foreach(uint nodeId in _taxiKnownNodes)
+        TaxiRouteView? hoveredRoute = null;
+        Vector2 mouse = ImGui.GetIO().MousePos;
+        foreach (TaxiRouteView route in _taxiRoutes)
         {
-            if(_taxiNodes?.TryGet(nodeId,out TaxiNodeInfo node)!=true||node.MapId!=mapId)continue;
-            float x=(maxY-node.Position.Y)/MathF.Max(1,maxY-minY),y=(maxX-node.Position.X)/MathF.Max(1,maxX-minX);
-            Vector2 center=mapMin+new Vector2(12+x*292,12+y*328)*s;
-            bool current=nodeId==_taxiCurrentNode;
-            uint icon=_gameplayArt.Handle(current?@"Interface\TaxiFrame\UI-Taxi-Icon-Green.blp":@"Interface\TaxiFrame\UI-Taxi-Icon-Yellow.blp");
-            Vector2 half=new Vector2(8)*s;if(icon!=0)dl.AddImage((nint)icon,center-half,center+half);
-            ImGui.SetCursorScreenPos(center-half);ImGui.InvisibleButton($"##taxi-{nodeId}",half*2);
-            if(!current&&!_taxiLocked&&ImGui.IsItemClicked())ActivateTaxi(nodeId);
-            if(ImGui.IsItemHovered())ImGui.SetTooltip(current?$"{node.Name}\nYou are here":node.Name);
+            Vector2 center = TaxiFrameUiLaw.NodeCenter(route.Position, mapMin, s);
+            float hit = TaxiFrameUiLaw.NodeHighlightSize * s * .5f;
+            if (MathF.Abs(mouse.X - center.X) <= hit && MathF.Abs(mouse.Y - center.Y) <= hit)
+                hoveredRoute = route;
         }
-        if(!_taxiKnownNodes.Any(node=>node!=_taxiCurrentNode))
-            DrawCenteredText(dl,mapMin+mapSize*.5f,NoConnectedFlightPaths,11*s,0xffffffff);
-        Vector2 close=origin+new Vector2(323,8)*s;
+
+        IEnumerable<Vector4> visibleSegments = hoveredRoute is { Current: false } hoveredNode
+            ? hoveredNode.Segments
+            : _taxiRoutes.Where(route => !route.Current && route.Segments.Length == 1)
+                .Select(route => route.Segments[0]);
+        foreach (Vector4 segment in visibleSegments)
+            DrawTaxiRouteLine(dl, mapMin, segment, s);
+
+        foreach(TaxiRouteView route in _taxiRoutes)
+        {
+            Vector2 center=TaxiFrameUiLaw.NodeCenter(route.Position,mapMin,s);
+            uint icon=_gameplayArt.Handle(route.Current
+                ? TaxiFrameUiLaw.CurrentIcon : TaxiFrameUiLaw.ReachableIcon);
+            Vector2 half=new(TaxiFrameUiLaw.NodeSize*s*.5f);
+            if(icon!=0)dl.AddImage((nint)icon,center-half,center+half);
+            ImGui.SetCursorScreenPos(center-half);ImGui.InvisibleButton($"##taxi-{route.Node.Id}",half*2);
+            bool isHovered=ImGui.IsItemHovered();
+            if(isHovered)
+            {
+                uint highlight=_gameplayArt.Handle(TaxiFrameUiLaw.HighlightIcon);
+                Vector2 highlightHalf=new(TaxiFrameUiLaw.NodeHighlightSize*s*.5f);
+                if(highlight!=0)dl.AddImage((nint)highlight,center-highlightHalf,center+highlightHalf);
+                OfferTaxiNodeTooltip(route,center+half);
+            }
+            if(!route.Current&&!_taxiLocked&&ImGui.IsItemClicked())ActivateTaxi(route.Node.Id);
+        }
+        if(!_taxiRoutes.Any(route=>!route.Current&&route.Segments.Length==1))
+            DrawCenteredText(dl,mapMin+mapSize*.5f,TaxiFrameUiLaw.NoConnectedFlightPaths,11*s,0xffffffff);
+        Vector2 close=origin+TaxiFrameUiLaw.CloseButton*s;
         DrawImageButton(dl,"##taxi-close-shipping",close,new Vector2(32)*s,
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
-        if(ImGui.IsItemClicked()&&!_taxiLocked)_taxiOpen=false;
+        if(ImGui.IsItemClicked()&&!_taxiLocked)CloseTaxiMap();
     }
 
-    private void EnsureTaxiNodes()
+    private void DrawTaxiRouteLine(
+        ImDrawListPtr draw, Vector2 mapMinimum, Vector4 normalized, float scale)
+    {
+        Vector2 source = TaxiFrameUiLaw.NodeCenter(
+            new Vector2(normalized.X, normalized.Y), mapMinimum, scale);
+        Vector2 destination = TaxiFrameUiLaw.NodeCenter(
+            new Vector2(normalized.Z, normalized.W), mapMinimum, scale);
+        TaxiFrameUiLaw.RouteQuad quad = TaxiFrameUiLaw.RouteLine(source, destination, scale);
+        uint texture = _gameplayArt?.Handle(TaxiFrameUiLaw.RouteTexture) ?? 0;
+        if (texture != 0)
+            draw.AddImageQuad((nint)texture, quad.A, quad.B, quad.C, quad.D,
+                new Vector2(0, 0), new Vector2(0, 1),
+                new Vector2(1, 1), new Vector2(1, 0));
+        else
+            draw.AddLine(source, destination, 0xffc0c0c0,
+                TaxiFrameUiLaw.RouteWidth * scale);
+    }
+
+    private bool OfferTaxiNodeTooltip(in TaxiRouteView route, Vector2 ownerTopRight)
+    {
+        if (!_sharedTooltipFrameOpen || _sharedTooltipFrameResolved || _skin is null) return false;
+        GameTooltipOwnerToken token = ClaimSharedGameTooltip(
+            new("taxi-node", route.Node.Id));
+        GameTooltipLine[] lines = route.Current
+            ? [new(route.Node.Name, GameTooltipTextTone.White),
+               new("You are here", GameTooltipTextTone.Green)]
+            : [new(route.Node.Name, GameTooltipTextTone.White)];
+        if (!PublishSharedGameTooltip(token,
+                new GameTooltipContent(GameTooltipAnchorKind.OwnerRight, lines))) return false;
+        if (!route.Current && !SetSharedGameTooltipMoney(token, route.Fare)) return false;
+        PreparedSharedGameTooltipRenderer? prepared =
+            PrepareSharedGameTooltipRenderer(SharedGameTooltipSnapshot(), ownerTopRight);
+        return prepared is not null && QueueSharedGameTooltipRenderer(token,
+            SharedGameTooltipLeavePolicy.ImmediateHide,
+            () => DrawPreparedSharedGameTooltip(prepared));
+    }
+
+    private void EnsureTaxiCatalogs()
     {
         if(_taxiNodesLoaded)return;_taxiNodesLoaded=true;
-        try{if(_mpq is not null)_taxiNodes=TaxiNodeCatalog.Load(_mpq);}
-        catch(Exception e){Console.WriteLine($"[taxi] TaxiNodes load failed: {e.Message}");}
+        try
+        {
+            if(_mpq is not null)
+            {
+                _taxiNodes=TaxiNodeCatalog.Load(_mpq);
+                _taxiPaths=TaxiPathCatalog.Load(_mpq);
+                _taxiContinents=TaxiContinentCatalog.Load(_mpq);
+            }
+        }
+        catch(Exception e){Console.WriteLine($"[taxi] taxi catalogs load failed: {e.Message}");}
+    }
+
+    private void EnsureTaxiNodes() => EnsureTaxiCatalogs();
+
+    private void RebuildTaxiRoutes()
+    {
+        if (_taxiNodes is null || _taxiPaths is null || _taxiContinents is null ||
+            !_taxiNodes.TryGet(_taxiCurrentNode, out TaxiNodeInfo current) ||
+            !_taxiContinents.TryGet(current.MapId, out TaxiContinentInfo continent))
+        {
+            _taxiRoutes = [];
+            return;
+        }
+        _taxiRoutes = TaxiRoutePlanner.BuildVisible(_taxiNodes, _taxiPaths,
+            continent, _taxiKnownNodes, _taxiCurrentNode);
     }
 }

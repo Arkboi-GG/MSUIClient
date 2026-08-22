@@ -5,6 +5,7 @@ using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.Engine.UI;
 using Shader = MSUIClient.Engine.Shader;
 using Texture = MSUIClient.Engine.Texture;
 
@@ -80,6 +81,10 @@ public sealed partial class CreatureRenderer : IDisposable
     /// </summary>
     public HashSet<ulong> ProminentSelectedGuids { get; } = [];
     public Action<string, int, M2Animator.Resolution>? AnimationResolved { get; set; }
+    /// <summary>rider/root guid, event-source display id, world-space feet.</summary>
+    public Action<ulong, int, Vector3, float>? FootstepAnimationEvent { get; set; }
+    public Action<ulong, int, Vector3, string>? CreatureAnimationSoundEvent { get; set; }
+    public Action<ulong, string>? CombatAnimationSoundEvent { get; set; }
 
     /// <summary>
     /// Read-only bridge to the game loop's ask-once item-template cache. Remote players expose
@@ -143,6 +148,7 @@ public sealed partial class CreatureRenderer : IDisposable
     private readonly float[] _packed = new float[M2Animator.MaxBones * 12];
 
     private readonly Dictionary<ulong, float> _animTime = new();
+    private readonly Dictionary<ulong, (int Sequence, float Time)> _footstepTime = [];
     private readonly Dictionary<ulong, CombatAction> _combatActions = new();
     private readonly Dictionary<ulong, int> _spellHolds = new();
     private readonly HashSet<ulong> _knownAlive = new();
@@ -171,6 +177,13 @@ public sealed partial class CreatureRenderer : IDisposable
     public void TriggerCombatSwing(ulong guid, bool offHand)
     {
         _combatActions[guid] = new CombatAction(offHand ? 87 : 16, _globalTime, _globalTime + 3f);
+        CombatActionsTriggered++;
+    }
+
+    public void TriggerOneShot(ulong guid, int animationId)
+    {
+        _combatActions[guid] = new CombatAction(animationId, _globalTime,
+            _globalTime + 4f, AuthoredExact: true);
         CombatActionsTriggered++;
     }
 
@@ -542,6 +555,9 @@ public sealed partial class CreatureRenderer : IDisposable
 
                 if (clip is not null)
                 {
+                    if (!mounted)
+                        EmitFootstepEvents(e.Guid, e.DisplayId, e.Position,
+                            e.Scale, model.Source, clip, at, mount: false);
                     boneCount = Math.Min(model.BoneCount, M2Animator.MaxBones);
                     model.Animator.Evaluate(clip, at, _globalTime, _skin);
                     M2Animator.Pack(_skin, boneCount, _packed);
@@ -920,6 +936,22 @@ public sealed partial class CreatureRenderer : IDisposable
     }
 
     /// <summary>
+    /// Return the static Stand-sequence CAaBox height used by the reference chat
+    /// bubble, not the broader model bounds used by posed overhead names.
+    /// </summary>
+    public bool TryGetStandBoxHeight(WorldEntity entity, out float height)
+    {
+        height = 0f;
+        if (!TryGetModel(entity, out LoadedModel? model) || model is null) return false;
+        M2Sequence? stand = model.Source.Sequences.FirstOrDefault(s =>
+            s.AnimationId == 0 && s.VariationId == 0) ??
+            model.Source.Sequences.FirstOrDefault(s => s.AnimationId == 0);
+        if (stand is null) return true;
+        height = stand.BoundsZExtent * UnitRenderScale(entity.Scale, ScaleMultiplier);
+        return true;
+    }
+
+    /// <summary>
     /// Draw exactly one creature for an offscreen portrait. This deliberately
     /// does not advance, track, count, or prune world animation state.
     /// </summary>
@@ -1047,6 +1079,10 @@ public sealed partial class CreatureRenderer : IDisposable
             if (flying)
                 return animator.Resolve(unit, BaseAnimationTrack, 193, true, 135, 40, 0);
 
+            int pose = StandStateUiLaw.LoopAnimation(e.Fields.UnitStandState);
+            if (pose != 0)
+                return animator.Resolve(unit, BaseAnimationTrack, pose, true, 0);
+
             return e.Engaged
                 ? animator.Resolve(unit, BaseAnimationTrack, 25, true, 26, 27, 28, 0)
                 : animator.Resolve(unit, BaseAnimationTrack, 0, true);
@@ -1125,6 +1161,7 @@ public sealed partial class CreatureRenderer : IDisposable
             _knownAlive.Remove(k);
             _observedDead.Remove(k);
             _deathTime.Remove(k);
+            _footstepTime.Remove(k);
         }
 
         // A steed whose rider stopped drawing (left the world, walked out of range)

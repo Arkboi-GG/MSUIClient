@@ -25,14 +25,21 @@ public sealed partial class GameLoop
     private ulong _attackTargetGuid;
     private long _targetCombatSeen;
     private readonly Dictionary<ulong, string> _playerNames = [];
+    private readonly Dictionary<ulong, PlayerTraits> _playerTraits = [];
     private readonly Dictionary<uint, string> _creatureNames = [];
+    private readonly Dictionary<uint, string> _petNames = [];
     private readonly Dictionary<uint, CreatureQueryInfo?> _creatureQueryRecords = [];
     private readonly HashSet<ulong> _queriedPlayerNames = [];
     private readonly HashSet<uint> _queriedCreatureNames = [];
+    private readonly HashSet<uint> _queriedPetNames = [];
 
     private void ResetTargeting()
     {
         CloseInspect(playSound: false);
+        ResetAutoFollowSession();
+        _questMarkerModels?.Clear();
+        ResetNpcGreetingSoundState();
+        ResetGameObjectSoundState();
         _hoveredGuid = 0;
         _hoveredGameObjectGuid = 0;
         _selectionGuid = 0;
@@ -40,6 +47,7 @@ public sealed partial class GameLoop
         // Resolved hit and negative records are template identities and survive zoning/session
         // teardown. Only an unanswered writer ask must become re-askable.
         _queriedCreatureNames.Clear();
+        _queriedPetNames.Clear();
         _targetCombatSeen = _combat.AttackRevision;
         _window.ClearWorldClicks();
     }
@@ -51,19 +59,42 @@ public sealed partial class GameLoop
     /// </summary>
     private void ResetPlayerIdentitySession()
     {
+        _itemProficiencies.Clear();
         _playerNames.Clear();
+        _playerTraits.Clear();
+        _petNames.Clear();
         _queriedPlayerNames.Clear();
+        _queriedPetNames.Clear();
         _chatNameQueried.Clear();
+        _pendingChatMacros.Clear();
+        _pendingChatXp.Clear();
+        _pendingChatChannelNotices.Clear();
+        _chatChannels.Clear();
+        _chatLastTellTarget = "";
+        CloseChatMenu();
     }
 
     private bool TryBeginCreatureQuery(uint entry) =>
         entry != 0 && !_creatureQueryRecords.ContainsKey(entry) &&
         _queriedCreatureNames.Add(entry);
 
+    private string ResolveCreatureOrPetName(WorldEntity unit, string fallback)
+    {
+        if (GuidInfo.PetNumber(unit.Guid) is uint petNumber)
+        {
+            EnsureUnitNameRequested(unit);
+            return _petNames.GetValueOrDefault(petNumber, fallback);
+        }
+        return _creatureNames.GetValueOrDefault(unit.Entry, fallback);
+    }
+
     private void UpdateTargeting()
     {
         // Creator mode targets its locally spawned practice dummies with no net at all.
         if (_net is not { IsInWorld: true } && !_creatorWorldRequested) return;
+
+        UpdateQuestGiverStatusQueries();
+        UpdateTaxiNodeStatusQueries();
 
         // Reconcile the speculative local attack latch with the authoritative echo.
         if (_net is not null && _combat.AttackRevision != _targetCombatSeen)
@@ -94,6 +125,11 @@ public sealed partial class GameLoop
             // highlight tint and the world-GO name tooltip.
             _hoveredGameObjectGuid = PickGameObject(_window.MousePosition, unitHit, out _);
             if (_hoveredGameObjectGuid != 0) _hoveredGuid = 0;
+        }
+        else
+        {
+            _hoveredGuid = 0;
+            _hoveredGameObjectGuid = 0;
         }
 
         // Armed ground AoE: track the terrain point under the cursor every frame so the
@@ -144,7 +180,9 @@ public sealed partial class GameLoop
                 : 0;
             if (goClicked != 0)
             {
-                UseGameObject(goClicked);
+                if (_entities.TryGet(goClicked, out WorldEntity clickedGo) &&
+                    GameObjectHighlightable(clickedGo))
+                    UseGameObject(goClicked);
                 continue;
             }
             if (click.Button == MouseButton.Left)
@@ -152,6 +190,7 @@ public sealed partial class GameLoop
                 // NPC dev window focus set: Ctrl+LeftClick multi-selects for the
                 // "Selected only" overlay scope and consumes the click.
                 if (HandleDevFocusClick(picked)) continue;
+                RequestNpcSelectionGreeting(picked);
                 CommitSelection(picked, beginAttack: false); // empty left clears
             }
             else if (click.Button == MouseButton.Right && picked != 0)
@@ -165,16 +204,16 @@ public sealed partial class GameLoop
                     if (corpse.IsCreature && corpse.Fields.Lootable) RequestLoot(picked);
                 }
                 else if (_entities.TryGet(picked, out WorldEntity npc) &&
-                         npc.IsCreature && (npc.NpcFlags & GossipNpcFlags) != 0)
+                         WorldCursorServiceKind(npc) is { } service)
                 {
                     CommitSelection(picked, beginAttack: false);
-                    // A plain vendor has one service and vanilla enters that service directly.
-                    // Innkeepers are also vendors, but must keep the gossip choice between their
-                    // stock and binding the hearthstone.
-                    if (!IsInnkeeper(npc) && (npc.NpcFlags & NpcVendor) != 0)
-                        RequestVendor(picked);
-                    else
-                        RequestGossip(picked);
+                    // Route from the same lowest-bit-wins classifier that chose the cursor.
+                    // This keeps a gossip+vendor on Speak/gossip and a plain vendor on pouch/list.
+                    if (service == WorldCursorKind.Pickup) RequestVendor(picked);
+                    else if (service == WorldCursorKind.Taxi) RequestTaxiMap(picked);
+                    else if (service == WorldCursorKind.Buy &&
+                             (npc.NpcFlags & NpcBanker) != 0) RequestBank(picked);
+                    else RequestGossip(picked);
                 }
                 else if (_entities.TryGet(picked, out WorldEntity player) && player.IsPlayer)
                 {
@@ -210,7 +249,10 @@ public sealed partial class GameLoop
         // doodad renderer applies the same 64/255 boost to that one dynamic
         // placement in both its opaque and blended passes.
         if (_doodads is not null)
-            _doodads.HighlightedDynamicKey = _hoveredGameObjectGuid;
+            _doodads.HighlightedDynamicKey = _hoveredGameObjectGuid != 0 &&
+                _entities.TryGet(_hoveredGameObjectGuid, out WorldEntity hoveredGo) &&
+                GameObjectBrightens(hoveredGo)
+                    ? _hoveredGameObjectGuid : 0;
         UpdateInspectLifecycle();
     }
 
@@ -219,19 +261,9 @@ public sealed partial class GameLoop
         if (_selectionRing is null || _selectionGuid == 0 ||
             !_entities.TryGet(_selectionGuid, out WorldEntity target)) return;
         FactionReaction reaction = ReactionTargetTowardPlayer(target);
-        Vector3 color = target.IsDead && !target.IsPlayer ? new Vector3(.498f)
-            : target.IsPlayer ? new Vector3(.376f, .376f, 1f)
-            : reaction switch
-            {
-                FactionReaction.Hostile => new Vector3(1, 0, 0),
-                FactionReaction.Friendly => new Vector3(0, 1, 0),
-                _ => new Vector3(1, 1, 0),
-            };
-        if (_attackTargetGuid == target.Guid)
-        {
-            float wave = MathF.Abs((MovementInfo.ClientUptimeMs() / 1000f % 1f) * 2f - 1f);
-            color = new Vector3(1, .502f * wave, 0);
-        }
+        uint uptime = MovementInfo.ClientUptimeMs();
+        Vector3 color = NameplateUiLaw.SelectionRgb(reaction, target.IsPlayer, target.IsDead,
+            _attackTargetGuid == target.Guid, uptime);
         float radius = _creatures?.SelectionRadius(target) ?? .7f * MathF.Max(.01f, target.Scale);
         _selectionRing.Render(_window.Camera, target.Position, radius, color);
     }
@@ -258,6 +290,11 @@ public sealed partial class GameLoop
             if (guid != 0 && _net is not null && _entities.TryGet(guid, out WorldEntity identity))
             {
                 if (identity.IsPlayer && _queriedPlayerNames.Add(guid)) _net.NameQuery(guid);
+                else if (GuidInfo.PetNumber(identity.Guid) is uint petNumber)
+                {
+                    if (!_petNames.ContainsKey(petNumber) && _queriedPetNames.Add(petNumber))
+                        _net.PetNameQuery(petNumber, guid);
+                }
                 else if (identity.IsCreature && TryBeginCreatureQuery(identity.Entry))
                     _net.CreatureQuery(identity.Entry, guid);
             }
@@ -477,7 +514,7 @@ public sealed partial class GameLoop
         FactionReaction reaction = ReactionTargetTowardPlayer(target);
         string name = target.IsPlayer
             ? _playerNames.GetValueOrDefault(target.Guid, "Player")
-            : _creatureNames.GetValueOrDefault(target.Entry, $"Creature {target.Entry}");
+            : ResolveCreatureOrPetName(target, $"Creature {target.Entry}");
         uint portrait = target.IsPlayer && target.Guid == ControlledGuid
             ? UnitFramePortrait(_playerPortrait, _playerPortraitUsable)
             : _portraitTargetGuid == target.Guid

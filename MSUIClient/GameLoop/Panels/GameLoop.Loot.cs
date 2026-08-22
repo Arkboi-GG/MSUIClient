@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 
@@ -25,10 +26,14 @@ public sealed partial class GameLoop
     private void ResetLoot()
     {
         _loot.Clear();
+        _groupLootRolls.Clear();
+        _pendingGroupLootLines.Clear();
+        _groupLootConfirm = null;
         _lootPendingGuid = 0;
         _lootPage = 1;
         _pendingReceives.Clear();
         _lootMoneyPending = false;
+        _previousCoinage = null;
     }
 
     /// <summary>Right-click on a dead, lootable corpse. The kneel plays optimistically at the
@@ -74,6 +79,10 @@ public sealed partial class GameLoop
             return;
         }
         _loot.Open(guid, lootType, gold, items);
+        LootFrameUiLaw.OpenPresentation openPresentation =
+            LootFrameUiLaw.OnShow(lootType, items.Count, gold);
+        if (openPresentation.SoundCue is { } cue)
+            PlayUiSound(cue, LootFrameUiLaw.SoundCategory);
         _lootPage = 1;
         _lootPendingGuid = 0;
         if (_controller is not null) _lootOpenedAt = _controller.Position;
@@ -175,6 +184,7 @@ public sealed partial class GameLoop
     {
         if (_net is null || !_loot.IsOpen || _loot.Items.Count == 0) return false;
         byte slot = _loot.Items[0].Slot;
+        PlayItemPickupSound(_loot.Items[0].DisplayInfoId);
         bool sent = _net.AutostoreLootItem(slot);
         EmitInterface("loot", "item", sent ? "SENT" : "SEND_FAILED", _loot.Source,
             $"slot={slot};body={Convert.ToHexString(WorldSession.BuildAutostoreLootBody(slot))}");
@@ -188,6 +198,7 @@ public sealed partial class GameLoop
         if (_loot.Gold > 0) sent &= TakeLootMoney();
         foreach (LootItem item in _loot.Items.ToArray())
         {
+            PlayItemPickupSound(item.DisplayInfoId);
             bool itemSent = _net.AutostoreLootItem(item.Slot);
             sent &= itemSent;
             EmitInterface("loot", "item", itemSent ? "SENT" : "SEND_FAILED", _loot.Source,
@@ -251,7 +262,8 @@ public sealed partial class GameLoop
             ReleaseLoot();
     }
 
-    private void ShowUiError(string text) => PushCenterText(text, CenterCombatTextStyle.Damage);
+    private void ShowUiError(string text) => _uiErrors.Push(text, UiMessageKind.Error, NowSeconds());
+    private void ShowUiInfo(string text) => _uiErrors.Push(text, UiMessageKind.Info, NowSeconds());
 
     private void PushCenterText(string text, CenterCombatTextStyle style)
     {
@@ -290,9 +302,11 @@ public sealed partial class GameLoop
         // Panel slab, the skull showing through its ring cut-out, and the title.
         DrawArt(dl, @"Interface\LootFrame\UI-LootPanel", p, new Vector2(256f, 256f), s);
         if(_uiParityArmed&&_uiParityPanel=="loot")CollectUiParityDraw("LootFrame/Texture","Texture",p,size,"LootFrame",new(@"Interface\LootFrame\UI-LootPanel",0xffffffff,"IMGUI_IMAGE","TOPLEFT","LootFrame","TOPLEFT",0,0));
-        DrawArt(dl, @"Interface\TargetingFrame\TargetDead", p + new Vector2(10f, 8f) * s,
+        string overlayPath = LootFrameUiLaw.OnShow(
+            _loot.LootType, _loot.Items.Count, _loot.Gold).OverlayPath;
+        DrawArt(dl, overlayPath, p + new Vector2(10f, 8f) * s,
             new Vector2(58f, 58f), s);
-        if(_uiParityArmed&&_uiParityPanel=="loot")CollectUiParityDraw("LootFramePortraitOverlay","Texture",p+new Vector2(10,8)*s,new Vector2(58)*s,"LootFrame",new(@"Interface\TargetingFrame\TargetDead",0xffffffff,"IMGUI_IMAGE","TOPLEFT","LootFrame","TOPLEFT",10,-8));
+        if(_uiParityArmed&&_uiParityPanel=="loot")CollectUiParityDraw("LootFramePortraitOverlay","Texture",p+new Vector2(10,8)*s,new Vector2(58)*s,"LootFrame",new(overlayPath,0xffffffff,"IMGUI_IMAGE","TOPLEFT","LootFrame","TOPLEFT",10,-8));
         DrawCenteredText(dl, p + new Vector2(116f, 26f) * s, "Items", 12f * s, VanillaGold);
 
         List<LootRow> rows = BuildLootRows();
@@ -402,6 +416,10 @@ public sealed partial class GameLoop
         if (row.IsCoin) TakeLootMoney();
         else
         {
+            uint displayInfoId = 0;
+            foreach (LootItem item in _loot.Items)
+                if (item.Slot == row.WireSlot) { displayInfoId = item.DisplayInfoId; break; }
+            if (displayInfoId != 0) PlayItemPickupSound(displayInfoId);
             bool sent = _net.AutostoreLootItem(row.WireSlot);
             EmitInterface("loot", "item", sent ? "SENT" : "SEND_FAILED", _loot.Source,
                 $"slot={row.WireSlot};body={Convert.ToHexString(WorldSession.BuildAutostoreLootBody(row.WireSlot))}");

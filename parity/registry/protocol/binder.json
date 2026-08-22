@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/binder",
+  "title": "binder",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/binder.rs",
+      "fileSha256": "34d665e65cbe0a12e29d71425b7bcba7ee925a66aa987e390b075eab798a9903",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/binder.rs",
+      "fileSha256": "b934e0670a8938c69971fbcd320b0c58515a4ec0fc314e1b035fac3d351f8b7a",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/BinderPackets.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Hearth.cs",
+    "tools/interface-wire-check/BinderClinicalChecks.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "Current build-5875 binder wire is implemented: CMSG_BINDER_ACTIVATE 0x01B5, SMSG_PLAYERBINDERROR 0x01B6, SMSG_BINDPOINTUPDATE 0x0155, SMSG_PLAYERBOUND 0x0158, and SMSG_BINDER_CONFIRM 0x02EB. Exact body parsers cover confirm, player-bound and bind-point; PLAYERBOUND closes the pending prompt, always plays SoundEntries 1141, and posts the resolved area success line.",
+  "openItems": [
+    {
+      "id": "item-msui-binder-wire-live-verify",
+      "kind": "verify",
+      "text": "Deterministic parser/opcode checks pass. Needs authenticated packet evidence for SMSG_BINDER_CONFIRM, SMSG_PLAYERBOUND and SMSG_BINDPOINTUPDATE; SMSG_PLAYERBINDERROR remains named but intentionally unpresented because current Benilla does not consume it.",
+      "source": "implementation-2026-08-21",
+      "added": "2026-08-21",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-21T22:59:51.8349179Z",
+  "seededUtc": "2026-08-21T22:59:51.8349179Z"
+}

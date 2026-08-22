@@ -11,6 +11,29 @@ public static class StaticPopupCoordinatorLaw
     public const float BaseWidth = 320f;
     public const float BaseHeight = 72f;
     public const float SecondSlotGap = 8f;
+    public const float TextWidth = 290f;
+    public const float TextTop = 16f;
+    public const float ButtonWidth = 128f;
+    public const float ButtonHeight = 20f;
+    public const float NarrowEditBoxWidth = 130f;
+    public const float NarrowEditBoxHeight = 32f;
+    public const float NarrowEditBoxBottomOffset = 45f;
+    public const float EditBoxBorderCapWidth = 75f;
+    public const float EditBoxBorderOuterOffset = 10f;
+
+    public readonly record struct Rect(float X, float Y, float Width, float Height)
+    {
+        public float Right => X + Width;
+        public float Bottom => Y + Height;
+    }
+
+    public readonly record struct NarrowEditBoxLayout(
+        float Width,
+        float Height,
+        Rect Text,
+        Rect EditBox,
+        Rect Button1,
+        Rect Button2);
 
     public readonly record struct Definition(
         string Type,
@@ -27,7 +50,10 @@ public static class StaticPopupCoordinatorLaw
         bool UsesDelayText = false,
         double TimeoutSeconds = 0,
         double? StartDelaySeconds = null,
-        string? EntrySound = null);
+        string? EntrySound = null,
+        bool ShowAlert = false,
+        int MaxLetters = 0,
+        bool HasEditBoxEnter = false);
 
     public readonly record struct Instance(
         Definition Definition,
@@ -39,6 +65,8 @@ public static class StaticPopupCoordinatorLaw
     {
         public static Slots Empty => new(null, null);
     }
+
+    public static bool AnyVisible(Slots slots) => slots.First is not null || slots.Second is not null;
 
     public enum EffectKind
     {
@@ -69,6 +97,7 @@ public static class StaticPopupCoordinatorLaw
         EntrySound,
         OnUpdate,
         ClearEditBoxFocus,
+        EditBoxEnter,
     }
 
     public readonly record struct Effect(
@@ -89,6 +118,7 @@ public static class StaticPopupCoordinatorLaw
         Cancelled,
         TimedOut,
         Advanced,
+        EditSubmitted,
     }
 
     public readonly record struct Plan(
@@ -281,6 +311,23 @@ public static class StaticPopupCoordinatorLaw
     }
 
     /// <summary>
+    /// The edit field's Enter key invokes its entry-specific callback only. The callback owns
+    /// acceptance and hiding; this is deliberately not routed through the ordinary button-one
+    /// OnAccept hook, matching StaticPopup_EditBoxOnEnterPressed.
+    /// </summary>
+    public static Plan EditBoxEnter(Slots slots, int slot)
+    {
+        Instance? current = Get(slots, slot);
+        if (current is null || !current.Value.Definition.HasEditBox ||
+            !current.Value.Definition.HasEditBoxEnter)
+            return new(slots, [], Outcome.NothingVisible);
+        Instance instance = current.Value;
+        return new(slots,
+            [new(EffectKind.EditBoxEnter, slot, instance.Definition.Type)],
+            Outcome.EditSubmitted, slot);
+    }
+
+    /// <summary>
     /// Advances one visible instance. Timeout cancels before hide and returns immediately. A
     /// StartDelay crossing enables the accept button and also returns immediately, so Resize and
     /// entry OnUpdate wait for the next tick exactly as in the frozen script.
@@ -339,6 +386,28 @@ public static class StaticPopupCoordinatorLaw
         16f + Math.Max(0, textHeight) + 8f +
         (hasEditBox ? Math.Max(0, editBoxHeight) + 8f : 0f) +
         Math.Max(0, buttonHeight) + 16f;
+
+    /// <summary>
+    /// Exact narrow StaticPopup edit-box geometry. The BOTTOM +45 field anchor and the buttons'
+    /// TOPRIGHT/LEFT anchor chain are resolved into top-left screen coordinates so renderers do
+    /// not ask ImGui to place any modal child.
+    /// </summary>
+    public static NarrowEditBoxLayout NarrowEditLayout(float textHeight)
+    {
+        float safeTextHeight = Math.Max(0, textHeight);
+        float height = Height(safeTextHeight, ButtonHeight, NarrowEditBoxHeight,
+            hasEditBox: true);
+        var text = new Rect((BaseWidth - TextWidth) * .5f, TextTop,
+            TextWidth, safeTextHeight);
+        var edit = new Rect((BaseWidth - NarrowEditBoxWidth) * .5f,
+            height - NarrowEditBoxBottomOffset - NarrowEditBoxHeight,
+            NarrowEditBoxWidth, NarrowEditBoxHeight);
+        float firstRight = BaseWidth * .5f - 6f;
+        var button1 = new Rect(firstRight - ButtonWidth, edit.Bottom + 8f,
+            ButtonWidth, ButtonHeight);
+        var button2 = new Rect(firstRight + 13f, button1.Y, ButtonWidth, ButtonHeight);
+        return new(BaseWidth, height, text, edit, button1, button2);
+    }
 
     /// <summary>
     /// Countdown display uses ceiling and switches to ceiling(minutes) at 60 seconds.

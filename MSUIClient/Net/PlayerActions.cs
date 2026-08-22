@@ -17,10 +17,14 @@ public readonly record struct CooldownDisplay(float? SweepFraction, float? Flash
 /// <summary>Authoritative local 120-slot bar plus the server-fed spellbook.</summary>
 public sealed class PlayerActions
 {
+    private readonly record struct HeldCooldown(uint SpellId, uint Category,
+        uint SpellDurationMs, uint CategoryDurationMs);
+
     private readonly ActionSlot?[] _slots = new ActionSlot?[120];
     private readonly HashSet<uint> _knownSpells = new();
     private readonly Dictionary<uint, SpellCooldown> _spellCooldowns = new();
     private readonly Dictionary<uint, SpellCooldown> _categoryCooldowns = new();
+    private readonly Dictionary<uint, List<HeldCooldown>> _heldCooldowns = new();
 
     public IReadOnlySet<uint> KnownSpells => _knownSpells;
     public int OccupiedCount => _slots.Count(s => s.HasValue);
@@ -32,6 +36,7 @@ public sealed class PlayerActions
         _knownSpells.Clear();
         _spellCooldowns.Clear();
         _categoryCooldowns.Clear();
+        _heldCooldowns.Clear();
     }
 
     public void ApplyButtons(byte[] body)
@@ -62,6 +67,7 @@ public sealed class PlayerActions
 
         _spellCooldowns.Clear();
         _categoryCooldowns.Clear();
+        _heldCooldowns.Clear();
         if (r.Remaining < 2) return;
         int cooldownCount = r.ReadU16();
         for (int i = 0; i < cooldownCount && r.Remaining >= 14; i++)
@@ -117,13 +123,59 @@ public sealed class PlayerActions
     /// <summary>Starts the independent spell and category clocks carried by SMSG_SPELL_GO.</summary>
     public void StartCooldown(uint spell, uint category, uint spellDurationMs,
         uint categoryDurationMs, double nowSeconds)
+        => StartCooldown(spell, category, spellDurationMs, categoryDurationMs, nowSeconds,
+            onHold: false);
+
+    /// <summary>
+    /// Insert a running cooldown or park its authored durations until SMSG_COOLDOWN_EVENT.
+    /// Multiple held records are retained because a cast's GCD and own/category recovery are
+    /// separate build-5875 history nodes even when they share the spell id.
+    /// </summary>
+    public void StartCooldown(uint spell, uint category, uint spellDurationMs,
+        uint categoryDurationMs, double nowSeconds, bool onHold)
     {
+        if (onHold)
+        {
+            if (spellDurationMs == 0 && categoryDurationMs == 0) return;
+            if (!_heldCooldowns.TryGetValue(spell, out List<HeldCooldown>? records))
+                _heldCooldowns[spell] = records = [];
+            records.Add(new HeldCooldown(spell, category, spellDurationMs, categoryDurationMs));
+            return;
+        }
         if (spellDurationMs > 0)
             _spellCooldowns[spell] = new SpellCooldown(spell, category, nowSeconds,
                 spellDurationMs / 1000.0);
         if (category != 0 && categoryDurationMs > 0)
             _categoryCooldowns[category] = new SpellCooldown(spell, category, nowSeconds,
                 categoryDurationMs / 1000.0);
+    }
+
+    /// <summary>Start every parked recovery node for one spell at this packet's receive time.</summary>
+    public void StartCooldownEvent(uint spell, double nowSeconds)
+    {
+        if (!_heldCooldowns.Remove(spell, out List<HeldCooldown>? records)) return;
+        foreach (HeldCooldown held in records)
+            StartCooldown(held.SpellId, held.Category, held.SpellDurationMs,
+                held.CategoryDurationMs, nowSeconds);
+    }
+
+    /// <summary>Remove every own/category/held record belonging to one spell.</summary>
+    public void ClearCooldown(uint spell)
+    {
+        _spellCooldowns.Remove(spell);
+        foreach (uint category in _categoryCooldowns
+                     .Where(pair => pair.Value.SpellId == spell)
+                     .Select(pair => pair.Key).ToArray())
+            _categoryCooldowns.Remove(category);
+        _heldCooldowns.Remove(spell);
+    }
+
+    /// <summary>SMSG_COOLDOWN_CHEAT: wipe the addressed player or pet history.</summary>
+    public void ClearAllCooldowns()
+    {
+        _spellCooldowns.Clear();
+        _categoryCooldowns.Clear();
+        _heldCooldowns.Clear();
     }
 
     public float CooldownFraction(uint spell, double nowSeconds, uint category = 0)

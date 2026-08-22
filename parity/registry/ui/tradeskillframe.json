@@ -7,20 +7,23 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/TradeSkillFrame.xml",
-      "fileSha256": "aca583e208bc1f995c6f56335215525b5e961f964f9d0eef673cf2f403e096c7",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "47b5772a71c4ae38c21359a731245e05dead9742d55e57ee3b9655833a7a6a2b",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_tradeskill.rs",
-      "fileSha256": "3e5ad6dc72a2b7e99131c83b6b1dfe72210ae2cf3805360d8058798d21004cf3",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "1e96aaad5e4675dbdd88ee1bda084e4470707716ef3ccdeca057381dc643614b",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.Professions.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Professions.cs",
+    "MSUIClient/Engine/UI/ProfessionFrameUiLaw.cs",
+    "MSUIClient/Formats/ItemSubClassCatalog.cs",
+    "MSUIClient/Engine/UI/ProfessionPanelOpenerLaw.cs"
   ],
-  "status": "partial",
-  "summary": "Program.Professions.cs is MSUI's TradeSkillFrame: opens client-side off the effect-47 opener spell (TryOpenProfession), ClassTrainer/TradeSkill shell art, skill line title + rank value, scrolled recipe list with vanilla difficulty colors (orange/yellow/green/grey from trivial thresholds), detail pane with product icon, reagents with have/need counts red-tinted when short, tools and spell-focus requirement lines with red unmet tint, Create / Create All (batched recasts) / Cancel / Exit, craft-cast confirmation observation. Structural list features of the ref/Benilla are absent.",
+  "status": "implemented-unverified",
+  "summary": "MSUI's current TradeSkillFrame is a law-positioned 384x512 player profession panel with the stock rank StatusBar, exact eight-row faux-scroll controls, created-item (ItemClass, ItemSubClass) groups named verbose-first from ItemSubClass.dbc, tier/item-level/name sorting, fold headers and Collapse All, subclass and byte-law inventory-slot filters, product/list/reagent tooltips, have/need reagents and tool/focus gates, plus typed bounded repeat count, Create All, Create and Exit/Cancel batch behavior.",
   "openItems": [
     {
       "id": "item-triage-0367972f",
@@ -28,7 +31,8 @@
       "text": "Flat recipe list: no collapsible subclass group headers (+/- fold rows), no Collapse All button",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "ProfessionFrameUiLaw.BuildTradeSkillTree groups created products by (ItemClass, ItemSubClass), sorts group entries by difficulty tier/product item level/name, emits +/- header rows, and applies persistent per-group and Collapse All state."
     },
     {
       "id": "item-triage-b1972052",
@@ -36,7 +40,8 @@
       "text": "No filter dropdowns (subclass filter, inventory-slot filter)",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "The two law-positioned TradeSkill dropdown controls select an ItemSubClass group or the exact byte-confirmed InventoryType-derived slot bit; empty groups disappear under filtering."
     },
     {
       "id": "item-triage-113e4e29",
@@ -44,7 +49,8 @@
       "text": "Skill rank shows as text 'value / max' with no status-bar fill (ref TradeSkillRankFrame is a StatusBar)",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "DrawProfessionRankBar paints the exact shared 268x15 blue skill StatusBar and stock border with line name plus value/max text."
     },
     {
       "id": "item-triage-b84e2c92",
@@ -52,7 +58,8 @@
       "text": "List scrolls by mouse wheel only - no scrollbar widget on the recipe list (the trainer window has one; this one does not)",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "DrawProfessionScrollBar provides the 16px cropped stock up/down buttons and draggable knob for the law-bounded eight-row faux list, alongside wheel scrolling."
     },
     {
       "id": "item-triage-500fc2be",
@@ -60,7 +67,8 @@
       "text": "No item tooltips on the product icon or reagent rows",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "TradeSkill recipe rows, selected product icon, and each reagent row now publish ItemTemplate snapshots through the existing shared GameTooltip owner arbitration."
     },
     {
       "id": "item-triage-30acdece",
@@ -68,12 +76,13 @@
       "text": "No creation-count spinner (ref's number input with +/- and the typed count next to Create)",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "The TradeSkill-only three-digit vanilla input with decrement/increment buttons clamps to current material availability and latches that count into the existing one-cast-at-a-time batch machine."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T01:54:53.6009770+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

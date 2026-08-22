@@ -1,4 +1,5 @@
 using MSUIClient.Net;
+using MSUIClient.Engine.UI;
 
 namespace MSUIClient;
 
@@ -24,7 +25,7 @@ public sealed partial class GameLoop
         else if (npc is not null)
         {
             outcome = "REFUSED_RANGE";
-            detail = $"distance={distance:R};limit={VendorServiceDistance:R}";
+            detail = $"distance={distance:R};limit={NpcSessionUiLaw.ServiceRange:R}";
         }
         EmitInterface("vendor", "list", outcome, guid, detail);
         return outcome == "SENT";

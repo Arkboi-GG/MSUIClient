@@ -9,6 +9,16 @@
       "path": "crates/benilla-app/src/terrain.rs",
       "fileSha256": "ddddc500ae256d6c1bc27b43ef57b4d54893be64b78752e974fad0de3c40a6a0",
       "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-world/src/weather/mod.rs",
+      "fileSha256": "481a2ce37febaa06d96aa1462e73d779a388b9f69da37707b90d20de4b18e6b5",
+      "snapshotId": "benilla-current-2026-08-22"
+    },
+    {
+      "path": "crates/benilla-world/src/weather/precip/mod.rs",
+      "fileSha256": "c7add73f723d3a5bff316b13d27eba823a71a68491d37bfbb1c59d0ef425b238",
+      "snapshotId": "benilla-current-2026-08-22"
     }
   ],
   "msuiAnchors": [
@@ -18,9 +28,18 @@
     "MSUIClient/World/LiquidRenderer.cs",
     "MSUIClient/World/ExteriorLighting.cs"
   ],
-  "status": "support-only",
-  "summary": "Benilla's terrain.rs is Bevy material/pipeline plumbing (splat ExtendedMaterial, WGSL bindings, per-flag blend/depth specialization for M2/WMO/liquid/WDL). MSUI achieves the observable scene through its own OpenGL pipeline: per-tile ADT splat terrain with height queries, MCLQ liquid with depth fade and submerged tint, foliage, WMO/doodad renderers and WoW-style lighting.",
-  "openItems": [],
+  "status": "partial",
+  "summary": "MSUI's OpenGL world pipeline covers per-tile ADT splat terrain, height queries, MCLQ liquid with depth fade and submerged tint, foliage, WMO/doodad rendering, and authored WoW lighting. Weather packet/audio state is now present, but Benilla's ramped storm-light/fog channels and rain/snow/sand precipitation pools do not yet have MSUI render counterparts.",
+  "openItems": [
+    {
+      "id": "item-weather-visuals-20260822",
+      "kind": "gap",
+      "text": "SMSG_WEATHER visual presentation remains: exact dual ~10-second effect/sky ramps, storm lighting/fog blend, outdoor/interior visibility gate, and rain/snow/sand precipitation/mist pools. Packet decode and outdoor-only weather ambience are implemented.",
+      "source": "benilla-current-2026-08-22/weather",
+      "added": "2026-08-22",
+      "resolved": false
+    }
+  ],
   "claims": [],
   "traces": [],
   "decisions": [],

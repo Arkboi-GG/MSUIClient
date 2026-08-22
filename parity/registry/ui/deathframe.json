@@ -7,15 +7,34 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/DeathFrame.xml",
-      "fileSha256": "31e5478e0b8bede21f402cadeacfef056a1ac8895bb463762e173560fabc97a9",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "eeb899ded5b82aebb62a845b94c3c5573a30f262ccc7e3273acb7944a03094bb",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/death.rs",
+      "fileSha256": "099c51596564b3f80fc054e5626a54996d9582346d33cffa3ddbb392dfd51e7a",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/death.rs",
+      "fileSha256": "3037f8531c21b22b86e180beedf938b5d74d51884c6a2fcc0407209a7d61a0ff",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_world_map.rs",
+      "fileSha256": "707f10263cbc42c5a6e3bec0c0b73da9a1fafd867b9bdf570998f20b6e7ea77b",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.DeathRez.cs"
+    "MSUIClient/Engine/UI/DeathFrameUiLaw.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.DeathRez.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.WorldMap.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.Minimap.cs",
+    "tools/interface-wire-check/DeathFrameClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "The death arc exists: dead-state observation, corpse store tracking, CMSG_REPOP_REQUEST, corpse reclaim with SMSG_CORPSE_RECLAIM_DELAY countdown and Reclaim Corpse button, SMSG_RESURRECT_REQUEST decode with a styled Accept/Decline popup showing caster name and health/mana, and spirit-healer activate on the wire. Durability-loss observation on death is instrumented.",
+  "status": "complete",
+  "summary": "MSUI implements the current Benilla death arc through a dedicated DeathFrame law: release/no-timer, corpse recovery and in-instance notice, strict sickness/timer resurrect variants, two-stage alert-width spirit-healer confirmation, exact countdown/range/Escape behavior, death durability warning, own-corpse tracking, and POIIcons corpse markers on the world map and in-range minimap.",
   "openItems": [
     {
       "id": "item-triage-26a60ca8",
@@ -23,7 +42,8 @@
       "text": "No Release Spirit dialog - RequestRepop is only reachable through the live-run dev protocol ('repop' command in Program.LiveRun.cs); a dead player has no UI button to release, and no release countdown text",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: the DEATH popup exposes Release Spirit with the exact 360-second/no-timer text, and all geometry is owned by DeathFrameUiLaw."
     },
     {
       "id": "item-triage-3143377b",
@@ -31,7 +51,8 @@
       "text": "No spirit-healer CONFIRM_XP_LOSS confirmation dialog (25% durability / resurrection sickness texts) - SpiritHealerActivate exists on the wire but no UI asks first",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: SMSG_SPIRIT_HEALER_CONFIRM opens the 420px alert popup, first Accept rewrites the second ask without wire, and only the second Accept activates the healer."
     },
     {
       "id": "item-triage-86be27f6",
@@ -39,7 +60,8 @@
       "text": "Resurrect-request text lacks the reference sickness variants ('...You will be afflicted with resurrection sickness')",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: strict sickness and reclaim-timer flags select RESURRECT, RESURRECT_NO_SICKNESS, and RESURRECT_NO_TIMER wording and gates."
     },
     {
       "id": "item-triage-4388145d",
@@ -47,12 +69,13 @@
       "text": "No RECOVER_CORPSE_IN_INSTANCE variant",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: the corpse-query display/corpse map split raises the buttonless in-instance notice inside the exact 40-yard gate."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-21T15:30:00+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

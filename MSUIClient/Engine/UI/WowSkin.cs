@@ -70,6 +70,10 @@ public sealed class WowSkin : IDisposable
     public static readonly Backdrop Dialog =
         new("dialog.bg", "dialog.border", 32f, 32f, 11f, 12f, 12f, 11f);
 
+    /// <summary>The bind-on-pickup GroupLootFrame gold dialog variant.</summary>
+    public static readonly Backdrop DialogGold =
+        new("dialog.bg", "dialog.gold.border", 32f, 32f, 11f, 12f, 12f, 11f);
+
     /// <summary>The inner group boxes - "Display", "World Appearance".</summary>
     public static readonly Backdrop Tooltip =
         new("tooltip.bg", "tooltip.border", 16f, 16f, 5f, 5f, 5f, 5f);
@@ -105,6 +109,7 @@ public sealed class WowSkin : IDisposable
     [
         ("dialog.bg",      @"Interface\DialogFrame\UI-DialogBox-Background.blp", true),
         ("dialog.border",  @"Interface\DialogFrame\UI-DialogBox-Border.blp",     false),
+        ("dialog.gold.border", @"Interface\DialogFrame\UI-DialogBox-Gold-Border.blp", false),
         ("dialog.header",  @"Interface\DialogFrame\UI-DialogBox-Header.blp",     false),
         ("tooltip.bg",     @"Interface\Tooltips\UI-Tooltip-Background.blp",      true),
         ("tooltip.border", @"Interface\Tooltips\UI-Tooltip-Border.blp",          false),

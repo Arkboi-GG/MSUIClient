@@ -7,23 +7,26 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/ItemTextFrame.xml",
-      "fileSha256": "1e82f1cf20bfe1ebdc9c274d173c695f05a65c36b650578aade716c8caa9e31a",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "9746d61157d6449fc27e59360bc553b46f5b75c30ec6275ca43debf04f447c3c",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_item_text.rs",
-      "fileSha256": "ef450232d738b8087b84d6be6f96a25d3bf8b1c4a0ade4c1fa775cb1d0e6500c",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "b27379d9f351321bc0278dc52366f1c9f3856f7e0bcbf3f7ee127559c8aea68c",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.GameObjects.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Mail.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Inventory.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Net/WorldSession.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.ItemText.cs",
+    "MSUIClient/Engine/UI/ItemTextFrameUiLaw.cs",
+    "MSUIClient/Formats/PageTextMaterialCatalog.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Inventory.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.GameObjects.cs",
+    "MSUIClient/Net/Items.cs",
+    "MSUIClient/Net/ObjectFields.cs"
   ],
-  "status": "partial",
-  "summary": "MSUI has an authored ItemTextFrame shell: Program.GameObjects.cs DrawItemTextFrame draws the 384x512 window with the four-piece UI-ItemText-* art and minimize-style close button, filled with gameobject page text fetched via CMSG_PAGE_TEXT_QUERY (chained pages followed via the next-page id). CMSG_ITEM_TEXT_QUERY exists but only serves the mail frame's letter bodies. The reader lacks most of the reference furniture and the bag-letter route.",
+  "status": "implemented-unverified",
+  "summary": "MSUI implements current Benilla's GUID-keyed ItemTextFrame reader with a dedicated positioning/geometry law: readable bag letters share the item-text body cache and resolve the instance creator name, item-template books and type-9 world plaques use PageText/PageMaterial data and the page cache, re-click toggles the same object closed, and page navigation retains a visited trail. The law-seated 384x512 renderer uses the exact mixed ItemText/Spellbook shell, Morpheus ItemTextFontNormal body, material corner art and ink tables, title/From line, scroll clipping, current-page chrome, Prev/Next/Close controls, and reference sound cues. Current Benilla explicitly uses no CMSG_READ_ITEM or gameobject-use packet for these local open routes.",
   "openItems": [
     {
       "id": "item-triage-4c78e8c7",
@@ -31,7 +34,8 @@
       "text": "No bag-letter read route: an inventory item with ITEM_FIELD_ITEM_TEXT_ID shows the read hover cursor (InventoryUiLaw.HoverCursor) but right-click never opens the reader; Benilla opens the ItemTextFrame with the mail item-text cache",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Inventory context handling now routes ITEM_FIELD_ITEM_TEXT_ID ahead of gift/quest/loot/use handling into the shared local reader and obtains its single body through the existing CMSG_ITEM_TEXT_QUERY cache with mail id zero."
     },
     {
       "id": "item-triage-42b5abae",
@@ -39,7 +43,8 @@
       "text": "No title FontString (item/object name) or creator 'From,' line",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "The reader displays the item or gameobject template name in GameFontNormal and appends the exact signed letter suffix `From,` plus the asynchronously resolved ITEM_FIELD_CREATOR player name."
     },
     {
       "id": "item-triage-20bea21f",
@@ -47,7 +52,8 @@
       "text": "No page navigation: MSUI concatenates all fetched pages into one view instead of Prev/Next buttons + current-page number",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Books and plaques retain a visited page-id trail, render only the current cached page, expose current-page/Prev/Next chrome under the reference visibility rules, reset scrolling on page changes, and query missing next pages through CMSG_PAGE_TEXT_QUERY."
     },
     {
       "id": "item-triage-af6fb748",
@@ -55,7 +61,8 @@
       "text": "No material variants (Stone/Marble/Bronze corner textures, material text/title color tables) - parchment-only",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "PageTextMaterial.dbc is loaded by id; non-parchment pages draw the four exact material corner textures and apply the reference Stone/Marble/Silver/Bronze body/title color tables while parchment leaves the base shell visible."
     },
     {
       "id": "item-triage-0b23fa4e",
@@ -63,7 +70,8 @@
       "text": "CMSG_READ_ITEM / SMSG_READ_ITEM_OK multi-page book flow absent (matches registry; also a named follow-up in Benilla)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Adjudicated against current Benilla: the historical CMSG_READ_ITEM assumption is retired. Bag books open locally from item-template PageText/PageMaterial, bag letters open locally from instance text/creator fields, and type-9 gameobjects open locally from template Data[0]/Data[2], with only the applicable content query sent."
     },
     {
       "id": "item-triage-f8e22f60",
@@ -71,7 +79,8 @@
       "text": "No open/close sounds (igMainMenuOpen/Close) and no ITEM_TEXT_TRANSLATION progress bar (the latter never fires in Benilla either)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Reader show/hide and page turns emit the exact igMainMenuOpen, igMainMenuClose, and igMainMenuOptionCheckBoxOn cues. ITEM_TEXT_TRANSLATION remains intentionally absent because current Benilla documents that it never fires for supported readable content."
     },
     {
       "id": "item-triage-a5556376",
@@ -79,12 +88,13 @@
       "text": "Body text is drawn with the default ImGui font at a rough line-wrap estimate, not the ItemTextFontNormal (Morpheus 15) that FontObjectLaw already defines",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "The clipped and scrollable page body is now rendered through the baked ItemTextFontNormal FrameXML font object (Morpheus 15) after SimpleHTML-to-visible-text adaptation, replacing the raw default ImGui text path."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T02:28:18.0220381Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

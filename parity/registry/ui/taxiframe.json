@@ -7,26 +7,30 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/TaxiFrame.xml",
-      "fileSha256": "ab4ae55de67bdb691e48571419fcde229d841255e15ce66a54f22d2d4f7d6140",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "18324e00b26e2c6198931b1604f9271090013f75dab4f630a4ab16ea32ce3283",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_taxi/mod.rs",
-      "fileSha256": "c8c95beaa86aa514a738b841b01e5e67d7b1265600929eb971eaf180be7f472b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "fbf7bf0a1c694d31f8e57cabf49fbea696926b9afc2afc17e85fa6af66ab2fdd",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_taxi/routing.rs",
-      "fileSha256": "00ac1e55b706edd7f0074c9accace09ffb12a282fa9ca3dba96adc2c28b18638",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "cddba2018c2514aafbac60ba1f916d2983f261061d956b672bfa4d8c256a73be",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.Taxi.cs",
-    "MSUIClient/Formats/TaxiNodeCatalog.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Taxi.cs",
+    "MSUIClient/Engine/UI/TaxiFrameUiLaw.cs",
+    "MSUIClient/Formats/TaxiNodeCatalog.cs",
+    "MSUIClient/Formats/TaxiRouteCatalog.cs",
+    "MSUIClient/Net/TaxiPackets.cs",
+    "tools/interface-wire-check/TaxiFrameClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "Program.Taxi.cs covers the session and the window: eligibility/distance gating, CMSG_TAXINODE_STATUS_QUERY, CMSG_TAXIQUERYNODES, SMSG_SHOWTAXINODES decode (mask -> known nodes), the 384x512 UI-TaxiFrame four-piece shell, the continent TAXIMAP texture in the 316x352 rect, node icons projected from TaxiNodes.dbc, click-to-fly (CMSG_ACTIVATETAXI), name/You-are-here tooltip, SMSG_ACTIVATETAXIREPLY, flight spline playback with input lockout and arrival hand-off, flight-master title text. Concrete Benilla/ref behaviors are absent.",
+  "status": "complete",
+  "summary": "The taxi window now follows the current 384x512 law, exact 58x58 flight-master portrait seat, authored continent art/projection, green current and white reachable node states, one-hop default route lines and full hovered chains, shared-tooltip fares, geographic-distance routing over TaxiPath.dbc, and direct-versus-express activation by the byte-verified direct-edge discriminator. It also covers range expiry, discovery message/sound, stock rejection text, MainMenu cues, no-path self-close, and flight spline lockout without reopening the NPC map.",
   "openItems": [
     {
       "id": "item-triage-7909e5b6",
@@ -34,7 +38,8 @@
       "text": "No route lines: the ref/Benilla draw single-hop spokes from the current node plus the full (multi-hop) route on hover via TaxiRouteFrame textures; MSUI draws nothing between nodes",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: TaxiPath routes produce one-hop lines on open and the complete selected route chain on hover, using the stock UI-Taxi-Line art."
     },
     {
       "id": "item-triage-a94324d4",
@@ -42,7 +47,8 @@
       "text": "No fare display: ref shows the destination cost (GameTooltip money line); MSUI tooltip has name only",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: reachable-node hover publishes the route fare as a coin row through the shared GameTooltip owner lifecycle."
     },
     {
       "id": "item-triage-117cdf7d",
@@ -50,7 +56,8 @@
       "text": "Only two icon states (green current / yellow other): the REACHABLE-white vs DISTANT-yellow distinction is absent",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: the current node uses the green icon and reachable nodes use white. Current Benilla's byte verdict proves DISTANT/yellow is a dead branch, so unroutable known nodes are omitted rather than shown yellow."
     },
     {
       "id": "item-triage-d06f91f6",
@@ -58,7 +65,8 @@
       "text": "No CMSG_ACTIVATETAXIEXPRESS path (edge-less multi-hop chain activation) and no SMSG_NEW_TAXI_PATH first-visit learn handling (registry's two missing opcodes)",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: first-visit discovery is handled, and an edge-less resolved route sends the exact express guid/fare/count/full-chain body."
     },
     {
       "id": "item-triage-b8395b41",
@@ -66,7 +74,8 @@
       "text": "No ERR_TAXINOPATHS error toast on a no-single-hop-destination refusal",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: a map with no one-hop route self-closes and posts the byte-exact ERR_TAXINOPATHS string with its curly apostrophe."
     },
     {
       "id": "item-triage-3e250db4",
@@ -74,7 +83,8 @@
       "text": "No flight-master portrait on the window's portrait ring",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: the bound flight-master entity renders into the current authored TOPLEFT(8,-9), 58x58 portrait region behind the shell ring."
     },
     {
       "id": "item-triage-3242e451",
@@ -82,12 +92,13 @@
       "text": "Node placement uses a bespoke bounding-box normalization over the continent's node extents rather than the WorldMapContinent projection - icon positions likely drift from the authored map",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: node placement now uses WorldMapContinent fields 9-12 and the byte-verified cross-axis taxi projection, followed by the bottom-left-to-screen conversion owned by TaxiFrameUiLaw."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-21T23:15:00.9824400Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

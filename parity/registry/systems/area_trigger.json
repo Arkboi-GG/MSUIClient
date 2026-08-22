@@ -7,16 +7,19 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/area_trigger.rs",
-      "fileSha256": "1add3d79b3e61a72fffddec2dc5835097c98387c76a42d15334640dc1696d133",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "817525e0ff9b5796b14a3bf5f40ba26658a988b8014462fffb8a0378f800b833",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.Instances.cs",
-    "MSUIClient/Formats/AreaTriggerTeleport.cs"
+    "MSUIClient/GameLoop/Scene/GameLoop.Instances.cs",
+    "MSUIClient/Formats/DbcReader.cs",
+    "MSUIClient/Engine/AreaTriggerLaw.cs",
+    "MSUIClient/Net/AreaTriggerPackets.cs",
+    "tools/interface-wire-check/AreaTriggerClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "Benilla's whole job here is: detect the player walking into an AreaTrigger.dbc volume (exit-latch, first containing row wins, latch cleared on map change) and send CMSG_AREATRIGGER so the SERVER decides what it means. MSUI parses AreaTrigger.dbc, implements the same exit-latch containment check (portal fires once per entry, latch re-seeds on spawn so a return portal does not re-fire), but resolves the destination LOCALLY via a bundled areatrigger_teleport table and teleports itself - it never tells the server.",
+  "status": "implemented-unverified",
+  "summary": "MSUI now follows current Benilla's server-authoritative AreaTrigger path: every DBC volume is eligible, the single exit latch holds while still inside the exact latched row, map changes clear it, first containing row wins, arrival seeding prevents portal bounce, and one CMSG_AREATRIGGER is sent per entry. The optional teleport table supplies diagnostic labels only and never gates or performs travel.",
   "openItems": [
     {
       "id": "item-triage-554a0224",
@@ -24,7 +27,8 @@
       "text": "CMSG_AREATRIGGER is never sent (no reference anywhere in Net/): when connected, walking into a trigger volume fires nothing server-side - online dungeon/portal teleports, quest explore objectives (areatrigger_involvedrelation), inn rested-state triggers and battleground entrances all silently do not happen.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: The per-frame controller-position check now reports the entered DBC id through NetworkClient; the server remains the only owner of teleport/quest/inn/battleground meaning."
     },
     {
       "id": "item-triage-11036324",
@@ -32,12 +36,21 @@
       "text": "Non-teleport triggers are explicitly ignored (only rows with a local teleport destination fire), whereas the reference reports every entered volume and lets the server decide.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-21: Removed the teleport-table gate. All trigger rows now report, including quest, script, inn and battleground volumes; the optional teleport join is label-only."
+    },
+    {
+      "id": "item-msui-area-trigger-live-verify",
+      "kind": "verify",
+      "text": "Clinical exit-latch and packet checks pass. Needs owner-run live walking tests through a portal, an inn box, an explore-quest trigger and a battleground entrance; no deployment/runtime control was performed.",
+      "source": "implementation-2026-08-21",
+      "added": "2026-08-21",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-21T22:37:24.3864032+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

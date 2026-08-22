@@ -7,21 +7,23 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/QuestLogFrame.xml",
-      "fileSha256": "cf3297150b28cb71b0c09b891a75048f521d38c3201a2214a2e1adbef030bd2a",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "49229d7aec664fee1db623795fbd818efc286a74eb84ff3b779897411ee8c693",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_quest_log.rs",
-      "fileSha256": "2204d79ebc598614329338a1233739326b07ebab17fe7999f3926bc7d0a0230b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "0452925fed230f6112e2559b73fecf1b1354c818db7cce849cbb0f81beeb5387",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Quest.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/QuestFrameUiLaw.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Quest.cs",
+    "MSUIClient/Engine/UI/QuestFrameUiLaw.cs",
+    "MSUIClient/Formats/QuestSortCatalog.cs",
+    "MSUIClient/Net/QuestPackets.cs"
   ],
   "status": "partial",
-  "summary": "MSUI's quest log (Program.Quest.cs, log mode of the shared quest window) exists with the UI-QuestLog book art, title, 'n / 20' count, six selectable title rows, a detail area with quest title + objectives text, and working Abandon (CMSG_QUESTLOG_REMOVE_QUEST) and Close buttons. Registry's 13/13 opcodes are about the wire, not the window - the list and detail panes are far thinner than the reference/Benilla.",
+  "summary": "MSUI's rule-seated quest-log book now retains the full SMSG_QUEST_QUERY_RESPONSE detail model, exposes all 20 descriptor slots through Benilla's six-row wheel offset, groups positive AreaTable and negative QuestSort headers with exact plus/minus folding, preserves selection by quest identity, colors rows with exact difficulty bands, renders objectives plus a scrollable description/reward pane, uses the server wall clock for timed countdowns, implements permanent manual and five-minute automatic watches, and has a law-seated abandon dialog. Share remains the same stub as current Benilla.",
   "openItems": [
     {
       "id": "item-triage-095242eb",
@@ -29,15 +31,17 @@
       "text": "List shows only the first 6 quests with no scroll offset, wheel, or scrollbar - quests 7..20 are unreachable in the log UI",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: Added the six-row faux-scroll offset, wheel ownership over the authored list rect, and exact 0..14 clamp so every one of the 20 quest slots is reachable."
     },
     {
       "id": "item-triage-4fd9d966",
       "kind": "gap",
-      "text": "No zone/category headers on the list (Benilla defers too, but MSUI also lacks the flat-list scroll that makes >6 reachable)",
+      "text": "No zone/category headers or collapse state on the list; current Benilla now synthesizes ZoneOrSort headers and preserves selection across header regrouping.",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: Retained signed ZoneOrSort from the full query response; positive ids resolve through AreaTable, negative ids through QuestSort. QuestFrameUiLaw owns ordinal grouping, six-row fold icon seats, and visible-entry scroll clamping; runtime keeps collapse state by title and selection by quest id."
     },
     {
       "id": "item-triage-31d3e4de",
@@ -45,7 +49,8 @@
       "text": "No quest level or difficulty coloring on title rows (reference QuestDifficultyColor law)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: QuestFrameUiLaw now owns the exact QuestDifficultyColor/GetDifficultyColor banding (including the shared level-dependent green range), fed by the corrected full quest-template decoder."
     },
     {
       "id": "item-triage-6683210d",
@@ -53,7 +58,8 @@
       "text": "Detail pane has no per-objective progress lines (kill/item counters with done-coloring) - a single cached progress string with a placeholder fallback stands in",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: Replaced the four-byte-early query shortcut with the full 5875 fixed-count parser and render each occupied creature/GO/item objective from template quads plus packed 6-bit descriptor counters or live carried-item counts, with grey completed lines and suffixes."
     },
     {
       "id": "item-triage-f89e7e62",
@@ -61,7 +67,8 @@
       "text": "No rewards section (items/money/spell) in the log detail pane",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: The full template decoder now retains fixed and choice item arrays, signed money, and reward spell. The rule-owned 305x250 detail viewport scrolls through objective text, objective lines, description, item grids, money coins, and reward-spell icon/name; template-backed reward items resolve their real display icon and shared tooltip."
     },
     {
       "id": "item-triage-beb2eadd",
@@ -69,7 +76,8 @@
       "text": "No quest-watch tracking (SHIFT-click watch toggle, on-screen tracker)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: Shift-left-click now follows the current chat-wins fork (insert bare title when chat edit is open, otherwise toggle an id-stable manual watch), enforces the exact five-watch/objective guards, draws row checkmarks, and renders the bare 30-line tracker from the rule-owned MinimapCluster seat with exact title/objective gaps and completion colors."
     },
     {
       "id": "item-triage-bd524078",
@@ -77,7 +85,8 @@
       "text": "Abandon sends immediately with no ABANDON_QUEST confirmation popup",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: Abandon now pins the click-time quest id/title and opens the shared-era Yes/No wording; the rule owns the centered 320x72 popup seat, text and button rectangles, Escape cancels, and only Yes sends then plays igQuestLogAbandonQuest."
     },
     {
       "id": "item-triage-51d2f627",
@@ -93,7 +102,17 @@
       "text": "No timed-quest countdown display",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: Added CMSG_QUERY_TIME/SMSG_QUERY_TIME_RESPONSE, a monotonic server-wall-clock sample, the exact absolute deadline minus server time minus one rule, failed/timer-zero gates, and the frozen strict-threshold two-unit SecondsToTime formatter. The separate current-Benilla QuestTimerFrame now renders all live timers in log order and opens/selects the owning quest on click."
+    },
+    {
+      "id": "item-msui-quest-auto-watch",
+      "kind": "gap",
+      "text": "Current Benilla's automatic five-minute quest watch on objective progress (including timed-watch eviction/expiry without evicting manual watches) is not yet implemented; MSUI currently supports permanent manual Shift-click watches only.",
+      "source": "review-2026-08-21/current-benilla-QuestLogFrame.xml",
+      "added": "2026-08-21",
+      "resolved": true,
+      "resolution": "2026-08-21: Kill, item and objective-complete progress now arm or re-arm a 300-second automatic watch. Existing manual watches have no expiry and are never downgraded or evicted; a full list evicts only the auto watch nearest expiry, while all-manual lists reject the automatic addition."
     }
   ],
   "claims": [],

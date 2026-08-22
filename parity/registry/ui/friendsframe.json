@@ -7,30 +7,33 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/FriendsFrame.xml",
-      "fileSha256": "1962a0962169b17d7b21362174082253ad7f74046a7f942eeb56caff50533f61",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "1fe69dd7b2e85319b9fa4c710adbef77143b0e3bcc6025196dc89a2cf5fc7459",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_social/feed.rs",
-      "fileSha256": "e9e9434645c3306766646d96ed0000b802c70e90aaafcb247daf968a338b3f68",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "320f2aeb517881987a6be63c2390f312b67fc6aa189a70ddd5e75488736b3ede",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_social/mod.rs",
       "fileSha256": "8394fb4ed30758e7d1d89c7fc7acce07ba1fc030739b0dde2f89b675843fc646",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_social/query.rs",
-      "fileSha256": "ac19ae3b05abd43e27052895705a80baacbeb1a3f1727c9699fd17739e1f4ea2",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "fb14cf4ebf2616cc8dbb24746471b4941d630fb1a754ded8fef183ef2730ed3b",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Social.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Social.cs",
+    "MSUIClient/Engine/UI/FriendsFrameUiLaw.cs",
+    "MSUIClient/Engine/UI/StaticPopupCoordinatorLaw.cs",
+    "tools/interface-wire-check/FriendsFrameClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "The social window is substantially complete: FriendsFrame four-piece art shell, Friends/Who/Guild/Raid tabs, Friends/Ignore inset toggle, friend rows (10, matching the reference count) with online status, level/class/zone, ignore rows (20, matching), name input with Add Friend / Ignore Player, Remove Friend / Stop Ignore, Group Invite, Who list with column headers, search box, refresh, add-friend/invite from results, and count-of-total footer. All 10 registry opcodes hit.",
+  "status": "implemented-unverified",
+  "summary": "The social window implements the FriendsFrame shell, Friends/Who/Guild/Raid tabs, Friends/Ignore inset toggle, reference row counts and online details, add/remove/ignore/invite flows, Who columns/search/results, and the selected-friend Send Message route. FriendsFrameUiLaw owns the 384x512 window seat, action rectangles and contact gates. ADD_FRIEND/ADD_IGNORE now occupy the shared two-slot StaticPopup seat with exact law-owned text/edit/button geometry, authored chat-input border slices, twelve-letter cap, OnShow focus, and distinct Enter/Accept/Cancel/Escape routing instead of an ad-hoc in-panel ImGui box.",
   "openItems": [
     {
       "id": "item-triage-b4646363",
@@ -38,12 +41,21 @@
       "text": "No Send Message button (BenillaFriendsFrameSendMessageButton) - whispering a selected friend requires typing /w manually",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "The exact 131x21 Send Message button at (214,384) opens the chat edit box prefilled `/w <selected name> ` and, like current Benilla, is enabled only for a selected online friend (also waiting for MSUI's asynchronous name resolution)."
+    },
+    {
+      "id": "item-friendsframe-staticpopup-editbox-verify-001",
+      "kind": "verify",
+      "text": "Live-verify ADD_FRIEND/ADD_IGNORE visual placement, focus, twelve-letter cap, Enter/Accept/Cancel/Escape wire cardinality, and stacking with a second StaticPopup.",
+      "source": "claim-uipanels-popup-editbox-gap-001",
+      "added": "2026-08-22",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T02:41:19.9561089Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

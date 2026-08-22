@@ -7,8 +7,8 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/UiPanels.xml",
-      "fileSha256": "e7d7770d4c6a662f89302a9f59e879f0a0c0794982725ed29f1478ca31be401b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "649441e1335c0d23e0e15ad71ff2fb7543d11dbe92958443cdb90aad25974da1",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
@@ -23,10 +23,16 @@
     "MSUIClient/Program.Spellbook.cs",
     "MSUIClient/Program.ActionBars.cs",
     "MSUIClient/Engine/UI/StaticPopupCoordinatorLaw.cs",
+    "MSUIClient/Engine/UI/FriendsFrameUiLaw.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Social.cs",
+    "MSUIClient/Engine/UI/DeleteItemUiLaw.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.DeleteItem.cs",
+    "tools/interface-wire-check/DeleteItemClinicalChecks.cs",
     "MSUIClient/Engine/UI/UiFrameFadeLaw.cs",
     "MSUIClient/Engine/UI/PanelTabLaw.cs",
     "tools/interface-wire-check/UiFoundationClinicalChecks.cs",
     "tools/interface-wire-check/PartyFrameClinicalChecks.cs",
+    "tools/interface-wire-check/FriendsFrameClinicalChecks.cs",
     "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/audit.json",
     "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/README.md",
     "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/evidence/before/frozen-target.md",
@@ -37,7 +43,7 @@
     "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/evidence/live/live-visual-gate.md"
   ],
   "status": "partial",
-  "summary": "MSUI has the bounded host-confirmed Character/SpellBook transition, pure popup/fade/tab laws, and Party/Character/inset presentation repairs while preserving surface ownership and named differences. Twenty-two facts remain explicit implementation gaps; 124 implemented facts remain nonterminal, targetless where intentionally post-snapshot, and unverified live.",
+  "summary": "MSUI has the bounded host-confirmed Character/SpellBook transition, pure popup/fade/tab laws, Party/Character/inset presentation repairs, and world-item plus social name-entry drivers on the shared two-slot popup coordinator while preserving surface ownership and named differences. The narrow StaticPopup edit branch now has frozen geometry, art, focus and key routing. Center/fullscreen ownership and global CloseWindows remain explicit gaps; implemented facts remain nonterminal where live verification is still required.",
   "openItems": [
     {
       "id": "item-claim-partyframe-invite-contract-001-verify",
@@ -93,7 +99,8 @@
       "text": "The frozen world-item delete confirmation driver and its event-bound hidden frame are not integrated with MSUI's world inventory runtime.",
       "source": "claim-uipanels-delete-item-confirm-gap-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: world-drop release now opens the shared DELETE_ITEM StaticPopup, with law-authored alert geometry, while-dead visibility, Yes/No/Escape routing, exact CMSG_DESTROYITEM send, pending lock, cursor cleanup, and focused clinical coverage."
     },
     {
       "id": "item-claim-uipanels-tab-state-resize-001-verify",
@@ -133,6 +140,15 @@
       "text": "The frozen edit-box Enter callback, edit-box frame, input-border slices, anchors, focus, and production key handling remain absent from the Party-only popup renderer.",
       "source": "claim-uipanels-popup-editbox-gap-001",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: ADD_FRIEND/ADD_IGNORE now use the shared two-slot coordinator. StaticPopupCoordinatorLaw owns the exact 320-wide frame, dynamic edit height, 290-wide TOP -16 text, 130x32 BOTTOM +45 edit field, 128x20 paired button anchors, 12-letter cap, Enter callback and edit-Escape focus/hide order. The global dialog renderer uses the authored UI-ChatInputBorder left/right slices, requests focus only from OnShow, and takes no child position from ImGui. Focused FriendsFrame checks and the client build pass."
+    },
+    {
+      "id": "item-claim-uipanels-popup-editbox-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification: compare ADD_FRIEND and ADD_IGNORE positioning, focus, twelve-letter cap, Enter/Accept/Cancel/Escape behavior, art, and two-dialog stacking against current Benilla.",
+      "source": "claim-uipanels-popup-editbox-gap-001",
+      "added": "2026-08-22",
       "resolved": false
     }
   ],
@@ -174,6 +190,6 @@
     "trace-uipanels-popup-editbox-gap-001"
   ],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-08T13:48:39.4039745+00:00",
+  "lastReviewedUtc": "2026-08-22T00:00:00+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

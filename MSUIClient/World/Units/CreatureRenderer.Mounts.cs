@@ -79,6 +79,8 @@ public sealed partial class CreatureRenderer
     private readonly Matrix4x4[] _mountSkin = new Matrix4x4[M2Animator.MaxBones];
     private readonly float[] _mountPacked = new float[M2Animator.MaxBones * 12];
     private readonly Dictionary<ulong, float> _mountAnimTime = [];
+    private readonly Dictionary<ulong, (int Sequence, float Time)> _mountFootstepTime = [];
+    private readonly Dictionary<ulong, float> _mountFlourishTime = [];
     private readonly Dictionary<ulong, MountDraw> _mountsDrawn = [];
     private readonly Stopwatch _selfMountClock = Stopwatch.StartNew();
     private double _selfMountLastSeconds;
@@ -99,6 +101,12 @@ public sealed partial class CreatureRenderer
     /// </summary>
     public int MountsDrawnLastFrame { get; private set; }
     private int _mountsDrawnAccumulator;
+
+    /// <summary>Play AnimationData 94 on a rider's mount child, locally or from the SMSG.</summary>
+    public void TriggerMountFlourish(ulong riderGuid)
+    {
+        if (riderGuid != 0) _mountFlourishTime[riderGuid] = 0f;
+    }
 
     /// <summary>Publish the frame's mount count. Called once, at the end of the unit pass.</summary>
     private void PublishMountCount()
@@ -145,6 +153,7 @@ public sealed partial class CreatureRenderer
         {
             _mountsDrawn.Remove(guid);
             _mountAnimTime.Remove(guid);
+            _mountFlourishTime.Remove(guid);
             return false;
         }
 
@@ -241,14 +250,41 @@ public sealed partial class CreatureRenderer
             Vector3.Distance(position, camera.Position) <= AnimateDistance)
         {
             if (!_mountAnimTime.TryGetValue(guid, out float at)) at = InitialPhase(guid);
-            M2Animator.Clip? clip = SelectMountClip(model.Animator, mountDisplayId,
-                travelSpeed, walkSpeed, flying, out float rate);
-            at += dt * rate * MathF.Max(0.05f, tune.AnimationRate);
+            M2Animator.Clip? clip;
+            float rate;
+            if (_mountFlourishTime.TryGetValue(guid, out float flourishAt) &&
+                model.Animator.Resolve($"mount:{mountDisplayId}", BaseAnimationTrack, 94, true) is { } flourish)
+            {
+                flourishAt += dt;
+                if (flourishAt < flourish.DurationSeconds)
+                {
+                    clip = flourish;
+                    rate = 1f;
+                    at = flourishAt;
+                    _mountFlourishTime[guid] = flourishAt;
+                }
+                else
+                {
+                    _mountFlourishTime.Remove(guid);
+                    clip = SelectMountClip(model.Animator, mountDisplayId,
+                        travelSpeed, walkSpeed, flying, out rate);
+                    at += dt * rate * MathF.Max(0.05f, tune.AnimationRate);
+                }
+            }
+            else
+            {
+                _mountFlourishTime.Remove(guid);
+                clip = SelectMountClip(model.Animator, mountDisplayId,
+                    travelSpeed, walkSpeed, flying, out rate);
+                at += dt * rate * MathF.Max(0.05f, tune.AnimationRate);
+            }
             if (float.IsNaN(at) || float.IsInfinity(at)) at = 0f;
             _mountAnimTime[guid] = at;
 
             if (clip is not null)
             {
+                EmitFootstepEvents(guid, mountDisplayId, position,
+                    scale, model.Source, clip, at, mount: true);
                 boneCount = Math.Min(model.BoneCount, M2Animator.MaxBones);
                 model.Animator.Evaluate(clip, at, _globalTime, _mountSkin);
                 M2Animator.Pack(_mountSkin, boneCount, _mountPacked);
@@ -430,5 +466,30 @@ public sealed partial class CreatureRenderer
     {
         _mountsDrawn.Remove(guid);
         _mountAnimTime.Remove(guid);
+        _mountFlourishTime.Remove(guid);
+        _mountFootstepTime.Remove(guid);
+    }
+
+    private void EmitFootstepEvents(ulong guid, int displayId, Vector3 position,
+        float renderScale, M2Model model, M2Animator.Clip clip, float at, bool mount)
+    {
+        var clocks = mount ? _mountFootstepTime : _footstepTime;
+        if (!clocks.TryGetValue(guid, out var previous) ||
+            previous.Sequence != clip.SequenceIndex || at < previous.Time)
+        {
+            clocks[guid] = (clip.SequenceIndex, at);
+            return;
+        }
+
+        int count = FootstepAnimationLaw.CountCrossings(model, clip, previous.Time, at);
+        foreach (string identifier in CreatureAnimationSoundLaw.CrossedVocalEvents(
+                     model, clip, previous.Time, at))
+        {
+            CreatureAnimationSoundEvent?.Invoke(guid, displayId, position, identifier);
+            if (!mount) CombatAnimationSoundEvent?.Invoke(guid, identifier);
+        }
+        clocks[guid] = (clip.SequenceIndex, at);
+        for (int i = 0; i < count; i++)
+            FootstepAnimationEvent?.Invoke(guid, displayId, position, renderScale);
     }
 }

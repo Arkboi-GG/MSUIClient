@@ -155,7 +155,7 @@
     "parity/packets/pair-de1462d2f83d2f33/session-part-01-packet-231ad7e7968d59c3/evidence/live/unverified.md"
   ],
   "status": "partial",
-  "summary": "MSUI now retains complete Party state and clears it only at the frozen leave/disconnect boundary while preserving it on worldport. The exact 31 unrelated session facts remain outside the implementation and verification claim.",
+  "summary": "MSUI retains complete Party state and clears it only at the frozen leave/disconnect boundary while preserving it on worldport. Transfer pending/abort and login time-speed are now strictly decoded and applied through the loading curtain and server-owned world clock; the remaining broad session claims retain their existing verification status.",
   "openItems": [
     {
       "id": "item-claim-partyframe-invite-contract-001-verify",
@@ -235,7 +235,8 @@
       "text": "SMSG_TRANSFER_ABORTED is defined in the MSUI opcode table but never handled; aborted far transfers surface nothing.",
       "source": "claim-sessionrs-transfer-aborted-gap-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: GameLoop dispatch strictly parses the abort reason, cancels the pending curtain/handoff, reports the refusal, and leaves an already adopted world load untouched."
     },
     {
       "id": "item-claim-sessionrs-time-speed-gap-001",
@@ -243,7 +244,8 @@
       "text": "SMSG_LOGIN_SETTIMESPEED is defined in the MSUI opcode table but never handled; server game time and speed are not applied.",
       "source": "claim-sessionrs-time-speed-gap-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: GameLoop dispatch strictly parses packed datetime and timescale, applies the receive-stamped value to WorldClock, and the active atmosphere/GameTime consumers use it."
     },
     {
       "id": "item-claim-sessionrs-reputation-001-verify",

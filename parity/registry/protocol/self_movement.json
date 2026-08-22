@@ -7,18 +7,20 @@
   "benillaSources": [
     {
       "path": "crates/benilla-protocol/src/world/writer/self_movement.rs",
-      "fileSha256": "7b85ea8bf4827791ff56935210fde92f7687970786f3611d64847d173f25d8e2",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "3e0a72931654820935eb043a49a63a720d279df57022653ab91fff056a3004c1",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/LocalMovementSender.cs",
     "MSUIClient/Net/MovementInfo.cs",
+    "MSUIClient/Net/MovementSpeedPackets.cs",
+    "MSUIClient/Net/MovementModePackets.cs",
     "MSUIClient/Net/WorldSession.cs",
-    "MSUIClient/Program.Net.cs"
+    "MSUIClient/GameLoop/Scene/GameLoop.MovementSpeed.cs"
   ],
   "status": "partial",
-  "summary": "Benilla's self-mover wire: the MSG_MOVE_* stream, spline-done ack, worldport ack, teleport ack (full guid), the four forced-speed-change acks, and the granted move-mode ack family (root/unroot/water-walk/feather-fall/hover). MSUI implements the MSG_MOVE_* transition stream with correct MovementInfo tails (LocalMovementSender + MovementInfo.Write), MSG_MOVE_TELEPORT_ACK receive+full-guid reply, CMSG_MOVE_WORLDPORT_ACK, and the root/unroot ack pair, but none of the speed-change or remaining mode acks and no spline-done.",
+  "summary": "MSUI implements the MSG_MOVE_* stream with correct MovementInfo tails, teleport/worldport, all six force-speed changes, and the complete root/water-walk/feather-fall/hover grant family. Every addressed change echoes the counter and live mover pose; non-root mode acks carry the required apply dword. Spline-done remains open.",
   "openItems": [
     {
       "id": "item-triage-0b0572bb",
@@ -34,7 +36,8 @@
       "text": "SMSG_FORCE_RUN/RUN_BACK/SWIM/WALK_SPEED_CHANGE (and turn-rate) have no handler and CMSG_FORCE_*_SPEED_CHANGE_ACK is never sent - Benilla documents the ack as mandatory (server force-resolves after ~4 s and flags anticheat)",
       "source": "triage-2026-08-09/batch-protocol-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: Run, run-back, swim, swim-back, walk and turn-rate changes parse their packed-guid/counter/f32 body, apply to the controlled speed state, and ack on the kind-specific opcode with exact full-guid/counter/live-pose/speed layout."
     },
     {
       "id": "item-triage-e152374a",
@@ -42,12 +45,13 @@
       "text": "Granted move-mode acks CMSG_MOVE_WATER_WALK_ACK / CMSG_MOVE_FEATHER_FALL_ACK / CMSG_MOVE_HOVER_ACK missing (only root/unroot is acked); un-acked, the server never applies the mode",
       "source": "triage-2026-08-09/batch-protocol-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: Water-walk, feather-fall and hover apply/remove opcodes share one strict parser/state lane and emit the exact kind-specific ack with mandatory apply dword; focused golden coverage pins the root/non-root four-byte difference."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T03:14:27.0335467Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

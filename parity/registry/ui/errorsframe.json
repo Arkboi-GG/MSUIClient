@@ -7,17 +7,20 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/ErrorsFrame.xml",
-      "fileSha256": "e92fc2601fc9090d3327031493e544eefdc5d3186add11ce20c15232208038e0",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "76f1d17103af243f798d68895d53f8a55e958fb7ad04b87d4d091f90284e7a14",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.UiErrorsParity.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.DevTools.SpellErrors.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Loot.cs"
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/UiErrorsFrameUiLaw.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/GameLoop/Dev/GameLoop.UiErrorsParity.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/GameLoop/Dev/GameLoop.DevTools.SpellErrors.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/GameLoop/Panels/GameLoop.Loot.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/GameLoop/Panels/GameLoop.Quest.cs",
+    "C:/Users/nico/source/repos/MSUIClient/tools/interface-wire-check/UiErrorsFrameClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "Error text reaches the screen, but through a different surface: SMSG_CAST_RESULT / loot errors route via ShowSpellError/ShowUiError into the center scrolling combat text (red, damage-styled). Program.UiErrorsParity.cs is only a parity-capture stub drawing a hardcoded 'You are too far away!' at the reference 512x60 TOP position - it is not a live message frame.",
+  "status": "complete",
+  "summary": "Live UIErrorsFrame parity is implemented as a dedicated law-positioned 512x60 TOP/HIGH message frame with three newest-first 20px lines, ErrorFont styling, independent 5-second hold plus 3-second fade, and the reference yellow info/red error classes. Spell, loot, taxi, control, quest kill/item/completion, and other live producers route through the shared sink; the parity fixture is fallback-only.",
   "openItems": [
     {
       "id": "item-triage-dd3a5f4e",
@@ -25,7 +28,7 @@
       "text": "No live UIErrorsFrame: no fixed 512x60 top-anchored 3-line message area with newest-on-top insert, 5s hold and fade",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true
     },
     {
       "id": "item-triage-8c57133d",
@@ -33,7 +36,7 @@
       "text": "No yellow UI_INFO_MESSAGE class (quest objective-progress toasts) - only red error-styled pushes exist",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true
     },
     {
       "id": "item-triage-37e317d8",
@@ -41,12 +44,12 @@
       "text": "Parity stub is not wired to real errors (hardcoded message, shown only when armed)",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-21T00:00:00+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

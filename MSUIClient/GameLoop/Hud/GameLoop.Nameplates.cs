@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 
@@ -30,6 +31,7 @@ public sealed partial class GameLoop
     private void DrawWorldUnitNames()
     {
         _vplateHits.Clear();
+        DrawChatBubbles();
         // A world-space unit name is never a separate fallback: if a name is visible,
         // the bar and level belonging to its in-range nameplate are visible with it.
         // Background draw-list content also keeps plates below DIALOG-strata frames.
@@ -67,7 +69,12 @@ public sealed partial class GameLoop
 
         foreach (WorldEntity unit in _entities.Units)
         {
-            if (unit.Guid == ControlledGuid || unit.IsDead ||
+            bool own = unit.Guid == ControlledGuid;
+            bool namesEnabled = own ? Settings.Controls.ShowOwnName :
+                unit.IsPlayer ? Settings.Controls.ShowPlayerNames :
+                Settings.Controls.ShowNpcNames;
+            if (!namesEnabled || unit.IsDead ||
+                HasLiveChatBubble(unit.Guid) ||
                 (unit.Fields.UnitFlags & NotSelectable) != 0 ||
                 Vector3.DistanceSquared(selfPosition, UnitWorldPosition(unit)) >
                     NameplateRangeYards * NameplateRangeYards)
@@ -127,16 +134,47 @@ public sealed partial class GameLoop
         EnsureUnitNameRequested(unit);
         string name = unit.IsPlayer
             ? _playerNames.GetValueOrDefault(unit.Guid, "Player")
-            : _creatureNames.GetValueOrDefault(unit.Entry, $"Creature {unit.Entry}");
-        uint nameColor = ImGui.ColorConvertFloat4ToU32(
-            hover ? new Vector4(1f, 1f, 0f, alpha) : new Vector4(1f, 1f, 1f, alpha));
-        DrawPlateText(draw, new Vector2((plate.Left + plate.Right) * 0.5f,
-                (plate.Top + plate.Bottom) * 0.5f),
-            name, nameSize, nameColor, bottomSeated: true);
+            : ResolveCreatureOrPetName(unit, $"Creature {unit.Entry}");
+        string nameLine = NameplateUiLaw.NameLine(name, unit.IsPlayer, unit.Fields.PlayerFlags);
+        string? subnameLine = unit.IsCreature &&
+            _creatureQueryRecords.TryGetValue(unit.Entry, out CreatureQueryInfo? creatureInfo)
+                ? NameplateUiLaw.CreatureSubnameLine(true, creatureInfo?.Subname)
+                : null;
+        Vector3 nameRgb = NameplateUiLaw.SelectionRgb(reaction, unit.IsPlayer, unit.IsDead,
+            _attackTargetGuid == unit.Guid, MovementInfo.ClientUptimeMs());
+        uint nameColor = ImGui.ColorConvertFloat4ToU32(new Vector4(nameRgb, alpha));
+        float firstLineBottom = (plate.Top + plate.Bottom) * 0.5f;
+        float centerX = (plate.Left + plate.Right) * 0.5f;
+        DrawPlateText(draw, new Vector2(centerX,
+                NameplateUiLaw.LineBottom(firstLineBottom, 0, nameSize)),
+            nameLine, nameSize, nameColor, bottomSeated: true);
+        if (subnameLine is not null)
+            DrawPlateText(draw, new Vector2(centerX,
+                    NameplateUiLaw.LineBottom(firstLineBottom, 1, nameSize)),
+                subnameLine, nameSize, nameColor, bottomSeated: true);
 
         Vector2 levelAnchor = new(plate.Right - Gx(0.0092f), plate.Bottom - Gx(0.0071f));
         bool skull = reaction == FactionReaction.Hostile && unit.Level >= player.Level + 10 &&
                      !UnitIsGrey(player.Level, unit.Level);
+        if (!skull && unit.Level > 0)
+        {
+            DrawPlateText(draw, levelAnchor, unit.Level.ToString(), levelSize,
+                WithAlpha(ConColorU32(player.Level, unit.Level), alpha), bottomSeated: false);
+        }
+
+        byte raidMark = GroupUiLaw.RaidTargetIndex(_partyRaidTargets, unit.Guid);
+        if (raidMark > 0)
+        {
+            uint texture = _gameplayArt.Handle(RaidMarkerUiLaw.Texture);
+            if (texture != 0)
+            {
+                RaidMarkerRect icon = RaidMarkerUiLaw.NameplateRect(
+                    plate.Left, plate.Top, plate.Bottom, basis);
+                RaidMarkerUv uv = RaidMarkerUiLaw.AtlasUv(raidMark);
+                draw.AddImage((nint)texture, icon.Min, icon.Max, uv.Min, uv.Max, alphaWhite);
+            }
+        }
+
         if (skull)
         {
             uint texture = _gameplayArt.Handle(@"Interface\TargetingFrame\UI-TargetingFrame-Skull");
@@ -147,11 +185,24 @@ public sealed partial class GameLoop
                     levelAnchor + new Vector2(half), Vector2.Zero, Vector2.One, alphaWhite);
             }
         }
-        else if (unit.Level > 0)
-        {
-            DrawPlateText(draw, levelAnchor, unit.Level.ToString(), levelSize,
-                WithAlpha(ConColorU32(player.Level, unit.Level), alpha), bottomSeated: false);
-        }
+    }
+
+    /// <summary>The current-frame V-plate spawn verdict used by chat-bubble creation.</summary>
+    private bool WouldHaveActiveNameplate(WorldEntity unit, Vector2 display)
+    {
+        if (SettingsModalOpen || !_nameplatesVisible || _net is null ||
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
+        bool own = unit.Guid == ControlledGuid;
+        bool namesEnabled = own ? Settings.Controls.ShowOwnName :
+            unit.IsPlayer ? Settings.Controls.ShowPlayerNames : Settings.Controls.ShowNpcNames;
+        if (!namesEnabled || unit.IsDead || (unit.Fields.UnitFlags & NotSelectable) != 0)
+            return false;
+        Vector3 selfPosition = _controller?.Position ?? player.Position;
+        if (Vector3.DistanceSquared(selfPosition, UnitWorldPosition(unit)) >
+            NameplateRangeYards * NameplateRangeYards) return false;
+        Vector3 anchor = UnitWorldPosition(unit) +
+            new Vector3(0f, 0f, UnitOverheadHeight(unit) + 2f / 3f);
+        return _window.Camera.TryWorldToScreen(anchor, display, out _);
     }
 
     private ScreenRect ResolveVplate(ScreenRect desired, Vector2 viewport)
@@ -222,6 +273,11 @@ public sealed partial class GameLoop
         if (_net is null) return;
         if (unit.IsPlayer && !_playerNames.ContainsKey(unit.Guid) && _queriedPlayerNames.Add(unit.Guid))
             _net.NameQuery(unit.Guid);
+        else if (GuidInfo.PetNumber(unit.Guid) is uint petNumber)
+        {
+            if (!_petNames.ContainsKey(petNumber) && _queriedPetNames.Add(petNumber))
+                _net.PetNameQuery(petNumber, unit.Guid);
+        }
         else if (unit.IsCreature && TryBeginCreatureQuery(unit.Entry))
             _net.CreatureQuery(unit.Entry, unit.Guid);
     }

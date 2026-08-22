@@ -7,23 +7,25 @@
   "benillaSources": [
     {
       "path": "crates/benilla-protocol/src/messages/client.rs",
-      "fileSha256": "13d015597e8daadc8bf8033124d17a3ba6d58079b76d8449918bc43d85e539c7",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "80224ba027b1a7d427f6fdc1e950f7dca6c37e994a1bf365f0749b60d4ae2f54",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Net/MovementSpeedPackets.cs",
+    "MSUIClient/Net/MovementModePackets.cs",
     "MSUIClient/Net/WorldHeaderCrypto.cs",
     "MSUIClient/Program.CharCreate.cs",
     "MSUIClient/Net/LocalMovementSender.cs"
   ],
   "status": "partial",
-  "summary": "Benilla's client body builders: auth_session, char_create, messagechat family, channel family, played_time, random_roll, text_emote, creature/pet-name queries, movement, spline-done, teleport ack, force-speed acks, ping, move-flag acks. MSUI implements auth session (WorldHeaderCrypto proof + BuildAuthSession), char create, messagechat (incl. whisper/channel target), creature query, ping, teleport ack, root/unroot ack, and movement sends.",
+  "summary": "MSUI implements auth session, character creation, messagechat, channel join/leave/list, played time, random roll, text emotes, creature and pet-name queries, ordinary movement, ping, teleport, all six force-speed acknowledgements, and the complete root/water-walk/feather-fall/hover mode-ack family. Remaining builder gaps are channel moderation and spline-done.",
   "openItems": [
     {
       "id": "item-triage-84f8f383",
       "kind": "gap",
-      "text": "Entire CMSG_CHANNEL_* / JOIN/LEAVE_CHANNEL builder family: absent",
+      "text": "CMSG_CHANNEL_* moderation builder family remains absent; JOIN_CHANNEL, LEAVE_CHANNEL and CHANNEL_LIST are implemented",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
       "resolved": false
@@ -34,7 +36,8 @@
       "text": "CMSG_PLAYED_TIME: absent",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: empty CMSG_PLAYED_TIME is sent by /played; the exact two-u32 response and visible breakdown are clinically checked in ChatClinicalChecks."
     },
     {
       "id": "item-triage-3a0354fe",
@@ -42,7 +45,8 @@
       "text": "MSG_RANDOM_ROLL request body: absent",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: /random serializes the exact two-u32 minimum/maximum request and strictly decodes the four-field broadcast."
     },
     {
       "id": "item-triage-66dd6437",
@@ -50,7 +54,8 @@
       "text": "CMSG_TEXT_EMOTE (u32 textId, u32 emoteNum, u64 target): absent - /wave etc. cannot be sent",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: SendTextEmote writes the exact 16-byte text-id, emote-number-zero and full target-GUID body; emote command aliases route to it."
     },
     {
       "id": "item-triage-1cc15e11",
@@ -58,7 +63,8 @@
       "text": "CMSG_PET_NAME_QUERY (pet number + guid): absent - NPC-summoned pets stay nameless",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: exact opcode 0x0052 sender and u32 pet-number + u64 full-GUID body are implemented and clinically byte-pinned."
     },
     {
       "id": "item-triage-cca3e583",
@@ -74,7 +80,8 @@
       "text": "CMSG_FORCE_*_SPEED_CHANGE_ACK: only the RUN opcode is in the table (0x00E3) with no handler for SMSG_FORCE_RUN_SPEED_CHANGE and no ack builder - server speed changes are never acknowledged (vmangos will kick/rubber-band)",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: All six exact SMSG/CMSG force-speed pairs are present. The ack builder writes full u64 GUID, echoed u32 counter, live MovementInfo and exact f32 speed; focused golden-wire coverage passes."
     },
     {
       "id": "item-triage-ddd55548",
@@ -82,12 +89,13 @@
       "text": "move-flag acks for water-walk/feather-fall/hover (move_flag_ack with apply dword): absent - only the root/unroot ack exists",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: All six non-root grant/remove SMSGs are parsed and acknowledged on the three exact CMSG opcodes with full GUID, echoed counter, live MovementInfo and trailing u32 apply."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T03:14:27.0335467Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -7,20 +7,29 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/TrainerFrame.xml",
-      "fileSha256": "9be04d92d3ed01e2da6dca5672557ea4952db294f70e06d0af5a66e3ea8ba50a",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "759d647c484a406ed62abae47118b320488518a32ce22b9497fbaaa3cd6322ca",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
-      "path": "crates/benilla-app/src/ui_trainer.rs",
-      "fileSha256": "66471da92ad9879527e97b0ec6c633321a8ac74809cc81651e5398b2c21cb0a4",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "path": "crates/benilla-app/src/ui_trainer/mod.rs",
+      "fileSha256": "d247da385c4097a42b232af99eea32cc4e57994b832852a03b04facb01748233",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_trainer/law.rs",
+      "fileSha256": "a7f3bb4b0315e5dac387b36dcce7f0a996b90aa56649519251ecc5ed30683d3f",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.Trainer.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Trainer.cs",
+    "MSUIClient/Engine/UI/TrainerFrameUiLaw.cs",
+    "MSUIClient/Formats/SpellCatalog.cs",
+    "MSUIClient/Engine/UI/NpcSessionUiLaw.cs",
+    "tools/interface-wire-check/TrainerFrameClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "Program.Trainer.cs implements the trainer session and window: CMSG_TRAINER_LIST request with range/flag gating, SMSG_TRAINER_LIST decode, ClassTrainer four-piece shell, greeting text, 11-row service list with state coloring (grey known / gold available / red unaffordable-unavailable), wheel + real draggable scrollbar, selection detail pane (icon in EmptySlot, name, level requirement, cost, description), Train button (CMSG_TRAINER_BUY_SPELL) with success/failure packets and learned-spell observation, Exit + close button, requirements tooltip per row.",
+  "status": "implemented-unverified",
+  "summary": "The trainer session/window covers request/decode/buy/results, range expiry, authored ClassTrainer shell, live portrait/title, greeting, purse and detail MoneyFrame coin cells, 11-row faux scroll, detail pane, Train/Exit, and transition sounds. Its current tree is complete: learn wrappers hop through EffectTriggerSpell to the taught spell's SkillLine, tradeskill trainers partition Development Skills/Recipes, mount-known rows use My Talents, headers and All fold controls work, and the persistent Available/Unavailable/Already Known filter defaults to 1/1/0. Geometry and state derivation live in TrainerFrameUiLaw.",
   "openItems": [
     {
       "id": "item-triage-d282a163",
@@ -28,7 +37,8 @@
       "text": "Flat list: no collapsible skill-line tree headers and no Collapse All control (Benilla/backport groups services under fold-able skill-line headers)",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: TrainerFrameUiLaw builds an interleaved header/service tree from the exact trainer-type group law. Individual headers and the All control fold/unfold groups while the 11-row faux-scroll projects the visible tree."
     },
     {
       "id": "item-triage-c462b4d2",
@@ -36,7 +46,8 @@
       "text": "No filter dropdown (Available / Unavailable / Already Known visibility toggles)",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: The law-owned Filter dropdown toggles Available, Unavailable, and Already Known independently, retains the menu while toggling, resets scroll, and ships with the reference 1/1/0 defaults."
     },
     {
       "id": "item-triage-d44163b4",
@@ -44,7 +55,8 @@
       "text": "Title is the hardcoded string 'Trainer' - the NPC's name is never resolved into it",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: title resolves the bound creature name through the existing ask-once cache and retains the exact Trainer fallback."
     },
     {
       "id": "item-triage-1ad6aa3b",
@@ -52,7 +64,8 @@
       "text": "No NPC portrait on the window ring",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: the bound trainer now renders through the shared live unit portrait path at the authored 7,6 / 60x60 region behind the shell ring."
     },
     {
       "id": "item-triage-7d068dad",
@@ -60,12 +73,13 @@
       "text": "No player money purse display, and cost renders as plain text rather than the coin-icon money rig with red unaffordable tint",
       "source": "triage-2026-08-09/batch-ui-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: player purse and detail cost render NumberFontNormal values plus UI-MoneyIcons cells; unaffordable selected costs use the reference red tint."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T01:43:00.0000000Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

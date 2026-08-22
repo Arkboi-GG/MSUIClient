@@ -1,6 +1,8 @@
 using System.Numerics;
 using ImGuiNET;
 using Silk.NET.Input;
+using MSUIClient.Engine.UI;
+using MSUIClient.Net;
 
 namespace MSUIClient;
 
@@ -13,6 +15,8 @@ public sealed partial class GameLoop
     private bool _bindingCaptureReleased;
     private int _bindingScroll;
     private bool _characterSpecificBindings;
+    private string _bindingFeedback = "";
+    private double _bindingFeedbackUntil;
 
     private void OpenKeybindings()
     {
@@ -88,23 +92,58 @@ public sealed partial class GameLoop
         if (_bindingCapture is not null)
         {
             if (!_bindingCaptureReleased) _bindingCaptureReleased = !AnyBindableKeyDown();
-            else if (FirstBindableKeyDown() is { } pressed)
+            else if (FirstBindableChordDown() is { } pressed)
             {
-                foreach (GameBinding other in _bindings.Where(x => x.Value.Contains(pressed)).Select(x => x.Key).ToArray())
+                GameBinding[] previousOwners = _bindings
+                    .Where(x => x.Value.Contains(pressed))
+                    .Select(x => x.Key).ToArray();
+                string feedback = "Key Bound Successfully";
+                foreach (GameBinding other in previousOwners)
+                {
+                    BindingPair without = _bindings[other].Without(pressed);
+                    if (other != _bindingCapture.Value &&
+                        !without.Primary.IsBound && !without.Secondary.IsBound)
+                        feedback = $"{BindingLabel(other)} Function is Now Unbound!";
                     _bindings[other] = _bindings[other].Without(pressed);
+                }
                 _bindings[_bindingCapture.Value] = BoundKeys(_bindingCapture.Value).With(_bindingCaptureSlot, pressed);
+                _bindingFeedback = feedback;
+                _bindingFeedbackUntil = ImGui.GetTime() + 4.0;
                 _bindingCapture = null;
             }
         }
 
-        VanillaCheckButton(dl, "##character-bindings", origin + new Vector2(395, 10) * s,
+        if (_bindingFeedback.Length > 0 && ImGui.GetTime() < _bindingFeedbackUntil)
+            GameText.DrawCentered(dl, "GameFontNormalSmall", _bindingFeedback,
+                origin + new Vector2(320, 455) * s, s, 0xff2020ff);
+
+        bool wasCharacterSpecific = _characterSpecificBindings;
+        bool toggledCharacterSpecific = VanillaCheckButton(dl, "##character-bindings",
+            origin + new Vector2(395, 10) * s,
             "Character Specific Key Bindings", s, ref _characterSpecificBindings);
+        if (toggledCharacterSpecific)
+        {
+            PlayUiSound(CharacterBindingsUiLaw.ToggleSound);
+            if (!wasCharacterSpecific)
+            {
+                EnableCharacterSpecificBindings();
+            }
+            else
+            {
+                // UNCHECK is destructive. The source immediately springs the box back on and
+                // lets the rule-owned StaticPopup decide whether the set is deleted.
+                _characterSpecificBindings = true;
+                bool dead = _entities.TryGet(LocalPlayerGuid, out WorldEntity player) && player.IsDead;
+                ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(
+                    _staticPopupSlots, CharacterBindingsUiLaw.Definition, dead));
+            }
+        }
         if (VanillaButton(dl, "Defaults##bindings", "Reset To Default", origin + new Vector2(10, 469) * s,
                 new Vector2(130, 22), s)) ResetBindingsToDefaults();
         bool canUnbind = _bindingCapture is not null;
         if (VanillaButton(dl, "Unbind##bindings", "Unbind", origin + new Vector2(230, 469) * s,
                 new Vector2(130, 22), s, canUnbind) && _bindingCapture is { } unbind)
-        { _bindings[unbind] = BoundKeys(unbind).With(_bindingCaptureSlot, Key.Unknown); _bindingCapture = null; }
+        { _bindings[unbind] = BoundKeys(unbind).With(_bindingCaptureSlot, default); _bindingCapture = null; }
         if (VanillaButton(dl, "Okay##bindings", "Okay", origin + new Vector2(360, 469) * s,
                 new Vector2(130, 22), s))
         { SaveBindings(); _bindingSnapshot = null; _keybindingsOpen = false; }
@@ -119,11 +158,11 @@ public sealed partial class GameLoop
     }
 
     private void DrawBindingKeyButton(ImDrawListPtr dl, Vector2 origin, float s, Vector2 rowMin,
-        GameBinding binding, int slot, Key key)
+        GameBinding binding, int slot, BindingChord chord)
     {
         Vector2 min = rowMin + new Vector2(slot == 1 ? 175 : 355, 1) * s;
         bool capturing = _bindingCapture == binding && _bindingCaptureSlot == slot;
-        string text = capturing ? "Press Key to Bind" : key == Key.Unknown ? "Not Bound" : FriendlyKey(key);
+        string text = capturing ? "Press Key to Bind" : FriendlyChord(chord);
         if (VanillaButton(dl, $"##bind-{binding}-{slot}", text, min, new Vector2(180, 22), s))
         {
             _bindingCapture = binding;
@@ -137,9 +176,29 @@ public sealed partial class GameLoop
     private Key? FirstBindableKeyDown()
     {
         foreach (Key key in Enum.GetValues<Key>().Distinct())
-            if (key != Key.Unknown && _window.IsDown(key)) return key;
+            if (key != Key.Unknown && !BindingChordLaw.IsModifier(key) &&
+                _window.IsDown(key)) return key;
         return null;
     }
+
+    private BindingChord? FirstBindableChordDown()
+    {
+        if (InputKeyDown(Key.SuperLeft) || InputKeyDown(Key.SuperRight)) return null;
+        if (FirstBindableKeyDown() is not { } key) return null;
+        return BindingChordLaw.Live(key,
+            InputKeyDown(Key.AltLeft) || InputKeyDown(Key.AltRight),
+            InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight),
+            InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight));
+    }
+
+    private static string BindingLabel(GameBinding binding) =>
+        BindingRows.FirstOrDefault(row => row.Binding == binding).Label ?? binding.ToString();
+
+    private static string FriendlyChord(in BindingChord chord) =>
+        BindingChordLaw.Display(chord, FriendlyKey);
+
+    private static string FriendlyHotkey(in BindingChord chord) =>
+        chord.IsBound ? BindingChordLaw.Display(chord, FriendlyKey) : "";
 
     private static string FriendlyKey(Key key) => key switch
     {

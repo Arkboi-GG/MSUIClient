@@ -81,9 +81,9 @@ public sealed partial class GameLoop
         else
         {
             _creatureQueryRecords.TryGetValue(unit.Entry, out query);
-            // The available build-5875 response is template-scoped. Pets therefore retain the
-            // current template name; a per-pet given-name feed is an explicit later ingress gap.
-            name = query is { Name.Length: > 0 }
+            name = GuidInfo.PetNumber(unit.Guid) is not null
+                ? ResolveCreatureOrPetName(unit, "")
+                : query is { Name.Length: > 0 }
                 ? query.Name
                 : _creatureNames.GetValueOrDefault(unit.Entry, "");
         }

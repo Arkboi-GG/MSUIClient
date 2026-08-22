@@ -116,10 +116,10 @@ public sealed partial class GameLoop
     /// predicted vs actual distance.</summary>
     private void ApplyAiReaction(byte[] body)
     {
-        if (body.Length < 12) return;
-        var r = new PacketReader(body);
-        ulong guid = r.ReadU64();
-        uint reaction = r.ReadU32();
+        AiReactionPacket packet = AiReactionPackets.Parse(body);
+        ulong guid = packet.UnitGuid;
+        uint reaction = packet.Reaction;
+        PlayCreatureReaction(packet);
         if (!_devWindowOpen || reaction != 2) return;   // 2 = AI_REACTION_HOSTILE
 
         _devAggroFlash[guid] = NowSeconds();
@@ -131,6 +131,29 @@ public sealed partial class GameLoop
                 $"[dev-aggro] entry {mob.Entry} guid {mob.Guid & 0xFFFFFF} went hostile at " +
                 $"{Vector3.Distance(me, mob.Position):0.0} yd (predicted {predicted:0.0} yd)");
         }
+    }
+
+    private void PlayCreatureReaction(AiReactionPacket packet)
+    {
+        if (!AiReactionPackets.Audible(packet.Reaction) || _spellSounds is null ||
+            _audioMixer is null || _creatureVoices is null ||
+            !_entities.TryGet(packet.UnitGuid, out WorldEntity unit)) return;
+        uint displayId = packet.Reaction == AiReactionPackets.Alert && unit.MountDisplayId != 0
+            ? (uint)unit.MountDisplayId : (uint)Math.Max(0, unit.DisplayId);
+        if (!_creatureVoices.TryGet(displayId, out CreatureVoice voice)) return;
+        uint kit = packet.Reaction == AiReactionPackets.Hostile
+            ? voice.AggroSound : voice.AlertSound;
+        if (kit == 0) return;
+
+        if (packet.Reaction == AiReactionPackets.Hostile &&
+            _creatureHostileVoices.TryGetValue(packet.UnitGuid, out long active) &&
+            _audioMixer.IsLive(active)) return;
+
+        Vector3 listener = _controller?.Position ?? unit.Position;
+        long played = _spellSounds.Play(kit, packet.UnitGuid, unit.Position, listener,
+            forceLoop: false, trackHold: false, category: "creature");
+        if (packet.Reaction == AiReactionPackets.Hostile && played != 0)
+            _creatureHostileVoices[packet.UnitGuid] = played;
     }
 
     // ── 3-D pass (beside RenderRtsGroundFx, after units populate depth) ──────

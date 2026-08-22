@@ -158,6 +158,13 @@ public sealed class WmoRenderer : IDisposable
         // must never enter walking collision.
         public Vector3[] CameraOnlyTriangles = [];
 
+        // Interior render faces accepted by the client's footprint/footstep ray
+        // (MOPY flags & 0x88 == 0), plus each face's MOMT GroundType.  This is
+        // deliberately separate from walking collision: many authored floors
+        // have a render sheet over a coplanar collision sheet.
+        public Vector3[] FootstepTriangles = [];
+        public uint[] FootstepTerrainTypes = [];
+
         private GL? _gl;
         public void Attach(GL gl) => _gl = gl;
 
@@ -821,6 +828,60 @@ public sealed class WmoRenderer : IDisposable
             (bestGroup.GroupFlags & 0x08u) != 0) return null;
         return new AreaMinimapIdentity(
             bestInstance.Model.WmoId, bestInstance.NameSetId, bestGroup.GroupWmoId);
+    }
+
+    /// <summary>
+    /// Resolve the WMO half of the archived footstep-surface law.  A true return
+    /// means an interior WMO owns the column; <paramref name="terrainType"/> is
+    /// zero when its accepted render surface has no usable MOMT material, which
+    /// is silent and must never fall through to the ADT underneath.
+    /// </summary>
+    public bool TrySampleFootstepTerrain(
+        Vector3 feetWorld, float? terrainWorldZ, out uint terrainType)
+    {
+        terrainType = 0;
+        if (!float.IsFinite(feetWorld.X) || !float.IsFinite(feetWorld.Y) ||
+            !float.IsFinite(feetWorld.Z)) return false;
+
+        Vector3 probeWorld = feetWorld + new Vector3(0f, 0f, 0.1f);
+        GroupMesh? bestGroup = null;
+        Vector3 bestProbe = default;
+        float bestDrop = float.MaxValue;
+
+        foreach (var instance in _instances)
+        {
+            if (!Matrix4x4.Invert(instance.Transform, out var worldToLocal)) continue;
+            Vector3 probeLocal = Vector3.Transform(probeWorld, worldToLocal);
+            float? terrainLocalZ = terrainWorldZ is float terrainZ
+                ? Vector3.Transform(
+                    new Vector3(probeWorld.X, probeWorld.Y, terrainZ), worldToLocal).Z
+                : null;
+            GroupMesh? group = FindAreaFace(
+                instance.Model, probeLocal, terrainLocalZ, out float drop);
+            if (group is null || drop >= bestDrop) continue;
+            bestDrop = drop;
+            bestGroup = group;
+            bestProbe = probeLocal;
+        }
+
+        // EXTERIOR is the outdoor leg: allow the caller to ask the ADT.  An
+        // interior-lit/exterior-like group (0x40) owns the column but has no
+        // footprint material set, matching the reference's silent result.
+        if (bestGroup is null || (bestGroup.GroupFlags & 0x08u) != 0) return false;
+
+        float bestZ = float.NegativeInfinity;
+        Vector3[] triangles = bestGroup.FootstepTriangles;
+        uint[] types = bestGroup.FootstepTerrainTypes;
+        for (int face = 0, i = 0; i + 2 < triangles.Length && face < types.Length;
+             face++, i += 3)
+        {
+            if (!TriangleZAt(triangles[i], triangles[i + 1], triangles[i + 2],
+                    bestProbe.X, bestProbe.Y, out float z) ||
+                z > bestProbe.Z || z <= bestZ) continue;
+            bestZ = z;
+            terrainType = types[face];
+        }
+        return true;
     }
 
     /// <summary>
@@ -2585,6 +2646,7 @@ public sealed class WmoRenderer : IDisposable
             var cameraOnlyCollision = new List<Vector3>();
             CollectCameraOnlyCollision(group, cameraOnlyCollision);
             mesh.CameraOnlyTriangles = [.. cameraOnlyCollision];
+            CollectFootstepSurfaces(group, ready.Root, mesh);
             job.Collision.AddRange(groupCollision);
             return false;
         }
@@ -2752,6 +2814,49 @@ public sealed class WmoRenderer : IDisposable
             into.Add(new Vector3(b.x, b.y, b.z));
             into.Add(new Vector3(c.x, c.y, c.z));
         }
+    }
+
+    /// <summary>
+    /// Retain the exact WMO render-material face set used by footstep surface
+    /// sampling.  0x08 collision faces and 0x80 already-visited faces are
+    /// rejected; material 0xFF/out-of-range is retained as TerrainType 0 so an
+    /// owning interior remains silent instead of leaking through to ADT dirt.
+    /// </summary>
+    private static void CollectFootstepSurfaces(
+        WmoGroupData group, WmoRootData root, GroupMesh mesh)
+    {
+        if ((group.GroupFlags & 0x48u) != 0 ||
+            group.VertexColors.Length < group.Vertices.Count * 4) return;
+
+        var triangles = new List<Vector3>();
+        var terrainTypes = new List<uint>();
+        int count = group.Indices.Count / 3;
+        for (int face = 0; face < count; face++)
+        {
+            byte flags = 0;
+            byte materialId = 0xFF;
+            if (face < group.TriMaterials.Count)
+                (flags, materialId) = group.TriMaterials[face];
+            if ((flags & 0x88) != 0) continue;
+
+            int i0 = group.Indices[face * 3];
+            int i1 = group.Indices[face * 3 + 1];
+            int i2 = group.Indices[face * 3 + 2];
+            if (i0 >= group.Vertices.Count || i1 >= group.Vertices.Count ||
+                i2 >= group.Vertices.Count) continue;
+
+            var a = group.Vertices[i0];
+            var b = group.Vertices[i1];
+            var c = group.Vertices[i2];
+            triangles.Add(new Vector3(a.x, a.y, a.z));
+            triangles.Add(new Vector3(b.x, b.y, b.z));
+            triangles.Add(new Vector3(c.x, c.y, c.z));
+            terrainTypes.Add(materialId < root.Materials.Count
+                ? root.Materials[materialId].GroundType
+                : 0u);
+        }
+        mesh.FootstepTriangles = [.. triangles];
+        mesh.FootstepTerrainTypes = [.. terrainTypes];
     }
 
     /// <summary>

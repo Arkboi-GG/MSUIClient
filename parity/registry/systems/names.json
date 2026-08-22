@@ -7,17 +7,23 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/names.rs",
-      "fileSha256": "ec8b934e4173ce84b7fb627732358bcd6791e54b6420b14f05fbd9345503c1c2",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "93e350ebfd47325c0df8df068abef37941618a5992a12da0f295548dd8c7cdca",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.Targeting.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Targeting.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.Nameplates.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.GameTooltip.WorldUnit.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Pet.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Quest.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Chat.cs",
     "MSUIClient/Net/CreatureQuery.cs",
+    "MSUIClient/Net/PlayerNamePackets.cs",
     "MSUIClient/Program.Net.cs"
   ],
-  "status": "partial",
-  "summary": "MSUI implements the ask-once name discipline for the two main paths: player names by guid (CMSG_NAME_QUERY, _queriedPlayerNames dedupe set) and creature records by template entry (CMSG_CREATURE_QUERY with the full 5875 response decoded - name, subname, type flags, creature type, rank, civilian, racial leader - and the high-bit negative cached in _creatureQueryRecords). The unanswered-ask set is cleared on zoning so a dropped query is re-askable, matching Benilla's clear_pending.",
+  "status": "implemented-unverified",
+  "summary": "MSUI implements ask-once player, creature, and pet naming. Player responses strictly decode name, realm, and the race/gender/class u32 tail; cache both positive and negative answers plus the positive player traits for the authenticated session; and supply those traits to quest/chat macro expansion when the player object is not streamed. Pets decode their GUID-carried number, request and cache the per-pet display name by that number, clear unanswered asks on zoning, and publish the result across visible world-unit surfaces.",
   "openItems": [
     {
       "id": "item-triage-e0719212",
@@ -25,7 +31,8 @@
       "text": "The pet naming path is absent: CMSG_PET_NAME_QUERY / SMSG_PET_NAME_QUERY_RESPONSE are not implemented, so a summoned pet (guid carrying a pet number, not a template entry) can never resolve a name",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: the exact pet query/response pair, pet-number cache, pending-query lifecycle, and visible name consumers are implemented and clinically pinned."
     },
     {
       "id": "item-triage-df438609",
@@ -33,12 +40,13 @@
       "text": "SMSG_NAME_QUERY_RESPONSE's race/class/gender triple is discarded (only the name is kept), so the $R/$C/$G macro fallback for un-streamed players has no data source",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: PlayerNamePackets strictly decodes the 1.12 guid/name/realm/race/gender/class layout; the session-scoped trait cache now supplies $R/$C/$G for unstreamed player subjects in quest and chat macro expansion, with golden packet and runtime-wiring checks."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T02:57:35.1951358Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

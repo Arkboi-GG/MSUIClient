@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/questtimerframe",
+  "title": "questtimerframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/QuestTimerFrame.xml",
+      "fileSha256": "95bb1c7c182aa3444d7d65c8aecb4588768ef07b0b4dd5143e5241e261090999",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/QuestTimerFrameUiLaw.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.QuestTimerFrame.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.DurabilityFrame.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Quest.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.CombatFeedback.cs",
+    "tools/interface-wire-check/QuestTimerFrameClinicalChecks.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI now implements current Benilla's separate timed-quest window: live server-clock subtraction with the byte-verified minus-one bias, failed/untimed/expired filtering, log-order rows, exact SecondsToTime spelling, 160px dialog and header art, 45 + 16*n height, twenty exact row seats, hover quest title, click-to-open/select, and the managed quest-timer to durability to quest-watch stack. Deterministic geometry and production-wiring checks pass; a live timed quest and pixel comparison remain open.",
+  "openItems": [
+    {
+      "id": "item-msui-questtimer-live-verify",
+      "kind": "verify",
+      "text": "Verify a live timed quest counts down, opens the correct quest-log entry on click, disappears on expiry/failure, and moves the durability and quest-watch frames by its dynamic height at multiple UI scales.",
+      "source": "implementation-2026-08-21",
+      "added": "2026-08-21",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-21T00:00:00+00:00",
+  "seededUtc": "2026-08-21T00:00:00+00:00"
+}

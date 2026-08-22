@@ -7,16 +7,18 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/DurabilityFrame.xml",
-      "fileSha256": "0ea2b42b461ff0b3d041dd6620b631407372bca073f0c48aaea19bcbd1c4b695",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "88f9564f84b435a7c0a980324adc9bab94a087ab8468e2049e867692befc15c1",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.CharacterPage.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Vendor.Repair.cs"
+    "MSUIClient/Engine/UI/DurabilityFrameUiLaw.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.DurabilityFrame.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.CombatFeedback.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Quest.cs"
   ],
-  "status": "missing",
-  "summary": "The HUD durability alert ('armor guy' under the minimap, 8 together-shown body pieces + 3 show-separate weapon/shield/ranged pieces off the UI-Durability-Icons atlas, yellow damaged / red broken) has no MSUI counterpart. MSUI does track durability elsewhere - paper-doll broken tinting (PaperDollUiLaw.IsBroken in Program.CharacterPage.cs), vendor repair (Program.Vendor.Repair.cs), DurabilityTables.cs - but no on-screen alert frame exists.",
+  "status": "implemented-unverified",
+  "summary": "MSUI now implements the current Benilla durability alert: exact absolute 1..5 damaged and zero/force-red broken classification with wrapped-item suppression, all eight body glyphs as one figure, separate main-hand/off-hand/ranged alerts, shield versus off-hand-weapon substitution, exact UI-Durability-Icons atlas cells and colors, and managed seating between the dynamic quest-timer window and quest-watch tracker. Deterministic checks pass; live equipment-stream and pixel verification remain open.",
   "openItems": [
     {
       "id": "item-triage-1acf66dd",
@@ -24,6 +26,15 @@
       "text": "Entire DurabilityFrame surface: inventory-alert status computation (damaged <20% / broken), the 11-region atlas figure, show/hide law, and minimap-relative managed seating",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-21: Added DurabilityFrameUiLaw plus the HUD renderer with current Benilla's exact 11-slot map, absolute 1..5 yellow threshold, broken/force-red/wrapped gates, atlas UVs, body/show-separate law, off-hand glyph swap and side-glyph 20px managed offset. The figure now moves below a shown QuestTimerFrame, and the quest tracker moves below both dynamic managed frames."
+    },
+    {
+      "id": "item-msui-durability-live-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification with body-only, main-hand, shield, off-hand weapon and ranged durability transitions plus a scaled pixel comparison.",
+      "source": "implementation-2026-08-21",
+      "added": "2026-08-21",
       "resolved": false
     }
   ],

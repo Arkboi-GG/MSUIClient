@@ -84,11 +84,15 @@ public sealed partial class GameLoop
             if (after.TryGetValue(slot, out AuraSnapshot current) &&
                 current.SpellId == oldAura.SpellId) continue;
             EmitAuraVerdict(oldAura, guid, "REMOVE", "SMSG_UPDATE_OBJECT");
+            if (playerUpdate) ObservePlayerAuraCombatText(oldAura, applied: false);
         }
         foreach ((byte slot, AuraSnapshot aura) in after)
         {
             if (!before.TryGetValue(slot, out AuraSnapshot oldAura) || oldAura.SpellId != aura.SpellId)
+            {
                 EmitAuraVerdict(aura, guid, "APPLY", "SMSG_UPDATE_OBJECT");
+                if (playerUpdate) ObservePlayerAuraCombatText(aura, applied: true);
+            }
             else if (oldAura.Stacks != aura.Stacks)
                 EmitAuraVerdict(aura, guid, "STACK", "SMSG_UPDATE_OBJECT");
         }
@@ -107,6 +111,7 @@ public sealed partial class GameLoop
                 _playerAuraAppeared[(added.Slot, added.SpellId)] = now;
             _playerAuraOrder.Clear();
             _playerAuraOrder.AddRange(next.Select(x => (x.Slot, x.SpellId)));
+            CompletePlayerAuraCombatTextBaseline();
 
             // Duration stamps are deliberately not removed with an empty/recycled slot.  A
             // fresh apply's duration packet arrives before its descriptor, so occupancy-based

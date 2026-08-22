@@ -60,12 +60,24 @@ public sealed class SpellSoundSystem
 
     public bool IsAuthoredLoop(uint? soundId) => _library.IsAuthoredLoop(soundId);
 
+    public bool IsLive(long voiceId) => _mixer.IsLive(voiceId);
+
     public long Play(uint? soundId, ulong unit, Vector3 source, Vector3 listener,
         bool forceLoop = false, bool trackHold = true, string category = "spell")
     {
         if (!_library.TryGet(soundId, out SoundEntry entry) || entry.Variants.Count == 0) return 0;
         return PlayResolved(soundId!.Value.ToString(), category, entry, unit, source, listener,
-            forceLoop, trackHold);
+            forceLoop, trackHold, variation: null);
+    }
+
+    public long PlayVariant(uint soundId, int variation, ulong unit, Vector3 source,
+        Vector3 listener, bool forceLoop = false, bool trackHold = true,
+        string category = "spell")
+    {
+        if (!_library.TryGet(soundId, out SoundEntry entry) ||
+            (uint)variation >= (uint)entry.Variants.Count) return 0;
+        return PlayResolved(soundId.ToString(), category, entry, unit, source, listener,
+            forceLoop, trackHold, variation);
     }
 
     public long Play(string soundName, ulong unit, Vector3 source, Vector3 listener,
@@ -73,7 +85,7 @@ public sealed class SpellSoundSystem
     {
         if (!_library.TryGet(soundName, out SoundEntry entry) || entry.Variants.Count == 0) return 0;
         return PlayResolved(soundName, category, entry, unit, source, listener,
-            forceLoop: false, trackHold: false);
+            forceLoop: false, trackHold: false, variation: null);
     }
 
     /// <summary>
@@ -99,15 +111,18 @@ public sealed class SpellSoundSystem
             Math.Clamp(volume, 0f, 1f), flags,
             Math.Max(0f, minDistance), Math.Max(0f, cutoffDistance), eax);
         return PlayResolved(requestedCue, category, entry, unit, source, listener,
-            forceLoop: false, trackHold: trackHold);
+            forceLoop: false, trackHold: trackHold, variation: null);
     }
 
     public void RemoveCustomFile(string virtualPath) => _mixer.RemoveCustomFile(virtualPath);
 
     private long PlayResolved(string requestedCue, string category, in SoundEntry entry,
-        ulong unit, Vector3 source, Vector3 listener, bool forceLoop, bool trackHold)
+        ulong unit, Vector3 source, Vector3 listener, bool forceLoop, bool trackHold,
+        int? variation)
     {
-        SoundVariant variant = _library.PickVariant(entry);
+        SoundVariant variant = variation is int exact
+            ? _library.PickVariantAt(entry, exact)
+            : _library.PickVariant(entry);
         bool looping = forceLoop || entry.Looping;
 
         // Replace this unit's own loop BEFORE the new one is requested, so the

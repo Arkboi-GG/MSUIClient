@@ -1,6 +1,7 @@
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 
@@ -10,6 +11,7 @@ public sealed partial class GameLoop
 {
     private bool _bankOpen;
     private ulong _bankSource;
+    private bool _bankPurchaseConfirmOpen;
     private BankBagSlotPriceTable? _bankPrices;
     private BankTransition? _pendingBankTransition;
     private byte _bankSlotCountBefore;
@@ -24,22 +26,80 @@ public sealed partial class GameLoop
 
     private bool RequestBank(ulong guid)
     {
-        bool eligible = _entities.TryGet(guid, out WorldEntity banker) && banker.IsCreature &&
-                        (banker.NpcFlags & NpcBanker) != 0;
+        WorldEntity? banker = null;
+        bool eligible = _controller is not null &&
+                        _entities.TryGet(guid, out banker) && banker.IsCreature &&
+                        !banker.IsDead && (banker.NpcFlags & NpcBanker) != 0 &&
+                        NpcSessionUiLaw.InRange(
+                            Vector3.DistanceSquared(_controller.Position, banker.Position));
         bool sent = eligible && _net?.BankerActivate(guid) == true;
         EmitInterface("bank", "open", sent ? "SENT" : "REFUSED", guid,
             $"eligible={eligible};npcFlags=0x{banker?.NpcFlags ?? 0:X8};body={Convert.ToHexString(WorldSession.BuildBankGuidBody(guid))}");
         return sent;
     }
 
+    private bool UpdateBankLifecycle()
+    {
+        if (!_bankOpen || _controller is null) return false;
+        ulong sourceGuid = _bankSource;
+        bool sourceAvailable = _entities.TryGet(sourceGuid, out WorldEntity banker);
+        float distanceSquared = sourceAvailable
+            ? Vector3.DistanceSquared(_controller.Position, banker.Position)
+            : float.PositiveInfinity;
+        if (!NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
+            return false;
+        CloseBankSession(playSound: true);
+        EmitInterface("bank", "lifecycle-close", "CLOSED", sourceGuid,
+            sourceAvailable
+                ? $"distanceSquared={distanceSquared:R};limitSquared={NpcSessionUiLaw.ServiceRangeSquared:R}"
+                : "source-despawned");
+        return true;
+    }
+
     private void ApplyShowBank(byte[] body)
     {
         if (body.Length < 8) return;
-        _bankSource = BitConverter.ToUInt64(body, 0); _bankOpen = true;
+        ulong source = BitConverter.ToUInt64(body, 0);
+        bool freshSession = !_bankOpen || _bankSource != source;
+        if (_bankOpen && _bankSource != source) CloseBankSession(playSound: true);
+        _bankSource = source;
+        _bankOpen = true;
+        if (freshSession)
+            PlayUiSound(BankFrameUiLaw.OpenSound, BankFrameUiLaw.SoundCategory);
         int occupied = 0;
         if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
             occupied = Enumerable.Range(0, 24).Count(i => player.Fields.PlayerBankSlot(i) != 0);
         EmitInterface("bank", "open", "OPEN", _bankSource, $"occupied={occupied};body={Convert.ToHexString(body.AsSpan(0, 8))}");
+    }
+
+    private bool CloseBankSession(bool playSound = true)
+    {
+        if (!_bankOpen) return false;
+        ulong source = _bankSource;
+        _bankOpen = false;
+        _bankSource = 0;
+        _bankPurchaseConfirmOpen = false;
+        _pendingBankTransition = null;
+        for (int container = InventoryUiLaw.BankBagContainerFirst;
+             container <= InventoryUiLaw.BankBagContainerLast; container++)
+            SetBagWindowOpen(container, false, playSound: false);
+        if (_carriedContainer == InventoryUiLaw.BankContainer ||
+            _carriedContainer == InventoryUiLaw.BankBagEquipmentContainer ||
+            _carriedContainer is >= InventoryUiLaw.BankBagContainerFirst and
+                <= InventoryUiLaw.BankBagContainerLast)
+            ClearCarriedItem();
+        if (playSound)
+            PlayUiSound(BankFrameUiLaw.CloseSound, BankFrameUiLaw.SoundCategory);
+        EmitInterface("bank", "close", "CLOSED", source, $"sound={playSound}");
+        return true;
+    }
+
+    private bool TryDismissBankPurchaseConfirmationOnEscape()
+    {
+        if (!_bankPurchaseConfirmOpen) return false;
+        _bankPurchaseConfirmOpen = false;
+        EmitInterface("bank", "buy-confirm", "CANCELLED_ESCAPE", _bankSource, "wire=none");
+        return true;
     }
 
     private void ApplyBuyBankSlotResult(byte[] body)
@@ -50,6 +110,19 @@ public sealed partial class GameLoop
             $"result={result};slotBefore={_bankSlotCountBefore}");
     }
 
+    private bool DepositBankItem(byte sourceBag, byte sourceSlot, WorldEntity item)
+    {
+        if (!_bankOpen || _net is null) return false;
+        bool sent = _net.AutoBankItem(sourceBag, sourceSlot);
+        EmitInterface("bank", "deposit-send", sent ? "SENT" : "SEND_FAILED", item.Guid,
+            $"item={item.Entry};sourceBag={sourceBag};sourceSlot={sourceSlot};destination=server-selected;body={Convert.ToHexString(WorldSession.BuildAutoBankItemBody(sourceBag, sourceSlot))}");
+        if (sent)
+            _pendingBankTransition = new("deposit", item.Guid, item.Entry, sourceSlot, -1, NowSeconds());
+        return sent;
+    }
+
+    // Clinical/live helper: resolve an entry to a source position, then use the same
+    // source-only auto-bank wire as the production inventory context action.
     private bool DepositBankEntry(uint entry)
     {
         if (!_bankOpen || _net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
@@ -58,16 +131,26 @@ public sealed partial class GameLoop
             ulong guid = player.Fields.PlayerBackpackSlot(i);
             return guid != 0 && _entities.TryGet(guid, out WorldEntity item) && item.Entry == entry;
         }, -1);
-        int to = Enumerable.Range(0, 24).FirstOrDefault(i => player.Fields.PlayerBankSlot(i) == 0, -1);
-        if (from < 0 || to < 0) return false;
+        if (from < 0) return false;
         ulong itemGuid = player.Fields.PlayerBackpackSlot(from);
-        bool sent = _net.SwapItems(255, (byte)(39 + to), 255, (byte)(23 + from));
-        EmitInterface("bank", "deposit-send", sent ? "SENT" : "SEND_FAILED", itemGuid,
-            $"item={entry};from={23 + from};to={39 + to};body={Convert.ToHexString(WorldSession.BuildSwapItemsBody(255, (byte)(39 + to), 255, (byte)(23 + from)))}");
-        if (sent) _pendingBankTransition = new("deposit", itemGuid, entry, 23 + from, 39 + to, NowSeconds());
+        return _entities.TryGet(itemGuid, out WorldEntity item) &&
+            DepositBankItem(255, (byte)(23 + from), item);
+    }
+
+    private bool WithdrawBankSlot(int bankIndex, WorldEntity item)
+    {
+        if (!_bankOpen || _net is null || bankIndex is < 0 or >= 24) return false;
+        byte sourceSlot = (byte)(39 + bankIndex);
+        bool sent = _net.AutostoreBankItem(255, sourceSlot);
+        EmitInterface("bank", "withdraw-send", sent ? "SENT" : "SEND_FAILED", item.Guid,
+            $"item={item.Entry};sourceBag=255;sourceSlot={sourceSlot};destination=server-selected;body={Convert.ToHexString(WorldSession.BuildAutostoreBankItemBody(255, sourceSlot))}");
+        if (sent)
+            _pendingBankTransition = new("withdraw", item.Guid, item.Entry, sourceSlot, -1, NowSeconds());
         return sent;
     }
 
+    // Clinical/live helper: resolve an entry to its source bank slot. Production
+    // bank right-clicks already know the precise index and bypass this lookup.
     private bool WithdrawBankEntry(uint entry)
     {
         if (!_bankOpen || _net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
@@ -76,14 +159,9 @@ public sealed partial class GameLoop
             ulong guid = player.Fields.PlayerBankSlot(i);
             return guid != 0 && _entities.TryGet(guid, out WorldEntity item) && item.Entry == entry;
         }, -1);
-        int to = Enumerable.Range(0, 16).FirstOrDefault(i => player.Fields.PlayerBackpackSlot(i) == 0, -1);
-        if (from < 0 || to < 0) return false;
+        if (from < 0) return false;
         ulong itemGuid = player.Fields.PlayerBankSlot(from);
-        bool sent = _net.SwapItems(255, (byte)(23 + to), 255, (byte)(39 + from));
-        EmitInterface("bank", "withdraw-send", sent ? "SENT" : "SEND_FAILED", itemGuid,
-            $"item={entry};from={39 + from};to={23 + to};body={Convert.ToHexString(WorldSession.BuildSwapItemsBody(255, (byte)(23 + to), 255, (byte)(39 + from)))}");
-        if (sent) _pendingBankTransition = new("withdraw", itemGuid, entry, 39 + from, 23 + to, NowSeconds());
-        return sent;
+        return _entities.TryGet(itemGuid, out WorldEntity item) && WithdrawBankSlot(from, item);
     }
 
     private bool BuyNextBankSlot()
@@ -130,23 +208,40 @@ public sealed partial class GameLoop
     private void DrawBankFrame()
     {
         if (!_bankOpen || _net is null || _gameplayArt is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
-        float s=GameplayUiScale(); Vector2 origin=new(0,104*s), logicalSize=new(384,512);
-        ImGui.SetNextWindowPos(origin,ImGuiCond.Always); ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always); ImGui.SetNextWindowBgAlpha(0);
+        float s=GameplayUiScale(); Vector2 origin=BankFrameUiLaw.FrameOrigin(s), logicalSize=new(BankFrameUiLaw.Width,BankFrameUiLaw.Height);
+        ImGui.SetNextWindowPos(origin,ImGuiCond.Always); ImGui.SetNextWindowSize(BankFrameUiLaw.FrameSize(s),ImGuiCond.Always); ImGui.SetNextWindowBgAlpha(0);
         if (!ImGui.Begin("##bank", ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
         ImDrawListPtr dl=ImGui.GetWindowDrawList();
         if(_uiParityArmed&&_uiParityPanel=="bank"){BeginUiParityFrame(origin,s);CollectUiParityDraw("BankFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
-        (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[
-            ("BankFrame/Texture",@"Interface\BankFrame\UI-BankFrame-TopLeft",Vector2.Zero,new(256,256)),
-            ("BankFrame/Texture#2",@"Interface\BankFrame\UI-BankFrame-TopRight",new(256,0),new(128,256)),
-            ("BankFrame/Texture#3",@"Interface\BankFrame\UI-BankFrame-BotLeft",new(0,256),new(256,256)),
-            ("BankFrame/Texture#4",@"Interface\BankFrame\UI-BankFrame-BotRight",new(256,256),new(128,256))];
-        foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="bank")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"BankFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","BankFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        WorldEntity? banker = _entities.TryGet(_bankSource, out WorldEntity foundBanker)
+            ? foundBanker : null;
+        if (banker is not null)
+            DrawUnitPortraitImage(dl, banker,
+                origin + BankFrameUiLaw.PortraitOffset * s,
+                BankFrameUiLaw.PortraitSize * s, 0, false);
+        DrawArt(dl, BankFrameUiLaw.Art, origin,
+            new Vector2(BankFrameUiLaw.ArtSize), s);
+        if(_uiParityArmed&&_uiParityPanel=="bank")
+            CollectUiParityDraw("BankFrame/Texture","Texture",origin,
+                new Vector2(BankFrameUiLaw.ArtSize)*s,"BankFrame",
+                new(BankFrameUiLaw.Art,0xffffffff,"IMGUI_IMAGE","TOPLEFT","BankFrame","TOPLEFT",0,0));
+        string bankerName = BankFrameUiLaw.FallbackTitle;
+        if (banker is not null)
+        {
+            if (banker.Entry != 0 && TryBeginCreatureQuery(banker.Entry))
+                _net?.CreatureQuery(banker.Entry, banker.Guid);
+            bankerName = BankFrameUiLaw.Title(
+                _creatureNames.GetValueOrDefault(banker.Entry, ""));
+        }
+        DrawNpcModalTitle(dl, bankerName, origin + BankFrameUiLaw.TitleCenter * s, s);
+        DrawTrainerMoney(dl, player.Fields.Coinage,
+            origin + BankFrameUiLaw.PurseRightTop * s, s, 0xffffffff, rightAligned: true);
         if (_gameplayArt is not null)
         {
             DrawVanillaBankSlots(dl, origin, s, player);
-            Vector2 bankClose=origin+new Vector2(324,10)*s;
+            Vector2 bankClose=origin+BankFrameUiLaw.CloseButton*s;
             DrawImageButton(dl,"##bank-close",bankClose,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
-            if(ImGui.IsItemClicked())_bankOpen=false;
+            if(ImGui.IsItemClicked())CloseBankSession();
             if(_uiParityArmed&&_uiParityPanel=="bank")MarkUiParityFrameComplete();
             ImGui.End(); return;
         }
@@ -157,7 +252,7 @@ public sealed partial class GameLoop
             string label = $"{39 + i}: Empty";
             if (guid != 0 && _entities.TryGet(guid, out WorldEntity item))
             {
-                _items?.Require(item.Entry, guid, _net);
+                _items?.Require(item.Entry, guid, _net!);
                 label = _items?.TryGet(item.Entry, out ItemTemplate? t) == true && t is not null
                     ? $"{39 + i}: {t.Name} x{item.Fields.ItemStackCount}" : $"{39 + i}: Item {item.Entry}";
             }
@@ -172,7 +267,7 @@ public sealed partial class GameLoop
         if (_config.DevTools && ImGui.Button("Copy bank evidence"))
             CopyVerdictText(string.Join(Environment.NewLine, _verdicts.Snapshot("interface").OfType<InterfaceVerdict>()
                 .Where(v => v.Family == "bank").Select(v => $"[verdict:interface] {v.ToLine()}")));
-        Vector2 close=origin+new Vector2(324,10)*s;DrawImageButton(dl,"##bank-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())_bankOpen=false;
+        Vector2 close=origin+BankFrameUiLaw.CloseButton*s;DrawImageButton(dl,"##bank-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())CloseBankSession();
         if(_uiParityArmed&&_uiParityPanel=="bank")MarkUiParityFrameComplete();
         ImGui.End();
     }
@@ -192,7 +287,33 @@ public sealed partial class GameLoop
             uint ring = _gameplayArt?.Handle(@"Interface\Buttons\UI-Quickslot2") ?? 0;
             if (ring != 0) dl.AddImage((nint)ring, min - new Vector2(14) * s, min + new Vector2(50) * s);
             ImGui.SetCursorScreenPos(min); ImGui.InvisibleButton($"##bank-item-{i}", new Vector2(37) * s);
-            if (ImGui.IsItemClicked() && instance is not null) WithdrawBankEntry(instance.Entry);
+            bool leftClicked = ImGui.IsItemClicked(ImGuiMouseButton.Left);
+            bool rightClicked = ImGui.IsItemClicked(ImGuiMouseButton.Right);
+            bool locked = IsInventorySlotLocked(InventoryUiLaw.BankContainer, i);
+            InventoryUiLaw.SlotClickAction action = InventoryUiLaw.ClickAction(
+                leftClicked, rightClicked, ImGui.GetIO().KeyShift, HasCarriedItem,
+                instance is not null, instance?.Fields.ItemStackCount ?? 0, locked,
+                tradePlacement: false);
+            switch (action)
+            {
+                case InventoryUiLaw.SlotClickAction.Split:
+                    OpenStackSplit(InventoryUiLaw.BankContainer, i,
+                        (int)(instance?.Fields.ItemStackCount ?? 0), min + new Vector2(37) * s);
+                    break;
+                case InventoryUiLaw.SlotClickAction.PickupOrPlace:
+                    CancelStackSplit();
+                    PickupOrPlaceItem(InventoryUiLaw.BankContainer, i, guid);
+                    break;
+                case InventoryUiLaw.SlotClickAction.ClearCarried:
+                    CancelStackSplit();
+                    ClearCarriedItem();
+                    break;
+                case InventoryUiLaw.SlotClickAction.ContextAction when instance is not null:
+                    CancelStackSplit();
+                    WithdrawBankSlot(i, instance);
+                    break;
+            }
+            HandleInventoryDrag(InventoryUiLaw.BankContainer, i, guid, item);
             if (ImGui.IsItemHovered() && item is not null)
             {
                 uint itemCount = instance?.Fields.ItemStackCount ?? 1;
@@ -203,14 +324,168 @@ public sealed partial class GameLoop
         }
         byte count = player.Fields.BankBagSlotCount; uint price = _bankPrices?.Price(count + 1) ?? 0;
         for (int i = 0; i < 6; i++)
+            DrawBankBagButton(dl, origin, s, player, i, count);
+        if (count < 6)
         {
-            Vector2 min = origin + new Vector2(35 + i * 43, 300) * s;
-            uint ring = _gameplayArt?.Handle(i < count ? @"Interface\Buttons\UI-Quickslot2" : @"Interface\BankFrame\UI-Bank-Slot-Locked") ?? 0;
-            if (ring != 0) dl.AddImage((nint)ring, min - new Vector2(14) * s, min + new Vector2(50) * s);
+            DrawWrappedText(dl, BankFrameUiLaw.PurchaseMessageText,
+                origin + BankFrameUiLaw.PurchaseMessage * s,
+                BankFrameUiLaw.PurchaseMessageWidth, 10 * s, s, 0xffffffff, 2);
+            GameText.Draw(dl, "GameFontNormal", BankFrameUiLaw.CostText,
+                origin + BankFrameUiLaw.CostLabel * s, s);
+            float costLabelWidth = GameText.MeasureWidth(
+                "GameFontNormal", BankFrameUiLaw.CostText, s);
+            DrawTrainerMoney(dl, price,
+                origin + BankFrameUiLaw.CostLabel * s + new Vector2(costLabelWidth + 4 * s, 0),
+                s, player.Fields.Coinage >= price ? 0xffffffff : 0xff1a1aff,
+                rightAligned: false);
+            if (VanillaButton(dl,"##bank-buy-slot",BankFrameUiLaw.PurchaseText,
+                    origin+BankFrameUiLaw.PurchaseButton*s,
+                    BankFrameUiLaw.PurchaseButtonSize,s))
+            {
+                PlayUiSound(BankFrameUiLaw.PurchaseSound, BankFrameUiLaw.SoundCategory);
+                _bankPurchaseConfirmOpen = true;
+                EmitInterface("bank", "buy-confirm", "OPEN", _bankSource,
+                    $"slot={count + 1};price={price}");
+            }
         }
-        dl.AddText(ImGui.GetFont(),10f*s,origin+new Vector2(36,350)*s,0xffffffff,
-            count < 6 ? $"Next bag slot: {FormatMoney(price)}" : "All bank bag slots purchased");
-        if (count < 6 && VanillaButton(dl,"##bank-buy-slot","Purchase",origin+new Vector2(230,344)*s,
-                new Vector2(90,22),s)) BuyNextBankSlot();
+    }
+
+    private void DrawBankBagButton(ImDrawListPtr draw, Vector2 origin, float scale,
+        WorldEntity player, int index, byte purchasedCount)
+    {
+        int container = InventoryUiLaw.BankBagContainerFirst + index;
+        ulong guid = player.Fields.PlayerBankBagSlot(index);
+        WorldEntity? bag = guid != 0 && _entities.TryGet(guid, out WorldEntity found)
+            ? found : null;
+        ItemTemplate? template = null;
+        if (bag is not null)
+        {
+            _items?.Require(bag.Entry, bag.Guid, _net!);
+            _items?.TryGet(bag.Entry, out template);
+        }
+
+        Vector2 min = origin + BankFrameUiLaw.BankBagSlotMin(index) * scale;
+        bool purchased = index < purchasedCount;
+        string iconPath = template?.IconPath ?? @"Interface\PaperDoll\UI-PaperDoll-Slot-Bag";
+        uint icon = _gameplayArt?.Handle(iconPath) ?? 0;
+        uint tint = purchased ? 0xffffffff : 0xff1a1aff;
+        if (icon != 0)
+            draw.AddImage((nint)icon, min, min + new Vector2(37) * scale,
+                Vector2.Zero, Vector2.One, tint);
+        uint ring = _gameplayArt?.Handle(purchased
+            ? @"Interface\Buttons\UI-Quickslot2"
+            : @"Interface\BankFrame\UI-Bank-Slot-Locked") ?? 0;
+        if (ring != 0)
+            draw.AddImage((nint)ring, min - new Vector2(14) * scale,
+                min + new Vector2(50) * scale);
+
+        ImGui.SetCursorScreenPos(min);
+        ImGui.InvisibleButton($"##bank-bag-{index}", new Vector2(37) * scale);
+        bool clicked = ImGui.IsItemClicked(ImGuiMouseButton.Left) ||
+            ImGui.IsItemClicked(ImGuiMouseButton.Right);
+        if (clicked)
+        {
+            if (HasCarriedItem)
+                PickupOrPlaceItem(InventoryUiLaw.BankBagEquipmentContainer, index, guid,
+                    ignoreModifiers: true);
+            else if (bag is not null)
+                SetBagWindowOpen(container, !IsBagWindowOpen(container));
+        }
+        HandleInventoryDrag(InventoryUiLaw.BankBagEquipmentContainer, index, guid, template);
+
+        if (IsBagWindowOpen(container))
+        {
+            uint checkedArt = _gameplayArt?.AdditiveHandle(
+                @"Interface\Buttons\CheckButtonHilight") ?? 0;
+            if (checkedArt != 0)
+                draw.AddImage((nint)checkedArt, min, min + new Vector2(37) * scale);
+        }
+        if (ImGui.IsItemHovered())
+        {
+            string text = template?.Name ?? (purchased ? "Bag Slot" : "Purchasable Bag Slot");
+            OfferPreservedSharedGameTooltipRenderer(new("bank-bag-button", (ulong)index), () =>
+            {
+                ImGui.BeginTooltip();
+                ImGui.TextUnformatted(text);
+                ImGui.EndTooltip();
+            });
+        }
+    }
+
+    private void DrawBankPurchaseConfirmation()
+    {
+        if (!_bankPurchaseConfirmOpen || !_bankOpen || _skin is null) return;
+        float scale = GameplayUiScale();
+        string[] lines = WrapTooltipText(BankPurchaseConfirmUiLaw.Prompt,
+            "GameFontHighlight", scale,
+            BankPurchaseConfirmUiLaw.TextWidth * scale).ToArray();
+        float linePitch = GameText.LinePitch("GameFontHighlight", 1f);
+        float textHeight = lines.Length * linePitch;
+        BankPurchaseConfirmUiLaw.ScreenRect frame = BankPurchaseConfirmUiLaw.PopupRect(
+            ImGui.GetIO().DisplaySize, scale, textHeight);
+
+        ImGui.SetNextWindowPos(frame.Min, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(frame.Size, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav;
+        bool begun = ImGui.Begin("##bank-purchase-confirm", flags);
+        ImGui.PopStyleVar(2);
+        if (!begun) { ImGui.End(); return; }
+
+        ImDrawListPtr draw = ImGui.GetWindowDrawList();
+        _skin.DrawBackdrop(draw, frame.Min, frame.Min + frame.Size, WowSkin.Dialog);
+        for (int i = 0; i < lines.Length; i++)
+            GameText.DrawCentered(draw, "GameFontHighlight", lines[i],
+                frame.Min + BankPurchaseConfirmUiLaw.TextCenter(
+                    (i + .5f) * linePitch) * scale, scale);
+
+        bool accept = DrawBankPurchaseConfirmationButton(draw, 1,
+            BankPurchaseConfirmUiLaw.AcceptText,
+            frame.Min + BankPurchaseConfirmUiLaw.ButtonMin(1, textHeight) * scale, scale);
+        bool cancel = DrawBankPurchaseConfirmationButton(draw, 2,
+            BankPurchaseConfirmUiLaw.CancelText,
+            frame.Min + BankPurchaseConfirmUiLaw.ButtonMin(2, textHeight) * scale, scale);
+        ImGui.End();
+
+        if (accept)
+        {
+            _bankPurchaseConfirmOpen = false;
+            bool sent = BuyNextBankSlot();
+            EmitInterface("bank", "buy-confirm", sent ? "ACCEPTED" : "SEND_FAILED",
+                _bankSource, "wire=CMSG_BUY_BANK_SLOT");
+        }
+        else if (cancel)
+        {
+            _bankPurchaseConfirmOpen = false;
+            EmitInterface("bank", "buy-confirm", "CANCELLED", _bankSource, "wire=none");
+        }
+    }
+
+    private bool DrawBankPurchaseConfirmationButton(
+        ImDrawListPtr draw, int buttonIndex, string caption, Vector2 min, float scale)
+    {
+        Vector2 size = new(BankPurchaseConfirmUiLaw.ButtonWidth * scale,
+            BankPurchaseConfirmUiLaw.ButtonHeight * scale);
+        ImGui.SetCursorScreenPos(min);
+        bool clicked = ImGui.InvisibleButton($"##bank-purchase-confirm-{buttonIndex}", size);
+        bool pressed = ImGui.IsItemActive();
+        bool hovered = ImGui.IsItemHovered();
+        uint art = _skin!.TextureHandle(pressed ? "dialog.button.down" : "dialog.button.up");
+        if (art != 0)
+            draw.AddImage((nint)art, min, min + size, Vector2.Zero, new Vector2(1f, .625f));
+        if (hovered)
+        {
+            uint highlight = _gameplayArt?.BrightHighlightHandle(
+                @"Interface\Buttons\UI-DialogBox-Button-Highlight") ?? 0;
+            if (highlight != 0)
+                draw.AddImage((nint)highlight, min, min + size,
+                    Vector2.Zero, new Vector2(1f, .625f));
+        }
+        GameText.DrawCentered(draw, hovered ? "GameFontHighlight" : "GameFontNormal",
+            caption, min + size * .5f, scale);
+        return clicked;
     }
 }

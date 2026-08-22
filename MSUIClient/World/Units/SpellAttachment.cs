@@ -68,6 +68,16 @@ public static class SpellAttachment
     public readonly record struct Point(int BoneIndex, Vector3 Local, ushort ResolvedId, bool WasFallback);
 
     /// <summary>
+    /// Find exactly one authored attachment id, with no spell-effect fallback cascade.
+    /// Some consumers (notably the client's TalkToMe quest marker) deliberately stay
+    /// invisible when their required overhead attachment is absent.
+    /// </summary>
+    public static Point? ResolveExact(M2Model model, ushort attachmentId)
+        => Find(model, attachmentId) is { } exact
+            ? exact with { ResolvedId = attachmentId, WasFallback = false }
+            : null;
+
+    /// <summary>
     /// Find an attachment on a model, applying the fallback cascade.
     ///
     /// Lookup order per id: AttachmentLookup (the id-indexed table, when present

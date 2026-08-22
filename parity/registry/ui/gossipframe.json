@@ -7,21 +7,23 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/GossipFrame.xml",
-      "fileSha256": "e9f0ff748f3efc7ef5c99528016086329c18b70fd1ba7132637e7955922664b9",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "075a24c2f092623f23791b9de46b1233e54f60a34b673a36aeb2ef2708c04acf",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_gossip.rs",
-      "fileSha256": "70e8ea703dfe8610cc51b02734e09e01bccde171bcf52509b4df2d3564319073",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "963598568637eea219f35aa70063f0cf02c1fe46fd192c6ba91370e2a960fb13",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Gossip.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/QuestFrameUiLaw.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Gossip.cs",
+    "MSUIClient/Engine/UI/GossipUiLaw.cs",
+    "MSUIClient/Engine/UI/QuestFrameUiLaw.cs",
+    "tools/interface-wire-check/GossipClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "Gossip is complete as a flow: SMSG_GOSSIP_MESSAGE decode (options + quest rows), NPC-text fetch with $N/$C macro expansion, greeting panel art, NPC name title, selectable option rows with coded-option guard and route classification, quest rows forking to details vs completion by dialog-status icon (QuestFrameUiLaw.GreetingAction), Goodbye and close buttons. 10/11 opcodes hit; the missing CMSG_GOSSIP_CLOSE is a non-gap - Benilla's own ui_gossip.rs states 'there is no CMSG_GOSSIP_CLOSE' and sends nothing either.",
+  "status": "implemented-unverified",
+  "summary": "Gossip matches current Benilla's flow and row presentation: message/options/quest decode, per-open weighted and NPC-gender-selected macro-expanded greeting, ask-once eight-block text-record cache, authored shell/title/rows, exact 0..13 option icon table with auctioneer missing-art fallback, ActiveQuestIcon versus AvailableQuestIcon pool split, coded-option guard, route classification, quest query/completion fork, Goodbye and close. CMSG_GOSSIP_CLOSE remains correctly absent because neither client sends one.",
   "openItems": [
     {
       "id": "item-triage-74f32f9f",
@@ -29,12 +31,21 @@
       "text": "No per-row icons: gossip options lack the GOSSIP_ICON-typed textures (Gossip/Vendor/Taxi/Trainer/Binder/Tabard/BattleMaster GossipIcon) and quest rows lack ActiveQuestIcon/AvailableQuestIcon - MSUI renders '> text' / '[level] title' plain rows",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-21: GossipUiLaw now owns the exact option icon index map (including healer, binder, banker, petition, tabard and battlemaster), clamps aliases/missing auctioneer art to the gossip bubble, and selects ActiveQuestIcon for icons 3/4 versus AvailableQuestIcon for the available pool."
+    },
+    {
+      "id": "item-msui-gossip-icons-live-verify",
+      "kind": "verify",
+      "text": "Focused icon-law and source checks pass. Needs live row checks with an innkeeper, spirit healer, banker, battlemaster, available quest and active/turn-in quest.",
+      "source": "implementation-2026-08-21",
+      "added": "2026-08-21",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-21T22:37:24.3864032+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

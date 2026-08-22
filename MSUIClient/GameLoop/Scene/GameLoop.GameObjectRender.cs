@@ -1,4 +1,5 @@
 using System.Numerics;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 using MSUIClient.World.Doodads;
@@ -198,6 +199,8 @@ public sealed partial class GameLoop
         // The placement map can briefly outlive the entity store between the
         // despawn and the next reconcile; never hover a ghost.
         if (!_entities.TryGet(guid, out WorldEntity go) || !go.IsGameObject) return 0;
+
+        if (!GameObjectMouseoverEligible(go)) return 0;
 
         // Same occlusion rule as PickUnit: static world geometry strictly nearer
         // than the hit blocks it. A GO's own collision hull can never block its

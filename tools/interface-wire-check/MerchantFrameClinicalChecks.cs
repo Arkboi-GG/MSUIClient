@@ -6,6 +6,12 @@ using MSUIClient.Net;
 
 internal static class MerchantFrameClinicalChecks
 {
+    public static void RunTooltipOnly()
+    {
+        CheckVendorTemplateTooltipProjection();
+        CheckVendorTooltipRendererSourceFence();
+    }
+
     public static void Run()
     {
         CheckMerchantPaginationAndRows();
@@ -599,9 +605,18 @@ internal static class MerchantFrameClinicalChecks
               renderer.Contains("Speed {speed.ToString(\"0.00\"",
                   StringComparison.Ordinal) &&
               renderer.Contains("damage per second)", StringComparison.Ordinal) &&
-              renderer.Contains("ImGui.SetNextWindowPos(ownerTopRight, ImGuiCond.Always, " +
-                  "new Vector2(0, 1));", StringComparison.Ordinal),
-            "Merchant template-source tooltip projection or BOTTOMLEFT-on-TOPRIGHT seat drifted");
+              renderer.Contains("PrepareInventoryItemTooltipRenderer(",
+                  StringComparison.Ordinal) &&
+              renderer.Contains("body, ownerTopRight, new Vector2(0, 1)",
+                  StringComparison.Ordinal) &&
+              renderer.Contains("DrawPreparedInventoryItemTooltip(renderer)",
+                  StringComparison.Ordinal) &&
+              !renderer.Contains("##vendor-template-tooltip-columns",
+                  StringComparison.Ordinal) &&
+              !renderer.Contains("ImGui.BeginTooltip()", StringComparison.Ordinal) &&
+              !renderer.Contains("ImGui.BeginTable", StringComparison.Ordinal) &&
+              !renderer.Contains("ImGui.TextColored", StringComparison.Ordinal),
+            "Merchant template-source tooltip projection escaped the authored GameText/WowSkin renderer or BOTTOMLEFT-on-TOPRIGHT seat");
 
         Check(renderer.Contains("Page-Disabled", StringComparison.Ordinal) &&
               renderer.Contains("UI-PageButton-Background", StringComparison.Ordinal) &&
@@ -629,6 +644,31 @@ internal static class MerchantFrameClinicalChecks
               renderer.Contains("draw.AddImage((nint)texture, iconMin,",
                   StringComparison.Ordinal),
             "Merchant row/purse money stopped consuming the measured source-pinned law");
+    }
+
+    private static void CheckVendorTooltipRendererSourceFence()
+    {
+        string client = Path.Combine(ClientConfig.FindRepoRoot(), "MSUIClient");
+        string renderer = SourceText.Read(Path.Combine(client, "Program.Vendor.Render.cs"));
+        string inventory = SourceText.Read(Path.Combine(client, "Program.Inventory.cs"));
+
+        Check(renderer.Contains("PrepareVendorTemplateTooltip(item, player)",
+                  StringComparison.Ordinal) &&
+              renderer.Contains("PrepareInventoryItemTooltipRenderer(",
+                  StringComparison.Ordinal) &&
+              renderer.Contains("body, ownerTopRight, new Vector2(0, 1)",
+                  StringComparison.Ordinal) &&
+              renderer.Contains("DrawPreparedInventoryItemTooltip(renderer)",
+                  StringComparison.Ordinal) &&
+              inventory.Contains("prepared.Skin.DrawBackdrop", StringComparison.Ordinal) &&
+              inventory.Contains("WowSkin.Tooltip", StringComparison.Ordinal) &&
+              inventory.Contains("GameText.Draw(draw, line.FontObject", StringComparison.Ordinal) &&
+              !renderer.Contains("##vendor-template-tooltip-columns",
+                  StringComparison.Ordinal) &&
+              !renderer.Contains("ImGui.BeginTooltip()", StringComparison.Ordinal) &&
+              !renderer.Contains("ImGui.BeginTable", StringComparison.Ordinal) &&
+              !renderer.Contains("ImGui.TextColored", StringComparison.Ordinal),
+            "Merchant item hover escaped the prepared GameText/WowSkin tooltip renderer");
     }
 
     private static int Count(string text, string needle)

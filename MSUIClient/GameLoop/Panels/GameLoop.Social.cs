@@ -8,20 +8,21 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    private sealed record FriendRow(ulong Guid, byte Status, uint Area, uint Level, uint Class);
     private sealed record WhoRow(string Name, string Guild, uint Level, uint Class, uint Race, uint Area);
-    private readonly List<FriendRow> _friends = [];
+    private readonly List<SocialPackets.FriendEntry> _friends = [];
     private readonly List<ulong> _ignored = [];
+    private readonly List<SocialPackets.FriendStatus> _pendingFriendStatusLines = [];
     private readonly List<WhoRow> _who = [];
-    private readonly byte[] _friendNameInput = new byte[64];
+    // Twelve visible letters plus the terminating zero: the frozen ADD_FRIEND/ADD_IGNORE cap.
+    private readonly byte[] _friendNameInput = new byte[FriendsFrameUiLaw.NameMaxLetters + 1];
     private readonly byte[] _whoInput = new byte[64];
     private bool _socialOpen;
     private int _socialSelected;
     private int _socialPage;
     private bool _showIgnore;
     private uint _whoTotal;
-    private bool _namePopupOpen;      // 1.12 ADD_FRIEND / ADD_IGNORE name-entry dialog
-    private bool _namePopupIgnore;
+    private bool _socialPopupFocusRequested;
+    private bool _socialPopupEditFocused;
 
     private void OpenSocial()
     {
@@ -47,9 +48,45 @@ public sealed partial class GameLoop
 
     private void ApplyFriendStatus(byte[] body)
     {
-        // The status result has result-dependent trailing data. A fresh list is the
-        // authoritative compact state and also handles add/remove/online transitions.
-        if (body.Length >= 9) _net?.FriendList();
+        SocialPackets.FriendStatus update = SocialPackets.ParseFriendStatus(body);
+        SocialPackets.ApplyStatus(_friends, _ignored, update);
+        _socialSelected = Math.Clamp(_socialSelected, 0,
+            Math.Max(0, (_showIgnore ? _ignored.Count : _friends.Count) - 1));
+
+        string? template = FriendStatusUiLaw.Template(update.Result);
+        if (template is null) return;
+        if (!FriendStatusUiLaw.NeedsName(template))
+        {
+            AddChatMessage(template);
+            return;
+        }
+        if (update.Guid != 0 &&
+            _playerNames.TryGetValue(update.Guid, out string? name) && name.Length > 0)
+        {
+            AddChatMessage(FriendStatusUiLaw.Compose(template, name));
+            return;
+        }
+        _pendingFriendStatusLines.Add(update);
+        if (update.Guid != 0 && _queriedPlayerNames.Add(update.Guid))
+            _net?.NameQuery(update.Guid);
+    }
+
+    private void FlushPendingFriendStatus(ulong guid)
+    {
+        if (!_playerNames.TryGetValue(guid, out string? name) || name.Length == 0)
+        {
+            _pendingFriendStatusLines.RemoveAll(update => update.Guid == guid);
+            return;
+        }
+        for (int i = _pendingFriendStatusLines.Count - 1; i >= 0; i--)
+        {
+            SocialPackets.FriendStatus update = _pendingFriendStatusLines[i];
+            if (update.Guid != guid) continue;
+            _pendingFriendStatusLines.RemoveAt(i);
+            string? template = FriendStatusUiLaw.Template(update.Result);
+            if (template is not null)
+                AddChatMessage(FriendStatusUiLaw.Compose(template, name));
+        }
     }
 
     private void ApplyIgnoreList(byte[] body)
@@ -84,7 +121,8 @@ public sealed partial class GameLoop
     private void DrawSocialFrame()
     {
         if (!_socialOpen || _gameplayArt is null) return;
-        if (!BeginVanillaWindow("##social", new Vector2(0, 104), new Vector2(384, 512),
+        if (!BeginVanillaWindow("##social", FriendsFrameUiLaw.FrameOrigin(1f),
+                FriendsFrameUiLaw.FrameSize(1f),
                 out ImDrawListPtr dl, out Vector2 origin, out float s)) { ImGui.End(); return; }
         // FriendsFrame's top half is the plain paperdoll top (UI-Character-General-Top*); only
         // the BOTTOM half carries the list inset + button recesses (UI-FriendsFrame-Bot*).
@@ -127,7 +165,7 @@ public sealed partial class GameLoop
                 {
                     _socialPage = i;
                     if (i == 0) _net?.FriendList();
-                    if (i == 1) _net?.Who(ReadBuffer(_whoInput));
+                    if (i == 1) SendWhoFilter(ReadBuffer(_whoInput));
                 }
             }
             tabX += tabW[i] - 14;
@@ -136,7 +174,6 @@ public sealed partial class GameLoop
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up", @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         if (ImGui.IsItemClicked()) _socialOpen = false;
-        DrawSocialNamePopup(dl, origin, s);
         ImGui.End();
     }
 
@@ -151,7 +188,7 @@ public sealed partial class GameLoop
         {
             for (int i = 0; i < _friends.Count && i < 10; i++)
             {
-                FriendRow row = _friends[i];
+                SocialPackets.FriendEntry row = _friends[i];
                 string name = _playerNames.GetValueOrDefault(row.Guid, $"Player {row.Guid & 0xffff:X4}");
                 bool online = row.Status != 0;
                 string zone = online ? _areas?.ZoneName(row.Area) ?? $"Area {row.Area}" : "";
@@ -179,22 +216,34 @@ public sealed partial class GameLoop
         if (!_showIgnore)
         {
             bool haveSel = _friends.Count > 0;
+            SocialPackets.FriendEntry? selectedFriend = haveSel
+                ? _friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)] : null;
+            bool nameKnown = selectedFriend is { } selected &&
+                _playerNames.TryGetValue(selected.Guid, out string? selectedName) &&
+                selectedName.Length > 0;
+            bool selectedOnline = FriendsFrameUiLaw.CanContact(haveSel,
+                selectedFriend is { Status: not 0 }, nameKnown);
             if (VanillaButton(dl, "##social-add", "Add Friend",
-                    origin + new Vector2(17, 384) * s, new Vector2(131, 21), s))
-            { _namePopupOpen = true; _namePopupIgnore = false; Array.Clear(_friendNameInput); }
+                    origin + FriendsFrameUiLaw.AddFriend.Min * s,
+                    FriendsFrameUiLaw.AddFriend.Size, s))
+                ShowSocialNamePopup(ignore: false);
             if (VanillaButton(dl, "##social-send", "Send Message",
-                    origin + new Vector2(214, 384) * s, new Vector2(131, 21), s, haveSel))
+                    origin + FriendsFrameUiLaw.SendMessage.Min * s,
+                    FriendsFrameUiLaw.SendMessage.Size, s, selectedOnline))
             {
-                FriendRow sel = _friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)];
+                SocialPackets.FriendEntry sel = _friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)];
                 OpenChatEditWith($"/w {_playerNames.GetValueOrDefault(sel.Guid, "")} ");
             }
             if (VanillaButton(dl, "##social-remove", "Remove Friend",
-                    origin + new Vector2(17, 410) * s, new Vector2(131, 21), s, haveSel))
+                    origin + FriendsFrameUiLaw.RemoveFriend.Min * s,
+                    FriendsFrameUiLaw.RemoveFriend.Size, s,
+                    FriendsFrameUiLaw.CanRemove(haveSel)))
                 _net?.DeleteFriend(_friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)].Guid);
             if (VanillaButton(dl, "##social-invite", "Group Invite",
-                    origin + new Vector2(214, 410) * s, new Vector2(131, 21), s, haveSel))
+                    origin + FriendsFrameUiLaw.GroupInvite.Min * s,
+                    FriendsFrameUiLaw.GroupInvite.Size, s, selectedOnline))
             {
-                FriendRow sel = _friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)];
+                SocialPackets.FriendEntry sel = _friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)];
                 _net?.GroupInvite(_playerNames.GetValueOrDefault(sel.Guid, ""));
             }
         }
@@ -202,37 +251,127 @@ public sealed partial class GameLoop
         {
             if (VanillaButton(dl, "##social-ignore-add", "Ignore Player",
                     origin + new Vector2(17, 384) * s, new Vector2(131, 21), s))
-            { _namePopupOpen = true; _namePopupIgnore = true; Array.Clear(_friendNameInput); }
+                ShowSocialNamePopup(ignore: true);
             if (VanillaButton(dl, "##social-ignore-remove", "Stop Ignore",
                     origin + new Vector2(17, 410) * s, new Vector2(131, 21), s, _ignored.Count > 0))
                 _net?.DeleteIgnore(_ignored[Math.Clamp(_socialSelected, 0, _ignored.Count - 1)]);
         }
     }
 
-    // The ADD_FRIEND / ADD_IGNORE StaticPopup: a small centred name-entry dialog. Drawn over the
-    // frame so an empty Friends tab matches 1.12 (no inline box) yet add-by-name still works.
-    private void DrawSocialNamePopup(ImDrawListPtr dl, Vector2 origin, float s)
+    private void ShowSocialNamePopup(bool ignore)
     {
-        if (!_namePopupOpen) return;
-        Vector2 min = origin + new Vector2(52, 200) * s;
-        Vector2 size = new Vector2(280, 112);
-        dl.AddRectFilled(min, min + size * s, 0xf00a0a0a);
-        dl.AddRect(min, min + size * s, 0xff8a8a8a, 0, ImDrawFlags.None, 1.5f * s);
-        DrawCenteredText(dl, min + new Vector2(140, 18) * s,
-            _namePopupIgnore ? "Type the name of who to ignore:" : "Type the name of who to add:",
-            11f * s, 0xffffffff);
-        VanillaInputText(dl, "##name-popup", _friendNameInput,
-            min + new Vector2(20, 38) * s, new Vector2(240, 22), s);
+        bool playerDeadOrGhost = _net is not null &&
+            _entities.TryGet(_net.PlayerGuid, out WorldEntity player) && player.IsDead;
+        ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(
+            _staticPopupSlots,
+            ignore ? FriendsFrameUiLaw.AddIgnorePopupDefinition
+                : FriendsFrameUiLaw.AddFriendPopupDefinition,
+            playerDeadOrGhost));
+    }
+
+    private void SubmitSocialNamePopup(string type)
+    {
         string input = FriendInput();
-        if (VanillaButton(dl, "##name-ok", "Okay", min + new Vector2(38, 74) * s,
-                new Vector2(90, 22), s, input.Length > 0))
+        if (type == FriendsFrameUiLaw.AddIgnorePopupType) _net?.AddIgnore(input);
+        else _net?.AddFriend(input);
+    }
+
+    // Shared StaticPopup's narrow edit-box branch. ImGui owns only the invisible input/hit shell;
+    // every modal and child rectangle below is resolved by StaticPopupCoordinatorLaw.
+    private void DrawSocialNamePopup()
+    {
+        (int Slot, StaticPopupCoordinatorLaw.Instance Instance)? popup =
+            FriendsFrameUiLaw.NamePopup(_staticPopupSlots);
+        if (popup is not { } visible || _skin is null) return;
+
+        float s = GameplayUiScale();
+        string type = visible.Instance.Definition.Type;
+        string text = FriendsFrameUiLaw.PopupText(type);
+        float textHeight = GameText.LinePitch("GameFontHighlight", 1);
+        StaticPopupCoordinatorLaw.NarrowEditBoxLayout layout =
+            StaticPopupCoordinatorLaw.NarrowEditLayout(textHeight);
+        Vector2 origin = StaticPopupOrigin(visible.Slot, layout.Width, s);
+        Vector2 size = new(layout.Width * s, layout.Height * s);
+
+        ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground |
+            ImGuiWindowFlags.NoNav;
+        bool begun = ImGui.Begin($"##social-name-popup-{visible.Slot}", flags);
+        ImGui.PopStyleVar(2);
+        if (!begun) { ImGui.End(); return; }
+
+        ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        dl.PushClipRectFullScreen();
+        _skin.DrawBackdrop(dl, origin, origin + size, WowSkin.Dialog);
+        GameText.DrawCentered(dl, "GameFontHighlight", text,
+            origin + new Vector2(layout.Width * .5f,
+                layout.Text.Y + layout.Text.Height * .5f) * s, s);
+
+        Vector2 editMin = origin + new Vector2(layout.EditBox.X, layout.EditBox.Y) * s;
+        DrawStaticPopupEditBoxBorder(dl, editMin, s);
+        ImGui.SetCursorScreenPos(editMin + new Vector2(0, 7) * s);
+        ImGui.SetNextItemWidth(layout.EditBox.Width * s);
+        ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgActive, Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.Border, Vector4.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, Vector2.Zero);
+        if (_socialPopupFocusRequested)
         {
-            if (_namePopupIgnore) _net?.AddIgnore(input); else _net?.AddFriend(input);
-            Array.Clear(_friendNameInput); _namePopupOpen = false;
+            ImGui.SetKeyboardFocusHere();
+            _socialPopupFocusRequested = false;
         }
-        if (VanillaButton(dl, "##name-cancel", "Cancel", min + new Vector2(152, 74) * s,
-                new Vector2(90, 22), s))
-        { Array.Clear(_friendNameInput); _namePopupOpen = false; }
+        bool entered = ImGui.InputText("##static-popup-edit", _friendNameInput,
+            (uint)_friendNameInput.Length, ImGuiInputTextFlags.EnterReturnsTrue);
+        _socialPopupEditFocused = ImGui.IsItemActive();
+        ImGui.PopStyleVar();
+        ImGui.PopStyleColor(4);
+
+        bool accepted = DrawPartyInviteButton(dl, "StaticPopup1Button1", "Accept",
+            origin + new Vector2(layout.Button1.X, layout.Button1.Y) * s,
+            s, capture: false, default);
+        bool cancelled = DrawPartyInviteButton(dl, "StaticPopup1Button2", "Cancel",
+            origin + new Vector2(layout.Button2.X, layout.Button2.Y) * s,
+            s, capture: false, default);
+        dl.PopClipRect();
+        ImGui.End();
+
+        if (entered)
+        {
+            ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.EditBoxEnter(
+                _staticPopupSlots, visible.Slot));
+            ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.HideByType(
+                _staticPopupSlots, type));
+        }
+        else if (accepted)
+            ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Click(
+                _staticPopupSlots, visible.Slot, buttonIndex: 1));
+        else if (cancelled)
+            ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Click(
+                _staticPopupSlots, visible.Slot, buttonIndex: 2));
+    }
+
+    private void DrawStaticPopupEditBoxBorder(ImDrawListPtr dl, Vector2 editMin, float s)
+    {
+        uint left = _gameplayArt?.Handle(@"Interface\ChatFrame\UI-ChatInputBorder-Left") ?? 0;
+        uint right = _gameplayArt?.Handle(@"Interface\ChatFrame\UI-ChatInputBorder-Right") ?? 0;
+        float cap = StaticPopupCoordinatorLaw.EditBoxBorderCapWidth;
+        float outer = StaticPopupCoordinatorLaw.EditBoxBorderOuterOffset;
+        float width = StaticPopupCoordinatorLaw.NarrowEditBoxWidth;
+        float height = StaticPopupCoordinatorLaw.NarrowEditBoxHeight;
+        if (left != 0)
+            dl.AddImage((nint)left, editMin + new Vector2(-outer, 0) * s,
+                editMin + new Vector2(cap - outer, height) * s,
+                Vector2.Zero, new Vector2(.29296875f, 1));
+        if (right != 0)
+            dl.AddImage((nint)right, editMin + new Vector2(width + outer - cap, 0) * s,
+                editMin + new Vector2(width + outer, height) * s,
+                new Vector2(.70703125f, 0), Vector2.One);
     }
 
     // WhoFrameColumnHeaderTemplate: 3-slice WhoFrame-ColumnTabs (Left 5px, Middle stretched,
@@ -287,7 +426,7 @@ public sealed partial class GameLoop
             origin + new Vector2(24, 380) * s, new Vector2(296, 32), s);
         // Refresh | Add Friend | Group Invite row at y=408 (FriendsFrame.xml:1583-1634).
         if (VanillaButton(dl, "##who-refresh", "Refresh", origin + new Vector2(19, 408) * s,
-                new Vector2(85, 22), s)) _net?.Who(ReadBuffer(_whoInput));
+                new Vector2(85, 22), s)) SendWhoFilter(ReadBuffer(_whoInput));
         bool selected = _who.Count > 0;
         if (VanillaButton(dl, "##who-friend", "Add Friend", origin + new Vector2(104, 408) * s,
                 new Vector2(120, 22), s, selected)) _net?.AddFriend(_who[_socialSelected].Name);
@@ -308,4 +447,7 @@ public sealed partial class GameLoop
                     ? 0xffffffff : 0xff808080);
         }
     }
+
+    private void SendWhoFilter(string filter) => _net?.Who(
+        SocialPackets.ParseWhoFilter(filter, name => _areas?.IdForName(name)));
 }

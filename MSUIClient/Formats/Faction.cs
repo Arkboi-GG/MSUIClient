@@ -20,12 +20,15 @@ public sealed class FactionCatalog
 {
     public const string MpqPath = @"DBFilesClient\Faction.dbc";
     private readonly Dictionary<int, FactionInfo> _byReputationIndex = new();
+    private readonly Dictionary<uint, FactionInfo> _byId = new();
     // Every faction by id (name + parent), including group headers (reputationIndex == -1)
     // that carry no standing of their own but head the reputation-pane categories.
     private readonly Dictionary<uint, string> _nameById = new();
 
     public bool TryGetByReputationIndex(int index, out FactionInfo row) =>
         _byReputationIndex.TryGetValue(index, out row!);
+
+    public bool TryGetById(uint id, out FactionInfo row) => _byId.TryGetValue(id, out row!);
 
     /// <summary>The display name of any faction id, e.g. a ParentFaction group header.</summary>
     public bool TryGetName(uint factionId, out string name) =>
@@ -49,9 +52,11 @@ public sealed class FactionCatalog
                 classMasks[i] = dbc.GetUInt(row, 6 + i);
                 bases[i] = dbc.GetInt(row, 10 + i);
             }
-            result._byReputationIndex[reputationIndex] = new FactionInfo(
+            FactionInfo info = new(
                 dbc.GetUInt(row, 0), reputationIndex, dbc.GetUInt(row, 18),
                 dbc.GetString(row, 19), raceMasks, classMasks, bases);
+            result._byReputationIndex[reputationIndex] = info;
+            result._byId[info.Id] = info;
         }
         return result;
     }

@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 
@@ -7,7 +8,6 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    private const float WorldTextLifetime = 1.5f;
     private const int MaxWorldTextPerUnit = 4;
 
     private sealed class FloatingCombatText
@@ -42,7 +42,8 @@ public sealed partial class GameLoop
         _tradeOpen || _bankOpen || _trainer is not null || _taxiOpen || _vendor is not null ||
         _gossipMenu is not null || _questList is not null || _questDetails is not null ||
         _questRequestItems is not null || _questOffer is not null || _backpackOpen ||
-        _deathRezOpen || _hearthOpen || _tabardOpen || _loot.IsOpen || _gameObjectPages.Count > 0;
+        _deathRezOpen || _hearthOpen || _tabardOpen || _loot.IsOpen || _itemTextRead is not null ||
+        _itemRefEntry != 0;
 
     private void ResetCombatFeedback()
     {
@@ -52,11 +53,32 @@ public sealed partial class GameLoop
         _targetCombatFlash = 0f;
         _worldCombatTextSpawned = 0;
         _worldCombatTextDropped = 0;
+        _uiHidden = false;
+        _toggleUiWasDown = false;
+        _bindingLatches.Clear();
+        _creatureHostileVoices.Clear();
+        ResetCombatTextState();
+        ResetDuel();
+    }
+
+    private void QueueCenterCombatText(string text, CenterCombatTextStyle style,
+        bool critical = false)
+    {
+        if (_centerCombatText.Count == 20) _centerCombatText.RemoveAt(0);
+        _centerCombatText.Add(new CenterText
+        {
+            Text = text,
+            Style = style,
+            Critical = critical,
+            Lane = _centerCombatText.Count % 5,
+        });
     }
 
     private void ApplyCombatFeedback(CombatEvent combatEvent)
     {
         if (_net is null) return;
+
+        if (combatEvent is CombatXpGain xp) PostCombatXpGain(xp);
 
         foreach (ulong victim in CombatFeedbackLaw.FeedbackVictims(combatEvent))
         {
@@ -64,40 +86,51 @@ public sealed partial class GameLoop
             if (victim == _selectionGuid) _targetCombatFlash = 0.35f;
         }
 
-        foreach (WorldCombatTextCue cue in CombatFeedbackLaw.WorldText(combatEvent, ControlledGuid))
-        {
-            if (!_entities.TryGet(cue.Target, out WorldEntity entity)) continue;
-            int lane = _floatingCombatText.Count(t => t.Target == cue.Target);
-            if (lane >= MaxWorldTextPerUnit)
-            {
-                _worldCombatTextDropped++;
-                continue;
-            }
-
-            float scale = _creatures?.PickScale(entity) ?? MathF.Max(0.01f, entity.Scale);
-            _floatingCombatText.Add(new FloatingCombatText
-            {
-                Target = cue.Target,
-                Anchor = entity.Position + new Vector3(0, 0, MathF.Max(1.5f, 2.2f * scale)),
-                Text = cue.Text,
-                Style = cue.Style,
-                Critical = cue.Critical,
-                Lane = lane,
-            });
-            _worldCombatTextSpawned++;
-        }
+        foreach (WorldCombatTextCue cue in CombatFeedbackLaw.WorldText(combatEvent, ControlledGuid,
+                     IsOwnedCombatTextSource, IsMeleeStyledCombatSpell)) QueueWorldCombatText(cue);
 
         foreach (CenterCombatTextCue cue in CombatFeedbackLaw.CenterText(combatEvent, ControlledGuid))
+            QueueCenterCombatText(cue.Text, cue.Style, cue.Critical);
+    }
+
+    private bool IsOwnedCombatTextSource(ulong source) =>
+        _entities.TryGet(source, out WorldEntity unit) && unit.IsUnit &&
+        (unit.Fields.SummonedBy == ControlledGuid || unit.Fields.CreatedBy == ControlledGuid);
+
+    private bool IsMeleeStyledCombatSpell(uint spellId) =>
+        _spellCatalog?.TryGet(spellId, out SpellInfo spell) != true || spell.MeleeWhiteDamage;
+
+    private void QueueWorldCombatText(WorldCombatTextCue cue)
+    {
+        if (!_entities.TryGet(cue.Target, out WorldEntity entity)) return;
+        int lane = _floatingCombatText.Count(t => t.Target == cue.Target);
+        if (lane >= MaxWorldTextPerUnit)
         {
-            if (_centerCombatText.Count == 20) _centerCombatText.RemoveAt(0);
-            _centerCombatText.Add(new CenterText
-            {
-                Text = cue.Text,
-                Style = cue.Style,
-                Critical = cue.Critical,
-                Lane = _centerCombatText.Count % 5,
-            });
+            _worldCombatTextDropped++;
+            return;
         }
+
+        float scale = _creatures?.PickScale(entity) ?? MathF.Max(0.01f, entity.Scale);
+        _floatingCombatText.Add(new FloatingCombatText
+        {
+            Target = cue.Target,
+            Anchor = entity.Position + new Vector3(0, 0, MathF.Max(1.5f, 2.2f * scale)),
+            Text = cue.Text,
+            Style = cue.Style,
+            Critical = cue.Critical,
+            Lane = lane,
+        });
+        _worldCombatTextSpawned++;
+    }
+
+    private void ApplyPvpCredit(byte[] body)
+    {
+        PvpCreditPacket credit = PvpCreditPackets.Parse(body);
+        // The shipped COMBAT_TEXT_SHOW_HONOR_GAINED default is on. Dishonor and
+        // zero-credit notices have their own combat-log treatment, not this row.
+        if (credit.Honor <= 0 || LocalPlayerGuid == 0) return;
+        QueueWorldCombatText(new(LocalPlayerGuid, PvpCreditPackets.FloatingText(credit),
+            WorldCombatTextStyle.Honor));
     }
 
     private void UpdateCombatFeedback(float dt)
@@ -107,7 +140,10 @@ public sealed partial class GameLoop
         for (int i = _floatingCombatText.Count - 1; i >= 0; i--)
         {
             _floatingCombatText[i].Age += dt;
-            if (_floatingCombatText[i].Age >= WorldTextLifetime)
+            FloatingCombatText item = _floatingCombatText[i];
+            float lifetime = CombatFeedbackLaw.Presentation(
+                item.Style, item.Critical, item.Text).LifetimeSeconds;
+            if (item.Age >= lifetime)
                 _floatingCombatText.RemoveAt(i);
         }
         for (int i = _centerCombatText.Count - 1; i >= 0; i--)
@@ -119,10 +155,18 @@ public sealed partial class GameLoop
 
     private void DrawCombatHud()
     {
+        _window.BeginHardwareCursorFrame();
         BeginSharedGameTooltipFrame(NowSeconds());
         try
         {
+            // The reference keeps Point as the gameplay/UI base and lets a more specific hover
+            // replace it. A real OS cursor avoids one render-frame of visual input latency.
+            TryUseHardwareCursor(WorldCursorKind.Point.ToString());
             BakeDirtyPortraits();
+            // TOGGLEUI hides at the draw, not at the producers. Open panels, chat, cooldowns,
+            // combat text and tooltip state keep advancing and return unchanged; emitting no
+            // player-HUD windows also makes the hidden interface take no mouse input.
+            if (_uiHidden) return;
             // The commander map is a full command surface: HUD, free-cam overlays
             // and banner are all suppressed under it, same rule as the world map.
             // Unlike DrawWorldMapFrame it must not require the player ENTITY —
@@ -146,24 +190,31 @@ public sealed partial class GameLoop
             UpdateAndQueueWorldGameObjectGameTooltip(NowSeconds());
             DrawFloatingCombatText();
             DrawWorldUnitNames();
+            DrawZoneTextSplash();
+            DrawAutoFollowStatus();
             DrawPlayerFrame();
             DrawTargetFrame();
             DrawPetFrameAndActionBar();
+            DrawStanceBar();
             DrawPartyFrames();
             DrawControlBanner();
             DrawFreeCamSelectionOverlay();
             DrawUnitPopup();
             DrawPlayerAuraBar();
             DrawMinimap();
+            DrawGameTimeFrame();
+            DrawQuestTimerFrame();
+            DrawDurabilityFrame();
+            DrawQuestWatchFrame();
             DrawChatFrame();
             DrawCenterCombatText();
             DrawRtsTerritoryCapture();
             DrawCastingBar();
+            DrawMirrorTimerFrames();
             DrawActionBars();
             DrawLootFrame();
             DrawGameObjectFrame();
             DrawRestXpFrame();
-            DrawDeathRezFrame();
             DrawHearthFrame();
             DrawTaxiFrame();
             DrawGossipFrame();
@@ -192,17 +243,30 @@ public sealed partial class GameLoop
             // The reference bottom multibars use frameStrata HIGH. Draw them after ordinary
             // MEDIUM panels (including bags) and before dialog confirmations.
             DrawMultiActionBars();
+            DrawGroupLootFrames();
             ResolveAndDrawSharedGameTooltip();
+            DrawItemRefTooltip();
             CompleteDeferredShoppingTooltipParityCapture();
             CompleteDeferredPartyTooltipParityCapture();
+            DrawDeathRezFrame();
             DrawPartyInvite();
+            DrawDuelPopups();
+            DrawDeleteItemConfirmation();
+            DrawCharacterBindingsConfirmation();
+            DrawSocialNamePopup();
+            DrawGroupLootConfirmation();
+            DrawBindConfirmation();
+            DrawBankPurchaseConfirmation();
+            DrawQuestAbandonConfirmation();
             DrawMailConfirmation();
             DrawEnchantConfirmation();
             DrawSkillUnlearnConfirmation();
+            DrawWorldHoverCursor();
             if (SkillFrameUiParityCaptureActive) MarkUiParityFrameComplete();
         }
         finally
         {
+            _window.EndHardwareCursorFrame();
             EndSharedGameTooltipFrame();
             CompleteDeferredShoppingTooltipParityCapture();
             CompleteDeferredPartyTooltipParityCapture();
@@ -263,35 +327,30 @@ public sealed partial class GameLoop
 
         foreach (FloatingCombatText item in _floatingCombatText)
         {
-            float t = item.Age / WorldTextLifetime;
-            float alpha = item.Age < 0.15f
-                ? item.Age / 0.15f
-                : item.Age <= 0.76f ? 1f : 1f - (item.Age - 0.76f) / (WorldTextLifetime - 0.76f);
-            alpha = Math.Clamp(alpha, 0f, 1f);
+            WorldCombatTextPresentation presentation = CombatFeedbackLaw.Presentation(
+                item.Style, item.Critical, item.Text);
+            float t = item.Age / presentation.LifetimeSeconds;
+            (float alpha, float shadowAlpha) = CombatFeedbackLaw.Alpha(presentation, item.Age);
 
-            Vector3 point = item.Anchor + new Vector3(0, 0, item.Age * 1.2f);
+            Vector3 point = item.Anchor + new Vector3(
+                0, 0, presentation.RiseYards * Math.Clamp(t, 0f, 1f));
             if (!_window.Camera.TryWorldToScreen(point, display, out Vector2 screen)) continue;
 
-            float size = diagonal * 0.018333f;
-            if (item.Critical)
-            {
-                float settle = Math.Clamp(item.Age / 0.30f, 0f, 1f);
-                size *= 2f + (1.5f - 2f) * settle;
-            }
+            float size = diagonal * CombatFeedbackLaw.Scale(item.Critical, item.Age);
 
-            Vector4 baseColor = item.Style switch
-            {
-                WorldCombatTextStyle.PlayerSpell => new Vector4(1f, 0.87f, 0f, alpha),
-                WorldCombatTextStyle.Experience => new Vector4(0.65f, 0.25f, 1f, alpha),
-                _ => new Vector4(1f, 1f, 1f, alpha),
-            };
+            uint packed = presentation.Color;
+            Vector4 baseColor = new(
+                ((packed >> 16) & 0xFF) / 255f,
+                ((packed >> 8) & 0xFF) / 255f,
+                (packed & 0xFF) / 255f,
+                alpha);
             Vector2 extent = ImGui.CalcTextSize(item.Text);
             float scaledWidth = extent.X * size / MathF.Max(ImGui.GetFontSize(), 1f);
             Vector2 pos = new(screen.X - scaledWidth * 0.5f, screen.Y - size);
             float laneDirection = item.Lane switch { 0 => -0.30f, 1 => 0.30f, 2 => -0.65f, _ => 0.65f };
             pos.X += laneDirection * size * (0.35f + t);
             Vector2 shadowOffset = new(display.X * 0.002f, display.Y * 0.002f);
-            uint shadow = ImGui.ColorConvertFloat4ToU32(new Vector4(0, 0, 0, alpha * 0.55f));
+            uint shadow = ImGui.ColorConvertFloat4ToU32(new Vector4(0, 0, 0, shadowAlpha));
             uint color = ImGui.ColorConvertFloat4ToU32(baseColor);
             draw.AddText(font, size, pos + shadowOffset, shadow, item.Text);
             draw.AddText(font, size, pos, color, item.Text);
@@ -328,6 +387,7 @@ public sealed partial class GameLoop
             {
                 CenterCombatTextStyle.Heal => new Vector4(0.10f, 1f, 0.10f, alpha),
                 CenterCombatTextStyle.Power => new Vector4(0.35f, 0.45f, 1f, alpha),
+                CenterCombatTextStyle.Info => new Vector4(1f, .82f, 0f, alpha),
                 _ => new Vector4(1f, 0.12f, 0.08f, alpha),
             };
             uint shadow = ImGui.ColorConvertFloat4ToU32(new Vector4(0, 0, 0, alpha * 0.6f));

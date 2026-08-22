@@ -7,15 +7,17 @@
   "benillaSources": [
     {
       "path": "crates/benilla-protocol/src/messages/packet.rs",
-      "fileSha256": "dcc8435b8fe690abb39054d9929bc873d8ff6950535eb464fda84a41dad65be9",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "ddc83ff403913b08ebd16d38f8609238ecfcf653e26d71f7c7369fc42f299a59",
+      "snapshotId": "benilla-current-2026-08-22"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Program.Net.cs",
     "MSUIClient/Net/LootState.cs",
     "MSUIClient/Net/MonsterMove.cs",
-    "MSUIClient/Net/CombatPackets.cs"
+    "MSUIClient/Net/CombatPackets.cs",
+    "MSUIClient/Net/ServerSoundPackets.cs",
+    "MSUIClient/Net/WeatherPackets.cs"
   ],
   "status": "support-only",
   "summary": "packet.rs is the ServerPacket enum - Benilla's internal decoded-packet representation plus its name() debug mapping. MSUI realizes the same role through per-feature parsed types (LootState, MonsterMove, CreatureQuery, CombatPackets, etc.) consumed directly by the Program.Net.cs dispatch; the enum itself has no independent wire contract. Which opcodes are decodable is judged under protocol/parse.",

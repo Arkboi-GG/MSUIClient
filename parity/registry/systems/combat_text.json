@@ -12,16 +12,19 @@
     },
     {
       "path": "crates/benilla-app/src/combat_text/mod.rs",
-      "fileSha256": "0ce8277b726e43f981b576a61c209fb2cc05623fc22d81432b8bfdea8cf12144",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "ba3bcb27131256d169730c562971f4a4d7a4d04bea91ba053434c29f5836a826",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.CombatFeedback.cs",
-    "MSUIClient/Net/CombatFeedbackLaw.cs"
+    "MSUIClient/GameLoop/Combat/GameLoop.CombatFeedback.cs",
+    "MSUIClient/Net/CombatFeedbackLaw.cs",
+    "MSUIClient/Net/PvpCreditPackets.cs",
+    "tools/interface-wire-check/HonorCreditClinicalChecks.cs",
+    "tools/combat-wire-check/Program.cs"
   ],
-  "status": "partial",
-  "summary": "MSUI implements the core WORLDTEXTSTRING observables: floating text is world-anchored over the recipient at overhead height, capped at 4 concurrent per unit as a hard drop (MaxWorldTextPerUnit), self-source-only (Gate A: only the local player's outgoing damage floats; another unit's fight floats nothing), miss/dodge/parry/block/absorb/resist words, the melee-white vs spell-gold color split, crit flagged, and the XP text self-anchored. Heals never float over the world (matching 5875).",
+  "status": "implemented-unverified",
+  "summary": "MSUI implements world-anchored combat text for the player and owned pet/guardian/totem sources, the four-item per-unit hard cap, miss/dodge/parry/block/absorb/resist words, white player melee and AttributesEx3 bit-15 ranged-basic damage, gold player/pet spells, orange pet melee-styled damage, exact category lifetime/rise/fade/shadow laws, critical pop scaling, XP, and honor gains. Live honor-award verification remains tracked by ui/combattext.",
   "openItems": [
     {
       "id": "item-triage-7dc350c0",
@@ -29,7 +32,8 @@
       "text": "Pet damage never floats: WorldText requires attacker == playerGuid, so an owned pet's hits show nothing - the reference floats pet melee ORANGE (0xFFFF8400) and pet spell GOLD under their own cvars.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: UNIT_FIELD_SUMMONEDBY/CREATEDBY ownership now admits owned melee, spell, periodic, shield, and miss sources; pet melee renders 0xFFFF8400 orange while pet spell damage retains shared gold."
     },
     {
       "id": "item-triage-b2401b13",
@@ -37,7 +41,8 @@
       "text": "The category timing/scale/fade table is replaced by one flat 1.5 s lifetime: no per-category rise rates, no crit park-and-pop scale animation (~70 px peak settling to 35 px), no plateau/fade-in/fade-out alpha law or shadow law.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: CombatFeedbackLaw now pins category 0-5 lifetime, rise, fade-in, fade-out, shadow, and color presentation, including exact critical 0.1-to-2-to-1 pop scale keyframes and 4500 ms XP/honor paths; focused and regression clinical checks pass."
     },
     {
       "id": "item-triage-7e5e8b0d",
@@ -45,12 +50,13 @@
       "text": "The ranged-basic-shot exception (AttributesEx3 bit-15 -> Auto Shot/Throw numbers float white off the spell-damage log) is not applied - all spell-log damage styles gold.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: direct and periodic spell-log damage now resolves Spell.dbc AttributesEx3 bit 15 and selects the melee color branch—white for the player and orange for an owned source—with the reference's missing-record fallback; focused combat-wire regression coverage passes."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T16:00:00+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

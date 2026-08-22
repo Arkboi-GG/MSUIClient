@@ -59,7 +59,8 @@
       "text": "No NPC-interaction portrait: gossip/quest/merchant/trainer/taxi windows never show the bound creature's face where Benilla bakes an 'npc' slot",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: gossip, quest, merchant, trainer, taxi and bank all feed their bound live NPC through DrawUnitPortraitImage at the window-authored seat."
     },
     {
       "id": "item-triage-b28e126f",

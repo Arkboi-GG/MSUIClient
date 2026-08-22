@@ -7,17 +7,18 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/OptionsFrame.xml",
-      "fileSha256": "426942f5d762ceab34f5305103be23e567f997b3f284a5c8d71e84d2a930d35d",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "ab4585933e2643b73e76457e6498a29fcac8ef0e29d9f8d22773e75ea1a86c4d",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Settings.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/GameSettings.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/GameMenuUiLaw.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Settings.cs",
+    "MSUIClient/Engine/GameSettings.cs",
+    "MSUIClient/Engine/UI/GameMenuUiLaw.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.Nameplates.cs"
   ],
   "status": "partial",
-  "summary": "MSUI has a substantial options surface but in the 1.12 shape, not Benilla's: Escape opens a Game Menu modal (Program.Settings.cs, WowSkin-dressed) whose buttons lead to Video Options (rich live-apply page: quality presets, display/view/detail/streaming sliders and checks) and Interface Options (mouse/camera/controls page), plus Key Bindings and Macros windows; Escape-back and cancel-snapshot laws match the real client. Benilla instead built the era 1.15 single Options window (category tree, search, Audio/Graphics/Controls/Nameplates pages over a CVar store).",
+  "summary": "MSUI intentionally retains the build-5875 Game Menu and resizable OptionsFrame shape rather than Benilla's era category-tree shell. Its GameMenuUiLaw now owns fixed/resizable size, viewport clamping and modal centering. Video, Interface and Sound pages live-apply persisted settings; Sound exposes master/effects/music/ambience gates and vanilla volume defaults, Interface exposes the current Player/NPC/Own nameplate rows wired into the renderer, and every page has a page-scoped Defaults action. Settings search remains absent.",
   "openItems": [
     {
       "id": "item-triage-d5a1736f",
@@ -25,7 +26,8 @@
       "text": "No Sound/Audio options page - the Game Menu's Sound Options button is permanently disabled ('no sound subsystem yet', a stale claim now that PlayUiSound exists) despite UI sounds being live",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "The Game Menu's Sound Options button is enabled and opens a live page with Enable All/Music/Ambience switches plus Master, Effects, Music and Ambience volume sliders backed by persisted AudioSettings and applied through the live audio mixer path."
     },
     {
       "id": "item-triage-b00da987",
@@ -33,7 +35,8 @@
       "text": "No nameplate options rows (Benilla's Nameplates page: show friendly/enemy plates etc.)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Interface Options now exposes Player Names, NPC Names and Show Own Name rows with current Benilla's enabled defaults; the persisted ControlSettings flags gate the live nameplate candidate pass."
     },
     {
       "id": "item-triage-4c255342",
@@ -41,7 +44,8 @@
       "text": "No settings search",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Every options page footer has a Defaults button. ResetVisiblePageToDefaults replaces only the visible page's settings group (Video composites, Controls including nameplates, or Audio), resolves composites, and applies the result live."
     },
     {
       "id": "item-triage-2b518ac9",
@@ -55,6 +59,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T02:44:46.4278870Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

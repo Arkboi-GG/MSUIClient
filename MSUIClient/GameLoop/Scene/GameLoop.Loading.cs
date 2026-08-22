@@ -716,6 +716,7 @@ public sealed partial class GameLoop
                         ? 0
                         : _areaTriggers?.Containing(
                             _config.Start.Map, _controller.Position)?.Id ?? 0;
+                    _portalLatchMap = _config.Start.Map;
                     if (_portalLatch != 0)
                         Console.WriteLine($"[portal] arrival latched trigger {_portalLatch}");
 
@@ -1000,6 +1001,7 @@ public sealed partial class GameLoop
         _net?.SendMovement(Op.MSG_MOVE_HEARTBEAT,
             MovementInfo.Create(safe, facing, MovementFlags.None));
         _portalLatch = _areaTriggers?.Containing(_config.Start.Map, safe)?.Id ?? 0;
+        _portalLatchMap = _config.Start.Map;
         _loadSpawnFailureLogged = false;
         Console.WriteLine($"[load-recovery] forced map {_config.Start.Map} to supported {source} " +
                           $"at ({safe.X:F1}, {safe.Y:F1}, {safe.Z:F1}) and reported the pose to the server");

@@ -1,5 +1,7 @@
+using System.Numerics;
 using MSUIClient.Engine.UI;
 using MSUIClient.Net;
+using MSUIClient.World.Units;
 
 internal static class GroupProtocolClinicalChecks
 {
@@ -322,6 +324,29 @@ internal static class GroupProtocolClinicalChecks
         Check(board[0] == 0x22 && board[5] == 0x33 && board[3] == 0,
             "raid-target list must reset absent icons");
 
+        RaidMarkerUv star = RaidMarkerUiLaw.AtlasUv(1);
+        RaidMarkerUv skull = RaidMarkerUiLaw.AtlasUv(8);
+        Check(star == new RaidMarkerUv(new(0f, 0f), new(.25f, .25f)) &&
+              skull == new RaidMarkerUv(new(.75f, .25f), new(1f, .5f)),
+            "raid-target 4-column atlas cells drift");
+        Check(RaidMarkerUiLaw.OverheadRect(new(100f, 200f), 40f) ==
+                  new RaidMarkerRect(new(80f, 160f), new(120f, 200f)) &&
+              RaidMarkerUiLaw.NameplateRect(50f, 20f, 40f, 1000f) ==
+                  new RaidMarkerRect(new(30f, 20f), new(50f, 40f)),
+            "raid-target overhead/nameplate seat geometry drift");
+        float[] quad = WorldBillboardLaw.Vertices(new(0f, 0f, 0f), 1f,
+            Vector3.UnitX, Vector3.UnitZ, star.Min, star.Max);
+        Check(quad.SequenceEqual(new float[]
+              {
+                  -.5f, 0f, 1f, 0f, 0f,
+                   .5f, 0f, 1f, .25f, 0f,
+                  -.5f, 0f, 0f, 0f, .25f,
+                  -.5f, 0f, 0f, 0f, .25f,
+                   .5f, 0f, 1f, .25f, 0f,
+                   .5f, 0f, 0f, .25f, .25f,
+              }),
+            "raid-target fixed one-world-unit bottom-seated quad LUT drift");
+
         PartyReadyCheckWire started = PartyFramePacketLaw.ParseReadyCheck([]);
         var answerBody = new PacketWriter(9);
         answerBody.WriteU64(0x88);
@@ -344,6 +369,11 @@ internal static class GroupProtocolClinicalChecks
         string root = FindRepoRoot();
         string net = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.Net.cs"));
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.PartyFrames.cs"));
+        string raidMarks = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
+            "GameLoop.RaidMarks.cs"));
+        string renderer = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Units",
+            "SpellEffectMeshRenderer.cs"));
+        string program = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.cs"));
         foreach (string route in new[]
                  {
                      "ApplyPartyDecline(body);", "ApplyPartyUninvited(body);",
@@ -361,6 +391,23 @@ internal static class GroupProtocolClinicalChecks
                   StringComparison.Ordinal) &&
               !runtime.Contains("partytest", StringComparison.OrdinalIgnoreCase),
             "group state/composer integration or synthetic-preserve law drift");
+        Check(raidMarks.Contains("IReadOnlyList<WorldBillboardDraw> RaidMarkerBillboards()",
+                  StringComparison.Ordinal) &&
+              raidMarks.Contains("new WorldBillboardDraw(anchor, RaidMarkerUiLaw.WorldSize",
+                  StringComparison.Ordinal) &&
+              !raidMarks.Contains("ImGui", StringComparison.Ordinal) &&
+              !raidMarks.Contains("TryWorldToScreen", StringComparison.Ordinal) &&
+              !raidMarks.Contains("ProjectedWorldPitch", StringComparison.Ordinal) &&
+              !raidMarks.Contains("AddImage", StringComparison.Ordinal),
+            "overhead raid marks regressed to projected UI instead of world billboards");
+        Check(renderer.Contains("public unsafe void RenderWorldBillboards", StringComparison.Ordinal) &&
+              renderer.Contains("_gl.Enable(EnableCap.DepthTest);", StringComparison.Ordinal) &&
+              renderer.Contains("_gl.DepthMask(false);", StringComparison.Ordinal) &&
+              renderer.Contains("WorldBillboardLaw.Vertices(bottom, draw.WorldSize",
+                  StringComparison.Ordinal) &&
+              program.Contains("RenderWorldBillboards(_window.Camera, RaidMarkerBillboards())",
+                  StringComparison.Ordinal),
+            "depth-tested fixed-world-size raid billboard pass is not wired");
     }
 
     private static byte[] RosterFixture(byte groupType, byte ownFlags,

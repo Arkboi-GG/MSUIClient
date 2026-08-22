@@ -68,4 +68,15 @@ public sealed class SoundKitLibrary
         LastCue = $"{entry.Id}:{picked.Path}";
         return picked;
     }
+
+    /// <summary>Select an authored variation by its exact zero-based index.</summary>
+    public SoundVariant PickVariantAt(in SoundEntry entry, int variation)
+    {
+        if ((uint)variation >= (uint)entry.Variants.Count)
+            throw new ArgumentOutOfRangeException(nameof(variation));
+        SoundVariant picked = entry.Variants[variation];
+        _lastVariant[entry.Id] = picked.Path;
+        LastCue = $"{entry.Id}:{picked.Path}";
+        return picked;
+    }
 }

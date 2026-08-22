@@ -36,6 +36,8 @@ public sealed partial class GameLoop
     private string _minimapInteriorSignature = "";
     private string _minimapResourceSignature = "";
     private MinimapResourceTooltipRuntime? _minimapResourceTooltip;
+    private AreaPoiCatalog? _minimapAreaPois;
+    private bool _minimapAreaPoisLoaded;
 
     private readonly record struct MinimapResourceTooltipCandidate(ulong Guid, string Name);
     private readonly record struct MinimapResourceTooltipRuntime(
@@ -64,7 +66,7 @@ public sealed partial class GameLoop
             DrawMinimapTexture(dl, root, Vector2.Zero, new(192, 32),
                 @"Interface\Minimap\UI-Minimap-Border", new(.25f, 0), new(1, .125f));
             DrawMinimapButton(dl, root + new Vector2(161, -3),
-                @"Interface\Buttons\UI-Panel-MinimizeButton-Up", () => _minimapVisible = true);
+                @"Interface\Buttons\UI-Panel-MinimizeButton-Up", () => SetMinimapVisible(true));
             UpdateAndQueueMinimapResourceTooltip(null);
             return;
         }
@@ -145,23 +147,39 @@ public sealed partial class GameLoop
             float wheel = ImGui.GetIO().MouseWheel;
             if (wheel > 0)
             {
-                if (insideWmo) _minimapInsideZoom = Math.Max(0, _minimapInsideZoom - 1);
-                else _minimapZoom = Math.Max(0, _minimapZoom - 1);
+                int old = insideWmo ? _minimapInsideZoom : _minimapZoom;
+                if (insideWmo) _minimapInsideZoom = MinimapUiLaw.StepZoom(old, zoomIn: true);
+                else _minimapZoom = MinimapUiLaw.StepZoom(old, zoomIn: true);
+                if ((insideWmo ? _minimapInsideZoom : _minimapZoom) != old)
+                    PlayUiSound(MinimapUiLaw.ZoomInSound, "ui.minimap");
             }
             else if (wheel < 0)
             {
-                if (insideWmo) _minimapInsideZoom = Math.Min(5, _minimapInsideZoom + 1);
-                else _minimapZoom = Math.Min(5, _minimapZoom + 1);
+                int old = insideWmo ? _minimapInsideZoom : _minimapZoom;
+                if (insideWmo) _minimapInsideZoom = MinimapUiLaw.StepZoom(old, zoomIn: false);
+                else _minimapZoom = MinimapUiLaw.StepZoom(old, zoomIn: false);
+                if ((insideWmo ? _minimapInsideZoom : _minimapZoom) != old)
+                    PlayUiSound(MinimapUiLaw.ZoomOutSound, "ui.minimap");
             }
         }
 
         float? interiorBlipRadius = insideWmo ? interiorRadius : null;
+        MinimapResourceTooltipCandidate? landmarkTooltip = DrawMinimapLandmarks(
+            dl, playerPosition, mapMin, mapMax, interiorBlipRadius);
         DrawMinimapPartyDots(dl, player, playerPosition, mapMin, mapMax, s, interiorBlipRadius);
+        DrawMinimapCorpseMarker(dl, playerPosition, mapMin, mapMax, s,
+            interiorBlipRadius);
         DrawMinimapPlayerArrow(dl, playerOrientation, (mapMin + mapMax) * .5f, s);
         MinimapResourceTooltipCandidate? resourceTooltip =
             DrawMinimapResourceDots(dl, player, playerPosition, mapMin, mapMax, s,
                 interiorBlipRadius);
-        UpdateAndQueueMinimapResourceTooltip(resourceTooltip);
+        MinimapResourceTooltipCandidate? creatureTooltip =
+            DrawMinimapTrackedCreatureDots(dl, player, playerPosition, mapMin, mapMax, s,
+                interiorBlipRadius);
+        MinimapResourceTooltipCandidate? questTooltip =
+            DrawMinimapQuestDots(dl, playerPosition, mapMin, mapMax, s, interiorBlipRadius);
+        UpdateAndQueueMinimapResourceTooltip(
+            questTooltip ?? creatureTooltip ?? resourceTooltip ?? landmarkTooltip);
         if (_uiParityArmed && _uiParityPanel == "minimap")
             CollectUiParity("Minimap", "Minimap", mapMin, new Vector2(140) * s,
                 parent: "MinimapCluster", point: "CENTER", relativePoint: "TOP",
@@ -186,17 +204,22 @@ public sealed partial class GameLoop
         // the frame instead.
         Vector2 zoomIn = squareMap ? new Vector2(120, 196) : new Vector2(157, 113);
         Vector2 zoomOut = squareMap ? new Vector2(150, 196) : new Vector2(131, 141);
-        DrawMinimapButton(dl, root + zoomIn, @"Interface\Minimap\UI-Minimap-ZoomInButton-Up",
+        int activeZoom = insideWmo ? _minimapInsideZoom : _minimapZoom;
+        DrawMinimapZoomButton(dl, root + zoomIn, zoomIn: true,
+            MinimapUiLaw.ZoomInEnabled(activeZoom),
             () =>
             {
-                if (insideWmo) _minimapInsideZoom = Math.Max(0, _minimapInsideZoom - 1);
-                else _minimapZoom = Math.Max(0, _minimapZoom - 1);
+                if (insideWmo) _minimapInsideZoom =
+                    MinimapUiLaw.StepZoom(_minimapInsideZoom, zoomIn: true);
+                else _minimapZoom = MinimapUiLaw.StepZoom(_minimapZoom, zoomIn: true);
             });
-        DrawMinimapButton(dl, root + zoomOut, @"Interface\Minimap\UI-Minimap-ZoomOutButton-Up",
+        DrawMinimapZoomButton(dl, root + zoomOut, zoomIn: false,
+            MinimapUiLaw.ZoomOutEnabled(activeZoom),
             () =>
             {
-                if (insideWmo) _minimapInsideZoom = Math.Min(5, _minimapInsideZoom + 1);
-                else _minimapZoom = Math.Min(5, _minimapZoom + 1);
+                if (insideWmo) _minimapInsideZoom =
+                    MinimapUiLaw.StepZoom(_minimapInsideZoom, zoomIn: false);
+                else _minimapZoom = MinimapUiLaw.StepZoom(_minimapZoom, zoomIn: false);
             });
         if (!squareMap && _uiParityArmed && _uiParityPanel == "minimap")
         {
@@ -227,13 +250,13 @@ public sealed partial class GameLoop
                 texture: @"Interface\Minimap\UI-Minimap-Border", layer: "ARTWORK",
                 strata: "BACKGROUND", texCoords: "0.25|0.0|1.0|0.125");
 
-        DrawMinimapZoneText(dl, root, s);
+        DrawMinimapZoneText(dl, root, player, s);
         DrawMinimapTracking(dl, root, player, s);
         DrawMinimapMail(dl, root, s);
 
         Vector2 toggleMin = (root + new Vector2(161, -3)) * s;
         DrawMinimapButton(dl, root + new Vector2(161, -3),
-            @"Interface\Buttons\UI-Panel-MinimizeButton-Up", () => _minimapVisible = false);
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Up", () => SetMinimapVisible(false));
         if (_uiParityArmed && _uiParityPanel == "minimap")
         {
             CollectUiParity("MinimapToggleButton", "Button", toggleMin, new Vector2(32) * s,
@@ -283,7 +306,7 @@ public sealed partial class GameLoop
             UiGoldU32(), "N");
     }
 
-    private void DrawMinimapZoneText(ImDrawListPtr dl, Vector2 root, float s)
+    private void DrawMinimapZoneText(ImDrawListPtr dl, Vector2 root, WorldEntity player, float s)
     {
         Vector2 min = (root + new Vector2(29, 7)) * s;
         Vector2 size = new Vector2(128, 12) * s;
@@ -291,10 +314,25 @@ public sealed partial class GameLoop
         uint fallback = _net?.Player?.Zone ?? 0;
         string text = _areas?.AreaName(_minimapAreaId) is { Length: > 0 } subZone ? subZone :
             _areas?.ZoneName(fallback) is { Length: > 0 } zone ? zone : _config.Start.MapName;
+        uint leafArea = _minimapAreaId != 0 ? _minimapAreaId : fallback;
+        uint zoneArea = _areas?.ParentZoneId(leafArea) ?? 0;
+        if (zoneArea == 0) zoneArea = leafArea;
+        MinimapZonePvpInfo pvp = ResolveAreaPvp(player, leafArea, zoneArea);
+        Vector4 tint = pvp.IsArena ? new Vector4(1f, .1f, .1f, 1f) : pvp.Tint;
         float fontSize = 12 * s;
         Vector2 extent = ImGui.CalcTextSize(text) * (fontSize / MathF.Max(1, ImGui.GetFontSize()));
         dl.AddText(ImGui.GetFont(), fontSize, min + new Vector2((size.X - extent.X) * .5f, 0),
-            UiGoldU32(), text);
+            ImGui.ColorConvertFloat4ToU32(tint), text);
+        if (ImGui.IsMouseHoveringRect(min, min + size, false))
+        {
+            var lines = new List<string> { text };
+            if (pvp.TerritoryLine is { Length: > 0 } territory) lines.Add(territory);
+            if (pvp.IsArena) lines.Add(MinimapUiLaw.ArenaText);
+            string prepared = string.Join('\n', lines);
+            OfferPreservedSharedGameTooltipRenderer(new("minimap-zone", leafArea),
+                () => ImGui.SetTooltip(prepared));
+            if (ImGui.IsMouseClicked(ImGuiMouseButton.Left)) SetMinimapVisible(false);
+        }
         if (_uiParityArmed && _uiParityPanel == "minimap")
         {
             CollectUiParity("MinimapZoneTextButton", "Button", min, size,
@@ -325,9 +363,14 @@ public sealed partial class GameLoop
             @"Interface\Minimap\MiniMap-TrackingBorder", Vector2.Zero, Vector2.One);
         Vector2 hitMin = (frame + new Vector2(7, 6)) * s;
         Vector2 hitMax = hitMin + new Vector2(33) * s;
-        if (ImGui.IsMouseHoveringRect(hitMin, hitMax, false) &&
-            ImGui.IsMouseClicked(ImGuiMouseButton.Right))
-            CancelPlayerAura(active, "MINIMAP_TRACKING_RIGHT_CLICK");
+        if (ImGui.IsMouseHoveringRect(hitMin, hitMax, false))
+        {
+            string prepared = trackingSpell.Name;
+            OfferPreservedSharedGameTooltipRenderer(new("minimap-tracking", trackingSpell.Id),
+                () => ImGui.SetTooltip(prepared));
+            if (ImGui.IsMouseClicked(ImGuiMouseButton.Right))
+                CancelPlayerAura(active, "MINIMAP_TRACKING_RIGHT_CLICK");
+        }
     }
 
     private void DrawMinimapMail(ImDrawListPtr dl, Vector2 root, float s)
@@ -341,13 +384,19 @@ public sealed partial class GameLoop
                 (frame + new Vector2(25, 24)) * s);
         DrawMinimapTexture(dl, frame, Vector2.Zero, new(52),
             @"Interface\Minimap\MiniMap-TrackingBorder", Vector2.Zero, Vector2.One);
+        Vector2 hitMin = frame * s;
+        if (ImGui.IsMouseHoveringRect(hitMin, hitMin + new Vector2(33) * s, false))
+        {
+            string prepared = MinimapUiLaw.UnreadMailText;
+            OfferPreservedSharedGameTooltipRenderer(new("minimap-mail", 1),
+                () => ImGui.SetTooltip(prepared));
+        }
     }
 
     private void DrawMinimapPartyDots(ImDrawListPtr dl, WorldEntity player, Vector3 playerPosition,
         Vector2 mapMin, Vector2 mapMax, float s, float? radiusOverride = null)
     {
-        float radiusYards = radiusOverride ??
-            ((0.10f + _minimapZoom * 0.025f) * MinimapProjection.TileWorldSize);
+        float radiusYards = radiusOverride ?? MinimapUiLaw.OutdoorRadius(_minimapZoom);
         float pixelsPerYard = (mapMax.X - mapMin.X) / (2f * radiusYards);
         Vector2 center = (mapMin + mapMax) * .5f;
         foreach (PartyMember member in _partyMembers)
@@ -388,8 +437,7 @@ public sealed partial class GameLoop
             ReportMinimapResourceSet(mask, []);
             return null;
         }
-        float radiusYards = radiusOverride ??
-            ((0.10f + _minimapZoom * 0.025f) * MinimapProjection.TileWorldSize);
+        float radiusYards = radiusOverride ?? MinimapUiLaw.OutdoorRadius(_minimapZoom);
         float pixelsPerYard = (mapMax.X - mapMin.X) / (radiusYards * 2f);
         Vector2 center = (mapMin + mapMax) * .5f;
         uint icons = _gameplayArt?.Handle(@"Interface\Minimap\ObjectIcons") ?? 0;
@@ -416,9 +464,10 @@ public sealed partial class GameLoop
         {
             if (Vector2.DistanceSquared(row.Dot, center) > blipLimit * blipLimit) continue;
             Vector2 half = new(4f * s);
+            uint tint = MinimapBlipTint(row.Go.Position);
             if (icons != 0)
                 dl.AddImage((nint)icons, row.Dot - half, row.Dot + half,
-                    new Vector2(0f, 0f), new Vector2(.25f, .25f));
+                    new Vector2(0f, 0f), new Vector2(.25f, .25f), tint);
             else dl.AddCircleFilled(row.Dot, 3f * s, 0xff00d8ff);
             if (ImGui.IsMouseHoveringRect(row.Dot - half, row.Dot + half, false))
                 hoveredTooltip = new(row.Go.Guid, row.Template.Name);
@@ -426,6 +475,207 @@ public sealed partial class GameLoop
         dl.PopClipRect();
         ReportMinimapResourceSet(mask, visible);
         return hoveredTooltip;
+    }
+
+    private MinimapResourceTooltipCandidate? DrawMinimapLandmarks(
+        ImDrawListPtr draw, Vector3 playerPosition, Vector2 mapMin, Vector2 mapMax,
+        float? radiusOverride = null)
+    {
+        EnsureMinimapAreaPois();
+        if (_minimapAreaPois is null || _gameplayArt is null) return null;
+
+        float radiusYards = radiusOverride ?? MinimapUiLaw.OutdoorRadius(_minimapZoom);
+        AreaPoiSelection selection = _minimapAreaPois.Select(
+            checked((uint)Math.Max(0, _config.Start.Map)),
+            new Vector2(playerPosition.X, playerPosition.Y), radiusYards);
+        float side = mapMax.X - mapMin.X;
+        float pixelsPerYard = side / (radiusYards * 2f);
+        Vector2 center = (mapMin + mapMax) * .5f;
+        uint poiIcons = _gameplayArt.Handle(@"Interface\Minimap\POIIcons");
+        uint arrow = _gameplayArt.Handle(@"Interface\Minimap\ROTATING-MINIMAPARROW");
+        MinimapResourceTooltipCandidate? hovered = null;
+
+        draw.PushClipRect(mapMin, mapMax, true);
+        foreach (AreaPoiInfo poi in selection.Icons)
+        {
+            if (poiIcons == 0 || !AreaPoiCatalog.TryIconUv(
+                    poi.Icon, out Vector2 uvMin, out Vector2 uvMax)) continue;
+            Vector2 offset = new(
+                -(poi.Position.Y - playerPosition.Y),
+                -(poi.Position.X - playerPosition.X));
+            Vector2 at = center + offset * pixelsPerYard;
+            Vector2 half = new(MinimapUiLaw.LandmarkIconSize(side) * .5f);
+            draw.AddImage((nint)poiIcons, at - half, at + half, uvMin, uvMax);
+            if (ImGui.IsMouseHoveringRect(at - half, at + half, false))
+                hovered = LandmarkTooltip(poi);
+        }
+        draw.PopClipRect();
+
+        if (arrow == 0) return hovered;
+        foreach (AreaPoiArrow row in selection.Arrows)
+        {
+            AreaPoiInfo poi = row.Poi;
+            Vector2 direction = new(
+                -(poi.Position.Y - playerPosition.Y),
+                -(poi.Position.X - playerPosition.X));
+            Vector2 at = MinimapUiLaw.LandmarkArrowCenter(center, direction, side);
+            float size = MinimapUiLaw.LandmarkArrowSize(side);
+            Vector2 half = new(size * .5f);
+            float rotation = MathF.Atan2(direction.X, -direction.Y);
+            AddRotatedMinimapImage(draw, arrow, at, size, rotation);
+            if (ImGui.IsMouseHoveringRect(at - half, at + half, false))
+                hovered = LandmarkTooltip(poi);
+        }
+        return hovered;
+
+        static MinimapResourceTooltipCandidate LandmarkTooltip(in AreaPoiInfo poi) =>
+            new(0xA000_0000_0000_0000UL | poi.Id, poi.Name);
+    }
+
+    private void EnsureMinimapAreaPois()
+    {
+        if (_minimapAreaPoisLoaded) return;
+        _minimapAreaPoisLoaded = true;
+        try
+        {
+            if (_mpq is not null) _minimapAreaPois = AreaPoiCatalog.Load(_mpq);
+        }
+        catch (Exception error)
+        {
+            Console.WriteLine($"[minimap] AreaPOI load failed: {error.Message}");
+        }
+    }
+
+    private static void AddRotatedMinimapImage(ImDrawListPtr draw, uint texture,
+        Vector2 center, float size, float clockwiseRadians)
+    {
+        float half = size * .5f;
+        (float sin, float cos) = MathF.SinCos(clockwiseRadians);
+        Vector2 Rotate(float x, float y) => center + new Vector2(
+            x * cos - y * sin, x * sin + y * cos);
+        draw.AddImageQuad((nint)texture,
+            Rotate(-half, -half), Rotate(half, -half),
+            Rotate(half, half), Rotate(-half, half),
+            Vector2.Zero, Vector2.UnitX, Vector2.One, Vector2.UnitY);
+    }
+
+    private MinimapResourceTooltipCandidate? DrawMinimapTrackedCreatureDots(
+        ImDrawListPtr draw, WorldEntity player, Vector3 playerPosition,
+        Vector2 mapMin, Vector2 mapMax, float scale, float? radiusOverride = null)
+    {
+        uint trackMask = player.Fields.PlayerTrackCreatures;
+        float radiusYards = radiusOverride ?? MinimapUiLaw.OutdoorRadius(_minimapZoom);
+        float pixelsPerYard = (mapMax.X - mapMin.X) / (radiusYards * 2f);
+        Vector2 center = (mapMin + mapMax) * .5f;
+        float blipLimit = PainterlyUi ? float.MaxValue : 66f * scale;
+        uint icons = _gameplayArt?.Handle(@"Interface\Minimap\ObjectIcons") ?? 0;
+        MinimapResourceTooltipCandidate? hovered = null;
+
+        draw.PushClipRect(mapMin, mapMax, true);
+        foreach (WorldEntity unit in _entities.Entities.Values.Where(candidate =>
+                     candidate.Guid != player.Guid && (candidate.IsCreature || candidate.IsPlayer)))
+        {
+            if (_questStatuses.GetValueOrDefault(unit.Guid) == MinimapUiLaw.QuestRewardStatus)
+                continue;
+            EnsureUnitNameRequested(unit);
+            uint creatureType = MinimapTrackedCreatureType(unit);
+            if (!MinimapUiLaw.ShowTrackedCreatureDot(
+                    trackMask, creatureType, unit.Fields.DynamicFlags)) continue;
+            Vector3 position = UnitWorldPosition(unit);
+            if (Vector3.Distance(position, playerPosition) > radiusYards) continue;
+            Vector2 dot = center + new Vector2(
+                -(position.Y - playerPosition.Y),
+                -(position.X - playerPosition.X)) * pixelsPerYard;
+            if (Vector2.DistanceSquared(dot, center) > blipLimit * blipLimit) continue;
+            Vector2 half = new(4f * scale);
+            uint tint = MinimapBlipTint(position);
+            if (icons != 0)
+                draw.AddImage((nint)icons, dot - half, dot + half,
+                    MinimapUiLaw.TrackedCreatureDotUvMin,
+                    MinimapUiLaw.TrackedCreatureDotUvMax, tint);
+            else
+                draw.AddCircleFilled(dot, 3f * scale, tint == 0xffffffff ? 0xff0000ff : tint);
+            if (ImGui.IsMouseHoveringRect(dot - half, dot + half, false))
+                hovered = new(unit.Guid, unit.IsPlayer
+                    ? _playerNames.GetValueOrDefault(unit.Guid, "Player")
+                    : ResolveCreatureOrPetName(unit, $"Creature {unit.Entry}"));
+        }
+        draw.PopClipRect();
+        return hovered;
+    }
+
+    private uint MinimapTrackedCreatureType(WorldEntity unit)
+    {
+        byte form = unit.Fields.ShapeshiftForm;
+        if (form != 0 && _shapeshiftForms?.TryGet(form, out ShapeshiftFormInfo row) == true)
+            return row.CreatureType > 0 ? (uint)row.CreatureType : 7;
+        if (unit.IsPlayer) return 7;
+        return _creatureQueryRecords.TryGetValue(unit.Entry, out CreatureQueryInfo? info) &&
+               info is not null ? info.CreatureType : 0;
+    }
+
+    private uint MinimapBlipTint(Vector3 position)
+    {
+        bool playerIndoors = _minimapAreaInterior is not null;
+        bool candidateIndoors = _wmo?.ResolveAreaMinimapIdentity(position,
+            _terrain?.SampleHeight(position.X, position.Y)) is not null;
+        return MinimapUiLaw.BlipTint(playerIndoors, candidateIndoors);
+    }
+
+    private void DrawMinimapCorpseMarker(ImDrawListPtr draw, Vector3 playerPosition,
+        Vector2 mapMin, Vector2 mapMax, float scale, float? radiusOverride = null)
+    {
+        if (_corpseLocation is not { } corpse ||
+            !DeathFrameUiLaw.TryMinimapCorpseRect(corpse.DisplayMap,
+                checked((uint)Math.Max(0, _config.Start.Map)), playerPosition, corpse.Position,
+                mapMin, mapMax, radiusOverride ?? MinimapUiLaw.OutdoorRadius(_minimapZoom),
+                out DeathFrameUiLaw.ScreenRect rect)) return;
+        uint texture = _gameplayArt?.Handle(DeathFrameUiLaw.CorpseMarkerPath) ?? 0;
+        if (texture == 0) return;
+        draw.AddImage((nint)texture, rect.Min, rect.Min + rect.Size,
+            DeathFrameUiLaw.CorpseUvMin, DeathFrameUiLaw.CorpseUvMax);
+    }
+
+    /// <summary>
+    /// The reference's quest blip is deliberately narrower than its overhead punctuation:
+    /// only DIALOG_STATUS_REWARD2 (7) gets ObjectIcons cell 3, as an 8px gold dot.
+    /// </summary>
+    private MinimapResourceTooltipCandidate? DrawMinimapQuestDots(
+        ImDrawListPtr dl, Vector3 playerPosition, Vector2 mapMin, Vector2 mapMax, float s,
+        float? radiusOverride = null)
+    {
+        float radiusYards = radiusOverride ?? MinimapUiLaw.OutdoorRadius(_minimapZoom);
+        float pixelsPerYard = (mapMax.X - mapMin.X) / (radiusYards * 2f);
+        Vector2 center = (mapMin + mapMax) * .5f;
+        uint icons = _gameplayArt?.Handle(@"Interface\Minimap\ObjectIcons") ?? 0;
+        MinimapResourceTooltipCandidate? hovered = null;
+        float blipLimit = PainterlyUi ? float.MaxValue : 66f * s;
+
+        dl.PushClipRect(mapMin, mapMax, true);
+        foreach ((ulong guid, uint status) in _questStatuses)
+        {
+            if (!MinimapUiLaw.ShowQuestDot(status) ||
+                !_entities.TryGet(guid, out WorldEntity npc) || !npc.IsCreature) continue;
+            Vector3 position = UnitWorldPosition(npc);
+            if (Vector3.Distance(position, playerPosition) > radiusYards) continue;
+            Vector2 dot = center + new Vector2(
+                -(position.Y - playerPosition.Y),
+                -(position.X - playerPosition.X)) * pixelsPerYard;
+            if (Vector2.DistanceSquared(dot, center) > blipLimit * blipLimit) continue;
+            Vector2 half = new(4f * s);
+            uint tint = MinimapBlipTint(position);
+            if (icons != 0)
+                dl.AddImage((nint)icons, dot - half, dot + half,
+                    MinimapUiLaw.QuestDotUvMin, MinimapUiLaw.QuestDotUvMax, tint);
+            else
+                dl.AddCircleFilled(dot, 3f * s, 0xff00d8ff);
+            if (!ImGui.IsMouseHoveringRect(dot - half, dot + half, false)) continue;
+            EnsureUnitNameRequested(npc);
+            hovered = new(guid,
+                _creatureNames.GetValueOrDefault(npc.Entry, $"Creature {npc.Entry}"));
+        }
+        dl.PopClipRect();
+        return hovered;
     }
 
     private static GameTooltipOwnerKey MinimapResourceGameTooltipOwner(ulong guid)
@@ -536,11 +786,44 @@ public sealed partial class GameLoop
         if (ImGui.IsMouseHoveringRect(min, max, false) && ImGui.IsMouseClicked(ImGuiMouseButton.Left)) click();
     }
 
+    private void DrawMinimapZoomButton(ImDrawListPtr dl, Vector2 logicalMin, bool zoomIn,
+        bool enabled, Action click)
+    {
+        float s = GameplayUiScale();
+        Vector2 min = logicalMin * s, max = min + new Vector2(32) * s;
+        bool hovered = enabled && ImGui.IsMouseHoveringRect(min, max, false);
+        string stem = zoomIn ? "ZoomIn" : "ZoomOut";
+        string state = !enabled ? "Disabled" : hovered && ImGui.IsMouseDown(ImGuiMouseButton.Left)
+            ? "Down" : "Up";
+        uint handle = _gameplayArt?.Handle($@"Interface\Minimap\UI-Minimap-{stem}Button-{state}") ?? 0;
+        if (handle != 0) dl.AddImage((nint)handle, min, max);
+        if (hovered)
+        {
+            uint highlight = _gameplayArt?.Handle(
+                @"Interface\Minimap\UI-Minimap-ZoomButton-Highlight") ?? 0;
+            if (highlight != 0) dl.AddImage((nint)highlight, min, max);
+            if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+            {
+                PlayUiSound(zoomIn ? MinimapUiLaw.ZoomInSound : MinimapUiLaw.ZoomOutSound,
+                    "ui.minimap");
+                click();
+            }
+        }
+    }
+
+    private void SetMinimapVisible(bool visible)
+    {
+        if (_minimapVisible == visible) return;
+        _minimapVisible = visible;
+        PlayUiSound(visible ? MinimapUiLaw.OpenSound : MinimapUiLaw.CloseSound, "ui.minimap");
+    }
+
     private void DrawMovingMinimap(ImDrawListPtr dl, Vector2 mapMin, Vector2 mapMax,
         MinimapProjection player, bool circular)
     {
         EnsureMinimapTileMap();
-        float halfTiles = 0.10f + _minimapZoom * 0.025f;
+        float halfTiles = MinimapUiLaw.OutdoorRadius(_minimapZoom) /
+            MinimapProjection.TileWorldSize;
         float pixelsPerTile = (mapMax.X - mapMin.X) / (2f * halfTiles);
         Vector2 center = (mapMin + mapMax) * .5f;
         string mapName = _adts?.MapName ?? _config.Start.MapName;
@@ -554,6 +837,10 @@ public sealed partial class GameLoop
         // and `UI-Minimap-Border` is only the ornament ringing it, so a rectangular clip alone
         // leaks the tile plane into the four corners.
         float circleRadius = circular ? (mapMax.X - mapMin.X) * .5f : 0f;
+        Vector3 dayTint = _atmosphere.AuthoredLightingReady
+            ? MinimapUiLaw.OutdoorDayTint(_atmosphere.AmbientColor, _atmosphere.SunColor)
+            : Vector3.One;
+        uint packedTint = ImGui.ColorConvertFloat4ToU32(new Vector4(dayTint, 1f));
         dl.PushClipRect(mapMin, mapMax, true);
         for (int rowOffset = -1; rowOffset <= 1; rowOffset++)
         for (int columnOffset = -1; columnOffset <= 1; columnOffset++)
@@ -569,8 +856,10 @@ public sealed partial class GameLoop
                 row - (player.TileRow + player.TileV)) * pixelsPerTile;
             Vector2 max = min + new Vector2(pixelsPerTile);
             if (max.X <= mapMin.X || max.Y <= mapMin.Y || min.X >= mapMax.X || min.Y >= mapMax.Y) continue;
-            if (circular) AddImageCircleClipped(dl, handle, min, max, center, circleRadius);
-            else dl.AddImage((nint)handle, min, max);
+            if (circular)
+                AddImageCircleClipped(dl, handle, min, max, center, circleRadius,
+                    tint: packedTint);
+            else dl.AddImage((nint)handle, min, max, Vector2.Zero, Vector2.One, packedTint);
         }
         dl.PopClipRect();
     }
@@ -782,7 +1071,8 @@ public sealed partial class GameLoop
     /// inverting the map is one lerp per component.
     /// </summary>
     private static void AddImageCircleClipped(ImDrawListPtr dl, uint texture,
-        Vector2 rectMin, Vector2 rectMax, Vector2 centre, float radius, int segments = 48)
+        Vector2 rectMin, Vector2 rectMax, Vector2 centre, float radius,
+        int segments = 48, uint tint = 0xffffffff)
     {
         Vector2 size = rectMax - rectMin;
         if (size.X <= 0f || size.Y <= 0f || radius <= 0f) return;
@@ -830,7 +1120,7 @@ public sealed partial class GameLoop
         {
             Vector2 p = poly[i];
             dl.PrimWriteVtx(p,
-                new Vector2((p.X - rectMin.X) / size.X, (p.Y - rectMin.Y) / size.Y), 0xFFFFFFFFu);
+                new Vector2((p.X - rectMin.X) / size.X, (p.Y - rectMin.Y) / size.Y), tint);
         }
         for (int i = 2; i < count; i++)
         {
@@ -859,6 +1149,7 @@ public sealed partial class GameLoop
             _minimapAreaMap = mapName;
             _minimapAreaId = 0;
             _minimapReportedZoneId = 0;
+            _zoneTextIdentity = null;
         }
         uint areaId = 0;
         if (interior is { } areaInterior)
@@ -882,6 +1173,33 @@ public sealed partial class GameLoop
         _minimapAreaId = areaId;
 
         uint zoneId = _areas?.ParentZoneId(areaId) ?? 0;
+        if (zoneId == 0) zoneId = areaId;
+        string zoneText = _areas?.AreaName(zoneId) ?? "";
+        string subZoneText = areaId == zoneId ? "" : _areas?.AreaName(areaId) ?? "";
+        if (interior is { } namingInterior && _wmoAreas is not null)
+        {
+            WmoAreaRow? defaultRow = _wmoAreas.DefaultRow(
+                namingInterior.RootWmoId, namingInterior.NameSetId);
+            WmoAreaRow? groupRow = _wmoAreas.GroupRow(
+                namingInterior.RootWmoId, namingInterior.NameSetId, namingInterior.GroupWmoId);
+            if (defaultRow is not null)
+            {
+                uint defaultArea = defaultRow.AreaTableId != 0 ? defaultRow.AreaTableId : areaId;
+                string defaultName = defaultRow.Name.Length > 0
+                    ? defaultRow.Name : _areas?.AreaName(defaultArea) ?? "";
+                if (defaultName.Length > 0 && defaultName != subZoneText)
+                {
+                    zoneText = defaultName;
+                    subZoneText = "";
+                }
+            }
+            if (groupRow?.Name is { Length: > 0 } groupName) subZoneText = groupName;
+        }
+        if (_entities.TryGet(ControlledGuid, out WorldEntity zonePlayer))
+        {
+            MinimapZonePvpInfo pvp = ResolveAreaPvp(zonePlayer, areaId, zoneId);
+            UpdateZoneTextIdentity(new(zoneId, zoneText, subZoneText, interior is not null), pvp);
+        }
         if (zoneId == 0 || zoneId == _minimapReportedZoneId) return;
         _minimapReportedZoneId = zoneId;
         _net?.ZoneUpdate(zoneId);
@@ -892,6 +1210,20 @@ public sealed partial class GameLoop
                 $"wmo={logInterior.RootWmoId}/{logInterior.NameSetId}/{logInterior.GroupWmoId};") +
             $"subZone={_areas?.AreaName(areaId)};zone={zoneId}");
         Console.WriteLine($"[minimap] area={areaId} '{_areas?.AreaName(areaId)}' zone={zoneId}");
+    }
+
+    private MinimapZonePvpInfo ResolveAreaPvp(WorldEntity player, uint leafArea, uint zoneArea)
+    {
+        uint? leafFlags = _areas?.Flags(leafArea);
+        uint? zoneFaction = _areas?.FactionGroupMask(zoneArea);
+        FactionTemplateRow? ownFaction = null;
+        bool factionKnown = _factions?.TryGet(player.Fields.FactionTemplate,
+            out ownFaction!) == true;
+        return MinimapUiLaw.ZonePvp(
+            leafFlags ?? 0, zoneFaction ?? 0,
+            factionKnown ? ownFaction!.FriendGroupMask : 0,
+            factionKnown ? ownFaction!.EnemyGroupMask : 0,
+            leafFlags.HasValue && zoneFaction.HasValue && factionKnown);
     }
 
     private void EnsureAreaTableForMinimap()

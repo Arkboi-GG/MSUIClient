@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 
@@ -175,7 +176,8 @@ public sealed partial class GameLoop
         if (tabs.All(x => x.Id != _talentSelectedTab)) { _talentSelectedTab = tabs[0].Id; _talentScroll = 0; }
 
         float s = GameplayUiScale();
-        Vector2 origin = new(0, 104 * s), logicalSize = new(384, 512);
+        Vector2 origin = UiPanelFrameOrigin(UiPanelOwnershipRegistry[13], s);
+        Vector2 logicalSize = new(384, 512);
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(logicalSize * s, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
@@ -285,8 +287,9 @@ public sealed partial class GameLoop
             Vector2 rankMin = min + new Vector2(21) * s;
             if (border != 0) dl.AddImage((nint)border, rankMin, rankMin + new Vector2(32) * s);
             uint rankColor = !eligible && rank == 0 ? 0xff888888u : maxed ? VanillaGold : 0xff00ff00u;
-            DrawCenteredText(dl, rankMin + new Vector2(16) * s,
-                $"{rank}/{talent.RankSpells.Length}", 9 * s, rankColor);
+            GameText.DrawCentered(dl, "GameFontNormalSmall",
+                $"{rank}/{talent.RankSpells.Length}", rankMin + new Vector2(16) * s,
+                s, rankColor);
             ImGui.SetCursorScreenPos(min);
             ImGui.InvisibleButton($"##talent-{talent.Id}", new Vector2(37) * s);
             if (ImGui.IsItemClicked() && eligible) SpendTalent(talent.Id);
@@ -300,11 +303,32 @@ public sealed partial class GameLoop
         dl.PopClipRect();
         DrawTalentScrollBar(dl, origin, s, scrollMaximum);
 
-        DrawCenteredText(dl, origin + new Vector2(198, 24) * s, $"{active.Name} Talents", 12 * s, 0xffffffff);
-        DrawCenteredText(dl, origin + new Vector2(207, 58) * s,
-            $"{active.Name} Talents: {visibleTalents.Sum(TalentRank)}", 9 * s, VanillaGold);
-        dl.AddText(ImGui.GetFont(), 9 * s, origin + new Vector2(228, 465) * s, 0xffffffff, "Talent Points:");
-        dl.AddText(ImGui.GetFont(), 9 * s, origin + new Vector2(309, 465) * s, VanillaGold, TalentPoints().ToString());
+        GameText.DrawCentered(dl, "GameFontNormal", "Talents",
+            origin + TalentFrameUiLaw.TitleCenter * s, s);
+
+        string spentPrefix = TalentFrameUiLaw.SpentPointsPrefix(active.Name);
+        string spentValue = visibleTalents.Sum(TalentRank).ToString();
+        float spentPrefixWidth = GameText.MeasureWidth("GameFontNormalSmall", spentPrefix, s);
+        float spentValueWidth = GameText.MeasureWidth("GameFontHighlightSmall", spentValue, s);
+        Vector2 spentTop = origin + new Vector2(
+            TalentFrameUiLaw.SpentPointsCenterX * s -
+                (spentPrefixWidth + spentValueWidth) * .5f,
+            TalentFrameUiLaw.SpentPointsTop * s);
+        GameText.Draw(dl, "GameFontNormalSmall", spentPrefix, spentTop, s);
+        GameText.Draw(dl, "GameFontHighlightSmall", spentValue,
+            spentTop + new Vector2(spentPrefixWidth, 0f), s);
+
+        string talentPoints = TalentPoints().ToString();
+        float pointEm = GameText.EmPixels("GameFontHighlightSmall", s);
+        Vector2 pointRight = origin + TalentFrameUiLaw.TalentPointsBottomRight * s;
+        pointRight.Y -= pointEm;
+        float pointWidth = GameText.MeasureWidth("GameFontHighlightSmall", talentPoints, s);
+        GameText.DrawRightAligned(dl, "GameFontHighlightSmall", talentPoints, pointRight, s);
+        Vector2 labelRight = pointRight with
+        {
+            X = pointRight.X - pointWidth - TalentFrameUiLaw.TalentPointsLabelGap * s,
+        };
+        GameText.DrawRightAligned(dl, "GameFontNormalSmall", "Talent Points:", labelRight, s);
 
         float tabX = 15;
         foreach (TalentTabInfo tab in tabs)

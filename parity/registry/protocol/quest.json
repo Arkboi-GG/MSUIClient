@@ -8,28 +8,28 @@
     {
       "path": "crates/benilla-protocol/src/messages/quest/giver.rs",
       "fileSha256": "eaf0886a7b3ddd89b25cf61853d7c828fe280474e019a1ae0c596dde37484a89",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-protocol/src/messages/quest/log.rs",
       "fileSha256": "e8db6b39bff6413ad23109e971aabeb6364011c17724d171c95e7de9aa86bc4b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-protocol/src/messages/quest/mod.rs",
       "fileSha256": "92022b745305ed2df1826a35ea918554848530584a9980e1556d35b32af97dd8",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-protocol/src/world/writer/quest.rs",
       "fileSha256": "c39bb6526b55cb5ddae1cdadfe4b950c7906c858c127acf5ca40a406dfa6a0ba",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/QuestPackets.cs",
-    "MSUIClient/Program.Quest.cs",
-    "MSUIClient/Program.Net.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Quest.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
     "MSUIClient/Engine/UI/QuestFrameUiLaw.cs"
   ],
   "status": "partial",

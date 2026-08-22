@@ -1,6 +1,7 @@
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine.UI;
+using MSUIClient.Formats;
 using MSUIClient.Net;
 
 namespace MSUIClient;
@@ -531,15 +532,10 @@ public sealed partial class GameLoop
             if (raw == 0 || _enchantCatalog is null) continue;
             int signed = unchecked((int)raw);
             uint catalogId = signed < 0 ? (uint)(-(long)signed) : raw;
-            string name = _enchantCatalog.Name(catalogId);
-            if (name.Length == 0) continue;
-            Vector4 color = InspectUiLaw.VisibleEnchantTone(enchantSlot, signed < 0) switch
-            {
-                InspectEnchantTone.Green => new Vector4(.125f, 1f, .125f, 1f),
-                InspectEnchantTone.Red => new Vector4(1f, .125f, .125f, 1f),
-                _ => Vector4.One,
-            };
-            enchantOperations.Add(PreparedItemTooltipColored(name, color));
+            if (!_enchantCatalog.TryGet(catalogId, out EnchantInfo enchant) ||
+                enchant.HidesTooltipName || enchant.Name.Length == 0) continue;
+            enchantOperations.Add(PreparedItemTooltipColored(enchant.Name,
+                ItemEnchantUiLaw.Color(enchantSlot, signed)));
         }
         return enchantOperations.Count == 0
             ? body

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/binderconfirm",
+  "title": "binderconfirm",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/BinderConfirm.xml",
+      "fileSha256": "372bf62d3a657ac0f2a0b542f740a734af7b35ef1932581fb5237e448de0e6ad",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_binder.rs",
+      "fileSha256": "cc085239165b3b87d5ec9719c2d9840d28013ff950e32e409c09a8c1397b9b27",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/BinderConfirmUiLaw.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Hearth.cs",
+    "tools/interface-wire-check/BinderClinicalChecks.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "The innkeeper confirmation now follows current Benilla's BinderConfirm StaticPopup behavior: exact area-aware prompt and fallback, law-owned top popup seat and button geometry, stock dialog art, Accept-only CMSG_BINDER_ACTIVATE, cancel/Escape without wire, and the shared 30.864 yd² service-range expiry. The former ad-hoc centered ImGui geometry has been removed.",
+  "openItems": [
+    {
+      "id": "item-msui-binder-live-verify",
+      "kind": "verify",
+      "text": "Focused packet, text, geometry, source-fence and range checks pass. Needs a live innkeeper acceptance/cancellation/range-exit pass and visual comparison of the StaticPopup shell.",
+      "source": "implementation-2026-08-21",
+      "added": "2026-08-21",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-21T22:59:51.8349179Z",
+  "seededUtc": "2026-08-21T22:59:51.8349179Z"
+}

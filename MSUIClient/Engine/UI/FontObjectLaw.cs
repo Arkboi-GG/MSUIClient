@@ -147,12 +147,13 @@ public static class FontObjectLaw
     [
         "GameFontNormal", "GameFontHighlight", "GameFontDisable",
         "GameFontNormalSmall", "GameFontHighlightSmall",
-        "GameFontNormalLarge",
+        "GameFontNormalLarge", "GameFontNormalHuge",
         "QuestTitleFont", "QuestFont", "MailTextFontNormal",
         "SubSpellFont",
         "GameTooltipText", "GameTooltipTextSmall", "GameTooltipHeaderText",
         "NumberFontNormal", "NumberFontNormalSmall",
         "ChatFontNormal",
+        "ZoneTextFont", "SubZoneTextFont",
     ];
 
     /// <summary>Distinct (face, height, thick) triples to rasterise for

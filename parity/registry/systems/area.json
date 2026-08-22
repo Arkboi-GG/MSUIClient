@@ -7,17 +7,20 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/area.rs",
-      "fileSha256": "72d1a5f08bc5a6826b3ac2e61fd1a07a083e045eaf9bdf2951eda566cf014b8c",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "cdab8416e229126e304ede19f7aa8b71ec41f6bec553d3bd8136fa55582b0f71",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.Minimap.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.Minimap.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.ZoneText.cs",
     "MSUIClient/Formats/AreaTable.cs",
-    "MSUIClient/Engine/UI/FontObjectLaw.cs"
+    "MSUIClient/Formats/WmoAreaCatalog.cs",
+    "MSUIClient/Engine/UI/MinimapUiLaw.cs",
+    "MSUIClient/Engine/UI/ZoneTextUiLaw.cs"
   ],
   "status": "partial",
-  "summary": "Benilla publishes the zone identity (leaf -> single-hop parent zone), the ZONE_CHANGED/ZONE_CHANGED_NEW_AREA/ZONE_CHANGED_INDOORS election with the WMO-interior naming override (inn splash), the minimap subzone-else-zone line, and GetZonePVPInfo (friendly/hostile/contested + arena flag). MSUI loads AreaTable.dbc, resolves the terrain-chunk areaId per frame, draws the minimap zone-text line (subzone-else-zone) and sends CMSG_ZONEUPDATE on zone change - but the rest of the family is absent.",
+  "summary": "MSUI now publishes the current area family: leaf/top-zone identity, NEW_AREA/INDOORS/ordinary transition election, exact-key WMO default/group naming override, subzone-else-zone minimap line, CMSG_ZONEUPDATE, and friend-then-enemy PvP disposition plus arena leaf flag. The result feeds both the minimap label/tooltip and center-screen transition splashes.",
   "openItems": [
     {
       "id": "item-triage-f4bec5bf",
@@ -25,7 +28,8 @@
       "text": "No zone-change splash: entering a new zone/subzone never shows the big center-screen ZoneTextFont/SubZoneTextFont text (both fonts are declared in FontObjectLaw.cs but nothing renders a splash).",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: The area transition feed now drives exact cached-text event gates and the ZoneText/SubZoneText fade renderer."
     },
     {
       "id": "item-triage-ce5115b9",
@@ -33,7 +37,8 @@
       "text": "No WMO-interior naming: indoors the area stays the terrain chunk's - a named interior (Lion's Pride Inn whole-WMO override, per-room subzones like Main Hall, the indoor/outdoor dedup) never replaces the zone/subzone texts.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: Interior naming now queries exact WMOAreaTable whole-WMO and hit-group rows, applies the default name/AreaTable fallback, resets the subzone on whole-WMO override, then restores a non-empty group room name."
     },
     {
       "id": "item-triage-6edf1a56",
@@ -41,12 +46,21 @@
       "text": "No zone PvP info: friendly/hostile/contested ownership from the zone's FactionGroupMask vs the player's faction template (and the FFA-arena leaf flag) is not computed or displayed anywhere.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-21: AreaTable leaf Flags and zone FactionGroupMask now combine with the player's faction-template friend/enemy masks; the resulting friendly/hostile/contested/arena data is rendered on minimap and splash surfaces."
+    },
+    {
+      "id": "item-msui-area-live-verify",
+      "kind": "verify",
+      "text": "Focused law/source checks pass; live traversal verification remains for outdoor boundaries, whole-WMO inn overrides and named room groups.",
+      "source": "implementation-2026-08-21",
+      "added": "2026-08-21",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-21T22:37:24.3864032+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

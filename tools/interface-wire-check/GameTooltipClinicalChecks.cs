@@ -9,6 +9,8 @@ using MSUIClient.Net;
 
 internal static class GameTooltipClinicalChecks
 {
+    public static void RunItemSnapshotOnly() => CheckB3PreparedItemSnapshot();
+
     public static void Run()
     {
         CheckOwnerGenerationAndClear();
@@ -220,6 +222,7 @@ internal static class GameTooltipClinicalChecks
 
     private static void CheckB3PreparedItemSnapshot()
     {
+        object game = RuntimeHelpers.GetUninitializedObject(typeof(GameLoop));
         var item = new ItemTemplate
         {
             Name = "Clinical Sword",
@@ -230,14 +233,14 @@ internal static class GameTooltipClinicalChecks
             ItemLevel = 25,
             Stackable = 5,
             Description = "Clinical flavor",
-            Stats = [new ItemStat(2, 5), new ItemStat(99, -2)],
+            Stats = [new ItemStat(3, 5), new ItemStat(99, -2)],
             Damages = [new ItemDamage(1.2f, 3.4f, 0)],
             Resistances = [1, 2, 3, 4, 5, 6],
         };
-        object full = InvokeStatic<object>("PrepareItemTooltipBodySnapshot",
-            item, 3u, 2u, 10u, false);
-        object compact = InvokeStatic<object>("PrepareItemTooltipBodySnapshot",
-            item, 3u, 2u, 10u, true);
+        object full = Invoke<object>(game, "PrepareItemTooltipBodySnapshot",
+            item, 3u, 2u, 10u, false, (uint?)null, null);
+        object compact = Invoke<object>(game, "PrepareItemTooltipBodySnapshot",
+            item, 3u, 2u, 10u, true, (uint?)null, null);
         PreparedItemPaint[] fullBefore = PreparedItemPaints(full);
         PreparedItemPaint[] compactBefore = PreparedItemPaints(compact);
 
@@ -245,20 +248,24 @@ internal static class GameTooltipClinicalChecks
             {
                 new("Colored", "Clinical Sword", new Vector4(0, .44f, .87f, 1)),
                 new("Plain", "Binds when equipped", default),
-                new("Plain", "1.2 - 3.4 Damage", default),
+                new("Plain", "1 - 3 Damage", default),
                 new("Plain", "17 Armor", default),
                 new("Plain", "+5 Agility", default),
-                new("Plain", "-2 Stat 99", default),
-                new("Plain", "Requires Level 20", default),
-                new("Disabled", "Item Level 25", default),
-                new("Plain", "Durability 2 / 10", default),
-                new("Disabled", "Stack: 3 / 5", default),
-                new("Colored", "Clinical flavor", new Vector4(1f, .82f, 0, 1)),
+                new("Plain", "+2 Fire Resistance", default),
+                new("Plain", "+3 Nature Resistance", default),
+                new("Plain", "+4 Frost Resistance", default),
+                new("Plain", "+5 Shadow Resistance", default),
+                new("Plain", "+6 Arcane Resistance", default),
+                new("Colored", "Durability 2 / 10", Vector4.One),
+                new("Colored", "Requires Level 20",
+                    new Vector4(1f, 32f / 255f, 32f / 255f, 1f)),
+                new("Colored", "\"Clinical flavor\"",
+                    new Vector4(1f, 210f / 255f, 0, 1)),
             }) &&
               compactBefore[0] == new PreparedItemPaint(
                   "Colored", "Clinical Sword", Vector4.One) &&
-              compactBefore.All(operation => operation.Text != "Clinical flavor") &&
-              compactBefore.Skip(1).SequenceEqual(fullBefore.Skip(1).Take(9)),
+              compactBefore.All(operation => operation.Text != "\"Clinical flavor\"") &&
+              compactBefore.Skip(1).SequenceEqual(fullBefore.Skip(1).SkipLast(1)),
             "B3 prepared item body changed text, tone, order, compact name, or description cut");
 
         item.Name = "Mutated";
@@ -278,17 +285,44 @@ internal static class GameTooltipClinicalChecks
               PreparedItemPaints(compact).SequenceEqual(compactBefore),
             "B3 deferred item body retained mutable ItemTemplate/list/array state");
 
+        var currentLawItem = new ItemTemplate
+        {
+            Name = "Charged Mystery",
+            Quality = 1,
+            RandomProperty = 44,
+            Description = "A deliberately long flavor line whose logical row must retain " +
+                          "wrapped geometry inside the positioned tooltip plate.",
+            Spells =
+            [
+                new ItemSpellTemplate(4057, 0, -5, 0, 0, 0),
+                default, default, default, default,
+            ],
+        };
+        object currentLaw = Invoke<object>(game, "PrepareItemTooltipBodySnapshot",
+            currentLawItem, 1u, 0u, 0u, false, (uint?)null, null);
+        object[] currentOperations = Property<IEnumerable>(currentLaw, "Operations")
+            .Cast<object>().ToArray();
+        Check(currentOperations.Select(operation => Property<string>(operation, "Text"))
+                  .SequenceEqual(new[]
+                  {
+                      "Charged Mystery", "<Random enchantment>", "5 Charges",
+                      "\"A deliberately long flavor line whose logical row must retain " +
+                      "wrapped geometry inside the positioned tooltip plate.\"",
+                  }) &&
+              !Property<bool>(currentOperations[1], "Wrap") &&
+              Property<bool>(currentOperations[^1], "Wrap"),
+            "B3 current item law lost random-enchant/charge order or wrapped flavor-row identity");
+
         Check(InvokeStatic<int>("HighestLiveComparisonOrdinal",
                   (IEnumerable<int>)new[] { 2 }) == 2 &&
               InvokeStatic<int>("HighestLiveComparisonOrdinal",
                   (IEnumerable<int>)Array.Empty<int>()) == 0,
             "B3 gapped ShoppingTooltip2 ordinal compacted or empty comparison count drifted");
 
-        object game = RuntimeHelpers.GetUninitializedObject(typeof(GameLoop));
         InvokeVoid(game, "BeginSharedGameTooltipFrame", 50d);
         var inventoryOwner = new GameTooltipOwnerKey("item:inventory-container:0", 16);
         Check(Invoke<bool>(game, "OfferPreparedItemTooltip", inventoryOwner, full,
-                  (Vector2?)new Vector2(24, 18), 2, (Action?)null),
+                  (Vector2?)new Vector2(24, 18), 2, (Action?)null, (Vector2?)null),
             "B3 prepared item offer could not enter the guarded shared frame");
         object offered = Invoke<object>(game, "SharedGameTooltipSnapshot");
         Check(Property<int>(offered, "ComparisonCount") == 2 &&
@@ -299,6 +333,27 @@ internal static class GameTooltipClinicalChecks
         Check(!Invoke<bool>(game, "ResolveAndDrawSharedGameTooltip"),
             "B3 stale prepared item callback rendered after owner-generation replacement");
         InvokeVoid(game, "EndSharedGameTooltipFrame");
+
+        string root = ClientConfig.FindRepoRoot();
+        string inventory = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop",
+            "Panels", "GameLoop.Inventory.cs"));
+        Check(inventory.Contains("PrepareInventoryItemTooltipRenderer(body, at, preparedPivot)",
+                  StringComparison.Ordinal) &&
+              inventory.Contains("DrawPreparedInventoryItemTooltip(inventoryRenderer)",
+                  StringComparison.Ordinal) &&
+              inventory.Contains("GameTooltipUiLaw.Padding * scale", StringComparison.Ordinal) &&
+              inventory.Contains("GameTooltipUiLaw.LogicalRowGap * scale", StringComparison.Ordinal) &&
+              inventory.Contains("GameTooltipUiLaw.WrapText(operation.Text, wrapWidth",
+                  StringComparison.Ordinal) &&
+              inventory.Contains("GameTooltipHeaderText", StringComparison.Ordinal) &&
+              inventory.Contains("GameTooltipText", StringComparison.Ordinal) &&
+              inventory.Contains("SharedGameTooltipBackdropTints(1f)", StringComparison.Ordinal) &&
+              inventory.Contains("SharedGameTooltipClampToScreen", StringComparison.Ordinal) &&
+              inventory.Contains("InventoryUiLaw.ItemTooltipSeat(", StringComparison.Ordinal) &&
+              inventory.Contains("tooltipSeat.Pivot", StringComparison.Ordinal) &&
+              !inventory.Contains("ImGui.SetNextWindowPos(at, ImGuiCond.Always, preparedPivot)",
+                  StringComparison.Ordinal),
+            "B3 positioned inventory hover escaped the immutable FrameXML-font/rule seat renderer");
     }
 
     private static void CheckB3FixedOwnerIdentity()
@@ -1180,16 +1235,16 @@ internal static class GameTooltipClinicalChecks
               !preservedOffer.Contains("HideSharedGameTooltip", StringComparison.Ordinal),
             "preserved GameTooltip adapter lost guard-before-Claim/full-clear/immediate lease order");
 
-        int producerReferences = Directory.EnumerateFiles(client, "Program*.cs",
-                SearchOption.TopDirectoryOnly)
+        int producerReferences = Directory.EnumerateFiles(client, "*.cs",
+                SearchOption.AllDirectories)
             .Sum(path => Count(SourceText.Read(path), "QueueSharedGameTooltipRenderer"));
         Check(Count(coordinator, "QueueSharedGameTooltipRenderer") == 3 &&
               Count(party, "QueueSharedGameTooltipRenderer") == 1 &&
               Count(minimap, "QueueSharedGameTooltipRenderer") == 1 &&
               Count(worldUnit, "QueueSharedGameTooltipRenderer") == 1 &&
               Count(merchant, "QueueSharedGameTooltipRenderer") == 1 &&
-              producerReferences == 7,
-            "GameTooltip Queue escaped coordinator/opaque helper/newbie responder, Party, B5 minimap, B6 world, or Merchant repair lease");
+              producerReferences == 8,
+            "GameTooltip Queue escaped coordinator/opaque helper/newbie responder, Party, B5 minimap, B6 world-unit/world-object, or Merchant repair lease");
     }
 
     private static void CheckB2ProducerSourceFence()
@@ -1379,7 +1434,7 @@ internal static class GameTooltipClinicalChecks
             "B3 retained a legacy mutable/direct item-tooltip bypass");
 
         int prepareStart = inventory.IndexOf(
-            "private static ItemTooltipBodySnapshot PrepareItemTooltipBodySnapshot(",
+            "private ItemTooltipBodySnapshot PrepareItemTooltipBodySnapshot(",
             StringComparison.Ordinal);
         int replayStart = inventory.IndexOf(
             "private static void DrawPreparedItemTooltipBody(", prepareStart,
@@ -1397,7 +1452,7 @@ internal static class GameTooltipClinicalChecks
         string offerBody = inventory[offerStart..comparisonPrepareStart];
         Check(prepareBody.Contains("ImmutableArray.CreateBuilder<PreparedItemTooltipPaintOp>()",
                   StringComparison.Ordinal) &&
-              prepareBody.Contains("foreach (ItemDamage damage in item.Damages)",
+              prepareBody.Contains("ItemDamage[] damages = item.Damages",
                   StringComparison.Ordinal) &&
               prepareBody.Contains("foreach (ItemStat stat in item.Stats)",
                   StringComparison.Ordinal) &&

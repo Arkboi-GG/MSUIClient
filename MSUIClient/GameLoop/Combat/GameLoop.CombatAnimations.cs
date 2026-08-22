@@ -15,6 +15,7 @@ public sealed partial class GameLoop
 
         bool offHand = (swing.HitInfo & 0x0004u) != 0;
         bool landedHit = swing.Damage > 0 && swing.VictimState is 0 or 1;
+        QueueMeleeSound(swing);
 
         if (swing.Attacker == ControlledGuid)
             _character?.TriggerCombatSwing(offHand);

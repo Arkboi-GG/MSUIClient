@@ -10,7 +10,7 @@ public static class MailUiLaw
     public const uint CheckedCopied = 0x4;
     public const uint PostageCopper = 30;
     public const uint MaxCodCopper = 10_000u * 10_000u;
-    public const float InteractionDistance = 5f;
+    public const float InteractionDistance = NpcSessionUiLaw.ServiceRange;
     public const double InboxThrottleSeconds = 60d;
     public const int MaxRecipientLetters = 12;
     public const int MaxSubjectLetters = 64;

@@ -1336,6 +1336,7 @@ public sealed partial class GameLoop
             ? 0
             : _areaTriggers?.Containing(
                 _config.Start.Map, _controller.Position)?.Id ?? 0;
+        _portalLatchMap = _config.Start.Map;
         if (_portalLatch != 0)
             Console.WriteLine($"[portal] promoted arrival latched trigger {_portalLatch}");
 

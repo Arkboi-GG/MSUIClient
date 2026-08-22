@@ -7,20 +7,24 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/BankFrame.xml",
-      "fileSha256": "7b61d6c3d9aab699cc0bcf6335f2b53c35c1c280c52e98c103e6fb5c69187673",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "38c702de576719e7845a09de7c628565d07f30173a37dd255a94ba2f99a3c61c",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_bank.rs",
-      "fileSha256": "325bdd67446d2d8805e2b0ecdd406d40da80f76988daabae182220d2e1751b48",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "fc495f5f832872904573b08ad775ef0eb87d9b8dc16e9aba24bc5dfeca0e5212",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Bank.cs"
+    "MSUIClient/Engine/UI/BankFrameUiLaw.cs",
+    "MSUIClient/Engine/UI/InventoryUiLaw.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Bank.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Inventory.cs",
+    "tools/interface-wire-check/BankFrameClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "Bank window exists with real BankFrame art regions, the 24 generic slots as icon buttons with quickslot rings, item tooltips, click-to-withdraw, deposit path, bag-slot purchase with BankBagSlotPrice.dbc pricing and locked/open slot art, and delta-based buy-result observation. All 5 wire opcodes hit per the registry.",
+  "status": "implemented-unverified",
+  "summary": "The bank follows current Benilla's law-owned 384x512 left-panel seat and single UI-BankFrame slab, live banker portrait/name, purse and purchase-cost coin cells, MainMenu cues, and law-positioned purchase confirmation. Its 24 generic slots share the inventory cursor law. The six live bank-bag buttons address player slots 63..68, show their bag icons and checked state, accept carried bags, and toggle rule-stacked container windows 5..10 whose contents reuse the ordinary bag pickup/place/swap/split/lock/tooltip flow.",
   "openItems": [
     {
       "id": "item-triage-ba7457d3",
@@ -28,7 +32,8 @@
       "text": "The six bank-bag popout container windows (Benilla BenillaBankBagFrame1..6, container ids 5..10) do not exist - purchased bank bag slots show ring art only; bags placed there cannot be opened or used",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: bank container -1 is mapped by InventoryUiLaw to player-array slots 39..62. The rendered slots now use shared click, drag/drop, carried-item, pending-lock and law-positioned StackSplit behavior; right-click remains the distinct server-selected auto-withdraw action."
     },
     {
       "id": "item-triage-77fd546f",
@@ -36,7 +41,8 @@
       "text": "No drag-and-drop cursor flow for bank slots (click withdraws whole item by entry; no place-into-specific-slot, no stack split)",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: player bank-bag slots 63..68 now feed six live buttons and rule-stacked popout windows for containers 5..10. Each window resolves its streamed container object, icon, name, capacity and contents and reuses ordinary bag cursor, split, lock, tooltip and close behavior."
     },
     {
       "id": "item-triage-7037b667",
@@ -44,7 +50,8 @@
       "text": "No banker portrait/name title (Benilla binds SetPortraitTexture 'npc' and BANKFRAME_OPENED name)",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: BankFrameUiLaw owns the current left-panel seat and portrait geometry; the renderer resolves the banker name and draws the live unit portrait behind the stock slab art."
     },
     {
       "id": "item-triage-2ee73b03",
@@ -52,12 +59,13 @@
       "text": "No player money display on the window (Benilla BenillaBankFrameMoneyCoin1..3), and no purchase confirmation popup (CONFIRM_BUY_BANK_SLOT) - purchase fires immediately",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: the player purse and next-slot price use denomination coin cells, and Purchase now opens a dedicated law-positioned confirmation before CMSG_BUY_BANK_SLOT is sent."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T03:18:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

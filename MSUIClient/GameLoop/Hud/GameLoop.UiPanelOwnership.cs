@@ -1,3 +1,4 @@
+using System.Numerics;
 using MSUIClient.Engine.UI;
 
 namespace MSUIClient;
@@ -48,7 +49,7 @@ public sealed partial class GameLoop
             if (predicate) visible.Add(UiPanelOwnershipRegistry[registryIndex]);
         }
 
-        IncludeWhen(_gossipMenu is not null || _gossipText is not null, 0);
+        IncludeWhen(_gossipMenu is not null || _gossipGreeting is not null, 0);
         IncludeWhen(_vendor is not null, 1);
         IncludeWhen(_mailOpen, 2);
         IncludeWhen(_tradeOpen, 3);
@@ -85,6 +86,23 @@ public sealed partial class GameLoop
     private void ObserveUiPanelOwnership() =>
         _uiPanelOwnershipObservation = _uiPanelOwnershipObserver.Observe(
             CaptureUiPanelOwnershipSample());
+
+    /// <summary>
+    /// Returns the frozen SetLeftFrame/SetCenterFrame seat for a registered gameplay panel.
+    /// Unknown/first-frame observations conservatively use the left seat until the next census;
+    /// they never invent a center owner.
+    /// </summary>
+    private Vector2 UiPanelFrameOrigin(UiPanelOwnershipLaw.Panel panel, float scale)
+    {
+        if (_uiPanelOwnershipObservation is
+                { Confidence: UiPanelObservationConfidence.Known } observation &&
+            UiPanelOwnershipLaw.TryLogicalSeatOrigin(observation.Seats, panel,
+                out Vector2 logicalOrigin))
+            return logicalOrigin * scale;
+
+        return new Vector2(UiPanelOwnershipLaw.LeftSeatX,
+            UiPanelOwnershipLaw.PanelTop) * scale;
+    }
 
     /// <summary>
     /// The first authoritative host wedge is deliberately limited to the ordinary zero-push

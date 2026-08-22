@@ -7,13 +7,13 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/SpellBookFrame.xml",
-      "fileSha256": "cba71065815b613b6fccdbda72549b06423fa938f4e2c4fcc8804e6ea109abb3",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "67828fa1b2daea67fc91ae781d484ff2879a9cc7d4acb0816b2723ccad70ff37",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_spellbook.rs",
-      "fileSha256": "cac5e3af056bbae50207f032f50ac842cbc19d36243a0b494770a767da92a8e5",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "4d90d414c605567013e8eeb5a316dc761824ffac11375854e9e83e5a813b647e",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
@@ -21,6 +21,10 @@
     "MSUIClient/Engine/UI/SpellbookLaw.cs",
     "MSUIClient/Program.UiPanelOwnership.cs",
     "MSUIClient/Program.ActionBars.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Spellbook.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Professions.cs",
+    "MSUIClient/Net/ObjectFields.cs",
+    "tools/interface-wire-check/SpellbookVisualClinicalChecks.cs",
     "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/audit.json",
     "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/README.md",
     "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/evidence/before/frozen-target.md",
@@ -31,7 +35,7 @@
     "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/evidence/live/live-visual-gate.md"
   ],
   "status": "partial",
-  "summary": "MSUI opens and toggles the spellbook through the bounded host-confirmed adapter, emits the frozen open/close/page-turn cues on transitions and enabled page clicks, and keeps the frozen presentation and the rich-tooltip preserved difference intact. Twenty facts remain explicit implementation gaps (cooldown, checked overlay, input contract, tabs five through eight); 141 implemented facts remain nonterminal, targetless where intentionally post-snapshot, and unverified live; 5 divergent facts remain the recorded tooltip preserved difference.",
+  "summary": "MSUI opens and toggles the spellbook through the bounded host-confirmed adapter, emits the frozen open/close/page-turn cues, renders the centered 36x36 Cooldown child and narrow IsCurrentCast checked ring, exposes all eight skill tabs, and reproduces left/right cast, shift-pickup, raw MacroFrame /cast append, drag-start, and receive-drag cursor behavior. The rich-tooltip difference remains under adjudication and implemented presentation still carries live verification debt.",
   "openItems": [
     {
       "id": "item-claim-spellbookframe-sound-gap-001-verify",
@@ -63,7 +67,7 @@
       "text": "The frozen XML registers cooldown refresh and declares a centered 36x36 Cooldown child, while current DrawSpellButton renders no cooldown child.",
       "source": "claim-spellbookframe-cooldown-gap-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true
     },
     {
       "id": "item-claim-spellbookframe-selection-gap-001",
@@ -71,7 +75,7 @@
       "text": "Skill-line tabs have a checked ring, but spell buttons do not render the frozen current-cast/current-form checked overlay.",
       "source": "claim-spellbookframe-selection-gap-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true
     },
     {
       "id": "item-claim-spellbookframe-tooltip-preserved-difference-001",
@@ -87,7 +91,7 @@
       "text": "Current DrawSpellButton does not reproduce the frozen shift-click pickup/macro-append branch or full receive-drag contract.",
       "source": "claim-spellbookframe-input-gap-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true
     },
     {
       "id": "item-claim-spellbookframe-button-grid-presentation-001-verify",
@@ -108,7 +112,7 @@
     {
       "id": "item-claim-spellbookframe-skill-tabs-001-verify",
       "kind": "verify",
-      "text": "Implemented but needs live-session verification. MSUI preserves the frozen right-rail tab background, icon, selected and hover overlays, tooltips, 49-unit stride, and exact first-four anchors used by the current MaxClassTabs=4 model.",
+      "text": "Implemented but needs live-session verification. MSUI preserves the frozen right-rail tab background, icon, selected and hover overlays, tooltips, 49-unit stride, and all eight declared tab seats.",
       "source": "claim-spellbookframe-skill-tabs-001",
       "added": "2026-08-09",
       "resolved": false
@@ -119,7 +123,7 @@
       "text": "The frozen window declares eight skill-line tab seats, while current SpellbookLaw.MaxClassTabs is four and DrawSpellbook truncates the model.",
       "source": "claim-spellbookframe-tabs-five-eight-gap-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true
     },
     {
       "id": "item-claim-spellbookframe-window-presentation-001-verify",
@@ -135,7 +139,7 @@
       "text": "Cooldown child overlay, checked overlay, shift-click behavior, and tabs 5-8 (blocked on unpromoted dependency packets).",
       "source": "session-memory-2026-08-08",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true
     }
   ],
   "claims": [
@@ -172,6 +176,6 @@
     "trace-spellbookframe-window-presentation-001"
   ],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T03:59:55.573251+00:00",
+  "lastReviewedUtc": "2026-08-22T01:21:19.3207879Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

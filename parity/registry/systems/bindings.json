@@ -7,13 +7,13 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/bindings.rs",
-      "fileSha256": "a7d9866918f6a2f1099a6193ecc2006bda8e470087f101565d1a43a3879cb1e7",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "8fc59311eefb3e2149ee3761e0d25e5af5efb6442c3d51bf82f0ce6f5db2a42a",
+      "snapshotId": "benilla-current-2026-08-22"
     },
     {
       "path": "crates/benilla-app/src/bindings/chord.rs",
-      "fileSha256": "bd1364eb3dba1740210cc1e6750b537288c9e9cda44716a93ee76a727918a379",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "f072140b2e5b039d5a80b944ff9af3c436a168c05083e0f93f5acc2fb58d2648",
+      "snapshotId": "benilla-current-2026-08-22"
     },
     {
       "path": "crates/benilla-app/src/bindings/commands.rs",
@@ -27,11 +27,16 @@
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.Bindings.cs",
-    "MSUIClient/Program.Keybindings.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Bindings.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Keybindings.cs",
+    "MSUIClient/Engine/UI/BindingChordLaw.cs",
+    "MSUIClient/Engine/UI/CharacterBindingsUiLaw.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Sheath.cs",
+    "tools/interface-wire-check/BindingChordClinicalChecks.cs",
+    "tools/interface-wire-check/CharacterBindingsClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "Benilla runs every rebindable input through one chord->command engine: canonical ALT-CTRL-SHIFT chords with the exact-modifier match law, Held latches released on the base key (chat focus clears latches without eating the release), a capture seam in the options page, and account + per-character persistence files. MSUI has a real keybindings system - a rebindable table (movement, targeting, interface panels, 12+24 action-bar buttons) with primary/secondary slots, a capture UI with unbind and reset-to-defaults, and JSON persistence with legacy-schema migration - but it binds bare keys only.",
+  "summary": "MSUI runs its rebindable keyboard inputs through canonical ALT-CTRL-SHIFT chords with global exact-match precedence, the reference's single leftmost-modifier fallback, Super rejection, and base-key Held latches that survive modifier changes and clear cleanly for typing. Account and GUID-keyed character binding sets now follow the reference create-copy and confirmed load-account-before-delete lifecycle. Remaining system gaps are broader command and mouse coverage.",
   "openItems": [
     {
       "id": "item-triage-6927a2fd",
@@ -39,6 +44,15 @@
       "text": "No modifier chords: BindingPair holds bare Silk Key values - SHIFT-/CTRL-/ALT- combinations cannot be bound, and there is no exact-modifier-match rule distinguishing a bare binding from a chorded one.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: BindingChordLaw owns canonical ALT-CTRL-SHIFT token parsing/emission, modifier exclusion and the one-step ALT then CTRL then SHIFT fallback. GameLoop.Bindings persists chord strings, migrates old bare enum names, globally prefers any exact chord before fallback, rejects Super, and latches resolved commands on the base-key edge until release; typing clears latches while retaining physical state. Focused chord and Alt-Z checks pass."
+    },
+    {
+      "id": "item-msui-binding-chord-live-verify",
+      "kind": "verify",
+      "text": "Codec, persistence/source fences, exact-first/fallback dispatch, Held latches, Super rejection, capture and Alt-Z/sheath regressions pass. Needs owner-run live acceptance for movement/action/panel chords, modifier-release ordering, chat focus, conflict steals and a save/reload round trip.",
+      "source": "review-2026-08-22/current-benilla-binding-chords",
+      "added": "2026-08-22",
       "resolved": false
     },
     {
@@ -47,7 +61,8 @@
       "text": "No per-character binding set: one keybindings.json for everything; the reference's account-vs-character split (and the confirmed switch that deletes the character file) has no counterpart.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: Account bindings remain in keybindings.json; character sets use a stable LocalPlayerGuid-keyed file. Enabling immediately copies/persists the live set. Confirmed disabling loads account bindings before deleting the character file and saves the unchanged account set. The shared StaticPopup owns the destructive confirmation and focused clinical checks pass."
     },
     {
       "id": "item-triage-faaeb2fc",
@@ -61,6 +76,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T08:00:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -22,6 +22,11 @@ public static class GuidInfo
     public static bool IsPet(ulong guid) => High(guid) == HighPet;
     public static bool IsGameObject(ulong guid) => High(guid) == HighGameObject;
 
+    /// <summary>The per-pet number in bits 24..47; only HIGHGUID_PET carries one.</summary>
+    public static uint? PetNumber(ulong guid) => IsPet(guid)
+        ? (uint)((guid >> 24) & 0xFFFFFF)
+        : null;
+
     /// <summary>The creature/GO template entry, for the families that carry one; null otherwise.</summary>
     public static uint? Entry(ulong guid) => High(guid) switch
     {

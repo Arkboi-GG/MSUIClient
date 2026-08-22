@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/gametime",
+  "title": "gametime",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/GameTime.xml",
+      "fileSha256": "e6812d64646452b3d8f33145b97fe3ffa12ac8a5843e4e721151d3b38cc163b0",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/GameTimeUiLaw.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.GameTime.cs",
+    "MSUIClient/World/WorldClock.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.CombatFeedback.cs",
+    "tools/interface-wire-check/GameTimeClinicalChecks.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI now implements current Benilla's GameTimeFrame from the already authoritative SMSG_LOGIN_SETTIMESPEED clock: exact 50px minimap-relative overhang, hit insets, UI-TOD-Indicator day/night atlas windows, 05:30 dawn and 21:00 dusk boundaries, en-GB 24-hour tooltip formatting, and per-frame live clock updates. Deterministic geometry, formatter, threshold, and production-wiring checks pass; live pixel/tooltip verification remains open.",
+  "openItems": [
+    {
+      "id": "item-msui-gametime-live-verify",
+      "kind": "verify",
+      "text": "Verify the sun/moon icon, exact inset hover hull and minute-updating tooltip in a live session at dawn, dusk and multiple UI scales.",
+      "source": "implementation-2026-08-21",
+      "added": "2026-08-21",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-21T00:00:00+00:00",
+  "seededUtc": "2026-08-21T00:00:00+00:00"
+}

@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 
@@ -28,6 +29,64 @@ public sealed partial class GameLoop
     private LockCatalog? _locks;
     private SpellFocusCatalog? _spellFoci;
 
+    private readonly record struct GameObjectInteractionFacts(
+        int Type, uint Flags, uint DynamicFlags, int? HighlightColumn,
+        bool? HostileTowardPlayer, bool FishingChannelOwned, bool MeetingStoneQueued);
+
+    private GameObjectInteractionFacts ResolveGameObjectInteractionFacts(WorldEntity go)
+    {
+        RequireGameObjectTemplate(go);
+        _gameObjectTemplates.TryGetValue(go.Entry, out GameObjectTemplate? template);
+        int type = unchecked((int)go.GameObjectType);
+        int? highlight = type switch
+        {
+            5 when template is not null && template.Data.Length > 1 => template.Data[1],
+            29 when template is not null && template.Data.Length > 19 => template.Data[19],
+            _ => null,
+        };
+        bool channelOwned = _entities.TryGet(ControlledGuid, out WorldEntity player) &&
+            player.Fields.ChannelObject == go.Guid;
+        // Current Benilla carries no meeting-stone queue; the reference global is therefore zero.
+        bool meetingQueued = type == 23 && template is not null && template.Data.Length > 2 &&
+            template.Data[2] == 0;
+        return new(type, go.Fields.GameObjectFlags, go.Fields.GameObjectDynamicFlags, highlight,
+            GameObjectHostileTowardPlayer(go), channelOwned, meetingQueued);
+    }
+
+    private bool? GameObjectHostileTowardPlayer(WorldEntity go)
+    {
+        uint goFaction = go.Fields.GameObjectFaction;
+        if (goFaction == 0) return false;
+        if (_factions is null || !_entities.TryGet(ControlledGuid, out WorldEntity player) ||
+            !_factions.TryGet(goFaction, out FactionTemplateRow goTemplate) ||
+            !_factions.TryGet(player.Fields.FactionTemplate, out FactionTemplateRow playerTemplate))
+            return null;
+        return goTemplate.ReactionToward(playerTemplate) == FactionReaction.Hostile;
+    }
+
+    private bool GameObjectMouseoverEligible(WorldEntity go)
+    {
+        GameObjectInteractionFacts f = ResolveGameObjectInteractionFacts(go);
+        return WorldCursorUiLaw.MouseoverEligibleGameObject(f.Type, f.Flags, f.DynamicFlags,
+            f.HighlightColumn, f.HostileTowardPlayer, f.FishingChannelOwned,
+            f.MeetingStoneQueued);
+    }
+
+    private bool GameObjectHighlightable(WorldEntity go)
+    {
+        GameObjectInteractionFacts f = ResolveGameObjectInteractionFacts(go);
+        return WorldCursorUiLaw.HighlightableGameObject(f.Type, f.Flags, f.DynamicFlags,
+            f.HostileTowardPlayer, f.FishingChannelOwned, f.MeetingStoneQueued);
+    }
+
+    private bool GameObjectBrightens(WorldEntity go)
+    {
+        GameObjectInteractionFacts f = ResolveGameObjectInteractionFacts(go);
+        return WorldCursorUiLaw.BrightensGameObject(f.Type, f.Flags, f.DynamicFlags,
+            f.HighlightColumn, f.HostileTowardPlayer, f.FishingChannelOwned,
+            f.MeetingStoneQueued);
+    }
+
     private static string GameObjectKind(uint type) => type switch
     {
         0 => "door", 1 => "button/lever", 2 => "questgiver", 3 => "chest",
@@ -37,7 +96,9 @@ public sealed partial class GameLoop
 
     private void ResetGameObjects()
     {
-        _gameObjectGuid = 0; _gameObjectAnimation = 0; _gameObjectPages.Clear();
+        CloseItemText(playSound: false);
+        _gameObjectGuid = 0;
+        _gameObjectAnimation = 0;
     }
 
     private void RequireGameObjectTemplate(WorldEntity entity)
@@ -67,6 +128,7 @@ public sealed partial class GameLoop
         for (int i = 0; i < data.Length; i++) data[i] = r.ReadI32();
         var template = new GameObjectTemplate(entry, type, display, name, icon, data);
         _gameObjectTemplates[entry] = template;
+        RefreshOpenGameObjectText(template);
         EnsureLockCatalog();
         uint lockType = _locks?.ResourceLockType(template.LockId) ?? 0;
         EmitInterface("gathering", "template", "DECODED", 0,
@@ -132,13 +194,26 @@ public sealed partial class GameLoop
             // first CMSG_GET_MAIL_LIST; build 5875 sends no CMSG_GAMEOBJ_USE for a mailbox.
             outcome = RequestMail(guid) ? "OPENED_MAIL" : "REFUSED_MAIL";
         }
+        else if (go.GameObjectType == 9)
+        {
+            // Current Benilla opens plaques/books locally from GAMEOBJECT_TYPE_TEXT template
+            // data. There is no CMSG_GAMEOBJ_USE (and no CMSG_READ_ITEM) for this route.
+            OpenGameObjectText(go);
+            outcome = "OPENED_ITEM_TEXT";
+        }
         else
         {
-            uint opener = FindKnownOpenLockSpell(go.Entry);
-            if (opener != 0)
+            GameObjectLockOutcome lockOutcome = ResolveGameObjectLock(go);
+            if (lockOutcome.Kind == GameObjectLockOutcomeKind.OpenBySpell)
             {
+                uint opener = lockOutcome.Id;
                 outcome = _net.CastSpellOnGameObject(opener, guid) ? "SENT_OPEN_LOCK_SPELL" : "SEND_FAILED";
                 if (outcome.StartsWith("SENT", StringComparison.Ordinal)) _pendingCastSpell = opener;
+            }
+            else if (lockOutcome.Kind == GameObjectLockOutcomeKind.Unmet)
+            {
+                ShowUiError("Locked.");
+                outcome = "REFUSED_LOCK";
             }
             else
             {
@@ -152,35 +227,56 @@ public sealed partial class GameLoop
             }
         }
         if (outcome.StartsWith("SENT", StringComparison.Ordinal))
-        { _gameObjectGuid = guid; _gameObjectAnimation = 0; _gameObjectPages.Clear(); }
-        uint lockSpell = go is null ? 0 : FindKnownOpenLockSpell(go.Entry);
-        string body = go?.GameObjectType == 19 ? "LOCAL_MAIL_OPEN" : lockSpell != 0
+        { _gameObjectGuid = guid; _gameObjectAnimation = 0; }
+        uint lockSpell = go is null ? 0 : FindKnownOpenLockSpell(go);
+        string body = go?.GameObjectType == 19 ? "LOCAL_MAIL_OPEN" :
+            go?.GameObjectType == 9 ? "LOCAL_ITEM_TEXT_OPEN" : lockSpell != 0
             ? Convert.ToHexString(WorldSession.BuildCastSpellOnGameObjectBody(lockSpell, guid))
             : Convert.ToHexString(WorldSession.BuildGameObjectUseBody(guid));
         EmitInterface("gameobject", "use", outcome, guid,
             $"entry={go?.Entry ?? 0};type={go?.GameObjectType ?? 0};kind={GameObjectKind(go?.GameObjectType ?? uint.MaxValue)};distance={distance:R};limit={interactDistance:R};openSpell={lockSpell};body={body}");
         return outcome.StartsWith("SENT", StringComparison.Ordinal) ||
-            outcome.Equals("OPENED_MAIL", StringComparison.Ordinal);
+            outcome is "OPENED_MAIL" or "OPENED_ITEM_TEXT";
     }
 
-    private uint FindKnownOpenLockSpell(uint gameObjectEntry)
+    private GameObjectLockOutcome ResolveGameObjectLock(WorldEntity go)
     {
-        if (!_gameObjectTemplates.TryGetValue(gameObjectEntry, out GameObjectTemplate? template) ||
-            template.LockId == 0 || _spellCatalog is null) return 0;
+        if (!_gameObjectTemplates.TryGetValue(go.Entry, out GameObjectTemplate? template) ||
+            template.LockId == 0 || _spellCatalog is null)
+            return new(GameObjectLockOutcomeKind.Unlocked, 0);
         EnsureLockCatalog();
-        if (_locks is null) return 0;
-        HashSet<int> lockTypes = _locks.Slots(template.LockId)
-            .Where(slot => slot.KeyType == LockCatalog.KeySkill)
-            .Select(slot => unchecked((int)slot.Index)).ToHashSet();
-        if (lockTypes.Count == 0) return 0;
-        foreach (uint known in _actions.KnownSpells.OrderBy(id => id))
+        if (_locks is null) return new(GameObjectLockOutcomeKind.Unlocked, 0);
+        _entities.TryGet(ControlledGuid, out WorldEntity? player);
+        SpellInfo? Spell(uint id) => _spellCatalog.TryGet(id, out SpellInfo info) ? info : null;
+        uint Skill(uint spellId)
         {
-            if (!_spellCatalog.TryGet(known, out SpellInfo spell) ||
-                spell.EffectIds is not { } effects || spell.EffectMiscValues is not { } misc) continue;
-            for (int lane = 0; lane < Math.Min(effects.Length, misc.Length); lane++)
-                if (effects[lane] == 33 && lockTypes.Contains(misc[lane])) return known;
+            uint line = _skillLines?.SpellLine(spellId) ?? 0;
+            return player is null || line == 0 ? 0 : player.Fields.PlayerSkillValueWithBonuses(line);
         }
-        return 0;
+        bool Holds(uint entry)
+        {
+            if (player is null) return false;
+            for (int slot = 0; slot < InventoryUiLaw.KeyringAddressableSlots; slot++)
+            {
+                ulong keyGuid = player.Fields.PlayerKeyringSlot(slot);
+                if (keyGuid != 0 && _entities.TryGet(keyGuid, out WorldEntity key) &&
+                    key.Entry == entry) return true;
+            }
+            foreach (ulong itemGuid in EnumeratePlayerInventoryGuids(player))
+                if (itemGuid != 0 && _entities.TryGet(itemGuid, out WorldEntity item) &&
+                    item.Entry == entry) return true;
+            return false;
+        }
+        return GameObjectLockLaw.Resolve(_locks.Slots(template.LockId), _actions.KnownSpells,
+            Spell, Skill, Holds, go.Fields.GameObjectState,
+            (go.Fields.GameObjectFlags & WorldCursorUiLaw.GameObjectLocked) != 0,
+            go.Fields.GameObjectLevel);
+    }
+
+    private uint FindKnownOpenLockSpell(WorldEntity go)
+    {
+        GameObjectLockOutcome outcome = ResolveGameObjectLock(go);
+        return outcome.Kind == GameObjectLockOutcomeKind.OpenBySpell ? outcome.Id : 0;
     }
 
     private void SnapshotGameObjects()
@@ -268,38 +364,17 @@ public sealed partial class GameLoop
 
     private void DrawGameObjectFrame()
     {
-        if (_gameObjectGuid == 0 && _gameObjectPages.Count == 0) return;
-        if (_gameplayArt is not null) { DrawItemTextFrame(); return; }
+        if (_itemTextRead is not null && _gameplayArt is not null) { DrawItemTextFrame(); return; }
+        if (_gameObjectGuid == 0) return;
         ImGui.SetNextWindowSize(new Vector2(390, 240), ImGuiCond.FirstUseEver);
         if (!ImGui.Begin("World Object##gameobject")) { ImGui.End(); return; }
         if (_entities.TryGet(_gameObjectGuid, out WorldEntity go))
             ImGui.TextUnformatted($"{GameObjectKind(go.GameObjectType)} · entry {go.Entry}");
         else ImGui.TextUnformatted($"Object 0x{_gameObjectGuid:X16}");
         ImGui.TextDisabled($"Last animation: {_gameObjectAnimation}");
-        foreach (var page in _gameObjectPages) { ImGui.Separator(); ImGui.TextWrapped(page.Text); }
         if (ImGui.Button("Use again") && _gameObjectGuid != 0) UseGameObject(_gameObjectGuid);
         ImGui.SameLine(); if (ImGui.Button("Close")) ResetGameObjects();
         ImGui.End();
     }
 
-    private void DrawItemTextFrame()
-    {
-        if (_gameObjectPages.Count == 0 || _gameplayArt is null) return;
-        if (!BeginVanillaWindow("##item-text", new Vector2(0, 104), new Vector2(384, 512),
-                out ImDrawListPtr dl, out Vector2 origin, out float s)) { ImGui.End(); return; }
-        DrawFourPieceShell(dl, origin, s,
-            @"Interface\ItemTextFrame\UI-ItemText-TopLeft", @"Interface\ItemTextFrame\UI-ItemText-TopRight",
-            @"Interface\ItemTextFrame\UI-ItemText-BotLeft", @"Interface\ItemTextFrame\UI-ItemText-BotRight");
-        Vector2 textAt = origin + new Vector2(38, 82) * s;
-        foreach (var page in _gameObjectPages)
-        {
-            dl.AddText(ImGui.GetFont(), 11f * s, textAt, 0xff202020, page.Text);
-            textAt.Y += MathF.Max(30, (page.Text.Length / 42 + 1) * 15) * s;
-        }
-        DrawImageButton(dl, "##item-text-close", origin + new Vector2(323, 9) * s, new Vector2(32) * s,
-            @"Interface\Buttons\UI-Panel-MinimizeButton-Up", @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
-            @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
-        if (ImGui.IsItemClicked()) ResetGameObjects();
-        ImGui.End();
-    }
 }

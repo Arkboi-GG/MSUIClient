@@ -28,7 +28,7 @@
     {
       "path": "crates/benilla-app/src/player/follow.rs",
       "fileSha256": "40ff0829ef1d6323fd4519fa0546323c8ad11d5e078466c19e3032dfe11f2e9f",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/player/gait.rs",
@@ -94,11 +94,21 @@
   "msuiAnchors": [
     "MSUIClient/Net/LocalMovementSender.cs",
     "MSUIClient/Net/MovementInfo.cs",
+    "MSUIClient/Net/MovementSpeedPackets.cs",
+    "MSUIClient/Net/MovementModePackets.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.MovementSpeed.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.MovementModes.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Follow.cs",
+    "MSUIClient/Engine/UI/AutoFollowUiLaw.cs",
     "MSUIClient/Program.Net.cs",
-    "MSUIClient/Net/WorldSession.cs"
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Engine/UI/StandStateUiLaw.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Chat.cs",
+    "MSUIClient/World/Units/CharacterRenderer.cs",
+    "MSUIClient/World/Units/CreatureRenderer.Mounts.cs"
   ],
   "status": "partial",
-  "summary": "The outbound movement law's core is faithfully present: LocalMovementSender diffs per-axis MSG_MOVE_START/STOP transitions, the jump/fall lifecycle (MSG_MOVE_JUMP with the down-positive ballistic tail, MSG_MOVE_FALL_LAND, the walk-off heartbeat), FALLING/FALLING_FAR flags, the 0.5s heartbeat cadence, SET_FACING suppressed during keyboard turns, normalized orientations, and park-on-detach. Inbound: same-map MSG_MOVE_TELEPORT_ACK is applied-then-acked with camera/facing carry, CMSG_MOVE_WORLDPORT_ACK answers SMSG_NEW_WORLD, and SMSG_FORCE_MOVE_ROOT/UNROOT applies, parks the stream, and acks with MOVEFLAG_ROOT. But most of the server-granted movement family and several whole subsystems are missing.",
+  "summary": "The outbound movement core, jump/fall lifecycle, heartbeat/facing, teleport/worldport, force speeds, granted movement modes, and client-only auto-follow are live. Follow synthesizes the ordinary forward axis with bounded facing and hysteresis, so normal movement packets remain the only wire path. Water-walk promotes a nearby liquid surface to support, feather-fall caps descent at 7 yd/s, hover lifts contact by 1 yd, and every persistent bit is echoed in outbound movement. Swimming, knockback, server-authored self moves and transport riding remain.",
   "openItems": [
     {
       "id": "item-triage-0e93dbdb",
@@ -106,7 +116,8 @@
       "text": "SMSG_FORCE_*_SPEED_CHANGE is not handled (SMSG_FORCE_RUN_SPEED_CHANGE is only an enum constant): server speed grants (mounts, sprint, slows) neither apply locally nor get acked, which the server treats as an unacknowledged forced change",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: Create-time LIVING speeds seed the controller; all six SMSG_FORCE_* changes update entity and local walk/run/back/turn state and send the mandatory exact counter/pose/speed acknowledgement."
     },
     {
       "id": "item-triage-f51aa4c4",
@@ -122,7 +133,8 @@
       "text": "Granted movement modes - water walk, feather/safe fall, hover, levitate - are neither applied nor acked nor echoed back in the outbound flag mask (SMSG_MOVE_WATER_WALK/SMSG_MOVE_FEATHER_FALL/SMSG_MOVE_SET_HOVER unhandled)",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: Water-walk, feather-fall and hover grants/removals apply persistent controller state, ack exact counters/apply flags, and survive in outbound MovementInfo. Their physical laws are liquid-surface support, 7 yd/s terminal descent and +1 yd ground contact; Levitate composes the three independent grants."
     },
     {
       "id": "item-triage-f14e9eef",
@@ -154,7 +166,8 @@
       "text": "CMSG_STANDSTATECHANGE (sit/stand) and CMSG_MOUNTSPECIAL_ANIM are never sent",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: implemented exact stand-state sending/local descriptor poses plus the idle grounded mounted Jump diversion, empty mount-special send, local AnimationData 94 and observer SMSG playback."
     },
     {
       "id": "item-triage-17acbc67",

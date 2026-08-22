@@ -12,7 +12,8 @@ public sealed partial class GameLoop
     {
         MoveForward, MoveBackward, TurnLeft, TurnRight, StrafeLeft, StrafeRight,
         Jump, ToggleRun, TargetNearestEnemy, OpenBackpack, OpenCharacter, OpenSkills,
-        OpenSpellbook, OpenWorldMap, Sheath, Action1, Action2, Action3, Action4,
+        OpenSpellbook, OpenTalents, OpenQuestLog, OpenSocial, OpenWorldMap, Sheath, ToggleUi,
+        Action1, Action2, Action3, Action4,
         Action5, Action6, Action7, Action8, Action9, Action10, Action11, Action12,
         MultiActionBar1Button1, MultiActionBar1Button2, MultiActionBar1Button3,
         MultiActionBar1Button4, MultiActionBar1Button5, MultiActionBar1Button6,
@@ -39,8 +40,12 @@ public sealed partial class GameLoop
         ("Interface", GameBinding.OpenCharacter, "Character Info", Key.C),
         ("Interface", GameBinding.OpenSkills, SkillFrameUiLaw.BindingLabel, Key.K),
         ("Interface", GameBinding.OpenSpellbook, "Spellbook", Key.P),
+        ("Interface", GameBinding.OpenTalents, "Talents", Key.N),
+        ("Interface", GameBinding.OpenQuestLog, "Quest Log", Key.L),
+        ("Interface", GameBinding.OpenSocial, "Social", Key.O),
         ("Interface", GameBinding.OpenWorldMap, "World Map", Key.M),
         ("Interface", GameBinding.Sheath, "Sheath/Unsheath", Key.Z),
+        ("Interface", GameBinding.ToggleUi, "Toggle User Interface", Key.Z),
         ("Action Bar", GameBinding.Action1, "Action Button 1", Key.Number1),
         ("Action Bar", GameBinding.Action2, "Action Button 2", Key.Number2),
         ("Action Bar", GameBinding.Action3, "Action Button 3", Key.Number3),
@@ -79,26 +84,56 @@ public sealed partial class GameLoop
         ("MultiActionBar 2", GameBinding.MultiActionBar2Button12, "Action Button 12", Key.Unknown),
     ];
 
-    private readonly record struct BindingPair(Key Primary, Key Secondary)
+    private readonly record struct BindingPair(BindingChord Primary, BindingChord Secondary)
     {
-        public bool Contains(Key key) => key != Key.Unknown && (Primary == key || Secondary == key);
-        public BindingPair With(int slot, Key key) => slot == 2 ? this with { Secondary = key } : this with { Primary = key };
-        public BindingPair Without(Key key) => new(Primary == key ? Key.Unknown : Primary,
-            Secondary == key ? Key.Unknown : Secondary);
+        public bool Contains(in BindingChord chord) => chord.IsBound &&
+            (Primary == chord || Secondary == chord);
+        public bool ContainsBase(Key key) => key != Key.Unknown &&
+            (Primary.Key == key || Secondary.Key == key);
+        public BindingPair With(int slot, in BindingChord chord) => slot == 2
+            ? this with { Secondary = chord }
+            : this with { Primary = chord };
+        public BindingPair Without(in BindingChord chord) =>
+            new(Primary == chord ? default : Primary,
+                Secondary == chord ? default : Secondary);
     }
 
     private readonly Dictionary<GameBinding, BindingPair> _bindings = [];
     private bool _bindingsLoaded;
+    private ulong _bindingsCharacterGuid;
     private bool _targetNearestWasDown;
     private bool _toggleRunWasDown;
     private bool _walkToggled;
+    private bool _toggleUiWasDown;
+    private bool _uiHidden;
+    private readonly Dictionary<Key, HashSet<GameBinding>> _bindingLatches = [];
+    private readonly HashSet<Key> _bindingPhysicalDown = [];
 
     private void EnsureBindingsLoaded()
     {
-        if (_bindingsLoaded) return;
+        ulong playerGuid = LocalPlayerGuid;
+        if (_bindingsLoaded && _bindingsCharacterGuid == playerGuid) return;
         _bindingsLoaded = true;
+        _bindingsCharacterGuid = playerGuid;
+        string characterPath = CharacterBindingsPath(playerGuid);
+        _characterSpecificBindings = File.Exists(characterPath);
+        LoadBindingsFromPath(_characterSpecificBindings
+            ? characterPath
+            : AccountBindingsPath());
+    }
+
+    private string AccountBindingsPath() => Path.Combine(_config.RepoRoot, "keybindings.json");
+
+    private string CharacterBindingsPath(ulong playerGuid) => Path.Combine(
+        _config.RepoRoot, CharacterBindingsUiLaw.CharacterFileName(playerGuid));
+
+    private string CurrentBindingsPath() => _characterSpecificBindings
+        ? CharacterBindingsPath(_bindingsCharacterGuid)
+        : AccountBindingsPath();
+
+    private void LoadBindingsFromPath(string path)
+    {
         ResetBindingsToDefaults();
-        string path = Path.Combine(_config.RepoRoot, "keybindings.json");
         try
         {
             if (!File.Exists(path)) return;
@@ -109,8 +144,10 @@ public sealed partial class GameLoop
                 foreach ((string name, string[] keys) in saved)
                     if (Enum.TryParse(name, out GameBinding binding))
                     {
-                        Key primary = keys.Length > 0 && Enum.TryParse(keys[0], out Key p) ? p : Key.Unknown;
-                        Key secondary = keys.Length > 1 && Enum.TryParse(keys[1], out Key s) ? s : Key.Unknown;
+                        BindingChord primary = keys.Length > 0 &&
+                            BindingChordLaw.TryParse(keys[0], out BindingChord p) ? p : default;
+                        BindingChord secondary = keys.Length > 1 &&
+                            BindingChordLaw.TryParse(keys[1], out BindingChord s) ? s : default;
                         _bindings[binding] = new(primary, secondary);
                     }
                 return;
@@ -125,8 +162,9 @@ public sealed partial class GameLoop
                 var legacy = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(path));
                 if (legacy is null) return;
                 foreach ((string name, string keyName) in legacy)
-                    if (Enum.TryParse(name, out GameBinding binding) && Enum.TryParse(keyName, out Key key))
-                        _bindings[binding] = new(key, Key.Unknown);
+                    if (Enum.TryParse(name, out GameBinding binding) &&
+                        BindingChordLaw.TryParse(keyName, out BindingChord chord))
+                        _bindings[binding] = new(chord, default);
             }
             catch (Exception ex) { Console.WriteLine($"[bindings] load failed: {ex.Message}"); }
         }
@@ -135,22 +173,55 @@ public sealed partial class GameLoop
     private void SaveBindings()
     {
         EnsureBindingsLoaded();
-        string path = Path.Combine(_config.RepoRoot, "keybindings.json");
+        SaveBindingsToPath(CurrentBindingsPath());
+    }
+
+    private void SaveBindingsToPath(string path)
+    {
         var data = _bindings.ToDictionary(x => x.Key.ToString(), x =>
-            new[] { x.Value.Primary.ToString(), x.Value.Secondary.ToString() });
+            new[] { BindingChordLaw.Canonical(x.Value.Primary),
+                BindingChordLaw.Canonical(x.Value.Secondary) });
         File.WriteAllText(path, JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private void EnableCharacterSpecificBindings()
+    {
+        EnsureBindingsLoaded();
+        _characterSpecificBindings = true;
+        SaveBindingsToPath(CharacterBindingsPath(_bindingsCharacterGuid));
+        _bindingSnapshot = new Dictionary<GameBinding, BindingPair>(_bindings);
+        _bindingCapture = null;
+        _bindingFeedback = "";
+    }
+
+    private void AcceptDeleteCharacterSpecificBindings()
+    {
+        EnsureBindingsLoaded();
+        string characterPath = CharacterBindingsPath(_bindingsCharacterGuid);
+
+        // Reference order is LoadBindings(1), then SaveBindings(1). Loading first is essential:
+        // the character set must never be copied into the account set during deletion.
+        LoadBindingsFromPath(AccountBindingsPath());
+        _characterSpecificBindings = false;
+        if (File.Exists(characterPath)) File.Delete(characterPath);
+        SaveBindingsToPath(AccountBindingsPath());
+        _bindingSnapshot = new Dictionary<GameBinding, BindingPair>(_bindings);
+        _bindingCapture = null;
+        _bindingFeedback = "";
     }
 
     private void ResetBindingsToDefaults()
     {
         _bindings.Clear();
-        foreach (var row in BindingRows) _bindings[row.Binding] = new(row.Default, Key.Unknown);
+        foreach (var row in BindingRows)
+            _bindings[row.Binding] = new(new BindingChord(row.Default,
+                Alt: row.Binding == GameBinding.ToggleUi), default);
     }
 
     private Key BoundKey(GameBinding binding)
     {
         EnsureBindingsLoaded();
-        return _bindings.GetValueOrDefault(binding).Primary;
+        return _bindings.GetValueOrDefault(binding).Primary.Key;
     }
 
     private BindingPair BoundKeys(GameBinding binding)
@@ -161,8 +232,62 @@ public sealed partial class GameLoop
 
     private bool BindingDown(GameBinding binding)
     {
+        EnsureBindingsLoaded();
+        return _bindingLatches.Values.Any(active => active.Contains(binding));
+    }
+
+    /// <summary>
+    /// Resolve once on the base-key edge and hold that command set until the base releases. This
+    /// is the reference Held latch: changing/releasing modifiers beside a held base never changes
+    /// commands or manufactures a second press. Entering a typing owner clears latches while the
+    /// physical-state scan continues, so leaving chat cannot consume an already-held key.
+    /// </summary>
+    private void UpdateBindingLatches(bool typing)
+    {
+        EnsureBindingsLoaded();
+        bool alt = InputKeyDown(Key.AltLeft) || InputKeyDown(Key.AltRight);
+        bool control = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
+        bool shift = InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight);
+        bool super = InputKeyDown(Key.SuperLeft) || InputKeyDown(Key.SuperRight);
+        if (typing) _bindingLatches.Clear();
+        foreach (Key key in Enum.GetValues<Key>().Distinct())
+        {
+            if (key == Key.Unknown || BindingChordLaw.IsModifier(key)) continue;
+            bool down = InputKeyDown(key);
+            bool wasDown = _bindingPhysicalDown.Contains(key);
+            if (!down)
+            {
+                _bindingPhysicalDown.Remove(key);
+                _bindingLatches.Remove(key);
+                continue;
+            }
+            _bindingPhysicalDown.Add(key);
+            if (wasDown || typing || super) continue;
+
+            BindingChord live = BindingChordLaw.Live(key, alt, control, shift);
+            GameBinding[] exact = _bindings
+                .Where(candidate => candidate.Value.Contains(live))
+                .Select(candidate => candidate.Key).ToArray();
+            if (exact.Length > 0)
+            {
+                _bindingLatches[key] = exact.ToHashSet();
+                continue;
+            }
+            if (BindingChordLaw.Fallback(live) is { } fallback)
+            {
+                GameBinding[] retry = _bindings
+                    .Where(candidate => candidate.Value.Contains(fallback))
+                    .Select(candidate => candidate.Key).ToArray();
+                if (retry.Length > 0) _bindingLatches[key] = retry.ToHashSet();
+            }
+        }
+    }
+
+    private bool BindingBaseDown(GameBinding binding)
+    {
         BindingPair pair = BoundKeys(binding);
-        return InputKeyDown(pair.Primary) || InputKeyDown(pair.Secondary);
+        return pair.Primary.IsBound && InputKeyDown(pair.Primary.Key) ||
+               pair.Secondary.IsBound && InputKeyDown(pair.Secondary.Key);
     }
 
     /// <summary>The production key-state path, with protocol-held keys entering at the same seam.</summary>
@@ -201,5 +326,16 @@ public sealed partial class GameLoop
         bool down = BindingDown(GameBinding.ToggleRun);
         if (down && !_toggleRunWasDown && !typing) _walkToggled = !_walkToggled;
         _toggleRunWasDown = down;
+    }
+
+    private void UpdateUiHideBinding(bool typing)
+    {
+        bool chordDown = BindingDown(GameBinding.ToggleUi);
+        if (UiHideLaw.ToggleFired(chordDown, _toggleUiWasDown, typing))
+        {
+            _uiHidden = !_uiHidden;
+            Console.WriteLine($"[ui] {(_uiHidden ? "hidden" : "shown")} (TOGGLEUI)");
+        }
+        _toggleUiWasDown = chordDown;
     }
 }

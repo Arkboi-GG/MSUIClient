@@ -13,23 +13,675 @@ static void Check(bool condition, string message)
 
 static void CheckGameMenuLayout()
 {
+    static bool Near(Vector2 left, Vector2 right) =>
+        Vector2.DistanceSquared(left, right) < .0001f;
+
     Vector2 authored = GameMenuUiLaw.ResolveOptionsSize(Vector2.Zero, 2f,
         new Vector2(2000f, 1400f));
     Vector2 remembered = GameMenuUiLaw.ResolveOptionsSize(new Vector2(700f, 500f),
         1.5f, new Vector2(1600f, 900f));
     Vector2 smallViewport = GameMenuUiLaw.ResolveOptionsSize(new Vector2(1200f, 900f),
         2f, new Vector2(700f, 500f));
+    Vector2 mainDefault = GameMenuUiLaw.ResolveGameMenuSize(Vector2.Zero, 1.2f,
+        new Vector2(1600f, 900f));
+    Vector2 mainRemembered = GameMenuUiLaw.ResolveGameMenuSize(new Vector2(300f, 400f),
+        1.2f, new Vector2(1600f, 900f));
+    (Vector2 optionMinimum, Vector2 optionMaximum) = GameMenuUiLaw.WindowSizeLimits(
+        gameMenu: false, 1.2f, new Vector2(1600f, 900f));
+    Vector2 popupLeft = GameMenuUiLaw.LayoutPopupOrigin(new Vector2(600f, 200f),
+        new Vector2(234f, 295.2f),
+        new Vector2(GameMenuUiLaw.LayoutPopupWidth, GameMenuUiLaw.LayoutPopupHeight),
+        new Vector2(1000f, 900f));
     Check(authored == new Vector2(900f, 1150f) &&
           remembered == new Vector2(1050f, 750f) &&
           smallViewport == new Vector2(672f, 460f) &&
+          Near(mainDefault, new Vector2(234f, 295.2f)) &&
+          Near(mainRemembered, new Vector2(360f, 480f)) &&
+          Near(optionMinimum, new Vector2(540f, 432f)) &&
+          Near(optionMaximum, new Vector2(1536f, 828f)) &&
+          Near(popupLeft, new Vector2(392f, 200f)) &&
+          GameMenuUiLaw.ResolveMenuScale(.1f) == GameMenuUiLaw.MenuScaleMinimum &&
+          GameMenuUiLaw.ResolveMenuScale(9f) == GameMenuUiLaw.MenuScaleMaximum &&
           GameMenuUiLaw.ToLogicalOptionsSize(remembered, 1.5f) == new Vector2(700f, 500f) &&
+          GameMenuUiLaw.CenteredOrigin(new Vector2(1024, 768),
+              new Vector2(450, 575)) == new Vector2(287, 96.5f) &&
           !GameMenuUiLaw.OptionsEnvironmentChanged(
               new Vector2(1600f, 900f), new Vector2(1600.1f, 900.1f), 1.5f, 1.5f) &&
           GameMenuUiLaw.OptionsEnvironmentChanged(
               new Vector2(1600f, 900f), new Vector2(1280f, 720f), 1.5f, 1.5f) &&
           GameMenuUiLaw.OptionsEnvironmentChanged(
               new Vector2(1600f, 900f), new Vector2(1600f, 900f), 1.5f, 2f),
-        "GameMenuFrame option windows must restore logical size and clamp to the viewport");
+        "Escape/Options windows must independently scale, restore size, and clamp to viewport");
+
+    string root = ClientConfig.FindRepoRoot();
+    string settingsSource = SourceText.Read(Path.Combine(root,
+        "MSUIClient", "Program.Settings.cs"));
+    Check(settingsSource.Contains(
+              "Settings.MenuLayout?.Scale ?? 1f", StringComparison.Ordinal) &&
+          settingsSource.Contains("DrawMenuLayoutGear", StringComparison.Ordinal) &&
+          settingsSource.Contains("Menu text", StringComparison.Ordinal) &&
+          !settingsSource.Contains("Slider(\"fontscale\"", StringComparison.Ordinal) &&
+          settingsSource.Contains(
+              "InterfaceScaleLaw.Resolve(Settings.Display.UiScale)",
+              StringComparison.Ordinal) &&
+          settingsSource.Contains("RememberPageSize(size, io.DisplaySize",
+              StringComparison.Ordinal) &&
+          !settingsSource.Contains("flags |= ImGuiWindowFlags.NoResize",
+              StringComparison.Ordinal),
+        "Escape menu renderer lost its independent scale, gear, or resize persistence seam");
+
+    string migrationPath = Path.Combine(Path.GetTempPath(),
+        $"msui-menu-scale-migration-{Guid.NewGuid():N}.json");
+    try
+    {
+        File.WriteAllText(migrationPath,
+            "{\"Settings\":{\"Version\":7,\"Display\":{\"UiScale\":1.125," +
+            "\"FontScale\":1.35}," +
+            "\"MenuLayout\":{}},\"Presets\":[]}");
+        SettingsStore migrated = SettingsStore.Load(root, migrationPath);
+        Check(migrated.Settings.Version == 9 &&
+              MathF.Abs(migrated.Settings.MenuLayout.Scale - 1.125f) < .0001f &&
+              MathF.Abs(migrated.Settings.MenuLayout.TextScale - 1.35f) < .0001f,
+            "menu layout migration did not preserve its existing chrome and text sizes");
+    }
+    finally
+    {
+        if (File.Exists(migrationPath)) File.Delete(migrationPath);
+    }
+}
+
+static void CheckInterfaceScaleLaw()
+{
+    float windowed = InterfaceScaleLaw.ResolveForFramebuffer(1600f, 900f, 1.30f);
+    float maximized = InterfaceScaleLaw.ResolveForFramebuffer(2560f, 1440f, 1.30f);
+    Check(InterfaceScaleLaw.Resolve(1.0752523f) == 1.0752523f &&
+          InterfaceScaleLaw.Resolve(0.1f) == InterfaceScaleLaw.Minimum &&
+          InterfaceScaleLaw.Resolve(9f) == InterfaceScaleLaw.Maximum &&
+          windowed == 1.30f &&
+          MathF.Abs(maximized - 2.08f) < .0001f &&
+          MathF.Abs(maximized / windowed - 1.6f) < .0001f &&
+          TalentFrameUiLaw.TitleCenter == new Vector2(192f, 24f) &&
+          TalentFrameUiLaw.TalentPointsBottomRight == new Vector2(252f, 425f) &&
+          TalentFrameUiLaw.SpentPointsPrefix("Arms") ==
+              "Points spent in Arms Talents: ",
+        "Gameplay Interface scale must grow proportionally with the live window");
+
+    string root = ClientConfig.FindRepoRoot();
+    string gameplaySource = SourceText.Read(Path.Combine(root,
+        "MSUIClient", "GameLoop", "Hud", "GameLoop.GameplayLayout.cs"));
+    Check(gameplaySource.Contains("_window.FramebufferSize", StringComparison.Ordinal) &&
+          gameplaySource.Contains("Settings.Display.UiScale", StringComparison.Ordinal) &&
+          !gameplaySource.Contains("_skin?.Scale", StringComparison.Ordinal),
+        "Gameplay scale must use live window pixels and persisted preference, not menu skin state");
+}
+
+CheckInterfaceScaleLaw();
+
+if (args.Contains("--chat-bubble-only", StringComparer.Ordinal))
+{
+    ChatBubbleClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ChatBubble PASS");
+    return;
+}
+
+if (args.Contains("--hard-landing-only", StringComparer.Ordinal))
+{
+    HardLandingClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: HardLanding PASS");
+    return;
+}
+
+if (args.Contains("--honor-credit-only", StringComparer.Ordinal))
+{
+    HonorCreditClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: HonorCredit PASS");
+    return;
+}
+
+if (args.Contains("--hardware-cursor-only", StringComparer.Ordinal))
+{
+    HardwareCursorClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: HardwareCursor PASS");
+    return;
+}
+
+if (args.Contains("--cooldown-protocol-only", StringComparer.Ordinal))
+{
+    CooldownProtocolClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: CooldownProtocol PASS");
+    return;
+}
+
+if (args.Contains("--trade-protocol-only", StringComparer.Ordinal))
+{
+    TradeProtocolClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: TradeProtocol PASS");
+    return;
+}
+
+if (args.Contains("--social-protocol-only", StringComparer.Ordinal))
+{
+    SocialProtocolClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: SocialProtocol PASS");
+    return;
+}
+
+if (args.Contains("--footstep-only", StringComparer.Ordinal))
+{
+    FootstepClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: Footstep PASS");
+    return;
+}
+
+if (args.Contains("--melee-sound-only", StringComparer.Ordinal))
+{
+    MeleeSoundClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MeleeSound PASS");
+    return;
+}
+
+if (args.Contains("--quest-markers-only", StringComparer.Ordinal))
+{
+    QuestMarkerClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: QuestMarkers PASS");
+    return;
+}
+
+if (args.Contains("--quest-log-only", StringComparer.Ordinal))
+{
+    QuestLogClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: QuestLog PASS");
+    return;
+}
+
+if (args.Contains("--durability-only", StringComparer.Ordinal))
+{
+    DurabilityFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: DurabilityFrame PASS");
+    return;
+}
+
+if (args.Contains("--quest-timer-only", StringComparer.Ordinal))
+{
+    QuestTimerFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: QuestTimerFrame PASS");
+    return;
+}
+
+if (args.Contains("--game-time-only", StringComparer.Ordinal))
+{
+    GameTimeClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: GameTime PASS");
+    return;
+}
+
+if (args.Contains("--minimap-only", StringComparer.Ordinal))
+{
+    MinimapClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: Minimap PASS");
+    return;
+}
+
+if (args.Contains("--server-sound-only", StringComparer.Ordinal))
+{
+    ServerSoundClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ServerSound PASS");
+    return;
+}
+
+if (args.Contains("--weather-only", StringComparer.Ordinal))
+{
+    WeatherClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: Weather PASS");
+    return;
+}
+
+if (args.Contains("--mount-sheathe-sound-only", StringComparer.Ordinal))
+{
+    MountSheatheSoundClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MountSheatheSound PASS");
+    return;
+}
+
+if (args.Contains("--text-emote-voice-only", StringComparer.Ordinal))
+{
+    TextEmoteVoiceClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: TextEmoteVoice PASS");
+    return;
+}
+
+if (args.Contains("--npc-greeting-only", StringComparer.Ordinal))
+{
+    NpcGreetingClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: NpcGreeting PASS");
+    return;
+}
+
+if (args.Contains("--gameobject-sound-only", StringComparer.Ordinal))
+{
+    GameObjectSoundClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: GameObjectSound PASS");
+    return;
+}
+
+if (args.Contains("--zone-text-only", StringComparer.Ordinal))
+{
+    ZoneTextClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ZoneText PASS");
+    return;
+}
+
+if (args.Contains("--follow-only", StringComparer.Ordinal))
+{
+    AutoFollowClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: AutoFollow PASS");
+    return;
+}
+
+if (args.Contains("--area-trigger-only", StringComparer.Ordinal))
+{
+    AreaTriggerClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: AreaTrigger PASS");
+    return;
+}
+
+if (args.Contains("--gossip-only", StringComparer.Ordinal))
+{
+    GossipClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: Gossip PASS");
+    return;
+}
+
+if (args.Contains("--binder-only", StringComparer.Ordinal))
+{
+    BinderClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: Binder PASS");
+    return;
+}
+
+if (args.Contains("--npc-session-only", StringComparer.Ordinal))
+{
+    NpcSessionClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: NpcSession PASS");
+    return;
+}
+
+if (args.Contains("--loot-frame-only", StringComparer.Ordinal))
+{
+    LootFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: LootFrame PASS");
+    return;
+}
+
+if (args.Contains("--trainer-frame-only", StringComparer.Ordinal))
+{
+    TrainerFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: TrainerFrame PASS");
+    return;
+}
+
+if (args.Contains("--profession-frame-only", StringComparer.Ordinal))
+{
+    ProfessionFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ProfessionFrame PASS");
+    return;
+}
+
+if (args.Contains("--stance-bar-only", StringComparer.Ordinal))
+{
+    StanceBarClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: StanceBar PASS");
+    return;
+}
+
+if (args.Contains("--trade-frame-only", StringComparer.Ordinal))
+{
+    TradeFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: TradeFrame PASS");
+    return;
+}
+
+if (args.Contains("--duel-frame-only", StringComparer.Ordinal))
+{
+    DuelFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: DuelFrame PASS");
+    return;
+}
+
+if (args.Contains("--item-text-only", StringComparer.Ordinal))
+{
+    ItemTextFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ItemTextFrame PASS");
+    return;
+}
+
+if (args.Contains("--ui-text-markup-only", StringComparer.Ordinal))
+{
+    UiTextMarkupClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: UiTextMarkup/ItemRef PASS");
+    return;
+}
+
+if (args.Contains("--friends-frame-only", StringComparer.Ordinal))
+{
+    FriendsFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: FriendsFrame PASS");
+    return;
+}
+
+if (args.Contains("--taxi-frame-only", StringComparer.Ordinal))
+{
+    TaxiFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: TaxiFrame PASS");
+    return;
+}
+
+if (args.Contains("--bank-frame-only", StringComparer.Ordinal))
+{
+    BankFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: BankFrame PASS");
+    return;
+}
+
+if (args.Contains("--pet-name-only", StringComparer.Ordinal))
+{
+    PetNameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: PetName PASS");
+    return;
+}
+
+if (args.Contains("--player-name-only", StringComparer.Ordinal))
+{
+    PlayerNameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: PlayerName PASS");
+    return;
+}
+
+if (args.Contains("--gameobject-cast-only", StringComparer.Ordinal))
+{
+    GameObjectCastClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: GameObjectCast PASS");
+    return;
+}
+
+if (args.Contains("--session-transfer-only", StringComparer.Ordinal))
+{
+    SessionTransferClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: SessionTransfer PASS");
+    return;
+}
+
+if (args.Contains("--exploration-only", StringComparer.Ordinal))
+{
+    ExplorationClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: Exploration PASS");
+    return;
+}
+
+if (args.Contains("--proficiency-only", StringComparer.Ordinal))
+{
+    ProficiencyClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: Proficiency PASS");
+    return;
+}
+
+if (args.Contains("--item-tooltip-only", StringComparer.Ordinal))
+{
+    GameTooltipClinicalChecks.RunItemSnapshotOnly();
+    Console.WriteLine("interface-wire-check: ItemTooltip PASS");
+    return;
+}
+
+if (args.Contains("--group-loot-only", StringComparer.Ordinal))
+{
+    GroupLootClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: GroupLootFrame PASS");
+    return;
+}
+
+if (args.Contains("--death-frame-only", StringComparer.Ordinal))
+{
+    DeathFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: DeathFrame PASS");
+    return;
+}
+
+if (args.Contains("--mirror-timer-only", StringComparer.Ordinal))
+{
+    MirrorTimerClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MirrorTimer PASS");
+    return;
+}
+
+if (args.Contains("--ui-errors-only", StringComparer.Ordinal))
+{
+    UiErrorsFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: UIErrorsFrame PASS");
+    return;
+}
+
+if (args.Contains("--inventory-failure-only", StringComparer.Ordinal))
+{
+    InventoryFailureClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: InventoryFailure PASS");
+    return;
+}
+
+if (args.Contains("--mount-result-only", StringComparer.Ordinal))
+{
+    MountResultClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MountResult PASS");
+    return;
+}
+
+if (args.Contains("--auto-repeat-only", StringComparer.Ordinal))
+{
+    AutoRepeatClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: AutoRepeat PASS");
+    return;
+}
+
+if (args.Contains("--open-item-only", StringComparer.Ordinal))
+{
+    OpenItemClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: OpenItem PASS");
+    return;
+}
+
+if (args.Contains("--item-enchant-only", StringComparer.Ordinal))
+{
+    ItemEnchantClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ItemEnchant PASS");
+    return;
+}
+
+if (args.Contains("--delete-item-only", StringComparer.Ordinal))
+{
+    DeleteItemClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: DeleteItem PASS");
+    return;
+}
+
+if (args.Contains("--stack-split-only", StringComparer.Ordinal))
+{
+    StackSplitClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: StackSplit PASS");
+    return;
+}
+
+if (args.Contains("--monster-move-only", StringComparer.Ordinal))
+{
+    MonsterMoveClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MonsterMove PASS");
+    return;
+}
+
+if (args.Contains("--force-speed-only", StringComparer.Ordinal))
+{
+    ForceSpeedClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ForceSpeed PASS");
+    return;
+}
+
+if (args.Contains("--movement-mode-only", StringComparer.Ordinal))
+{
+    MovementModeClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MovementMode PASS");
+    return;
+}
+
+if (args.Contains("--combat-text-state-only", StringComparer.Ordinal))
+{
+    CombatTextStateClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: CombatTextState PASS");
+    return;
+}
+
+if (args.Contains("--ai-reaction-only", StringComparer.Ordinal))
+{
+    AiReactionClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: AiReaction PASS");
+    return;
+}
+
+if (args.Contains("--stand-state-only", StringComparer.Ordinal))
+{
+    StandStateClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: StandState PASS");
+    return;
+}
+
+if (args.Contains("--mount-special-only", StringComparer.Ordinal))
+{
+    MountSpecialClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MountSpecial PASS");
+    return;
+}
+
+if (args.Contains("--mount-rendering-only", StringComparer.Ordinal))
+{
+    MountRenderingClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MountRendering PASS");
+    return;
+}
+
+if (args.Contains("--emote-animation-only", StringComparer.Ordinal))
+{
+    EmoteAnimationClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: EmoteAnimation PASS");
+    return;
+}
+
+if (args.Contains("--group-slash-only", StringComparer.Ordinal))
+{
+    GroupSlashClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: GroupSlash PASS");
+    return;
+}
+
+if (args.Contains("--chat-tab-only", StringComparer.Ordinal))
+{
+    ChatTabClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ChatTab PASS");
+    return;
+}
+
+if (args.Contains("--chat-menu-only", StringComparer.Ordinal))
+{
+    ChatMenuClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ChatMenu PASS");
+    return;
+}
+
+if (args.Contains("--chat-channel-only", StringComparer.Ordinal))
+{
+    ChatChannelClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ChatChannel PASS");
+    return;
+}
+
+if (args.Contains("--acquisition-sound-only", StringComparer.Ordinal))
+{
+    AcquisitionSoundClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: AcquisitionSound PASS");
+    return;
+}
+
+if (args.Contains("--spellbook-visual-only", StringComparer.Ordinal))
+{
+    SpellbookVisualClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: SpellbookVisual PASS");
+    return;
+}
+
+if (args.Contains("--bag-state-art-only", StringComparer.Ordinal))
+{
+    BagStateArtClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: BagStateArt PASS");
+    return;
+}
+
+if (args.Contains("--combo-frame-only", StringComparer.Ordinal))
+{
+    ComboFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ComboFrame PASS");
+    return;
+}
+
+if (args.Contains("--nameplate-only", StringComparer.Ordinal))
+{
+    NameplateClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: Nameplate PASS");
+    return;
+}
+
+if (args.Contains("--ui-hide-only", StringComparer.Ordinal))
+{
+    UiHideClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: UiHide PASS");
+    return;
+}
+
+if (args.Contains("--world-map-only", StringComparer.Ordinal))
+{
+    WorldMapClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: WorldMap PASS");
+    return;
+}
+
+if (args.Contains("--macro-frame-only", StringComparer.Ordinal))
+{
+    MacroFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MacroFrame PASS");
+    return;
+}
+
+if (args.Contains("--binding-chord-only", StringComparer.Ordinal))
+{
+    BindingChordClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: BindingChord PASS");
+    return;
+}
+
+if (args.Contains("--character-bindings-only", StringComparer.Ordinal))
+{
+    CharacterBindingsClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: CharacterBindings PASS");
+    return;
+}
+
+if (args.Contains("--micro-menu-only", StringComparer.Ordinal))
+{
+    MicroMenuClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MicroMenu PASS");
+    return;
+}
+
+if (args.Contains("--chat-only", StringComparer.Ordinal))
+{
+    ChatClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: Chat PASS");
+    return;
 }
 
 if (args.Contains("--game-menu-layout-only", StringComparer.Ordinal))
@@ -101,10 +753,24 @@ if (args.Contains("--merchant-frame-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--merchant-tooltip-only", StringComparer.Ordinal))
+{
+    MerchantFrameClinicalChecks.RunTooltipOnly();
+    Console.WriteLine("interface-wire-check: MerchantTooltip PASS");
+    return;
+}
+
 if (args.Contains("--unit-popup-only", StringComparer.Ordinal))
 {
     UnitPopupClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: UnitPopup PASS");
+    return;
+}
+
+if (args.Contains("--item-template-only", StringComparer.Ordinal))
+{
+    CheckCurrentItemTemplateParser();
+    Console.WriteLine("interface-wire-check: ItemTemplate PASS");
     return;
 }
 
@@ -114,6 +780,11 @@ UiPanelOwnershipAdapterClinicalChecks.Run();
 MerchantFrameClinicalChecks.Run();
 MerchantProtocolClinicalChecks.Run();
 UnitPopupClinicalChecks.Run();
+HardwareCursorClinicalChecks.Run();
+CooldownProtocolClinicalChecks.Run();
+TradeProtocolClinicalChecks.Run();
+SocialProtocolClinicalChecks.Run();
+ChatClinicalChecks.Run();
 
 static byte[] BuildMultiActionItemTemplateFixture()
 {
@@ -139,9 +810,27 @@ static byte[] BuildMultiActionItemTemplateFixture()
     w.WriteU32(0); w.WriteCString("fixture");
     w.WriteU32(0); w.WriteU32(0); w.WriteU32(0); // page/language/material
     w.WriteU32(373); w.WriteU32(0); // start quest / lock
-    for (int i = 0; i < 8; i++) w.WriteU32(0); // material through map
+    w.WriteU32(0); w.WriteU32(0); // material / sheath
+    w.WriteU32(777); w.WriteU32(0); // random property / block
+    w.WriteU32(25); w.WriteU32(40); // item set / max durability
+    w.WriteU32(0); w.WriteU32(0); // area / map
     w.WriteU32(9); // bag family
     return w.ToArray();
+}
+
+static void CheckCurrentItemTemplateParser()
+{
+    ItemTemplate parsed = ItemTemplate.Parse(BuildMultiActionItemTemplateFixture())
+        ?? throw new InvalidDataException("item-template fixture did not parse");
+    Check(parsed.Entry == 42 && parsed.SpellCharges0 == 2 &&
+          parsed.UseSpellIndex == 1 && parsed.UseSpellId == 8690 &&
+          parsed.UseSpellCharges == -3 && parsed.UseSpellCategory == 321 &&
+          parsed.HasNegativeOnUseCharges && parsed.StartQuest == 373 &&
+          parsed.Spells[0] == new ItemSpellTemplate(111, 1, 2, 0, 0, 0) &&
+          parsed.Spells[1] == new ItemSpellTemplate(8690, 0, -3, 0, 321, 0) &&
+          parsed.RandomProperty == 777 && parsed.ItemSet == 25 &&
+          parsed.MaxDurability == 40 && parsed.BagFamily == 9,
+        "item template five-spell/random-property/item-set/durability parser drift");
 }
 
 Check(BuffUiLaw.WarningAlpha(.75, 30) == 1f && BuffUiLaw.WarningAlpha(0, 30) == .3f &&
@@ -857,7 +1546,8 @@ for (int i = 0; i < 8; i++)
     for (int field = 0; field < 7; field++) textWriter.WriteU32(0);
 }
 NpcText text = GossipPackets.ParseText(textWriter.ToArray());
-Check(text.TextId == 123 && text.MaleText == "Hello $N" && text.FemaleText == "Hello $N",
+Check(text.TextId == 123 && text.Blocks.Count == 8 &&
+      text.Blocks[0].MaleText == "Hello $N" && text.Blocks[0].FemaleText == "Hello $N",
     "npc text first variant");
 
 try
@@ -1093,8 +1783,11 @@ Check(parsedMultiItem.Entry == 42 && parsedMultiItem.SpellCharges0 == 2 &&
       parsedMultiItem.UseSpellIndex == 1 && parsedMultiItem.UseSpellId == 8690 &&
       parsedMultiItem.UseSpellCharges == -3 && parsedMultiItem.UseSpellCategory == 321 &&
       parsedMultiItem.HasNegativeOnUseCharges && parsedMultiItem.StartQuest == 373 &&
-      parsedMultiItem.BagFamily == 9,
-      "bottom multibar raw block-0/first-ON_USE/negative-count/start-quest parser drift");
+      parsedMultiItem.Spells[0] == new ItemSpellTemplate(111, 1, 2, 0, 0, 0) &&
+      parsedMultiItem.Spells[1] == new ItemSpellTemplate(8690, 0, -3, 0, 321, 0) &&
+      parsedMultiItem.RandomProperty == 777 && parsedMultiItem.ItemSet == 25 &&
+      parsedMultiItem.MaxDurability == 40 && parsedMultiItem.BagFamily == 9,
+      "item template five-spell/random-property/item-set/durability parser drift");
 
 ActionSlot heldMultiAction = new(ActionSlot.Spell, 1459);
 ActionSlot displacedMultiAction = new(ActionSlot.Item, 6948);
@@ -1392,6 +2085,17 @@ Check(QuestFrameUiLaw.ItemGridOffset(0) == Vector2.Zero &&
       QuestFrameUiLaw.RewardCompleteEnabled(2, 1) &&
       QuestFrameUiLaw.RewardCompleteEnabled(0, -1),
       "quest giver item grid/scroll/reward selection law");
+Check(QuestFrameUiLaw.WindowOrigin(2f) == new Vector2(0, 208) &&
+      QuestFrameUiLaw.WindowSize(2f) == new Vector2(768, 1024) &&
+      QuestFrameUiLaw.ClampQuestLogOffset(99, 20) == 14 &&
+      QuestFrameUiLaw.ClampQuestLogOffset(-1, 4) == 0 &&
+      QuestFrameUiLaw.QuestLogRowMin(5) == new Vector2(19, 150) &&
+      QuestFrameUiLaw.QuestDifficultyColor(20, 25) == new Vector4(1f, .1f, .1f, 1f) &&
+      QuestFrameUiLaw.QuestDifficultyColor(20, 23) == new Vector4(1f, .5f, .25f, 1f) &&
+      QuestFrameUiLaw.QuestDifficultyColor(20, 20) == new Vector4(1f, 1f, 0f, 1f) &&
+      QuestFrameUiLaw.QuestDifficultyColor(20, 17) == new Vector4(.25f, .75f, .25f, 1f) &&
+      QuestFrameUiLaw.QuestDifficultyColor(20, 1) == new Vector4(.5f, .5f, .5f, 1f),
+      "quest-log modal/list/difficulty law drift");
 Check(QuestFrameUiLaw.GreetingPool(3) == QuestGreetingPool.Active &&
       QuestFrameUiLaw.GreetingPool(4) == QuestGreetingPool.Active &&
       new uint[] { 0, 1, 2, 5, 6, uint.MaxValue }.All(icon =>
@@ -1450,6 +2154,24 @@ requestItemsWriter.WriteU32(0); requestItemsWriter.WriteU32(0); requestItemsWrit
 requestItemsWriter.WriteU32(1); requestItemsWriter.WriteU32(0); requestItemsWriter.WriteU32(0);
 Check(QuestPackets.ParseRequestItems(requestItemsWriter.ToArray()).Completable,
       "quest request-items second completion flag must accept any nonzero value");
+var queryWriter = new PacketWriter();
+queryWriter.WriteU32(77); queryWriter.WriteU32(2); queryWriter.WriteU32(18);
+for (int i = 0; i < 12; i++) queryWriter.WriteU32(0);
+for (int i = 0; i < 20; i++) queryWriter.WriteU32(0);
+for (int i = 0; i < 4; i++) queryWriter.WriteU32(0);
+queryWriter.WriteCString("A Full Query"); queryWriter.WriteCString("Do the work.");
+queryWriter.WriteCString("Long details."); queryWriter.WriteCString("Done.");
+queryWriter.WriteU32(123); queryWriter.WriteU32(10); queryWriter.WriteU32(0); queryWriter.WriteU32(0);
+queryWriter.WriteU32(0); queryWriter.WriteU32(0); queryWriter.WriteU32(456); queryWriter.WriteU32(4);
+for (int i = 0; i < 8; i++) queryWriter.WriteU32(0);
+queryWriter.WriteCString("Special targets"); queryWriter.WriteCString("");
+queryWriter.WriteCString(""); queryWriter.WriteCString("");
+QuestTemplate query = QuestPackets.ParseQueryResponse(queryWriter.ToArray());
+Check(query.QuestId == 77 && query.Level == 18 && query.Title == "A Full Query" &&
+      query.ObjectivesText == "Do the work." && query.Details == "Long details." &&
+      query.Objectives[0] == new QuestLogObjective(123, 10, 0, 0, "Special targets") &&
+      query.Objectives[1] == new QuestLogObjective(0, 0, 456, 4, ""),
+      "quest query fixed-count/template/objective decode drift");
 Check((ushort)Op.CMSG_QUESTGIVER_COMPLETE_QUEST == 0x018A &&
       (ushort)Op.CMSG_QUESTGIVER_REQUEST_REWARD == 0x018C &&
       (ushort)Op.SMSG_INIT_WORLD_STATES == 0x02C2 &&

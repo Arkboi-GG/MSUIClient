@@ -21,11 +21,46 @@ namespace MSUIClient.Net;
 public sealed class MonsterMove
 {
     public ulong Guid;
+    public Vector3 Start;
     public Vector3[] Points = Array.Empty<Vector3>();  // travel order [start .. endpoint], raw WoW space
     public uint DurationMs;
     public bool Flying;          // spline flag 0x200 — also selects the Catmull-Rom point layout
     public bool Stop;            // move type 1 — freeze in place, no path follows
-    public float? FacingAngle;   // move type 4 — a final orientation to snap to (path-less re-face)
+    public MonsterMoveFacing Facing;
+}
+
+public enum MonsterMoveFacingKind { None, Spot, Target, Angle }
+
+/// <summary>The moveType-switched facing union carried by SMSG_MONSTER_MOVE.</summary>
+public readonly record struct MonsterMoveFacing(
+    MonsterMoveFacingKind Kind, Vector3 Spot, ulong TargetGuid, float Angle)
+{
+    public static MonsterMoveFacing None => default;
+    public static MonsterMoveFacing ToSpot(Vector3 spot) =>
+        new(MonsterMoveFacingKind.Spot, spot, 0, 0);
+    public static MonsterMoveFacing ToTarget(ulong guid) =>
+        new(MonsterMoveFacingKind.Target, default, guid, 0);
+    public static MonsterMoveFacing ToAngle(float angle) =>
+        new(MonsterMoveFacingKind.Angle, default, 0, angle);
+}
+
+public static class MonsterMoveFacingLaw
+{
+    /// <summary>Resolve the receipt-time hard snap in raw WoW coordinates.</summary>
+    public static float? Resolve(MonsterMoveFacing facing, Vector3 unitPosition,
+        Func<ulong, Vector3?> targetPosition)
+    {
+        Vector3? destination = facing.Kind switch
+        {
+            MonsterMoveFacingKind.Spot => facing.Spot,
+            MonsterMoveFacingKind.Target => targetPosition(facing.TargetGuid),
+            _ => null,
+        };
+        if (facing.Kind == MonsterMoveFacingKind.Angle) return facing.Angle;
+        if (destination is not { } target) return null;
+        float dx = target.X - unitPosition.X, dy = target.Y - unitPosition.Y;
+        return dx * dx + dy * dy > 1e-6f ? MathF.Atan2(dy, dx) : null;
+    }
 }
 
 public static class MonsterMoveParser
@@ -42,6 +77,7 @@ public static class MonsterMoveParser
             var mm = new MonsterMove { Guid = r.ReadPackedGuid() };
 
             Vector3 start = r.ReadVector3();
+            mm.Start = start;
             r.ReadU32();                    // spline id (echoed only for our own player's splines)
             byte moveType = r.ReadU8();
 
@@ -51,9 +87,15 @@ public static class MonsterMoveParser
                     mm.Stop = true;
                     mm.Points = new[] { start };
                     return mm;              // STOP short-circuits: no flags/duration/points follow
-                case MoveTypeFacingSpot:   r.ReadVector3(); break;   // a point to face (unused once a path plays)
-                case MoveTypeFacingTarget: r.ReadU64();     break;   // a guid to face
-                case MoveTypeFacingAngle:  mm.FacingAngle = r.ReadF32(); break;
+                case MoveTypeFacingSpot:
+                    mm.Facing = MonsterMoveFacing.ToSpot(r.ReadVector3());
+                    break;
+                case MoveTypeFacingTarget:
+                    mm.Facing = MonsterMoveFacing.ToTarget(r.ReadU64());
+                    break;
+                case MoveTypeFacingAngle:
+                    mm.Facing = MonsterMoveFacing.ToAngle(r.ReadF32());
+                    break;
             }
 
             uint flags = r.ReadU32();
@@ -70,10 +112,17 @@ public static class MonsterMoveParser
             }
             else
             {
-                // Linear path: one absolute endpoint, then (count-1) packed offsets = endpoint - waypoint.
+                if (count == 0)
+                {
+                    mm.Points = Array.Empty<Vector3>();
+                    return mm;
+                }
+                // Linear path: one endpoint, then offsets. The producer's last_idx>1 guard means
+                // count==2 carries no offsets at all (the direct start -> endpoint hop).
                 Vector3 endpoint = r.ReadVector3();
                 var mids = new List<Vector3>(Math.Max(0, (int)count - 1));
-                for (uint i = 0; i + 1 < count; i++)
+                uint offsetCount = count > 2 ? count - 1 : 0;
+                for (uint i = 0; i < offsetCount; i++)
                 {
                     int packed = r.ReadI32();
                     mids.Add(endpoint - PacketReader.DecodePackedSplinePoint(packed));

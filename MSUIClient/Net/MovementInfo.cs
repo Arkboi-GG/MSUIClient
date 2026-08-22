@@ -27,6 +27,9 @@ public enum MovementFlags : uint
     SplineEnabled = 0x00400000,
     OnTransport   = 0x02000000, // carries the transport pose tail (1.12 bit 25, NOT the TBC 0x200)
     SplineElevation = 0x04000000,
+    WaterWalking   = 0x10000000,
+    FeatherFalling = 0x20000000,
+    Hover          = 0x40000000,
 }
 
 public readonly record struct TransportPose(ulong Guid, Vector3 Pos, float Orientation);

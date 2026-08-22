@@ -12,10 +12,16 @@
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.Bindings.cs"
+    "MSUIClient/Engine/UI/UiHideLaw.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Bindings.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Keybindings.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Sheath.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.CombatFeedback.cs",
+    "MSUIClient/Program.cs",
+    "tools/interface-wire-check/UiHideClinicalChecks.cs"
   ],
-  "status": "missing",
-  "summary": "MSUI has no TOGGLEUI hide-the-interface binding (default ALT-Z): no UiHidden-equivalent state, no binding, and the only bindings table (Program.Bindings.cs) carries movement/panel keys only.",
+  "status": "implemented",
+  "summary": "MSUI now implements TOGGLEUI as a rebindable Interface command whose shipped chord is exact ALT-Z. It edge-toggles a world-session UiHidden-equivalent state, suppresses the complete player-HUD draw/input surface while producers and keyboard gameplay continue, preserves bare Z for sheath/unsheath, and clears the hidden state when world feedback resets.",
   "openItems": [
     {
       "id": "item-triage-5a8d07af",
@@ -23,12 +29,21 @@
       "text": "No ALT-Z/TOGGLEUI binding to hide every player-UI surface at once (bars, frames, chat, plates, floating text) while world rendering, keyboard input, and UI state production continue - the screenshot-mode behavior the reference ships.",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: GameBinding.ToggleUi ships as exact ALT-Z (and displays/rebinds as Alt plus its bound key); UiHideLaw rejects extra modifiers, repeats, and typing capture. DrawCombatHud returns before every player-UI producer draw while underlying state keeps updating, and ResetCombatFeedback restores visibility on world-session exit. Bare Z remains sheath/unsheath and consumes the physical edge so releasing Alt first cannot create a false sheath press."
+    },
+    {
+      "id": "item-ui-hide-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live verify exact ALT-Z toggling in-world: all player UI and custom hover art disappear without losing open-window/chat/cooldown state, invisible UI takes no mouse clicks, gameplay keys remain live, bare Z still sheaths, and logout/re-entry restores visible UI.",
+      "source": "implementation-2026-08-22",
+      "added": "2026-08-22",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T06:00:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

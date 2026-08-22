@@ -16,6 +16,12 @@ public readonly record struct QuestComplete(uint QuestId, uint Experience, int M
     IReadOnlyList<(uint ItemId, uint Count)> Rewards);
 public readonly record struct QuestKillUpdate(uint QuestId, uint Entry, uint Current, uint Required, ulong Guid);
 public readonly record struct QuestGiverFailure(uint QuestId, uint Reason);
+public readonly record struct QuestLogObjective(uint CreatureOrGo, uint RequiredCount,
+    uint ItemId, uint ItemCount, string Text);
+public sealed record QuestTemplate(uint QuestId, uint Level, int ZoneOrSort, string Title,
+    string ObjectivesText, string Details, int Money, uint RewardSpell,
+    IReadOnlyList<QuestRewardItem> FixedRewards, IReadOnlyList<QuestRewardItem> ChoiceRewards,
+    IReadOnlyList<QuestLogObjective> Objectives);
 
 public static class QuestPackets
 {
@@ -80,6 +86,56 @@ public static class QuestPackets
     { var r = Exact(body, 4); return r.ReadU32(); }
     public static QuestGiverFailure ParseGiverFailure(byte[] body)
     { var r = Exact(body, 8); return new(r.ReadU32(), r.ReadU32()); }
+
+    /// <summary>
+    /// SMSG_QUEST_QUERY_RESPONSE: 15 fixed header dwords, four fixed rewards, six fixed choices,
+    /// the map-point quad, four C strings, four objective quads, then four objective C strings.
+    /// </summary>
+    public static QuestTemplate ParseQueryResponse(byte[] body)
+    {
+        var r = new PacketReader(body);
+        uint id = r.ReadU32();
+        r.ReadU32(); // method
+        uint level = r.ReadU32();
+        int zoneOrSort = r.ReadI32();
+        r.Skip(6 * 4); // quest type through next quest in chain
+        int money = r.ReadI32();
+        r.ReadU32(); // reward money at max level
+        uint rewardSpell = r.ReadU32();
+        r.Skip(2 * 4); // source item and flags
+        QuestRewardItem[] fixedRewards = ReadFixedTemplateItems(r, 4);
+        QuestRewardItem[] choiceRewards = ReadFixedTemplateItems(r, 6);
+        r.Skip(4 * 4); // map id, x, y, point option
+        string title = r.ReadCString();
+        string objectivesText = r.ReadCString();
+        string details = r.ReadCString();
+        r.ReadCString(); // end text
+
+        var raw = new (uint CreatureOrGo, uint Required, uint Item, uint ItemCount)[4];
+        for (int i = 0; i < raw.Length; i++)
+            raw[i] = (r.ReadU32(), r.ReadU32(), r.ReadU32(), r.ReadU32());
+        var result = new QuestLogObjective[4];
+        for (int i = 0; i < result.Length; i++)
+        {
+            string text = r.ReadCString();
+            result[i] = new(raw[i].CreatureOrGo, raw[i].Required,
+                raw[i].Item, raw[i].ItemCount, text);
+        }
+        RequireEnd(r, "quest query response");
+        return new(id, level, zoneOrSort, title, objectivesText, details, money, rewardSpell,
+            fixedRewards, choiceRewards, result);
+    }
+
+    private static QuestRewardItem[] ReadFixedTemplateItems(PacketReader r, int slots)
+    {
+        var result = new List<QuestRewardItem>(slots);
+        for (int i = 0; i < slots; i++)
+        {
+            uint item = r.ReadU32(), count = r.ReadU32();
+            if (item != 0) result.Add(new(item, count, 0));
+        }
+        return result.ToArray();
+    }
 
     private static IReadOnlyList<QuestRewardItem> ReadItems(PacketReader r, uint maximum, string label)
     {

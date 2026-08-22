@@ -15,7 +15,8 @@ public sealed class AreaTableCatalog
     // Parent 0 = top-level zone. Audio columns 7/8/9 verified against
     // benilla-formats/src/area_sound.rs (1081 x 25 x 100 B).
     private readonly Dictionary<uint, (uint Parent, string Name, uint ExploreFlag,
-        uint AmbienceId, uint ZoneMusicId, uint IntroSoundId)> _rows = new();
+        uint Flags, uint FactionGroupMask, uint AmbienceId, uint ZoneMusicId,
+        uint IntroSoundId)> _rows = new();
     public int Count => _rows.Count;
 
     public static AreaTableCatalog? Parse(byte[] data)
@@ -28,11 +29,14 @@ public sealed class AreaTableCatalog
             uint id = dbc.GetUInt(r, 0);
             uint parent = dbc.GetUInt(r, 2);
             uint exploreFlag = dbc.GetUInt(r, 3);
+            uint flags = dbc.GetUInt(r, 4);
             uint ambience = dbc.GetUInt(r, 7);
             uint zoneMusic = dbc.GetUInt(r, 8);
             uint introSound = dbc.GetUInt(r, 9);
             string name = dbc.GetString(r, 11);
-            t._rows[id] = (parent, name, exploreFlag, ambience, zoneMusic, introSound);
+            uint factionGroupMask = dbc.FieldCount > 20 ? dbc.GetUInt(r, 20) : 0;
+            t._rows[id] = (parent, name, exploreFlag, flags, factionGroupMask,
+                ambience, zoneMusic, introSound);
         }
         Console.WriteLine($"[dbc] AreaTable: {t.Count} area(s)");
         return t;
@@ -81,12 +85,26 @@ public sealed class AreaTableCatalog
     public string AreaName(uint areaId) =>
         _rows.TryGetValue(areaId, out var row) ? row.Name : "";
 
+    /// <summary>Resolve an exact area name, preferring a top-level zone over a subzone twin.</summary>
+    public uint? IdForName(string name) => _rows
+        .Where(pair => pair.Value.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(pair => pair.Value.Parent == 0 ? 0 : 1)
+        .ThenBy(pair => pair.Key)
+        .Select(pair => (uint?)pair.Key)
+        .FirstOrDefault();
+
     /// <summary>
     /// Bit index in the owning player's 64-word PLAYER_EXPLORED_ZONES array.
     /// Returns null for an unknown row; zero is a valid authored flag.
     /// </summary>
     public uint? ExplorationFlag(uint areaId) =>
         _rows.TryGetValue(areaId, out var row) ? row.ExploreFlag : null;
+
+    public uint? Flags(uint areaId) =>
+        _rows.TryGetValue(areaId, out var row) ? row.Flags : null;
+
+    public uint? FactionGroupMask(uint areaId) =>
+        _rows.TryGetValue(areaId, out var row) ? row.FactionGroupMask : null;
 
     /// <summary>
     /// Top-level zone containing an area. CMSG_ZONEUPDATE carries this value;

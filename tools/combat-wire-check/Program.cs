@@ -94,10 +94,36 @@ var spell = (CombatSpellDamage)CombatPacketParser.Parse(
     Hex("c92a4530f1 0101 85000000 f4010000 03 32000000 ecffffff 00 00 0a000000 02000000 00"));
 Check(spell.Attacker == 1 && spell.SpellId == 133 && spell.Damage == 500, "spell damage fields");
 Check(spell.Absorb == 50 && spell.Resist == -20 && (spell.HitInfo & 2) != 0, "spell mitigation/crit");
-var spellCue = CombatFeedbackLaw.WorldText(spell, 1);
+var spellCue = CombatFeedbackLaw.WorldText(spell, 1, isMeleeStyledSpell: _ => false);
 Check(spellCue.Count == 1 && spellCue[0].Text == "500" && spellCue[0].Critical &&
       spellCue[0].Style == WorldCombatTextStyle.PlayerSpell, "owned spell world-text law");
 Check(CombatFeedbackLaw.WorldText(spell, 99).Count == 0, "foreign damage world-text suppression");
+
+var petMelee = new CombatMeleeSwing(77, 2, 0, 41, 0, 0, 0, 0);
+var petMeleeCue = CombatFeedbackLaw.WorldText(petMelee, 1, guid => guid == 77);
+Check(petMeleeCue.Count == 1 && petMeleeCue[0].Text == "41" &&
+      petMeleeCue[0].Style == WorldCombatTextStyle.PetMelee,
+    "owned pet melee world-text/color law");
+var petSpellCue = CombatFeedbackLaw.WorldText(
+    spell with { Attacker = 77 }, 1, guid => guid == 77, _ => false);
+Check(petSpellCue.Count == 1 && petSpellCue[0].Style == WorldCombatTextStyle.PlayerSpell,
+    "owned pet spell world-text/gold law");
+var rangedBasicCue = CombatFeedbackLaw.WorldText(spell, 1,
+    isMeleeStyledSpell: id => id == spell.SpellId);
+Check(rangedBasicCue.Count == 1 && rangedBasicCue[0].Style == WorldCombatTextStyle.PlayerMelee,
+    "AttributesEx3 bit-15 player ranged-basic spell-log color law");
+var petRangedBasicCue = CombatFeedbackLaw.WorldText(spell with { Attacker = 77 }, 1,
+    guid => guid == 77, id => id == spell.SpellId);
+Check(petRangedBasicCue.Count == 1 &&
+      petRangedBasicCue[0].Style == WorldCombatTextStyle.PetMelee,
+    "AttributesEx3 bit-15 owned-pet ranged-basic spell-log color law");
+Check(CombatFeedbackLaw.WorldText(spell, 1)[0].Style == WorldCombatTextStyle.PlayerMelee,
+    "missing SpellRec ranged-basic color fallback");
+Check((TargetSpell(0, 0) with { AttributesEx3 = 0x8000 }).MeleeWhiteDamage &&
+      !(TargetSpell(0, 0) with { AttributesEx3 = 0x4000 }).MeleeWhiteDamage,
+    "Spell.dbc AttributesEx3 bit-15 classifier");
+Check(CombatFeedbackLaw.WorldText(petMelee, 1, _ => false).Count == 0,
+    "foreign pet damage world-text suppression");
 
 var blockedSwing = new CombatMeleeSwing(1, 2, 0, 0, 5, 0, 0, 12);
 var blockCue = CombatFeedbackLaw.WorldText(blockedSwing, 1);
@@ -115,6 +141,16 @@ var periodic = (CombatPeriodicAura)CombatPacketParser.Parse(
 Check(periodic.Ticks.Count == 1 && periodic.Ticks[0].Kind == CombatPeriodicKind.Damage,
       "periodic tick kind");
 Check(periodic.Ticks[0].Amount == 88 && periodic.Ticks[0].Resist == -5, "periodic tick payload");
+Check(CombatFeedbackLaw.WorldText(periodic, 1,
+          isMeleeStyledSpell: id => id == periodic.SpellId)[0].Style ==
+      WorldCombatTextStyle.PlayerMelee,
+    "AttributesEx3 bit-15 periodic spell-log color law");
+
+if (args.Contains("--combat-text-only", StringComparer.Ordinal))
+{
+    Console.WriteLine("combat-wire-check: CombatText PASS");
+    return;
+}
 
 var movement = MovementInfo.Create(
     new System.Numerics.Vector3(1, 2, 3), 0.75f,

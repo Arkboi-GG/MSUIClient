@@ -63,7 +63,8 @@ public sealed partial class CharacterRenderer : IDisposable
     /// </summary>
     private static readonly int[] BakedAnimations =
         [0, 4, 5, 9, 11, 12, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30,
-         37, 38, 39, 40, 85, 87, 88, 92, 93, 117, 187];
+         37, 38, 39, 40, 85, 87, 88, 92, 93, 96, 97, 98, 99, 100, 101, 102, 103, 104,
+         114, 115, 116, 117, 187];
 
     /// <summary>
     /// Geoset variant shown per category when nothing is equipped. Ported from
@@ -109,6 +110,7 @@ public sealed partial class CharacterRenderer : IDisposable
         public bool Walking;
         public bool Flying;
         public bool Engaged;
+        public byte StandState;
 
         /// <summary>Hold the already-evaluated body pose and all of its animation clocks.</summary>
         public bool FreezePose;
@@ -491,6 +493,20 @@ public sealed partial class CharacterRenderer : IDisposable
     /// <summary>Standing model height at scale 1, derived once from bind-pose geometry.</summary>
     public float BindPoseHeight() => _bindPoseHeight;
 
+    /// <summary>
+    /// The Stand sequence's authored CAaBox Z extent, scaled exactly once by the
+    /// displayed character model. Chat bubbles latch this per line; it is not a
+    /// posed overhead attachment.
+    /// </summary>
+    public float StandBoxHeight()
+    {
+        if (_m2 is null) return 0f;
+        M2Sequence? stand = _m2.Sequences.FirstOrDefault(s =>
+            s.AnimationId == 0 && s.VariationId == 0) ??
+            _m2.Sequences.FirstOrDefault(s => s.AnimationId == 0);
+        return stand is null ? 0f : stand.BoundsZExtent * MathF.Max(0.01f, ModelScale);
+    }
+
     public bool TryGetAuthoredPortrait(in UnitState state, out M2PortraitCamera camera,
         out Matrix4x4 modelTransform)
     {
@@ -673,6 +689,12 @@ public sealed partial class CharacterRenderer : IDisposable
     public float GroundSpeed => _groundSpeed;
     public string SkinTexturePath { get; private set; } = "";
     public Action<string, int, M2Animator.Resolution>? AnimationResolved { get; set; }
+    /// <summary>One callback per authored $FSD marker crossed by the live base clip.</summary>
+    public Action? FootstepAnimationEvent { get; set; }
+    public Action<string>? CreatureAnimationSoundEvent { get; set; }
+    public Action<string>? CombatAnimationSoundEvent { get; set; }
+    private int _footstepSequence = -1;
+    private float _footstepTime;
 
     private const int BaseAnimationTrack = 0;
     private const int ActionAnimationTrack = 1;
@@ -2430,6 +2452,8 @@ public sealed partial class CharacterRenderer : IDisposable
         _clipTime += dt * _clipRate;
         _previousClipTime += dt * _previousClipRate;
 
+        EmitFootstepEvents();
+
         _globalTime += dt;
 
         if (_blendRemaining > 0f)
@@ -2449,6 +2473,31 @@ public sealed partial class CharacterRenderer : IDisposable
         if (float.IsNaN(_previousClipTime) || float.IsInfinity(_previousClipTime))
             _previousClipTime = 0f;
         if (float.IsNaN(_globalTime) || float.IsInfinity(_globalTime)) _globalTime = 0f;
+    }
+
+    private void EmitFootstepEvents()
+    {
+        if (_m2 is null || _clip is null || FootstepAnimationEvent is null)
+        {
+            _footstepSequence = -1;
+            return;
+        }
+        if (_footstepSequence != _clip.SequenceIndex || _clipTime < _footstepTime)
+        {
+            _footstepSequence = _clip.SequenceIndex;
+            _footstepTime = _clipTime;
+            return;
+        }
+        int count = FootstepAnimationLaw.CountCrossings(
+            _m2, _clip, _footstepTime, _clipTime);
+        foreach (string identifier in CreatureAnimationSoundLaw.CrossedVocalEvents(
+                     _m2, _clip, _footstepTime, _clipTime))
+        {
+            CreatureAnimationSoundEvent?.Invoke(identifier);
+            CombatAnimationSoundEvent?.Invoke(identifier);
+        }
+        _footstepTime = _clipTime;
+        for (int i = 0; i < count; i++) FootstepAnimationEvent();
     }
 
     /// <summary>Restart the packet-driven melee one-shot on the local player.</summary>
@@ -3002,6 +3051,13 @@ public sealed partial class CharacterRenderer : IDisposable
 
         if (standing)
         {
+            if (state.StandState != 0)
+            {
+                int pose = Engine.UI.StandStateUiLaw.LoopAnimation(state.StandState);
+                if (pose != 0)
+                    return _animator.Resolve("player", BaseAnimationTrack, pose, false, 0);
+            }
+
             // TURN IN PLACE. The shuffle rides the BODY's actual rotation, not
             // the turn keys - which is the whole reason it is worth having.
             // While the frozen chase holds the body under a leading aim the feet

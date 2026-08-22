@@ -13,13 +13,15 @@
   ],
   "msuiAnchors": [
     "MSUIClient/Net/PlayerActions.cs",
-    "MSUIClient/Program.ActionBars.cs",
-    "MSUIClient/Program.Casting.cs",
-    "MSUIClient/Program.Net.cs",
-    "MSUIClient/Program.Pet.cs"
+    "MSUIClient/Net/CooldownPackets.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.ActionBars.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Casting.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Pet.cs",
+    "tools/interface-wire-check/CooldownProtocolClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "MSUI mirrors the main cooldown mechanisms: the GCD starts locally at cast-send from Spell.dbc StartRecoveryCategory/Time, the spell's own recovery + category recovery start when the cast completes, SMSG_SPELL_COOLDOWN is handled as the server override path (including addressed pet lists into the pet store), and the read resolves spell-vs-category with longest-remaining-wins plus the CooldownFrame finish-flash display law. But 5 of 13 tracked opcodes are unhandled and the on-hold record state does not exist.",
+  "status": "implemented-unverified",
+  "summary": "MSUI implements the complete current Benilla cooldown family: local GCD/recovery/category clocks, addressed player/pet SMSG_SPELL_COOLDOWN, SPELL_ATTR_COOLDOWN_ON_EVENT parking and event release, item cooldowns, per-spell/category clears, full cheat clears, longest-remaining resolution, and the CooldownFrame finish-flash display law. Focused protocol/state checks pass; live server verification remains.",
   "openItems": [
     {
       "id": "item-triage-d25012d1",
@@ -27,7 +29,9 @@
       "text": "SMSG_COOLDOWN_EVENT unhandled and no on_hold state: SPELL_ATTR_COOLDOWN_ON_EVENT spells (Stealth, Feign Death) should park their recovery until the event packet starts it - MSUI starts them at cast time (wrong start) and ignores the packet.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: SpellInfo exposes the on-event attribute, cast completion parks rather than runs those records, and SMSG_COOLDOWN_EVENT starts the held duration at receive time. Focused state checks pin the transition.",
+      "resolvedUtc": "2026-08-22T15:26:03.6287134Z"
     },
     {
       "id": "item-triage-317eff9e",
@@ -35,7 +39,9 @@
       "text": "SMSG_CLEAR_COOLDOWN unhandled: a server-side cooldown clear leaves the client clock running - the button stays visually dark until it expires on its own.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: strict spell-first/raw-guid SMSG_CLEAR_COOLDOWN decoding clears the spell, its owned category recovery, and any held record from the addressed player or pet store.",
+      "resolvedUtc": "2026-08-22T15:26:03.6287134Z"
     },
     {
       "id": "item-triage-4a40cee0",
@@ -43,7 +49,9 @@
       "text": "SMSG_ITEM_COOLDOWN unhandled and records are keyed by spell id only (no cast-item id pair): item-use cooldowns pushed at login/on-use are not reflected.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: strict raw-item-guid/u32-spell decoding resolves the live item entity and starts the item-use recovery in the addressed player cooldown store.",
+      "resolvedUtc": "2026-08-22T15:26:03.6287134Z"
     },
     {
       "id": "item-triage-6799946c",
@@ -51,12 +59,22 @@
       "text": "SMSG_COOLDOWN_CHEAT unhandled (GM cooldown-off; minor).",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: strict raw-guid SMSG_COOLDOWN_CHEAT decoding clears every running and held record for the addressed player or pet.",
+      "resolvedUtc": "2026-08-22T15:26:03.6287134Z"
+    },
+    {
+      "id": "item-msui-cooldowns-live-verify",
+      "kind": "verify",
+      "text": "Live verification: exercise an on-event spell, item cooldown, server clear, and cooldown-cheat clear on player and pet stores; confirm action buttons start/park/clear at the server-authored moments and finish flashes occur once.",
+      "source": "implementation-2026-08-22",
+      "added": "2026-08-22",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T15:26:03.6287134Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

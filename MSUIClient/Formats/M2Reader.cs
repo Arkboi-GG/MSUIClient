@@ -462,6 +462,18 @@ public class M2Sequence
     /// </summary>
     public uint BlendTimeMs { get; set; }
 
+    /// <summary>The authored CAaBox in the MD20 header image, before model scale.</summary>
+    public Vector3 BoundsMinimum { get; set; }
+    public Vector3 BoundsMaximum { get; set; }
+    public float BoundsZExtent
+    {
+        get
+        {
+            float extent = BoundsMaximum.Z - BoundsMinimum.Z;
+            return float.IsFinite(extent) ? MathF.Max(0f, extent) : 0f;
+        }
+    }
+
     public uint DurationMs => EndTimestamp > StartTimestamp
         ? EndTimestamp - StartTimestamp
         : 0;
@@ -1818,7 +1830,7 @@ public class M2Reader
     //  +24   uint32 minimumRepetitions (skipped)
     //  +28   uint32 maximumRepetitions (skipped)
     //  +32   uint32 blendTime       (ms; the cross-fade duration into this clip)
-    //  +36   M2Box  bounds          (24 bytes, skipped)
+    //  +36   M2Box  bounds          (minimum xyz, maximum xyz)
     //  +60   float  boundsRadius    (skipped)
     //  +64   int16  nextAnimationId (skipped — sequence chaining is TODO)
     //  +66   uint16 aliasNextId     (skipped)
@@ -1840,6 +1852,10 @@ public class M2Reader
                 MoveSpeed = ReadFloat(data, off + 12),
                 Flags = ReadUInt32(data, off + 16),
                 BlendTimeMs = ReadUInt32(data, off + 32),
+                BoundsMinimum = new Vector3(ReadFloat(data, off + 36),
+                    ReadFloat(data, off + 40), ReadFloat(data, off + 44)),
+                BoundsMaximum = new Vector3(ReadFloat(data, off + 48),
+                    ReadFloat(data, off + 52), ReadFloat(data, off + 56)),
             });
         }
     }

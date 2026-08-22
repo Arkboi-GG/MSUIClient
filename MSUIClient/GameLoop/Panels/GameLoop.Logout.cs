@@ -128,6 +128,7 @@ public sealed partial class GameLoop
         CancelRealPortalHandoff("logout returned to character select");
         TearDownWorldContent();
         _entities.Clear();
+        ClearChatBubbles();
         _combat.Clear();
         _actions.Clear();
         ResetPetActionBar();
@@ -138,6 +139,7 @@ public sealed partial class GameLoop
         ResetCommanderState();
         ResetPlayerIdentitySession();
         ResetCombatFeedback();
+        ResetPendingInventoryOps();
         ResetLoot();
         ResetGameObjects();
         ResetRestXp();

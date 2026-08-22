@@ -2,6 +2,7 @@ using MSUIClient;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using System.Numerics;
 
 static void Require(bool condition, string message)
 {
@@ -56,6 +57,17 @@ Require(InventoryUiLaw.HoverCursor(true, true) == "Buy" &&
         InventoryUiLaw.HoverCursor(false, true) == "Inspect" &&
         InventoryUiLaw.HoverCursor(false, false) is null,
     "inventory hover cursor priority drift");
+Require(InventoryUiLaw.ItemTooltipSeat(new Vector2(700f, 500f),
+            new Vector2(737f, 537f), 800f) is
+        { Position: var rightPosition, Pivot: var rightPivot,
+          Point: "TOPRIGHT", RelativePoint: "TOPLEFT" } &&
+        rightPosition == new Vector2(700f, 500f) && rightPivot == new Vector2(1f, 0f) &&
+        InventoryUiLaw.ItemTooltipSeat(new Vector2(50f, 500f),
+            new Vector2(87f, 537f), 800f) is
+        { Position: var leftPosition, Pivot: var leftPivot,
+          Point: "TOPLEFT", RelativePoint: "TOPRIGHT" } &&
+        leftPosition == new Vector2(87f, 500f) && leftPivot == Vector2.Zero,
+    "container item tooltip side-anchor law drift");
 
 Require(InventoryUiLaw.ToWire(0, 0) == new InventoryUiLaw.WirePosition(255, 23) &&
         InventoryUiLaw.ToWire(0, 15) == new InventoryUiLaw.WirePosition(255, 38) &&

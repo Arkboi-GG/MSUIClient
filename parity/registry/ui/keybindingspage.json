@@ -7,16 +7,21 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/KeyBindingsPage.xml",
-      "fileSha256": "28579122695643047fc83fc0454a83a99e7a988326fe0286672f909a725fd3a4",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "d903c253a8db196fba320e3e5aa6e2cff1e07ff1b5ab84d9dceb4ba3ebd57d37",
+      "snapshotId": "benilla-current-2026-08-22"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Keybindings.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Bindings.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Keybindings.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Bindings.cs",
+    "MSUIClient/Engine/UI/BindingChordLaw.cs",
+    "MSUIClient/Engine/UI/CharacterBindingsUiLaw.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.CharacterBindingsPopup.cs",
+    "tools/interface-wire-check/BindingChordClinicalChecks.cs",
+    "tools/interface-wire-check/CharacterBindingsClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI implements a standalone 1.12-style Key Bindings window (Program.Keybindings.cs): six-piece UI-KeyBindingFrame art, category headers, 17-row scrolling list with vanilla scrollbar, dual key capsules per command, click-to-arm capture, silent key-steal from other commands, Unbind, Reset To Default, Okay/Cancel with snapshot revert, and a Character Specific Key Bindings checkbox. Benilla instead embeds keybindings as an Options-window category (era 1.15 structure, live-commit, collapsible sections, search).",
+  "summary": "MSUI's standalone 1.12-style Key Bindings window captures and displays canonical ALT/CTRL/SHIFT keyboard chords, ignores modifier-only and Super captures, and steals exact chords with the reference red fully-unbound warning or success feedback. Character Specific Key Bindings now creates an isolated GUID-keyed set immediately; destructive uncheck springs back and routes the exact confirmation through the shared rule-positioned StaticPopup before loading the account set and deleting the character set. Remaining UI gaps are mouse/wheel capture and collapsible/search presentation.",
   "openItems": [
     {
       "id": "item-triage-ee39fce7",
@@ -24,7 +29,8 @@
       "text": "No modifier-chord capture: FirstBindableKeyDown binds bare keys only - ALT-/CTRL-/SHIFT-key combinations cannot be bound",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: Capture ignores standalone modifiers, samples held ALT/CTRL/SHIFT with the first non-modifier base key, rejects Super, displays canonical prefix order, and writes BindingChord values into the selected primary/secondary slot. Focused clinical checks pass."
     },
     {
       "id": "item-triage-fa6916ca",
@@ -40,7 +46,8 @@
       "text": "Character Specific Key Bindings checkbox is cosmetic: _characterSpecificBindings is never read by SaveBindings/LoadBindings - no per-character binding set exists",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: The active set is selected from account keybindings.json or a stable LocalPlayerGuid-keyed character file. Checking immediately persists a copy as the character set. Unchecking springs back, plays the reference checkbox sound and opens the exact shared StaticPopup; acceptance loads the account set before deleting the character file and re-saving the unchanged account set. Focused clinical checks pass."
     },
     {
       "id": "item-triage-6a41d7c0",
@@ -48,6 +55,23 @@
       "text": "Stealing a key silently unbinds its previous owner with no KEY_UNBOUND_ERROR-style red warning naming the victim",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: Exact-chord steals identify previous owners before removal. If the victim loses its final key the page displays the victim's binding label in a four-second red 'Function is Now Unbound!' warning; otherwise it displays the reference success feedback."
+    },
+    {
+      "id": "item-msui-keybinding-chord-live-verify",
+      "kind": "verify",
+      "text": "Focused chord capture, display and conflict source fences pass. Needs owner-run live capture of single and multi-modifier chords, modifier-only/Super refusal, dual-slot steals, visible red victim naming, Cancel rollback and Okay persistence.",
+      "source": "review-2026-08-22/current-benilla-keybindings-page",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-character-bindings-live-verify",
+      "kind": "verify",
+      "text": "Focused persistence-order, GUID filename, checkbox spring-back, source-exact text and shared StaticPopup geometry/lifecycle checks pass. Needs owner-run live acceptance for create/edit/reload, Cancel behavior, confirmed account restoration, character-file deletion, dead-state refusal and two-slot modal seating.",
+      "source": "review-2026-08-22/current-benilla-keybindings-page",
+      "added": "2026-08-22",
       "resolved": false
     },
     {
@@ -62,6 +86,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T08:00:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

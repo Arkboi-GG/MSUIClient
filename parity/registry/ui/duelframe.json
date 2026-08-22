@@ -7,18 +7,24 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/DuelFrame.xml",
-      "fileSha256": "4381fb5cd88081f71c36c27fd449ab2285358de3b87958a566348e403167141d",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "18b6c263f0ad45774ffd7855e7657712b38c1ce52a8d60661141dc8ab257d43c",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_duel.rs",
-      "fileSha256": "54162433c362e7788eac1e1524ba0d226fcab1eab16a844d54e3a699e779380a",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "7cdb74c02644371eece09a45e8928de8734ee68cc6180b9c40bfd6d812e1b902",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
-  "msuiAnchors": [],
-  "status": "missing",
-  "summary": "MSUI has no duel support at all. The only match for 'Duel' in the repo is an enum string in Net/SpellCastResultNames.cs. None of the duel opcodes (SMSG_DUEL_REQUESTED/COUNTDOWN/COMPLETE/WINNER/INBOUNDS/OUTOFBOUNDS, CMSG_DUEL_ACCEPTED/CANCELLED) are handled - matching the registry's 1/16 opcode hit.",
+  "msuiAnchors": [
+    "MSUIClient/GameLoop/Hud/GameLoop.Duel.cs",
+    "MSUIClient/Engine/UI/DuelFrameUiLaw.cs",
+    "MSUIClient/Net/DuelPackets.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.UnitPopup.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.PartyFrames.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI implements current Benilla duel behavior through the shared two-slot StaticPopup coordinator and a dedicated DuelFrame law: asynchronous named challenge with ignore rejection, own-challenge auto-accept, explicit Accept/Decline/ESC replies, silent timeout/sweep, 10-second out-of-bounds warning dismissed by INBOUNDS, immediate then one-second system-chat countdown ticks, completion cancellation text and popup sweep, winner/retreat system lines, and the learned effect-83 spell path from UnitPopup Duel.",
   "openItems": [
     {
       "id": "item-triage-6d2babfa",
@@ -26,7 +32,8 @@
       "text": "DUEL_REQUESTED challenge popup (Accept/Decline, igPlayerInvite sound)",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "SMSG_DUEL_REQUESTED feeds the shared law-positioned DUEL_REQUESTED StaticPopup with Accept/Decline buttons, 60-second lifetime, hide-on-escape and igPlayerInvite entry sound; ignored challengers are declined without UI."
     },
     {
       "id": "item-triage-17077856",
@@ -34,7 +41,8 @@
       "text": "DUEL_OUTOFBOUNDS 10s forfeit-countdown popup with INBOUNDS hide",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Bare OUTOFBOUNDS shows the text-only shared popup with the coordinator's 10-second clock and pluralized countdown; bare INBOUNDS hides it without a wire action."
     },
     {
       "id": "item-triage-809d8fd8",
@@ -42,7 +50,8 @@
       "text": "Duel countdown and outcome system-chat lines",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "The milliseconds wire countdown is truncated to seconds and printed immediately then once per second through system chat; COMPLETE and WINNER produce the current cancellation/knockout/retreat lines."
     },
     {
       "id": "item-triage-8a94754c",
@@ -50,12 +59,13 @@
       "text": "CMSG_DUEL_ACCEPTED / CMSG_DUEL_CANCELLED sends",
       "source": "triage-2026-08-09/batch-ui-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Accept, explicit Decline/ESC, ignored-challenger rejection and the challenger's own auto-accept send byte-exact arbiter-GUID CMSG_DUEL_ACCEPTED/CANCELLED bodies."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T02:18:36.5431369Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

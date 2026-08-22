@@ -9,15 +9,26 @@
       "path": "crates/benilla-protocol/src/messages/spellbook.rs",
       "fileSha256": "226f74060ef79bbb9d3e3ffe372c3aeb783dd763f9a20418e7ee5ff3e398312a",
       "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/cooldowns.rs",
+      "fileSha256": "bb600c257b2e9d621a82654fc68eb97fe67c7d0d42b4e63ba4f242dcac37e5cf",
+      "snapshotId": "benilla-current-2026-08-22"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/PlayerActions.cs",
-    "MSUIClient/Program.Net.cs",
-    "MSUIClient/Program.Pet.cs"
+    "MSUIClient/Net/CooldownPackets.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Formats/SpellCatalog.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Control.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Pet.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Casting.cs",
+    "tools/interface-wire-check/CooldownProtocolClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "Benilla defines SMSG_INITIAL_SPELLS (book + cooldown list), SMSG_LEARNED_SPELL, SMSG_SUPERCEDED_SPELL, and the five server-side cooldown packets. MSUI implements the book trio field-exactly (PlayerActions.ApplyInitialSpells incl. the cooldown list and the permanent-cooldown spell_cd_ms==1 skip, Learn/Supercede) plus SMSG_SPELL_COOLDOWN with correct self/pet addressing and the cooldown_ms==0 use-Spell.dbc fork, but the other four cooldown packets have no handler.",
+  "status": "implemented-unverified",
+  "summary": "MSUI implements Benilla's complete build-5875 spellbook and server cooldown packet family. Initial, learned and superseded spells retain the existing field-exact paths. SMSG_SPELL_COOLDOWN and the four follow-ups now strict-decode, route to the addressed player/pet store, start the fixed 30-second item recovery, park attribute-bit-25 records until SMSG_COOLDOWN_EVENT, clear one spell plus its category records, and wipe the complete addressed history for SMSG_COOLDOWN_CHEAT. The production build and focused opcode/body/store checks pass; live verification remains.",
   "openItems": [
     {
       "id": "item-triage-1a0c92e3",
@@ -25,7 +36,8 @@
       "text": "SMSG_ITEM_COOLDOWN unhandled - the proc-triggered 30 s equipped-item use-cooldown never starts client-side",
       "source": "triage-2026-08-09/batch-protocol-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: strict raw-u64+u32 parsing resolves the live item instance and starts the use spell's client-hardcoded 30,000 ms recovery in the player/possessed store."
     },
     {
       "id": "item-triage-3de86dad",
@@ -33,7 +45,8 @@
       "text": "SMSG_COOLDOWN_EVENT unhandled - SPELL_ATTR_COOLDOWN_ON_EVENT abilities never start their parked cooldown timers",
       "source": "triage-2026-08-09/batch-protocol-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: attribute-bit-25 cooldown records are parked rather than displayed/running, and the addressed event starts every parked node for that spell at packet receive time."
     },
     {
       "id": "item-triage-91150052",
@@ -41,7 +54,8 @@
       "text": "SMSG_CLEAR_COOLDOWN unhandled - a server-cleared cooldown stays running in the UI",
       "source": "triage-2026-08-09/batch-protocol-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: strict spell-first/raw-guid parsing routes to the player or pet store and removes the spell recovery, every category record owned by that spell, and parked records."
     },
     {
       "id": "item-triage-e8b390ae",
@@ -49,12 +63,21 @@
       "text": "SMSG_COOLDOWN_CHEAT unhandled - the GM .cooldown wipe is ignored",
       "source": "triage-2026-08-09/batch-protocol-3.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: strict raw-guid parsing routes the GM reset to the addressed player/pet store and clears running plus parked cooldown history."
+    },
+    {
+      "id": "item-msui-cooldown-followups-live-verify",
+      "kind": "verify",
+      "text": "Golden bodies, strict length rejection, held-event timing, single-spell/category clear, whole-store wipe and production build pass. Needs owner-run live checks for an equipped-item proc cooldown, Stealth/Feign Death event start, one server clear, a pet-addressed follow-up, and a GM .cooldown wipe.",
+      "source": "implementation-2026-08-22",
+      "added": "2026-08-22",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T00:00:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

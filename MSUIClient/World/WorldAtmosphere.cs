@@ -139,6 +139,7 @@ public sealed class WorldAtmosphere
     }
 
     private bool Authored => UseAuthoredData && HasAuthored;
+    public bool AuthoredLightingReady => Authored;
 
     // ── Authored water colours (PLAN_12) ────────────────────────────────────
     //

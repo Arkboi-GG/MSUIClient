@@ -57,4 +57,8 @@ decisions[]:   ids of decisions/ records that constrain this entry
    for `must-match` entries.
 5. After any registry edit → `python tools/rebuild_backlog.py`.
 
+After replacing the current snapshot, `python tools/refresh_engine_inventory.py` refreshes only
+the non-behavioral engine inventory. It deliberately leaves new UI/system/protocol files uncovered
+for review instead of hiding them inside `engine/internals`.
+
 ParityDeck (`C:\Users\nico\source\repos\ParityDeck`) is the dashboard over all of this.

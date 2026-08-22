@@ -8,16 +8,19 @@
     {
       "path": "crates/benilla-app/src/npc_text.rs",
       "fileSha256": "5fac9915186e1773a52e713877f6cae086a5073af08a4206dd74a69b9aed209e",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Engine/UI/QuestTextMacroLaw.cs",
-    "MSUIClient/Program.Quest.cs",
-    "MSUIClient/Program.Gossip.cs"
+    "MSUIClient/Engine/UI/GossipUiLaw.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Quest.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Chat.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Gossip.cs",
+    "MSUIClient/Net/GossipState.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI transcribes the byte-carved $-token grammar into QuestTextMacroLaw.Expand: exactly the B/C/E/G/N/R/T/W set, decimal prefix consumed ahead of every token (and lost with an unaccepted one), case-as-output-switch for $R/$C, the $G/$T gender branch with ==0 first-arm semantics, marker-and-spaces-consumed malformed-branch behavior, and re-emitted $ on failure. The world-state table is live: SMSG_INIT_WORLD_STATES and SMSG_UPDATE_WORLD_STATE are both parsed into _questWorldStates and $nW/$nE read it (negated key for E, %d render). The subject is the self player's name + race/class/gender from descriptors, applied via ExpandQuestText at the gossip/quest/mail feed seams - the same seam set Benilla routes.",
+  "summary": "MSUI transcribes the byte-carved $-token grammar into QuestTextMacroLaw.Expand: exactly the B/C/E/G/N/R/T/W set, decimal prefix consumption, case-sensitive race/class output, gender branches, malformed-branch behavior, and world-state substitution. Subjects use streamed descriptors first and cached player-name traits when unstreamed. NPC text retains all eight weighted gender columns and selects per menu open from the live NPC gender with the reference draw law; quest, gossip, chat, and mail feed seams expand through the shared law.",
   "openItems": [],
   "claims": [],
   "traces": [],

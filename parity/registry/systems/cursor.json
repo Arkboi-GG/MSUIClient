@@ -6,19 +6,30 @@
   "deviationPolicy": "ui-allowed",
   "benillaSources": [
     {
-      "path": "crates/benilla-app/src/cursor.rs",
-      "fileSha256": "e6b784de3fcbec195ef458b7a595edae4bbe2c775558b0d0a9774a0e35c2852a",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "path": "crates/benilla-app/src/target/cursor_mode.rs",
+      "fileSha256": "c95710114f4805c0dc9db0d720568968bc2bbde7d8ecdab193929fac030c9568",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.Inventory.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Inventory.cs",
     "MSUIClient/Engine/UI/InventoryUiLaw.cs",
-    "MSUIClient/Program.Vendor.Render.cs",
-    "MSUIClient/Program.CharacterPage.cs"
+    "MSUIClient/Engine/UI/WorldCursorUiLaw.cs",
+    "MSUIClient/Engine/UI/HardwareCursorLaw.cs",
+    "MSUIClient/Engine/ClientWindow.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.WorldCursor.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.GameObjects.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.GameObjectRender.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Targeting.cs",
+    "MSUIClient/Formats/LockCatalog.cs",
+    "MSUIClient/Net/ObjectFields.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Vendor.Render.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.CharacterPage.cs",
+    "tools/interface-wire-check/HardwareCursorClinicalChecks.cs",
+    "tools/interface-wire-check/UnitPopupClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "Benilla ships the full Interface/Cursor BLP set as a hardware cursor driven by the targeting classifier (Point default, Attack over hostiles, Speak/Buy/Trainer/Taxi over service NPCs, Loot/Skin over corpses, grayed Unable* twins out of range) plus the held drag payload's item icon as the cursor. MSUI draws Interface/Cursor art at the mouse in specific UI contexts - Buy/UnableBuy over vendor rows, Repair in repair mode, Inspect for readables - and draws the carried item's icon at the cursor while dragging, but the world cursor is the plain OS arrow everywhere.",
+  "status": "implemented-unverified",
+  "summary": "MSUI installs the shipped Point art as a true top-left-hotspot OS cursor and applies Benilla's unit and GameObject classifiers: Attack, Speak, Pickup/LootAll, Interact, Buy, Inspect, Trainer, Taxi, Skin, Repair, Mail, Mine, GatherHerbs and PickLock with Unable twins and reference range gates. GameObject mouseover, +64 brighten, cursor and right-click USE are separate exact strategy gates, including GO-to-player faction reaction, hostile-trap inversion, marker/generic/capture/transport behavior and meeting-stone/fishing overrides. Lock.dbc retains Action and the ordered key/skill resolver uses known opener spells, current skill plus bonuses, key possession, GO state/level and GO_FLAG_LOCKED. Foreground drawing survives only as a custom-cursor backend fallback; live verification remains.",
   "openItems": [
     {
       "id": "item-triage-87f1f8db",
@@ -26,20 +37,48 @@
       "text": "No world-hover cursor classification: hovering an attackable unit, gossip/vendor/trainer/taxi NPC, or lootable corpse never changes the cursor (no Attack/Speak/Buy/Trainer/Taxi/Loot/Skin modes, no Unable* range-grayed variants).",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-21: WorldCursorUiLaw and GameLoop.WorldCursor implement the unit service/attack/loot/skin classifier, shipped BLP stems and range-grayed twins; Targeting consumes the same service verdict for right-click dispatch. GameObject cursors remain separately open."
     },
     {
       "id": "item-triage-14413db5",
       "kind": "gap",
-      "text": "The default in-world cursor is the OS arrow, not the client's Point.blp art.",
+      "text": "Point.blp now replaces the OS arrow visually in-world, but MSUI foreground-renders the cursor rather than installing a zero-lag hardware cursor as current Benilla does.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: ClientWindow now installs MPQ-decoded cursor BLPs through Silk's custom OS cursor with exact non-premultiplied RGBA conversion and hotspot (0,0). Point renews base authority each gameplay frame, specific UI/world stems replace it, and the old foreground quad is retained only when the backend refuses custom cursors. Focused clinical checks and the client build pass."
+    },
+    {
+      "id": "item-current-gameobject-cursors",
+      "kind": "gap",
+      "text": "Data-driven GameObject cursor modes remain absent: Mail, Mine/UnableMine, GatherHerbs/UnableGatherHerbs, PickLock, and TEXT-plaque Inspect/UnableInspect.",
+      "source": "benilla-current-2026-08-21",
+      "added": "2026-08-21",
+      "resolved": true,
+      "resolution": "2026-08-21: GameObject templates + the first Lock.dbc requirement now select Mail, Inspect, Mine, GatherHerbs, PickLock or Interact, including quest activate, busy/no-interact, chair/fishing ranges and PickLock's never-gray rule."
+    },
+    {
+      "id": "item-current-gameobject-cursor-refinements",
+      "kind": "gap",
+      "text": "GameObject cursor refinements still omit faction reaction, the complete lock/key/skill usability resolver, and the exact distinction between mouseover eligibility and highlightability for marker/generic/transport strategies.",
+      "source": "benilla-current-2026-08-21",
+      "added": "2026-08-21",
+      "resolved": true,
+      "resolution": "2026-08-22: Split mouseover eligibility, brighten, cursor and USE gates by the current per-type strategy table; added GO-to-player reaction with hostile TRAP inversion, marker/generic/capture/transport exceptions, fishing/meeting overrides, and the ordered Lock.dbc Action/key/skill resolver with actual Scholomance row verification."
+    },
+    {
+      "id": "item-msui-gameobject-cursor-live-verify",
+      "kind": "verify",
+      "text": "Focused laws, source fences and actual Lock.dbc rows pass. Needs owner-run live hover/use checks on a sign, anvil, transport, hostile trap, quest-gated chest, fishing bobber, herb/vein, keyed door and meeting stone, plus confirmation that Point/service mode swaps are hardware-composited with no duplicate foreground cursor or render-frame lag.",
+      "source": "review-2026-08-22/current-benilla-cursor_mode.rs",
+      "added": "2026-08-22",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T17:00:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

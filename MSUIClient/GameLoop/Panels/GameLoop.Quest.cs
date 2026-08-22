@@ -1,22 +1,44 @@
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine.UI;
+using MSUIClient.Formats;
 using MSUIClient.Net;
 
 namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
+    private readonly record struct QuestAbandonConfirmation(uint QuestId, string Title);
+    private readonly record struct QuestLogDisplayRow(bool IsHeader, string Header,
+        bool Collapsed, byte Slot, uint QuestId, uint Counters, uint Timer);
+
     private QuestList? _questList;
     private QuestDetails? _questDetails;
     private QuestOffer? _questOffer;
     private QuestRequestItems? _questRequestItems;
     private bool _questLogOpen;
-    private int _questLogSelected;
+    private uint _questLogSelectedQuestId;
+    private int _questLogOffset;
+    private float _questLogDetailScroll;
+    private float _questLogDetailContentHeight = QuestFrameUiLaw.QuestLogDetailRect.Height;
+    private readonly HashSet<string> _questLogCollapsed = new(StringComparer.Ordinal);
+    private QuestSortCatalog? _questSorts;
+    private bool _questSortsLoaded;
+    private uint _questServerUnix;
+    private long _questServerUnixStamp;
+    private long _questTimeAskedStamp;
+    private QuestAbandonConfirmation? _questAbandonConfirmation;
+    private readonly List<uint> _questWatches = [];
+    private readonly Dictionary<uint, double> _questAutoWatchExpiries = [];
     private readonly Dictionary<uint, string> _questProgress = [];
     private readonly Dictionary<uint, string> _questTitles = [];
+    private readonly Dictionary<uint, QuestTemplate> _questTemplates = [];
     private readonly HashSet<uint> _questQueries = [];
     private readonly Dictionary<ulong, uint> _questStatuses = [];
+    private readonly Dictionary<ulong, ulong> _questStatusAsked = [];
+    private ulong _questStatusPlayerGeneration;
+    private bool _questStatusPlayerGenerationKnown;
+    private uint _questStatusReaskEpoch;
     private readonly Dictionary<uint, uint> _questWorldStates = [];
     private HashSet<uint> _questLogSnapshot = [];
     private uint _questXpBefore;
@@ -130,6 +152,50 @@ public sealed partial class GameLoop
         EmitInterface("quest", "status", "DECODED", value.GiverGuid, $"status={value.Status}");
     }
 
+    /// <summary>
+    /// The server only answers status queries. Mirror the reference's visible-giver sweep and
+    /// re-ask when player quest inputs or the giver's service/faction fields change.
+    /// </summary>
+    private void UpdateQuestGiverStatusQueries()
+    {
+        if (_net is not { IsInWorld: true } net ||
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
+
+        ulong generation = QuestStatusRefreshLaw.PlayerGeneration(
+            player.Fields, _questStatusReaskEpoch);
+        if (!_questStatusPlayerGenerationKnown || generation != _questStatusPlayerGeneration)
+        {
+            _questStatusPlayerGenerationKnown = true;
+            _questStatusPlayerGeneration = generation;
+            _questStatusAsked.Clear();
+        }
+
+        foreach (ulong stale in _questStatusAsked.Keys
+                     .Where(guid => !_entities.TryGet(guid, out WorldEntity live) ||
+                         !live.IsCreature).ToArray())
+        {
+            _questStatusAsked.Remove(stale);
+            _questStatuses.Remove(stale);
+        }
+
+        foreach (WorldEntity npc in _entities.Units.Where(unit => unit.IsCreature))
+        {
+            if ((npc.NpcFlags & NpcQuestGiver) == 0)
+            {
+                _questStatusAsked.Remove(npc.Guid);
+                _questStatuses.Remove(npc.Guid);
+                continue;
+            }
+
+            ulong key = npc.NpcFlags | ((ulong)npc.Fields.FactionTemplate << 32);
+            if (_questStatusAsked.GetValueOrDefault(npc.Guid, ulong.MaxValue) == key) continue;
+            if (net.QuestgiverStatus(npc.Guid)) _questStatusAsked[npc.Guid] = key;
+        }
+    }
+
+    private void BumpQuestStatusReask() =>
+        _questStatusReaskEpoch = unchecked(_questStatusReaskEpoch + 1);
+
     private bool BeginQuestNpcPanel(ulong giverGuid)
     {
         QuestNpcPanel oldPanel = QuestNpcPanelNow();
@@ -160,20 +226,19 @@ public sealed partial class GameLoop
         if (_inspectOpen) CloseInspect(playSound: true);
         if (_auctionOpen) ResetAuction();
         if (_mailOpen) CloseMailSession();
-        if (_gossipMenu is not null || _gossipText is not null) ResetGossip();
+        if (_gossipMenu is not null || _gossipGreeting is not null) ResetGossip();
         CloseVendorSession();
-        _trainer = null;
+        CloseTrainerSession(playSound: true);
         _gameObjectGuid = 0;
-        _gameObjectPages.Clear();
         _worldMapOpen = false;
-        _macroOpen = false;
+        if (_macroOpen) CloseMacros();
         _helpOpen = false;
         _socialOpen = false;
         _guildOpen = false;
         _professionOpen = false;
-        _bankOpen = false;
+        CloseBankSession(playSound: true);
         _tabardOpen = false;
-        if (_taxiOpen && !_taxiLocked) _taxiOpen = false;
+        if (_taxiOpen && !_taxiLocked) CloseTaxiMap(playSound: true);
         _talentOpen = false;
         _questLogOpen = false;
         _spellbookOpen = false;
@@ -239,6 +304,8 @@ public sealed partial class GameLoop
     {
         QuestKillUpdate value = QuestPackets.ParseKill(body);
         _questProgress[value.QuestId] = $"entry {value.Entry}: {value.Current}/{value.Required}";
+        ShowUiInfo(QuestKillProgressText(value));
+        AutoWatchQuest(value.QuestId);
         EmitInterface("quest", "objective-kill", "UPDATED", value.Guid,
             $"quest={value.QuestId};entry={value.Entry};current={value.Current};required={value.Required}");
     }
@@ -246,6 +313,20 @@ public sealed partial class GameLoop
     private void ApplyQuestItem(byte[] body)
     {
         var value = QuestPackets.ParseItem(body);
+        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+            foreach (uint questId in player.Fields.QuestLog().Select(q => q.QuestId))
+                if (_questTemplates.TryGetValue(questId, out QuestTemplate? template) &&
+                    template.Objectives.Any(o => o.ItemId == value.ItemId && o.ItemCount > 0))
+                {
+                    AutoWatchQuest(questId);
+                    QuestLogObjective objective = template.Objectives.First(o =>
+                        o.ItemId == value.ItemId && o.ItemCount > 0);
+                    uint current = Math.Min(CarriedCount(value.ItemId), objective.ItemCount);
+                    string label = objective.Text.Length > 0 ? objective.Text :
+                        _items?.TryGet(value.ItemId, out ItemTemplate? item) == true && item is not null
+                            ? item.Name : "...";
+                    ShowUiInfo($"{label}: {current}/{objective.ItemCount}");
+                }
         EmitInterface("quest", "objective-item", "UPDATED", 0, $"item={value.ItemId};added={value.Count}");
     }
 
@@ -264,6 +345,9 @@ public sealed partial class GameLoop
     private void ApplyQuestObjectiveComplete(byte[] body)
     {
         uint id = QuestPackets.ParseQuestId(body); _questProgress[id] = "complete";
+        string title = _questTitles.GetValueOrDefault(id, "");
+        ShowUiInfo(title.Length > 0 ? $"{title} (Complete)" : "Objective Complete.");
+        AutoWatchQuest(id);
         EmitInterface("quest", "objective", "COMPLETE", 0, $"quest={id}");
     }
 
@@ -308,12 +392,28 @@ public sealed partial class GameLoop
     {
         CloseQuestNpcFrame(playSound: false);
         _questLogOpen = false;
-        _questLogSelected = 0;
+        _questLogSelectedQuestId = 0;
+        _questLogOffset = 0;
+        _questLogDetailScroll = 0;
+        _questLogDetailContentHeight = QuestFrameUiLaw.QuestLogDetailRect.Height;
+        _questLogCollapsed.Clear();
+        _questServerUnix = 0;
+        _questServerUnixStamp = 0;
+        _questTimeAskedStamp = 0;
+        _questAbandonConfirmation = null;
+        _questWatches.Clear();
+        _questAutoWatchExpiries.Clear();
         _questLogSnapshot.Clear();
         _questQueries.Clear();
         _questWorldStates.Clear();
         ClearRtsTerritoryCapture();
-        if (clearStatusStore) _questStatuses.Clear();
+        if (clearStatusStore)
+        {
+            _questStatuses.Clear();
+            _questStatusAsked.Clear();
+            _questStatusPlayerGenerationKnown = false;
+            _questStatusReaskEpoch = 0;
+        }
     }
 
     private bool UpdateQuestNpcLifecycle()
@@ -327,14 +427,15 @@ public sealed partial class GameLoop
             reason = "left-panel-displaced";
         else if (GuidInfo.IsItem(giver))
             return false;
-        else if (_controller is null || !_entities.TryGet(giver, out WorldEntity npc) || !npc.IsCreature)
+        else if (_controller is null)
+            return false;
+        else if (!_entities.TryGet(giver, out WorldEntity npc))
             reason = "giver-despawned";
-        else if (npc.IsDead)
-            reason = "giver-dead";
         else
         {
-            float distance = Vector3.Distance(_controller.Position, npc.Position);
-            if (distance > GossipInteractDistance) reason = $"range={distance:R};limit={GossipInteractDistance:R}";
+            float distanceSquared = Vector3.DistanceSquared(_controller.Position, npc.Position);
+            if (!NpcSessionUiLaw.InRange(distanceSquared))
+                reason = $"rangeSquared={distanceSquared:R};limitSquared={NpcSessionUiLaw.ServiceRangeSquared:R}";
         }
         if (reason.Length == 0) return false;
         EmitInterface("quest", "lifecycle-close", "CLOSED", giver, reason);
@@ -347,16 +448,24 @@ public sealed partial class GameLoop
         _keybindingsOpen || _macroOpen || _guildOpen || _auctionOpen || _mailOpen ||
         _professionOpen || _talentOpen || _tradeOpen || _bankOpen || _trainer is not null ||
         _taxiOpen || _vendor is not null || _gossipMenu is not null || _deathRezOpen ||
-        _hearthOpen || _tabardOpen || _loot.IsOpen || _gameObjectPages.Count > 0;
+        _hearthOpen || _tabardOpen || _loot.IsOpen || _itemTextRead is not null;
 
     private string ExpandQuestText(string text)
     {
         QuestTextMacroLaw.Subject? subject = null;
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        if (_net is not null)
         {
-            var bytes = player.Fields.Bytes0;
-            subject = new QuestTextMacroLaw.Subject(_net.PlayerName, RaceName(bytes.Race),
-                ClassName(bytes.Class), bytes.Gender);
+            if (_entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+            {
+                var bytes = player.Fields.Bytes0;
+                subject = new QuestTextMacroLaw.Subject(_net.PlayerName, RaceName(bytes.Race),
+                    ClassName(bytes.Class), bytes.Gender);
+            }
+            else if (_playerTraits.TryGetValue(_net.PlayerGuid, out PlayerTraits traits))
+            {
+                subject = new QuestTextMacroLaw.Subject(_net.PlayerName,
+                    RaceName(traits.Race), ClassName(traits.Class), traits.Gender);
+            }
         }
         return QuestTextMacroLaw.Expand(text, subject, _questWorldStates);
     }
@@ -528,8 +637,11 @@ public sealed partial class GameLoop
     {
         if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
         HashSet<uint> now = player.Fields.QuestLog().Select(q => q.QuestId).ToHashSet();
+        _questWatches.RemoveAll(id => !now.Contains(id));
+        foreach (uint id in _questAutoWatchExpiries.Keys.Where(id => !now.Contains(id)).ToArray())
+            _questAutoWatchExpiries.Remove(id);
         foreach (uint id in now)
-            if (!_questTitles.ContainsKey(id) && _questQueries.Add(id)) _net.QuestQuery(id);
+            if (!_questTemplates.ContainsKey(id) && _questQueries.Add(id)) _net.QuestQuery(id);
         foreach (uint id in now.Except(_questLogSnapshot)) EmitInterface("quest", "log", "ADDED", _net.PlayerGuid, $"quest={id};count={now.Count}");
         foreach (uint id in _questLogSnapshot.Except(now)) EmitInterface("quest", "log", "REMOVED", _net.PlayerGuid, $"quest={id};count={now.Count}");
         _questLogSnapshot = now;
@@ -549,17 +661,15 @@ public sealed partial class GameLoop
 
     private void ApplyQuestQuery(byte[] body)
     {
-        // Build 5875: fixed fields/rewards/map point occupy 152 bytes, followed
-        // by Title, Objectives, Details, EndText and the objective records.
-        if (body.Length < 153) return;
-        var r = new PacketReader(body);
-        uint id = r.ReadU32();
-        r.Skip(148);
-        string title = r.ReadCString();
-        if (id != 0 && title.Length > 0) _questTitles[id] = title;
-        _questQueries.Remove(id);
+        QuestTemplate template = QuestPackets.ParseQueryResponse(body);
+        if (template.QuestId != 0)
+        {
+            _questTemplates[template.QuestId] = template;
+            if (template.Title.Length > 0) _questTitles[template.QuestId] = template.Title;
+        }
+        _questQueries.Remove(template.QuestId);
         EmitInterface("quest", "query", "DECODED", 0,
-            $"quest={id};title={SanitizeEvidence(title)}");
+            $"quest={template.QuestId};level={template.Level};title={SanitizeEvidence(template.Title)};objectives={template.Objectives.Count}");
     }
 
     private void SimulateQuestFlow()
@@ -620,8 +730,9 @@ public sealed partial class GameLoop
     {
         UpdateQuestNpcLifecycle();
         if (!_questLogOpen && _questList is null && _questDetails is null && _questOffer is null && _questRequestItems is null) return;
-        float s=GameplayUiScale(); Vector2 origin=new(0,104*s), logicalSize=new(384,512);
-        ImGui.SetNextWindowPos(origin,ImGuiCond.Always); ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always); ImGui.SetNextWindowBgAlpha(0);
+        float s=GameplayUiScale(); Vector2 origin=QuestFrameUiLaw.WindowOrigin(s);
+        Vector2 logicalSize=new(QuestFrameUiLaw.Width, QuestFrameUiLaw.Height);
+        ImGui.SetNextWindowPos(origin,ImGuiCond.Always); ImGui.SetNextWindowSize(QuestFrameUiLaw.WindowSize(s),ImGuiCond.Always); ImGui.SetNextWindowBgAlpha(0);
         if (!ImGui.Begin("##quest", ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
         ImDrawListPtr dl=ImGui.GetWindowDrawList();
         bool parityProof = _uiParityArmed && _uiParityPanel is "quest-log" or "quest-frame";
@@ -759,32 +870,95 @@ public sealed partial class GameLoop
     private void DrawQuestLogContent(ImDrawListPtr dl, Vector2 origin, float s, WorldEntity player)
     {
         var quests = player.Fields.QuestLog().ToArray();
-        _questLogSelected = Math.Clamp(_questLogSelected, 0, Math.Max(0, quests.Length - 1));
+        EnsureQuestHeaderCatalogs();
+        string[] headers = quests.Select(q => QuestHeaderName(
+            _questTemplates.GetValueOrDefault(q.QuestId)?.ZoneOrSort ?? 0)).ToArray();
+        var rows = new List<QuestLogDisplayRow>(quests.Length + headers.Distinct().Count());
+        foreach (QuestLogHeaderGroup group in QuestFrameUiLaw.GroupQuestLogHeaders(headers))
+        {
+            bool collapsed = _questLogCollapsed.Contains(group.Header);
+            rows.Add(new(true, group.Header, collapsed, 0, 0, 0, 0));
+            if (collapsed) continue;
+            foreach (int questIndex in group.QuestIndexes)
+            {
+                var q = quests[questIndex];
+                rows.Add(new(false, group.Header, false, q.Slot, q.QuestId, q.Counters, q.Timer));
+            }
+        }
+        if (_questLogSelectedQuestId == 0 || !rows.Any(r => !r.IsHeader && r.QuestId == _questLogSelectedQuestId))
+            _questLogSelectedQuestId = rows.FirstOrDefault(r => !r.IsHeader).QuestId;
+        _questLogOffset = QuestFrameUiLaw.ClampQuestLogOffset(_questLogOffset, rows.Count);
+        Vector2 listMin = origin + new Vector2(QuestFrameUiLaw.QuestLogListX,
+            QuestFrameUiLaw.QuestLogListY) * s;
+        Vector2 listMax = listMin + new Vector2(QuestFrameUiLaw.QuestLogListWidth,
+            QuestFrameUiLaw.QuestLogRows * QuestFrameUiLaw.QuestLogRowPitch + 1f) * s;
+        if (ImGui.IsMouseHoveringRect(listMin, listMax, false) && ImGui.GetIO().MouseWheel != 0f)
+                _questLogOffset = QuestFrameUiLaw.ClampQuestLogOffset(
+                _questLogOffset - Math.Sign(ImGui.GetIO().MouseWheel), rows.Count);
         DrawCenteredText(dl, origin + new Vector2(192, 22) * s, "Quest Log", 12f * s, 0xffffffff);
         dl.AddText(ImGui.GetFont(), 10f * s, origin + new Vector2(267, 45) * s,
             VanillaGold, $"{quests.Length} / 20");
-        for (int i = 0; i < quests.Length && i < 6; i++)
+        for (int row = 0; row < QuestFrameUiLaw.QuestLogRows; row++)
         {
-            var quest = quests[i];
-            string title = _questTitles.GetValueOrDefault(quest.QuestId, $"Quest {quest.QuestId}");
-            Vector2 min = origin + new Vector2(19, 75 + i * 15) * s;
+            int index = _questLogOffset + row;
+            if (index >= rows.Count) break;
+            QuestLogDisplayRow display = rows[index];
+            Vector2 min = origin + QuestFrameUiLaw.QuestLogRowMin(row) * s;
+            if (display.IsHeader)
+            {
+                if (VanillaListRow(dl, $"##quest-log-header-{display.Header}", min,
+                        new Vector2(300, 16), s, "    " + display.Header, false, 0xffb3b3b3))
+                {
+                    if (display.Collapsed) _questLogCollapsed.Remove(display.Header);
+                    else _questLogCollapsed.Add(display.Header);
+                }
+                string foldArt = display.Collapsed
+                    ? @"Interface\Buttons\UI-PlusButton-Up"
+                    : @"Interface\Buttons\UI-MinusButton-Up";
+                uint fold = _gameplayArt?.Handle(foldArt) ?? 0;
+                if (fold != 0)
+                {
+                    Vector2 foldMin = origin + QuestFrameUiLaw.QuestLogFoldIconMin(row) * s;
+                    dl.AddImage((nint)fold, foldMin, foldMin + new Vector2(16) * s);
+                }
+                continue;
+            }
+            var quest = (display.Slot, display.QuestId, display.Counters, display.Timer);
+            string bareTitle = _questTitles.GetValueOrDefault(quest.QuestId, $"Quest {quest.QuestId}");
+            string title = bareTitle;
+            byte state = (byte)(quest.Counters >> 24);
+            if ((state & 1) != 0) title += " (Complete)";
+            else if ((state & 2) != 0) title += " (Failed)";
+            uint level = _questTemplates.GetValueOrDefault(quest.QuestId)?.Level ?? player.Level;
+            uint color = ImGui.ColorConvertFloat4ToU32(
+                QuestFrameUiLaw.QuestDifficultyColor(player.Level, level));
             if (VanillaListRow(dl, $"##quest-log-{quest.QuestId}", min, new Vector2(300, 16), s,
-                    title, _questLogSelected == i, VanillaGold)) _questLogSelected = i;
+                    "  " + title, _questLogSelectedQuestId == quest.QuestId, color))
+            {
+                if (_questLogSelectedQuestId != quest.QuestId) _questLogDetailScroll = 0;
+                _questLogSelectedQuestId = quest.QuestId;
+                if (ShiftHeld()) HandleQuestLogShiftClick(quest.QuestId, bareTitle);
+            }
+            if (_questWatches.Contains(quest.QuestId))
+            {
+                uint check = _gameplayArt?.Handle(@"Interface\Buttons\UI-CheckBox-Check") ?? 0;
+                if (check != 0)
+                {
+                    float ink = GameText.MeasureWidth("GameFontNormal", "  " + title, s) / s;
+                    Vector2 checkMin = min + new Vector2(9f + ink, 0f) * s;
+                    dl.AddImage((nint)check, checkMin, checkMin + new Vector2(16f) * s);
+                }
+            }
         }
-        if (quests.Length > 0)
+        var selectedSlot = quests.FirstOrDefault(q => q.QuestId == _questLogSelectedQuestId);
+        if (selectedSlot.QuestId != 0)
         {
-            uint selected = quests[_questLogSelected].QuestId;
+            uint selected = selectedSlot.QuestId;
             string title = _questTitles.GetValueOrDefault(selected, $"Quest {selected}");
-            dl.AddText(ImGui.GetFont(), 14f * s, origin + new Vector2(24, 180) * s,
-                0xff202020, title);
-            dl.AddText(ImGui.GetFont(), 12f * s, origin + new Vector2(24, 207) * s,
-                0xff202020, "Objectives");
-            DrawWrappedText(dl, _questProgress.GetValueOrDefault(selected,
-                    "Objectives are updated from the server as you progress."),
-                origin + new Vector2(24, 228) * s, 285, 10f * s, s, 0xff202020, 8);
+            DrawQuestLogDetail(dl, origin, s, player, selectedSlot, title);
             if (VanillaButton(dl, "##quest-abandon", "Abandon Quest",
                     origin + new Vector2(17, 437) * s, new Vector2(125, 21), s))
-                AbandonQuest(selected);
+                _questAbandonConfirmation = new(selected, title);
         }
         else VanillaButton(dl, "##quest-abandon", "Abandon Quest",
             origin + new Vector2(17, 437) * s, new Vector2(125, 21), s, false);
@@ -792,6 +966,412 @@ public sealed partial class GameLoop
             new Vector2(123, 21), s, false);
         if (VanillaButton(dl, "##quest-exit", "Close", origin + new Vector2(264, 437) * s,
                 new Vector2(77, 21), s)) _questLogOpen = false;
+    }
+
+    private string QuestKillProgressText(QuestKillUpdate value)
+    {
+        QuestLogObjective? objective = null;
+        if (_questTemplates.TryGetValue(value.QuestId, out QuestTemplate? template))
+        {
+            foreach (QuestLogObjective candidate in template.Objectives)
+            {
+                if (candidate.CreatureOrGo != value.Entry &&
+                    (candidate.CreatureOrGo & 0x7fff_ffff) != value.Entry)
+                {
+                    continue;
+                }
+
+                objective = candidate;
+                break;
+            }
+        }
+
+        if (objective is not QuestLogObjective row)
+            return $"... slain: {value.Current}/{value.Required}";
+        if (row.Text.Length > 0)
+            return $"{row.Text}: {value.Current}/{value.Required}";
+        if ((row.CreatureOrGo & 0x8000_0000) != 0)
+            return $"Objective: {value.Current}/{value.Required}";
+        string name = _creatureNames.GetValueOrDefault(value.Entry, "...");
+        return $"{name} slain: {value.Current}/{value.Required}";
+    }
+
+    private void DrawQuestLogDetail(ImDrawListPtr dl, Vector2 origin, float s, WorldEntity player,
+        (byte Slot, uint QuestId, uint Counters, uint Timer) selectedSlot, string title)
+    {
+        QuestLogicalRect rect = QuestFrameUiLaw.QuestLogDetailRect;
+        Vector2 clipMin = origin + new Vector2(rect.X, rect.Y) * s;
+        Vector2 clipMax = clipMin + new Vector2(rect.Width, rect.Height) * s;
+        _questLogDetailScroll = QuestFrameUiLaw.ClampQuestLogDetailScroll(
+            _questLogDetailScroll, _questLogDetailContentHeight);
+        if (ImGui.IsMouseHoveringRect(clipMin, clipMax, false) && ImGui.GetIO().MouseWheel != 0)
+            _questLogDetailScroll = QuestFrameUiLaw.ClampQuestLogDetailScroll(
+                _questLogDetailScroll - ImGui.GetIO().MouseWheel * QuestFrameUiLaw.ScrollStep,
+                _questLogDetailContentHeight);
+        Vector2 contentOrigin = origin - new Vector2(0, _questLogDetailScroll) * s;
+        dl.PushClipRect(clipMin, clipMax, true);
+        dl.AddText(ImGui.GetFont(), 14f * s, contentOrigin + new Vector2(24, 180) * s,
+            0xff202020, title);
+        dl.AddText(ImGui.GetFont(), 12f * s, contentOrigin + new Vector2(24, 207) * s,
+            0xff202020, "Objectives");
+        float y = 228f;
+        if (_questTemplates.TryGetValue(selectedSlot.QuestId, out QuestTemplate? template))
+        {
+            y += DrawWrappedText(dl, template.ObjectivesText,
+                contentOrigin + new Vector2(24, y) * s, 285, 10f * s, s, 0xff202020, 8) / s;
+            if (template.ObjectivesText.Length > 0) y += 8f;
+            long? secondsLeft = QuestSecondsLeft(selectedSlot.Timer,
+                state: (byte)(selectedSlot.Counters >> 24));
+            if (secondsLeft is not null)
+            {
+                string timer = "Time Remaining: " + QuestFrameUiLaw.SecondsToTime(secondsLeft.Value);
+                GameText.Draw(dl, "QuestFont", timer, contentOrigin + new Vector2(24, y) * s, s,
+                    0xff202020);
+                y += 22f;
+            }
+            for (int i = 0; i < template.Objectives.Count; i++)
+            {
+                QuestLogObjective objective = template.Objectives[i];
+                string? line = QuestObjectiveLine(player, selectedSlot.Counters, i, objective,
+                    out bool finished);
+                if (line is null) continue;
+                if (finished) line += " (Complete)";
+                y += DrawWrappedText(dl, line, contentOrigin + new Vector2(24, y) * s,
+                    285, 10f * s, s, finished ? 0xff333333 : 0xff000000, 3) / s + 2f;
+            }
+            y += 8f;
+            GameText.Draw(dl, "QuestTitleFont", "Description",
+                contentOrigin + new Vector2(24, y) * s, s, 0xff202020);
+            y += 20f;
+            y += DrawWrappedText(dl, ExpandQuestText(template.Details),
+                contentOrigin + new Vector2(24, y) * s, 285, 10f * s, s, 0xff202020, 20) / s;
+            y += 10f;
+            bool hasRewards = template.ChoiceRewards.Count > 0 || template.FixedRewards.Count > 0 ||
+                template.Money != 0 || template.RewardSpell != 0;
+            if (hasRewards)
+            {
+                GameText.Draw(dl, "QuestTitleFont", "Rewards",
+                    contentOrigin + new Vector2(24, y) * s, s, 0xff202020);
+                y += 23f;
+                if (template.ChoiceRewards.Count > 0)
+                {
+                    GameText.Draw(dl, "QuestFont", "You may choose one of these rewards:",
+                        contentOrigin + new Vector2(24, y) * s, s, 0xff202020);
+                    y += 20f;
+                    y = DrawQuestItemGrid(dl, contentOrigin + new Vector2(24, 0) * s, s, y,
+                        template.ChoiceRewards, false, "log-choice");
+                    y += 5f;
+                }
+                if (template.FixedRewards.Count > 0 || template.Money > 0 || template.RewardSpell != 0)
+                {
+                    string receive = template.ChoiceRewards.Count > 0
+                        ? "You will also receive:" : "You will receive:";
+                    GameText.Draw(dl, "QuestFont", receive,
+                        contentOrigin + new Vector2(24, y) * s, s, 0xff202020);
+                    if (template.Money > 0)
+                        DrawQuestMoney(dl, contentOrigin + new Vector2(190, y) * s,
+                            (uint)template.Money, s, "QuestLogMoney");
+                    y += 20f;
+                    y = DrawQuestItemGrid(dl, contentOrigin + new Vector2(24, 0) * s, s, y,
+                        template.FixedRewards, false, "log-reward");
+                    if (template.RewardSpell != 0)
+                    {
+                        SpellInfo rewardSpell = default;
+                        bool foundSpell = _spellCatalog is not null &&
+                            _spellCatalog.TryGet(template.RewardSpell, out rewardSpell);
+                        string spellName = foundSpell ? rewardSpell.Name : $"Spell {template.RewardSpell}";
+                        string iconPath = foundSpell ? rewardSpell.IconPath
+                            : @"Interface\Icons\INV_Misc_QuestionMark.blp";
+                        uint icon = _gameplayArt?.Handle(iconPath) ?? 0;
+                        Vector2 spellMin = contentOrigin + new Vector2(24, y) * s;
+                        if (icon != 0) dl.AddImage((nint)icon, spellMin,
+                            spellMin + new Vector2(20) * s);
+                        GameText.Draw(dl, "GameFontHighlight", spellName,
+                            spellMin + new Vector2(25, 4) * s, s);
+                        y += 25f;
+                    }
+                }
+            }
+        }
+        else
+        {
+            y += DrawWrappedText(dl, _questProgress.GetValueOrDefault(selectedSlot.QuestId,
+                    "Retrieving quest details..."), contentOrigin + new Vector2(24, y) * s,
+                285, 10f * s, s, 0xff202020, 8) / s;
+        }
+        dl.PopClipRect();
+        _questLogDetailContentHeight = Math.Max(rect.Height, y - rect.Y + 10f);
+        _questLogDetailScroll = QuestFrameUiLaw.ClampQuestLogDetailScroll(
+            _questLogDetailScroll, _questLogDetailContentHeight);
+    }
+
+    private void EnsureQuestHeaderCatalogs()
+    {
+        EnsureQuestServerTime();
+        EnsureAreaTableForMinimap();
+        if (_questSortsLoaded) return;
+        _questSortsLoaded = true;
+        try
+        {
+            byte[]? bytes = _mpq?.ReadFile(QuestSortCatalog.MpqPath);
+            if (bytes is not null) _questSorts = QuestSortCatalog.Parse(bytes);
+        }
+        catch (Exception e) { Console.WriteLine($"[quest] QuestSort load failed: {e.Message}"); }
+    }
+
+    private string QuestHeaderName(int zoneOrSort)
+    {
+        string name = zoneOrSort switch
+        {
+            > 0 => _areas?.AreaName((uint)zoneOrSort) ?? "",
+            < 0 => _questSorts?.Name((uint)-(long)zoneOrSort) ?? "",
+            _ => "",
+        };
+        return name.Length == 0 ? "Quests" : name;
+    }
+
+    private void EnsureQuestServerTime()
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (_questTimeAskedStamp != 0 &&
+            System.Diagnostics.Stopwatch.GetElapsedTime(_questTimeAskedStamp, now).TotalHours < 1)
+            return;
+        if (_net?.QueryTime() == true) _questTimeAskedStamp = now;
+    }
+
+    private long? QuestSignedSecondsLeft(uint deadline, byte state)
+    {
+        if (deadline == 0 || (state & 2) != 0 || _questServerUnixStamp == 0) return null;
+        double now = _questServerUnix +
+            System.Diagnostics.Stopwatch.GetElapsedTime(_questServerUnixStamp).TotalSeconds;
+        return (long)Math.Floor(deadline - now - 1.0);
+    }
+
+    private long? QuestSecondsLeft(uint deadline, byte state) =>
+        QuestSignedSecondsLeft(deadline, state) is { } seconds ? Math.Max(0, seconds) : null;
+
+    private string? QuestObjectiveLine(WorldEntity player, uint packedCounters, int index,
+        QuestLogObjective objective, out bool finished)
+    {
+        finished = false;
+        if (objective.CreatureOrGo != 0 && objective.RequiredCount > 0)
+        {
+            uint current = (packedCounters >> (6 * index)) & 0x3f;
+            current = Math.Min(current, objective.RequiredCount);
+            finished = current >= objective.RequiredCount;
+            bool gameObject = (objective.CreatureOrGo & 0x8000_0000) != 0;
+            string label = objective.Text.Length > 0 ? objective.Text
+                : gameObject ? "Objective"
+                : _creatureNames.GetValueOrDefault(objective.CreatureOrGo,
+                    $"Creature {objective.CreatureOrGo}") + " slain";
+            return $"{label}: {current}/{objective.RequiredCount}";
+        }
+        if (objective.ItemId != 0 && objective.ItemCount > 0)
+        {
+            uint current = Math.Min(CarriedCount(objective.ItemId), objective.ItemCount);
+            finished = current >= objective.ItemCount;
+            string label = objective.Text;
+            if (label.Length == 0)
+                label = _items?.TryGet(objective.ItemId, out ItemTemplate? item) == true && item is not null
+                    ? item.Name : $"Item {objective.ItemId}";
+            return $"{label}: {current}/{objective.ItemCount}";
+        }
+        return null;
+    }
+
+    private void HandleQuestLogShiftClick(uint questId, string title)
+    {
+        if (_chatEditOpen)
+        {
+            int room = Math.Max(0, 255 - _chatInput.Length);
+            if (room > 0) _chatInput += title[..Math.Min(title.Length, room)];
+            _chatEditCursorToEnd = true;
+            return;
+        }
+
+        int existing = _questWatches.IndexOf(questId);
+        if (existing >= 0)
+        {
+            _questWatches.RemoveAt(existing);
+            _questAutoWatchExpiries.Remove(questId);
+            return;
+        }
+        if (!_questTemplates.TryGetValue(questId, out QuestTemplate? template))
+        {
+            if (_questQueries.Add(questId)) _net?.QuestQuery(questId);
+            ShowUiError("Quest details are still loading.");
+            return;
+        }
+        bool hasObjectives = template.Objectives.Any(o =>
+            o.CreatureOrGo != 0 && o.RequiredCount > 0 || o.ItemId != 0 && o.ItemCount > 0);
+        if (!hasObjectives)
+        {
+            ShowUiError("This quest has no objectives to track");
+            return;
+        }
+        if (_questWatches.Count >= QuestFrameUiLaw.MaxQuestWatches)
+        {
+            ShowUiError($"You may only watch {QuestFrameUiLaw.MaxQuestWatches} quests at a time");
+            return;
+        }
+        _questWatches.Add(questId);
+        _questAutoWatchExpiries.Remove(questId); // a Shift-click watch is permanent/manual
+    }
+
+    private void AutoWatchQuest(uint questId)
+    {
+        if (!_questTemplates.TryGetValue(questId, out QuestTemplate? template) ||
+            !template.Objectives.Any(o => o.CreatureOrGo != 0 && o.RequiredCount > 0 ||
+                o.ItemId != 0 && o.ItemCount > 0)) return;
+        double expires = System.Diagnostics.Stopwatch.GetTimestamp() /
+            (double)System.Diagnostics.Stopwatch.Frequency + QuestFrameUiLaw.AutoQuestWatchSeconds;
+        if (_questWatches.Contains(questId))
+        {
+            // Existing manual watches carry no timer and are never downgraded.
+            if (_questAutoWatchExpiries.ContainsKey(questId))
+                _questAutoWatchExpiries[questId] = expires;
+            return;
+        }
+        if (_questWatches.Count >= QuestFrameUiLaw.MaxQuestWatches)
+        {
+            uint victim = QuestFrameUiLaw.AutoWatchEvictionCandidate(_questAutoWatchExpiries);
+            if (victim == 0) return; // all five are manual
+            _questAutoWatchExpiries.Remove(victim);
+            _questWatches.Remove(victim);
+        }
+        _questWatches.Add(questId);
+        _questAutoWatchExpiries[questId] = expires;
+    }
+
+    private void ExpireAutomaticQuestWatches()
+    {
+        if (_questAutoWatchExpiries.Count == 0) return;
+        double now = System.Diagnostics.Stopwatch.GetTimestamp() /
+            (double)System.Diagnostics.Stopwatch.Frequency;
+        foreach (uint id in _questAutoWatchExpiries
+            .Where(pair => pair.Value <= now).Select(pair => pair.Key).ToArray())
+        {
+            _questAutoWatchExpiries.Remove(id);
+            _questWatches.Remove(id);
+        }
+    }
+
+    private void DrawQuestWatchFrame()
+    {
+        ExpireAutomaticQuestWatches();
+        if (_questWatches.Count == 0 || _net is null ||
+            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+        var slots = player.Fields.QuestLog().ToDictionary(q => q.QuestId);
+        var lines = new List<(string Text, bool Title, bool Finished)>(
+            QuestFrameUiLaw.MaxQuestWatchLines);
+        foreach (uint questId in _questWatches)
+        {
+            if (!slots.TryGetValue(questId, out var slot) ||
+                !_questTemplates.TryGetValue(questId, out QuestTemplate? template)) continue;
+            int titleAt = lines.Count;
+            lines.Add((_questTitles.GetValueOrDefault(questId, $"Quest {questId}"), true, false));
+            int objectives = 0, complete = 0;
+            for (int i = 0; i < template.Objectives.Count &&
+                lines.Count < QuestFrameUiLaw.MaxQuestWatchLines; i++)
+            {
+                string? text = QuestObjectiveLine(player, slot.Counters, i,
+                    template.Objectives[i], out bool finished);
+                if (text is null) continue;
+                lines.Add((" - " + text, false, finished));
+                objectives++;
+                if (finished) complete++;
+            }
+            if (objectives == 0) lines.RemoveAt(titleAt);
+            else lines[titleAt] = (lines[titleAt].Text, true, complete == objectives);
+            if (lines.Count >= QuestFrameUiLaw.MaxQuestWatchLines) break;
+        }
+        if (lines.Count == 0) return;
+
+        float s = GameplayUiScale();
+        float em = GameText.EmPixels("GameFontHighlight", s) / s;
+        float width = lines.Max(line =>
+            GameText.MeasureWidth("GameFontHighlight", line.Text, s) / s) + 10f;
+        Vector2 topRight = QuestFrameUiLaw.QuestWatchTopRight(
+            ImGui.GetIO().DisplaySize, s, _questTimerFrameHeight, _durabilityFrameShown);
+        Vector2 origin = new(topRight.X - width * s, topRight.Y);
+        ImDrawListPtr dl = ImGui.GetBackgroundDrawList();
+        float previousBottom = 0f;
+        for (int i = 0; i < lines.Count; i++)
+        {
+            var line = lines[i];
+            float top = QuestFrameUiLaw.QuestWatchLineTop(previousBottom, line.Title, i == 0);
+            uint color = line.Title
+                ? ImGui.ColorConvertFloat4ToU32(line.Finished
+                    ? new Vector4(1f, .82f, 0f, 1f) : new Vector4(.75f, .61f, 0f, 1f))
+                : ImGui.ColorConvertFloat4ToU32(line.Finished
+                    ? Vector4.One : new Vector4(.8f, .8f, .8f, 1f));
+            GameText.Draw(dl, "GameFontHighlight", line.Text,
+                origin + new Vector2(0f, top * s), s, color);
+            previousBottom = top + em;
+        }
+    }
+
+    private bool TryDismissQuestAbandonOnEscape()
+    {
+        if (_questAbandonConfirmation is null) return false;
+        _questAbandonConfirmation = null;
+        return true;
+    }
+
+    private void DrawQuestAbandonConfirmation()
+    {
+        if (_questAbandonConfirmation is not { } confirmation || _skin is null) return;
+        if (_net is not { IsInWorld: true } net ||
+            !_entities.TryGet(net.PlayerGuid, out WorldEntity player) ||
+            !player.Fields.QuestLog().Any(q => q.QuestId == confirmation.QuestId))
+        {
+            _questAbandonConfirmation = null;
+            return;
+        }
+
+        float s = GameplayUiScale();
+        QuestLogicalRect frame = QuestFrameUiLaw.AbandonPopupRect;
+        Vector2 origin = QuestFrameUiLaw.AbandonPopupOrigin(ImGui.GetIO().DisplaySize, s);
+        Vector2 size = new(frame.Width * s, frame.Height * s);
+        ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0f);
+        ImGui.SetNextWindowFocus();
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav;
+        if (!ImGui.Begin("##quest-abandon-confirm", flags)) { ImGui.End(); return; }
+
+        ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        dl.PushClipRectFullScreen();
+        _skin.DrawBackdrop(dl, origin, origin + size, WowSkin.Dialog);
+        dl.PopClipRect();
+
+        QuestLogicalRect text = QuestFrameUiLaw.AbandonPopupTextRect;
+        string message = $"Abandon \"{confirmation.Title}\"?";
+        GameText.DrawCentered(dl, "GameFontHighlight", message,
+            origin + new Vector2(text.X + text.Width * .5f, text.Y + text.Height * .5f) * s, s);
+        bool yes = DrawQuestAbandonButton(dl, "yes", "Yes", origin,
+            QuestFrameUiLaw.AbandonPopupAcceptRect, s);
+        bool no = DrawQuestAbandonButton(dl, "no", "No", origin,
+            QuestFrameUiLaw.AbandonPopupCancelRect, s);
+        ImGui.End();
+
+        if (no)
+        {
+            _questAbandonConfirmation = null;
+            return;
+        }
+        if (!yes) return;
+        if (AbandonQuest(confirmation.QuestId)) PlayUiSound("igQuestLogAbandonQuest");
+        _questAbandonConfirmation = null;
+    }
+
+    private bool DrawQuestAbandonButton(ImDrawListPtr dl, string id, string caption,
+        Vector2 origin, QuestLogicalRect rect, float scale)
+    {
+        Vector2 min = origin + new Vector2(rect.X, rect.Y) * scale;
+        return VanillaButton(dl, $"##quest-abandon-{id}", caption, min,
+            new Vector2(rect.Width, rect.Height), scale);
     }
 
     private void DrawQuestNpcContent(ImDrawListPtr dl, Vector2 origin, float s)
@@ -1394,7 +1974,10 @@ public sealed partial class GameLoop
         string iconPath = _items?.IconForDisplay(row.DisplayId) ?? @"Interface\Icons\INV_Misc_QuestionMark.blp";
         ItemTemplate? item = null;
         if (_items?.TryGet(row.ItemId, out item) == true && item is not null)
+        {
             name = item.Name;
+            if (row.DisplayId == 0) iconPath = item.IconPath;
+        }
         uint icon = _gameplayArt!.Handle(iconPath);
         if (icon != 0) dl.AddImage((nint)icon, min, min + new Vector2(39) * s);
         DrawArt(dl, @"Interface\QuestFrame\UI-QuestItemNameFrame", min + new Vector2(29, -12) * s,
@@ -1532,6 +2115,8 @@ public sealed partial class GameLoop
             (QuestNpcPanel.Progress, "required") => true,
             (QuestNpcPanel.Reward, "choice") => true,
             (QuestNpcPanel.Reward, "reward") => true,
+            (QuestNpcPanel.None, "log-choice") => true,
+            (QuestNpcPanel.None, "log-reward") => true,
             _ => throw new InvalidOperationException(
                 $"Unsupported quest tooltip surface: panel={panel};kind={kind}"),
         };

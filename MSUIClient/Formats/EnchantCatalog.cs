@@ -3,6 +3,7 @@ namespace MSUIClient.Formats;
 public readonly record struct EnchantInfo(uint Id, string Name, uint Flags)
 {
     public bool BindsItem => (Flags & 0x1) != 0;
+    public bool HidesTooltipName => (Flags & 0x2) != 0;
 }
 
 /// <summary>

@@ -9,7 +9,8 @@ public sealed record GossipMenu(
     IReadOnlyList<GossipOption> Options,
     IReadOnlyList<GossipQuest> Quests);
 
-public sealed record NpcText(uint TextId, string MaleText, string FemaleText);
+public readonly record struct NpcTextBlock(float Probability, string MaleText, string FemaleText);
+public sealed record NpcText(uint TextId, IReadOnlyList<NpcTextBlock> Blocks);
 
 public static class GossipPackets
 {
@@ -38,17 +39,17 @@ public static class GossipPackets
     {
         var r = new PacketReader(body);
         uint textId = r.ReadU32();
-        string male = "", female = "";
+        var blocks = new List<NpcTextBlock>(8);
         for (int i = 0; i < 8; i++)
         {
-            r.ReadF32();
+            float probability = r.ReadF32();
             string m = r.ReadCString();
             string f = r.ReadCString();
-            if (i == 0) { male = m; female = f; }
             r.Skip(7 * sizeof(uint));
+            blocks.Add(new NpcTextBlock(probability, m, f));
         }
         if (r.Remaining != 0)
             throw new InvalidDataException($"SMSG_NPC_TEXT_UPDATE has {r.Remaining} trailing byte(s)");
-        return new NpcText(textId, male, female);
+        return new NpcText(textId, blocks);
     }
 }

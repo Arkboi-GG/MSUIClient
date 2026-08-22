@@ -50,7 +50,7 @@
     "tools/interface-wire-check/Program.cs"
   ],
   "status": "partial",
-  "summary": "Merchant money, row projection, paging, shell, release-owned repair interaction, repair tooltip/button states, protocol bodies, and shared tooltip money now pass bounded deterministic checks. The packet remains implemented/unverified because seven Merchant claims are gaps and no authenticated socket, physical input/audio, multi-scale pixel, portrait, panel-authority or human-acceptance artifact exists.",
+  "summary": "Merchant money, row projection, paging, shell, live vendor portrait, current-Benilla zero-discount repair arithmetic, release-owned repair interaction, exact GameText/WowSkin item-hover rendering, repair tooltip/button states, protocol bodies, and shared tooltip money pass bounded deterministic checks. Remaining work is concentrated in current-Benilla's own deferred drag-buy/shared cursor-item authority, panel authority, authenticated buyback verification, and human acceptance.",
   "openItems": [
     {
       "id": "item-claim-merchantframe-vendor-money-helper-001-verify",
@@ -79,9 +79,17 @@
     {
       "id": "item-claim-merchantframe-row-hover-001",
       "kind": "gap",
-      "text": "Typed merchant tooltip subsets exist, but the complete frozen template, live item feed, cursor arbitration, and verification closure remain incomplete.",
+      "text": "The complete template-source item projection and exact row-owned GameText/WowSkin presentation are implemented. Shared carried-item cursor arbitration and authenticated live verification remain incomplete.",
       "source": "claim-merchantframe-row-hover-001",
       "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-merchant-item-tooltip-render-live-verify",
+      "kind": "verify",
+      "text": "The merchant item tooltip projection and renderer pass the focused clinical check: bottom-left is seated on the row's top-right, the authored tooltip backdrop/thicken and GameText fonts/colors draw through the shared immutable renderer, and raw ImGui tooltip/table layout is source-fenced out. Needs owner-run live hover acceptance across weapons, armor, bags, requirements, sold-out items and buyback rows.",
+      "source": "review-2026-08-22/current-benilla-merchant-tooltip",
+      "added": "2026-08-22",
       "resolved": false
     },
     {
@@ -122,7 +130,8 @@
       "text": "Repair input, disabled-state fencing, and hover title behavior are implemented, but the frozen reputation-discount cost contract remains missing.",
       "source": "claim-merchantframe-repair-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: The refreshed Benilla source explicitly says 'No reputation model yet -> discount 0' and calls repair_cost(..., 0.0). MSUI resolves the same DurabilityCosts/DurabilityQuality cells, applies the same two-stage rounding with a zero runtime discount, and keeps the reputation parameter in the frozen law for later data support."
     },
     {
       "id": "item-claim-merchantframe-lifecycle-001",
@@ -146,7 +155,8 @@
       "text": "The authored portrait seat exists, but live vendor-GUID portrait resolution is not implemented.",
       "source": "claim-merchantframe-portrait-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: DrawVendorPortrait resolves _vendor.VendorGuid through the live entity store and passes that exact unit to the shared DrawUnitPortraitImage model-bake path at the authored 60x60 TOPLEFT (7,-6) seat; the buyback tab swaps to UI-BuyBack-Icon as the reference does."
     },
     {
       "id": "item-claim-merchantframe-row-money-001-verify",
@@ -214,6 +224,6 @@
     "trace-gametooltip-money-row-001"
   ],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:09:11.668164+00:00",
+  "lastReviewedUtc": "2026-08-22T06:00:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

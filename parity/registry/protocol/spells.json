@@ -7,23 +7,25 @@
   "benillaSources": [
     {
       "path": "crates/benilla-protocol/src/messages/spells.rs",
-      "fileSha256": "1087abaf4fa71dacddaffcbdbcb39d5eaf32affbcd0d9f7a60c9fc7b89846536",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "ad0a1fe46e9ad5b470e777cb33d6f264adc280c8ffc80ce1d8d26c7c8a071082",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-protocol/src/world/writer/spells.rs",
       "fileSha256": "f27319cc6621ba7b716d5dbf02159bbec4888c20ca5f8c3bea2f88544aaeedcf",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/SpellPackets.cs",
     "MSUIClient/Net/WorldSession.cs",
-    "MSUIClient/Program.Net.cs",
-    "MSUIClient/Program.Casting.cs"
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Casting.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.GameObjects.cs",
+    "tools/interface-wire-check/GameObjectCastClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "Benilla's cast pipeline: the four CMSG_CAST_SPELL target shapes, CMSG_CANCEL_CAST/CHANNELLING/AURA, SMSG_CAST_RESULT, SPELL_START/GO (write-side-order SpellCastTargets, ammo block, miss list with reflect byte), SPELL_FAILED_OTHER, SPELL_DELAYED, MSG_CHANNEL_START/UPDATE, SMSG_UPDATE_AURA_DURATION, SMSG_PLAY_SPELL_VISUAL, SMSG_SPELL_UPDATE_CHAIN_TARGETS. MSUI implements nearly all of it (SpellPackets.cs parses match Benilla bit for bit, incl. the reflect tail and the no-transport-guid source location), with two concrete divergences.",
+  "summary": "Benilla's cast pipeline covers the four CMSG_CAST_SPELL target shapes, cancels, cast results, SPELL_START/GO, failures, delays, channel updates, aura duration, visuals, and chain targets. MSUI implements nearly all of it: SpellPackets parses the landed family, GameObject OPEN_LOCK casts now byte-match target mask 0x0800 alone with a packed GUID, and the remaining concrete gap is SMSG_SPELL_UPDATE_CHAIN_TARGETS.",
   "openItems": [
     {
       "id": "item-triage-360c778a",
@@ -39,12 +41,13 @@
       "text": "GameObject cast mask divergence: WorldSession.BuildCastSpellOnGameObjectBody writes target mask 0x4800 (GAMEOBJECT|0x4000 LOCKED) where Benilla decision 0939 byte-verified the real client sends 0x0800 alone - the LOCKED bit is a client-internal targeting-word bit that never rides the wire",
       "source": "triage-2026-08-09/batch-protocol-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: BuildCastSpellOnGameObjectBody now writes GAMEOBJECT 0x0800 alone; the client-internal LOCKED 0x4000 bit is consumed before wire construction. The canonical spell 1 / GUID 0x1234 body is byte-pinned and the OPEN_LOCK runtime path is source-pinned."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T16:30:00+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

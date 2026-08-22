@@ -7,20 +7,20 @@
   "benillaSources": [
     {
       "path": "crates/benilla-protocol/src/messages/opcode.rs",
-      "fileSha256": "57ec074dfcea065a981ec886e5f05775a3c61ccc0cd4f9b2c408ea2946f820e1",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "83a2cd2d8479533423263b0fec532a25e31a451324815b2b3e0a0c90c891729d",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/Opcodes.cs"
   ],
   "status": "partial",
-  "summary": "Benilla's opcode.rs is the numeric opcode table (374 named constants) for everything it sends/receives. MSUI's counterpart table Net/Opcodes.cs covers 257 of them; 117 Benilla constants are absent even from the table, tracking whole unimplemented families rather than scattered omissions.",
+  "summary": "Benilla's opcode.rs is the numeric opcode table (374 named constants) for everything it sends/receives. MSUI's counterpart table Net/Opcodes.cs now includes the three server-scripted audio opcodes in addition to its broad implemented subset; absent constants continue to track whole unimplemented families rather than scattered omissions.",
   "openItems": [
     {
       "id": "item-triage-1655719c",
       "kind": "gap",
-      "text": "Missing opcode-table families (117 constants): channel administration (CMSG_CHANNEL_* moderation set, SMSG_CHANNEL_LIST/NOTIFY), duel (CMSG_DUEL_ACCEPTED/CANCELLED, SMSG_DUEL_* seven), loot rolls (CMSG_LOOT_ROLL + four SMSG), force-speed acks (five CMSG_FORCE_*_ACK) and their SMSG changes, move-mode acks (WATER_WALK/FEATHER_FALL/HOVER), MSG_MOVE_SET_* relays, SMSG_SPLINE_SET_*, mirror timers (three), world state (SMSG_INIT_WORLD_STATES/UPDATE_WORLD_STATE), weather/sound (SMSG_WEATHER, SMSG_PLAY_SOUND/MUSIC/OBJECT_SOUND), cooldown extras (SMSG_CLEAR_COOLDOWN, SMSG_COOLDOWN_EVENT, SMSG_ITEM_COOLDOWN), inventory misc (CMSG_DESTROYITEM, CMSG_AUTOBANK_ITEM, CMSG_AUTOSTORE_BAG_ITEM/BANK_ITEM, CMSG_OPEN_ITEM, CMSG_REPAIR_ITEM, SMSG_INVENTORY_CHANGE_FAILURE), pose/social misc (CMSG_STANDSTATECHANGE, CMSG_TEXT_EMOTE, CMSG_MOUNTSPECIAL_ANIM, CMSG_TOGGLE_PVP, CMSG_PLAYED_TIME, MSG_RANDOM_ROLL, MSG_CORPSE_QUERY), group extras (CMSG_GROUP_* subgroup/raid-convert set, SMSG_GROUP_DESTROYED table entries), pet extras (CMSG_PET_NAME_QUERY, CMSG_PET_SPELL_AUTOCAST), quest (CMSG_QUESTLOG_SWAP_QUEST, CMSG_QUEST_CONFIRM_ACCEPT, MSG_QUEST_PUSH_RESULT), taxi (CMSG_ACTIVATETAXIEXPRESS, SMSG_NEW_TAXI_PATH), misc SMSGs (AREA_TRIGGER_MESSAGE, EXPLORATION_EXPERIENCE, SET_PROFICIENCY, SPIRIT_HEALER_CONFIRM, COMPRESSED_MOVES, MOUNTRESULT/DISMOUNTRESULT, DURABILITY_DAMAGE_DEATH, ITEM_ENCHANT_TIME_UPDATE, PLAYERBINDERROR, SPELL_UPDATE_CHAIN_TARGETS)",
+      "text": "Composite opcode-table inventory remains open and needs a fresh recount after this parity pass. The complete force-speed, granted move-mode, server-scripted sound, and weather opcodes are now present; known remaining families include channel moderation, MSG_MOVE_SET_* relays, SMSG_SPLINE_SET_*, cooldown extras, raid/subgroup administration, PET_SPELL_AUTOCAST, and several miscellaneous server events.",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
       "resolved": false
@@ -29,6 +29,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T03:14:27.0335467Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

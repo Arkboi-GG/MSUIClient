@@ -1,6 +1,7 @@
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine.UI;
+using MSUIClient.Formats;
 using MSUIClient.Net;
 
 namespace MSUIClient;
@@ -14,6 +15,15 @@ public sealed partial class GameLoop
     private bool _chatEditJustOpened, _chatEditActivated;
     // Sender GUIDs already NAME_QUERY'd, so an unresolved sender is asked once.
     private readonly HashSet<ulong> _chatNameQueried = [];
+    private readonly List<ChatMessagePacket> _pendingChatMacros = [];
+    private readonly List<CombatXpGain> _pendingChatXp = [];
+    private readonly List<ChannelNoticePacket> _pendingChatChannelNotices = [];
+    private readonly List<string?> _chatChannels = [];
+    private bool _chatMenuOpen, _chatMenuOpenedThisFrame;
+    private ChatMenuLevel _chatMenuSubmenu;
+    private double _chatMenuCloseAt;
+    private string _chatLastTellTarget = "";
+    private ExplorationSoundCatalog? _explorationSounds;
 
     // One buffered line: the cleaned text plus its 1.12 message type (the type
     // picks the colour through ChatFrameLaw). Ring-buffered at MaxLines.
@@ -37,16 +47,39 @@ public sealed partial class GameLoop
     private void AddChatMessage(string text, ChatFrameLaw.MsgType type)
     {
         // A multi-line MOTD (or any server string carrying a raw \r/\n) must not
-        // survive into the stored line: WrapChatLine only wraps by pixel width,
+        // survive into the stored line: the markup-aware wrapper owns pixel width,
         // so an embedded newline reaches the renderer unaccounted-for and its
         // second physical text row spills into the pitch slot reserved for the
         // chat entry above it - the exact overlap this was added to chase down.
-        string cleaned = string.Join(' ', text.Replace('|', ' ').Replace('\r', ' ')
+        string cleaned = string.Join(' ', text.Replace('\r', ' ')
             .Replace('\n', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries)).Trim();
         if (cleaned.Length == 0) return;
         if (_chat.Count == ChatFrameLaw.MaxLines) _chat.RemoveAt(0);
         _chat.Add((cleaned, type));
         _chatScroll = 0;
+    }
+
+    private void ApplyExplorationExperience(byte[] body)
+    {
+        ExplorationExperiencePacket packet = ExplorationPackets.Parse(body);
+
+        // The jingle is independent of whether AreaTable can name the id and plays
+        // even for a zero-XP discovery (max level / an unleveled area).
+        if (_mpq is not null)
+            _explorationSounds ??= ExplorationSoundCatalog.Load(_mpq);
+        if (_entities.TryGet(ControlledGuid, out WorldEntity player) &&
+            _explorationSounds?.Kit(player.Fields.Bytes0.Race) is uint kit)
+        {
+            PlaySpellSound(ControlledGuid, kit, trackHold: false);
+        }
+
+        EnsureAreaTableForMinimap();
+        string area = _areas?.AreaName(packet.AreaId) ?? "";
+        if (area.Length == 0) return;
+        ShowUiInfo(ChatFrameLaw.FormatExplorationToast(area));
+        if (packet.Experience > 0)
+            AddChatMessage(ChatFrameLaw.FormatExplorationLine(area, packet.Experience),
+                ChatFrameLaw.MsgType.System);
     }
 
     // ── stage 2: live incoming (SMSG_MESSAGECHAT / SMSG_NOTIFICATION) ──────────
@@ -60,48 +93,254 @@ public sealed partial class GameLoop
     /// </summary>
     private void HandleMessageChat(byte[] body)
     {
-        var r = new PacketReader(body);
-        byte typeByte = r.ReadU8();
-        r.ReadU32();                                   // language
-        var type = (ChatFrameLaw.MsgType)typeByte;
-
-        string sender = "", channel = "";
-        switch (typeByte)
-        {
-            case 0x0D or 0x1A or 0x59 or 0x5A:         // MONSTER_EMOTE, MONSTER_WHISPER, RAID_BOSS_*
-                sender = ReadLenString(r);             // name is inline (length-prefixed)
-                r.ReadU64();                           // target guid
-                break;
-            case 0x00 or 0x01 or 0x05:                 // SAY, PARTY, YELL: sender guid appears TWICE
-                sender = ResolveChatName(r.ReadU64());
-                r.ReadU64();                           // sender guid again (vanilla quirk)
-                break;
-            case 0x0B or 0x0C:                         // MONSTER_SAY, MONSTER_YELL
-                r.ReadU64();                           // sender guid (name is inline)
-                sender = ReadLenString(r);
-                r.ReadU64();                           // target guid
-                break;
-            case 0x0E:                                 // CHANNEL
-                channel = r.ReadCString();
-                r.ReadU32();                           // player rank
-                sender = ResolveChatName(r.ReadU64());
-                break;
-            default:                                   // RAID/GUILD/OFFICER/WHISPER/SYSTEM/AFK/DND/…
-                sender = ResolveChatName(r.ReadU64());
-                break;
-        }
-        string msg = ReadLenString(r);
-        // chatTag (u8) follows; unused.
-
-        if (type == ChatFrameLaw.MsgType.System) UpdateGmModeFrom(msg);
-        AddChatMessage(FormatChatLine(type, sender, channel, msg), type);
+        ChatMessagePacket packet = ChatPackets.ParseMessage(body);
+        ChatFrameLaw.IgnoredSenderAction ignored = ChatFrameLaw.IgnoredSender(
+            _ignored.Contains(packet.SenderGuid), (ChatFrameLaw.MsgType)packet.Type,
+            packet.Language);
+        if (ignored == ChatFrameLaw.IgnoredSenderAction.DropAndNotify)
+            _net?.ChatIgnored(packet.SenderGuid);
+        if (ignored != ChatFrameLaw.IgnoredSenderAction.Continue) return;
+        if (!TryPostWireChat(packet)) _pendingChatMacros.Add(packet);
     }
 
-    // u32 length (includes the NUL) + the string; 0 length = empty, no bytes follow.
-    private static string ReadLenString(PacketReader r)
+    /// <summary>Compose one decoded line. False means its macro subject name is still in flight;
+    /// the caller retains the raw packet and retries when the name/creature query answers.</summary>
+    private bool TryPostWireChat(ChatMessagePacket packet)
     {
-        uint len = r.ReadU32();
-        return len == 0 ? "" : r.ReadCString();
+        var type = (ChatFrameLaw.MsgType)packet.Type;
+        string message = packet.Text;
+        if (ChatFrameLaw.MacroExpanded(type))
+        {
+            ulong subjectGuid = packet.TargetGuid != 0 ? packet.TargetGuid : packet.SenderGuid;
+            if (!TryResolveChatMacroSubject(subjectGuid, out QuestTextMacroLaw.Subject? subject))
+                return false;
+            QuestTextMacroLaw.Expansion expansion =
+                QuestTextMacroLaw.ExpandChecked(message, subject, _questWorldStates);
+            if (!expansion.Clean) return true; // the reference drops a known-unexpandable line
+            message = expansion.Text;
+        }
+
+        string sender = packet.SenderName.Length > 0
+            ? packet.SenderName
+            : ResolveChatName(packet.SenderGuid);
+        if (type == ChatFrameLaw.MsgType.Whisper && sender.Length > 0)
+            _chatLastTellTarget = sender;
+        if (type == ChatFrameLaw.MsgType.System) UpdateGmModeFrom(message);
+        string channel = packet.Channel.Length == 0 ? "" :
+            ChatChannelLaw.DisplayName(_chatChannels, packet.Channel);
+        AddChatMessage(ChatFrameLaw.FormatLine(type, sender, channel, message, packet.ChatTag), type);
+        TrySpawnChatBubble(packet.SenderGuid, type, message);
+        return true;
+    }
+
+    private bool TryResolveChatMacroSubject(ulong guid, out QuestTextMacroLaw.Subject? subject)
+    {
+        subject = null;
+        if (guid == 0) return true;
+
+        string? name = null;
+        if (guid == LocalPlayerGuid && _net?.PlayerName is { Length: > 0 } own) name = own;
+        else if (_playerNames.TryGetValue(guid, out string? known) && known.Length > 0) name = known;
+
+        if (_entities.TryGet(guid, out WorldEntity unit))
+        {
+            if (unit.IsCreature)
+            {
+                if (!_creatureNames.TryGetValue(unit.Entry, out name) || name.Length == 0)
+                {
+                    if (_net is not null && TryBeginCreatureQuery(unit.Entry))
+                        _net.CreatureQuery(unit.Entry, guid);
+                    return false;
+                }
+                // The reference's non-player arm substitutes the unit name for race/class.
+                subject = new QuestTextMacroLaw.Subject(name, name, name, unit.Fields.Bytes0.Gender);
+                return true;
+            }
+            if (name is not null)
+            {
+                var bytes = unit.Fields.Bytes0;
+                subject = new QuestTextMacroLaw.Subject(name, RaceName(bytes.Race),
+                    ClassName(bytes.Class), bytes.Gender);
+                return true;
+            }
+        }
+
+        if (name is not null)
+        {
+            subject = _playerTraits.TryGetValue(guid, out PlayerTraits traits)
+                ? new QuestTextMacroLaw.Subject(name, RaceName(traits.Race),
+                    ClassName(traits.Class), traits.Gender)
+                : new QuestTextMacroLaw.Subject(name, "", "", 0);
+            return true;
+        }
+        if (_chatNameQueried.Add(guid)) _net?.NameQuery(guid);
+        return false;
+    }
+
+    private void FlushPendingChatMacros(ulong guid = 0)
+    {
+        for (int i = _pendingChatMacros.Count - 1; i >= 0; i--)
+        {
+            ChatMessagePacket packet = _pendingChatMacros[i];
+            ulong subjectGuid = packet.TargetGuid != 0 ? packet.TargetGuid : packet.SenderGuid;
+            if (guid != 0 && subjectGuid != guid) continue;
+            if (TryPostWireChat(packet)) _pendingChatMacros.RemoveAt(i);
+        }
+    }
+
+    private void PostCombatXpGain(CombatXpGain xp)
+    {
+        // Non-kill awards use the unnamed global string. A named kill follows
+        // Benilla's ask-and-defer route so the feed never invents a placeholder.
+        if (!xp.Kill || xp.Victim == 0)
+        {
+            AddChatMessage(ChatFrameLaw.FormatXpGain(null, xp.Total, 0),
+                ChatFrameLaw.MsgType.CombatXpGain);
+            return;
+        }
+
+        if (!TryResolveCombatXpVictim(xp.Victim, out string name))
+        {
+            _pendingChatXp.Add(xp);
+            BeginCombatXpVictimQuery(xp.Victim);
+            return;
+        }
+
+        uint bonus = xp.Total >= xp.Base ? xp.Total - xp.Base : 0;
+        AddChatMessage(ChatFrameLaw.FormatXpGain(name, xp.Total, bonus),
+            ChatFrameLaw.MsgType.CombatXpGain);
+    }
+
+    private bool TryResolveCombatXpVictim(ulong guid, out string name)
+    {
+        if (_playerNames.TryGetValue(guid, out string? player) && player.Length > 0)
+        {
+            name = player;
+            return true;
+        }
+
+        uint entry = GuidInfo.Entry(guid) ??
+            (_entities.TryGet(guid, out WorldEntity entity) ? entity.Entry : 0);
+        if (entry != 0 && _creatureNames.TryGetValue(entry, out string? creature) &&
+            creature.Length > 0)
+        {
+            name = creature;
+            return true;
+        }
+
+        // A completed negative query follows the reference's bounded fallback.
+        if (entry != 0 && _creatureQueryRecords.ContainsKey(entry))
+        {
+            name = "Unknown";
+            return true;
+        }
+
+        name = "";
+        return false;
+    }
+
+    private void BeginCombatXpVictimQuery(ulong guid)
+    {
+        if (_net is null) return;
+        uint entry = GuidInfo.Entry(guid) ??
+            (_entities.TryGet(guid, out WorldEntity entity) ? entity.Entry : 0);
+        if (entry != 0)
+        {
+            if (TryBeginCreatureQuery(entry)) _net.CreatureQuery(entry, guid);
+        }
+        else if (_chatNameQueried.Add(guid)) _net.NameQuery(guid);
+    }
+
+    private void FlushPendingChatXp(ulong guid = 0)
+    {
+        for (int i = _pendingChatXp.Count - 1; i >= 0; i--)
+        {
+            CombatXpGain xp = _pendingChatXp[i];
+            if (guid != 0 && xp.Victim != guid) continue;
+            if (!TryResolveCombatXpVictim(xp.Victim, out string name)) continue;
+            uint bonus = xp.Total >= xp.Base ? xp.Total - xp.Base : 0;
+            AddChatMessage(ChatFrameLaw.FormatXpGain(name, xp.Total, bonus),
+                ChatFrameLaw.MsgType.CombatXpGain);
+            _pendingChatXp.RemoveAt(i);
+        }
+    }
+
+    private void HandleChannelNotice(byte[] body)
+    {
+        ChannelNoticePacket packet = ChannelPackets.ParseNotice(body);
+        if (!TryPostChannelNotice(packet)) _pendingChatChannelNotices.Add(packet);
+    }
+
+    private bool TryPostChannelNotice(ChannelNoticePacket packet)
+    {
+        // MODE_CHANGE has no GlobalStrings notice in 1.12.
+        if (packet.Notice == ChannelNotice.ModeChange) return true;
+
+        string first = packet.Name;
+        string second = "";
+        if (packet.FirstGuid != 0 && !TryResolveChannelPlayer(packet.FirstGuid, out first))
+            return false;
+        if (packet.SecondGuid != 0 && !TryResolveChannelPlayer(packet.SecondGuid, out second))
+            return false;
+
+        // The confirmation owns numbering. Claim before YOU_JOINED is composed;
+        // free only after YOU_LEFT is composed, preserving the leaving line's slot.
+        if (packet.Notice == ChannelNotice.YouJoined)
+            ChatChannelLaw.ClaimSlot(_chatChannels, packet.Channel);
+        string display = ChatChannelLaw.DisplayName(_chatChannels, packet.Channel);
+
+        if (packet.Notice is ChannelNotice.Joined or ChannelNotice.Left)
+        {
+            AddChatMessage(ChatChannelLaw.FormatMember(display, first,
+                    packet.Notice == ChannelNotice.Joined),
+                packet.Notice == ChannelNotice.Joined
+                    ? ChatFrameLaw.MsgType.ChannelJoin : ChatFrameLaw.MsgType.ChannelLeave);
+        }
+        else if (ChatChannelLaw.FormatNotice(packet.Notice, display, first, second) is { } line)
+        {
+            AddChatMessage(line, packet.Notice == ChannelNotice.Invite
+                ? ChatFrameLaw.MsgType.ChannelNoticeUser : ChatFrameLaw.MsgType.ChannelNotice);
+        }
+
+        if (packet.Notice == ChannelNotice.YouLeft)
+            ChatChannelLaw.FreeSlot(_chatChannels, packet.Channel);
+        return true;
+    }
+
+    private bool TryResolveChannelPlayer(ulong guid, out string name)
+    {
+        if (guid == LocalPlayerGuid && _net?.PlayerName is { Length: > 0 } own)
+        {
+            name = own;
+            return true;
+        }
+        if (_playerNames.TryGetValue(guid, out string? known) && known.Length > 0)
+        {
+            name = known;
+            return true;
+        }
+        if (_chatNameQueried.Add(guid)) _net?.NameQuery(guid);
+        name = "";
+        return false;
+    }
+
+    private void FlushPendingChatChannelNotices(ulong guid = 0)
+    {
+        for (int i = _pendingChatChannelNotices.Count - 1; i >= 0; i--)
+        {
+            ChannelNoticePacket packet = _pendingChatChannelNotices[i];
+            if (guid != 0 && packet.FirstGuid != guid && packet.SecondGuid != guid) continue;
+            if (!TryPostChannelNotice(packet)) continue;
+            _pendingChatChannelNotices.RemoveAt(i);
+        }
+    }
+
+    private void HandleChannelList(byte[] body)
+    {
+        ChannelListPacket packet = ChannelPackets.ParseList(body);
+        string display = ChatChannelLaw.DisplayName(_chatChannels, packet.Channel);
+        AddChatMessage(ChatChannelLaw.FormatList(display, packet.Members.Count),
+            ChatFrameLaw.MsgType.ChannelList);
     }
 
     /// <summary>SMSG_NOTIFICATION is a lone cstring - post it as a system line.</summary>
@@ -137,6 +376,23 @@ public sealed partial class GameLoop
             emoter.Fields.Bytes0.Gender == 1;
         string emoterName = ResolveChatName(sourceGuid);
 
+        // SMSG_TEXT_EMOTE is also the receive-side voice trigger. Race/sex are
+        // descriptor data, never inferred from the name or display; absent race
+        // stays silent. The server echo routes our own emotes through this same path.
+        if (_soundscapePlaybackArmed && emoter is not null && _spellSounds is not null &&
+            _controller is not null)
+        {
+            var traits = emoter.Fields.Bytes0;
+            if (traits.Race != 0 && _emoteTextSounds?.TryGet(
+                    textEmote, traits.Race, traits.Gender, out uint voiceKit) == true)
+            {
+                Vector3 source = sourceGuid == ControlledGuid
+                    ? _controller.Position : emoter.Position;
+                _spellSounds.Play(voiceKit, sourceGuid, source, _controller.Position,
+                    forceLoop: false, trackHold: false, category: "sfx");
+            }
+        }
+
         string? line = EmotesTextLaw.Resolve((int)textEmote, hasTarget, viewerIsEmoter,
             viewerIsTarget, emoterIsFemale, emoterName, targetName);
         if (line is not null) AddChatMessage(line, ChatFrameLaw.MsgType.TextEmote);
@@ -163,26 +419,6 @@ public sealed partial class GameLoop
         if (text.Contains("GM mode is ON", StringComparison.OrdinalIgnoreCase)) _serverGmMode = true;
         else if (text.Contains("GM mode is OFF", StringComparison.OrdinalIgnoreCase)) _serverGmMode = false;
     }
-
-    /// <summary>1.12 CHAT_*_GET display formats: "Name says: msg", "[Name]: msg",
-    /// "Name whispers: msg", "[Channel] Name: msg", plain system text, etc.</summary>
-    private static string FormatChatLine(ChatFrameLaw.MsgType type, string sender, string channel, string msg)
-        => type switch
-        {
-            ChatFrameLaw.MsgType.Say or ChatFrameLaw.MsgType.MonsterSay => $"{sender} says: {msg}",
-            ChatFrameLaw.MsgType.Yell or ChatFrameLaw.MsgType.MonsterYell => $"{sender} yells: {msg}",
-            ChatFrameLaw.MsgType.Whisper or ChatFrameLaw.MsgType.MonsterWhisper
-                or ChatFrameLaw.MsgType.RaidBossWhisper => $"{sender} whispers: {msg}",
-            ChatFrameLaw.MsgType.WhisperInform => $"To {sender}: {msg}",
-            ChatFrameLaw.MsgType.Emote or ChatFrameLaw.MsgType.TextEmote
-                or ChatFrameLaw.MsgType.MonsterEmote
-                or ChatFrameLaw.MsgType.RaidBossEmote => $"{sender} {msg}",
-            ChatFrameLaw.MsgType.Guild or ChatFrameLaw.MsgType.Officer or ChatFrameLaw.MsgType.Party
-                or ChatFrameLaw.MsgType.Raid or ChatFrameLaw.MsgType.RaidLeader
-                or ChatFrameLaw.MsgType.RaidWarning => $"[{sender}]: {msg}",
-            ChatFrameLaw.MsgType.Channel => $"[{channel}] {sender}: {msg}",
-            _ => msg,                                   // System, Loot, Skill, channel notices…
-        };
 
     private void DrawChatFrame()
     {
@@ -224,6 +460,7 @@ public sealed partial class GameLoop
             () => _chatScroll = Math.Max(0, _chatScroll - 1));
         DrawChatScrollButton(dl, root + new Vector2(-32, 84), "ScrollEnd", () => _chatScroll = 0);
         DrawChatTabs(dl, root, s);
+        DrawChatMenu(root + new Vector2(-32, -6));
 
         // Enter opens the input, unless another text field already owns the keyboard.
         if (!_chatEditOpen && !ImGui.GetIO().WantTextInput &&
@@ -304,12 +541,14 @@ public sealed partial class GameLoop
         float pitch = GameText.LinePitch(ChatFrameLaw.ChatFont, s);
         if (pitch <= 0f) return;
 
-        var lines = new List<(string Text, uint Color)>();
+        var lines = new List<UiTextMarkupLine>();
         foreach (var (text, type) in _chat)
         {
+            if (!ChatFrameLaw.VisibleInTab(type, _chatSelectedTab)) continue;
             uint color = ChatFrameLaw.Color(type);
-            foreach (string wl in WrapChatLine(text, s, wrapPx))
-                lines.Add((wl, color));
+            Vector4 baseColor = ImGui.ColorConvertU32ToFloat4(color);
+            lines.AddRange(UiTextMarkupLaw.Wrap(text, baseColor,
+                glyph => GameText.MeasureWidth(ChatFrameLaw.ChatFont, glyph, s), wrapPx));
         }
 
         int maxVisible = Math.Max(1, (int)(ChatFrameLaw.FrameHeight * s / pitch));
@@ -320,27 +559,32 @@ public sealed partial class GameLoop
         float leftPx = (root.X + 4f) * s;
         float bottomLineTop = (root.Y + ChatFrameLaw.FrameHeight) * s - pitch;
 
+        int linkId = 0;
         for (int i = bottom - 1, row = 0; i >= top; i--, row++)
-            GameText.Draw(dl, ChatFrameLaw.ChatFont, lines[i].Text,
-                new Vector2(leftPx, bottomLineTop - row * pitch), s, lines[i].Color);
-    }
-
-    /// <summary>Word-wrap to the message area width (the client's own GetStringWidth wrap).</summary>
-    private static List<string> WrapChatLine(string text, float s, float maxWidthPx)
-    {
-        var lines = new List<string>();
-        string current = "";
-        foreach (string word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
-            string candidate = current.Length == 0 ? word : current + " " + word;
-            if (current.Length > 0 &&
-                GameText.MeasureWidth(ChatFrameLaw.ChatFont, candidate, s) > maxWidthPx)
-            { lines.Add(current); current = word; }
-            else current = candidate;
+            Vector2 at = new(leftPx, bottomLineTop - row * pitch);
+            foreach (UiTextColorRun run in lines[i].Runs)
+            {
+                uint runColor = ImGui.ColorConvertFloat4ToU32(run.Color);
+                GameText.Draw(dl, ChatFrameLaw.ChatFont, run.Text, at, s, runColor);
+                float width = GameText.MeasureWidth(ChatFrameLaw.ChatFont, run.Text, s);
+                if (run.Link is { Markup.Length: > 0 } link && width > 0)
+                {
+                    ImGui.SetCursorScreenPos(at);
+                    ImGui.InvisibleButton($"##chat-link-{i}-{linkId++}", new Vector2(width, pitch));
+                    if (ImGui.IsItemHovered())
+                    {
+                        dl.AddLine(new(at.X, at.Y + pitch - 1),
+                            new(at.X + width, at.Y + pitch - 1), runColor, MathF.Max(1, s));
+                        if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
+                            ActivateChatLink(link, ImGuiMouseButton.Left);
+                        else if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+                            ActivateChatLink(link, ImGuiMouseButton.Right);
+                    }
+                }
+                at.X += width;
+            }
         }
-        if (current.Length > 0) lines.Add(current);
-        if (lines.Count == 0) lines.Add("");
-        return lines;
     }
 
     private void DrawChatScrollButton(ImDrawListPtr dl, Vector2 logicalMin, string direction, Action click)
@@ -430,9 +674,7 @@ public sealed partial class GameLoop
         }
     }
 
-    /// <summary>The speech-bubble chat menu button (UI-ChatIcon-Chat-Up), always
-    /// visible. Opening the actual dropdown on click is still not wired - see the
-    /// TODO below for what's confirmed and what's blocking it.</summary>
+    /// <summary>The speech-bubble ChatFrameMenuButton, always visible.</summary>
     private void DrawChatMenuButton(ImDrawListPtr dl, Vector2 logicalMin)
     {
         float s = GameplayUiScale();
@@ -448,21 +690,124 @@ public sealed partial class GameLoop
             uint hi = _gameplayArt?.AdditiveHandle(@"Interface\Buttons\UI-Common-MouseHilight") ?? 0;
             if (hi != 0) dl.AddImage((nint)hi, min, min + size);
         }
-        // TODO: click opens the real ChatMenu frame (FloatingChatFrame.xml:772),
-        // confirmed via FrameXML wiki as 7 entries - ChatMenu_Say/Party/Guild/
-        // Yell/Whisper/Reply/Emote (ChatFrame.lua:2245-2304). Say/Party/Guild/Yell/
-        // Whisper are a clean drop-in (ParseChatCommand + _chatSendType/Header/
-        // Color already cover all five). Emote and Reply are blocked on real gaps
-        // elsewhere in this client, not on this button:
-        //   - Emote: vanilla emotes ride their own wire command (CMSG_TEXT_EMOTE),
-        //     never SMSG_MESSAGECHAT. Nothing in this file sends that packet yet -
-        //     ParseChatCommand's default case would currently mis-send "/e hello"
-        //     as a Say with the literal "/e hello" text.
-        //   - Reply: needs "last whisper target" tracking (real client:
-        //     ChatEdit_GetLastTellTarget/SetLastTellTarget), which doesn't exist
-        //     here at all yet.
-        // Deliberately left unbuilt (2026-08-15, Cam's call) rather than shipping
-        // a 5/7 or grayed-out menu - revisit once emote support lands.
+        if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        {
+            _chatMenuOpen = true;
+            _chatMenuOpenedThisFrame = true;
+            _chatMenuSubmenu = ChatMenuLevel.None;
+            _chatMenuCloseAt = NowSeconds() + ChatMenuUiLaw.TimeoutSeconds;
+            PlayUiSound(ChatMenuUiLaw.OpenSound, ChatMenuUiLaw.SoundCategory);
+        }
+    }
+
+    private void DrawChatMenu(Vector2 buttonMin)
+    {
+        if (!_chatMenuOpen) return;
+        float s = GameplayUiScale();
+        Vector2 display = ImGui.GetIO().DisplaySize / s;
+        Vector2 mouse = ImGui.GetIO().MousePos / s;
+        IReadOnlyList<ChatMenuRow> rootRows = ChatMenuUiLaw.Rows(ChatMenuLevel.Root);
+        Vector2 rootOrigin = ChatMenuUiLaw.RootOrigin(buttonMin, rootRows.Count, display);
+        int rootHover = ChatMenuUiLaw.HitRow(mouse, rootOrigin, rootRows.Count);
+
+        if (rootHover >= 0)
+        {
+            ChatMenuLevel nested = rootRows[rootHover].Nested;
+            if (nested != ChatMenuLevel.None) _chatMenuSubmenu = nested;
+            else _chatMenuSubmenu = ChatMenuLevel.None;
+        }
+
+        IReadOnlyList<ChatMenuRow> childRows = ChatMenuUiLaw.Rows(_chatMenuSubmenu);
+        int parentRow = _chatMenuSubmenu switch
+        {
+            ChatMenuLevel.Emote => 5,
+            ChatMenuLevel.VoiceEmote => 7,
+            _ => -1,
+        };
+        Vector2 childOrigin = parentRow >= 0
+            ? ChatMenuUiLaw.SubmenuOrigin(rootOrigin, parentRow, childRows.Count, display)
+            : Vector2.Zero;
+        int childHover = parentRow >= 0
+            ? ChatMenuUiLaw.HitRow(mouse, childOrigin, childRows.Count) : -1;
+
+        bool overRoot = ChatMenuUiLaw.Contains(mouse, rootOrigin, rootRows.Count);
+        bool overChild = parentRow >= 0 &&
+            ChatMenuUiLaw.Contains(mouse, childOrigin, childRows.Count);
+        if (overRoot || overChild)
+            _chatMenuCloseAt = NowSeconds() + ChatMenuUiLaw.TimeoutSeconds;
+        else if (NowSeconds() >= _chatMenuCloseAt)
+        {
+            CloseChatMenu();
+            return;
+        }
+
+        ImDrawListPtr dl = ImGui.GetForegroundDrawList();
+        DrawChatMenuLevel(dl, rootOrigin, rootRows, rootHover, s);
+        if (parentRow >= 0)
+            DrawChatMenuLevel(dl, childOrigin, childRows, childHover, s);
+
+        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        {
+            if (childHover >= 0)
+            {
+                ChatMenuRow row = childRows[childHover];
+                if (row.Command.Length > 0)
+                {
+                    _chatInput = row.Command;
+                    SubmitChat();
+                }
+                PlayUiSound(ChatMenuUiLaw.RowSound, ChatMenuUiLaw.SoundCategory);
+                CloseChatMenu();
+            }
+            else if (rootHover >= 0)
+            {
+                ChatMenuRow row = rootRows[rootHover];
+                if (row.InputPrefix.Length > 0)
+                {
+                    string prefill = row.InputPrefix == "/r " && _chatLastTellTarget.Length > 0
+                        ? $"/w {_chatLastTellTarget} " : row.InputPrefix;
+                    OpenChatEditWith(prefill);
+                }
+                PlayUiSound(ChatMenuUiLaw.RowSound, ChatMenuUiLaw.SoundCategory);
+                CloseChatMenu();
+            }
+            else if (!_chatMenuOpenedThisFrame) CloseChatMenu();
+        }
+        _chatMenuOpenedThisFrame = false;
+    }
+
+    private void DrawChatMenuLevel(ImDrawListPtr dl, Vector2 logicalOrigin,
+        IReadOnlyList<ChatMenuRow> rows, int hoveredRow, float s)
+    {
+        Vector2 origin = logicalOrigin * s;
+        Vector2 size = new Vector2(ChatMenuUiLaw.CardWidth,
+            ChatMenuUiLaw.CardHeight(rows.Count)) * s;
+        _skin!.DrawBackdrop(dl, origin, origin + size, WowSkin.Tooltip);
+        uint highlight = _gameplayArt?.AdditiveHandle(
+            @"Interface\QuestFrame\UI-QuestTitleHighlight") ?? 0;
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            ChatMenuRow row = rows[i];
+            Vector2 rowMin = (logicalOrigin + ChatMenuUiLaw.RowOrigin(i)) * s;
+            Vector2 rowSize = ChatMenuUiLaw.RowSize * s;
+            if (i == hoveredRow && highlight != 0)
+                dl.AddImage((nint)highlight, rowMin, rowMin + rowSize);
+            string font = i == hoveredRow ? "GameFontHighlight" : "GameFontNormal";
+            GameText.Draw(dl, font, row.Label,
+                (logicalOrigin + ChatMenuUiLaw.TextOrigin(i)) * s, s);
+            if (row.Shortcut.Length == 0) continue;
+            float shortcutWidth = GameText.MeasureWidth(font, row.Shortcut, s);
+            Vector2 shortcutPos = rowMin + new Vector2(rowSize.X - shortcutWidth, 3f * s);
+            GameText.Draw(dl, font, row.Shortcut, shortcutPos, s);
+        }
+    }
+
+    private void CloseChatMenu()
+    {
+        _chatMenuOpen = false;
+        _chatMenuOpenedThisFrame = false;
+        _chatMenuSubmenu = ChatMenuLevel.None;
     }
 
     /// <summary>
@@ -568,7 +913,23 @@ public sealed partial class GameLoop
     private void SubmitChat()
     {
         string raw = _chatInput.Trim();
-        if (raw.Length > 0 && !TrySubmitTextEmote(raw))
+        if (raw.StartsWith('/'))
+        {
+            int split = raw.IndexOf(' ');
+            string command = (split < 0 ? raw : raw[..split]).ToLowerInvariant();
+            if (command is "/r" or "/reply")
+            {
+                if (_chatLastTellTarget.Length == 0)
+                {
+                    AddChatMessage("You have nobody to reply to yet.");
+                    CloseChatEdit();
+                    return;
+                }
+                string text = split < 0 ? "" : raw[(split + 1)..].TrimStart();
+                raw = $"/w {_chatLastTellTarget} {text}";
+            }
+        }
+        if (raw.Length > 0 && !TrySubmitClientSlashCommand(raw) && !TrySubmitTextEmote(raw))
         {
             (ChatFrameLaw.MsgType type, string? target, string message) = ParseChatCommand(raw);
             // The server echoes our own line back as SMSG_MESSAGECHAT, so there is
@@ -576,6 +937,142 @@ public sealed partial class GameLoop
             if (message.Length > 0) _net?.SendChat((uint)type, target, message);
         }
         CloseChatEdit();
+    }
+
+    /// <summary>Client-owned slash verbs that send a non-chat opcode.</summary>
+    private bool TrySubmitClientSlashCommand(string raw)
+    {
+        if (!raw.StartsWith('/')) return false;
+        int space = raw.IndexOf(' ');
+        string command = (space < 0 ? raw : raw[..space]).ToLowerInvariant();
+        string args = space < 0 ? "" : raw[(space + 1)..];
+        if (args.Length == 0 && StandStateUiLaw.ResolveCommand(command) is { } standState)
+        {
+            // SetStandState is client-volunteered in 1.12: commit locally now so the body reacts
+            // on this frame, then send the u32 for the server to relay to nearby observers.
+            if (_net?.StandStateChange(standState) == true &&
+                _entities.TryGet(LocalPlayerGuid, out WorldEntity self))
+                self.Fields.SetUnitStandState(standState);
+            return true;
+        }
+        if (GroupSlashCommandLaw.Resolve(command) is { } groupCommand)
+        {
+            string? name = ResolveGroupSlashTarget(args);
+            if (name is null) return true; // vanilla's bare/no-player-target silent no-op
+            switch (groupCommand)
+            {
+                case GroupSlashCommand.Invite:
+                    _net?.GroupInvite(name);
+                    break;
+                case GroupSlashCommand.Uninvite:
+                    _net?.GroupUninvite(name);
+                    break;
+                case GroupSlashCommand.Promote:
+                {
+                    PartyMember? member = _partyMembers.FirstOrDefault(member =>
+                        member.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                    if (member is not null) _net?.GroupSetLeader(member.Guid);
+                    else AddChatMessage($"{name} is not in your party.");
+                    break;
+                }
+            }
+            return true;
+        }
+        switch (command)
+        {
+            case "/follow" or "/fol" or "/f":
+            {
+                string query = args.Trim();
+                if (query.Length > 0)
+                {
+                    if (TryResolveAutoFollowByName(query, out ulong guid, out string name))
+                        StartAutoFollow(guid, name);
+                }
+                else if (_selectionGuid != 0 &&
+                    _entities.TryGet(_selectionGuid, out WorldEntity target))
+                {
+                    StartAutoFollow(_selectionGuid, AutoFollowTargetName(_selectionGuid, target));
+                }
+                return true;
+            }
+            case "/join" or "/channel" or "/chan":
+            {
+                string[] words = args.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+                if (words.Length > 0)
+                    _net?.JoinChannel(words[0], words.Length > 1 ? words[1].Trim() : "");
+                return true;
+            }
+            case "/leave" or "/chatleave" or "/chatexit":
+            {
+                string selector = args.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .FirstOrDefault() ?? "";
+                string name = ResolveChannelSelector(selector);
+                if (name.Length > 0) _net?.LeaveChannel(name);
+                return true;
+            }
+            case "/chatlist" or "/chatwho" or "/chatinfo":
+            {
+                string selector = args.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .FirstOrDefault() ?? "";
+                string name = ResolveChannelSelector(selector);
+                if (name.Length > 0) _net?.ChannelList(name);
+                return true;
+            }
+            case "/pvp":
+                _net?.TogglePvp();
+                return true;
+            case "/played":
+                _net?.PlayedTime();
+                return true;
+            case "/random" or "/rand" or "/rnd" or "/roll":
+            {
+                uint[] values = args.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(word => uint.TryParse(word, out uint value) ? (uint?)value : null)
+                    .Where(value => value.HasValue).Select(value => value!.Value).Take(2).ToArray();
+                (uint min, uint max) = values.Length switch
+                {
+                    >= 2 => (values[0], values[1]),
+                    1 => (1u, values[0]),
+                    _ => (1u, 100u),
+                };
+                _net?.RandomRoll(min, max);
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
+    private string ResolveChannelSelector(string selector)
+    {
+        if (int.TryParse(selector, out int number))
+            return ChatChannelLaw.NameOf(_chatChannels, number) ?? "";
+        return selector;
+    }
+
+    private string? ResolveGroupSlashTarget(string args)
+    {
+        string name = args.Trim();
+        if (name.Length > 0) return name;
+        if (_selectionGuid == 0 || !_entities.TryGet(_selectionGuid, out WorldEntity target) ||
+            !target.IsPlayer) return null;
+        return _playerNames.TryGetValue(_selectionGuid, out string? known) && known.Length > 0
+            ? known : null;
+    }
+
+    private void HandlePlayedTime(byte[] body)
+    {
+        ChatPackets.PlayedTime played = ChatPackets.ParsePlayedTime(body);
+        (string total, string level) = ChatFrameLaw.FormatPlayedTime(played.Total, played.Level);
+        AddChatMessage(total);
+        AddChatMessage(level);
+    }
+
+    private void HandleRandomRoll(byte[] body)
+    {
+        ChatPackets.RandomRoll roll = ChatPackets.ParseRandomRoll(body);
+        AddChatMessage(ChatFrameLaw.FormatRandomRoll(ResolveChatName(roll.Guid), roll.Result,
+            roll.Minimum, roll.Maximum));
     }
 
     /// <summary>
@@ -601,12 +1098,15 @@ public sealed partial class GameLoop
     /// channel (/s /y /g /o /p /raid, and /w Name for a whisper); anything else is
     /// Say. Unknown slashes fall through to Say verbatim.
     /// </summary>
-    private static (ChatFrameLaw.MsgType, string?, string) ParseChatCommand(string raw)
+    private (ChatFrameLaw.MsgType, string?, string) ParseChatCommand(string raw)
     {
         if (!raw.StartsWith('/')) return (ChatFrameLaw.MsgType.Say, null, raw);
         int sp = raw.IndexOf(' ');
         string cmd = (sp < 0 ? raw : raw[..sp]).ToLowerInvariant();
         string rest = sp < 0 ? "" : raw[(sp + 1)..].TrimStart();
+        if (ChatChannelLaw.TryResolveSend(_chatChannels, cmd, rest,
+                out string channel, out string channelMessage))
+            return (ChatFrameLaw.MsgType.Channel, channel, channelMessage);
         switch (cmd)
         {
             case "/s" or "/say": return (ChatFrameLaw.MsgType.Say, null, rest);
@@ -615,6 +1115,10 @@ public sealed partial class GameLoop
             case "/o" or "/officer": return (ChatFrameLaw.MsgType.Officer, null, rest);
             case "/p" or "/party": return (ChatFrameLaw.MsgType.Party, null, rest);
             case "/raid" or "/ra": return (ChatFrameLaw.MsgType.Raid, null, rest);
+            case "/e" or "/em" or "/emote":
+                return (ChatFrameLaw.MsgType.Emote, null, rest);
+            case "/bg" or "/battleground":
+                return (ChatFrameLaw.MsgType.Battleground, null, rest);
             case "/w" or "/whisper" or "/tell" or "/t":
             {
                 int sp2 = rest.IndexOf(' ');
@@ -627,12 +1131,15 @@ public sealed partial class GameLoop
     }
 
     /// <summary>The send type implied by a leading /slash, for the header display.</summary>
-    private static ChatFrameLaw.MsgType PeekChatType(string input)
+    private ChatFrameLaw.MsgType PeekChatType(string input)
     {
         string raw = input.TrimStart();
         if (!raw.StartsWith('/')) return ChatFrameLaw.MsgType.Say;
         int sp = raw.IndexOf(' ');
         string cmd = (sp < 0 ? raw : raw[..sp]).ToLowerInvariant();
+        string rest = sp < 0 ? "" : raw[(sp + 1)..].TrimStart();
+        if (ChatChannelLaw.TryResolveSend(_chatChannels, cmd, rest, out _, out _))
+            return ChatFrameLaw.MsgType.Channel;
         return cmd switch
         {
             "/y" or "/yell" => ChatFrameLaw.MsgType.Yell,
@@ -640,6 +1147,8 @@ public sealed partial class GameLoop
             "/o" or "/officer" => ChatFrameLaw.MsgType.Officer,
             "/p" or "/party" => ChatFrameLaw.MsgType.Party,
             "/raid" or "/ra" => ChatFrameLaw.MsgType.Raid,
+            "/bg" or "/battleground" => ChatFrameLaw.MsgType.Battleground,
+            "/e" or "/em" or "/emote" => ChatFrameLaw.MsgType.Emote,
             "/w" or "/whisper" or "/tell" or "/t" => ChatFrameLaw.MsgType.Whisper,
             _ => ChatFrameLaw.MsgType.Say,
         };
