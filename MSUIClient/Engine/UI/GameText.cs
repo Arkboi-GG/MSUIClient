@@ -83,6 +83,20 @@ public static class GameText
     public static float LinePitch(string fontObject, float uiScale)
         => GameTextLaw.LinePitch(FontObjectLaw.Get(fontObject).Height, uiScale);
 
+    /// <summary>
+    /// Resolve the display text for an authored fixed-size FontString box. Width and height are
+    /// logical FrameXML units; measurement, wrapping, and the line-pitch fit test all occur in the
+    /// same scaled device-pixel space used by the draw.
+    /// </summary>
+    public static string EllipsizeToBox(string fontObject, string text, float boxWidthLogical,
+        float boxHeightLogical, float uiScale)
+    {
+        float width = boxWidthLogical * uiScale;
+        float height = boxHeightLogical * uiScale;
+        return FontStringOverflowLaw.Ellipsize(text, width, height,
+            LinePitch(fontObject, uiScale), candidate => MeasureWidth(fontObject, candidate, uiScale));
+    }
+
     /// <summary>The device-pixel em (law 1) - the single-line text height.</summary>
     public static int EmPixels(string fontObject, float uiScale)
         => GameTextLaw.EmPixels(FontObjectLaw.Get(fontObject).Height, uiScale);

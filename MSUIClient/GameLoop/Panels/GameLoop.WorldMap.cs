@@ -49,12 +49,9 @@ public sealed partial class GameLoop
         if (!_worldMapOpen || _gameplayArt is null || _net is null ||
             !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
         Vector2 display = ImGui.GetIO().DisplaySize;
-        float fitScale = MathF.Max(0.01f,
-            MathF.Min(display.X / 1024f, display.Y / 768f));
-        Vector2 logicalSize = new(1024, 768);
-        Vector2 logicalOrigin = (display / fitScale - logicalSize) * .5f;
-        if (!BeginVanillaWindow("##world-map", logicalOrigin, logicalSize,
-                out ImDrawListPtr dl, out Vector2 origin, out float s, fitScale))
+        WorldMapUiLaw.FrameLayout frame = WorldMapUiLaw.Frame(display);
+        if (!BeginVanillaWindow("##world-map", frame.LogicalOrigin, frame.LogicalSize,
+                out ImDrawListPtr dl, out Vector2 origin, out float s, frame.Scale))
         { ImGui.End(); return; }
         // FULLSCREEN_DIALOG strata: submit on the foreground list so both the
         // letterbox and authored map cover every ordinary or developer window.

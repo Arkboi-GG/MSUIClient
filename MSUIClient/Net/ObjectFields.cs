@@ -62,10 +62,13 @@ public sealed class ObjectFields
     public const ushort UNIT_MAXOFFHANDDAMAGE = 137;
     public const ushort UNIT_FIELD_BYTES_1 = 138;      // byte0: stand state
     public const ushort UNIT_FIELD_PETNUMBER = 139; // nonzero for a permanent pet/charm
+    public const ushort UNIT_FIELD_PETEXPERIENCE = 141;
+    public const ushort UNIT_FIELD_PETNEXTLEVELEXP = 142;
     public const ushort UNIT_DYNAMIC_FLAGS = 143;
     public const ushort UNIT_CHANNEL_SPELL = 144;
     public const ushort UNIT_BASE_MANA = 162;        // PRIVATE+OWNER_ONLY: only our own descriptor
     public const ushort UNIT_NPC_FLAGS = 147;
+    public const ushort UNIT_FIELD_TRAINING_POINTS = 149;
     public const ushort UNIT_STAT0 = 150;
     public const ushort UNIT_RESISTANCES = 155;
     public const ushort UNIT_BYTES_2 = 164;           // byte0: sheath state 0/1/2
@@ -96,6 +99,8 @@ public sealed class ObjectFields
     public const ushort CONTAINER_SLOT_1 = 50;
 
     public const ushort PLAYER_QUEST_LOG_1_1 = 198;
+    public const ushort PLAYER_GUILDID = 191;
+    public const ushort PLAYER_GUILDRANK = 192;
     // PLAYER_VISIBLE_ITEM_1_CREATOR begins at 258 (two u32 guid fields); the public worn
     // item ENTRY consumed by rendering/inspect is +2. Each equipment slot spans 12 fields.
     public const ushort PLAYER_VISIBLE_ITEM_1_0 = 260;
@@ -113,6 +118,8 @@ public sealed class ObjectFields
     public const ushort PLAYER_XP = 716;
     public const ushort PLAYER_NEXT_LEVEL_XP = 717;
     public const ushort PLAYER_SKILL_INFO_1_1 = 718;
+    // Signed reputation-list slot; -1 means no watched faction.
+    public const ushort PLAYER_FIELD_WATCHED_FACTION_INDEX = 1261;
     public const ushort PLAYER_CHARACTER_POINTS1 = 1102;
     public const ushort PLAYER_CHARACTER_POINTS2 = 1103;
     // Private self-player fields. Tracking auras set bit (MiscValue - 1); resource
@@ -150,6 +157,7 @@ public sealed class ObjectFields
 
     public const ushort PLAYER_BYTES = 193;          // skin/face/hairstyle/haircolor
     public const ushort PLAYER_BYTES_2 = 194;        // facial hair, etc.
+    public const ushort PLAYER_BYTES_3 = 195;        // byte1: server-authored drunkenness (0..100)
     public const ushort PLAYER_FLAGS = 190;
 
     private readonly Dictionary<ushort, uint> _fields;
@@ -287,6 +295,10 @@ public sealed class ObjectFields
     public ulong? CreatedBy => GetGuid(UNIT_FIELD_CREATEDBY) is { } g && g != 0 ? g : null;
     public uint PetNumber => GetU32(UNIT_FIELD_PETNUMBER) ?? 0;
     public bool IsPetOrCharm => PetNumber != 0;
+    public uint PetExperience => GetU32(UNIT_FIELD_PETEXPERIENCE) ?? 0;
+    public uint PetNextLevelExperience => GetU32(UNIT_FIELD_PETNEXTLEVELEXP) ?? 0;
+    public uint PetTrainingPoints => GetU32(UNIT_FIELD_TRAINING_POINTS) ?? 0;
+    public byte PetLoyaltyLevel => (byte)((GetU32(UNIT_FIELD_BYTES_1) ?? 0) >> 8);
 
     public byte PowerType => Bytes0.PowerType;
     public uint Power(byte powerType) => powerType <= 4 ? GetU32((ushort)(UNIT_POWER1 + powerType)) ?? 0 : 0;
@@ -367,6 +379,9 @@ public sealed class ObjectFields
 
     /// <summary>Facial-hair variation from PLAYER_BYTES_2 byte zero.</summary>
     public byte PlayerFacialHair => (byte)(GetU32(PLAYER_BYTES_2) ?? 0);
+
+    /// <summary>Server-authored drunkenness from PLAYER_BYTES_3 byte one.</summary>
+    public byte PlayerDrunkByte => (byte)((GetU32(PLAYER_BYTES_3) ?? 0) >> 8);
 
     /// <summary>Health fraction 0..1 (1 when maxhealth unknown).</summary>
     public float HealthFraction => MaxHealth > 0 ? Math.Clamp((float)Health / MaxHealth, 0f, 1f) : 1f;
@@ -505,10 +520,14 @@ public sealed class ObjectFields
     public uint YesterdayContribution => GetU32(PLAYER_FIELD_YESTERDAY_CONTRIBUTION) ?? 0;
     public uint LastWeekContribution => GetU32(PLAYER_FIELD_LAST_WEEK_CONTRIBUTION) ?? 0;
     public uint LastWeekRank => GetU32(PLAYER_FIELD_LAST_WEEK_RANK) ?? 0;
+    public uint PlayerGuildId => GetU32(PLAYER_GUILDID) ?? 0;
+    public uint PlayerGuildRank => GetU32(PLAYER_GUILDRANK) ?? 0;
     public uint PlayerFlags => GetU32(PLAYER_FLAGS) ?? 0;
     /// <summary>PLAYER_FLAGS 0x10: the in-world ghost presentation flag.</summary>
     public bool PlayerIsGhost => (PlayerFlags & 0x10u) != 0;
     public uint PlayerFieldBytes => GetU32(PLAYER_FIELD_BYTES) ?? 0;
+    public int WatchedFactionIndex =>
+        GetI32(PLAYER_FIELD_WATCHED_FACTION_INDEX) ?? -1;
 
     private (ushort Honorable, ushort Dishonorable) PackedKills(ushort index)
     {

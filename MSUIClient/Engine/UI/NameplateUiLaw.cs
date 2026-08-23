@@ -28,9 +28,30 @@ public static class NameplateUiLaw
         return $"<{subname.Trim()}>";
     }
 
+    /// <summary>
+    /// Current Benilla's V-plate mode split: neutral joins hostile on the enemy switch, while
+    /// friendly units use the independent friendly switch.
+    /// </summary>
+    public static bool ModeAllows(FactionReaction reaction, bool enemies, bool friends) =>
+        reaction == FactionReaction.Friendly ? friends : enemies;
+
+    /// <summary>ALLNAMEPLATES turns both on unless both were already on, then turns both off.</summary>
+    public static (bool Enemies, bool Friends) ToggleAll(bool enemies, bool friends)
+    {
+        bool both = enemies && friends;
+        return (!both, !both);
+    }
+
     /// <summary>The reference line stack uses a 1:1 line-pitch-to-font-size ratio.</summary>
     public static float LineBottom(float firstLineBottom, int lineIndex, float fontSize) =>
         firstLineBottom + Math.Max(0, lineIndex) * fontSize;
+
+    /// <summary>
+    /// Current Benilla billboard pitch: fixed at close range, then grows proportionally so the
+    /// overhead identity remains legible without imposing an artificial world-distance cap.
+    /// </summary>
+    public static float WorldNamePitch(float distance) =>
+        distance > 4f ? distance / 4f * 1.5f * 0.2f : 0.2f;
 
     /// <summary>
     /// GetSelectionCircleColor's palette. The combat pulse is its first-priority branch and is

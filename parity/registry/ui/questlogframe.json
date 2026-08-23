@@ -23,7 +23,7 @@
     "MSUIClient/Net/QuestPackets.cs"
   ],
   "status": "partial",
-  "summary": "MSUI's rule-seated quest-log book now retains the full SMSG_QUEST_QUERY_RESPONSE detail model, exposes all 20 descriptor slots through Benilla's six-row wheel offset, groups positive AreaTable and negative QuestSort headers with exact plus/minus folding, preserves selection by quest identity, colors rows with exact difficulty bands, renders objectives plus a scrollable description/reward pane, uses the server wall clock for timed countdowns, implements permanent manual and five-minute automatic watches, and has a law-seated abandon dialog. Share remains the same stub as current Benilla.",
+  "summary": "MSUI's rule-seated quest-log book retains the full SMSG_QUEST_QUERY_RESPONSE detail model, exposes all 20 descriptor slots through Benilla's six-row wheel offset, groups positive AreaTable and negative QuestSort headers with exact plus/minus folding, preserves selection by quest identity, colors rows with exact difficulty bands, renders objectives plus a scrollable description/reward pane, uses the server wall clock for timed countdowns, implements permanent manual and five-minute automatic watches, and has a law-seated abandon dialog. The shared Quest renderer now consumes the observer-resolved registered QuestLogFrame or QuestFrame panel seat according to its active mode. The current book furniture is now present as well: the Common-Input-Border quest-count pill, sort-tab-backed All collapse control, red/green Track Quest indicator, exact 300x261 detail viewport, overflow-only detail scrollbar, and the authored Abandon/Share/Exit bottom row all take their seats from QuestFrameUiLaw. Share remains the same stub as current Benilla. Focused quest-log checks pass; live visual/input verification remains outstanding.",
   "openItems": [
     {
       "id": "item-triage-095242eb",
@@ -94,7 +94,8 @@
       "text": "Share Quest button is permanently disabled (no quest push) - matches Benilla's own v1 stub, noted for completeness",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: Current Benilla explicitly names party share/push as a v1 stub and authors QuestLogPushQuestButton with an unconditional OnLoad Disable. MSUI's law-seated disabled Share Quest button is therefore current parity; quest-push protocol work is not required by this snapshot."
     },
     {
       "id": "item-triage-0eba825d",
@@ -113,11 +114,27 @@
       "added": "2026-08-21",
       "resolved": true,
       "resolution": "2026-08-21: Kill, item and objective-complete progress now arm or re-arm a 300-second automatic watch. Existing manual watches have no expiry and are never downgraded or evicted; a full list evicts only the auto watch nearest expiry, while all-manual lists reject the automatic addition."
+    },
+    {
+      "id": "item-questlog-current-book-controls-live-verify-001",
+      "kind": "verify",
+      "text": "Live-verify the current quest-count pill, All collapse tab, Track Quest indicator, corrected detail viewport, overflow-only detail scrollbar, and Abandon/Share/Exit row at representative gameplay scales and empty/partial/full quest states.",
+      "source": "benilla-b57ee0e9e2c8822b/QuestLogFrame.xml",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-quest-panel-seat-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live-verify the shared quest renderer beside another registered left panel: QuestLogFrame and the NPC QuestFrame must each consume the resolved panel seat while the centered abandon dialog stays display-centered.",
+      "source": "msui-runtime-audit-2026-08-22",
+      "added": "2026-08-22",
+      "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T22:45:05.2576369Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

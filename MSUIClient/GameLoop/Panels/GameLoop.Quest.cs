@@ -730,13 +730,14 @@ public sealed partial class GameLoop
     {
         UpdateQuestNpcLifecycle();
         if (!_questLogOpen && _questList is null && _questDetails is null && _questOffer is null && _questRequestItems is null) return;
-        float s=GameplayUiScale(); Vector2 origin=QuestFrameUiLaw.WindowOrigin(s);
+        bool logMode = _questLogOpen;
+        float s=GameplayUiScale();
+        Vector2 origin = UiPanelFrameOrigin(UiPanelOwnershipRegistry[logMode ? 8 : 7], s);
         Vector2 logicalSize=new(QuestFrameUiLaw.Width, QuestFrameUiLaw.Height);
         ImGui.SetNextWindowPos(origin,ImGuiCond.Always); ImGui.SetNextWindowSize(QuestFrameUiLaw.WindowSize(s),ImGuiCond.Always); ImGui.SetNextWindowBgAlpha(0);
         if (!ImGui.Begin("##quest", ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
         ImDrawListPtr dl=ImGui.GetWindowDrawList();
         bool parityProof = _uiParityArmed && _uiParityPanel is "quest-log" or "quest-frame";
-        bool logMode = _questLogOpen;
         QuestNpcPanel npcPanel = QuestNpcPanelNow();
         string frameName = logMode ? "QuestLogFrame" : "BenillaQuestFrame";
         string npcPanelName = QuestPanelStem(npcPanel) + "Panel";
@@ -815,7 +816,10 @@ public sealed partial class GameLoop
             DrawQuestLogContent(dl, origin, s, player);
         else
             DrawQuestNpcContent(dl, origin, s);
-        Vector2 close=origin+(logMode ? new Vector2(322,8) : QuestFrameUiLaw.CloseMin)*s;
+        Vector2 close=origin+(logMode
+            ? new Vector2(QuestFrameUiLaw.QuestLogCloseRect.X,
+                QuestFrameUiLaw.QuestLogCloseRect.Y)
+            : QuestFrameUiLaw.CloseMin)*s;
         DrawImageButton(dl,"##quest-close",close,new Vector2(32)*s,
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
@@ -874,7 +878,9 @@ public sealed partial class GameLoop
         string[] headers = quests.Select(q => QuestHeaderName(
             _questTemplates.GetValueOrDefault(q.QuestId)?.ZoneOrSort ?? 0)).ToArray();
         var rows = new List<QuestLogDisplayRow>(quests.Length + headers.Distinct().Count());
-        foreach (QuestLogHeaderGroup group in QuestFrameUiLaw.GroupQuestLogHeaders(headers))
+        IReadOnlyList<QuestLogHeaderGroup> groups =
+            QuestFrameUiLaw.GroupQuestLogHeaders(headers);
+        foreach (QuestLogHeaderGroup group in groups)
         {
             bool collapsed = _questLogCollapsed.Contains(group.Header);
             rows.Add(new(true, group.Header, collapsed, 0, 0, 0, 0));
@@ -896,8 +902,7 @@ public sealed partial class GameLoop
                 _questLogOffset = QuestFrameUiLaw.ClampQuestLogOffset(
                 _questLogOffset - Math.Sign(ImGui.GetIO().MouseWheel), rows.Count);
         DrawCenteredText(dl, origin + new Vector2(192, 22) * s, "Quest Log", 12f * s, 0xffffffff);
-        dl.AddText(ImGui.GetFont(), 10f * s, origin + new Vector2(267, 45) * s,
-            VanillaGold, $"{quests.Length} / 20");
+        DrawQuestLogBookControls(dl, origin, s, quests.Length, groups);
         for (int row = 0; row < QuestFrameUiLaw.QuestLogRows; row++)
         {
             int index = _questLogOffset + row;
@@ -956,16 +961,178 @@ public sealed partial class GameLoop
             uint selected = selectedSlot.QuestId;
             string title = _questTitles.GetValueOrDefault(selected, $"Quest {selected}");
             DrawQuestLogDetail(dl, origin, s, player, selectedSlot, title);
+            DrawQuestLogDetailScrollBar(dl, origin, s);
             if (VanillaButton(dl, "##quest-abandon", "Abandon Quest",
-                    origin + new Vector2(17, 437) * s, new Vector2(125, 21), s))
+                    QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogAbandonRect),
+                    new Vector2(QuestFrameUiLaw.QuestLogAbandonRect.Width,
+                        QuestFrameUiLaw.QuestLogAbandonRect.Height), s))
                 _questAbandonConfirmation = new(selected, title);
         }
         else VanillaButton(dl, "##quest-abandon", "Abandon Quest",
-            origin + new Vector2(17, 437) * s, new Vector2(125, 21), s, false);
-        VanillaButton(dl, "##quest-push", "Share Quest", origin + new Vector2(141, 437) * s,
-            new Vector2(123, 21), s, false);
-        if (VanillaButton(dl, "##quest-exit", "Close", origin + new Vector2(264, 437) * s,
-                new Vector2(77, 21), s)) _questLogOpen = false;
+            QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogAbandonRect),
+            new Vector2(QuestFrameUiLaw.QuestLogAbandonRect.Width,
+                QuestFrameUiLaw.QuestLogAbandonRect.Height), s, false);
+        VanillaButton(dl, "##quest-push", "Share Quest",
+            QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogShareRect),
+            new Vector2(QuestFrameUiLaw.QuestLogShareRect.Width,
+                QuestFrameUiLaw.QuestLogShareRect.Height), s, false);
+        if (VanillaButton(dl, "##quest-exit", "Exit",
+                QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogExitRect),
+                new Vector2(QuestFrameUiLaw.QuestLogExitRect.Width,
+                    QuestFrameUiLaw.QuestLogExitRect.Height), s)) _questLogOpen = false;
+    }
+
+    private static Vector2 QuestRectMin(Vector2 origin, float scale, QuestLogicalRect rect) =>
+        origin + new Vector2(rect.X, rect.Y) * scale;
+
+    private static Vector2 QuestRectSize(float scale, QuestLogicalRect rect) =>
+        new(rect.Width * scale, rect.Height * scale);
+
+    private void DrawQuestLogBookControls(ImDrawListPtr dl, Vector2 origin, float scale,
+        int questCount, IReadOnlyList<QuestLogHeaderGroup> groups)
+    {
+        string countLabel = "Quests:";
+        string countValue = $"{questCount}/20";
+        float labelWidth = GameText.MeasureWidth("GameFontNormalSmall", countLabel, scale) / scale;
+        float valueWidth = GameText.MeasureWidth("GameFontNormalSmall", countValue, scale) / scale;
+        QuestLogicalRect pill = QuestFrameUiLaw.QuestLogCountPillRect(
+            labelWidth + 3f + valueWidth);
+        Vector2 pillMin = QuestRectMin(origin, scale, pill);
+        DrawVanillaInputBorder(dl, pillMin, new Vector2(pill.Width, pill.Height), scale);
+        float textX = QuestFrameUiLaw.QuestLogCountRightRect.X +
+            QuestFrameUiLaw.QuestLogCountRightRect.Width - 6f - valueWidth - 3f - labelWidth;
+        Vector2 textMin = origin + new Vector2(textX, pill.Y + 4f) * scale;
+        GameText.Draw(dl, "GameFontNormalSmall", countLabel, textMin, scale);
+        GameText.Draw(dl, "GameFontNormalSmall", countValue,
+            textMin + new Vector2(labelWidth + 3f, 0) * scale, scale, 0xffffffff);
+
+        (QuestLogicalRect Rect, string Path)[] tabPieces =
+        [
+            (QuestFrameUiLaw.QuestLogCollapseLeftRect,
+                @"Interface\QuestFrame\UI-QuestLogSortTab-Left"),
+            (QuestFrameUiLaw.QuestLogCollapseMiddleRect,
+                @"Interface\QuestFrame\UI-QuestLogSortTab-Middle"),
+            (QuestFrameUiLaw.QuestLogCollapseRightRect,
+                @"Interface\QuestFrame\UI-QuestLogSortTab-Right"),
+        ];
+        foreach ((QuestLogicalRect rect, string path) in tabPieces)
+            DrawArt(dl, path, QuestRectMin(origin, scale, rect),
+                new Vector2(rect.Width, rect.Height), scale);
+
+        bool enabled = groups.Count > 0;
+        bool allCollapsed = enabled && groups.All(group =>
+            _questLogCollapsed.Contains(group.Header));
+        QuestLogicalRect button = QuestFrameUiLaw.QuestLogCollapseButtonRect;
+        ImGui.SetCursorScreenPos(QuestRectMin(origin, scale, button));
+        if (!enabled) ImGui.BeginDisabled();
+        ImGui.InvisibleButton("##quest-collapse-all", QuestRectSize(scale, button));
+        bool hovered = enabled && ImGui.IsItemHovered();
+        bool clicked = enabled && ImGui.IsItemClicked(ImGuiMouseButton.Left);
+        if (!enabled) ImGui.EndDisabled();
+
+        QuestLogicalRect icon = QuestFrameUiLaw.QuestLogCollapseIconRect;
+        string iconPath = allCollapsed
+            ? @"Interface\Buttons\UI-PlusButton-Up"
+            : @"Interface\Buttons\UI-MinusButton-Up";
+        uint iconArt = _gameplayArt?.Handle(iconPath) ?? 0;
+        Vector2 iconMin = QuestRectMin(origin, scale, icon);
+        if (iconArt != 0)
+            dl.AddImage((nint)iconArt, iconMin, iconMin + QuestRectSize(scale, icon),
+                Vector2.Zero, Vector2.One, enabled ? 0xffffffff : 0xff777777);
+        if (hovered)
+        {
+            uint highlight = _gameplayArt?.AdditiveHandle(
+                @"Interface\Buttons\UI-PlusButton-Hilight") ?? 0;
+            if (highlight != 0)
+                dl.AddImage((nint)highlight, iconMin,
+                    iconMin + QuestRectSize(scale, icon));
+        }
+        QuestLogicalRect title = QuestFrameUiLaw.QuestLogCollapseTitleRect;
+        GameText.Draw(dl, "GameFontNormal", "All", QuestRectMin(origin, scale, title),
+            scale, enabled ? null : 0xff777777);
+
+        if (clicked)
+        {
+            foreach (QuestLogHeaderGroup group in groups)
+            {
+                if (allCollapsed) _questLogCollapsed.Remove(group.Header);
+                else _questLogCollapsed.Add(group.Header);
+            }
+            _questLogOffset = 0;
+        }
+
+        QuestLogicalRect track = QuestFrameUiLaw.QuestLogTrackRect;
+        Vector2 trackMin = QuestRectMin(origin, scale, track);
+        Vector2 trackSize = QuestRectSize(scale, track);
+        uint radio = _gameplayArt?.Handle(@"Interface\Buttons\UI-RadioButton") ?? 0;
+        if (radio != 0)
+        {
+            dl.AddImage((nint)radio, trackMin, trackMin + trackSize,
+                Vector2.Zero, new Vector2(.25f, 1f));
+            dl.AddImage((nint)radio, trackMin, trackMin + trackSize,
+                new Vector2(.25f, 0), new Vector2(.5f, 1f),
+                _questWatches.Count > 0 ? 0xff00ff00 : 0xff0000ff);
+        }
+        QuestLogicalRect trackTitle = QuestFrameUiLaw.QuestLogTrackTitleRect;
+        GameText.Draw(dl, "GameFontHighlightSmall", "Track Quest",
+            QuestRectMin(origin, scale, trackTitle), scale);
+        ImGui.SetCursorScreenPos(trackMin);
+        ImGui.InvisibleButton("##quest-track-indicator", trackSize);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Shift-click a quest to add or remove a quest from your quest watch list.");
+    }
+
+    private void DrawQuestLogDetailScrollBar(ImDrawListPtr dl, Vector2 origin, float scale)
+    {
+        float maximum = Math.Max(0, _questLogDetailContentHeight -
+            QuestFrameUiLaw.QuestLogDetailRect.Height);
+        if (maximum <= 0 || _gameplayArt is null) return;
+
+        void Arrow(string id, QuestLogicalRect rect, bool up)
+        {
+            bool enabled = up ? _questLogDetailScroll > 0 : _questLogDetailScroll < maximum;
+            Vector2 min = QuestRectMin(origin, scale, rect);
+            Vector2 size = QuestRectSize(scale, rect);
+            ImGui.SetCursorScreenPos(min);
+            if (!enabled) ImGui.BeginDisabled();
+            ImGui.InvisibleButton(id, size);
+            bool active = enabled && ImGui.IsItemActive();
+            bool hovered = enabled && ImGui.IsItemHovered();
+            bool clicked = enabled && ImGui.IsItemClicked(ImGuiMouseButton.Left);
+            if (!enabled) ImGui.EndDisabled();
+            string stem = up ? "UI-ScrollBar-ScrollUpButton" : "UI-ScrollBar-ScrollDownButton";
+            string state = !enabled ? "Disabled" : active ? "Down" : "Up";
+            uint art = _gameplayArt.Handle($@"Interface\Buttons\{stem}-{state}");
+            if (art != 0)
+                dl.AddImage((nint)art, min, min + size, new Vector2(.25f), new Vector2(.75f));
+            if (hovered)
+            {
+                uint highlight = _gameplayArt.AdditiveHandle(
+                    $@"Interface\Buttons\{stem}-Highlight");
+                if (highlight != 0)
+                    dl.AddImage((nint)highlight, min, min + size,
+                        new Vector2(.25f), new Vector2(.75f));
+            }
+            if (clicked)
+                _questLogDetailScroll = QuestFrameUiLaw.ClampQuestLogDetailScroll(
+                    _questLogDetailScroll + (up ? -QuestFrameUiLaw.ScrollStep :
+                        QuestFrameUiLaw.ScrollStep), _questLogDetailContentHeight);
+        }
+
+        Arrow("##quest-detail-up", QuestFrameUiLaw.QuestLogDetailScrollUpRect, true);
+        Arrow("##quest-detail-down", QuestFrameUiLaw.QuestLogDetailScrollDownRect, false);
+        QuestLogicalRect thumb = new(QuestFrameUiLaw.QuestLogDetailScrollTrackRect.X,
+            QuestFrameUiLaw.QuestLogDetailThumbY(_questLogDetailScroll,
+                _questLogDetailContentHeight),
+            QuestFrameUiLaw.QuestLogDetailScrollTrackRect.Width,
+            QuestFrameUiLaw.ScrollThumbHeight);
+        uint knob = _gameplayArt.Handle(@"Interface\Buttons\UI-ScrollBar-Knob");
+        if (knob != 0)
+        {
+            Vector2 min = QuestRectMin(origin, scale, thumb);
+            dl.AddImage((nint)knob, min, min + QuestRectSize(scale, thumb),
+                new Vector2(.25f), new Vector2(.75f));
+        }
     }
 
     private string QuestKillProgressText(QuestKillUpdate value)
@@ -2063,7 +2230,9 @@ public sealed partial class GameLoop
                 });
             }
         }
-        if (clicked && selectable) _questRewardChoice = index;
+        if (clicked && ImGui.GetIO().KeyCtrl)
+            TryOnDressUp(row.ItemId);
+        else if (clicked && selectable) _questRewardChoice = index;
         if (selectable && _questRewardChoice == index)
         {
             uint glow = _gameplayArt!.AdditiveHandle(@"Interface\QuestFrame\UI-QuestItemHighlight");

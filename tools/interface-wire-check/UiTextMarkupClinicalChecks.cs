@@ -6,6 +6,34 @@ internal static class UiTextMarkupClinicalChecks
 {
     public static void Run()
     {
+        Func<string, float> charMeasure = text => text.Length;
+        Check(FontStringOverflowLaw.LinesAllowed(38, 12) == 4 &&
+              FontStringOverflowLaw.LinesFitting(38, 12) == 3,
+            "FontString render/fitting line-count split drift");
+        Func<string, int> rows10 = text => Math.Max(1, (text.Length + 9) / 10);
+        string lootOverflow = FontStringOverflowLaw.Ellipsize(
+            "Schematic: Small Seaforium Charge", 3, rows10);
+        string pouchOverflow = FontStringOverflowLaw.Ellipsize(
+            "Small Brown Pouch", 10, 12, 12, charMeasure);
+        string unicodeOverflow = FontStringOverflowLaw.Ellipsize(
+            "Ancêtre éternel", 10, 12, 12, charMeasure);
+        Check(lootOverflow == "Schematic: Small Seaforium ..." &&
+              pouchOverflow == "Small B..." && unicodeOverflow == "Ancêtre...",
+            $"FontString ASCII-marker/scalar-safe ellipsis drift: " +
+            $"loot='{lootOverflow}', pouch='{pouchOverflow}', unicode='{unicodeOverflow}'");
+        Check(FontStringOverflowLaw.Ellipsize("145", 10, 10, 12, charMeasure) == "145" &&
+              FontStringOverflowLaw.Ellipsize("Small Brown Pouch",
+                  10, 10, 12, charMeasure) == "Small B..." &&
+              FontStringOverflowLaw.Ellipsize("abcdef", 1.1f, 1.1f, 12, charMeasure) == "...",
+            "FontString min-one-line/bare-marker floor drift");
+        Check(FontStringOverflowLaw.WrappedRows("Refreshing Spring Water", 12,
+                  charMeasure) == 2 &&
+              FontStringOverflowLaw.WrappedRows("Supercalifragilistic ok", 8,
+                  charMeasure) == 3 &&
+              FontStringOverflowLaw.WrappedRows("Hello.  World", 6,
+                  charMeasure) == 2,
+            "FontString greedy whitespace/force-break wrapping drift");
+
         Vector4 white = Vector4.One;
         IReadOnlyList<UiTextMarkupLine> color = UiTextMarkupLaw.Parse(
             "a|c80ff0000b|rc", white);
@@ -53,6 +81,10 @@ internal static class UiTextMarkupClinicalChecks
             "GameLoop.Chat.cs"));
         string itemRef = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.ItemRef.cs"));
+        string social = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Social.cs"));
+        string guild = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Guild.cs"));
         Check(chat.Contains("UiTextMarkupLaw.Wrap", StringComparison.Ordinal) &&
               chat.Contains("ActivateChatLink", StringComparison.Ordinal) &&
               !chat.Contains("text.Replace('|', ' ')", StringComparison.Ordinal) &&
@@ -62,6 +94,9 @@ internal static class UiTextMarkupClinicalChecks
               !itemRef.Contains("BeginVanillaWindow(\"##item-ref-tooltip\", new Vector2",
                   StringComparison.Ordinal),
             "chat/item-ref runtime bypasses markup or positioning law");
+        Check(social.Contains("GameText.EllipsizeToBox", StringComparison.Ordinal) &&
+              guild.Contains("GameText.EllipsizeToBox", StringComparison.Ordinal),
+            "fixed-size Social/Guild FontStrings bypass the shared overflow law");
     }
 
     private static void Check(bool condition, string message)

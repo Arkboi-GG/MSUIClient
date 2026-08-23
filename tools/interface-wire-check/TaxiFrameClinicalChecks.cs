@@ -83,7 +83,8 @@ internal static class TaxiFrameClinicalChecks
               runtime.Contains("PlayUiSound(TaxiFrameUiLaw.DiscoveredSound",
                   StringComparison.Ordinal) &&
               runtime.Contains("DrawUnitPortraitImage", StringComparison.Ordinal) &&
-              runtime.Contains("TaxiFrameUiLaw.FrameOrigin", StringComparison.Ordinal) &&
+              runtime.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[6], s)",
+                  StringComparison.Ordinal) &&
               runtime.Contains("TaxiRoutePlanner.BuildVisible", StringComparison.Ordinal) &&
               runtime.Contains("TaxiFrameUiLaw.ReachableIcon", StringComparison.Ordinal) &&
               runtime.Contains("DrawTaxiRouteLine", StringComparison.Ordinal) &&

@@ -7,16 +7,25 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/aura_visual.rs",
-      "fileSha256": "d4e5ad0a11ff7ca52060f59da016c6b7fca5e812487475d5a9edcaf182dfbc16",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "9b9f0e3ca7015fb43c11348ed1db351c48bbd29da2867bfe9e1fbb45eaf1b7ca",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Formats/SpellVisualCatalog.cs",
-    "MSUIClient/World/Units/SpellEffectSource.cs"
+    "MSUIClient/Formats/CreatureDbc.cs",
+    "MSUIClient/Net/Entities.cs",
+    "MSUIClient/World/Units/AuraVisualLaw.cs",
+    "MSUIClient/World/Units/CharacterRenderer.cs",
+    "MSUIClient/World/Units/CreatureRenderer.cs",
+    "MSUIClient/World/Units/CreatureRenderer.Mounts.cs",
+    "MSUIClient/World/Units/AttachedItemRenderer.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Casting.cs",
+    "MSUIClient/Shaders/character.frag",
+    "tools/interface-wire-check/AuraVisualClinicalChecks.cs"
   ],
-  "status": "missing",
-  "summary": "Benilla's aura-state CharProc layer changes how the unit's own BODY renders for the life of an aura: proc 14 translucency (Stealth 0.3, Invisibility/Fade 0.5, ghost, Shadowform, Banish) with the 1000 ms cubic ramp both ways, proc 1 body tint (Frostbolt chill blue, Immolate orange, poison green), proc 11 animation freeze (Ice Block holds the pose), plus display-row base alpha (Ghost Wolf's CreatureModelAlpha 102). MSUI parses SpellVisualKit CharProcs (Formats/SpellVisualCatalog.cs) but consumes ONLY the type-9 emitter proc; there is no code path applying alpha, tint, or an anim-rate freeze to a unit's model - a stealthed player renders fully opaque, Ice Block does not freeze the pose, no chill/poison tint ever shows.",
+  "status": "implemented-unverified",
+  "summary": "MSUI now resolves every active aura's state SpellVisualKit through a per-unit AuraVisualState. The verified CharProc dispatcher admits proc 14 alpha, proc 1 packed-RGB tint, and proc 11 animation rate; nodes are keyed by spell, link newest at the head, and removal reveals the next head. Effective opacity is CreatureModelAlpha/255 times one head alpha factor and moves over the reference one-second clamp(t)^3 ramp in both directions. Body shaders apply alpha/tint to the local body, streamed players/creatures, attached equipment, and mounts; a translucent body forces opaque/cutout batches onto straight-alpha blending with depth writes disabled. Rate zero pauses local, remote, and mount animation clocks without freezing attached state-effect models or global sequences. Focused tests cover node ordering, packed tint, cubic retarget/reap, display-only alpha, base-times-head composition, shader/runtime fences, and the actual mounted DBC values for Ghost Wolf 4613, Stealth 1784, and Ice Block 11958. Build and full interface checks pass; authenticated visual verification remains.",
   "openItems": [
     {
       "id": "item-triage-40762dfc",
@@ -24,7 +33,8 @@
       "text": "Proc 14 translucency: no aura-driven body alpha at all (no stealth/invisibility/ghost fade; grep for stealth/translucency/CreatureModelAlpha in the render stack finds nothing).",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "AuraVisualState installs proc-14 alpha nodes by spell, uses newest-head authority, composes one factor with display base alpha, and drives the exact one-second cubic ramp; body/gear/mount shaders consume the result through the blend path."
     },
     {
       "id": "item-triage-0b157497",
@@ -32,7 +42,8 @@
       "text": "Proc 1 tint: no aura-driven body color modulation.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Proc-1 packed 0x00RRGGBB values decode to a head-owned normalized body tint and modulate local/streamed bodies, attached gear, and mounts without easing."
     },
     {
       "id": "item-triage-46084f9f",
@@ -40,7 +51,8 @@
       "text": "Proc 11 anim-rate: no freeze of the unit's animation clocks under Ice Block/Petrify-family auras.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Proc-11 rate zero pauses the unit and mount clocks for the aura lifetime while leaving attached state-effect models and global sequences running; non-zero rates remain recorded but do not invent a clock conversion."
     },
     {
       "id": "item-triage-46cc8eb3",
@@ -48,12 +60,21 @@
       "text": "Base display alpha: CreatureDisplayInfo's CreatureModelAlpha is not applied, so authored-translucent displays (Ghost Wolf) render opaque.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "CreatureDisplayInfo field 5 is retained as ModelAlpha and resolved for every unit display; display-only translucency ramps from opaque on first observation and display swaps retarget the same alpha channel."
+    },
+    {
+      "id": "verify-aura-visual-live-20260822",
+      "kind": "verify",
+      "text": "In an authenticated session, visually verify Stealth/Prowl alpha ramps on self and observed units, Frostbolt/poison/ghost tints, Ice Block pose hold and thaw, Ghost Wolf base alpha, overlapping head-node replacement, and body/gear/mount composition without depth-write artifacts.",
+      "source": "implementation-2026-08-22",
+      "added": "2026-08-22",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T23:20:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

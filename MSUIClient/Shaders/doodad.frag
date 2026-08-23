@@ -66,6 +66,31 @@ uniform vec3  uPortalLightPos;    // camera-relative, same space as vWorldPos
 uniform vec3  uPortalLightColor;  // colour premultiplied by intensity
 uniform float uPortalLightRadius; // yards; 0 = off
 
+uniform int uPointLightCount;
+uniform vec3 uPointLightPos[8];
+uniform vec3 uPointLightColor[8];
+
+vec3 carriedPointLight(vec3 normal, vec3 worldPos)
+{
+    float d0 = 1e30, d1 = 1e30, d2 = 1e30;
+    vec3 v0 = vec3(0.0), v1 = vec3(0.0), v2 = vec3(0.0);
+    vec3 c0 = vec3(0.0), c1 = vec3(0.0), c2 = vec3(0.0);
+    for (int i = 0; i < 8; i++)
+    {
+        if (i >= uPointLightCount) break;
+        vec3 delta = uPointLightPos[i] - worldPos;
+        float ds = dot(delta, delta);
+        if (ds < d0) { d2=d1; v2=v1; c2=c1; d1=d0; v1=v0; c1=c0; d0=ds; v0=delta; c0=uPointLightColor[i]; }
+        else if (ds < d1) { d2=d1; v2=v1; c2=c1; d1=ds; v1=delta; c1=uPointLightColor[i]; }
+        else if (ds < d2) { d2=ds; v2=delta; c2=uPointLightColor[i]; }
+    }
+    vec3 sum = vec3(0.0);
+    if (d0 < 1e29) { float d=sqrt(d0); sum += c0 * max(dot(normal, v0/max(d,0.001)),0.0) / max(0.7*d + 0.03*d*d, 0.001); }
+    if (d1 < 1e29) { float d=sqrt(d1); sum += c1 * max(dot(normal, v1/max(d,0.001)),0.0) / max(0.7*d + 0.03*d*d, 0.001); }
+    if (d2 < 1e29) { float d=sqrt(d2); sum += c2 * max(dot(normal, v2/max(d,0.001)),0.0) / max(0.7*d + 0.03*d*d, 0.001); }
+    return sum;
+}
+
 // Steady opaque/cutout doodads carry their painterly importance in alpha.
 // uPreserveAlpha is enabled for a draw containing an active appear fade so the
 // same output continues to drive straight-alpha blending correctly.
@@ -125,6 +150,7 @@ void main()
     // detach from the floor.
     vec3 baked = vLight.rgb * uVertexColorScale;
     vec3 lighting = mix(baked, light, vLight.a);
+    lighting += carriedPointLight(normal, vWorldPos);
 
     // Beyond-portal fill (see the uniform block). Scaled by (1 - vLight.a) so
     // it favours interior-baked props and leaves daylight-lit ones untouched.

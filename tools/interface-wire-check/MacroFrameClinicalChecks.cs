@@ -21,6 +21,35 @@ internal static class MacroFrameClinicalChecks
               MacroFrameUiLaw.VisibleRows == 4 &&
               MacroFrameUiLaw.NameCapacity == 16,
             "MacroPopup frozen size/grid/name constants drifted");
+        Check(MacroFrameUiLaw.FrameWidth == 384 && MacroFrameUiLaw.FrameHeight == 512 &&
+              MacroFrameUiLaw.TotalMacros == 36 && MacroFrameUiLaw.MacrosPerSet == 18 &&
+              MacroFrameUiLaw.MacroButton(0) == new MacroFrameUiLaw.Rect(42, 83, 36, 36) &&
+              MacroFrameUiLaw.MacroButton(5) == new MacroFrameUiLaw.Rect(287, 83, 36, 36) &&
+              MacroFrameUiLaw.MacroButton(17) == new MacroFrameUiLaw.Rect(287, 175, 36, 36) &&
+              MacroFrameUiLaw.SelectedBackground == new MacroFrameUiLaw.Rect(16, 228, 64, 64) &&
+              MacroFrameUiLaw.BodyBackground == new MacroFrameUiLaw.Rect(18, 305, 322, 95) &&
+              MacroFrameUiLaw.BodyEditor == new MacroFrameUiLaw.Rect(27, 310, 286, 85) &&
+              MacroFrameUiLaw.BodyScrollUp == new MacroFrameUiLaw.Rect(319, 310, 16, 16) &&
+              MacroFrameUiLaw.BodyScrollTrack == new MacroFrameUiLaw.Rect(319, 326, 16, 53) &&
+              MacroFrameUiLaw.BodyScrollDown == new MacroFrameUiLaw.Rect(319, 379, 16, 16) &&
+              MacroFrameUiLaw.ChangeButton == new MacroFrameUiLaw.Rect(67, 258, 170, 22) &&
+              MacroFrameUiLaw.DeleteButton == new MacroFrameUiLaw.Rect(17, 411, 80, 22) &&
+              MacroFrameUiLaw.NewButton == new MacroFrameUiLaw.Rect(182, 411, 80, 22) &&
+              MacroFrameUiLaw.ExitButton == new MacroFrameUiLaw.Rect(263, 411, 80, 22) &&
+              MacroFrameUiLaw.CloseButton == new MacroFrameUiLaw.Rect(323, 8, 32, 32) &&
+              MacroFrameUiLaw.SetBase(false) == 0 && MacroFrameUiLaw.SetBase(true) == 18 &&
+              MacroFrameUiLaw.AbsoluteIndex(true, 17) == 35 &&
+              MacroFrameUiLaw.InSet(true, 18) && !MacroFrameUiLaw.InSet(true, 17) &&
+              MacroFrameUiLaw.GeneralTabWidth(60) == 85,
+            "MacroFrame main-window/account-character geometry drifted");
+        string overflowBody = new('x', 255);
+        Check(MacroFrameUiLaw.BodyContentHeight("") == 85 &&
+              MacroFrameUiLaw.BodyContentHeight("one\ntwo") == 85 &&
+              MacroFrameUiLaw.BodyContentHeight(overflowBody) == 84 + 14 &&
+              MacroFrameUiLaw.MaximumBodyScroll(overflowBody) == 13 &&
+              MacroFrameUiLaw.WheelBodyScroll(0, overflowBody, -1) == 13 &&
+              MacroFrameUiLaw.BodyThumbY(13, overflowBody) == 363,
+            "MacroFrame body child sizing/scroll/knob law drifted");
         Check(MacroFrameUiLaw.PopupMinimum(new Vector2(0, 104), 1f) ==
               new Vector2(344, 144),
             "MacroPopup TOPLEFT-on-MacroFrame-TOPRIGHT (-40,-40) seat drifted");
@@ -45,6 +74,12 @@ internal static class MacroFrameClinicalChecks
               MacroFrameUiLaw.OkayEnabled(MacroPopupMode.New, "Name", 0, false) &&
               MacroFrameUiLaw.OkayEnabled(MacroPopupMode.Edit, "Name", -1, true),
             "MacroPopup Okay enable law drifted");
+        Check(MacroFrameUiLaw.RunnableLines("/cast Fireball\r\n\r\n  /say pew  \n")
+                  .SequenceEqual(["/cast Fireball", "/say pew"]) &&
+              SpellCatalog.SplitCastName("Fireball(Rank 1)") == ("Fireball", "Rank 1") &&
+              SpellCatalog.SplitCastName("Fireball (Rank 2)") == ("Fireball", "Rank 2") &&
+              SpellCatalog.SplitCastName("Fireball") == ("Fireball", null),
+            "macro EXECUTE_CHAT_LINE tokenization or cast-name/subtext law drifted");
     }
 
     private static void CheckArchiveCatalogLaw()
@@ -78,6 +113,8 @@ internal static class MacroFrameClinicalChecks
         string mount = File.ReadAllText(Path.Combine(client, "Formats", "MpqMount.cs"));
         Check(macro.Contains("MacroFrameUiLaw.PopupMinimum(macroOrigin, scale)",
                   StringComparison.Ordinal) &&
+              macro.Contains("UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[15])",
+                  StringComparison.Ordinal) &&
               macro.Contains("MacroFrameUiLaw.IconButton(visible)",
                   StringComparison.Ordinal) &&
               macro.Contains("MacroFrameUiLaw.OkayButton", StringComparison.Ordinal) &&
@@ -87,6 +124,21 @@ internal static class MacroFrameClinicalChecks
               macro.Contains("UI-ClassTrainer-FilterBorder", StringComparison.Ordinal) &&
               macro.Contains("OpenMacroPopup(MacroPopupMode.New)", StringComparison.Ordinal) &&
               macro.Contains("OpenMacroPopup(MacroPopupMode.Edit)", StringComparison.Ordinal) &&
+              macro.Contains("MacroFrameUiLaw.MacroButton(i)", StringComparison.Ordinal) &&
+              macro.Contains("MacroFrameUiLaw.BodyEditor", StringComparison.Ordinal) &&
+              macro.Contains("MacroFrameUiLaw.BodyScrollTrack", StringComparison.Ordinal) &&
+              macro.Contains("MacroFrameUiLaw.BodyContentHeight(_macroBody)",
+                  StringComparison.Ordinal) &&
+              macro.Contains("ImGuiWindowFlags.NoScrollbar", StringComparison.Ordinal) &&
+              macro.Contains("DrawMacroBodyScrollBar(dl, origin, s)",
+                  StringComparison.Ordinal) &&
+              macro.Contains("SwitchMacroSet(false)", StringComparison.Ordinal) &&
+              macro.Contains("SwitchMacroSet(true)", StringComparison.Ordinal) &&
+              macro.Contains("MacroFrameUiLaw.TotalMacros", StringComparison.Ordinal) &&
+              macro.Contains("MacroFrameUiLaw.RunnableLines", StringComparison.Ordinal) &&
+              macro.Contains("SubmitChatLine(line)", StringComparison.Ordinal) &&
+              !macro.Contains("Unsupported macro command", StringComparison.Ordinal) &&
+              !macro.Contains("Run##macro", StringComparison.Ordinal) &&
               macro.Contains("PlayUiSound(MacroFrameUiLaw.AcceptSound",
                   StringComparison.Ordinal) &&
               !macro.Contains("BeginPopupModal", StringComparison.Ordinal) &&

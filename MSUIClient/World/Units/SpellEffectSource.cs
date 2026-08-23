@@ -80,12 +80,24 @@ public sealed class SpellEffectSource
         public Action<uint, ulong, Vector3>? BirthSoundEvent;
     }
 
+    private sealed class ItemGlowInstance
+    {
+        public long Id;
+        public Asset Asset = null!;
+        public Matrix4x4 Transform;
+        public double Started;
+        public SpellEffectPlayback Playback;
+        public bool Seen;
+    }
+
     private readonly MpqMount _mpq;
     private readonly ItemDisplayTable? _itemDisplays;
     private readonly Dictionary<string, Asset> _assets = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, double> _assetFailures = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<Instance> _instances = [];
     private readonly List<AreaEmitter> _areaEmitters = [];
+    private readonly Dictionary<string, ItemGlowInstance> _itemGlows =
+        new(StringComparer.Ordinal);
     private long _nextId;
 
     public SpellEffectSource(MpqMount mpq)
@@ -95,6 +107,37 @@ public sealed class SpellEffectSource
             ? ItemDisplayTable.Parse(bytes) : null;
     }
     public int ActiveCount => _instances.Count;
+
+    /// <summary>
+    /// Replace the frame's held-item glow placements. Stable keys retain effect age and live
+    /// particles across ordinary movement and sheath swaps; gear/enchant changes retire them.
+    /// </summary>
+    public void SyncItemGlows(IEnumerable<ItemGlowPlacement> placements, double now)
+    {
+        foreach (ItemGlowInstance glow in _itemGlows.Values) glow.Seen = false;
+        foreach (ItemGlowPlacement placement in placements)
+        {
+            Asset? asset = Load(placement.Path);
+            if (asset is null) continue;
+            if (!_itemGlows.TryGetValue(placement.Key, out ItemGlowInstance? glow) ||
+                !string.Equals(glow.Asset.Path, asset.Path, StringComparison.OrdinalIgnoreCase))
+            {
+                glow = new ItemGlowInstance
+                {
+                    Id = ++_nextId,
+                    Asset = asset,
+                    Started = now,
+                    Playback = SpellEffectPlaybackLaw.Resolve(asset.Model, missile: false),
+                };
+                _itemGlows[placement.Key] = glow;
+            }
+            glow.Transform = placement.Transform;
+            glow.Seen = true;
+        }
+        foreach (string key in _itemGlows.Where(pair => !pair.Value.Seen)
+                     .Select(pair => pair.Key).ToArray())
+            _itemGlows.Remove(key);
+    }
 
     /// <summary>Effect-model $SND/$DSL/$DSO markers crossed by live playback.</summary>
     public Action<uint, ulong, Vector3>? AnimationSoundEvent { get; set; }
@@ -537,6 +580,48 @@ public sealed class SpellEffectSource
                     !instance.Missile && !instance.Area);
             }
         }
+
+        foreach (ItemGlowInstance glow in _itemGlows.Values)
+        {
+            Asset asset = glow.Asset;
+            double age = Math.Max(0, now - glow.Started);
+            int sequence = glow.Playback.SequenceIndex;
+            Matrix4x4[]? effectSkin = null;
+            if (asset.Animator is { } animator)
+            {
+                effectSkin = asset.Skin;
+                M2Animator.Clip? clip = animator.FindSequenceOrBake(sequence);
+                animator.Evaluate(clip, (float)age, (float)age, effectSkin);
+                SpellMeshSkinningLaw.ApplyBillboardBonesIfEnabled(billboardJointPoseB,
+                    asset.Model, glow.Transform, cameraWorld, cameraForwardWorld,
+                    animator.BoneCount, effectSkin);
+            }
+            for (int i = 0; i < asset.Emitters.Length; i++)
+            {
+                M2ParticleEmitter emitter = asset.Emitters[i];
+                Vector3? origin = null;
+                Matrix4x4? frame = null;
+                if (effectSkin is not null && emitter.Bone < effectSkin.Length &&
+                    emitter.Bone < asset.Model.Bones.Count)
+                {
+                    Vector3 emitterPosition = new(emitter.PosX, emitter.PosY, emitter.PosZ);
+                    Vector3 pivot = asset.Model.Bones[emitter.Bone].Pivot;
+                    Matrix4x4 global = Matrix4x4.CreateTranslation(pivot) * effectSkin[emitter.Bone];
+                    if (Matrix4x4.Decompose(global, out Vector3 scale, out Quaternion rotation,
+                        out Vector3 translation))
+                    {
+                        frame = Matrix4x4.CreateScale(scale) *
+                            Matrix4x4.CreateFromQuaternion(Quaternion.Normalize(rotation));
+                        origin = SpellParticleFrameLaw.RebasedEmitterOrigin(emitterPosition, pivot,
+                            translation, frame.Value);
+                    }
+                    else origin = Vector3.Transform(emitterPosition, effectSkin[emitter.Bone]);
+                }
+                yield return ($"item-glow:{asset.Path}#{glow.Id}", glow.Transform,
+                    emitter, i, asset.EmitterTextures[i], age, sequence, origin, frame,
+                    true, true);
+            }
+        }
     }
 
     /// <summary>
@@ -560,6 +645,14 @@ public sealed class SpellEffectSource
                 !instance.Missile && instance.Attachment == 0x13, instance.CustomTexture,
                 Vector3.One, 1f);
         }
+        foreach (ItemGlowInstance glow in _itemGlows.Values)
+        {
+            Asset asset = glow.Asset;
+            if (!asset.Model.IsValid) continue;
+            yield return new SpellMeshDraw(glow.Id, asset.Path, asset.Model, glow.Transform,
+                (float)Math.Max(0, now - glow.Started), glow.Playback.SequenceIndex,
+                false, null, Vector3.One, 1f);
+        }
     }
 
     public IEnumerable<(long Id, string Path, M2Model Model, Matrix4x4 Transform,
@@ -573,6 +666,10 @@ public sealed class SpellEffectSource
             yield return (instance.Id, asset.Path, asset.Model, transform,
                 (float)InstanceAge(instance, now), instance.Playback.SequenceIndex);
         }
+        foreach (ItemGlowInstance glow in _itemGlows.Values)
+            if (glow.Asset.Model.RibbonEmitters.Count > 0)
+                yield return (glow.Id, glow.Asset.Path, glow.Asset.Model, glow.Transform,
+                    (float)Math.Max(0, now - glow.Started), glow.Playback.SequenceIndex);
     }
 
     private static bool TryTransform(Instance instance, Func<ulong, SpellUnitPose> unitPose,

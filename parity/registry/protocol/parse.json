@@ -19,6 +19,10 @@
     "MSUIClient/Net/ServerSoundPackets.cs",
     "MSUIClient/Net/WeatherPackets.cs",
     "MSUIClient/Net/MovementModePackets.cs",
+    "MSUIClient/Net/MovementRelayPackets.cs",
+    "MSUIClient/Net/MovementSpeedPackets.cs",
+    "MSUIClient/Net/CompressedMovementPackets.cs",
+    "MSUIClient/Net/SpellPackets.cs",
     "MSUIClient/Net/CooldownPackets.cs",
     "MSUIClient/GameLoop/Combat/GameLoop.Emotes.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.Sound.cs"
@@ -32,7 +36,8 @@
       "text": "Spline/relay observer speed families remain unhandled: SMSG_SPLINE_SET_* (6), MSG_MOVE_SET_*_SPEED relays (6). The six SMSG_FORCE_*_SPEED_CHANGE controller packets are implemented.",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: MovementRelayPackets covers the exact 21 [packed guid][MovementInfo] relays. MovementSpeedPackets covers all six [packed guid][f32] SPLINE_SET bodies and all six [packed guid][MovementInfo][f32] MOVE_SET bodies with finite nonnegative speeds and strict exhaustion; GameLoop.Net dispatches all three families."
     },
     {
       "id": "item-triage-576c1f70",
@@ -94,6 +99,14 @@
       "text": "SMSG_COMPRESSED_MOVES remains unhandled. SMSG_WEATHER and SMSG_PLAY_SOUND/MUSIC/OBJECT_SOUND now use exact strict decoders and world-audio dispatch.",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: CompressedMovementPackets inflates the zlib envelope, walks exact [u8 size][u16 opcode][body] records with size including opcode, rejects undersized/truncated/nested/foreign records, and sends each strict-decoded MSG_MOVE_* relay through the same remote-player observer path in original order. Focused and full clinical suites pass."
+    },
+    {
+      "id": "verify-compressed-movement-batches",
+      "kind": "verify",
+      "text": "Live-verify a crowded nearby-player scene where realmd emits SMSG_COMPRESSED_MOVES: every contained relay should apply in order with no skipped batch, pose snap, self correction, or stalled observer animation.",
+      "added": "2026-08-22",
       "resolved": false
     },
     {
@@ -102,7 +115,8 @@
       "text": "The remaining misc parse gap is SMSG_SPELL_UPDATE_CHAIN_TARGETS. SMSG_CHANNEL_LIST is now strict-decoded and dispatched, alongside SET_PROFICIENCY, transfer-aborted, exploration-experience, pet-name response, login time-speed, item-enchant-time, mount-special, played-time, random-roll, area-trigger, durability-death, inventory-change-failure, mount/dismount-result, new-taxi-path, spirit-healer, chat-error, and corpse-query events.",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: SpellLifecyclePacketParser now byte-exactly parses [raw u64 caster][u32 spell][u32 count][count * raw u64 targets], rejects truncated and trailing data without count-sized hostile allocation, and GameLoop.Net dispatches opcode 0x0330."
     }
   ],
   "claims": [],

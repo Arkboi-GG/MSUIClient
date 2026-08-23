@@ -128,6 +128,7 @@ public sealed partial class GameLoop
         CancelRealPortalHandoff("logout returned to character select");
         TearDownWorldContent();
         _entities.Clear();
+        _spellChainBeams?.Clear();
         ClearChatBubbles();
         _combat.Clear();
         _actions.Clear();

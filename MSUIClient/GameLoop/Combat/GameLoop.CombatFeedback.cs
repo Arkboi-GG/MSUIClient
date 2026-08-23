@@ -226,6 +226,9 @@ public sealed partial class GameLoop
             DrawAuctionFrame();
             DrawProfessionFrame();
             DrawGuildFrame();
+            DrawGuildInfoFrame();
+            DrawGuildMemberDetailFrame();
+            DrawGuildControlFrame();
             DrawSocialFrame();
             DrawTradeFrame();
             DrawKeybindingsFrame();
@@ -238,6 +241,7 @@ public sealed partial class GameLoop
             DrawInventory();
             DrawCharacterPage();
             DrawInspectFrame();
+            DrawDressUpFrame();
             DrawSpellbook();
             DrawHelpFrame();
             // The reference bottom multibars use frameStrata HIGH. Draw them after ordinary
@@ -250,16 +254,21 @@ public sealed partial class GameLoop
             CompleteDeferredPartyTooltipParityCapture();
             DrawDeathRezFrame();
             DrawPartyInvite();
+            DrawGuildInvitePopup();
             DrawDuelPopups();
             DrawDeleteItemConfirmation();
             DrawCharacterBindingsConfirmation();
             DrawSocialNamePopup();
+            DrawGuildAddMemberPopup();
+            DrawGuildMemberPopups();
+            DrawPetMenuPopups();
             DrawGroupLootConfirmation();
             DrawBindConfirmation();
             DrawBankPurchaseConfirmation();
             DrawQuestAbandonConfirmation();
             DrawMailConfirmation();
             DrawEnchantConfirmation();
+            DrawScreenshotStatus();
             DrawSkillUnlearnConfirmation();
             DrawWorldHoverCursor();
             if (SkillFrameUiParityCaptureActive) MarkUiParityFrameComplete();

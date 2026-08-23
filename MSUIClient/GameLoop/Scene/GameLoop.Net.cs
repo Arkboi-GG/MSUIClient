@@ -40,10 +40,13 @@ public sealed partial class GameLoop
     private GlueBooth? _booth;                         // the character-select per-race booth (UI_<Race>)
     private CreatureRenderer? _creatures;              // draws streamed creatures and remote players (UPDATE_OBJECT)
     private SelectionRingRenderer? _selectionRing;
+    private WorldNameRenderer? _worldNames;
     private SpellEffectSource? _spellEffects;
     private QuestMarkerModelSource? _questMarkerModels;
     private SpellEffectMeshRenderer? _spellEffectMeshes;
     private SpellRibbonRenderer? _spellRibbons;
+    private SpellChainBeamSource? _spellChainBeams;
+    private SpellChainBeamRenderer? _spellChainBeamRenderer;
     private World.Spells.SpellParticleSystem? _spellParticles;
     // The audio device and the SoundEntries policy over it are SHARED: spell audio
     // and the world soundscape are two callers of one mixer, not one system with a
@@ -146,9 +149,13 @@ public sealed partial class GameLoop
 
         InitPortraits(gl);
         InitGameplayUi(gl);
+        try { _worldNames = new WorldNameRenderer(gl); }
+        catch (Exception ex) { Console.WriteLine($"[names] world name renderer unavailable: {ex.Message}"); }
         if (_mpq is not null)
         {
             _spellEffects = new SpellEffectSource(_mpq);
+            if (_spellVisualCatalog is not null)
+                _spellChainBeams = new SpellChainBeamSource(_spellVisualCatalog);
             _questMarkerModels = new QuestMarkerModelSource(_mpq);
             _emotes = EmoteCatalog.Load(_mpq);
             _emoteTextSounds = EmoteTextSoundCatalog.Load(_mpq);
@@ -183,6 +190,8 @@ public sealed partial class GameLoop
                 _spellEffectMeshes.LoadShaders(fxShaderDir);
                 _spellRibbons = new SpellRibbonRenderer(gl, _mpq);
                 _spellRibbons.LoadShaders();
+                _spellChainBeamRenderer = new SpellChainBeamRenderer(gl, _mpq);
+                _spellChainBeamRenderer.LoadShaders();
                 string spellShaderDir = Path.Combine(AppContext.BaseDirectory, "Shaders");
                 if (!File.Exists(Path.Combine(spellShaderDir, "spell_particle.vert")))
                     spellShaderDir = Path.Combine(_config.RepoRoot, "MSUIClient", "Shaders");
@@ -193,6 +202,7 @@ public sealed partial class GameLoop
             {
                 _spellEffectMeshes?.Dispose(); _spellEffectMeshes = null;
                 _spellRibbons?.Dispose(); _spellRibbons = null;
+                _spellChainBeamRenderer?.Dispose(); _spellChainBeamRenderer = null;
                 _spellParticles?.Dispose(); _spellParticles = null;
                 Console.WriteLine($"[spell-fx] mesh renderer unavailable: {ex.Message}");
             }
@@ -357,6 +367,7 @@ public sealed partial class GameLoop
             if (_pendingObjectParse is not null)
                 _objectUpdateBuffer = new ObjectUpdateBuffer(12_000);
             _entities.Clear();
+            _spellChainBeams?.Clear();
             ClearChatBubbles();
             ResetControlledHardLandingArc();
             _combat.Clear();
@@ -826,6 +837,10 @@ public sealed partial class GameLoop
                                 _window.Camera.EffectiveDistance = _window.Camera.Distance;
                             }
 
+                            // A teleport supersedes a server ride. In particular, a taxi landing
+                            // teleport is the hand-back and must not also emit SPLINE_DONE.
+                            AbortServerRideForTeleport();
+
                             // Apply on the game thread before acknowledging. Camera yaw is the
                             // next frame's MovementInput yaw, so updating it is what makes the
                             // server orientation survive rather than being overwritten immediately.
@@ -888,6 +903,50 @@ public sealed partial class GameLoop
                     case Op.SMSG_FORCE_TURN_RATE_CHANGE:
                         ApplyForceSpeedChange(net, (Op)opcode, body);
                         break;
+                    case Op.MSG_MOVE_START_FORWARD:
+                    case Op.MSG_MOVE_START_BACKWARD:
+                    case Op.MSG_MOVE_STOP:
+                    case Op.MSG_MOVE_START_STRAFE_LEFT:
+                    case Op.MSG_MOVE_START_STRAFE_RIGHT:
+                    case Op.MSG_MOVE_STOP_STRAFE:
+                    case Op.MSG_MOVE_JUMP:
+                    case Op.MSG_MOVE_START_TURN_LEFT:
+                    case Op.MSG_MOVE_START_TURN_RIGHT:
+                    case Op.MSG_MOVE_STOP_TURN:
+                    case Op.MSG_MOVE_START_PITCH_UP:
+                    case Op.MSG_MOVE_START_PITCH_DOWN:
+                    case Op.MSG_MOVE_STOP_PITCH:
+                    case Op.MSG_MOVE_SET_RUN_MODE:
+                    case Op.MSG_MOVE_SET_WALK_MODE:
+                    case Op.MSG_MOVE_FALL_LAND:
+                    case Op.MSG_MOVE_START_SWIM:
+                    case Op.MSG_MOVE_STOP_SWIM:
+                    case Op.MSG_MOVE_SET_FACING:
+                    case Op.MSG_MOVE_SET_PITCH:
+                    case Op.MSG_MOVE_HEARTBEAT:
+                    {
+                        MovementRelay relay = MovementRelayPackets.Parse((Op)opcode, body);
+                        if (relay.Guid == ControlledGuid && !_freeView)
+                            ApplyServerAuthoredSelfMove(relay);
+                        else
+                            _entities.ApplyRemotePlayerMove(
+                                relay.Guid, relay.Movement, MovementInfo.ClientUptimeMs());
+                        break;
+                    }
+                    case Op.SMSG_SPLINE_SET_WALK_SPEED:
+                    case Op.SMSG_SPLINE_SET_RUN_SPEED:
+                    case Op.SMSG_SPLINE_SET_RUN_BACK_SPEED:
+                    case Op.SMSG_SPLINE_SET_SWIM_SPEED:
+                    case Op.SMSG_SPLINE_SET_SWIM_BACK_SPEED:
+                    case Op.SMSG_SPLINE_SET_TURN_RATE:
+                    case Op.MSG_MOVE_SET_WALK_SPEED:
+                    case Op.MSG_MOVE_SET_RUN_SPEED:
+                    case Op.MSG_MOVE_SET_RUN_BACK_SPEED:
+                    case Op.MSG_MOVE_SET_SWIM_SPEED:
+                    case Op.MSG_MOVE_SET_SWIM_BACK_SPEED:
+                    case Op.MSG_MOVE_SET_TURN_RATE:
+                        ApplyObserverSpeedChange(net, (Op)opcode, body);
+                        break;
                     case Op.SMSG_FORCE_MOVE_ROOT:
                     case Op.SMSG_FORCE_MOVE_UNROOT:
                     case Op.SMSG_MOVE_WATER_WALK:
@@ -912,8 +971,24 @@ public sealed partial class GameLoop
                             () => UpdateObjectParser.ParseCompressed(body, compressedBuffer));
                         parseStarted = true;
                         break;
+                    case Op.SMSG_COMPRESSED_MOVES:
+                        foreach (CompressedMovementRelay compressed in
+                                 CompressedMovementPackets.Parse(body))
+                        {
+                            MovementRelay relay = compressed.Relay;
+                            if (relay.Guid == ControlledGuid && !_freeView)
+                                ApplyServerAuthoredSelfMove(relay);
+                            else
+                                _entities.ApplyRemotePlayerMove(
+                                    relay.Guid, relay.Movement, MovementInfo.ClientUptimeMs());
+                        }
+                        break;
                     case Op.SMSG_DESTROY_OBJECT:
-                        _entities.Remove(new PacketReader(body).ReadU64());
+                        {
+                            ulong destroyed = new PacketReader(body).ReadU64();
+                            _entities.Remove(destroyed);
+                            _spellChainBeams?.ClearUnit(destroyed);
+                        }
                         break;
                     case Op.SMSG_TRIGGER_CINEMATIC:
                         {
@@ -930,7 +1005,7 @@ public sealed partial class GameLoop
                             var mm = MonsterMoveParser.Parse(body);
                             if (mm is not null)
                             {
-                                ObserveTaxiSpline(mm);
+                                ObserveServerRideSpline(mm);
                                 _entities.ApplyMonsterMove(mm, MovementInfo.ClientUptimeMs());
                                 // Dev window: observed-path history (no-op while it is closed).
                                 RecordDevObservedPath(mm);
@@ -1115,6 +1190,18 @@ public sealed partial class GameLoop
                     case Op.SMSG_GUILD_ROSTER:
                         ApplyGuildRoster(body);
                         break;
+                    case Op.SMSG_GUILD_QUERY_RESPONSE:
+                        ApplyGuildQueryResponse(body);
+                        break;
+                    case Op.SMSG_GUILD_INVITE:
+                        ApplyGuildInvite(body);
+                        break;
+                    case Op.SMSG_GUILD_DECLINE:
+                        ApplyGuildDecline(body);
+                        break;
+                    case Op.SMSG_GUILD_INFO:
+                        ApplyGuildInfo(body);
+                        break;
                     case Op.SMSG_GUILD_EVENT:
                         ApplyGuildEvent(body);
                         break;
@@ -1248,6 +1335,10 @@ public sealed partial class GameLoop
                     case Op.MSG_CHANNEL_UPDATE:
                         EnqueueSpellPresentation(new SpellChannelUpdateEvent(
                             SpellLifecyclePacketParser.ParseChannelUpdate(body)));
+                        break;
+                    case Op.SMSG_SPELL_UPDATE_CHAIN_TARGETS:
+                        EnqueueSpellPresentation(new SpellChainTargetsEvent(
+                            SpellLifecyclePacketParser.ParseChainTargets(body)));
                         break;
                     case Op.SMSG_PLAY_SPELL_VISUAL:
                         {
@@ -1501,7 +1592,7 @@ public sealed partial class GameLoop
                     guid, CreatureLifecycleTracker.ReasonCode.NOT_IN_WORLD);
             ForgetCreatureVoiceState(u.Guids);
         }
-        _entities.Apply(u);
+        _entities.Apply(u, MovementInfo.ClientUptimeMs());
         if (u.Guid != 0) ObserveCreatureDeathVoice(u.Guid, readsDeadBefore);
         if (u.Guid == ControlledGuid && _entities.TryGet(u.Guid, out WorldEntity controlledMover))
             SyncControlledSpeeds(controlledMover);
@@ -1824,7 +1915,10 @@ public sealed partial class GameLoop
             if (!_items.TryGet(entry, out ItemTemplate? t) || t is null || t.DisplayInfoId == 0)
                 continue;   // template still in flight: partial gear until the next rebuild
             kit.Add($"slot{slot}", t.DisplayInfoId, (int)t.InventoryType, slot,
-                (byte)t.Class, (byte)t.Subclass, (byte)t.Material, (byte)t.Sheath);
+                (byte)t.Class, (byte)t.Subclass, (byte)t.Material, (byte)t.Sheath,
+                Enumerable.Range(0, 7)
+                    .Select(enchantSlot => bot.Fields.PlayerVisibleItemEnchant(slot, enchantSlot))
+                    .ToArray());
         }
 
         if (!raceFolder.Equals(_character.Race, StringComparison.OrdinalIgnoreCase) ||
@@ -1962,7 +2056,13 @@ public sealed partial class GameLoop
 
         // The glue front door: the login screen doubles as the launch menu, even
         // with no network client at all. Enter World commits the chosen mode.
-        if (GlueFrontDoorActive) { DrawLoginScreen(); DrawGlueTuning(); return; }
+        if (GlueFrontDoorActive)
+        {
+            DrawLoginScreen();
+            DrawGlueTuning();
+            DrawScreenshotStatus();
+            return;
+        }
 
         if (!_config.Server.Enabled || _net is null) return;
 
@@ -1981,7 +2081,13 @@ public sealed partial class GameLoop
 
         // The login screen is full-bleed glue chrome and owns its own full-screen window; the
         // connecting / character-select dialogs stay as centered panels for now.
-        if (st is NetState.Idle or NetState.Failed or NetState.Disconnected) { DrawLoginScreen(); DrawGlueTuning(); return; }
+        if (st is NetState.Idle or NetState.Failed or NetState.Disconnected)
+        {
+            DrawLoginScreen();
+            DrawGlueTuning();
+            DrawScreenshotStatus();
+            return;
+        }
 
         // Character select is full-bleed skinned chrome (its own window), like the login. The create
         // screen (Program.CharCreate.cs) is a client-side overlay on the same parked net state.
@@ -1989,12 +2095,14 @@ public sealed partial class GameLoop
         {
             if (_charCreateOpen) { DrawCharacterCreate(); DrawCreateTuning(); } else DrawCharacterSelect();
             DrawBoothTuning();
+            DrawScreenshotStatus();
             return;
         }
 
         ImGui.SetNextWindowPos(ImGui.GetIO().DisplaySize * 0.5f, ImGuiCond.Always, new Vector2(0.5f, 0.5f));
         ImGui.SetNextWindowSize(new Vector2(460, 0), ImGuiCond.Always);
         DrawConnecting();
+        DrawScreenshotStatus();
     }
 
     // The glue canvas the login layout is authored in (Blizzard's 1024x768 UI space). Every position
@@ -2824,6 +2932,7 @@ public sealed partial class GameLoop
         FinishPainterlyComparisonCapture();
         FinishUiParityCapture();
         FinishBagContainmentCapture();
+        FinishScreenshotCapture();
     }
 
 

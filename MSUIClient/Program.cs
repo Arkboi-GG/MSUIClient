@@ -734,6 +734,18 @@ public sealed partial class GameLoop : IDisposable
         _sky = new SkyRenderer(gl);
         _sky.LoadShaders(shaderDir);
 
+        try
+        {
+            _weatherPrecipitation = new WeatherPrecipitationRenderer(gl, _config);
+            _weatherPrecipitation.LoadShaders(shaderDir);
+        }
+        catch (Exception ex)
+        {
+            _weatherPrecipitation?.Dispose();
+            _weatherPrecipitation = null;
+            Console.WriteLine($"[weather] precipitation renderer unavailable: {ex.Message}");
+        }
+
         _skybox = new SkyboxRenderer(gl, _config);
         _skybox.LoadShaders(shaderDir);
 
@@ -1491,6 +1503,11 @@ public sealed partial class GameLoop : IDisposable
         // leaving the world resets the transport instead of stranding a bed.
         UpdateWorldSoundscape();
 
+        // Weather uses the real elapsed clock and keeps advancing behind loading
+        // covers, matching CMapWeather rather than tying a ten-second ramp to
+        // simulation dt or world readiness.
+        _weatherVisual.Resolve(NowSeconds());
+
         long updateStarted = Stopwatch.GetTimestamp();
         _loadNetPumpMilliseconds = 0;
         _loadStepMilliseconds = 0;
@@ -1511,6 +1528,7 @@ public sealed partial class GameLoop : IDisposable
         // in game. Keeping this below the world-ready guard made a bad realm or
         // character selection hang forever instead of producing a diagnostic.
         AdvanceLiveRun(dt);
+        UpdateGlueScreenshotInput();
 
         // LOGIN_VERIFY_WORLD only schedules this ownership transfer. Bootstrap
         // and avatar adoption each get their own curtain frame, outside the
@@ -1640,6 +1658,12 @@ public sealed partial class GameLoop : IDisposable
             _settingsOpen,
             _bindingCapture is not null);
         UpdateBindingLatches(typing);
+        UpdateAutorunBinding(typing);
+        UpdateStandStateBinding(typing);
+        UpdateFollowTargetBinding(typing);
+        UpdateChatBindings(typing);
+        UpdateCameraZoomBindings(typing);
+        UpdateMinimapZoomBindings(typing);
         UpdateSpellFxInspectorInput(typing);
         UpdateActionBarInput(typing);
         UpdateInventoryInput(typing);
@@ -1649,6 +1673,7 @@ public sealed partial class GameLoop : IDisposable
         UpdateTargetBinding(typing);
         UpdateNameplateInput(typing);
         UpdateUiHideBinding(typing);
+        UpdateScreenshotBinding(typing);
         UpdateControlInput(typing);
         UpdateCommanderMap();
         UpdateRunBinding(typing);
@@ -1770,7 +1795,7 @@ public sealed partial class GameLoop : IDisposable
         // mid-fight.
         bool mouseSteering = _window.MouseRightDown;
 
-        float turn = typing ? 0f : _window.Axis(Key.Left, Key.Right);
+        float turn = 0f;
         if (!typing && !mouseSteering) turn += BindingAxis(GameBinding.TurnLeft, GameBinding.TurnRight);
         turn = Math.Clamp(turn, -1f, 1f);
 
@@ -1780,9 +1805,13 @@ public sealed partial class GameLoop : IDisposable
 
         // Up and down arrows walk, like vanilla. Combined with W/S rather than
         // replacing it, and clamped so holding both does not double the speed.
+        bool bindingForward = !typing && BindingDown(GameBinding.MoveForward);
+        bool bindingBackward = !typing && BindingDown(GameBinding.MoveBackward);
         float forward = typing ? 0f : Math.Clamp(
-            BindingAxis(GameBinding.MoveForward, GameBinding.MoveBackward) +
-            _window.Axis(Key.Up, Key.Down), -1f, 1f);
+            BindingCommandLaw.ForwardAxis(bindingForward, bindingBackward,
+                bothButtons: _window.MouseLeftDown && _window.MouseRightDown,
+                autorun: _autorunToggled),
+            -1f, 1f);
 
         ApplyAutoFollowInput(ref forward, dt, typing, mouseSteering);
 
@@ -1821,6 +1850,20 @@ public sealed partial class GameLoop : IDisposable
 
         if (turn != 0f) _window.Camera.Rotate(turn * turnRate * dt, 0f);
 
+        // Drunkenness belongs to the logged-in player even while another unit is possessed.
+        // Current Benilla adds this pulse to movement facing (unless a keyboard turn is held)
+        // and to active swim pitch; it deliberately has no normal-play FOV effect.
+        byte drunkByte = _entities.TryGet(LocalPlayerGuid, out WorldEntity sessionPlayer)
+            ? sessionPlayer.Fields.PlayerDrunkByte
+            : (byte)0;
+        float drunkWobble = translating
+            ? DrunkMovementLaw.Wobble(MovementInfo.ClientUptimeMs(),
+                DrunkMovementLaw.Fraction(drunkByte))
+            : 0f;
+        float drunkFacing = DrunkMovementLaw.FacingWobble(drunkWobble, translating,
+            keyboardTurning: MathF.Abs(turn) > 0.01f);
+        if (drunkFacing != 0f) _window.Camera.Rotate(drunkFacing, 0f);
+
         // Look up and down without the mouse. Rotate clamps pitch either way.
         float tilt = typing ? 0f : _window.Axis(Key.PageUp, Key.PageDown);
         if (tilt != 0f) _window.Camera.Rotate(0f, tilt * _turnSpeed * 0.6f * dt);
@@ -1838,6 +1881,8 @@ public sealed partial class GameLoop : IDisposable
             Up = typing || _movementRooted || _iceBlockFrozen ? 0f : ((BindingDown(GameBinding.Jump) ? 1f : 0f) -
                                 (InputKeyDown(Key.CapsLock) ? 1f : 0f)),
             Yaw = _iceBlockFrozen ? _iceBlockFacing : _window.Camera.Yaw,
+            Pitch = -_window.Camera.Pitch + DrunkMovementLaw.SwimPitchWobble(
+                drunkWobble, _controller.Swimming, translating),
             Jump = !_movementRooted && !_iceBlockFrozen && (_movementScript is not null
                 ? scriptedJump : !typing && BindingDown(GameBinding.Jump)),
             Walking = (_walkToggled || shift) && !_controller.Flying,
@@ -1863,6 +1908,11 @@ public sealed partial class GameLoop : IDisposable
         ApplyMountHandling();
 
         _controller.ExternalWalkableSurfaceZ = null;
+        _controller.LiquidSurfaceZ = null;
+        if (_liquid is not null &&
+            _liquid.TryGetSurface(_controller.Position.X, _controller.Position.Y,
+                out float movementLiquidZ, out _))
+            _controller.LiquidSurfaceZ = movementLiquidZ;
         if (_controller.WaterWalking && _liquid is not null &&
             _liquid.TryGetSurface(_controller.Position.X, _controller.Position.Y,
                 out float walkableLiquidZ, out _))
@@ -1870,11 +1920,12 @@ public sealed partial class GameLoop : IDisposable
 
         bool movementWasGrounded = _controller.Grounded;
         bool movementWasFlying = _controller.Flying;
+        bool movementWasSwimming = _controller.Swimming;
         float movementPreviousFallMs = _controller.FallTimeMs;
         Vector3 movementPreviousPosition = _controller.Position;
         long phaseStarted = Stopwatch.GetTimestamp();
-        UpdateTaxiSpline();
-        _controller.Update(dt, input);
+        bool serverRideActive = UpdateServerRide();
+        if (!serverRideActive) _controller.Update(dt, input);
         ResolveRealPortalMovement(movementPreviousPosition);
         // The unit we drive is client-authoritative, so its ENTITY is the one thing the server
         // never updates for us. Publish every frame, not just at control hand-offs: anything
@@ -1888,8 +1939,9 @@ public sealed partial class GameLoop : IDisposable
             movementPreviousPosition.Z, _controller.Position.Z);
         if (_net is { IsInWorld: true })
         {
-            bool movementJumped = movementWasGrounded && !_controller.Grounded &&
-                                  input.Jump && _controller.Velocity.Z > 0f;
+            bool movementJumped = input.Jump && _controller.Velocity.Z > 0f &&
+                (movementWasGrounded && !_controller.Grounded ||
+                 movementWasSwimming && !_controller.Swimming);
             bool movementLanded = !movementWasGrounded && _controller.Grounded;
             bool movementStartedFalling = movementWasGrounded && !_controller.Grounded && !movementJumped;
             float fallMs = movementLanded
@@ -1991,6 +2043,13 @@ public sealed partial class GameLoop : IDisposable
         _wmo?.SetCutawaySubject(cutawaySubject, cutawaySubject is Vector3 cutXy
             ? _terrain?.SampleHeight(cutXy.X, cutXy.Y) : null);
         _wmo?.UpdateCameraCell(portalEye, _terrain?.SampleHeight(portalEye.X, portalEye.Y));
+
+        bool weatherCameraInterior = _wmo?.CameraGroup is { IsExterior: false };
+        bool weatherExteriorVisible = _wmo?.CameraExteriorPortalVisible ?? true;
+        _weatherPrecipitation?.Update(dt, _weatherVisual, portalEye,
+            _controller.Position, _window.Camera.FlatForward, _controller.PlanarSpeed,
+            WeatherPrecipitationLaw.IndoorBlocked(
+                weatherCameraInterior, weatherExteriorVisible), WeatherGroundHeight);
 
         // Target picking uses the final camera and final collision world for this frame.
         UpdateTargeting();
@@ -2178,26 +2237,37 @@ public sealed partial class GameLoop : IDisposable
     /// What the unit renderer needs to know about the player, in the same shape
     /// it will need for every other unit once packets arrive.
     /// </summary>
-    private CharacterRenderer.UnitState BuildUnitState() => new()
+    private CharacterRenderer.UnitState BuildUnitState(bool includeAuraVisual = false)
     {
+        AuraVisualState? aura = includeAuraVisual &&
+            _entities.TryGet(ControlledGuid, out WorldEntity visualUnit)
+                ? visualUnit.AuraVisual : null;
+        return new()
+        {
         Position = _controller?.Position ?? Vector3.Zero,
         Yaw = _controller?.Yaw ?? 0f,
         Grounded = _controller?.Grounded ?? true,
         VerticalVelocity = _controller?.Velocity.Z ?? 0f,
+        Swimming = _controller?.Swimming ?? false,
+        SwimPitch = _controller?.SwimPitch ?? 0f,
         FallTimeMs = _controller?.FallTimeMs ?? 0f,
         Walking = _walking,
         Flying = _controller?.Flying ?? false,
         Engaged = _net is not null && _combat.IsEngaged(ControlledGuid),
         StandState = _entities.TryGet(ControlledGuid, out WorldEntity poseUnit)
             ? poseUnit.Fields.UnitStandState : (byte)0,
-        FreezePose = _iceBlockFrozen,
+        FreezePose = _iceBlockFrozen || aura?.Frozen == true,
+        ApplyBodyVisual = aura is not null,
+        BodyAlpha = aura?.Alpha ?? 1f,
+        BodyTint = aura?.Tint ?? Vector3.One,
 
         Forward = _moveForward,
         Strafe = _moveStrafe,
         Speed = _controller?.PlanarSpeed ?? 0f,
         Steering = _steering,
         HasIntent = _controller is not null,
-    };
+        };
+    }
 
     /// <summary>
     /// Keep the camera out of the world.
@@ -2350,7 +2420,7 @@ public sealed partial class GameLoop : IDisposable
         // if the sky pass is disabled the old flat behaviour is exactly what is
         // left (PLAN_09 §1.1: do not remove the clear-colour trick before the
         // replacement is proven, or the far clip becomes a visible edge).
-        if (WarmStage(0)) _sky?.Render(_window.Camera, _atmosphere);
+        if (WarmStage(0)) _sky?.Render(_window.Camera, _atmosphere, _weatherVisual.StormBlend);
 
         // The zone skybox model (PLAN_18 Phase 2): over the gradient/clouds, before
         // the world. The active model follows the dominant LightParams' skybox id
@@ -2419,9 +2489,11 @@ public sealed partial class GameLoop : IDisposable
         // gates CharacterRenderer.Render — and the portrait booth goes through that same
         // method, so hiding the body that way silently froze the player-frame portrait on
         // whatever face was baked last.
+        _character?.BeginItemGlowFrame();
+        _creatures?.BeginItemGlowFrame();
         if (WarmStage(3) && _character is not null && _controller is not null && !_freeView &&
             _window.Camera.EffectiveDistance > FirstPersonBodyHide)
-            _character.Render(_window.Camera, BuildUnitState());
+            _character.Render(_window.Camera, BuildUnitState(includeAuraVisual: true));
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Character);
         _characterRenderMilliseconds = Stopwatch.GetElapsedTime(characterStarted).TotalMilliseconds;
 
@@ -2448,6 +2520,19 @@ public sealed partial class GameLoop : IDisposable
         // Run them before the spell-mesh pass so geometry-model particles join the same opaque /
         // transparent M2 material ordering as ordinary kit and missile meshes.
         double spellNow = MovementInfo.ClientUptimeMs() / 1000.0;
+        if (_spellEffects is not null)
+        {
+            IEnumerable<ItemGlowPlacement> itemGlows =
+                _character?.ItemGlowPlacements ?? Array.Empty<ItemGlowPlacement>();
+            if (_creatures is not null)
+                itemGlows = itemGlows.Concat(_creatures.ItemGlowPlacements);
+            _spellEffects.SyncItemGlows(itemGlows, spellNow);
+        }
+        IEnumerable<CarriedLightPlacement> carriedLights =
+            _character?.CarriedLightPlacements ?? Array.Empty<CarriedLightPlacement>();
+        if (_creatures is not null)
+            carriedLights = carriedLights.Concat(_creatures.CarriedLightPlacements);
+        CarriedLightFrame.Commit(carriedLights, _window.Camera.Position);
         if (WarmStage(5) && _spellParticles is not null && _spellEffects is not null)
         {
             var eye = _window.Camera.Position;
@@ -2491,6 +2576,9 @@ public sealed partial class GameLoop : IDisposable
         if (WarmStage(5) && _spellEffects is not null && _spellRibbons is not null)
             _spellRibbons.Render(_window.Camera, _spellEffects.RibbonInstances(
                 spellNow, SpellEffectUnitPose), _spellFxBillboardJointPoseB);
+        if (WarmStage(5) && _spellChainBeams is not null && _spellChainBeamRenderer is not null)
+            _spellChainBeamRenderer.Render(_window.Camera, spellNow,
+                _spellChainBeams.Snapshot(spellNow, SpellEffectUnitPose), SpellEffectUnitPose);
         _spellEffectRenderMilliseconds = Stopwatch.GetElapsedTime(spellEffectStarted).TotalMilliseconds;
 
         // Transparent particles are simulated after the unit draws have
@@ -2521,6 +2609,15 @@ public sealed partial class GameLoop : IDisposable
             if (Environment.GetEnvironmentVariable("MSUI_MUTE_SPELL_PARTICLES") is null)
                 _spellParticles.Render(_window.Camera);
         }
+
+        // Weather is late transparent world geometry: drops depth-test against
+        // the completed opaque scene, and its ground layer shares the collision
+        // floor/roof verdict used by spell particles. Indoor gating freezes both
+        // simulation and draw; an exterior group in the camera portal PVS keeps
+        // the storm visible through a doorway.
+        if (WarmStage(5) && _weatherPrecipitation is not null)
+            _weatherPrecipitation.Render(_window.Camera, _atmosphere.FogColor,
+                _atmosphere.FogStart, _atmosphere.FogEnd);
 
         // Water draws AFTER the character, on purpose. It tests depth but does not
         // write it, so a surface in front of a submerged character blends over him
@@ -2576,6 +2673,11 @@ public sealed partial class GameLoop : IDisposable
             }
         }
         _liquidRenderMilliseconds = Stopwatch.GetElapsedTime(liquidStarted).TotalMilliseconds;
+
+        // Benilla's ordinary overhead identity batch is late world geometry, not an ImGui
+        // overlay. Drawing after liquid keeps names readable at the waterline while the live
+        // depth buffer still lets terrain, WMO walls, doodads, and units occlude them.
+        if (WarmStage(5)) RenderWorldUnitNames();
 
         // Last, so it draws over the world it describes.
         long debugStarted = Stopwatch.GetTimestamp();
@@ -2669,10 +2771,13 @@ public sealed partial class GameLoop : IDisposable
         if (guid == 0 && display > 0) guid = CreatorLocalGuid;
         if (guid == 0) return;
 
-        float travelSpeed = _taxiSpline?.AverageSpeed ?? controller.PlanarSpeed;
-        bool flying = _taxiSpline?.Flying == true;
+        float travelSpeed = _serverRideSpline?.AverageSpeed ?? controller.PlanarSpeed;
+        bool flying = _serverRideSpline?.Flying == true;
+        AuraVisualState? aura = _entities.TryGet(RenderSelfGuid, out WorldEntity auraUnit)
+            ? auraUnit.AuraVisual : null;
         if (creatures.TryDrawSelfMount(_window.Camera, guid, display, controller.Position,
-                controller.Yaw, travelSpeed, walkSpeed, flying, out Matrix4x4 seat))
+                controller.Yaw, travelSpeed, walkSpeed, flying, aura?.Alpha ?? 1f,
+                aura?.Tint ?? Vector3.One, aura?.Frozen == true, out Matrix4x4 seat))
             _character.MountSeat = seat;
     }
 
@@ -2799,6 +2904,8 @@ public sealed partial class GameLoop : IDisposable
             _spellRibbons.FogEnd = _atmosphere.ShaderFogEnd;
             _spellRibbons.FarClip = effectFarClip;
         }
+        if (_spellChainBeamRenderer is not null)
+            _spellChainBeamRenderer.FarClip = effectFarClip;
         if (_spellEffectMeshes is not null)
         {
             _spellEffectMeshes.SunDirection = _atmosphere.SunDirection;
@@ -3848,6 +3955,7 @@ public sealed partial class GameLoop : IDisposable
         DisposePortraits();
         _creatures?.Dispose();
         _selectionRing?.Dispose();
+        _worldNames?.Dispose();
         _unitShadows?.Dispose();
 
         try { _collisionBuildTask?.GetAwaiter().GetResult(); }
@@ -3868,6 +3976,7 @@ public sealed partial class GameLoop : IDisposable
         _terrain?.Dispose();
         DisposeLoadingArt();
         _sky?.Dispose();
+        _weatherPrecipitation?.Dispose();
         _skybox?.Dispose();
         _glow?.Dispose();
         _painterly?.Dispose();
@@ -3881,6 +3990,7 @@ public sealed partial class GameLoop : IDisposable
         _particles?.Dispose();
         _spellEffectMeshes?.Dispose();
         _spellRibbons?.Dispose();
+        _spellChainBeamRenderer?.Dispose();
         _spellParticles?.Dispose();
         _audioMixer?.Dispose();   // the device; SpellSoundSystem is policy over it and owns nothing
         _mpq?.Dispose();

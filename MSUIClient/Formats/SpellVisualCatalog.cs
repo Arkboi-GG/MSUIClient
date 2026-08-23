@@ -57,6 +57,22 @@ public readonly record struct SpellVisualKitEffect(
 
 public readonly record struct SpellVisualCharProc(int Type, float[] Parameters);
 
+public readonly record struct SpellChainProcInfo(
+    uint EffectId,
+    uint BeamCount,
+    bool Persistent,
+    int Type);
+
+public readonly record struct SpellChainEffectInfo(
+    uint Id,
+    float AverageSegmentLength,
+    float HalfWidth,
+    float NoiseScale,
+    float ScrollPeriodSeconds,
+    uint BoltLifeMs,
+    uint BoltStaggerMs,
+    string Texture);
+
 public readonly record struct SpellAreaEmitterInfo(
     int Selector,
     string ModelPath,
@@ -180,6 +196,7 @@ public sealed class SpellVisualCatalog
     private readonly Dictionary<uint, (ushort? Anim, uint? Sound, uint[] Effects,
         SpellVisualCharProc[] CharProcs)> _kits = [];
     private readonly Dictionary<uint, string> _effects = [];
+    private readonly Dictionary<uint, SpellChainEffectInfo> _chainEffects = [];
 
     /// <summary>Fold BOTH none-sentinels. See the class remarks.</summary>
     private static uint? Fk(uint raw) => raw is 0 or uint.MaxValue ? null : raw;
@@ -230,6 +247,35 @@ public sealed class SpellVisualCatalog
         kit = new SpellVisualKitInfo(raw.Anim, raw.Sound, effects, raw.CharProcs);
         return true;
     }
+
+    /// <summary>
+    /// Decode the build-5875 chain-beam CharProc. Type 0 is a live channel beam key, not an empty
+    /// slot; type 12 is its one-shot cast sibling. Each integer parameter uses the client's
+    /// bit-exact small-int decode rather than a numeric cast.
+    /// </summary>
+    public static bool TryGetChainProc(in SpellVisualKitInfo kit, out SpellChainProcInfo chain)
+    {
+        foreach (SpellVisualCharProc proc in kit.CharProcs)
+        {
+            if (proc.Type is not (0 or 12) || proc.Parameters.Length < 3) continue;
+            uint effect = CharProcSmallInt(proc.Parameters[0]);
+            if (effect == 0) continue; // shipped padding slot; the reference no-ops it
+            chain = new SpellChainProcInfo(effect,
+                Math.Min(3u, CharProcSmallInt(proc.Parameters[1])),
+                CharProcSmallInt(proc.Parameters[2]) != 0, proc.Type);
+            return true;
+        }
+        chain = default;
+        return false;
+    }
+
+    public bool TryGetChainEffect(uint id, out SpellChainEffectInfo effect)
+        => _chainEffects.TryGetValue(id, out effect);
+
+    public int ChainEffectCount => _chainEffects.Count;
+
+    public static uint CharProcSmallInt(float value)
+        => (BitConverter.SingleToUInt32Bits(value + 512f) >> 14) & 0xffu;
 
     /// <summary>
     /// Resolve the DynamicObject-specific visual machine. This is separate from the ordinary
@@ -289,8 +335,10 @@ public sealed class SpellVisualCatalog
         DbcFile? visuals = Parse(mpq, @"DBFilesClient\SpellVisual.dbc");
         DbcFile? kits = Parse(mpq, @"DBFilesClient\SpellVisualKit.dbc");
         DbcFile? names = Parse(mpq, @"DBFilesClient\SpellVisualEffectName.dbc");
+        DbcFile? chains = Parse(mpq, @"DBFilesClient\SpellChainEffects.dbc");
         if (visuals is null || kits is null || names is null ||
-            visuals.FieldCount < 16 || kits.FieldCount < 35 || names.FieldCount < 5) return null;
+            chains is null || visuals.FieldCount < 16 || kits.FieldCount < 35 ||
+            names.FieldCount < 5 || chains.FieldCount < 8) return null;
 
         var result = new SpellVisualCatalog();
 
@@ -311,7 +359,8 @@ public sealed class SpellVisualCatalog
             for (int i = 0; i < 4; i++)
             {
                 int type = kits.GetInt(row, 15 + i);
-                if (type <= 0) continue;
+                // Type 0 is CHAIN_CHANNEL. -1 is the actual empty/sentinel value.
+                if (type < 0) continue;
                 // Build 5875 has four parameter arrays, transposed by proc lane:
                 // p0=f19..22, p1=f23..26, p2=f27..30, p3=f31..34.
                 var parameters = new float[4];
@@ -324,6 +373,21 @@ public sealed class SpellVisualCatalog
                 Fk(kits.GetUInt(row, 13)),
                 effects,
                 charProcs.ToArray());
+        }
+
+        for (int row = 0; row < chains.RecordCount; row++)
+        {
+            uint id = chains.GetUInt(row, 0);
+            if (id == 0) continue;
+            result._chainEffects[id] = new SpellChainEffectInfo(
+                id,
+                chains.GetFloat(row, 1),
+                chains.GetFloat(row, 2),
+                chains.GetFloat(row, 3),
+                chains.GetFloat(row, 4),
+                chains.GetUInt(row, 5),
+                chains.GetUInt(row, 6),
+                chains.GetString(row, 7));
         }
 
         for (int row = 0; row < visuals.RecordCount; row++)

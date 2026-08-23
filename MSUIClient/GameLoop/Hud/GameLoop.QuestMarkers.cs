@@ -37,10 +37,13 @@ public sealed partial class GameLoop
 
     private bool QuestMarkerRaised(WorldEntity unit)
     {
-        if (SettingsModalOpen || !_nameplatesVisible || unit.IsDead ||
+        if (SettingsModalOpen || unit.Guid == ControlledGuid || unit.IsDead ||
             (unit.Fields.UnitFlags & NotSelectable) != 0 ||
             !Settings.Controls.ShowNpcNames ||
             !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
+
+        if (!NameplateUiLaw.ModeAllows(ReactionTargetTowardPlayer(unit),
+                _enemyNameplatesVisible, _friendlyNameplatesVisible)) return false;
 
         var self = _controller?.Position ?? player.Position;
         return System.Numerics.Vector3.DistanceSquared(self, UnitWorldPosition(unit)) <=

@@ -15,10 +15,11 @@
     "MSUIClient/GameLoop/Panels/GameLoop.Settings.cs",
     "MSUIClient/Engine/GameSettings.cs",
     "MSUIClient/Engine/UI/GameMenuUiLaw.cs",
+    "MSUIClient/Engine/UI/OptionsSearchUiLaw.cs",
     "MSUIClient/GameLoop/Hud/GameLoop.Nameplates.cs"
   ],
   "status": "partial",
-  "summary": "MSUI intentionally retains the build-5875 Game Menu and resizable OptionsFrame shape rather than Benilla's era category-tree shell. Its GameMenuUiLaw now owns fixed/resizable size, viewport clamping and modal centering. Video, Interface and Sound pages live-apply persisted settings; Sound exposes master/effects/music/ambience gates and vanilla volume defaults, Interface exposes the current Player/NPC/Own nameplate rows wired into the renderer, and every page has a page-scoped Defaults action. Settings search remains absent.",
+  "summary": "MSUI intentionally retains the build-5875 Game Menu and resizable three-page OptionsFrame shape rather than Benilla's era category-tree shell. GameMenuUiLaw continues to own independent scale, remembered size, viewport clamping and modal centering. OptionsSearchUiLaw adds Benilla's 350x22 Common-Input-Border search seat, 17x17 clear control, whole-query/comma/space substring scoring, best-score page grouping and clickable cross-page results without altering MSUI's established page presentation or live-apply/cancel semantics. Sound exposes master/effects/music/ambience gates and vanilla volume defaults, Interface exposes current nameplate rows, and every normal page has page-scoped Defaults.",
   "openItems": [
     {
       "id": "item-triage-d5a1736f",
@@ -45,7 +46,15 @@
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
       "resolved": true,
-      "resolution": "Every options page footer has a Defaults button. ResetVisiblePageToDefaults replaces only the visible page's settings group (Video composites, Controls including nameplates, or Audio), resolves composites, and applies the result live."
+      "resolution": "Every Video, Interface, and Sound options page now has a rule-seated Common-Input-Border search field with the reference whole-query/token substring scorer, page-grouped catalog results, no-result state, authored clear button, Search Results title, and click-through navigation. Search hides page-scoped Defaults while retaining MSUI's protected resizable/scaling and live-apply/cancel behavior."
+    },
+    {
+      "id": "item-optionsframe-search-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live-verify Options search input/clear alignment at minimum, default and enlarged remembered window sizes; placeholder/focus behavior; multi-token cross-page ordering; scroll overflow; no-result state; result navigation; and preserved live-apply, Cancel, Okay, independent scale and resize persistence.",
+      "source": "benilla-b57ee0e9e2c8822b/OptionsFrame.xml",
+      "added": "2026-08-22",
+      "resolved": false
     },
     {
       "id": "item-triage-2b518ac9",
@@ -53,12 +62,13 @@
       "text": "No per-page Defaults button (only whole-quality presets)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Every options page footer has a Defaults button. ResetVisiblePageToDefaults replaces only the visible page's settings group (Video composites, Controls including nameplates, or Audio), resolves composites, and applies the result live."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T02:44:46.4278870Z",
+  "lastReviewedUtc": "2026-08-22T22:12:02.1319450Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

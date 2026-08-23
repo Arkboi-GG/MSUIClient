@@ -2,11 +2,21 @@ using Silk.NET.Input;
 
 namespace MSUIClient.Engine.UI;
 
-/// <summary>One canonical 1.12 keyboard chord. Super/Cmd is deliberately not representable.</summary>
-public readonly record struct BindingChord(Key Key, bool Alt = false, bool Control = false,
-    bool Shift = false)
+public enum BindingPointerKey
 {
-    public bool IsBound => Key != Key.Unknown;
+    None,
+    Button3,
+    Button4,
+    Button5,
+    WheelUp,
+    WheelDown,
+}
+
+/// <summary>One canonical 1.12 keyboard or mouse chord. Super/Cmd is not representable.</summary>
+public readonly record struct BindingChord(Key Key, bool Alt = false, bool Control = false,
+    bool Shift = false, BindingPointerKey Pointer = BindingPointerKey.None)
+{
+    public bool IsBound => Key != Key.Unknown || Pointer != BindingPointerKey.None;
 }
 
 public static class BindingChordLaw
@@ -16,7 +26,11 @@ public static class BindingChordLaw
         Key.SuperLeft or Key.SuperRight;
 
     public static BindingChord Live(Key key, bool alt, bool control, bool shift) =>
-        new(key, alt, control, shift);
+        new(key == Key.KeypadEnter ? Key.Enter : key, alt, control, shift);
+
+    public static BindingChord LivePointer(BindingPointerKey pointer,
+        bool alt, bool control, bool shift) =>
+        new(Key.Unknown, alt, control, shift, pointer);
 
     /// <summary>The one reference retry: drop the emitted chord's leftmost modifier.</summary>
     public static BindingChord? Fallback(in BindingChord chord)
@@ -33,7 +47,8 @@ public static class BindingChordLaw
         string prefix = chord.Alt ? "ALT-" : "";
         if (chord.Control) prefix += "CTRL-";
         if (chord.Shift) prefix += "SHIFT-";
-        return prefix + KeyToken(chord.Key);
+        return prefix + (chord.Pointer == BindingPointerKey.None
+            ? KeyToken(chord.Key) : PointerToken(chord.Pointer));
     }
 
     public static bool TryParse(string? text, out BindingChord chord)
@@ -68,6 +83,11 @@ public static class BindingChordLaw
             }
         } while (consumed);
 
+        if (TryTokenPointer(rest, out BindingPointerKey pointer))
+        {
+            chord = LivePointer(pointer, alt, control, shift);
+            return true;
+        }
         if (!TryTokenKey(rest, out Key key) &&
             !Enum.TryParse(rest, ignoreCase: true, out key)) return false;
         if (key == Key.Unknown || IsModifier(key)) return false;
@@ -82,8 +102,29 @@ public static class BindingChordLaw
         string prefix = chord.Alt ? "ALT-" : "";
         if (chord.Control) prefix += "CTRL-";
         if (chord.Shift) prefix += "SHIFT-";
-        return prefix + baseLabel(chord.Key);
+        return prefix + (chord.Pointer == BindingPointerKey.None
+            ? baseLabel(chord.Key) : PointerLabel(chord.Pointer));
     }
+
+    public static string PointerToken(BindingPointerKey pointer) => pointer switch
+    {
+        BindingPointerKey.Button3 => "BUTTON3",
+        BindingPointerKey.Button4 => "BUTTON4",
+        BindingPointerKey.Button5 => "BUTTON5",
+        BindingPointerKey.WheelUp => "MOUSEWHEELUP",
+        BindingPointerKey.WheelDown => "MOUSEWHEELDOWN",
+        _ => "",
+    };
+
+    public static string PointerLabel(BindingPointerKey pointer) => pointer switch
+    {
+        BindingPointerKey.Button3 => "Middle Mouse",
+        BindingPointerKey.Button4 => "Mouse Button 4",
+        BindingPointerKey.Button5 => "Mouse Button 5",
+        BindingPointerKey.WheelUp => "Mouse Wheel Up",
+        BindingPointerKey.WheelDown => "Mouse Wheel Down",
+        _ => "",
+    };
 
     private static string KeyToken(Key key)
     {
@@ -144,4 +185,30 @@ public static class BindingChordLaw
             return Enum.TryParse(token, ignoreCase: true, out key);
         return false;
     }
+
+    private static bool TryTokenPointer(string token, out BindingPointerKey pointer)
+    {
+        pointer = token.ToUpperInvariant() switch
+        {
+            "BUTTON3" => BindingPointerKey.Button3,
+            "BUTTON4" => BindingPointerKey.Button4,
+            "BUTTON5" => BindingPointerKey.Button5,
+            "MOUSEWHEELUP" => BindingPointerKey.WheelUp,
+            "MOUSEWHEELDOWN" => BindingPointerKey.WheelDown,
+            _ => BindingPointerKey.None,
+        };
+        return pointer != BindingPointerKey.None;
+    }
+}
+
+/// <summary>Pure host-command laws shared by the keybinding dispatcher and movement path.</summary>
+public static class BindingCommandLaw
+{
+    public static int ForwardAxis(bool forward, bool backward, bool bothButtons, bool autorun) =>
+        (forward ? 1 : 0) + (bothButtons ? 1 : 0) + (autorun ? 1 : 0) -
+        (backward ? 1 : 0);
+
+    public static bool AutorunCancelled(bool forwardStarted, bool backwardStarted,
+        bool bothButtonsEngaged, bool lostMover) =>
+        forwardStarted || backwardStarted || bothButtonsEngaged || lostMover;
 }

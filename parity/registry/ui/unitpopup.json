@@ -14,20 +14,31 @@
       "path": "crates/benilla-app/assets/ui/UIDropDownMenu.xml",
       "fileSha256": "9b374bc1f9242b4417887587da1727906543aecb317386fcd6c2ed7dc6552455",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_pet/menu.rs",
+      "fileSha256": "955e98cc1619e19016849b51abe6d0ebb9387942b04c28df0c6bd6cf82a00e5d",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/GameLoop/Hud/GameLoop.UnitPopup.cs",
     "MSUIClient/Engine/UI/UnitPopupUiLaw.cs",
+    "MSUIClient/Engine/UI/PetMenuUiLaw.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Pet.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.PetMenu.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.PartyFrames.cs",
+    "MSUIClient/Net/WorldSession.cs",
     "MSUIClient/Engine/UI/InspectUiLaw.cs",
     "MSUIClient/GameLoop/Hud/GameLoop.Duel.cs",
     "MSUIClient/Engine/UI/DuelFrameUiLaw.cs",
     "MSUIClient/Engine/UI/AutoFollowUiLaw.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.Follow.cs",
-    "tools/interface-wire-check/UnitPopupClinicalChecks.cs"
+    "tools/interface-wire-check/UnitPopupClinicalChecks.cs",
+    "tools/interface-wire-check/PetMenuClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI carries current Benilla's backed SELF/PARTY/PLAYER tables and actions. The MENU surface follows UIDropDownMenu for the exact dark-navy tooltip-background multiply and white border, gold title/white action colors, 16px pitch, 15px borders, notCheckable and check-column seats, the full width-settle allowances, highlight/check/arrow/icon decoration, two-level parent-row anchoring and edge flips, open/row-click cues, click-away dismissal and the 5-second hover-away timeout. Loot method/threshold, master-looter promotion, raid-target submenus, range/death-gated Duel, and the client-side exact-name Follow row are live. Only the dedicated RAID-member menu remains deferred.",
+  "summary": "MSUI carries current Benilla's backed SELF/PET/PARTY/PLAYER tables and actions. The MENU surface follows UIDropDownMenu for the exact dark-navy tooltip-background multiply and white border, gold title/white action colors, 16px pitch, 15px borders, notCheckable and check-column seats, the full width-settle allowances, highlight/check/arrow/icon decoration, two-level parent-row anchoring and edge flips, open/row-click cues, click-away dismissal and the 5-second hover-away timeout. The pet-frame right click now uses UNIT_FIELD_SUMMONEDBY plus the exact 0x20/0x10 flags to fork Pet Details/Rename/Abandon from Dismiss, refuses an unowned cancel-only menu, routes details to the Pet paper doll, and sends the distinct abandon, dismiss and two-step rename verbs through the shared rule-owned StaticPopup slots. Only the dedicated RAID-member menu remains deferred.",
   "openItems": [
     {
       "id": "item-triage-e18f3de0",
@@ -108,11 +119,19 @@
       "source": "item-unitpopup-menu-backdrop-tint-20260822",
       "added": "2026-08-22",
       "resolved": false
+    },
+    {
+      "id": "item-unitpopup-pet-menu-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live-compare hunter-pet and summoned-demon right-click rows, exact popup copy/slot stacking, pet-details routing, abandon/dismiss teardown and successful one-shot rename against current Benilla.",
+      "source": "benilla-b57ee0e9e2c8822b/ui_pet/menu.rs",
+      "added": "2026-08-22",
+      "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T05:07:19.3981936Z",
+  "lastReviewedUtc": "2026-08-22T22:15:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

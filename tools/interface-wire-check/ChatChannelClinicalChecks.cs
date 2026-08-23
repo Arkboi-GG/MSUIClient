@@ -11,12 +11,29 @@ internal static class ChatChannelClinicalChecks
               (ushort)Op.CMSG_LEAVE_CHANNEL == 0x0098 &&
               (ushort)Op.SMSG_CHANNEL_NOTIFY == 0x0099 &&
               (ushort)Op.CMSG_CHANNEL_LIST == 0x009A &&
-              (ushort)Op.SMSG_CHANNEL_LIST == 0x009B,
+              (ushort)Op.SMSG_CHANNEL_LIST == 0x009B &&
+              (ushort)Op.CMSG_CHANNEL_PASSWORD == 0x009C &&
+              (ushort)Op.CMSG_CHANNEL_SET_OWNER == 0x009D &&
+              (ushort)Op.CMSG_CHANNEL_OWNER == 0x009E &&
+              (ushort)Op.CMSG_CHANNEL_MODERATOR == 0x009F &&
+              (ushort)Op.CMSG_CHANNEL_UNMODERATOR == 0x00A0 &&
+              (ushort)Op.CMSG_CHANNEL_MUTE == 0x00A1 &&
+              (ushort)Op.CMSG_CHANNEL_UNMUTE == 0x00A2 &&
+              (ushort)Op.CMSG_CHANNEL_INVITE == 0x00A3 &&
+              (ushort)Op.CMSG_CHANNEL_KICK == 0x00A4 &&
+              (ushort)Op.CMSG_CHANNEL_BAN == 0x00A5 &&
+              (ushort)Op.CMSG_CHANNEL_UNBAN == 0x00A6 &&
+              (ushort)Op.CMSG_CHANNEL_ANNOUNCEMENTS == 0x00A7 &&
+              (ushort)Op.CMSG_CHANNEL_MODERATE == 0x00A8,
             "build-5875 channel opcode block drift");
         Check(ChannelPackets.BuildJoin("Secret", "hunter2")
                   .SequenceEqual(Encoding.UTF8.GetBytes("Secret\0hunter2\0")) &&
               ChannelPackets.BuildName("General")
-                  .SequenceEqual(Encoding.UTF8.GetBytes("General\0")),
+                  .SequenceEqual(Encoding.UTF8.GetBytes("General\0")) &&
+              ChannelPackets.BuildPair("General", "hunter2")
+                  .SequenceEqual(Encoding.UTF8.GetBytes("General\0hunter2\0")) &&
+              ChannelPackets.BuildPair("General", "Bob")
+                  .SequenceEqual(Encoding.UTF8.GetBytes("General\0Bob\0")),
             "channel CMSG cstring bodies drift");
 
         var joined = new PacketWriter();
@@ -54,6 +71,23 @@ internal static class ChatChannelClinicalChecks
               ChatChannelLaw.TryResolveSend(channels, "/c", "3 defend", out channel,
                   out message) && channel == "LocalDefense - Elwynn Forest" && message == "defend",
             "numbered /c channel send grammar drift");
+        Check(ChatChannelLaw.TryResolveAdmin(channels, "/password", "2 hunter2",
+                  out ChannelAdminRoute admin) && admin ==
+                  new ChannelAdminRoute(ChannelAdminCommand.Password, "World", "hunter2") &&
+              ChatChannelLaw.TryResolveAdmin(channels, "/owner", "2 Bob", out admin) &&
+                  admin == new ChannelAdminRoute(ChannelAdminCommand.SetOwner, "World", "Bob") &&
+              ChatChannelLaw.TryResolveAdmin(channels, "/owner", "2", out admin) &&
+                  admin == new ChannelAdminRoute(ChannelAdminCommand.Owner, "World", "") &&
+              ChatChannelLaw.TryResolveAdmin(channels, "/mod", "2 Bob", out admin) &&
+                  admin.Command == ChannelAdminCommand.Moderator &&
+              ChatChannelLaw.TryResolveAdmin(channels, "/cinvite", "2 Bob", out admin) &&
+                  admin.Command == ChannelAdminCommand.Invite &&
+              ChatChannelLaw.TryResolveAdmin(channels, "/moderate", "2", out admin) &&
+                  admin.Command == ChannelAdminCommand.Moderate &&
+              ChatChannelLaw.TryResolveAdmin(channels, "/ban", "2", out admin) &&
+                  admin.Channel.Length == 0 &&
+              !ChatChannelLaw.TryResolveAdmin(channels, "/invite", "Bob", out _),
+            "channel administration slash grammar drift");
 
         Check(ChatChannelLaw.FormatMember("3. LocalDefense - Elwynn Forest", "Alice", true) ==
                   "[3. LocalDefense] [Alice] joined channel." &&
@@ -73,6 +107,19 @@ internal static class ChatChannelClinicalChecks
         Check(chat.Contains("_net?.JoinChannel", StringComparison.Ordinal) &&
               chat.Contains("_net?.LeaveChannel", StringComparison.Ordinal) &&
               chat.Contains("_net?.ChannelList", StringComparison.Ordinal) &&
+              chat.Contains("_net?.ChannelPassword", StringComparison.Ordinal) &&
+              chat.Contains("_net?.ChannelSetOwner", StringComparison.Ordinal) &&
+              chat.Contains("_net?.ChannelModerator", StringComparison.Ordinal) &&
+              chat.Contains("_net?.ChannelUnmoderator", StringComparison.Ordinal) &&
+              chat.Contains("_net?.ChannelMute", StringComparison.Ordinal) &&
+              chat.Contains("_net?.ChannelUnmute", StringComparison.Ordinal) &&
+              chat.Contains("_net?.ChannelInvite", StringComparison.Ordinal) &&
+              chat.Contains("_net?.ChannelKick", StringComparison.Ordinal) &&
+              chat.Contains("_net?.ChannelBan", StringComparison.Ordinal) &&
+              chat.Contains("_net?.ChannelUnban", StringComparison.Ordinal) &&
+              chat.Contains("_net?.ChannelAnnouncements", StringComparison.Ordinal) &&
+              chat.Contains("_net?.ChannelModerate", StringComparison.Ordinal) &&
+              chat.Contains("ChatChannelLaw.TryResolveAdmin", StringComparison.Ordinal) &&
               chat.Contains("ChatChannelLaw.TryResolveSend", StringComparison.Ordinal) &&
               net.Contains("case Op.SMSG_CHANNEL_NOTIFY", StringComparison.Ordinal) &&
               net.Contains("case Op.SMSG_CHANNEL_LIST", StringComparison.Ordinal),

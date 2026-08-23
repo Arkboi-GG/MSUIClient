@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/screenshotstatus",
+  "title": "screenshotstatus",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/ScreenshotStatus.xml",
+      "fileSha256": "569afe9bd6e9f68e464099a14c1c956bc81043b00c443037b480f52ff0f6bd29",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/screenshot.rs",
+      "fileSha256": "16c13cc08854df1a43ac1394895a556ba2faf3037ec30eb1ae663e0a197edc54",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/ScreenshotStatusUiLaw.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.ScreenshotStatus.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Bindings.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "MSUIClient/GameLoop/Dev/GameLoop.DevTools.GameplayDump.cs",
+    "tools/interface-wire-check/ScreenshotStatusClinicalChecks.cs"
+  ],
+  "status": "partial",
+  "summary": "PrintScreen is a normal bindable in-world command with the reference default, plus the reference's separate hard-coded physical PrintScreen edge on login, connecting, character-select, and character-create glue screens. Both routes hide any previous status before arming the shutter, capture the final framebuffer after ImGui and the top overlay, write a uniquely suffixed WoWScrnShot_MMDDYY_HHMMSS PNG under the workspace Screenshots folder, and only then announce byte-exact success/failure text at the rule-owned full-display center. The SystemFont line fades linearly over the reference 1.5 seconds, so a rapid second capture cannot photograph the first result.",
+  "openItems": [
+    {
+      "id": "item-msui-screenshot-glue-001",
+      "kind": "gap",
+      "text": "The in-world bindable PrintScreen path is implemented. Glue/login/character-select screens still do not provide the reference's separate hard-coded unrebindable screenshot handler.",
+      "source": "benilla-b57ee0e9e2c8822b/ScreenshotStatus.xml",
+      "added": "2026-08-22",
+      "resolved": true,
+      "resolution": "UpdateGlueScreenshotInput owns a separate unrebindable physical PrintScreen edge before every pre-world early return. Login, connecting, character-select, and character-create paths all draw the same rule-owned centered status overlay and use the proven hide-before-final-frame capture transaction; gameplay continues to use the independently rebindable SCREENSHOT command."
+    },
+    {
+      "id": "item-msui-screenshot-live-verify-001",
+      "kind": "verify",
+      "text": "Live-verify ordinary and rapid double PrintScreen captures in-world and on login, connecting, character-select, and character-create screens: final framebuffer contents, absence of the prior status line from the second PNG, success/failure text, exact center seat and 1.5-second alpha fade, unique same-second suffixes, hard-coded glue behavior, and custom in-world rebinding.",
+      "source": "benilla-b57ee0e9e2c8822b/ScreenshotStatus.xml",
+      "added": "2026-08-22",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-22T23:26:00Z",
+  "seededUtc": "2026-08-22T23:25:00Z"
+}

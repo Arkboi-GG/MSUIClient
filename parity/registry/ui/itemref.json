@@ -20,7 +20,7 @@
     "MSUIClient/GameLoop/Hud/GameLoop.UnitPopup.cs"
   ],
   "status": "partial",
-  "summary": "MSUI now carries current Benilla hyperlink identity through color-run parsing and pixel wrapping, emits player links for ordinary chat senders, draws clickable/underlined link regions, and routes player links to whisper, the shared law-driven FRIEND menu, or Shift insertion. Item links open a persistent dynamically sized ItemRefTooltip at a dedicated-law bottom-center seat with template-backed content and the reference corner close button; Shift inserts their reconstructed hyperlink markup. Ctrl-click dressing-room preview remains absent because MSUI has no dressing-room subsystem.",
+  "summary": "MSUI carries current Benilla hyperlink identity through color-run parsing and pixel wrapping, emits player links for ordinary chat senders, draws clickable/underlined link regions, and routes player links to whisper, the shared law-driven FRIEND menu, or Shift insertion. Item links open a persistent dynamically sized ItemRefTooltip at a dedicated-law bottom-center seat with template-backed content and the reference corner close button; Shift inserts their reconstructed hyperlink markup, while Ctrl-click now routes the item entry into the isolated rule-owned DressUpFrame preview.",
   "openItems": [
     {
       "id": "item-triage-c9a473c2",
@@ -55,7 +55,8 @@
       "text": "Shift-click insertion is implemented for player/item links, but Ctrl-click item dressing-room preview remains absent because MSUI has no dressing-room subsystem",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "ActivateChatLink now gives Ctrl precedence over the persistent ItemRef tooltip and queues the parsed item entry through TryOnDressUp; the dressing room resolves uncached templates asynchronously and previews the resulting visual slot without mutating live gear."
     }
   ],
   "claims": [],

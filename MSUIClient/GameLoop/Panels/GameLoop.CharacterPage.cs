@@ -32,6 +32,7 @@ public sealed partial class GameLoop
         try { _itemSets = ItemSetCatalog.Load(_mpq); }
         catch (Exception ex) { Console.WriteLine($"[character] item set catalog failed: {ex.Message}"); }
         InitReputation();
+        InitPetPaperDollData();
     }
 
     private static readonly (int Slot, string Empty)[] LeftPaperDollSlots =
@@ -56,6 +57,8 @@ public sealed partial class GameLoop
         _characterOpen = open;
         if (open)
             _paperDollDirty = true;
+        else
+            _reputationDetailOpen = false;
         if (playSound)
             PlayCharacterTransition(open ? PaperDollUiLaw.OpenSound : PaperDollUiLaw.CloseSound,
                 soundCategory);
@@ -107,6 +110,11 @@ public sealed partial class GameLoop
     {
         if (!_characterOpen || _net is null || _items is null || _gameplayArt is null ||
             !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
+        if (_characterTab == 1 && !TryGetControlledPet(out _))
+        {
+            SetCharacterPageOpen(false);
+            return;
+        }
 
         float scale = GameplayUiScale();
         Vector2 origin = new(0, 104f * scale);
@@ -152,12 +160,17 @@ public sealed partial class GameLoop
         // contain the square live render target instead of letting its corners cover the chrome.
         DrawCharacterPortrait(dl, origin, scale, player, panelClip);
         if (_characterTab == 0) DrawPaperDollBackground(dl, origin, scale);
+        else if (_characterTab == 1) DrawPetPaperDollBackground(dl, origin, scale);
         else if (_characterTab == 3) DrawSkillBackground(dl, origin, scale);
         else DrawCharacterGeneralBackground(dl, origin, scale);
 
         switch (_characterTab)
         {
             case 0: DrawPaperDollPage(dl, origin, scale, player); break;
+            case 1:
+                if (TryGetControlledPet(out WorldEntity pet))
+                    DrawPetPaperDollPage(dl, origin, scale, player, pet);
+                break;
             case 2: DrawReputationPage(dl, origin, scale, player); break;
             case 3: DrawSkillsPage(dl, origin, scale, player); break;
             case 4: DrawHonorPage(dl, origin, scale, player); break;
@@ -169,6 +182,7 @@ public sealed partial class GameLoop
             !_shoppingTooltipParityCompletionPending)
             MarkUiParityFrameComplete();
         ImGui.End();
+        if (_characterTab == 2) DrawReputationDetail(origin, scale, player);
     }
 
     private void DrawPaperDollBackground(ImDrawListPtr dl, Vector2 p, float s)
@@ -227,6 +241,18 @@ public sealed partial class GameLoop
         DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-General-BottomRight", p + new Vector2(258, 257) * s, new(128, 256), s);
     }
 
+    private void DrawPetPaperDollBackground(ImDrawListPtr dl, Vector2 p, float s)
+    {
+        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-General-TopLeft",
+            p + new Vector2(2, 1) * s, new(256), s);
+        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-General-TopRight",
+            p + new Vector2(258, 1) * s, new(128, 256), s);
+        DrawArt(dl, @"Interface\PetPaperDollFrame\UI-PetPaperDollFrame-BotLeft",
+            p + new Vector2(2, 257) * s, new(256), s);
+        DrawArt(dl, @"Interface\PetPaperDollFrame\UI-PetPaperDollFrame-BotRight",
+            p + new Vector2(258, 257) * s, new(128, 256), s);
+    }
+
     private void DrawCharacterPortrait(ImDrawListPtr dl, Vector2 p, float s, WorldEntity player,
         Vector4 panelClip)
     {
@@ -258,14 +284,18 @@ public sealed partial class GameLoop
     {
         // The sheet shows whoever is being DRIVEN. PlayerName is the session
         // character, which kept the owner's name over a possessed bot's page.
-        string name = ControlledGuid == LocalPlayerGuid
-            ? _net?.PlayerName ?? ""
-            : ResolveUnitName(ControlledGuid);
+        WorldEntity? pet = null;
+        bool petPage = _characterTab == 1 && TryGetControlledPet(out pet);
+        string name = petPage ? ResolveCreatureOrPetName(pet!, "Pet") :
+            ControlledGuid == LocalPlayerGuid ? _net?.PlayerName ?? "" :
+            ResolveUnitName(ControlledGuid);
         // CharacterNameText inherits GameFontNormal but CharacterFrame.xml overrides its
         // <Color> to white (1,1,1) - the name is white, not GameFontNormal's default gold.
         GameText.DrawCentered(dl, "GameFontNormal", name, p + new Vector2(198, 24) * s, s, 0xffffffff);
         var bytes = player.Fields.Bytes0;
-        string level = $"Level {player.Level} {RaceName(bytes.Race)} {ClassName(bytes.Class)}";
+        string level = petPage
+            ? $"Level {pet!.Level}{PetFamilySuffix(pet)}"
+            : $"Level {player.Level} {RaceName(bytes.Race)} {ClassName(bytes.Class)}";
         // CharacterLevelText inherits GameFontNormalSmall; TOP of CharacterNameText BOTTOM -6.
         GameText.DrawCentered(dl, "GameFontNormalSmall", level, p + new Vector2(198, 41) * s, s);
 
@@ -317,6 +347,240 @@ public sealed partial class GameLoop
                         Strata: "MEDIUM+1"));
         }
         if (ImGui.IsItemClicked()) SetCharacterPageOpen(false);
+    }
+
+    private string PetFamilySuffix(WorldEntity pet)
+    {
+        if (_creatureQueryRecords.TryGetValue(pet.Entry, out CreatureQueryInfo? query) &&
+            query is not null && _creatureFamilies?.TryGet(query.PetFamily,
+                out CreatureFamilyInfo family) == true)
+            return " " + family.Name;
+        return "";
+    }
+
+    private void DrawPetPaperDollPage(ImDrawListPtr dl, Vector2 p, float s,
+        WorldEntity player, WorldEntity pet)
+    {
+        PetPaperDollUiLaw.LogicalRect model = PetPaperDollUiLaw.Model;
+        Vector2 modelMin = p + model.Min * s;
+        Vector2 modelSize = model.Size * s;
+        if (_petPaperDollUsable && _petPaperDoll is not null)
+            dl.AddImage((nint)_petPaperDoll.TextureHandle, modelMin, modelMin + modelSize,
+                new Vector2(0, 1), new Vector2(1, 0));
+
+        DrawPetPaperDollRotation(dl, p, s, true);
+        DrawPetPaperDollRotation(dl, p, s, false);
+
+        uint stat = _gameplayArt?.Handle(
+            @"Interface\PaperDollInfoFrame\UI-Character-StatBackground") ?? 0;
+        Vector2 attr = p + PetPaperDollUiLaw.Attributes.Min * s;
+        if (stat != 0)
+        {
+            dl.AddImage((nint)stat, attr, attr + new Vector2(114, 78) * s,
+                Vector2.Zero, new Vector2(.89f, .61f));
+            dl.AddImage((nint)stat, attr + new Vector2(115, 0) * s,
+                attr + new Vector2(229, 78) * s,
+                Vector2.Zero, new Vector2(.89f, .61f));
+        }
+
+        string[] leftLabels = ["Strength:", "Agility:", "Stamina:", "Intellect:", "Spirit:"];
+        Vector4 petPanelClip = new(p.X, p.Y, p.X + PaperDollUiLaw.FrameWidth * s,
+            p.Y + PaperDollUiLaw.FrameHeight * s);
+        for (int i = 0; i < PetPaperDollUiLaw.StatRows; i++)
+        {
+            DrawPetPaperDollStat(dl, p, s, false, i, leftLabels[i],
+                pet.Fields.Stat(i).ToString());
+            PetPaperDollUiLaw.LogicalRect row = PetPaperDollUiLaw.StatRow(false, i);
+            DrawCharacterTooltipHit($"PetStatFrame{i + 1}", p + row.Min * s, row.Size * s,
+                petPanelClip, "PetAttributesFrame",
+                PaperDollUiLaw.PrimaryStatTooltip(PetPaperDollUiLaw.StatNames[i],
+                    pet.Fields.Stat(i), pet.Fields.StatPositive(i),
+                    pet.Fields.StatNegative(i)),
+                PaperDollUiLaw.StatSubtexts[i]);
+        }
+        string damage = $"{pet.Fields.MinDamage:0.#}-{pet.Fields.MaxDamage:0.#}";
+        string[] rightLabels = ["Attack:", "Power:", "Damage:", "Defense:", "Armor:"];
+        string[] rightValues =
+        [
+            (pet.Level * 5).ToString(), pet.Fields.AttackPower.ToString(), damage,
+            (pet.Level * 5).ToString(), pet.Fields.Resistance(0).ToString()
+        ];
+        for (int i = 0; i < PetPaperDollUiLaw.StatRows; i++)
+        {
+            DrawPetPaperDollStat(dl, p, s, true, i, rightLabels[i], rightValues[i]);
+            PetPaperDollUiLaw.LogicalRect row = PetPaperDollUiLaw.StatRow(true, i);
+            string title;
+            string[] lines;
+            if (i == 0) { title = "Attack Rating"; lines = []; }
+            else if (i == 1)
+            {
+                title = PaperDollUiLaw.ModifierTooltip("Melee Attack Power",
+                    pet.Fields.AttackPower, pet.Fields.AttackPowerPositive,
+                    pet.Fields.AttackPowerNegative);
+                lines = [$"Increases damage with melee weapons by " +
+                    $"{Math.Max(pet.Fields.AttackPower, 0) / 14f:0.0} damage per second."];
+            }
+            else if (i == 2)
+            {
+                float attackSpeed = pet.Fields.MainAttackTime / 1000f;
+                PaperDollUiLaw.DamageTooltipData breakdown = PaperDollUiLaw.DamageTooltip(
+                    pet.Fields.MinDamage, pet.Fields.MaxDamage, 0, 0, 1, attackSpeed);
+                title = "Main Hand";
+                lines = CharacterDamageTooltipLines(breakdown);
+            }
+            else if (i == 3) { title = "Defense Rating"; lines = []; }
+            else
+            {
+                int armor = pet.Fields.Resistance(0);
+                title = PaperDollUiLaw.ModifierTooltip("Armor", armor,
+                    pet.Fields.ResistancePositive(0), pet.Fields.ResistanceNegative(0));
+                lines = [PaperDollUiLaw.ArmorTooltipSubtext(armor, pet.Level)];
+            }
+            DrawCharacterTooltipHit(i switch
+                {
+                    0 => "PetAttackFrame", 1 => "PetAttackPowerFrame",
+                    2 => "PetDamageFrame", 3 => "PetDefenseFrame", _ => "PetArmorFrame"
+                }, p + row.Min * s, row.Size * s, petPanelClip, "PetAttributesFrame",
+                title, lines);
+        }
+
+        DrawPetPaperDollResistances(dl, p, s, pet.Fields);
+        DrawPetPaperDollExperience(dl, p, s, pet.Fields);
+
+        byte loyalty = pet.Fields.PetLoyaltyLevel;
+        string loyaltyName = PetPaperDollUiLaw.LoyaltyName(loyalty);
+        if (loyaltyName.Length > 0)
+            GameText.DrawCentered(dl, "GameFontNormalSmall", loyaltyName,
+                p + new Vector2(198, 54) * s, s);
+
+        bool hunterPet = player.Fields.Bytes0.Class == 3 && pet.Fields.PetNumber != 0;
+        if (hunterPet)
+        {
+            (ushort total, ushort spent) =
+                PetPaperDollUiLaw.TrainingPoints(pet.Fields.PetTrainingPoints);
+            GameText.DrawRightAligned(dl, "GameFontNormalSmall", "Training Points:",
+                p + new Vector2(244, 426) * s, s);
+            GameText.Draw(dl, "GameFontHighlightSmall", ((int)total - spent).ToString(),
+                p + new Vector2(249, 420) * s, s);
+            DrawPetDietAffordance(dl, p, s, pet);
+        }
+
+        PetPaperDollUiLaw.LogicalRect close = PetPaperDollUiLaw.Close;
+        DrawImageButton(dl, "##pet-paper-doll-close", p + close.Min * s, close.Size * s,
+            @"Interface\Buttons\UI-Panel-Button-Up",
+            @"Interface\Buttons\UI-Panel-Button-Down",
+            @"Interface\Buttons\UI-Panel-Button-Highlight");
+        GameText.DrawCentered(dl, ImGui.IsItemHovered() ? "GameFontHighlight" : "GameFontNormal",
+            "Close", p + (close.Min + close.Size * .5f) * s, s);
+        if (ImGui.IsItemClicked()) SetCharacterPageOpen(false);
+    }
+
+    private void DrawPetPaperDollRotation(ImDrawListPtr dl, Vector2 p, float s, bool left)
+    {
+        PetPaperDollUiLaw.LogicalRect logical = left
+            ? PetPaperDollUiLaw.RotateLeft : PetPaperDollUiLaw.RotateRight;
+        string stem = left ? "UI-RotationLeft-Button" : "UI-RotationRight-Button";
+        DrawImageButton(dl, left ? "##pet-doll-left" : "##pet-doll-right",
+            p + logical.Min * s, logical.Size * s,
+            $@"Interface\Buttons\{stem}-Up", $@"Interface\Buttons\{stem}-Down",
+            @"Interface\Buttons\ButtonHilight-Round");
+        bool changed = false;
+        if (ImGui.IsItemClicked())
+        {
+            _petPaperDollRotation = PaperDollUiLaw.ClickFacing(_petPaperDollRotation, left);
+            PlayCharacterTransition(PaperDollUiLaw.RotateTapSound);
+            changed = true;
+        }
+        if (ImGui.IsItemActive())
+        {
+            _petPaperDollRotation = PaperDollUiLaw.HeldFacing(_petPaperDollRotation, left,
+                ImGui.GetIO().DeltaTime);
+            changed = true;
+        }
+        if (changed) _petPaperDollDirty = true;
+    }
+
+    private static void DrawPetPaperDollStat(ImDrawListPtr dl, Vector2 p, float s,
+        bool right, int row, string label, string value)
+    {
+        PetPaperDollUiLaw.LogicalRect logical = PetPaperDollUiLaw.StatRow(right, row);
+        Vector2 min = p + logical.Min * s;
+        GameText.Draw(dl, "GameFontNormalSmall", label, min, s);
+        GameText.DrawRightAligned(dl, "GameFontHighlightSmall", value,
+            min + new Vector2(logical.Width, 6) * s, s);
+    }
+
+    private void DrawPetPaperDollResistances(ImDrawListPtr dl, Vector2 p, float s,
+        ObjectFields fields)
+    {
+        int[] schools = [6, 2, 3, 4, 5];
+        (float Top, float Bottom)[] uv =
+        [
+            (.2265625f, .33984375f), (0, .11328125f), (.11328125f, .2265625f),
+            (.33984375f, .453125f), (.453125f, .56640625f)
+        ];
+        uint icons = _gameplayArt?.Handle(
+            @"Interface\PaperDollInfoFrame\UI-Character-ResistanceIcons") ?? 0;
+        for (int i = 0; i < 5; i++)
+        {
+            PetPaperDollUiLaw.LogicalRect logical = PetPaperDollUiLaw.ResistanceRow(i);
+            Vector2 min = p + logical.Min * s;
+            if (icons != 0)
+                dl.AddImage((nint)icons, min, min + logical.Size * s,
+                    new Vector2(0, uv[i].Top), new Vector2(1, uv[i].Bottom));
+            int value = fields.Resistance(schools[i]);
+            uint color = value < 0 ? 0xff3333ff : value > 0 ? 0xff33ff33 : 0xffffffff;
+            GameText.DrawCentered(dl, "GameFontHighlightSmall", value.ToString(),
+                min + new Vector2(16, 22) * s, s, color);
+            DrawCharacterTooltipHit($"PetMagicResFrame{i + 1}", min, logical.Size * s,
+                new Vector4(p.X, p.Y, p.X + PaperDollUiLaw.FrameWidth * s,
+                    p.Y + PaperDollUiLaw.FrameHeight * s), "PetResistanceFrame",
+                PetPaperDollUiLaw.ResistanceTooltip(
+                    PetPaperDollUiLaw.ResistanceNames[i], value,
+                    fields.ResistancePositive(schools[i]),
+                    fields.ResistanceNegative(schools[i])));
+        }
+    }
+
+    private void DrawPetPaperDollExperience(ImDrawListPtr dl, Vector2 p, float s,
+        ObjectFields fields)
+    {
+        PetPaperDollUiLaw.LogicalRect logical = PetPaperDollUiLaw.Experience;
+        Vector2 min = p + logical.Min * s;
+        DrawVanillaStatusBar(dl, min, logical.Size * s,
+            PetPaperDollUiLaw.ExperienceFraction(fields.PetExperience,
+                fields.PetNextLevelExperience), new Vector4(.58f, 0, .55f, 1));
+        uint dwarf = _gameplayArt?.Handle(@"Interface\MainMenuBar\UI-MainMenuBar-Dwarf") ?? 0;
+        if (dwarf != 0)
+        {
+            Vector2 uv0 = new(.203125f, .2890625f);
+            Vector2 uv1 = new(.8046875f, .33984375f);
+            dl.AddImage((nint)dwarf, min, min + new Vector2(160, 13) * s, uv0, uv1);
+            dl.AddImage((nint)dwarf, min + new Vector2(160, 0) * s,
+                min + new Vector2(319, 13) * s, uv0, uv1);
+        }
+    }
+
+    private void DrawPetDietAffordance(ImDrawListPtr dl, Vector2 p, float s, WorldEntity pet)
+    {
+        PetPaperDollUiLaw.LogicalRect logical = PetPaperDollUiLaw.Diet;
+        Vector2 min = p + logical.Min * s;
+        uint icon = _gameplayArt?.Handle(
+            @"Interface\PetPaperDollFrame\UI-PetHappiness") ?? 0;
+        if (icon != 0)
+            dl.AddImage((nint)icon, min, min + logical.Size * s,
+                Vector2.Zero, new Vector2(.1875f, .359375f));
+        ImGui.SetCursorScreenPos(min);
+        ImGui.InvisibleButton("##pet-diet", logical.Size * s);
+        if (!ImGui.IsItemHovered()) return;
+        string diet = "";
+        if (_creatureQueryRecords.TryGetValue(pet.Entry, out CreatureQueryInfo? query) &&
+            query is not null)
+            diet = _creatureFamilies?.Diet(query.PetFamily) ?? "";
+        string text = diet.Length > 0 ? $"Diet: {diet}" : "Diet";
+        OfferPreservedSharedGameTooltipRenderer(
+            new GameTooltipOwnerKey("pet-paper-doll-diet", pet.Guid),
+            () => DrawPetTokenTooltip(text));
     }
 
     private void DrawPaperDollPage(ImDrawListPtr dl, Vector2 p, float s, WorldEntity player)
@@ -486,6 +750,12 @@ public sealed partial class GameLoop
             ImGui.IsMouseReleased(ImGuiMouseButton.Left) && ImGui.IsItemDeactivated();
         bool leftClicked = !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Left);
         bool rightClicked = !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Right);
+        bool dressUpClick = leftClicked && ImGui.GetIO().KeyCtrl && instance is not null;
+        if (dressUpClick)
+        {
+            TryOnDressUp(instance!.Entry);
+            leftClicked = rightClicked = false;
+        }
         if (repairReleased) TryRepairMerchantItem(instance?.Guid ?? 0);
         if (_itemCastSpell != 0)
         {
@@ -510,7 +780,7 @@ public sealed partial class GameLoop
         }
         else if (action == PaperDollUiLaw.SlotClickAction.Use && guid != 0)
             _net?.UseItem(InventoryUiLaw.PlayerInventoryBag, (byte)slot, item?.UseSpellIndex ?? 0);
-        if (!_vendorRepairMode && _itemCastSpell == 0 && _enchantConfirmation is null)
+        if (!dressUpClick && !_vendorRepairMode && _itemCastSpell == 0 && _enchantConfirmation is null)
             HandleInventoryDrag(InventoryUiLaw.EquipmentContainer, slot, guid, item);
 
         if (_uiParityArmed && _uiParityPanel == "character-frame")
@@ -1108,6 +1378,8 @@ public sealed partial class GameLoop
             if (clicked && tab != _characterTab)
             {
                 _characterTab = tab;
+                if (tab != 2) _reputationDetailOpen = false;
+                if (tab == 1) _petPaperDollDirty = true;
                 PlayCharacterTransition(PaperDollUiLaw.TabSwitchSound);
             }
             previousVisibleTab = tabElement;
@@ -1120,29 +1392,37 @@ public sealed partial class GameLoop
         // Factions with a live standing, grouped under their ParentFaction as the 1.12 pane does:
         // the parent (e.g. Alliance) is a collapsible header with no bar of its own; parentless
         // factions collect under "Other".
-        var factions = new List<(FactionInfo Info, int Standing)>();
+        var factions = new List<(int Slot, FactionInfo Info, int Standing, byte Flags)>();
         if (_factionCatalog is not null)
             for (int i = 0; i < _reputation.Length; i++)
-                if ((_reputation[i].Flags & 1) != 0 && _factionCatalog.TryGetByReputationIndex(i, out FactionInfo info))
-                    factions.Add((info, info.BaseStanding(player.Fields.Bytes0.Race, player.Fields.Bytes0.Class) + _reputation[i].Standing));
-        // A faction that heads a group (some other faction's parent) is shown only as that
-        // header, never also as its own bar - Alliance is a header, not a row under "Other".
-        var parentIds = factions.Select(x => x.Info.ParentFaction).Where(id => id != 0).ToHashSet();
-        factions = factions.Where(x => !parentIds.Contains(x.Info.Id)).ToList();
+                if (ReputationFrameUiLaw.IsVisible(_reputation[i].Flags) &&
+                    _factionCatalog.TryGetByReputationIndex(i, out FactionInfo info))
+                    factions.Add((i, info,
+                        info.BaseStanding(player.Fields.Bytes0.Race, player.Fields.Bytes0.Class) +
+                        _reputation[i].Standing, _reputation[i].Flags));
+        // Header identity is the live 0x08 flag. Inactive rows are re-parented under the synthetic
+        // Inactive group; parentless rows use the synthetic Other group.
+        factions = factions.Where(x => !ReputationFrameUiLaw.IsHeader(x.Flags)).ToList();
         var groups = factions
-            .GroupBy(x => x.Info.ParentFaction)
+            .GroupBy(x => ReputationFrameUiLaw.IsInactive(x.Flags)
+                ? ReputationFrameUiLaw.InactiveHeaderKey : x.Info.ParentFaction)
             .Select(g => (Key: g.Key,
-                Name: g.Key != 0 && _factionCatalog!.TryGetName(g.Key, out string header) ? header : "Other",
+                Name: g.Key == ReputationFrameUiLaw.InactiveHeaderKey ? "Inactive" :
+                    g.Key != 0 && _factionCatalog!.TryGetName(g.Key, out string header) ? header : "Other",
                 Factions: g.OrderBy(x => x.Info.Name, StringComparer.OrdinalIgnoreCase).ToList()))
-            .OrderBy(g => g.Name.Equals("Other", StringComparison.Ordinal) ? 1 : 0).ThenBy(g => g.Name)
+            .OrderBy(g => g.Key is 0 or ReputationFrameUiLaw.InactiveHeaderKey ? 1 : 0)
+            .ThenBy(g => g.Key == ReputationFrameUiLaw.InactiveHeaderKey ? 1 : 0)
+            .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var display = new List<(bool Header, uint Key, string Name, FactionInfo Info, int Standing)>();
+        var display = new List<(bool Header, uint Key, string Name, int Slot,
+            FactionInfo Info, int Standing, byte Flags)>();
         foreach (var group in groups)
         {
-            display.Add((true, group.Key, group.Name, default!, 0));
+            display.Add((true, group.Key, group.Name, -1, default!, 0, 0));
             if (!_collapsedReputationHeaders.Contains(group.Key))
                 foreach (var fac in group.Factions)
-                    display.Add((false, fac.Info.Id, fac.Info.Name, fac.Info, fac.Standing));
+                    display.Add((false, fac.Info.Id, fac.Info.Name, fac.Slot,
+                        fac.Info, fac.Standing, fac.Flags));
         }
 
         // ReputationFrameFactionLabel/StandingLabel inherit GameFontHighlight (white).
@@ -1191,6 +1471,9 @@ public sealed partial class GameLoop
             Vector2 boxSize = new Vector2(262, 24) * s;
             bool hovered = mouse.X >= boxMin.X && mouse.X < boxMin.X + boxSize.X &&
                 mouse.Y >= boxMin.Y && mouse.Y < boxMin.Y + boxSize.Y;
+            bool selected = _reputationDetailOpen && _selectedReputationSlot == row.Slot;
+            if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                SelectReputationDetail(row.Slot);
             float capW = 12f * s;
             Vector2 boxMax = boxMin + boxSize;
             float bodyW = boxSize.X - capW;   // the frame body spans native x0..256 across bodyW
@@ -1220,7 +1503,7 @@ public sealed partial class GameLoop
             // Hover: additive ReputationBar-Highlight. Template Highlight1 is 256x28 over a 256x22
             // frame (offset out), so draw it LARGER than the row and stack it for a thick, bright
             // yellow glow (ReputationFrame.lua Highlight1/2 OnEnter).
-            if (hovered && repHighlight != 0)
+            if ((hovered || selected) && repHighlight != 0)
             {
                 Vector2 hlMin = boxMin - new Vector2(3, 4) * s;
                 Vector2 hlMax = boxMax + new Vector2(3, 4) * s;
@@ -1239,9 +1522,138 @@ public sealed partial class GameLoop
             GameText.DrawCentered(dl, "GameFontHighlightSmall",
                 hovered ? $"{earned} / {band}" : rank.Name,
                 new Vector2((chanLeft + chanRight) * 0.5f, boxMin.Y + boxSize.Y * 0.5f), s);
+            if (ReputationFrameUiLaw.IsAtWar(row.Flags) && repFrame != 0)
+            {
+                Vector2 warMin = new(boxMax.X - 2 * s, boxMin.Y + s);
+                dl.AddImage((nint)repFrame, warMin, warMin + new Vector2(24, 22) * s,
+                    new Vector2(.0625f, .34375f), new Vector2(.15625f, .71875f));
+            }
         }
         if (display.Count == 0)
             GameText.DrawCentered(dl, "GameFontDisable", "No known reputations", p + new Vector2(190, 220) * s, s);
+    }
+
+    private void DrawReputationDetail(Vector2 characterOrigin, float s, WorldEntity player)
+    {
+        if (!_reputationDetailOpen || _selectedReputationSlot is < 0 or >= 64 ||
+            _factionCatalog?.TryGetByReputationIndex(_selectedReputationSlot,
+                out FactionInfo info) != true || _skin is null)
+            return;
+
+        ReputationState state = _reputation[_selectedReputationSlot];
+        if (!ReputationFrameUiLaw.IsVisible(state.Flags))
+        {
+            _reputationDetailOpen = false;
+            return;
+        }
+
+        Vector2 origin = characterOrigin + ReputationFrameUiLaw.DetailOffset * s;
+        Vector2 size = ReputationFrameUiLaw.DetailSize * s;
+        ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0);
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav;
+        if (!ImGui.Begin("##reputation-detail", flags))
+        {
+            ImGui.End();
+            return;
+        }
+
+        ImDrawListPtr draw = ImGui.GetWindowDrawList();
+        _skin.DrawBackdrop(draw, origin, origin + size, WowSkin.Dialog);
+        DrawArt(draw, @"Interface\PaperDollInfoFrame\UI-Character-Reputation-DetailBackground",
+            origin + ReputationFrameUiLaw.DetailArt.Min * s,
+            ReputationFrameUiLaw.DetailArt.Size, s);
+        DrawArt(draw, @"Interface\DialogFrame\UI-DialogBox-Corner",
+            origin + new Vector2(174, 7) * s, new Vector2(32), s);
+        DrawArt(draw, @"Interface\DialogFrame\UI-DialogBox-Divider",
+            origin + ReputationFrameUiLaw.Divider.Min * s,
+            ReputationFrameUiLaw.Divider.Size, s);
+
+        GameText.Draw(draw, "GameFontNormal", info.Name,
+            origin + ReputationFrameUiLaw.Name.Min * s, s);
+        DrawWrappedText(draw, info.Description,
+            origin + ReputationFrameUiLaw.Description.Min * s,
+            ReputationFrameUiLaw.Description.Width, 10 * s, s, 0xffffffff, 8);
+
+        ReputationFrameUiLaw.LogicalRect close = ReputationFrameUiLaw.Close;
+        DrawImageButton(draw, "##reputation-detail-close", origin + close.Min * s,
+            close.Size * s, @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
+        if (ImGui.IsItemClicked()) _reputationDetailOpen = false;
+
+        int totalStanding = info.BaseStanding(player.Fields.Bytes0.Race,
+            player.Fields.Bytes0.Class) + state.Standing;
+        bool atWar = ReputationFrameUiLaw.IsAtWar(state.Flags);
+        bool canToggle = ReputationFrameUiLaw.CanToggleAtWar(state.Flags, totalStanding);
+        if (DrawReputationCheck(draw, origin, ReputationFrameUiLaw.AtWarCheck,
+                "##reputation-at-war", "At War", atWar, canToggle, true, s))
+        {
+            SetSelectedFactionAtWar(!atWar, totalStanding);
+            PlayUiSound(!atWar ? "igMainMenuOptionCheckBoxOn" :
+                "igMainMenuOptionCheckBoxOff", "ui.reputation");
+        }
+
+        bool inactive = ReputationFrameUiLaw.IsInactive(state.Flags);
+        if (DrawReputationCheck(draw, origin, ReputationFrameUiLaw.InactiveCheck,
+                "##reputation-inactive", "Move to Inactive", inactive, true, false, s))
+        {
+            SetSelectedFactionInactive(!inactive);
+            PlayUiSound(!inactive ? "igMainMenuOptionCheckBoxOn" :
+                "igMainMenuOptionCheckBoxOff", "ui.reputation");
+        }
+
+        bool watched = player.Fields.WatchedFactionIndex == _selectedReputationSlot;
+        if (DrawReputationCheck(draw, origin, ReputationFrameUiLaw.MainScreenCheck,
+                "##reputation-watched", "Show as Experience Bar", watched, true, false, s))
+        {
+            SetSelectedFactionWatched(!watched);
+            PlayUiSound(!watched ? "igMainMenuOptionCheckBoxOn" :
+                "igMainMenuOptionCheckBoxOff", "ui.reputation");
+        }
+        ImGui.End();
+    }
+
+    private bool DrawReputationCheck(ImDrawListPtr draw, Vector2 origin,
+        ReputationFrameUiLaw.LogicalRect logical, string id, string label, bool value,
+        bool enabled, bool sword, float s)
+    {
+        Vector2 min = origin + logical.Min * s;
+        Vector2 size = logical.Size * s;
+        ImGui.SetCursorScreenPos(min);
+        ImGui.InvisibleButton(id, size);
+        bool active = enabled && ImGui.IsItemActive();
+        bool hovered = enabled && ImGui.IsItemHovered();
+        uint box = _gameplayArt?.Handle(active
+            ? @"Interface\Buttons\UI-CheckBox-Down"
+            : @"Interface\Buttons\UI-CheckBox-Up") ?? 0;
+        if (box != 0) draw.AddImage((nint)box, min, min + size);
+        if (value)
+        {
+            string markPath = enabled
+                ? sword ? @"Interface\Buttons\UI-CheckBox-SwordCheck" :
+                    @"Interface\Buttons\UI-CheckBox-Check"
+                : @"Interface\Buttons\UI-CheckBox-Check-Disabled";
+            uint mark = _gameplayArt?.Handle(markPath) ?? 0;
+            if (mark != 0)
+            {
+                Vector2 markMin = sword ? min + new Vector2(3, -5) * s : min;
+                Vector2 markSize = sword ? new Vector2(32) * s : size;
+                draw.AddImage((nint)mark, markMin, markMin + markSize);
+            }
+        }
+        if (hovered)
+        {
+            uint highlight = _gameplayArt?.AdditiveHandle(
+                @"Interface\Buttons\UI-CheckBox-Highlight") ?? 0;
+            if (highlight != 0) draw.AddImage((nint)highlight, min, min + size);
+        }
+        uint labelColor = enabled ? sword ? 0xff3333ff : 0xffffffff : 0xff777777;
+        GameText.Draw(draw, "GameFontNormalSmall", label,
+            min + new Vector2(24, 7) * s, s, labelColor);
+        return enabled && ImGui.IsItemClicked();
     }
 
     private void DrawHonorPage(ImDrawListPtr dl, Vector2 p, float s, WorldEntity player)

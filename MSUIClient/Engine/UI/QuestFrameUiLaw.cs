@@ -33,7 +33,25 @@ public static class QuestFrameUiLaw
     public const float QuestLogListWidth = 300f;
     public const float QuestLogRowHeight = 16f;
     public const float QuestLogRowPitch = 15f;
-    public static readonly QuestLogicalRect QuestLogDetailRect = new(20, 175, 305, 250);
+    public static readonly QuestLogicalRect QuestLogCloseRect = new(322, 8, 32, 32);
+    public static readonly QuestLogicalRect QuestLogCountRightRect = new(329, 41, 8, 20);
+    public static readonly QuestLogicalRect QuestLogCollapseFrameRect = new(70, 48, 54, 32);
+    public static readonly QuestLogicalRect QuestLogCollapseButtonRect = new(70, 50, 40, 22);
+    public static readonly QuestLogicalRect QuestLogCollapseIconRect = new(73, 53, 16, 16);
+    public static readonly QuestLogicalRect QuestLogCollapseTitleRect = new(90, 56, 20, 10);
+    public static readonly QuestLogicalRect QuestLogCollapseLeftRect = new(64, 40, 8, 32);
+    public static readonly QuestLogicalRect QuestLogCollapseMiddleRect = new(72, 40, 38, 32);
+    public static readonly QuestLogicalRect QuestLogCollapseRightRect = new(110, 40, 8, 32);
+    public static readonly QuestLogicalRect QuestLogTrackRect = new(129, 44, 20, 20);
+    public static readonly QuestLogicalRect QuestLogTrackTitleRect = new(149, 49, 76, 12);
+    public static readonly QuestLogicalRect QuestLogDetailRect = new(19, 175, 300, 261);
+    public static readonly QuestLogicalRect QuestLogDetailScrollBarRect = new(325, 175, 16, 261);
+    public static readonly QuestLogicalRect QuestLogDetailScrollUpRect = new(325, 175, 16, 16);
+    public static readonly QuestLogicalRect QuestLogDetailScrollDownRect = new(325, 420, 16, 16);
+    public static readonly QuestLogicalRect QuestLogDetailScrollTrackRect = new(325, 191, 16, 229);
+    public static readonly QuestLogicalRect QuestLogAbandonRect = new(17, 437, 125, 21);
+    public static readonly QuestLogicalRect QuestLogShareRect = new(141, 437, 123, 21);
+    public static readonly QuestLogicalRect QuestLogExitRect = new(264, 437, 77, 21);
     public static readonly QuestLogicalRect AbandonPopupRect = new(0, 128, 320, 72);
     public static readonly QuestLogicalRect AbandonPopupTextRect = new(15, 16, 290, 12);
     public static readonly QuestLogicalRect AbandonPopupAcceptRect = new(26, 36, 128, 20);
@@ -71,6 +89,19 @@ public static class QuestFrameUiLaw
         Math.Clamp(offset, 0, Math.Max(0, questCount - QuestLogRows));
     public static float ClampQuestLogDetailScroll(float offset, float contentHeight) =>
         Math.Clamp(offset, 0, Math.Max(0, contentHeight - QuestLogDetailRect.Height));
+    public static QuestLogicalRect QuestLogCountPillRect(float textWidth)
+    {
+        float middle = Math.Max(1f, textWidth);
+        return new(QuestLogCountRightRect.X - middle - 8f, QuestLogCountRightRect.Y,
+            middle + 16f, QuestLogCountRightRect.Height);
+    }
+    public static float QuestLogDetailThumbY(float offset, float contentHeight)
+    {
+        float maximum = Math.Max(0, contentHeight - QuestLogDetailRect.Height);
+        float fraction = maximum <= 0 ? 0 : Math.Clamp(offset / maximum, 0, 1);
+        return QuestLogDetailScrollTrackRect.Y +
+            fraction * (QuestLogDetailScrollTrackRect.Height - ScrollThumbHeight);
+    }
     public static Vector2 QuestLogRowMin(int visibleRow) =>
         new(QuestLogListX, QuestLogListY + Math.Clamp(visibleRow, 0, QuestLogRows - 1) * QuestLogRowPitch);
     public static Vector2 QuestLogFoldIconMin(int visibleRow) =>

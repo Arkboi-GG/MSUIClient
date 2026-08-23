@@ -99,7 +99,7 @@ public sealed class SkyRenderer : IDisposable
     /// Draw the sky. Must run BEFORE the world, with depth writes off so it
     /// never occludes anything.
     /// </summary>
-    public void Render(Camera camera, WorldAtmosphere atmosphere)
+    public void Render(Camera camera, WorldAtmosphere atmosphere, float stormBlend = 0f)
     {
         if (!Enabled || _shader is null) return;
 
@@ -109,7 +109,7 @@ public sealed class SkyRenderer : IDisposable
         if (dt is <= 0f or >= 1f) dt = 0f;   // hitch / first frame: advance no cloud time
 
         bool drawClouds = CloudsEnabled && Clouds is not null && atmosphere.AuthoredCloudsReady;
-        if (drawClouds) UpdateCloudField(dt, atmosphere);
+        if (drawClouds) UpdateCloudField(dt, atmosphere, stormBlend);
 
         // Camera basis, built here rather than inverting a matrix in the shader:
         // Camera already exposes Forward, and the other two follow from it. One
@@ -164,7 +164,7 @@ public sealed class SkyRenderer : IDisposable
     // frame's colour inputs are the resolved cloud bands; the glow points at the
     // sun (day only - the moon glow is a later addition), converted from world
     // Z-up to the kernel's tile frame (+Y up): tile = (x, z, y).
-    private unsafe void UpdateCloudField(float dt, WorldAtmosphere atmosphere)
+    private unsafe void UpdateCloudField(float dt, WorldAtmosphere atmosphere, float stormBlend)
     {
         var field = Clouds!;
         float density = Math.Clamp(CloudDensityOverride ?? atmosphere.CloudDensity, 0f, 1f);
@@ -177,7 +177,7 @@ public sealed class SkyRenderer : IDisposable
             Sun = atmosphere.CloudSunGlow,
             Slope = atmosphere.CloudSlope,
             GBase = atmosphere.CloudBase,
-            Bcc = 0f,   // no weather system yet -> clear-weather blend
+            Bcc = Math.Clamp(stormBlend, 0f, 1f),
             GlowDir = Vector3.Normalize(new Vector3(sun.X, sun.Z, sun.Y)),
             GlowTrack = sunGlow ? CloudField.GlowTrack(hours) : 0f,
         };

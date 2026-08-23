@@ -66,6 +66,14 @@ vmaps.tar.gz
 # ── .NET build output ────────────────────────────────────────────────
 bin/
 obj/
+# Clinical checker outputs use explicit `dotnet build -o` directories, so they
+# do not inherit the conventional bin/obj names. They contain copied NuGet
+# runtime payloads for every package RID (including iOS/tvOS SDL archives), not
+# MSUI source or parity work, and must never appear in a desktop-client commit.
+/artifacts/
+/MSUIClient/bin-dressup*/
+/MSUIClient/bin-screenshot*/
+/tools/interface-wire-check/bin-*/
 [Dd]ebug/
 [Rr]elease/
 x64/

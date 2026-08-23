@@ -17,10 +17,12 @@
     "MSUIClient/Net/MovementModePackets.cs",
     "MSUIClient/Net/WorldHeaderCrypto.cs",
     "MSUIClient/Program.CharCreate.cs",
-    "MSUIClient/Net/LocalMovementSender.cs"
+    "MSUIClient/Net/LocalMovementSender.cs",
+    "MSUIClient/Net/MonsterMove.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Taxi.cs"
   ],
-  "status": "partial",
-  "summary": "MSUI implements auth session, character creation, messagechat, channel join/leave/list, played time, random roll, text emotes, creature and pet-name queries, ordinary movement, ping, teleport, all six force-speed acknowledgements, and the complete root/water-walk/feather-fall/hover mode-ack family. Remaining builder gaps are channel moderation and spline-done.",
+  "status": "complete",
+  "summary": "MSUI implements the current Benilla client-writer surface tracked here: auth session, character creation, messagechat, the complete channel join/leave/list/administration family, played time, random roll, text emotes, creature and pet-name queries, ordinary movement, ping, teleport, all six force-speed acknowledgements, the complete root/water-walk/feather-fall/hover mode-ack family, and CMSG_MOVE_SPLINE_DONE after server-owned self rides.",
   "openItems": [
     {
       "id": "item-triage-84f8f383",
@@ -28,7 +30,8 @@
       "text": "CMSG_CHANNEL_* moderation builder family remains absent; JOIN_CHANNEL, LEAVE_CHANNEL and CHANNEL_LIST are implemented",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23: ChannelPackets, WorldSession, and NetworkClient now implement the exact one- or two-cstring builders for the contiguous PASSWORD-through-MODERATE family; law-owned slash routing makes every sender reachable without colliding with party invite/kick commands."
     },
     {
       "id": "item-triage-d3ba516a",
@@ -72,6 +75,21 @@
       "text": "CMSG_MOVE_SPLINE_DONE: opcode-table-only (Net/Opcodes.cs:269), never built/sent after server-driven splines",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: WorldSession.BuildMoveSplineDoneBody writes the live endpoint MovementInfo, newest u32 spline id, and mandatory real-client 1.0 completion fraction. Ground/flying self rides park normal physics and input, cut-short stops ack the replacement id, and teleport hand-backs abort without a duplicate ack. Focused and full clinical suites pass."
+    },
+    {
+      "id": "verify-client-move-spline-done-live",
+      "kind": "verify",
+      "text": "Live-verify Charge/forced ground motion, taxi completion, and a server-cut-short self spline: the avatar should follow the path under input lock, send one exact CMSG_MOVE_SPLINE_DONE for the newest id, resume at rest, and emit no duplicate ack when a teleport hands control back.",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "verify-channel-moderation-slash-family",
+      "kind": "verify",
+      "text": "Live-verify on an authenticated owned private channel that password clearing/setting, owner query/transfer, moderator/mute/invite/kick/ban toggles, announcements, and moderation each produce the expected server notice and that numbered selectors continue to address the server-confirmed channel slot.",
+      "added": "2026-08-23",
       "resolved": false
     },
     {
@@ -96,6 +114,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T03:14:27.0335467Z",
+  "lastReviewedUtc": "2026-08-23T00:18:26.4307160Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

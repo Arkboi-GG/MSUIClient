@@ -15,8 +15,9 @@ public sealed partial class GameLoop
     private readonly HashSet<ulong> _taxiStatusAsked = [];
     private ulong _taxiStatusLastHover;
     private bool _taxiOpen, _taxiLocked;
-    private CreatureSpline? _taxiSpline;
-    private Vector3 _taxiStart;
+    private CreatureSpline? _serverRideSpline;
+    private uint? _serverRideStoppedId;
+    private Vector3 _serverRideStart;
     private TaxiNodeCatalog? _taxiNodes;
     private TaxiPathCatalog? _taxiPaths;
     private TaxiContinentCatalog? _taxiContinents;
@@ -27,7 +28,8 @@ public sealed partial class GameLoop
     {
         _taxiMasterGuid = 0; _taxiCurrentNode = 0; _taxiKnownNodes.Clear();
         _taxiNodeKnown.Clear(); _taxiStatusAsked.Clear(); _taxiStatusLastHover = 0;
-        _taxiOpen = false; _taxiLocked = false; _taxiSpline = null;
+        _taxiOpen = false; _taxiLocked = false; _serverRideSpline = null;
+        _serverRideStoppedId = null;
         _taxiRoutes = [];
     }
 
@@ -191,20 +193,31 @@ public sealed partial class GameLoop
     private void ApplyTaxiReply(byte[] body)
     {
         uint code = TaxiPackets.ParseActivateReply(body); bool accepted = code == 0;
-        _taxiLocked = accepted; _taxiStart = _controller?.Position ?? Vector3.Zero;
+        _taxiLocked = accepted; _serverRideStart = _controller?.Position ?? Vector3.Zero;
         if (accepted) CloseTaxiMap(playSound: true);
         else if (TaxiFrameUiLaw.ActivateErrorText(code) is { } error) ShowUiError(error);
         EmitInterface("taxi", "purchase", accepted ? "ACCEPTED" : $"REJECTED_{code}", _taxiMasterGuid,
             $"code={code};controlLocked={_taxiLocked};bytes={body.Length}");
     }
 
-    private void ObserveTaxiSpline(MonsterMove move)
+    private void ObserveServerRideSpline(MonsterMove move)
     {
-        if (_net is null || move.Guid != _net.PlayerGuid || !move.Flying || move.Points.Length < 2) return;
-        _taxiLocked = true; _taxiSpline = new CreatureSpline(move.Points, move.DurationMs, true, MovementInfo.ClientUptimeMs());
-        _taxiStart = move.Points[0];
+        if (_net is null || move.Guid != _net.PlayerGuid) return;
+        if (move.Stop || move.DurationMs == 0 || move.Points.Length < 2)
+        {
+            _serverRideSpline = null;
+            _serverRideStoppedId = move.SplineId;
+            return;
+        }
+
+        _serverRideStoppedId = null;
+        _serverRideSpline = new CreatureSpline(move.Points, move.DurationMs, move.Flying,
+            MovementInfo.ClientUptimeMs(), move.SplineId);
+        _serverRideStart = move.Points[0];
+        if (move.Flying) _taxiLocked = true;
         EmitInterface("taxi", "flight", "STARTED", move.Guid,
-            $"points={move.Points.Length};durationMs={move.DurationMs};flying={move.Flying};controlLocked=true");
+            $"points={move.Points.Length};durationMs={move.DurationMs};" +
+            $"flying={move.Flying};splineId={move.SplineId};controlLocked=true");
     }
 
     private bool UpdateTaxiLifecycle()
@@ -226,23 +239,63 @@ public sealed partial class GameLoop
 
     private void ApplyTaxiInputLockout(ref float forward, ref float strafe, ref float turn, ref bool jump)
     {
-        if (!_taxiLocked) return;
+        if (!_taxiLocked && _serverRideSpline is null && _serverRideStoppedId is null) return;
         bool attempted = MathF.Abs(forward) > .01f || MathF.Abs(strafe) > .01f || MathF.Abs(turn) > .01f || jump;
         forward = strafe = turn = 0; jump = false;
         if (attempted) EmitInterface("taxi", "input", "LOCKED_OUT", _net?.PlayerGuid ?? 0, "axes=0;jump=false");
     }
 
-    private void UpdateTaxiSpline()
+    private bool UpdateServerRide()
     {
-        if (_taxiSpline is null || _controller is null) return;
-        bool running = _taxiSpline.Sample(MovementInfo.ClientUptimeMs(), out Vector3 position, out float? facing);
+        if (_controller is null) return false;
+        if (_serverRideStoppedId is { } stoppedId)
+        {
+            _serverRideStoppedId = null;
+            _taxiLocked = false;
+            AcknowledgeServerRide(stoppedId, _controller.Position, _controller.Yaw);
+            return false;
+        }
+        if (_serverRideSpline is not { } ride) return false;
+
+        bool running = ride.Sample(MovementInfo.ClientUptimeMs(), out Vector3 position,
+            out float? facing);
         _controller.Teleport(position.X, position.Y, position.Z);
         if (facing is { } yaw) { _controller.Yaw = yaw; _window.Camera.Yaw = yaw; }
         _window.Camera.Target = position;
-        if (running) return;
-        float distance = Vector3.Distance(_taxiStart, position); _taxiSpline = null; _taxiLocked = false;
+        if (running) return true;
+
+        float distance = Vector3.Distance(_serverRideStart, position);
+        uint completedId = ride.Id;
+        _serverRideSpline = null;
+        _taxiLocked = false;
+        AcknowledgeServerRide(completedId, position, _controller.Yaw);
         EmitInterface("taxi", "arrival", "HANDED_OFF", _net?.PlayerGuid ?? 0,
-            $"distance={distance:R};controlLocked=false;position={position.X:R}|{position.Y:R}|{position.Z:R}");
+            $"distance={distance:R};splineId={completedId};controlLocked=false;" +
+            $"position={position.X:R}|{position.Y:R}|{position.Z:R}");
+        return false;
+    }
+
+    private void AcknowledgeServerRide(uint splineId, Vector3 position, float orientation)
+    {
+        var movement = new MovementInfo
+        {
+            Flags = 0,
+            Timestamp = MovementInfo.ClientUptimeMs(),
+            Position = position,
+            Orientation = orientation,
+            FallTime = 0,
+        };
+        bool sent = _net?.MoveSplineDone(movement, splineId) == true;
+        EmitInterface("movement", "spline-done", sent ? "SENT" : "REFUSED",
+            _net?.PlayerGuid ?? 0, $"splineId={splineId};body=" +
+            Convert.ToHexString(WorldSession.BuildMoveSplineDoneBody(movement, splineId)));
+    }
+
+    private void AbortServerRideForTeleport()
+    {
+        _serverRideSpline = null;
+        _serverRideStoppedId = null;
+        _taxiLocked = false;
     }
 
     private void SimulateTaxiFlow()
@@ -261,7 +314,7 @@ public sealed partial class GameLoop
 
     private void DrawTaxiFrame()
     {
-        if (!_taxiOpen||_gameplayArt is null) return;float s=GameplayUiScale();Vector2 origin=TaxiFrameUiLaw.FrameOrigin(s),size=TaxiFrameUiLaw.FrameSize(s);
+        if (!_taxiOpen||_gameplayArt is null) return;float s=GameplayUiScale();Vector2 origin=UiPanelFrameOrigin(UiPanelOwnershipRegistry[6], s),size=TaxiFrameUiLaw.FrameSize(s);
         ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(size,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
         if (!ImGui.Begin("##taxi",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
         ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="taxi"){BeginUiParityFrame(origin,s);CollectUiParityDraw("TaxiFrame","Frame",origin,size,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}

@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Numerics;
+using MSUIClient.Engine.UI;
 
 namespace MSUIClient.Net;
 
@@ -409,6 +410,31 @@ public sealed class WorldSession : IDisposable
         w.WriteU64(petGuid); w.WriteU32(spellId);
         return w.ToArray();
     }
+    public void PetSpellAutocast(ulong petGuid, uint spellId, bool enabled)
+        => SendPacket((ushort)Op.CMSG_PET_SPELL_AUTOCAST,
+            BuildPetSpellAutocastBody(petGuid, spellId, enabled));
+    public static byte[] BuildPetSpellAutocastBody(ulong petGuid, uint spellId, bool enabled)
+    {
+        var w = new PacketWriter(13);
+        w.WriteU64(petGuid); w.WriteU32(spellId); w.WriteU8(enabled ? (byte)1 : (byte)0);
+        return w.ToArray();
+    }
+    public void PetAbandon(ulong petGuid)
+        => SendPacket((ushort)Op.CMSG_PET_ABANDON, BuildPetAbandonBody(petGuid));
+    public static byte[] BuildPetAbandonBody(ulong petGuid)
+    {
+        var w = new PacketWriter(8);
+        w.WriteU64(petGuid);
+        return w.ToArray();
+    }
+    public void PetRename(ulong petGuid, string name)
+        => SendPacket((ushort)Op.CMSG_PET_RENAME, BuildPetRenameBody(petGuid, name));
+    public static byte[] BuildPetRenameBody(ulong petGuid, string name)
+    {
+        var w = new PacketWriter(9 + System.Text.Encoding.UTF8.GetByteCount(name));
+        w.WriteU64(petGuid); w.WriteCString(name);
+        return w.ToArray();
+    }
     public void ZoneUpdate(uint zoneId) =>
         SendPacket((ushort)Op.CMSG_ZONEUPDATE, BuildZoneUpdateBody(zoneId));
 
@@ -475,6 +501,32 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_LEAVE_CHANNEL, ChannelPackets.BuildName(name));
     public void ChannelList(string name) =>
         SendPacket((ushort)Op.CMSG_CHANNEL_LIST, ChannelPackets.BuildName(name));
+    public void ChannelPassword(string name, string password) =>
+        SendPacket((ushort)Op.CMSG_CHANNEL_PASSWORD, ChannelPackets.BuildPair(name, password));
+    public void ChannelSetOwner(string name, string player) =>
+        SendPacket((ushort)Op.CMSG_CHANNEL_SET_OWNER, ChannelPackets.BuildPair(name, player));
+    public void ChannelOwner(string name) =>
+        SendPacket((ushort)Op.CMSG_CHANNEL_OWNER, ChannelPackets.BuildName(name));
+    public void ChannelModerator(string name, string player) =>
+        SendPacket((ushort)Op.CMSG_CHANNEL_MODERATOR, ChannelPackets.BuildPair(name, player));
+    public void ChannelUnmoderator(string name, string player) =>
+        SendPacket((ushort)Op.CMSG_CHANNEL_UNMODERATOR, ChannelPackets.BuildPair(name, player));
+    public void ChannelMute(string name, string player) =>
+        SendPacket((ushort)Op.CMSG_CHANNEL_MUTE, ChannelPackets.BuildPair(name, player));
+    public void ChannelUnmute(string name, string player) =>
+        SendPacket((ushort)Op.CMSG_CHANNEL_UNMUTE, ChannelPackets.BuildPair(name, player));
+    public void ChannelInvite(string name, string player) =>
+        SendPacket((ushort)Op.CMSG_CHANNEL_INVITE, ChannelPackets.BuildPair(name, player));
+    public void ChannelKick(string name, string player) =>
+        SendPacket((ushort)Op.CMSG_CHANNEL_KICK, ChannelPackets.BuildPair(name, player));
+    public void ChannelBan(string name, string player) =>
+        SendPacket((ushort)Op.CMSG_CHANNEL_BAN, ChannelPackets.BuildPair(name, player));
+    public void ChannelUnban(string name, string player) =>
+        SendPacket((ushort)Op.CMSG_CHANNEL_UNBAN, ChannelPackets.BuildPair(name, player));
+    public void ChannelAnnouncements(string name) =>
+        SendPacket((ushort)Op.CMSG_CHANNEL_ANNOUNCEMENTS, ChannelPackets.BuildName(name));
+    public void ChannelModerate(string name) =>
+        SendPacket((ushort)Op.CMSG_CHANNEL_MODERATE, ChannelPackets.BuildName(name));
 
     public void PlayedTime() =>
         SendPacket((ushort)Op.CMSG_PLAYED_TIME, ReadOnlySpan<byte>.Empty);
@@ -630,6 +682,19 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)moveOp, w.AsSpan());
     }
 
+    public void MoveSplineDone(MovementInfo info, uint splineId) =>
+        SendPacket((ushort)Op.CMSG_MOVE_SPLINE_DONE,
+            BuildMoveSplineDoneBody(info, splineId));
+
+    public static byte[] BuildMoveSplineDoneBody(MovementInfo info, uint splineId)
+    {
+        var writer = new PacketWriter(40);
+        info.Write(writer);
+        writer.WriteU32(splineId);
+        writer.WriteF32(1f); // real-client completion fraction; server reads and discards it
+        return writer.ToArray();
+    }
+
     public void CastSpellOnItem(uint spellId, ulong itemGuid)
         => SendPacket((ushort)Op.CMSG_CAST_SPELL, BuildCastSpellOnItemBody(spellId, itemGuid));
 
@@ -660,6 +725,18 @@ public sealed class WorldSession : IDisposable
         info.Write(w);
         return w.ToArray();
     }
+
+    public void SetFactionAtWar(uint reputationSlot, bool atWar)
+        => SendPacket((ushort)Op.CMSG_SET_FACTION_ATWAR,
+            ReputationFrameUiLaw.SlotAndFlagBody(reputationSlot, atWar));
+
+    public void SetFactionInactive(uint reputationSlot, bool inactive)
+        => SendPacket((ushort)Op.CMSG_SET_FACTION_INACTIVE,
+            ReputationFrameUiLaw.SlotAndFlagBody(reputationSlot, inactive));
+
+    public void SetWatchedFaction(int reputationSlot)
+        => SendPacket((ushort)Op.CMSG_SET_WATCHED_FACTION,
+            ReputationFrameUiLaw.WatchedBody(reputationSlot));
 
     public void MoveModeAck(ulong guid, MovementModeKind kind, uint counter, bool apply,
         MovementInfo info) => SendPacket((ushort)MovementModePackets.AckOpcode(kind, apply),
@@ -1125,6 +1202,11 @@ public sealed class WorldSession : IDisposable
     { var w = new PacketWriter(16); w.WriteU64(guid); w.WriteU32(questId); w.WriteU32(choice); SendPacket((ushort)Op.CMSG_QUESTGIVER_CHOOSE_REWARD, w.AsSpan()); }
     public void QuestLogRemove(byte slot)
     { var w = new PacketWriter(1); w.WriteU8(slot); SendPacket((ushort)Op.CMSG_QUESTLOG_REMOVE_QUEST, w.AsSpan()); }
+    public static byte[] BuildQuestLogSwapBody(byte firstSlot, byte secondSlot)
+        => [firstSlot, secondSlot];
+    public void QuestLogSwap(byte firstSlot, byte secondSlot)
+        => SendPacket((ushort)Op.CMSG_QUESTLOG_SWAP_QUEST,
+            BuildQuestLogSwapBody(firstSlot, secondSlot));
 
     public static byte[] BuildQuestGuidBody(ulong guid, uint questId)
     { var w = new PacketWriter(12); w.WriteU64(guid); w.WriteU32(questId); return w.ToArray(); }
@@ -1201,6 +1283,12 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_AUTOEQUIP_ITEM, BuildAutoEquipBody(bag, slot));
     }
 
+    /// <summary>CMSG_AUTOSTORE_BAG_ITEM — move the source item into the named equipped bag;
+    /// the server selects a compatible destination slot.</summary>
+    public void AutostoreBagItem(byte sourceBag, byte sourceSlot, byte destinationBag)
+        => SendPacket((ushort)Op.CMSG_AUTOSTORE_BAG_ITEM,
+            BuildAutostoreBagItemBody(sourceBag, sourceSlot, destinationBag));
+
     public void SwapInventoryItems(byte sourceSlot, byte destinationSlot)
     {
         SendPacket((ushort)Op.CMSG_SWAP_INV_ITEM, BuildSwapInventoryBody(sourceSlot, destinationSlot));
@@ -1225,6 +1313,8 @@ public sealed class WorldSession : IDisposable
     }
 
     public static byte[] BuildAutoEquipBody(byte bag, byte slot) => [bag, slot];
+    public static byte[] BuildAutostoreBagItemBody(byte sourceBag, byte sourceSlot,
+        byte destinationBag) => [sourceBag, sourceSlot, destinationBag];
     public static byte[] BuildSetAmmoBody(uint entry) => BitConverter.GetBytes(entry);
     public static byte[] BuildSwapInventoryBody(byte sourceSlot, byte destinationSlot) => [sourceSlot, destinationSlot];
     public static byte[] BuildSwapItemsBody(byte destinationBag, byte destinationSlot, byte sourceBag, byte sourceSlot) =>
@@ -1263,6 +1353,53 @@ public sealed class WorldSession : IDisposable
             LootPackets.BuildRollBody(lootedTarget, itemSlot, vote));
 
     public void GuildRoster() => SendPacket((ushort)Op.CMSG_GUILD_ROSTER, ReadOnlySpan<byte>.Empty);
+    public void GuildQuery(uint guildId)
+        => SendPacket((ushort)Op.CMSG_GUILD_QUERY, BuildGuildQueryBody(guildId));
+    public static byte[] BuildGuildQueryBody(uint guildId)
+    {
+        var w = new PacketWriter(4);
+        w.WriteU32(guildId);
+        return w.ToArray();
+    }
+    public void GuildInvite(string name)
+        => SendPacket((ushort)Op.CMSG_GUILD_INVITE, BuildCStringBody(name));
+    public void GuildAccept()
+        => SendPacket((ushort)Op.CMSG_GUILD_ACCEPT, ReadOnlySpan<byte>.Empty);
+    public void GuildDecline()
+        => SendPacket((ushort)Op.CMSG_GUILD_DECLINE, ReadOnlySpan<byte>.Empty);
+    public void GuildInfo()
+        => SendPacket((ushort)Op.CMSG_GUILD_INFO, ReadOnlySpan<byte>.Empty);
+    public void GuildInfoText(string text)
+        => SendPacket((ushort)Op.CMSG_GUILD_INFO_TEXT, BuildCStringBody(text));
+    public void GuildRemove(string name)
+        => SendPacket((ushort)Op.CMSG_GUILD_REMOVE, BuildCStringBody(name));
+    public void GuildSetPublicNote(string name, string note)
+        => SendPacket((ushort)Op.CMSG_GUILD_SET_PUBLIC_NOTE,
+            BuildTwoCStringBody(name, note));
+    public void GuildSetOfficerNote(string name, string note)
+        => SendPacket((ushort)Op.CMSG_GUILD_SET_OFFICER_NOTE,
+            BuildTwoCStringBody(name, note));
+    public void GuildRank(uint rankId, uint rights, string name)
+        => SendPacket((ushort)Op.CMSG_GUILD_RANK, BuildGuildRankBody(rankId, rights, name));
+    public static byte[] BuildGuildRankBody(uint rankId, uint rights, string name)
+    {
+        var w = new PacketWriter();
+        w.WriteU32(rankId);
+        w.WriteU32(rights);
+        w.WriteCString(name);
+        return w.ToArray();
+    }
+    public void GuildAddRank(string name)
+        => SendPacket((ushort)Op.CMSG_GUILD_ADD_RANK, BuildCStringBody(name));
+    public void GuildDeleteRank()
+        => SendPacket((ushort)Op.CMSG_GUILD_DEL_RANK, ReadOnlySpan<byte>.Empty);
+    public static byte[] BuildTwoCStringBody(string first, string second)
+    {
+        var w = new PacketWriter();
+        w.WriteCString(first);
+        w.WriteCString(second);
+        return w.ToArray();
+    }
     public void GuildMotd(string text) => SendPacket((ushort)Op.CMSG_GUILD_MOTD, BuildCStringBody(text));
     public void GuildPromote(string name) => SendPacket((ushort)Op.CMSG_GUILD_PROMOTE, BuildCStringBody(name));
     public void GuildDemote(string name) => SendPacket((ushort)Op.CMSG_GUILD_DEMOTE, BuildCStringBody(name));

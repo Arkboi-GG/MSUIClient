@@ -43,7 +43,8 @@ internal static class TrainerFrameClinicalChecks
         string root = ClientConfig.FindRepoRoot();
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Trainer.cs"));
-        Check(runtime.Contains("TrainerFrameUiLaw.FrameOrigin", StringComparison.Ordinal) &&
+        Check(runtime.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[4], scale)",
+                  StringComparison.Ordinal) &&
               runtime.Contains("DrawUnitPortraitImage", StringComparison.Ordinal) &&
               runtime.Contains("DrawNpcModalTitle", StringComparison.Ordinal) &&
               runtime.Contains("DrawTrainerMoney", StringComparison.Ordinal) &&

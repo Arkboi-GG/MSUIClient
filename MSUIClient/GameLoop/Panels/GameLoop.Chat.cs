@@ -462,10 +462,6 @@ public sealed partial class GameLoop
         DrawChatTabs(dl, root, s);
         DrawChatMenu(root + new Vector2(-32, -6));
 
-        // Enter opens the input, unless another text field already owns the keyboard.
-        if (!_chatEditOpen && !ImGui.GetIO().WantTextInput &&
-            (ImGui.IsKeyPressed(ImGuiKey.Enter, false) || ImGui.IsKeyPressed(ImGuiKey.KeypadEnter, false)))
-            OpenChatEdit();
         if (_chatEditOpen) DrawChatEditBox(dl, root, s);
 
         if (_uiParityArmed && _uiParityPanel == "chat-frame") MarkUiParityFrameComplete();
@@ -912,7 +908,14 @@ public sealed partial class GameLoop
 
     private void SubmitChat()
     {
-        string raw = _chatInput.Trim();
+        SubmitChatLine(_chatInput);
+        CloseChatEdit();
+    }
+
+    /// <summary>Shared ChatFrame submission path for typed input and EXECUTE_CHAT_LINE macros.</summary>
+    private void SubmitChatLine(string input)
+    {
+        string raw = input.Trim();
         if (raw.StartsWith('/'))
         {
             int split = raw.IndexOf(' ');
@@ -922,7 +925,6 @@ public sealed partial class GameLoop
                 if (_chatLastTellTarget.Length == 0)
                 {
                     AddChatMessage("You have nobody to reply to yet.");
-                    CloseChatEdit();
                     return;
                 }
                 string text = split < 0 ? "" : raw[(split + 1)..].TrimStart();
@@ -936,7 +938,6 @@ public sealed partial class GameLoop
             // no local echo here - it appears when the round-trip lands.
             if (message.Length > 0) _net?.SendChat((uint)type, target, message);
         }
-        CloseChatEdit();
     }
 
     /// <summary>Client-owned slash verbs that send a non-chat opcode.</summary>
@@ -946,13 +947,60 @@ public sealed partial class GameLoop
         int space = raw.IndexOf(' ');
         string command = (space < 0 ? raw : raw[..space]).ToLowerInvariant();
         string args = space < 0 ? "" : raw[(space + 1)..];
+        if (ChatChannelLaw.TryResolveAdmin(_chatChannels, command, args, out var channelAdmin))
+        {
+            if (channelAdmin.Channel.Length > 0)
+            {
+                switch (channelAdmin.Command)
+                {
+                    case ChannelAdminCommand.Password:
+                        _net?.ChannelPassword(channelAdmin.Channel, channelAdmin.Value);
+                        break;
+                    case ChannelAdminCommand.SetOwner:
+                        _net?.ChannelSetOwner(channelAdmin.Channel, channelAdmin.Value);
+                        break;
+                    case ChannelAdminCommand.Owner:
+                        _net?.ChannelOwner(channelAdmin.Channel);
+                        break;
+                    case ChannelAdminCommand.Moderator:
+                        _net?.ChannelModerator(channelAdmin.Channel, channelAdmin.Value);
+                        break;
+                    case ChannelAdminCommand.Unmoderator:
+                        _net?.ChannelUnmoderator(channelAdmin.Channel, channelAdmin.Value);
+                        break;
+                    case ChannelAdminCommand.Mute:
+                        _net?.ChannelMute(channelAdmin.Channel, channelAdmin.Value);
+                        break;
+                    case ChannelAdminCommand.Unmute:
+                        _net?.ChannelUnmute(channelAdmin.Channel, channelAdmin.Value);
+                        break;
+                    case ChannelAdminCommand.Invite:
+                        _net?.ChannelInvite(channelAdmin.Channel, channelAdmin.Value);
+                        break;
+                    case ChannelAdminCommand.Kick:
+                        _net?.ChannelKick(channelAdmin.Channel, channelAdmin.Value);
+                        break;
+                    case ChannelAdminCommand.Ban:
+                        _net?.ChannelBan(channelAdmin.Channel, channelAdmin.Value);
+                        break;
+                    case ChannelAdminCommand.Unban:
+                        _net?.ChannelUnban(channelAdmin.Channel, channelAdmin.Value);
+                        break;
+                    case ChannelAdminCommand.Announcements:
+                        _net?.ChannelAnnouncements(channelAdmin.Channel);
+                        break;
+                    case ChannelAdminCommand.Moderate:
+                        _net?.ChannelModerate(channelAdmin.Channel);
+                        break;
+                }
+            }
+            return true;
+        }
         if (args.Length == 0 && StandStateUiLaw.ResolveCommand(command) is { } standState)
         {
             // SetStandState is client-volunteered in 1.12: commit locally now so the body reacts
             // on this frame, then send the u32 for the server to relay to nearby observers.
-            if (_net?.StandStateChange(standState) == true &&
-                _entities.TryGet(LocalPlayerGuid, out WorldEntity self))
-                self.Fields.SetUnitStandState(standState);
+            TrySetLocalStandState(standState);
             return true;
         }
         if (GroupSlashCommandLaw.Resolve(command) is { } groupCommand)
@@ -980,6 +1028,30 @@ public sealed partial class GameLoop
         }
         switch (command)
         {
+            case "/cast" or "/spell":
+            {
+                string name = args.Trim();
+                if (name.Length == 0) return true;
+                SpellInfo? spell = _spellCatalog?.FindKnownByName(name, _actions.KnownSpells);
+                if (spell is { } found) TryCast(found.Id);
+                else AddChatMessage($"Unknown spell: {name}");
+                return true;
+            }
+            case "/use":
+            {
+                string name = args.Trim();
+                if (name.Length == 0) return true;
+                ItemTemplate? item = _items?.FindByName(name);
+                if (item is not null) UseItemAction(item.Entry);
+                else AddChatMessage($"Unknown item: {name}");
+                return true;
+            }
+            case "/startattack":
+                if (_selectionGuid != 0) CommitSelection(_selectionGuid, beginAttack: true);
+                return true;
+            case "/stopattack":
+                StopAttack("slash-command");
+                return true;
             case "/follow" or "/fol" or "/f":
             {
                 string query = args.Trim();
@@ -1024,6 +1096,9 @@ public sealed partial class GameLoop
             case "/played":
                 _net?.PlayedTime();
                 return true;
+            case "/ginfo":
+                _net?.GuildInfo();
+                return true;
             case "/random" or "/rand" or "/rnd" or "/roll":
             {
                 uint[] values = args.Split(' ', StringSplitOptions.RemoveEmptyEntries)
@@ -1041,6 +1116,15 @@ public sealed partial class GameLoop
             default:
                 return false;
         }
+    }
+
+    private bool TrySetLocalStandState(byte standState)
+    {
+        if (!StandStateUiLaw.IsClientState(standState) ||
+            _net?.StandStateChange(standState) != true ||
+            !_entities.TryGet(LocalPlayerGuid, out WorldEntity self)) return false;
+        self.Fields.SetUnitStandState(standState);
+        return true;
     }
 
     private string ResolveChannelSelector(string selector)

@@ -1,7 +1,7 @@
 namespace MSUIClient.Formats;
 
 public sealed record FactionInfo(uint Id, int ReputationIndex, uint ParentFaction,
-    string Name, uint[] RaceMasks, uint[] ClassMasks, int[] BaseValues)
+    string Name, string Description, uint[] RaceMasks, uint[] ClassMasks, int[] BaseValues)
 {
     public int BaseStanding(byte race, byte playerClass)
     {
@@ -37,7 +37,9 @@ public sealed class FactionCatalog
     public static FactionCatalog? Parse(byte[] bytes)
     {
         DbcFile? dbc = DbcFile.Parse(bytes);
-        if (dbc is null || dbc.FieldCount < 28 || dbc.RecordSize < 112) return null;
+        // Build 5875 has 37 fields: identity/reputation data through field 18, then
+        // 8+1 localized name columns and 8+1 localized description columns.
+        if (dbc is null || dbc.FieldCount < 37 || dbc.RecordSize < 148) return null;
         var result = new FactionCatalog();
         for (int row = 0; row < dbc.RecordCount; row++)
         {
@@ -54,7 +56,8 @@ public sealed class FactionCatalog
             }
             FactionInfo info = new(
                 dbc.GetUInt(row, 0), reputationIndex, dbc.GetUInt(row, 18),
-                dbc.GetString(row, 19), raceMasks, classMasks, bases);
+                dbc.GetString(row, 19), dbc.GetString(row, 28),
+                raceMasks, classMasks, bases);
             result._byReputationIndex[reputationIndex] = info;
             result._byId[info.Id] = info;
         }

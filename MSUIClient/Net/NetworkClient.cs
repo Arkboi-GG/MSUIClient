@@ -237,6 +237,9 @@ public sealed class NetworkClient : IDisposable
         if (State == NetState.InWorld) { try { _session?.SendMovement(moveOp, info); } catch { /* dropped on disconnect */ } }
     }
 
+    public bool MoveSplineDone(MovementInfo info, uint splineId) =>
+        InWorld(session => session.MoveSplineDone(info, splineId));
+
     public void MoveRootAck(ulong guid, uint counter, bool rooted, MovementInfo info)
     {
         if (State == NetState.InWorld)
@@ -292,8 +295,18 @@ public sealed class NetworkClient : IDisposable
         InWorld(s => s.PetSetAction(petGuid, entries));
     public bool PetCancelAura(ulong petGuid, uint spellId) =>
         InWorld(s => s.PetCancelAura(petGuid, spellId));
+    public bool PetSpellAutocast(ulong petGuid, uint spellId, bool enabled) =>
+        InWorld(s => s.PetSpellAutocast(petGuid, spellId, enabled));
+    public bool PetAbandon(ulong petGuid) => InWorld(s => s.PetAbandon(petGuid));
+    public bool PetRename(ulong petGuid, string name) => InWorld(s => s.PetRename(petGuid, name));
     public void ZoneUpdate(uint zoneId) { try { _session?.ZoneUpdate(zoneId); } catch { } }
     public bool TogglePvp() => InWorld(s => s.TogglePvp());
+    public bool SetFactionAtWar(uint reputationSlot, bool atWar) =>
+        InWorld(s => s.SetFactionAtWar(reputationSlot, atWar));
+    public bool SetFactionInactive(uint reputationSlot, bool inactive) =>
+        InWorld(s => s.SetFactionInactive(reputationSlot, inactive));
+    public bool SetWatchedFaction(int reputationSlot) =>
+        InWorld(s => s.SetWatchedFaction(reputationSlot));
     public bool AreaTrigger(uint triggerId) => InWorld(s => s.AreaTrigger(triggerId));
     public bool WorldTeleport(uint mapId, Vector3 position, float orientation) =>
         InWorld(s => s.WorldTeleport(mapId, position, orientation));
@@ -349,6 +362,30 @@ public sealed class NetworkClient : IDisposable
         InWorld(s => s.JoinChannel(name, password));
     public bool LeaveChannel(string name) => InWorld(s => s.LeaveChannel(name));
     public bool ChannelList(string name) => InWorld(s => s.ChannelList(name));
+    public bool ChannelPassword(string name, string password) =>
+        InWorld(s => s.ChannelPassword(name, password));
+    public bool ChannelSetOwner(string name, string player) =>
+        InWorld(s => s.ChannelSetOwner(name, player));
+    public bool ChannelOwner(string name) => InWorld(s => s.ChannelOwner(name));
+    public bool ChannelModerator(string name, string player) =>
+        InWorld(s => s.ChannelModerator(name, player));
+    public bool ChannelUnmoderator(string name, string player) =>
+        InWorld(s => s.ChannelUnmoderator(name, player));
+    public bool ChannelMute(string name, string player) =>
+        InWorld(s => s.ChannelMute(name, player));
+    public bool ChannelUnmute(string name, string player) =>
+        InWorld(s => s.ChannelUnmute(name, player));
+    public bool ChannelInvite(string name, string player) =>
+        InWorld(s => s.ChannelInvite(name, player));
+    public bool ChannelKick(string name, string player) =>
+        InWorld(s => s.ChannelKick(name, player));
+    public bool ChannelBan(string name, string player) =>
+        InWorld(s => s.ChannelBan(name, player));
+    public bool ChannelUnban(string name, string player) =>
+        InWorld(s => s.ChannelUnban(name, player));
+    public bool ChannelAnnouncements(string name) =>
+        InWorld(s => s.ChannelAnnouncements(name));
+    public bool ChannelModerate(string name) => InWorld(s => s.ChannelModerate(name));
 
     /// <summary>Send a numbered text emote (/wave, /dance, ...) by its EmoteCommandLaw
     /// id. <paramref name="targetGuid"/> is 0 for an untargeted emote.</summary>
@@ -487,6 +524,21 @@ public sealed class NetworkClient : IDisposable
     public bool AuctionCancel(ulong guid, uint id) => InWorld(s => s.AuctionCancel(guid, id));
     public bool AuctionSell(ulong guid, ulong item, uint bid, uint buyout, uint duration) => InWorld(s => s.AuctionSell(guid, item, bid, buyout, duration));
     public bool GuildRoster() => InWorld(s => s.GuildRoster());
+    public bool GuildQuery(uint guildId) => InWorld(s => s.GuildQuery(guildId));
+    public bool GuildInvite(string name) => InWorld(s => s.GuildInvite(name));
+    public bool GuildAccept() => InWorld(s => s.GuildAccept());
+    public bool GuildDecline() => InWorld(s => s.GuildDecline());
+    public bool GuildInfo() => InWorld(s => s.GuildInfo());
+    public bool GuildInfoText(string text) => InWorld(s => s.GuildInfoText(text));
+    public bool GuildRemove(string name) => InWorld(s => s.GuildRemove(name));
+    public bool GuildSetPublicNote(string name, string note) =>
+        InWorld(s => s.GuildSetPublicNote(name, note));
+    public bool GuildSetOfficerNote(string name, string note) =>
+        InWorld(s => s.GuildSetOfficerNote(name, note));
+    public bool GuildRank(uint rankId, uint rights, string name) =>
+        InWorld(s => s.GuildRank(rankId, rights, name));
+    public bool GuildAddRank(string name) => InWorld(s => s.GuildAddRank(name));
+    public bool GuildDeleteRank() => InWorld(s => s.GuildDeleteRank());
     public bool GuildMotd(string text) => InWorld(s => s.GuildMotd(text));
     public bool GuildPromote(string name) => InWorld(s => s.GuildPromote(name));
     public bool GuildDemote(string name) => InWorld(s => s.GuildDemote(name));
@@ -505,6 +557,8 @@ public sealed class NetworkClient : IDisposable
     public bool QuestgiverRequestReward(ulong guid, uint questId) => InWorld(s => s.QuestgiverRequestReward(guid, questId));
     public bool QuestgiverChooseReward(ulong guid, uint questId, uint choice) => InWorld(s => s.QuestgiverChooseReward(guid, questId, choice));
     public bool QuestLogRemove(byte slot) => InWorld(s => s.QuestLogRemove(slot));
+    public bool QuestLogSwap(byte firstSlot, byte secondSlot)
+        => InWorld(s => s.QuestLogSwap(firstSlot, secondSlot));
 
     private bool InWorld(Action<WorldSession> send)
     {
@@ -523,6 +577,8 @@ public sealed class NetworkClient : IDisposable
     public bool RepairItem(ulong vendor, ulong item) => InWorld(s => s.RepairItem(vendor, item));
     public void UseItem(byte bag, byte slot, byte spellSlot) { try { _session?.UseItem(bag, slot, spellSlot); } catch { } }
     public bool AutoEquipItem(byte bag, byte slot) => InWorld(s => s.AutoEquipItem(bag, slot));
+    public bool AutostoreBagItem(byte sourceBag, byte sourceSlot, byte destinationBag) =>
+        InWorld(s => s.AutostoreBagItem(sourceBag, sourceSlot, destinationBag));
     public bool SetAmmo(uint entry) => InWorld(s => s.SetAmmo(entry));
     public bool SwapInventoryItems(byte sourceSlot, byte destinationSlot) => InWorld(s => s.SwapInventoryItems(sourceSlot, destinationSlot));
     public bool SwapItems(byte destinationBag, byte destinationSlot, byte sourceBag, byte sourceSlot) =>

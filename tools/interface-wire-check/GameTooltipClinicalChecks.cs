@@ -568,7 +568,7 @@ internal static class GameTooltipClinicalChecks
         hitWriter.WriteCString("the Query Keeper");
         hitWriter.WriteU32(0xA5A5_1000u); // type flags
         hitWriter.WriteU32(7);            // Humanoid
-        hitWriter.WriteU32(9);            // pet family (parsed/consumed, not tooltip-visible)
+        hitWriter.WriteU32(9);            // pet family (pet paper-doll family/diet feed)
         hitWriter.WriteU32(3);            // Boss
         hitWriter.WriteU32(0x1122_3344u); // unknown
         hitWriter.WriteU32(77);           // pet spell-list id
@@ -584,11 +584,12 @@ internal static class GameTooltipClinicalChecks
                   Subname: "the Query Keeper",
                   TypeFlags: 0xA5A5_1000u,
                   CreatureType: 7,
+                  PetFamily: 9,
                   Rank: 3,
                   Civilian: true,
                   RacialLeader: false,
               },
-            "B6 creature-query hit lost name/subname/type flags/type/rank/civilian/leader fields");
+            "B6 creature-query hit lost name/subname/type/family/rank/civilian/leader fields");
 
         var emptySubnameWriter = new PacketWriter();
         emptySubnameWriter.WriteU32(88);
@@ -1116,6 +1117,7 @@ internal static class GameTooltipClinicalChecks
             Path.Combine(client, "Program.GameTooltip.WorldUnit.cs"));
         string merchant = SourceText.Read(
             Path.Combine(client, "Program.Vendor.Render.cs"));
+        string taxi = SourceText.Read(Path.Combine(client, "Program.Taxi.cs"));
 
         int drawStart = combat.IndexOf("private void DrawCombatHud()", StringComparison.Ordinal);
         int drawEnd = combat.IndexOf("private void DrawPlayerFrame()", drawStart,
@@ -1243,8 +1245,9 @@ internal static class GameTooltipClinicalChecks
               Count(minimap, "QueueSharedGameTooltipRenderer") == 1 &&
               Count(worldUnit, "QueueSharedGameTooltipRenderer") == 1 &&
               Count(merchant, "QueueSharedGameTooltipRenderer") == 1 &&
-              producerReferences == 8,
-            "GameTooltip Queue escaped coordinator/opaque helper/newbie responder, Party, B5 minimap, B6 world-unit/world-object, or Merchant repair lease");
+              Count(taxi, "QueueSharedGameTooltipRenderer") == 1 &&
+              producerReferences == 9,
+            "GameTooltip Queue escaped coordinator/opaque helper/newbie responder, Party, B5 minimap, B6 world-unit/world-object, Merchant repair, or Taxi node lease");
     }
 
     private static void CheckB2ProducerSourceFence()
@@ -1259,7 +1262,8 @@ internal static class GameTooltipClinicalChecks
               !adapters.Contains("PublishSharedGameTooltip", StringComparison.Ordinal) &&
               !adapters.Contains("BeginSharedGameTooltipFade", StringComparison.Ordinal) &&
               !adapters.Contains("HideSharedGameTooltip", StringComparison.Ordinal) &&
-              Count(spellbook, "OfferPreservedSharedGameTooltipRenderer") == 2 &&
+              // Two existing spell/skill producers plus the rule-owned Spell/Pet type-tab pair.
+              Count(spellbook, "OfferPreservedSharedGameTooltipRenderer") == 3 &&
               Count(actions, "OfferPreservedSharedGameTooltipRenderer") == 6 &&
               Count(pet, "OfferPreservedSharedGameTooltipRenderer") == 2,
             "B2 producer escaped the guarded opaque adapter or changed its bounded offer set");
@@ -1329,7 +1333,7 @@ internal static class GameTooltipClinicalChecks
                   StringComparison.Ordinal) &&
               actions.Contains("\"MultiBarLeft\" => \"action-multi-left\"",
                   StringComparison.Ordinal) &&
-              actions.Contains("new(\"micro-button\", (ulong)(i + 1))",
+              actions.Contains("new(\"micro-button\", (ulong)button.Id + 1)",
                   StringComparison.Ordinal) &&
               actions.Contains("new(\"main-menu-xp\", 1)", StringComparison.Ordinal) &&
               actions.Contains("new(\"main-menu-performance\", 1)",
@@ -1406,7 +1410,7 @@ internal static class GameTooltipClinicalChecks
               actions.Contains("$\"Rested bonus: {rested} ({RestStateName(player.Fields.RestState)})\"",
                   StringComparison.Ordinal) &&
               actions.Contains("$\"Latency: {latency}ms\"", StringComparison.Ordinal) &&
-              actions.Contains("if (!tooltipEnabled) ImGui.TextDisabled(\"Not available yet\");",
+              actions.Contains("ImGui.TextWrapped(newbieText);",
                   StringComparison.Ordinal) &&
               actions.Contains("ImGui.TextDisabled(tooltipAction);", StringComparison.Ordinal),
             "B2 changed preserved XP/performance/micro/action tooltip content");
@@ -1425,6 +1429,7 @@ internal static class GameTooltipClinicalChecks
         string quest = SourceText.Read(Path.Combine(client, "Program.Quest.cs"));
         string vendor = SourceText.Read(Path.Combine(client, "Program.Vendor.cs")) +
                         SourceText.Read(Path.Combine(client, "Program.Vendor.Render.cs"));
+        string taxi = SourceText.Read(Path.Combine(client, "Program.Taxi.cs"));
         string actions = SourceText.Read(Path.Combine(client, "Program.ActionBars.cs"));
 
         string allPrograms = string.Concat(Directory.EnumerateFiles(client, "Program*.cs",
@@ -1518,7 +1523,7 @@ internal static class GameTooltipClinicalChecks
                   "InventoryUiLaw.KeyringContainer => InventoryUiLaw.KeyringSize(owner.Level)",
                   StringComparison.Ordinal) &&
               inventory.Contains(
-                  "InventoryItemGameTooltipOwner(container, physical), body, tooltipPosition",
+                  "InventoryItemGameTooltipOwner(container, physical), body, tooltipSeat.Position",
                   StringComparison.Ordinal) &&
               inventory.Contains("HighestLiveComparisonOrdinal(", StringComparison.Ordinal) &&
               inventory.Contains("ArmDeferredShoppingTooltipParityCapture(comparisons);",
@@ -1553,7 +1558,7 @@ internal static class GameTooltipClinicalChecks
               inspect.Contains("PrepareItemTooltipBodySnapshot(item, 1)",
                   StringComparison.Ordinal) &&
               inspect.Contains("for (int enchantSlot = 0;", StringComparison.Ordinal) &&
-              inspect.Contains("PreparedItemTooltipColored(name, color)",
+              inspect.Contains("PreparedItemTooltipColored(enchant.Name,",
                   StringComparison.Ordinal) &&
               inspect.Contains("AppendPreparedItemTooltipBody(body, [.. enchantOperations])",
                   StringComparison.Ordinal) &&
@@ -1788,9 +1793,12 @@ internal static class GameTooltipClinicalChecks
         string resourceRenderer = minimap[resourceRendererStart..resourceRendererEnd];
 
         Check(Count(minimapDraw, "UpdateAndQueueMinimapResourceTooltip(null);") == 2 &&
-              Count(minimapDraw, "UpdateAndQueueMinimapResourceTooltip(resourceTooltip);") == 1 &&
+              Count(minimapDraw, "UpdateAndQueueMinimapResourceTooltip(") == 3 &&
               minimapDraw.Contains(
-                  "DrawMinimapResourceDots(dl, player, playerPosition, mapMin, mapMax, s);",
+                  "DrawMinimapResourceDots(dl, player, playerPosition, mapMin, mapMax, s,",
+                  StringComparison.Ordinal) &&
+              minimapDraw.Contains(
+                  "questTooltip ?? creatureTooltip ?? resourceTooltip ?? landmarkTooltip",
                   StringComparison.Ordinal) &&
               resourceDraw.Contains(
                   "ImGui.IsMouseHoveringRect(row.Dot - half, row.Dot + half, false)",
@@ -1919,6 +1927,7 @@ internal static class GameTooltipClinicalChecks
               query.Contains("string? Subname,", StringComparison.Ordinal) &&
               query.Contains("uint TypeFlags,", StringComparison.Ordinal) &&
               query.Contains("uint CreatureType,", StringComparison.Ordinal) &&
+              query.Contains("uint PetFamily,", StringComparison.Ordinal) &&
               query.Contains("uint Rank,", StringComparison.Ordinal) &&
               query.Contains("bool Civilian,", StringComparison.Ordinal) &&
               query.Contains("bool RacialLeader);", StringComparison.Ordinal) &&
@@ -1929,7 +1938,7 @@ internal static class GameTooltipClinicalChecks
               query.Contains("if (r.Remaining != 0)", StringComparison.Ordinal) &&
               Count(query, "if (r.Remaining != 0)") == 2 &&
               Count(query, "r.ReadCString(); // name") == 3 &&
-              Count(query, "r.ReadU32(); //") == 4 &&
+              Count(query, "r.ReadU32(); //") == 3 &&
               query.Contains("bool civilian = r.ReadU8() != 0;", StringComparison.Ordinal) &&
               query.Contains("bool racialLeader = r.ReadU8() != 0;",
                   StringComparison.Ordinal),
@@ -2026,7 +2035,9 @@ internal static class GameTooltipClinicalChecks
                   StringComparison.Ordinal) &&
               world.Contains("private const uint WorldUnitSkinnableFlag = 0x0400_0000u;",
                   StringComparison.Ordinal) &&
-              world.Contains("per-pet given-name feed is an explicit later ingress gap",
+              builder.Contains("GuidInfo.PetNumber(unit.Guid) is not null",
+                  StringComparison.Ordinal) &&
+              builder.Contains("ResolveCreatureOrPetName(unit, \"\")",
                   StringComparison.Ordinal),
             "B6 world snapshot lost template name/subtitle/rank/type/flags or explicit gaps");
 
@@ -2091,7 +2102,7 @@ internal static class GameTooltipClinicalChecks
                   "GameTooltipUiLaw.WorldFadeSeconds)", StringComparison.Ordinal) &&
               driver.Contains("() => DrawPreparedSharedGameTooltip(prepared)",
                   StringComparison.Ordinal) &&
-              driver.Contains("World-gameobject hover remains an explicit",
+              driver.Contains("World-gameobject hover has its own",
                   StringComparison.Ordinal) &&
               !driver.Contains("PickUnit(", StringComparison.Ordinal) &&
               !driver.Contains("Raycast", StringComparison.Ordinal) &&
@@ -2144,7 +2155,7 @@ internal static class GameTooltipClinicalChecks
                   StringComparison.Ordinal) &&
               prepare.Contains("Enumerable.Range(36, 12)", StringComparison.Ordinal) &&
               prepare.Contains("Enumerable.Range(24, 12)", StringComparison.Ordinal) &&
-              prepare.Contains("PetOrStanceShown: PetActionBarVisible",
+              prepare.Contains("PetOrStanceShown: PetOrStanceActionBarVisible",
                   StringComparison.Ordinal) &&
               defaultAnchor >= 0 && defaultAnchor < clampAnchor &&
               renderer.Contains("if (left < 0f)", StringComparison.Ordinal) &&
@@ -2387,22 +2398,27 @@ internal static class GameTooltipClinicalChecks
             "B8 responder callbacks can paint more than once or survive reentrant resolution");
 
         string[] programFiles = Directory.GetFiles(client, "Program*.cs",
-            SearchOption.TopDirectoryOnly);
+                SearchOption.TopDirectoryOnly)
+            .Concat(Directory.GetFiles(Path.Combine(client, "GameLoop"), "GameLoop*.cs",
+                SearchOption.AllDirectories))
+            .ToArray();
         string allPrograms = string.Join('\n', programFiles.Select(File.ReadAllText));
         string mail = SourceText.Read(Path.Combine(client, "Program.Mail.cs"));
         string inventory = SourceText.Read(Path.Combine(client, "Program.Inventory.cs"));
         string vendor = SourceText.Read(Path.Combine(client, "Program.Vendor.cs")) +
                         SourceText.Read(Path.Combine(client, "Program.Vendor.Render.cs"));
         string minimap = SourceText.Read(Path.Combine(client, "Program.Minimap.cs"));
+        string taxi = SourceText.Read(Path.Combine(client, "Program.Taxi.cs"));
         string actions = SourceText.Read(Path.Combine(client, "Program.ActionBars.cs"));
         string bindings = SourceText.Read(Path.Combine(client, "Program.Bindings.cs"));
         string settings = SourceText.Read(Path.Combine(client, "Program.Settings.cs"));
         Check(Count(allPrograms, "TryShowNewbieGameTooltip(") == 1 &&
-              Count(allPrograms, "SetSharedGameTooltipMoney(") == 2 &&
+              Count(allPrograms, "SetSharedGameTooltipMoney(") == 3 &&
               !settings.Contains("SHOW_NEWBIE_TIPS", StringComparison.Ordinal) &&
               !mail.Contains("SetSharedGameTooltipMoney", StringComparison.Ordinal) &&
               !inventory.Contains("SetSharedGameTooltipMoney", StringComparison.Ordinal) &&
               Count(vendor, "SetSharedGameTooltipMoney(") == 1 &&
+              Count(taxi, "SetSharedGameTooltipMoney(") == 1 &&
               !minimap.Contains("SetSharedGameTooltipMoney", StringComparison.Ordinal) &&
               !actions.Contains("TryShowNewbieGameTooltip", StringComparison.Ordinal) &&
               !bindings.Contains("TryShowNewbieGameTooltip", StringComparison.Ordinal) &&

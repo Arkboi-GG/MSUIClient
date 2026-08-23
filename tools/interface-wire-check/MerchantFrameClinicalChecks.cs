@@ -498,9 +498,7 @@ internal static class MerchantFrameClinicalChecks
               !renderer.Contains("IsItemClicked", StringComparison.Ordinal),
             "Merchant controls no longer require same-control press/release ownership");
 
-        Check(session.Contains("private const float VendorServiceDistance = 5.5556f;",
-                  StringComparison.Ordinal) &&
-              session.Contains("private readonly bool[] _vendorOpenedBags = new bool[5];",
+        Check(session.Contains("private readonly bool[] _vendorOpenedBags = new bool[5];",
                   StringComparison.Ordinal) &&
               session.Contains("container, true, playSound: true)",
                   StringComparison.Ordinal) &&
@@ -513,8 +511,13 @@ internal static class MerchantFrameClinicalChecks
               session.Contains("if (_vendorOpenedBags[container] && IsBagWindowOpen(container))",
                   StringComparison.Ordinal) &&
               session.Contains("if (_controller is null) return;", StringComparison.Ordinal) &&
-              session.Contains("Vector3.Distance(_controller.Position, vendor.Position) > " +
-                  "VendorServiceDistance", StringComparison.Ordinal) &&
+              session.Contains("return NpcSessionUiLaw.InRange(delta.LengthSquared());",
+                  StringComparison.Ordinal) &&
+              session.Contains("Vector3.DistanceSquared(_controller.Position, vendor.Position)",
+                  StringComparison.Ordinal) &&
+              session.Contains(
+                  "NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared)",
+                  StringComparison.Ordinal) &&
               Count(session, "IsVendorServiceAvailable(") == 1,
             "Merchant session lost per-bag sound, owned close, or exact range lifecycle behavior");
 
@@ -561,7 +564,7 @@ internal static class MerchantFrameClinicalChecks
               character.Contains("bool rightClicked = !_vendorRepairMode &&",
                   StringComparison.Ordinal) &&
               Count(inventory + character,
-                  "if (!_vendorRepairMode && _itemCastSpell == 0 && " +
+                  "if (!dressUpClick && !_vendorRepairMode && _itemCastSpell == 0 && " +
                   "_enchantConfirmation is null)") == 2 &&
               settings.Contains("CloseVendorSession();", StringComparison.Ordinal) &&
               quest.Contains("CloseVendorSession();", StringComparison.Ordinal) &&

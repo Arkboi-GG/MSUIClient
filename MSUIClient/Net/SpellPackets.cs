@@ -24,6 +24,7 @@ public readonly record struct SpellGoPacket(ulong ItemCaster, ulong Caster, uint
     uint? AmmoDisplayId, uint? AmmoInventoryType);
 public readonly record struct SpellDelayedPacket(ulong Caster, uint DelayMs);
 public readonly record struct SpellChannelStartPacket(uint SpellId, uint DurationMs);
+public readonly record struct SpellChainTargetsPacket(ulong Caster, uint SpellId, ulong[] Targets);
 
 /// <summary>
 /// The three compact, self-cast lifecycle packets that drive pushback and channel timing.
@@ -31,6 +32,26 @@ public readonly record struct SpellChannelStartPacket(uint SpellId, uint Duratio
 /// </summary>
 public static class SpellLifecyclePacketParser
 {
+    public static SpellChainTargetsPacket ParseChainTargets(byte[] body)
+    {
+        var r = new PacketReader(body);
+        ulong caster = r.ReadU64();
+        uint spell = r.ReadU32();
+        uint count = r.ReadU32();
+        // The wire count is a u32. Bound it by the bytes actually present before allocating so a
+        // malformed packet cannot turn a small body into a giant allocation request.
+        if (count > (uint)(r.Remaining / sizeof(ulong)))
+            throw new InvalidDataException(
+                $"SMSG_SPELL_UPDATE_CHAIN_TARGETS count {count} exceeds {r.Remaining} payload bytes");
+        int targetCount = checked((int)count);
+        var targets = new ulong[targetCount];
+        for (int i = 0; i < targets.Length; i++) targets[i] = r.ReadU64();
+        if (r.Remaining != 0)
+            throw new InvalidDataException(
+                $"SMSG_SPELL_UPDATE_CHAIN_TARGETS has {r.Remaining} trailing byte(s)");
+        return new SpellChainTargetsPacket(caster, spell, targets);
+    }
+
     public static SpellDelayedPacket ParseDelayed(byte[] body)
     {
         var r = new PacketReader(body);

@@ -94,6 +94,10 @@ internal static class ChatClinicalChecks
         Check(roll == new ChatPackets.RandomRoll(1, 100, 73, 0x1234) &&
               ChatFrameLaw.FormatRandomRoll("Alice", roll.Result, roll.Minimum, roll.Maximum) ==
               "Alice rolls 73 (1-100)", "random-roll body or result composition drift");
+        Check(ChatFrameLaw.PageUpOffset(3, 8) == 11 &&
+              ChatFrameLaw.PageDownOffset(11, 8) == 3 &&
+              ChatFrameLaw.PageDownOffset(3, 8) == 0,
+            "chat page-up/page-down offset law drift");
         var missingWriter = new PacketWriter(); missingWriter.WriteCString("Nobody");
         Check(ChatPackets.ParsePlayerNotFound(missingWriter.ToArray()) == "Nobody",
             "player-not-found cstring body drift");

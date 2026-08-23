@@ -10,6 +10,7 @@ public sealed partial class GameLoop
 {
     private ulong _petGuid;
     private readonly uint[] _petActions = new uint[PetActionBarUiLaw.SlotCount];
+    private readonly List<uint> _petBookSpells = [];
     private readonly PlayerActions _petCooldowns = new();
     private uint _petState;
     private bool _petAttacking;
@@ -19,6 +20,7 @@ public sealed partial class GameLoop
     private uint? _draggingPetAction;
     private bool _draggingPetActionPassive;
     private string _draggingPetActionIcon = "";
+    private CreatureFamilyCatalog? _creatureFamilies;
 
     private static readonly IReadOnlyDictionary<string, string> PetStringFallbacks =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -32,9 +34,20 @@ public sealed partial class GameLoop
             ["ERR_ATTACK_FLEEING"] = "You can't attack while fleeing.",
             ["ERR_ATTACK_CONFUSED"] = "You can't attack while confused.",
             ["ERR_ATTACK_MOUNTED"] = "You can't attack while mounted.",
+            ["ERR_NULL_PETNAME"] = "You must enter a name for your pet.",
         };
     private readonly Dictionary<string, string> _petGlobalStrings = [];
     private bool _petGlobalStringsLoaded;
+
+    private void InitPetPaperDollData()
+    {
+        if (_mpq is null) return;
+        try { _creatureFamilies = CreatureFamilyCatalog.Load(_mpq); }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[pet-paper-doll] family catalogs failed: {ex.Message}");
+        }
+    }
 
     // Build-5875 SMSG_PET_SPELLS, including both the client and vmangos cooldown tails.
     private void ApplyPetSpells(byte[] body)
@@ -52,6 +65,7 @@ public sealed partial class GameLoop
                 _petGuid = guid;
                 _petState = 0;
                 Array.Clear(_petActions);
+                _petBookSpells.Clear();
                 _petCooldowns.Clear();
             }
             return;
@@ -65,7 +79,8 @@ public sealed partial class GameLoop
 
         if (r.Remaining < 1) throw new InvalidDataException("SMSG_PET_SPELLS missing spell count");
         int spellCount = r.ReadU8();
-        for (int i = 0; i < spellCount; i++) r.ReadU32();
+        var bookSpells = new List<uint>(spellCount);
+        for (int i = 0; i < spellCount; i++) bookSpells.Add(r.ReadU32());
         if (r.Remaining < 1) throw new InvalidDataException("SMSG_PET_SPELLS missing cooldown count");
         int cooldownCount = r.ReadU8();
         bool vmangos = cooldownCount > 0 && r.Remaining == 1 + 14 * cooldownCount;
@@ -90,6 +105,8 @@ public sealed partial class GameLoop
         _petGuid = guid;
         _petState = state;
         actions.CopyTo(_petActions, 0);
+        _petBookSpells.Clear();
+        _petBookSpells.AddRange(bookSpells);
         _petCooldowns.Clear();
         double now = MovementInfo.ClientUptimeMs() / 1000.0;
         foreach (var cooldown in cooldowns)
@@ -192,6 +209,7 @@ public sealed partial class GameLoop
         _draggingPetAction = null;
         _pressedPetActionSlot = -1;
         Array.Clear(_petActions);
+        _petBookSpells.Clear();
     }
 
     private string PetGlobalString(string key)
@@ -252,10 +270,16 @@ public sealed partial class GameLoop
         ImGui.PushStyleVar(ImGuiStyleVar.WindowMinSize, Vector2.Zero);
         if (!ImGui.Begin("##vanilla-pet-frame", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav |
-            ImGuiWindowFlags.NoMouseInputs))
+            ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse))
         { ImGui.End(); ImGui.PopStyleVar(3); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
         dl.PushClipRectFullScreen();
+        ImGui.SetCursorScreenPos(p);
+        ImGui.InvisibleButton("##pet-frame-input",
+            new Vector2(PetMenuUiLaw.FrameWidth, PetMenuUiLaw.FrameHeight) * s,
+            ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
+        bool leftClicked = ImGui.IsItemClicked(ImGuiMouseButton.Left);
+        bool rightClicked = ImGui.IsItemClicked(ImGuiMouseButton.Right);
         Vector2 portrait = p + new Vector2(5, 4) * s;
         DrawUnitPortraitImage(dl, pet, portrait, 32 * s, 0, false);
         DrawArt(dl, @"Interface\TargetingFrame\UI-SmallTargetingFrame", p, new Vector2(128, 64), s);
@@ -268,6 +292,11 @@ public sealed partial class GameLoop
         dl.PopClipRect();
         ImGui.End();
         ImGui.PopStyleVar(3);
+        if (leftClicked)
+            CommitSelection(pet.Guid, beginAttack: false);
+        else if (rightClicked)
+            OpenUnitPopup(pet.Guid, UnitPopupWhich.Pet, ImGui.GetMousePos(),
+                InspectBinding.Target);
     }
 
     private void DrawPetActionBar(ulong petGuid, WorldEntity? pet, float s)

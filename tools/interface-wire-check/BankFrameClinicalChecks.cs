@@ -56,7 +56,8 @@ internal static class BankFrameClinicalChecks
             "GameLoop.Bank.cs"));
         string inventory = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Inventory.cs"));
-        Check(runtime.Contains("BankFrameUiLaw.FrameOrigin", StringComparison.Ordinal) &&
+        Check(runtime.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[5], s)",
+                  StringComparison.Ordinal) &&
               runtime.Contains("DrawUnitPortraitImage", StringComparison.Ordinal) &&
               runtime.Contains("DrawNpcModalTitle", StringComparison.Ordinal) &&
               runtime.Contains("DrawTrainerMoney", StringComparison.Ordinal) &&

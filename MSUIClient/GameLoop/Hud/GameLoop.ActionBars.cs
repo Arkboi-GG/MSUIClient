@@ -584,7 +584,8 @@ public sealed partial class GameLoop
                 else if (action.Kind == ActionSlot.Macro)
                 {
                     iconPath = MacroIcon(action.ActionId);
-                    title = action.ActionId is > 0 and <= 18 ? _macros[(int)action.ActionId - 1].Name : "Macro";
+                    title = action.ActionId > 0 && action.ActionId <= _macros.Count
+                        ? _macros[(int)action.ActionId - 1].Name : "Macro";
                 }
 
                 // ── the reference three-way usability verdict (ActionButton_UpdateUsable) ──
@@ -889,7 +890,7 @@ public sealed partial class GameLoop
                 else if (action.Kind == ActionSlot.Macro)
                 {
                     iconPath = MacroIcon(action.ActionId);
-                    fallbackTitle = action.ActionId is > 0 and <= 18
+                    fallbackTitle = action.ActionId > 0 && action.ActionId <= _macros.Count
                         ? _macros[(int)action.ActionId - 1].Name : "Macro";
                 }
 

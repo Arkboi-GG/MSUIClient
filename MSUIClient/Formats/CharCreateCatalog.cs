@@ -34,6 +34,7 @@ public sealed class CharCreateCatalog
     public const string CharHairGeosetsPath = @"DBFilesClient\CharHairGeosets.dbc";
     public const string FacialHairPath = @"DBFilesClient\CharacterFacialHairStyles.dbc";
     public const string CharStartOutfitPath = @"DBFilesClient\CharStartOutfit.dbc";
+    public const string ChrRacesPath = @"DBFilesClient\ChrRaces.dbc";
 
     // race -> valid classes (ascending file order, deduped) from CharBaseInfo.dbc.
     private readonly Dictionary<byte, List<byte>> _classes = new();
@@ -41,6 +42,8 @@ public sealed class CharCreateCatalog
     private readonly Dictionary<(byte Race, byte Sex), int[]> _dials = new();
     // (race, class, sex) -> the level-1 starting outfit as (ItemDisplayInfo id, InventoryType) pairs.
     private readonly Dictionary<(byte Race, byte Class, byte Sex), List<(uint DisplayId, int InvType)>> _outfits = new();
+    // race -> ([male facial token, female facial token], shared hair token), ChrRaces 26/27/28.
+    private readonly Dictionary<byte, (string[] Facial, string Hair)> _customizationTokens = new();
 
     /// <summary>True once the class map loaded (a create screen can render even without dials).</summary>
     public bool Ok { get; private set; }
@@ -64,6 +67,13 @@ public sealed class CharCreateCatalog
             ? l
             : (IReadOnlyList<(uint DisplayId, int InvType)>)Array.Empty<(uint, int)>();
 
+    public string HairCustomization(byte race) =>
+        _customizationTokens.TryGetValue(race, out var value) ? value.Hair : "NORMAL";
+
+    public string FacialHairCustomization(byte race, byte sex) =>
+        _customizationTokens.TryGetValue(race, out var value)
+            ? value.Facial[Math.Min((int)sex, 1)] : "NORMAL";
+
     /// <summary>Load the catalog from the client MPQs. Null if CharBaseInfo is missing.</summary>
     public static CharCreateCatalog? Load(string clientDataPath)
     {
@@ -77,6 +87,9 @@ public sealed class CharCreateCatalog
         var cat = new CharCreateCatalog();
         cat.ParseBaseInfo(baseInfo);
 
+        byte[]? races = AdtTerrainReader.ReadFileFromMpqs(clientDataPath, ChrRacesPath);
+        cat.ParseCustomizationTokens(races);
+
         byte[]? sections = AdtTerrainReader.ReadFileFromMpqs(clientDataPath, CharSectionsPath);
         byte[]? hair = AdtTerrainReader.ReadFileFromMpqs(clientDataPath, CharHairGeosetsPath);
         byte[]? facial = AdtTerrainReader.ReadFileFromMpqs(clientDataPath, FacialHairPath);
@@ -88,6 +101,22 @@ public sealed class CharCreateCatalog
         cat.Ok = cat._classes.Count > 0;
         Console.WriteLine($"[charcreate] catalog: {cat._classes.Count} race(s), dial ranges for {cat._dials.Count} (race,sex) pair(s)");
         return cat;
+    }
+
+    // ChrRaces build 5875: 29 u32 fields / 116-byte records. Fields 26/27 are the male/female
+    // facial-hair GlueStrings tokens and field 28 is the shared hair token.
+    private void ParseCustomizationTokens(byte[]? d)
+    {
+        if (!ValidWdbc(d) || Fields(d!) < 29 || I32(d!, 12) < 116) return;
+        ForEachRecord(d!, rec =>
+        {
+            byte race = (byte)U32(d!, rec, 0);
+            string male = WdbcString(d!, U32(d!, rec, 26));
+            string female = WdbcString(d!, U32(d!, rec, 27));
+            string hair = WdbcString(d!, U32(d!, rec, 28));
+            if (race is >= 1 and <= 8 && male.Length > 0 && female.Length > 0 && hair.Length > 0)
+                _customizationTokens[race] = ([male, female], hair);
+        });
     }
 
     // CharBaseInfo.dbc: WDBC header then recordCount * 2 bytes = (raceId, classId).
@@ -202,6 +231,16 @@ public sealed class CharCreateCatalog
     {
         int p = recOff + field * 4;
         return (uint)(d[p] | (d[p + 1] << 8) | (d[p + 2] << 16) | (d[p + 3] << 24));
+    }
+    private static string WdbcString(byte[] d, uint offset)
+    {
+        int strings = 20 + I32(d, 4) * I32(d, 12);
+        long startLong = strings + offset;
+        if (startLong < strings || startLong >= d.Length) return "";
+        int start = (int)startLong;
+        int end = start;
+        while (end < d.Length && d[end] != 0) end++;
+        return end == start ? "" : System.Text.Encoding.UTF8.GetString(d, start, end - start);
     }
     private static void Add(Dictionary<(byte, byte), HashSet<uint>> d, (byte, byte) key, uint value)
     {

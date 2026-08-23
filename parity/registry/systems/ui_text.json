@@ -44,12 +44,16 @@
   "msuiAnchors": [
     "MSUIClient/Engine/UI/GameTextLaw.cs",
     "MSUIClient/Engine/UI/GameText.cs",
+    "MSUIClient/Engine/UI/FontStringOverflowLaw.cs",
     "MSUIClient/Engine/UI/FontObjectLaw.cs",
     "MSUIClient/Engine/UI/UiTextMarkupLaw.cs",
-    "MSUIClient/GameLoop/Panels/GameLoop.Chat.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Chat.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Social.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Guild.cs",
+    "tools/interface-wire-check/UiTextMarkupClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI's GameTextLaw/GameText/FontObjectLaw retain the byte-derived 1.12 text metrics and named FrameXML font objects. UiTextMarkupLaw now adds current build-5875 color/reset, escaped-pipe, line-break, and hyperlink parsing, carries shared link identity across metric wrapping, and feeds interactive chat color runs. Current Benilla's lower-level grammar proves that later-expansion |T...|t is not a token in 1.12.1 and therefore renders literally; the old stripping gap was adjudicated to that newer evidence. General cross-panel FontString ellipsizing remains open.",
+  "summary": "MSUI's GameTextLaw/GameText/FontObjectLaw retain the byte-derived 1.12 text metrics and named FrameXML font objects. UiTextMarkupLaw adds current build-5875 color/reset, escaped-pipe, line-break, and hyperlink parsing, carries shared link identity across metric wrapping, and feeds interactive chat color runs. Current Benilla's lower-level grammar proves that later-expansion |T...|t is not a token in 1.12.1 and therefore renders literally. FontStringOverflowLaw now owns the shared fixed-box greedy whitespace wrap, force break, render-ceil versus fit-floor line laws, min-one-line height clamp, scalar-safe backoff, and ASCII-three-dot marker; GameText exposes that law in logical FrameXML box units, and the authored fixed-size Who/Guild roster cells consume it without altering auto-height Friends strings or non-FontString text systems.",
   "openItems": [
     {
       "id": "item-triage-e4ef5e41",
@@ -84,7 +88,8 @@
       "text": "No general FontString overflow/ellipsize law (Benilla's layout/overflow.rs ellipsize_to_fit) - truncation behavior outside chat wrap is per-panel ad hoc.",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "FontStringOverflowLaw and GameText.EllipsizeToBox provide the shared build-5875 fixed-box implementation: whitespace-opportunity wrapping, overlong-word force breaks, distinct render/fit line laws, one-line height clamp, whole-scalar backoff, and the exact ASCII '...' marker. Fixed Who and Guild roster boxes use the API; auto-height and non-FontString systems remain outside its scope by design."
     }
   ],
   "claims": [],

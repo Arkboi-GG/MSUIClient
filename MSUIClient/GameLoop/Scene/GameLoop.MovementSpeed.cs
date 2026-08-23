@@ -32,6 +32,18 @@ public sealed partial class GameLoop
         entity.Speeds[(int)kind] = speed;
     }
 
+    private void ApplyObserverSpeedChange(NetworkClient net, Op opcode, byte[] body)
+    {
+        ObserverSpeedChange change = MovementSpeedPackets.ParseObserverSpeedChange(opcode, body);
+        // MOVE_SET carries a fresh player pose as well as the speed. SPLINE_SET changes only the
+        // speed set of a unit already following its server path. Neither observer form is acked.
+        if (change.Movement is { } movement &&
+            change.Guid != net.PlayerGuid && change.Guid != ControlledGuid)
+            _entities.ApplyRemotePlayerMove(
+                change.Guid, movement, MovementInfo.ClientUptimeMs());
+        ApplyEntitySpeed(change.Guid, change.Kind, change.Speed);
+    }
+
     private void ApplyControlledSpeed(MovementSpeedKind kind, float speed)
     {
         _controller?.ApplyServerSpeed(kind, speed);

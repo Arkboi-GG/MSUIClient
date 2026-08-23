@@ -93,11 +93,18 @@
   ],
   "msuiAnchors": [
     "MSUIClient/Net/LocalMovementSender.cs",
+    "MSUIClient/Net/ObjectFields.cs",
+    "MSUIClient/Player/DrunkMovementLaw.cs",
+    "MSUIClient/Player/SwimmingMovementLaw.cs",
+    "MSUIClient/Player/CharacterController.cs",
+    "MSUIClient/Program.cs",
     "MSUIClient/Net/MovementInfo.cs",
+    "MSUIClient/Net/ServerAuthoredMovementLaw.cs",
     "MSUIClient/Net/MovementSpeedPackets.cs",
     "MSUIClient/Net/MovementModePackets.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.MovementSpeed.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.MovementModes.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.ServerAuthoredMovement.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.Follow.cs",
     "MSUIClient/Engine/UI/AutoFollowUiLaw.cs",
     "MSUIClient/Program.Net.cs",
@@ -108,7 +115,7 @@
     "MSUIClient/World/Units/CreatureRenderer.Mounts.cs"
   ],
   "status": "partial",
-  "summary": "The outbound movement core, jump/fall lifecycle, heartbeat/facing, teleport/worldport, force speeds, granted movement modes, and client-only auto-follow are live. Follow synthesizes the ordinary forward axis with bounded facing and hysteresis, so normal movement packets remain the only wire path. Water-walk promotes a nearby liquid surface to support, feather-fall caps descent at 7 yd/s, hover lifts contact by 1 yd, and every persistent bit is echoed in outbound movement. Swimming, knockback, server-authored self moves and transport riding remain.",
+  "summary": "The outbound movement core, jump/fall lifecycle, swimming, drunken movement, heartbeat/facing, teleport/worldport, force speeds, granted movement modes, client-only auto-follow, and bare server-authored self corrections are live. Swimming uses the verified 0.75-height threshold and 1/36-yard hysteresis, gravity-free pitched travel, rest-line cap/redirect, server swim speeds, breach jump, START/STOP wire transitions with pitch, and local swim gaits. Drunkenness reads PLAYER_BYTES_3 byte one from the logged-in player, applies Benilla's exact three-harmonic translating-facing pulse with keyboard-turn suppression and fourfold swim-pitch pulse, and deliberately adds no normal-play FOV effect. Self-addressed MSG_MOVE packets hard-snap with the 0x75A07DFF flag merge and rigid facing delta without losing orbit or sending an ack. The dedicated knockback claim was removed as stale against current Benilla. Transport riding remains.",
   "openItems": [
     {
       "id": "item-triage-0e93dbdb",
@@ -125,7 +132,8 @@
       "text": "Swimming is entirely absent: no swim state/pitch, MSG_MOVE_START_SWIM/STOP_SWIM are never sent, and the SWIMMING flag never joins the outbound stream",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23: CharacterController now owns exact 0.75-height enter and 1/36-yard exit hysteresis, gravity-free pitched swimming, server-seeded forward/back speeds, top-cap redirect and the 9.096748 breach jump. LocalMovementSender emits START/STOP_SWIM, SWIMMING and the pitch tail; CharacterRenderer selects swim animations 41-45. Focused and full clinical suites pass."
     },
     {
       "id": "item-triage-a6990e89",
@@ -142,7 +150,8 @@
       "text": "SMSG_MOVE_KNOCK_BACK is not handled - no knockback arc or ack",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23 source re-audit: this is not a current Benilla parity gap. In snapshot b57ee0e9e2c8822b, SMSG_MOVE_KNOCK_BACK/CMSG_MOVE_KNOCK_BACK_ACK exist only in opcode_names.rs; there is no message parser, SessionEvent, dispatch arm, player arc, or ACK writer for the dedicated packet. Benilla comments likewise describe knockback as later server-ride work. No MSUI behavior was invented."
     },
     {
       "id": "item-triage-e045a610",
@@ -150,7 +159,8 @@
       "text": "A bare self-addressed MSG_MOVE_* from the server (.go forward-style GM move) is not applied to the local mover",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23: ordinary and compressed MSG_MOVE relay dispatch sends the currently controlled mover through ApplyServerAuthoredSelfMove. It hard-snaps position, adopts the shortest facing delta across controller/model/camera while preserving OrbitYaw, merges the reference 0x75A07DFF-authored flags, updates the entity fallback, and sends no ack. Free-view/non-controlled session bodies remain observers. Focused and full clinical suites pass."
     },
     {
       "id": "item-triage-37b07b95",
@@ -158,6 +168,22 @@
       "text": "Transport riding is parse-only: the ONTRANSPORT pose tail is decoded but there is no deck-ride state, no boat-local pose streaming, and no ride-through-worldport handling",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "verify-server-authored-self-move-live-20260823",
+      "kind": "verify",
+      "text": "Live-verify .go forward/up/relative and an anticheat heartbeat correction: the own avatar should snap immediately, retain camera orbit by the same facing delta, emit no special ack, and continue naturally from the adopted pose. Repeat while free-viewing and possessing so the camera/controlled bot are not pulled to the session character.",
+      "source": "benilla-b57ee0e9e2c8822b/player/wire_in.rs",
+      "added": "2026-08-23",
+      "resolved": false
+    },
+    {
+      "id": "verify-player-swimming-live-20260823",
+      "kind": "verify",
+      "text": "Live-verify wade-to-swim hysteresis, idle depth hold, pitched forward ascent/descent, surface cap and level redirect, backward/strafe speeds, swim-idle and 42-45 directional gaits, deep and surface Space breach without held-key refire, START/STOP packets, server swim-speed changes, shore exit and lava/slime surfaces.",
+      "source": "benilla-b57ee0e9e2c8822b/player/swim.rs",
+      "added": "2026-08-23",
       "resolved": false
     },
     {
@@ -175,12 +201,21 @@
       "text": "The drunk system (DRUNKENSTATE screen effect/gait) has no counterpart",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-23: implemented current Benilla's actual visible drunken behavior, correcting the stale screen-effect wording. PLAYER_BYTES_3 byte one is clamped/scaled, and the exact bit-pattern three-harmonic cosine pulse veers translating facing unless a keyboard turn is held and perturbs translating swim pitch by 4x. State belongs to the logged-in player during possession. Per Benilla decision 1018, normal play deliberately has no FOV effect. Focused and full clinical suites pass."
+    },
+    {
+      "id": "verify-player-drunk-movement-live-20260823",
+      "kind": "verify",
+      "text": "Live-verify low/full drunkenness while walking, strafing, deliberately keyboard-turning and swimming: the session character should meander only while translating, keyboard turns should stay crisp, drunk swimming should porpoise, possession should still source the session player's drunk byte, and there should be no visible FOV distortion.",
+      "source": "benilla-5089066fea6adbc3/player/drunk.rs",
+      "added": "2026-08-23",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T02:10:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

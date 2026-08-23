@@ -21,11 +21,13 @@
     "MSUIClient/Net/WorldSession.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
     "MSUIClient/GameLoop/Combat/GameLoop.Casting.cs",
+    "MSUIClient/World/Units/SpellChainBeamSource.cs",
+    "MSUIClient/World/Units/SpellChainBeamRenderer.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.GameObjects.cs",
     "tools/interface-wire-check/GameObjectCastClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "Benilla's cast pipeline covers the four CMSG_CAST_SPELL target shapes, cancels, cast results, SPELL_START/GO, failures, delays, channel updates, aura duration, visuals, and chain targets. MSUI implements nearly all of it: SpellPackets parses the landed family, GameObject OPEN_LOCK casts now byte-match target mask 0x0800 alone with a packed GUID, and the remaining concrete gap is SMSG_SPELL_UPDATE_CHAIN_TARGETS.",
+  "status": "complete",
+  "summary": "Benilla's cast pipeline covers the four CMSG_CAST_SPELL target shapes, cancels, cast results, SPELL_START/GO, failures, delays, channel updates, aura duration, visuals, and chain targets. MSUI now implements that concrete family: GameObject OPEN_LOCK casts byte-match target mask 0x0800, and both SPELL_GO hit lists and SMSG_SPELL_UPDATE_CHAIN_TARGETS feed the one-consumer caster hop list used by cast and channel chain visuals.",
   "openItems": [
     {
       "id": "item-triage-360c778a",
@@ -33,7 +35,8 @@
       "text": "SMSG_SPELL_UPDATE_CHAIN_TARGETS has no handler - the channeled-beam hop list (Drain Life / Mind Flay style, vmangos sends it from SendChannelStart) is dropped, so packet-delivered chain visuals have no data source",
       "source": "triage-2026-08-09/batch-protocol-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: the strict chain-target packet is routed into the same caster-owned hop list as SPELL_GO hits; the next type-0/type-12 chain CharProc consumes it once, with channel-object fallback, one-shot expiry, persistent teardown, and clinical coverage against actual build-5875 Chain Lightning/Drain Life rows."
     },
     {
       "id": "item-triage-b3fb0e9a",

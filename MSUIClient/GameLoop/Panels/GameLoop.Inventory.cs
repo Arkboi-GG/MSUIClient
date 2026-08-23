@@ -236,6 +236,8 @@ public sealed partial class GameLoop
             hash.Add(guid);
             if (guid == 0) continue;
             if (!_entities.TryGet(guid, out WorldEntity instance)) return;
+            for (int enchantSlot = 0; enchantSlot < 7; enchantSlot++)
+                hash.Add(instance.Fields.ItemEnchantmentId(enchantSlot));
             _items.Require(instance.Entry, instance.Guid, _net);
             if (!_items.TryGet(instance.Entry, out ItemTemplate? item) || item is null) return;
             resolved.Add((slot, item));
@@ -247,7 +249,13 @@ public sealed partial class GameLoop
         {
             ItemTemplate item = resolvedItem.Item;
             equipment.Add(item.Name, item.DisplayInfoId, (int)item.InventoryType, resolvedItem.Slot,
-                (byte)item.Class, (byte)item.Subclass, (byte)item.Material, (byte)item.Sheath);
+                (byte)item.Class, (byte)item.Subclass, (byte)item.Material, (byte)item.Sheath,
+                player.Fields.PlayerInventorySlot(resolvedItem.Slot) is ulong itemGuid &&
+                _entities.TryGet(itemGuid, out WorldEntity instance)
+                    ? Enumerable.Range(0, 7)
+                        .Select(enchantSlot => instance.Fields.ItemEnchantmentId(enchantSlot))
+                        .ToArray()
+                    : []);
         }
         if (EquipmentVisuallyMatches(_character.Equipment, equipment))
         {
@@ -273,7 +281,8 @@ public sealed partial class GameLoop
         {
             bool found = current.Pieces.Any(existing =>
                 existing.DisplayId == piece.DisplayId &&
-                existing.InventoryType == piece.InventoryType);
+                existing.InventoryType == piece.InventoryType &&
+                existing.Enchants.SequenceEqual(piece.Enchants));
             if (!found) return false;
         }
         return true;
@@ -1795,6 +1804,12 @@ public sealed partial class GameLoop
         bool interactive = ControlledGuid == LocalPlayerGuid;
         bool leftClicked = interactive && !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Left);
         bool rightClicked = interactive && !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Right);
+        bool dressUpClick = leftClicked && ImGui.GetIO().KeyCtrl && instance is not null;
+        if (dressUpClick)
+        {
+            TryOnDressUp(instance!.Entry);
+            leftClicked = rightClicked = false;
+        }
         if (repairReleased) TryRepairMerchantItem(instance?.Guid ?? 0);
         if (_itemCastSpell != 0)
         {
@@ -1859,7 +1874,7 @@ public sealed partial class GameLoop
                 else _net.UseItem(wire.Bag, wire.Slot, item.UseSpellIndex);
             }
         }
-        if (!_vendorRepairMode && _itemCastSpell == 0 && _enchantConfirmation is null)
+        if (!dressUpClick && !_vendorRepairMode && _itemCastSpell == 0 && _enchantConfirmation is null)
             HandleInventoryDrag(container, slot, guid, item);
 
         uint ring = _gameplayArt.Handle(@"Interface\Buttons\UI-Quickslot2");
@@ -2502,6 +2517,25 @@ public sealed partial class GameLoop
                 SetBagWindowOpen(container, false, playSound: false);
         }
         SetBagWindowOpen(InventoryUiLaw.KeyringContainer, false);
+        for (int container = InventoryUiLaw.BankBagContainerFirst;
+             container <= InventoryUiLaw.BankBagContainerLast; container++)
+            SetBagWindowOpen(container, false, playSound: false);
+        return true;
+    }
+
+    /// <summary>Close ordinary/bank bag windows while preserving the keyring.</summary>
+    private bool CloseAllNormalBagWindows()
+    {
+        if (!_backpackOpen && !_equippedBagOpen.Any(x => x) && !_bankBagOpen.Any(x => x))
+            return false;
+        if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player))
+            SetAllNormalBagWindows(player, false);
+        else
+        {
+            SetBagWindowOpen(0, false, playSound: false);
+            for (int container = 1; container <= 4; container++)
+                SetBagWindowOpen(container, false, playSound: false);
+        }
         for (int container = InventoryUiLaw.BankBagContainerFirst;
              container <= InventoryUiLaw.BankBagContainerLast; container++)
             SetBagWindowOpen(container, false, playSound: false);

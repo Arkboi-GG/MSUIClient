@@ -55,15 +55,38 @@ internal static class GossipClinicalChecks
               GossipUiLaw.QuestIcon(0).EndsWith("AvailableQuestIcon") &&
               GossipUiLaw.QuestIcon(5).EndsWith("AvailableQuestIcon"),
             "gossip quest icon law drift");
+        Check(GossipUiLaw.Scroll == new GossipLogicalRect(23, 81, 300, 334) &&
+              GossipUiLaw.ScrollUp == new GossipLogicalRect(329, 81, 16, 16) &&
+              GossipUiLaw.ScrollTrack == new GossipLogicalRect(329, 97, 16, 302) &&
+              GossipUiLaw.ScrollDown == new GossipLogicalRect(329, 399, 16, 16) &&
+              GossipUiLaw.Goodbye == new GossipLogicalRect(267, 417, 78, 22) &&
+              GossipUiLaw.Close == new GossipLogicalRect(326, 15, 32, 32) &&
+              GossipUiLaw.RowTop(20) == 131 &&
+              GossipUiLaw.RowHeight(10) == 18 &&
+              GossipUiLaw.RowHeight(25) == 27 &&
+              GossipUiLaw.ContentHeight(100, Enumerable.Repeat(30f, 10).ToArray()) == 450 &&
+              GossipUiLaw.MaximumScroll(450) == 116 &&
+              GossipUiLaw.WheelScroll(60, 450, 1) == 40 &&
+              GossipUiLaw.ThumbY(116, 450) == 383,
+            "gossip scroll/window geometry law drift");
 
         string root = ClientConfig.FindRepoRoot();
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Gossip.cs"));
         Check(runtime.Contains("GossipUiLaw.OptionIcon(option.Icon)", StringComparison.Ordinal) &&
+              runtime.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[0], s)",
+                  StringComparison.Ordinal) &&
               runtime.Contains("GossipUiLaw.QuestIcon(quest.Icon)", StringComparison.Ordinal) &&
               runtime.Contains("_npcTextRecords.TryGetValue", StringComparison.Ordinal) &&
               runtime.Contains("GossipUiLaw.SelectGreeting", StringComparison.Ordinal) &&
-              runtime.Contains("source.Fields.Bytes0.Gender", StringComparison.Ordinal),
+              runtime.Contains("source.Fields.Bytes0.Gender", StringComparison.Ordinal) &&
+              runtime.Contains("ImGui.PushClipRect(scrollMin, scrollMax, true)",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("DrawGossipScrollBar(dl, p, s, contentHeight)",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("!option.Coded", StringComparison.Ordinal) &&
+              runtime.IndexOf("rows.Add((true", StringComparison.Ordinal) <
+                  runtime.IndexOf("rows.Add((false", StringComparison.Ordinal),
             "gossip icon/greeting production wiring drift");
     }
 

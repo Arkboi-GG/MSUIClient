@@ -78,6 +78,7 @@ public sealed partial class GameLoop
     private bool _clutterRescatterPending;
     private GameSettings? _settingsSnapshot;
     private MenuPage _menuPage = MenuPage.GameMenu;
+    private string _optionsSearch = "";
     private string _presetNameInput = "";
     private int _selectedPreset;
     private string _settingsStatus = "";
@@ -217,7 +218,8 @@ public sealed partial class GameLoop
                     TryCancelSpellTargetingOnEscape();
                     break;
                 case GameMenuEscapeLayer.PlayerPanel:
-                    _ = TryCloseLootOnEscape() || TryClosePlayerPanelOnEscape();
+                    _ = TryCloseRegisteredUiPanels(closeEscapeContainers: true) ||
+                        TryClosePlayerPanelOnEscape();
                     break;
                 case GameMenuEscapeLayer.Target:
                     TryClearTargetOnEscape();
@@ -231,7 +233,7 @@ public sealed partial class GameLoop
     }
 
     private bool HasPlayerPanelForEscape() =>
-        _bindingCapture is not null || _keybindingsOpen || _tradeOpen || _inspectOpen ||
+        _bindingCapture is not null || _keybindingsOpen || _tradeOpen || _inspectOpen || _dressUpOpen ||
         _auctionOpen || _mailOpen || _gossipMenu is not null || _gossipGreeting is not null ||
         QuestNpcPanelNow() != QuestNpcPanel.None ||
         _vendor is not null || _trainer is not null || _gameObjectGuid != 0 || _worldMapOpen ||
@@ -251,6 +253,7 @@ public sealed partial class GameLoop
     private bool TryClosePlayerPanelOnEscape()
     {
         if (CloseItemRefTooltip()) return true;
+        if (_dressUpOpen) { CloseDressUp(); return true; }
         if (_rtsControlGroupCommandOpen) { _rtsControlGroupCommandOpen = false; return true; }
         if (_bindingCapture is not null) { _bindingCapture = null; return true; }
         if (_keybindingsOpen)
@@ -274,6 +277,9 @@ public sealed partial class GameLoop
         if (_macroOpen) { CloseMacros(); return true; }
         if (_helpOpen) { _helpOpen = false; return true; }
         if (_socialOpen) { _socialOpen = false; return true; }
+        if (_guildInfoOpen) { _guildInfoOpen = false; return true; }
+        if (_guildMemberDetailOpen) { _guildMemberDetailOpen = false; return true; }
+        if (_guildControlOpen) { _guildControlOpen = false; return true; }
         if (_guildOpen) { _guildOpen = false; return true; }
         if (_professionOpen) { _professionOpen = false; return true; }
         if (_bankOpen) return CloseBankSession();
@@ -287,19 +293,45 @@ public sealed partial class GameLoop
         return false;
     }
 
+    /// <summary>
+    /// Top-level surfaces outside UIPanelWindows. Native-center opens close
+    /// these after the registered seats, but must preserve the keyring while
+    /// applying CloseAllBags to ordinary containers.
+    /// </summary>
+    private bool TryCloseUnregisteredSurfaceForCenterOpen()
+    {
+        if (_rtsControlGroupCommandOpen) { _rtsControlGroupCommandOpen = false; return true; }
+        if (_bindingCapture is not null) { _bindingCapture = null; return true; }
+        if (_keybindingsOpen)
+        {
+            if (_bindingSnapshot is not null)
+            { _bindings.Clear(); foreach (var pair in _bindingSnapshot) _bindings[pair.Key] = pair.Value; }
+            _bindingSnapshot = null; _keybindingsOpen = false; return true;
+        }
+        if (_auctionOpen) { ResetAuction(); return true; }
+        if (_gameObjectGuid != 0) { _gameObjectGuid = 0; return true; }
+        if (_commanderMapOpen) { _commanderMapOpen = false; return true; }
+        if (_helpOpen) { _helpOpen = false; return true; }
+        if (_tabardOpen) { _tabardOpen = false; return true; }
+        return false;
+    }
+
     private void OpenSettings()
     {
         if (_settingsOpen) return;
-        // ShowUIPanel's center ownership closes displaced panels before GameMenuFrame appears.
-        // Reuse each panel's existing close path so its side effects and MSUI sounds stay intact.
+        // ShowUIPanel's center ownership closes captured panel seats, then ordinary bags, before
+        // GameMenuFrame appears. The keyring is deliberately not an ordinary bag on this path.
         if (_splitContainer != InventoryUiLaw.EmptyContainer) CancelStackSplit();
-        for (int closed = 0; closed < 32 && TryClosePlayerPanelOnEscape(); closed++) { }
+        _ = TryCloseRegisteredUiPanels(closeEscapeContainers: false);
+        CloseAllNormalBagWindows();
+        for (int closed = 0; closed < 16 && TryCloseUnregisteredSurfaceForCenterOpen(); closed++) { }
         _settingsSnapshot = Settings.Clone();
         _settingsCancelling = false;
         _settingsOpen = true;
         _settingsPopupRequested = true;
         _settingsPopupCloseRequested = false;
         _menuPage = MenuPage.GameMenu;
+        _optionsSearch = "";
         _settingsStatus = "";
         PlayUiSound(GameMenuUiLaw.OpenSound);
     }
@@ -313,6 +345,7 @@ public sealed partial class GameLoop
         }
 
         _settingsOpen = false;
+        _optionsSearch = "";
         // The micro button is drawn outside the popup scope. Keep one teardown frame alive so
         // DrawSettingsModal can legally pop ImGui's modal stack instead of leaving a ghost owner.
         _settingsPopupCloseRequested = true;
@@ -524,7 +557,18 @@ public sealed partial class GameLoop
             // i.e. its top at 26.5, so 30 clears the plaque with a hair to spare.
             ImGui.SetCursorPosY(30f * S);
 
-            switch (_menuPage)
+            if (_menuPage != MenuPage.GameMenu)
+            {
+                float contentX = ImGui.GetCursorPosX();
+                DrawOptionsSearch(dl, min, size);
+                ImGui.SetCursorPos(new Vector2(contentX, OptionsSearchUiLaw.ContentTop * S));
+            }
+
+            if (_menuPage != MenuPage.GameMenu && !string.IsNullOrWhiteSpace(_optionsSearch))
+            {
+                DrawOptionsSearchResults(size);
+            }
+            else switch (_menuPage)
             {
                 case MenuPage.GameMenu: DrawGameMenu(size); break;
                 case MenuPage.Video: DrawVideoOptions(size); break;
@@ -581,6 +625,7 @@ public sealed partial class GameLoop
             // rather than just repainted, because the two pages are different
             // sizes and SetNextWindowSize only takes effect on a fresh Begin.
             _menuPage = MenuPage.GameMenu;
+            _optionsSearch = "";
             _settingsPopupRequested = true;
             ImGui.CloseCurrentPopup();
             return;
@@ -594,7 +639,10 @@ public sealed partial class GameLoop
         _settingsCancelling = false;
     }
 
-    private string PageTitle() => _menuPage switch
+    private string PageTitle() => _menuPage != MenuPage.GameMenu &&
+        !string.IsNullOrWhiteSpace(_optionsSearch)
+        ? OptionsSearchUiLaw.ResultsTitle
+        : _menuPage switch
     {
         MenuPage.Video => "Video Options",
         MenuPage.Controls => "Interface Options",
@@ -934,6 +982,116 @@ public sealed partial class GameLoop
         _settingsPopupRequested = true;   // resize needs a fresh open
         ImGui.CloseCurrentPopup();
     }
+
+    private void DrawOptionsSearch(ImDrawListPtr draw, Vector2 windowMin, Vector2 size)
+    {
+        float logicalWidth = size.X / MathF.Max(S, .001f);
+        OptionsSearchUiLaw.Rect box = OptionsSearchUiLaw.Box(logicalWidth);
+        Vector2 boxMin = windowMin + box.Min * S;
+        DrawVanillaInputBorder(draw, boxMin, box.Size, S);
+
+        ImGui.SetCursorScreenPos(boxMin + new Vector2(OptionsSearchUiLaw.TextLeft, 1f) * S);
+        ImGui.SetNextItemWidth(MathF.Max(1f,
+            (box.Width - OptionsSearchUiLaw.TextLeft - OptionsSearchUiLaw.TextRight) * S));
+        ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgActive, Vector4.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0f);
+        ImGui.InputText("##options-search", ref _optionsSearch, 65u);
+        bool searchActive = ImGui.IsItemActive();
+        ImGui.PopStyleVar();
+        ImGui.PopStyleColor(3);
+
+        if (_optionsSearch.Length == 0 && !searchActive)
+        {
+            Vector2 text = ImGui.CalcTextSize(OptionsSearchUiLaw.Placeholder);
+            draw.AddText(boxMin + new Vector2(OptionsSearchUiLaw.TextLeft * S,
+                    (box.Height * S - text.Y) * .5f),
+                ImGui.ColorConvertFloat4ToU32(WowSkin.Muted),
+                OptionsSearchUiLaw.Placeholder);
+        }
+
+        if (_optionsSearch.Length > 0)
+        {
+            OptionsSearchUiLaw.Rect clear = OptionsSearchUiLaw.ClearButton(box);
+            DrawImageButton(draw, "##options-search-clear", windowMin + clear.Min * S,
+                clear.Size * S,
+                @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
+                @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
+                @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
+            if (ImGui.IsItemClicked()) _optionsSearch = "";
+        }
+    }
+
+    private void DrawOptionsSearchResults(Vector2 size)
+    {
+        float bodyHeight = PanelBodyHeight(presets: false, showDefaults: false);
+        float originalX = ImGui.GetCursorPosX();
+        float resultsWidth = MathF.Max(1f, size.X - OptionsSearchUiLaw.SideMargin * 2f * S);
+        ImGui.SetCursorPosX(OptionsSearchUiLaw.SideMargin * S);
+        MenuPage? destination = null;
+
+        if (ImGui.BeginChild("##options-search-results", new Vector2(resultsWidth, bodyHeight)))
+        {
+            OptionsSearchGroup[] groups = OptionsSearchUiLaw.Find(_optionsSearch);
+            if (groups.Length == 0)
+            {
+                ImGui.TextDisabled(OptionsSearchUiLaw.NoResults);
+            }
+            else
+            {
+                var draw = ImGui.GetWindowDrawList();
+                foreach (OptionsSearchGroup group in groups)
+                {
+                    Vector2 groupMin = ImGui.GetCursorScreenPos();
+                    Vector2 groupSize = new(resultsWidth, OptionsSearchUiLaw.GroupHeight * S);
+                    ImGui.InvisibleButton($"##options-search-group-{group.Page}", groupSize);
+                    if (ImGui.IsItemHovered())
+                        draw.AddRectFilled(groupMin, groupMin + groupSize,
+                            ImGui.ColorConvertFloat4ToU32(new Vector4(.35f, .35f, .35f, .35f)));
+                    Vector2 groupText = ImGui.CalcTextSize(OptionsSearchUiLaw.PageLabel(group.Page));
+                    draw.AddText(groupMin + new Vector2(OptionsSearchUiLaw.GroupTextLeft * S,
+                            (groupSize.Y - groupText.Y) * .5f),
+                        ImGui.ColorConvertFloat4ToU32(WowSkin.Gold),
+                        OptionsSearchUiLaw.PageLabel(group.Page));
+                    if (ImGui.IsItemClicked()) destination = SearchPage(group.Page);
+
+                    foreach (OptionsSearchEntry entry in group.Entries)
+                    {
+                        Vector2 rowMin = ImGui.GetCursorScreenPos();
+                        Vector2 rowSize = new(resultsWidth, OptionsSearchUiLaw.ResultHeight * S);
+                        ImGui.InvisibleButton($"##options-search-{group.Page}-{entry.Label}", rowSize);
+                        if (ImGui.IsItemHovered())
+                            draw.AddRectFilled(rowMin, rowMin + rowSize,
+                                ImGui.ColorConvertFloat4ToU32(new Vector4(.35f, .35f, .35f, .35f)));
+                        Vector2 rowText = ImGui.CalcTextSize(entry.Label);
+                        draw.AddText(rowMin + new Vector2(OptionsSearchUiLaw.ResultTextLeft * S,
+                                (rowSize.Y - rowText.Y) * .5f),
+                            ImGui.ColorConvertFloat4ToU32(WowSkin.Normal), entry.Label);
+                        if (ImGui.IsItemClicked()) destination = SearchPage(group.Page);
+                        ImGui.Dummy(new Vector2(1f, OptionsSearchUiLaw.ResultGap * S));
+                    }
+                }
+            }
+        }
+        ImGui.EndChild();
+        ImGui.SetCursorPosX(originalX);
+        DrawPanelFooter(size, presets: false, showDefaults: false);
+
+        if (destination is MenuPage page)
+        {
+            _optionsSearch = "";
+            Go(page);
+        }
+    }
+
+    private static MenuPage SearchPage(OptionsSearchPage page) => page switch
+    {
+        OptionsSearchPage.Video => MenuPage.Video,
+        OptionsSearchPage.Interface => MenuPage.Controls,
+        OptionsSearchPage.Sound => MenuPage.Sound,
+        _ => MenuPage.Video,
+    };
 
     // ── group boxes ──────────────────────────────────────────────────────────
     //
@@ -1977,14 +2135,15 @@ public sealed partial class GameLoop
 
     // ── footer ───────────────────────────────────────────────────────────────
 
-    private float PanelBodyHeight(bool presets)
+    private float PanelBodyHeight(bool presets, bool showDefaults = true)
     {
         float available = MathF.Max(ImGui.GetContentRegionAvail().Y, 1f);
-        float footer = MathF.Min(PanelFooterReserve(presets), MathF.Max(available - 1f, 1f));
+        float footer = MathF.Min(PanelFooterReserve(presets, showDefaults),
+            MathF.Max(available - 1f, 1f));
         return MathF.Max(available - footer, 1f);
     }
 
-    private float PanelFooterReserve(bool presets)
+    private float PanelFooterReserve(bool presets, bool showDefaults = true)
     {
         float available = MathF.Max(ImGui.GetContentRegionAvail().X, 1f);
         float spacingX = ImGui.GetStyle().ItemSpacing.X;
@@ -2005,7 +2164,9 @@ public sealed partial class GameLoop
             return rows;
         }
 
-        int rows = PackedRows(button.X, button.X, button.X, button.X);
+        int rows = showDefaults
+            ? PackedRows(button.X, button.X, button.X, button.X)
+            : PackedRows(button.X, button.X, button.X);
         if (presets)
         {
             rows += SettingsFile is { Presets.Count: > 0 }
@@ -2018,7 +2179,7 @@ public sealed partial class GameLoop
         return rows * rowHeight + MathF.Max(rows - 1, 0) * ImGui.GetStyle().ItemSpacing.Y + 4f * S;
     }
 
-    private void DrawPanelFooter(Vector2 size, bool presets)
+    private void DrawPanelFooter(Vector2 size, bool presets, bool showDefaults = true)
     {
         float available = MathF.Max(ImGui.GetContentRegionAvail().X, 1f);
         var button = new Vector2(
@@ -2093,11 +2254,14 @@ public sealed partial class GameLoop
         }
 
         lineUsed = 0f;
-        Place(button.X);
-        if (Button("Defaults", button))
+        if (showDefaults)
         {
-            ResetVisiblePageToDefaults();
-            _settingsStatus = "page reset to shipped defaults";
+            Place(button.X);
+            if (Button("Defaults", button))
+            {
+                ResetVisiblePageToDefaults();
+                _settingsStatus = "page reset to shipped defaults";
+            }
         }
 
         Place(button.X);
@@ -2121,6 +2285,7 @@ public sealed partial class GameLoop
         {
             CommitSettings();
             _menuPage = MenuPage.GameMenu;
+            _optionsSearch = "";
             _settingsPopupRequested = true;
             ImGui.CloseCurrentPopup();
         }
@@ -2165,6 +2330,7 @@ public sealed partial class GameLoop
 
         _settingsCancelling = true;
         _menuPage = MenuPage.GameMenu;
+        _optionsSearch = "";
         _settingsPopupRequested = true;
         ImGui.CloseCurrentPopup();
     }

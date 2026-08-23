@@ -1,4 +1,5 @@
 using System.Text;
+using System.Numerics;
 
 namespace MSUIClient.Engine.UI;
 
@@ -17,6 +18,22 @@ public static class MailUiLaw
     public const int MaxBodyLetters = 500;
     // f32::from_bits(0x34800000): the strict, symmetric HasNewMail threshold.
     public const float NewMailEpsilon = 2.3841858e-7f;
+    public const float ConfirmationWidth = 360f;
+    public const float ConfirmationHeight = 96f;
+    public const float ConfirmationTop = 128f;
+    public static readonly Vector2 OpenMailOffset = new(374f, 0f);
+
+    public static Vector2 OpenMailOrigin(Vector2 mailFrameOrigin, float scale) =>
+        mailFrameOrigin + OpenMailOffset * scale;
+
+    public static Vector2 ConfirmationSize(float scale) =>
+        new Vector2(ConfirmationWidth, ConfirmationHeight) * scale;
+
+    public static Vector2 ConfirmationOrigin(Vector2 display, float scale)
+    {
+        Vector2 size = ConfirmationSize(scale);
+        return new Vector2((display.X - size.X) * .5f, ConfirmationTop * scale);
+    }
 
     public static int PageCount(int itemCount) =>
         Math.Max(1, (Math.Max(0, itemCount) + InboxItemsPerPage - 1) / InboxItemsPerPage);

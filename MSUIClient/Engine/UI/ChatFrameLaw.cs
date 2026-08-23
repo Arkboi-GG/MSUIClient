@@ -224,6 +224,12 @@ public static class ChatFrameLaw
     public const int MaxLines = 128;
     public const float LinePitch = 14f;                       // ChatFontNormal em
 
+    public static int PageUpOffset(int current, int visibleLines) =>
+        Math.Max(0, current) + Math.Max(1, visibleLines);
+
+    public static int PageDownOffset(int current, int visibleLines) =>
+        Math.Max(0, current - Math.Max(1, visibleLines));
+
     // Background stretches past the frame rect: TOPLEFT (-2,+3), BOTTOMRIGHT (+2,-6).
     public const float BgLeft = -2f, BgTop = -3f, BgRight = 2f, BgBottom = 6f;
     public const float BorderCorner = 16f;                    // 16x16 corner slices

@@ -28,12 +28,14 @@ public sealed partial class GameLoop
     private string? _gossipGreeting;
     private readonly Dictionary<uint, NpcText> _npcTextRecords = [];
     private uint _gossipSourceFlags;
+    private float _gossipScroll;
 
     private void ResetGossip()
     {
         _gossipMenu = null;
         _gossipGreeting = null;
         _gossipSourceFlags = 0;
+        _gossipScroll = 0;
     }
 
     private bool RequestGossip(ulong guid)
@@ -120,6 +122,7 @@ public sealed partial class GameLoop
         }
         _gossipMenu = menu;
         _gossipGreeting = null;
+        _gossipScroll = 0;
         byte sourceGender = 0;
         if (_entities.TryGet(menu.SourceGuid, out WorldEntity source))
         {
@@ -232,8 +235,8 @@ public sealed partial class GameLoop
             return;
         }
         float s = GameplayUiScale();
-        Vector2 size = new Vector2(384f, 512f) * s;
-        Vector2 p = new(0,104f*s);
+        Vector2 size = new Vector2(GossipUiLaw.Width, GossipUiLaw.Height) * s;
+        Vector2 p = UiPanelFrameOrigin(UiPanelOwnershipRegistry[0], s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);ImGuiWindowFlags flags=ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav;
@@ -244,7 +247,8 @@ public sealed partial class GameLoop
         // The portrait is an ARTWORK region below the shell textures. Drawing it first lets the
         // authored transparent circular aperture mask the square portrait naturally.
         if (source is not null)
-            DrawUnitPortraitImage(dl,source,p+new Vector2(7,6)*s,60*s,0,false);
+            DrawUnitPortraitImage(dl, source, p + GossipUiLaw.Portrait.Min * s,
+                GossipUiLaw.Portrait.Width * s, 0, false);
         (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[
             ("GossipFrameGreetingPanel/Texture",@"Interface\QuestFrame\UI-QuestGreeting-TopLeft",Vector2.Zero,new(256,256)),
             ("GossipFrameGreetingPanel/Texture#2",@"Interface\QuestFrame\UI-QuestGreeting-TopRight",new(256,0),new(128,256)),
@@ -261,62 +265,158 @@ public sealed partial class GameLoop
         // bar at y=30, not centered on the bar's upper border.
         DrawNpcModalTitle(dl,sourceName,p+new Vector2(192,30)*s,s);
         string greeting = _gossipGreeting ?? $"Loading text {_gossipMenu.TextId}...";
-        // GossipGreetingScrollFrame TOPLEFT (23,-81), then GossipGreetingText
-        // TOPLEFT (10,-10), width 270, inherits QuestFont.
-        float used=DrawQuestWrappedText(dl,ExpandQuestText(greeting),
-            p+new Vector2(33,91)*s,270,"QuestFont",s,
-            FontObjectLaw.Get("QuestFont").Color);
-        // First title is greeting BOTTOMLEFT +(-10,-20), relative to the scroll child.
-        float rowY=111+used/s;
-
-        for (int i = 0; i < _gossipMenu.Options.Count; i++)
+        greeting = ExpandQuestText(greeting);
+        float greetingHeight = MeasureQuestWrappedText(greeting,
+            GossipUiLaw.Greeting.Width, "QuestFont", s) / s;
+        var rows = new List<(bool Quest, int Index, string Text, string Icon,
+            bool Enabled, uint QuestId, uint QuestIcon)>();
+        for (int i = 0; i < _gossipMenu.Quests.Count &&
+                rows.Count < GossipUiLaw.MaximumRows; i++)
+        {
+            GossipQuest quest = _gossipMenu.Quests[i];
+            rows.Add((true, i, $"[{quest.Level}] {ExpandQuestText(quest.Title)}",
+                GossipUiLaw.QuestIcon(quest.Icon), true, quest.QuestId, quest.Icon));
+        }
+        for (int i = 0; i < _gossipMenu.Options.Count &&
+                rows.Count < GossipUiLaw.MaximumRows; i++)
         {
             GossipOption option = _gossipMenu.Options[i];
-            if (DrawGossipTitleRow(dl,$"##gossip-option-{i}",
-                    p+new Vector2(23,rowY)*s,s,option.Text,GossipUiLaw.OptionIcon(option.Icon),
-                    out float rowHeight)) SelectGossipOption(i);
-            rowY+=rowHeight;
+            rows.Add((false, i, ExpandQuestText(option.Text),
+                GossipUiLaw.OptionIcon(option.Icon), !option.Coded, 0, 0));
         }
-        foreach (GossipQuest quest in _gossipMenu.Quests)
+        float[] rowHeights = rows.Select(row => GossipUiLaw.RowHeight(
+            MeasureQuestWrappedText(row.Text, 275, "QuestFont", s) / s)).ToArray();
+        float contentHeight = GossipUiLaw.ContentHeight(greetingHeight, rowHeights);
+        _gossipScroll = GossipUiLaw.ClampScroll(_gossipScroll, contentHeight);
+        Vector2 scrollMin = p + GossipUiLaw.Scroll.Min * s;
+        Vector2 scrollMax = scrollMin + GossipUiLaw.Scroll.Size * s;
+        float wheel = ImGui.GetIO().MouseWheel;
+        if (wheel != 0 && ImGui.IsMouseHoveringRect(scrollMin, scrollMax, false))
+            _gossipScroll = GossipUiLaw.WheelScroll(_gossipScroll, contentHeight, wheel);
+
+        ImGui.PushClipRect(scrollMin, scrollMax, true);
+        DrawQuestWrappedText(dl, greeting,
+            p + new Vector2(GossipUiLaw.Greeting.X,
+                GossipUiLaw.Greeting.Y - _gossipScroll) * s,
+            GossipUiLaw.Greeting.Width, "QuestFont", s,
+            FontObjectLaw.Get("QuestFont").Color);
+        float rowY = GossipUiLaw.RowTop(greetingHeight);
+        for (int i = 0; i < rows.Count; i++)
         {
-            string title = $"[{quest.Level}] {ExpandQuestText(quest.Title)}";
-            if (DrawGossipTitleRow(dl,$"##gossip-quest-{quest.QuestId}",
-                    p+new Vector2(23,rowY)*s,s,title,
-                    GossipUiLaw.QuestIcon(quest.Icon),out float rowHeight))
+            var row = rows[i];
+            bool clicked = DrawGossipTitleRow(dl,
+                row.Quest ? $"##gossip-quest-{row.QuestId}" : $"##gossip-option-{row.Index}",
+                p + new Vector2(GossipUiLaw.Scroll.X, rowY - _gossipScroll) * s,
+                s, row.Text, row.Icon, row.Enabled, out _);
+            if (clicked && row.Quest)
             {
-                if (QuestFrameUiLaw.GreetingAction(quest.Icon) == QuestGreetingAction.Complete)
-                    RequestQuestCompletion(_gossipMenu.SourceGuid, quest.QuestId);
+                if (QuestFrameUiLaw.GreetingAction(row.QuestIcon) == QuestGreetingAction.Complete)
+                    RequestQuestCompletion(_gossipMenu.SourceGuid, row.QuestId);
                 else
-                    RequestQuestDetails(_gossipMenu.SourceGuid, quest.QuestId);
+                    RequestQuestDetails(_gossipMenu.SourceGuid, row.QuestId);
             }
-            rowY+=rowHeight;
+            else if (clicked) SelectGossipOption(row.Index);
+            rowY += rowHeights[i];
         }
+        ImGui.PopClipRect();
+        DrawGossipScrollBar(dl, p, s, contentHeight);
         // BOTTOMRIGHT relative to GossipFrame BOTTOMRIGHT (-39,+73), 78x22.
-        if(VanillaButton(dl,"##gossip-goodbye","Goodbye",p+new Vector2(267,417)*s,new Vector2(78,22),s))ResetGossip();
-        Vector2 close=p+new Vector2(326,15)*s;DrawImageButton(dl,"##gossip-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())ResetGossip();
+        if(VanillaButton(dl,"##gossip-goodbye","Goodbye",
+            p + GossipUiLaw.Goodbye.Min * s, GossipUiLaw.Goodbye.Size, s)) ResetGossip();
+        Vector2 close = p + GossipUiLaw.Close.Min * s;
+        DrawImageButton(dl,"##gossip-close",close,GossipUiLaw.Close.Size*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())ResetGossip();
         if(_uiParityArmed&&_uiParityPanel=="gossip")MarkUiParityFrameComplete();ImGui.End();
     }
 
     private bool DrawGossipTitleRow(ImDrawListPtr dl, string id, Vector2 min, float s,
-        string text, string iconPath, out float logicalAdvance)
+        string text, string iconPath, bool enabled, out float logicalAdvance)
     {
-        float textHeight = Math.Max(16,
-            MeasureQuestWrappedText(text,275,"QuestFont",s)/s);
-        Vector2 hitSize = new(300,textHeight+2);
+        float textHeight = MeasureQuestWrappedText(text, 275, "QuestFont", s) / s;
+        logicalAdvance = GossipUiLaw.RowHeight(textHeight);
+        Vector2 hitSize = new(GossipUiLaw.Scroll.Width, logicalAdvance);
         ImGui.SetCursorScreenPos(min);
-        bool clicked = ImGui.InvisibleButton(id,hitSize*s);
-        if (ImGui.IsItemHovered())
+        if (!enabled) ImGui.BeginDisabled();
+        bool clicked = ImGui.InvisibleButton(id, hitSize * s);
+        bool hovered = enabled && ImGui.IsItemHovered();
+        if (!enabled) ImGui.EndDisabled();
+        if (hovered)
         {
             uint highlight = _gameplayArt?.BrightHighlightHandle(
                 @"Interface\QuestFrame\UI-QuestTitleHighlight") ?? 0;
             if (highlight != 0)
                 dl.AddImage((nint)highlight,min,min+hitSize*s);
         }
-        DrawArt(dl,iconPath,min+new Vector2(3,1)*s,new Vector2(16),s);
+        uint tint = enabled ? 0xffffffff : 0xff777777;
+        uint icon = _gameplayArt?.Handle(iconPath) ?? 0;
+        if (icon != 0)
+            dl.AddImage((nint)icon, min, min + new Vector2(16) * s,
+                Vector2.Zero, Vector2.One, tint);
         DrawQuestWrappedText(dl,text,min+new Vector2(20,0)*s,275,
-            "QuestFont",s,FontObjectLaw.Get("QuestFont").Color);
-        logicalAdvance=textHeight+3; // next button: previous BOTTOMLEFT + (0,-3)
-        return clicked;
+            "QuestFont",s, enabled ? FontObjectLaw.Get("QuestFont").Color : 0xff777777);
+        return enabled && clicked;
+    }
+
+    private void DrawGossipScrollBar(ImDrawListPtr dl, Vector2 origin, float scale,
+        float contentHeight)
+    {
+        float maximum = GossipUiLaw.MaximumScroll(contentHeight);
+        if (maximum <= 0 || _gameplayArt is null) return;
+
+        void Arrow(string id, GossipLogicalRect rect, bool up)
+        {
+            bool enabled = up ? _gossipScroll > 0 : _gossipScroll < maximum;
+            Vector2 min = origin + rect.Min * scale;
+            Vector2 size = rect.Size * scale;
+            ImGui.SetCursorScreenPos(min);
+            if (!enabled) ImGui.BeginDisabled();
+            ImGui.InvisibleButton(id, size);
+            bool active = enabled && ImGui.IsItemActive();
+            bool hovered = enabled && ImGui.IsItemHovered();
+            bool clicked = enabled && ImGui.IsItemClicked(ImGuiMouseButton.Left);
+            if (!enabled) ImGui.EndDisabled();
+            string stem = up ? "UI-ScrollBar-ScrollUpButton" : "UI-ScrollBar-ScrollDownButton";
+            string state = !enabled ? "Disabled" : active ? "Down" : "Up";
+            uint art = _gameplayArt.Handle($@"Interface\Buttons\{stem}-{state}");
+            if (art != 0)
+                dl.AddImage((nint)art, min, min + size,
+                    new Vector2(.25f), new Vector2(.75f));
+            if (hovered)
+            {
+                uint highlight = _gameplayArt.AdditiveHandle(
+                    $@"Interface\Buttons\{stem}-Highlight");
+                if (highlight != 0)
+                    dl.AddImage((nint)highlight, min, min + size,
+                        new Vector2(.25f), new Vector2(.75f));
+            }
+            if (clicked)
+            {
+                _gossipScroll = GossipUiLaw.ClampScroll(_gossipScroll +
+                    (up ? -GossipUiLaw.ScrollStep : GossipUiLaw.ScrollStep), contentHeight);
+                PlayUiSound("UChatScrollButton", "ui.gossip");
+            }
+        }
+
+        Arrow("##gossip-scroll-up", GossipUiLaw.ScrollUp, true);
+        Arrow("##gossip-scroll-down", GossipUiLaw.ScrollDown, false);
+        Vector2 trackMin = origin + GossipUiLaw.ScrollTrack.Min * scale;
+        Vector2 trackSize = GossipUiLaw.ScrollTrack.Size * scale;
+        Vector2 knobSize = new(16 * scale);
+        Vector2 knobMin = origin + new Vector2(GossipUiLaw.ScrollTrack.X,
+            GossipUiLaw.ThumbY(_gossipScroll, contentHeight)) * scale;
+        uint knob = _gameplayArt.Handle(@"Interface\Buttons\UI-ScrollBar-Knob");
+        if (knob != 0)
+            dl.AddImage((nint)knob, knobMin, knobMin + knobSize,
+                new Vector2(.25f), new Vector2(.75f));
+        ImGui.SetCursorScreenPos(trackMin);
+        ImGui.InvisibleButton("##gossip-scroll-track", trackSize);
+        if (ImGui.IsItemActive())
+        {
+            float travel = trackSize.Y - knobSize.Y;
+            float localY = ImGui.GetIO().MousePos.Y - trackMin.Y - knobSize.Y * .5f;
+            _gossipScroll = GossipUiLaw.ClampScroll(
+                Math.Clamp(localY / MathF.Max(1, travel), 0, 1) * maximum,
+                contentHeight);
+        }
     }
 
 }

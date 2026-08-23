@@ -646,7 +646,9 @@ public sealed partial class GameLoop
         // newly opened merchant/quest/gossip frame.
         if (texture == 0 && _portraitTargetGuid == unit.Guid)
             texture = RoundAperturePortrait(_targetPortrait, _targetPortraitUsable);
-        else if (texture == 0 && unit.IsPlayer && _net is not null && unit.Guid == ControlledGuid)
+        if (texture == 0)
+            texture = PetPortraitHandle(unit.Guid);
+        if (texture == 0 && unit.IsPlayer && _net is not null && unit.Guid == ControlledGuid)
             texture = RoundAperturePortrait(_playerPortrait, _playerPortraitUsable);
         else if (texture == 0 && unit.IsPlayer)
             texture = PartyPortraitHandle(unit.Guid);

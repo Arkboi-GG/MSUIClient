@@ -198,6 +198,7 @@ public sealed partial class GameLoop
         PurgeSuiSnapshot();
         _movementSender.Parked = false;
         _walkToggled = false;
+        _autorunToggled = false;
         if (_controller is not null) _controller.Flying = false;
         if (_character is not null) _character.Enabled = true;
         _window.FreeSelectMode = false;
@@ -699,6 +700,7 @@ public sealed partial class GameLoop
         // Shift/Ctrl cluster in use during control jumping), and a toggle left
         // on sticks invisibly to the next body.
         _walkToggled = false;
+        _autorunToggled = false;
         if (_controller is not null) _controller.Flying = false;   // exits the free-view fly rig
         if (_character is not null) _character.Enabled = true;
         _controller?.Teleport(x, y, z);

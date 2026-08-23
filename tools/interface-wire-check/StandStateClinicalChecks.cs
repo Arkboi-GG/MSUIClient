@@ -39,11 +39,22 @@ internal static class StandStateClinicalChecks
         string remote = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Units",
             "PlayerRenderer.cs"));
         Check(chat.Contains("StandStateUiLaw.ResolveCommand(command)", StringComparison.Ordinal) &&
+              chat.Contains("TrySetLocalStandState(standState)", StringComparison.Ordinal) &&
               chat.Contains("_net?.StandStateChange(standState)", StringComparison.Ordinal) &&
               chat.Contains("self.Fields.SetUnitStandState(standState)", StringComparison.Ordinal) &&
               local.Contains("StandState = _entities.TryGet(ControlledGuid", StringComparison.Ordinal) &&
               remote.Contains("LoopAnimation(e.Fields.UnitStandState)", StringComparison.Ordinal),
             "posture slash/local-commit/render path is unwired");
+        string bindings = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Bindings.cs"));
+        Check(bindings.Contains("GameBinding.SitOrStand, \"Sit/Stand\", Key.X",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("UpdateStandStateBinding(bool typing)",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("self.Fields.UnitStandState == StandStateUiLaw.Stand",
+                  StringComparison.Ordinal) &&
+              local.Contains("UpdateStandStateBinding(typing);", StringComparison.Ordinal),
+            "SITORSTAND binding no longer uses the shared posture send/local-commit seam");
     }
 
     private static void Check(bool condition, string message)

@@ -63,7 +63,7 @@ public sealed partial class CharacterRenderer : IDisposable
     /// </summary>
     private static readonly int[] BakedAnimations =
         [0, 4, 5, 9, 11, 12, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30,
-         37, 38, 39, 40, 85, 87, 88, 92, 93, 96, 97, 98, 99, 100, 101, 102, 103, 104,
+         37, 38, 39, 40, 41, 42, 43, 44, 45, 85, 87, 88, 92, 93, 96, 97, 98, 99, 100, 101, 102, 103, 104,
          114, 115, 116, 117, 187];
 
     /// <summary>
@@ -109,11 +109,16 @@ public sealed partial class CharacterRenderer : IDisposable
         public float FallTimeMs;
         public bool Walking;
         public bool Flying;
+        public bool Swimming;
+        public float SwimPitch;
         public bool Engaged;
         public byte StandState;
 
         /// <summary>Hold the already-evaluated body pose and all of its animation clocks.</summary>
         public bool FreezePose;
+        public bool ApplyBodyVisual;
+        public float BodyAlpha;
+        public Vector3 BodyTint;
 
         // ── intent ───────────────────────────────────────────────────────────
         //
@@ -2965,6 +2970,19 @@ public sealed partial class CharacterRenderer : IDisposable
         if (_combatAction is not null) return _combatAction;
         if (_spellHold is not null) return _spellHold;
 
+        if (state.Swimming)
+        {
+            _landClip = null;
+            int swimId = !state.Moving ? 41
+                : state.Forward < -0.01f ? 45
+                : state.Strafe < -0.01f ? 43
+                : state.Strafe > 0.01f ? 44
+                : 42;
+            M2Animator.Clip? swim = _animator.Resolve("player", BaseAnimationTrack,
+                swimId, true, state.Moving ? 42 : 41, 0);
+            return state.Moving ? LocomotionClip(swim, false, out rate) : swim;
+        }
+
         if (state.Flying)
         {
             _landClip = null;
@@ -3221,6 +3239,7 @@ public sealed partial class CharacterRenderer : IDisposable
 
     public unsafe void Render(Camera camera, in UnitState state)
     {
+        _attached?.BeginGlowFrame();
         if (!Enabled || _m2 is null || _shader is null || _pieces.Count == 0) return;
 
         int bones = _animator?.BoneCount ?? 0;
@@ -3281,6 +3300,11 @@ public sealed partial class CharacterRenderer : IDisposable
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uTexture", 0);
+        float bodyAlpha = state.ApplyBodyVisual ? Math.Clamp(state.BodyAlpha, 0f, 1f) : 1f;
+        Vector3 bodyTint = state.ApplyBodyVisual ? state.BodyTint : Vector3.One;
+        _shader.Set("uBodyAlpha", bodyAlpha);
+        _shader.Set("uBodyTint", bodyTint);
+        CarriedLightFrame.Upload(_shader, camera.Position);
 
         if (bones > 0)
             _shader.SetVec4Array("uBones", _packed, Math.Min(bones, M2Animator.MaxBones) * 3);
@@ -3294,6 +3318,7 @@ public sealed partial class CharacterRenderer : IDisposable
         // Opaque/alpha-test first, then transparent/additive with depth writes
         // disabled. This preserves the M2 material distinction without making
         // translucent cards reject each other through the depth buffer.
+        bool bodyTranslucent = bodyAlpha < 1f - AuraVisualLaw.AlphaSettledEpsilon;
         for (int pass = 0; pass < 2; pass++)
         {
             bool transparentPass = pass == 1;
@@ -3307,7 +3332,7 @@ public sealed partial class CharacterRenderer : IDisposable
                 _gl.Enable(EnableCap.Blend);
             }
 
-            DrawPieces(transparentPass, ref cullingOn);
+            DrawPieces(transparentPass, bodyTranslucent, ref cullingOn);
 
             if (transparentPass)
             {
@@ -3333,16 +3358,24 @@ public sealed partial class CharacterRenderer : IDisposable
             _attached.FogStart = FogStart;
             _attached.FogEnd = FogEnd;
             _attached.SheathState = SheathState;
+            _attached.BodyAlpha = bodyAlpha;
+            _attached.BodyTint = bodyTint;
         }
         _attached?.Render(camera, modelTransform, _m2, _skin);
     }
 
-    private unsafe void DrawPieces(bool transparentPass, ref bool cullingOn)
+    public IReadOnlyList<ItemGlowPlacement> ItemGlowPlacements =>
+        _attached?.GlowPlacements ?? Array.Empty<ItemGlowPlacement>();
+    public IReadOnlyList<CarriedLightPlacement> CarriedLightPlacements =>
+        _attached?.CarriedLights ?? Array.Empty<CarriedLightPlacement>();
+    public void BeginItemGlowFrame() => _attached?.BeginGlowFrame();
+
+    private unsafe void DrawPieces(bool transparentPass, bool bodyTranslucent, ref bool cullingOn)
     {
         foreach (var piece in _pieces)
         {
             if (!ShowAllGeosets && !piece.Visible) continue;
-            if (piece.Transparent != transparentPass) continue;
+            if ((bodyTranslucent || piece.Transparent) != transparentPass) continue;
 
             var slot = piece.SlotIndex >= 0 ? _slots[piece.SlotIndex] : null;
 

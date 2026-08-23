@@ -115,7 +115,65 @@ static void CheckInterfaceScaleLaw()
         "Gameplay scale must use live window pixels and persisted preference, not menu skin state");
 }
 
+static void CheckOptionsSearch()
+{
+    OptionsSearchUiLaw.Rect authored = OptionsSearchUiLaw.Box(450f);
+    OptionsSearchUiLaw.Rect narrow = OptionsSearchUiLaw.Box(200f);
+    OptionsSearchUiLaw.Rect clear = OptionsSearchUiLaw.ClearButton(authored);
+    Check(authored == new OptionsSearchUiLaw.Rect(50f, 30f, 350f, 22f) &&
+          narrow == new OptionsSearchUiLaw.Rect(18f, 30f, 164f, 22f) &&
+          clear == new OptionsSearchUiLaw.Rect(380f, 32.5f, 17f, 17f) &&
+          OptionsSearchUiLaw.ContentTop == 60f,
+        "Options search authored input/clear/content geometry drift");
+
+    Check(OptionsSearchUiLaw.Score("Master Volume", "master volume") == 12 &&
+          OptionsSearchUiLaw.Score("Master Volume", "music, volume") == 5 &&
+          OptionsSearchUiLaw.Score("Master Volume", "camera") is null,
+        "Options search whole-query/token substring scoring drift");
+
+    OptionsSearchGroup[] volume = OptionsSearchUiLaw.Find("volume");
+    OptionsSearchGroup[] cameraSound = OptionsSearchUiLaw.Find("camera, sound");
+    Check(volume.Length == 1 && volume[0].Page == OptionsSearchPage.Sound &&
+          volume[0].Entries.Count == 5 && volume[0].Entries[0].Label == "Volume" &&
+          cameraSound.Length == 3 &&
+          cameraSound[0].Page == OptionsSearchPage.Video &&
+          cameraSound[1].Page == OptionsSearchPage.Interface &&
+          cameraSound[2].Page == OptionsSearchPage.Sound,
+        $"Options search page grouping, catalog order, or best-score ordering drift: " +
+        $"volume=[{string.Join(',', volume.Select(group => $"{group.Page}:{group.Entries.Count}:" +
+            string.Join('|', group.Entries.Select(entry => entry.Label))))}] " +
+        $"cameraSound=[{string.Join(',', cameraSound.Select(group => $"{group.Page}:{group.BestScore}"))}]");
+
+    string root = ClientConfig.FindRepoRoot();
+    string settings = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+        "GameLoop.Settings.cs"));
+    Check(settings.Contains("DrawOptionsSearch(dl, min, size);", StringComparison.Ordinal) &&
+          settings.Contains("OptionsSearchUiLaw.Find(_optionsSearch)", StringComparison.Ordinal) &&
+          settings.Contains("DrawVanillaInputBorder(draw, boxMin, box.Size, S);",
+              StringComparison.Ordinal) &&
+          settings.Contains("showDefaults: false", StringComparison.Ordinal) &&
+          settings.Contains("_optionsSearch = \"\";\n            Go(page);",
+              StringComparison.Ordinal) &&
+          settings.Contains("Settings.MenuLayout?.Scale ?? 1f", StringComparison.Ordinal) &&
+          settings.Contains("RememberPageSize(size, io.DisplaySize", StringComparison.Ordinal),
+        "Options search runtime wiring or protected MSUI scaling/resize seam drift");
+}
+
 CheckInterfaceScaleLaw();
+
+if (args.Contains("--char-create-only", StringComparer.Ordinal))
+{
+    CharCreateClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: CharCreate PASS");
+    return;
+}
+
+if (args.Contains("--options-search-only", StringComparer.Ordinal))
+{
+    CheckOptionsSearch();
+    Console.WriteLine("interface-wire-check: OptionsSearch PASS");
+    return;
+}
 
 if (args.Contains("--chat-bubble-only", StringComparer.Ordinal))
 {
@@ -233,6 +291,20 @@ if (args.Contains("--weather-only", StringComparer.Ordinal))
 {
     WeatherClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: Weather PASS");
+    return;
+}
+
+if (args.Contains("--realm-logon-only", StringComparer.Ordinal))
+{
+    RealmLogonClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: RealmLogon PASS");
+    return;
+}
+
+if (args.Contains("--aura-visual-only", StringComparer.Ordinal))
+{
+    AuraVisualClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: AuraVisual PASS");
     return;
 }
 
@@ -366,6 +438,55 @@ if (args.Contains("--friends-frame-only", StringComparer.Ordinal))
 {
     FriendsFrameClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: FriendsFrame PASS");
+    return;
+}
+
+if (args.Contains("--guild-frame-only", StringComparer.Ordinal))
+{
+    GuildFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: GuildFrame PASS");
+    return;
+}
+
+if (args.Contains("--reputation-frame-only", StringComparer.Ordinal))
+{
+    ReputationFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ReputationFrame PASS");
+    return;
+}
+
+if (args.Contains("--pet-paper-doll-only", StringComparer.Ordinal))
+{
+    PetPaperDollClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: PetPaperDollFrame PASS");
+    return;
+}
+
+if (args.Contains("--dress-up-frame-only", StringComparer.Ordinal))
+{
+    DressUpFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: DressUpFrame PASS");
+    return;
+}
+
+if (args.Contains("--screenshot-status-only", StringComparer.Ordinal))
+{
+    ScreenshotStatusClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ScreenshotStatus PASS");
+    return;
+}
+
+if (args.Contains("--pet-spellbook-only", StringComparer.Ordinal))
+{
+    PetSpellBookClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: PetSpellBook PASS");
+    return;
+}
+
+if (args.Contains("--pet-menu-only", StringComparer.Ordinal))
+{
+    PetMenuClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: PetMenu PASS");
     return;
 }
 
@@ -516,10 +637,73 @@ if (args.Contains("--monster-move-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--remote-movement-only", StringComparer.Ordinal))
+{
+    RemoteMovementClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: RemoteMovement PASS");
+    return;
+}
+
+if (args.Contains("--compressed-movement-only", StringComparer.Ordinal))
+{
+    CompressedMovementClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: CompressedMovement PASS");
+    return;
+}
+
+if (args.Contains("--self-spline-only", StringComparer.Ordinal))
+{
+    SelfSplineClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: SelfSpline PASS");
+    return;
+}
+
+if (args.Contains("--swimming-only", StringComparer.Ordinal))
+{
+    SwimmingClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: Swimming PASS");
+    return;
+}
+
+if (args.Contains("--drunk-only", StringComparer.Ordinal))
+{
+    DrunkMovementClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: DrunkMovement PASS");
+    return;
+}
+
+if (args.Contains("--item-glow-only", StringComparer.Ordinal))
+{
+    ItemGlowClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ItemGlow PASS");
+    return;
+}
+
+if (args.Contains("--carried-light-only", StringComparer.Ordinal))
+{
+    CarriedLightClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: CarriedLight PASS");
+    return;
+}
+
+if (args.Contains("--spell-chain-beam-only", StringComparer.Ordinal))
+{
+    SpellChainBeamClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: SpellChainBeam PASS");
+    return;
+}
+
 if (args.Contains("--force-speed-only", StringComparer.Ordinal))
 {
     ForceSpeedClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: ForceSpeed PASS");
+    return;
+}
+
+if (args.Contains("--observer-speed-only", StringComparer.Ordinal))
+{
+    ObserverSpeedClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ObserverSpeed PASS");
     return;
 }
 
@@ -774,7 +958,15 @@ if (args.Contains("--item-template-only", StringComparer.Ordinal))
     return;
 }
 
+CharCreateClinicalChecks.Run();
 UiFoundationClinicalChecks.Run();
+GuildFrameClinicalChecks.Run();
+ReputationFrameClinicalChecks.Run();
+PetPaperDollClinicalChecks.Run();
+DressUpFrameClinicalChecks.Run();
+ScreenshotStatusClinicalChecks.Run();
+PetSpellBookClinicalChecks.Run();
+PetMenuClinicalChecks.Run();
 GameTooltipClinicalChecks.Run();
 UiPanelOwnershipAdapterClinicalChecks.Run();
 MerchantFrameClinicalChecks.Run();
@@ -785,6 +977,17 @@ CooldownProtocolClinicalChecks.Run();
 TradeProtocolClinicalChecks.Run();
 SocialProtocolClinicalChecks.Run();
 ChatClinicalChecks.Run();
+AuraVisualClinicalChecks.Run();
+RealmLogonClinicalChecks.Run();
+RemoteMovementClinicalChecks.Run();
+SwimmingClinicalChecks.Run();
+DrunkMovementClinicalChecks.Run();
+ItemGlowClinicalChecks.Run();
+CarriedLightClinicalChecks.Run();
+ObserverSpeedClinicalChecks.Run();
+CompressedMovementClinicalChecks.Run();
+SelfSplineClinicalChecks.Run();
+SpellChainBeamClinicalChecks.Run();
 
 static byte[] BuildMultiActionItemTemplateFixture()
 {
@@ -1093,6 +1296,7 @@ Check(Enumerable.Range(0, 8).Select(GameMenuUiLaw.ButtonTop).SequenceEqual(
       new[] { 26.5f, 48.5f, 70.5f, 92.5f, 114.5f, 136.5f, 158.5f, 195.5f }),
     "GameMenuFrame preserved eight-rung ladder drift");
 CheckGameMenuLayout();
+CheckOptionsSearch();
 
 GameMenuEscapeState idleEscape = new(false, false, false, false, false, false,
     false, false, false, false, false);
@@ -1634,6 +1838,10 @@ Check(emptyLoot.Gold == 0 && emptyLoot.Items.Count == 0, "empty corpse response 
 
 Check(WorldSession.BuildAutoEquipBody(255, 24).SequenceEqual(Convert.FromHexString("FF18")),
       "autoequip bag/slot body");
+Check((ushort)Op.CMSG_AUTOSTORE_BAG_ITEM == 0x010B &&
+      WorldSession.BuildAutostoreBagItemBody(255, 24, 19)
+          .SequenceEqual(Convert.FromHexString("FF1813")),
+      "autostore bag item source/destination body");
 Check(WorldSession.BuildSwapInventoryBody(15, 25).SequenceEqual(Convert.FromHexString("0F19")),
       "swap inventory source/destination body");
 Check(WorldSession.BuildSwapItemsBody(255, 25, 19, 2).SequenceEqual(Convert.FromHexString("FF191302")),
@@ -1694,6 +1902,11 @@ Check(MailUiLaw.CanSend("Jaina", "Hi", codMode: false, amount: 1,
           hasAttachment: true, pending: false), "mail compose enablement law");
 Check(MailUiLaw.HasNewMail(0) && !MailUiLaw.HasNewMail(-86400) &&
       !MailUiLaw.HasNewMail(5), "mail pending countdown law");
+Check(MailUiLaw.OpenMailOrigin(new Vector2(384, 104), 1f) == new Vector2(758, 104) &&
+      MailUiLaw.ConfirmationSize(1.5f) == new Vector2(540, 144) &&
+      MailUiLaw.ConfirmationOrigin(new Vector2(1920, 1080), 1.5f) ==
+          new Vector2(690, 192),
+      "mail child-frame and confirmation positioning law drift");
 Check(MultiActionBarUiLaw.WireSlot(BottomMultiActionBar.Left, 0) == 60 &&
       MultiActionBarUiLaw.WireSlot(BottomMultiActionBar.Left, 11) == 71 &&
       MultiActionBarUiLaw.WireSlot(BottomMultiActionBar.Right, 0) == 48 &&
@@ -2186,7 +2399,8 @@ Check(questSource.Contains("RequestQuestReward();", StringComparison.Ordinal) &&
       questSource.Contains("CloseQuestNpcFrame(playSound: true);", StringComparison.Ordinal) &&
       questSource.Contains("UI-Quest-BotLeftPatch", StringComparison.Ordinal) &&
       questSource.Contains("QuestFrameUiLaw.GreetingAction(quest.Icon)", StringComparison.Ordinal) &&
-      gossipSource.Contains("QuestFrameUiLaw.GreetingAction(quest.Icon)", StringComparison.Ordinal),
+      gossipSource.Contains("QuestFrameUiLaw.GreetingAction(row.QuestIcon)",
+          StringComparison.Ordinal),
       "quest production routing/item-giver/lifecycle/bottom-patch wiring drift");
 int questPortraitDraw = questSource.IndexOf("DrawUnitPortraitImage(dl, giver", StringComparison.Ordinal);
 int questPanelArt = questSource.IndexOf("foreach(var r in art)", StringComparison.Ordinal);
@@ -2354,7 +2568,7 @@ var streamedPlayer = new WorldEntity
     Type = ObjectTypeId.Player,
     Fields = streamedFields,
 };
-var basePlayerModel = new CreatureModelInfo(@"Character\Human\Male\HumanMale.m2", 1f,
+var basePlayerModel = new CreatureModelInfo(@"Character\Human\Male\HumanMale.m2", 1f, 1f,
     [], false, 0, 0, 0, 0, 0, 0, 0, 0, [], "");
 Check(CreatureRenderer.TryBuildPlayerModelInfo(streamedPlayer, basePlayerModel,
         entry => (true, new ItemTemplate { Entry = entry, DisplayInfoId = entry + 10_000 }),
@@ -2403,12 +2617,17 @@ Check((ushort)Op.CMSG_REPOP_REQUEST == 346 && (ushort)Op.SMSG_RESURRECT_REQUEST 
       (ushort)Op.CMSG_SPIRIT_HEALER_ACTIVATE == 540, "death/resurrection opcodes");
 Check(WorldSession.BuildResurrectResponseBody(0x1234, true).SequenceEqual(Convert.FromHexString("341200000000000001")),
       "resurrection response guid/accept body");
-Check((ushort)Op.CMSG_BINDER_ACTIVATE == 437 && (ushort)Op.SMSG_BINDER_CONFIRM == 438 &&
-      (ushort)Op.SMSG_BINDPOINTUPDATE == 341, "binder/bind-point opcodes");
+Check((ushort)Op.CMSG_BINDER_ACTIVATE == 0x01B5 &&
+      (ushort)Op.SMSG_PLAYERBINDERROR == 0x01B6 &&
+      (ushort)Op.SMSG_BINDER_CONFIRM == 0x02EB &&
+      (ushort)Op.SMSG_BINDPOINTUPDATE == 0x0155 &&
+      (ushort)Op.SMSG_PLAYERBOUND == 0x0158, "binder/bind-point opcodes");
 Check(WorldSession.BuildBinderBody(trainerGuid).SequenceEqual(Convert.FromHexString("0100008F030030F1")),
       "binder full guid body");
-Check((ushort)Op.CMSG_TAXINODE_STATUS_QUERY == 0x01AA && (ushort)Op.SMSG_SHOWTAXINODES == 0x01AD &&
-      (ushort)Op.CMSG_ACTIVATETAXI == 0x01AE, "taxi opcodes");
+Check((ushort)Op.SMSG_SHOWTAXINODES == 0x01A9 &&
+      (ushort)Op.CMSG_TAXINODE_STATUS_QUERY == 0x01AA &&
+      (ushort)Op.CMSG_ACTIVATETAXI == 0x01AD &&
+      (ushort)Op.SMSG_ACTIVATETAXIREPLY == 0x01AE, "taxi opcodes");
 Check(WorldSession.BuildActivateTaxiBody(0x0102030405060708, 12, 34).SequenceEqual(new byte[]
       { 8,7,6,5,4,3,2,1, 12,0,0,0, 34,0,0,0 }), "taxi activate body");
 
@@ -2533,7 +2752,9 @@ Check(inspectRequest >= 0 && inspectRequestClose > inspectRequest &&
     "inspect repeat/invalid request must hide before gate and never same-guid short-circuit");
 Check(inspectPortraitDraw >= 0 && inspectBackgroundDraw > inspectPortraitDraw,
     "inspect square portrait must paint before the page background's round aperture");
-Check(inspectRingDraw >= 0 && inspectHighlightDraw > inspectRingDraw &&
+Check(inspectSource.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[11], s)",
+          StringComparison.Ordinal) &&
+      inspectRingDraw >= 0 && inspectHighlightDraw > inspectRingDraw &&
       inspectSource.Contains("enabled: false", StringComparison.Ordinal) &&
       inspectSource.Contains("ImGui.IsItemActivated()", StringComparison.Ordinal) &&
       inspectSource.Contains("ImGui.IsItemDeactivated()", StringComparison.Ordinal) &&
@@ -3154,7 +3375,8 @@ Check(partyRuntimeSource.Contains("InspectBinding.Party(hoveredIndex))",
       partyRuntimeSource.Contains("UpdateAndQueuePartyTooltip(-1, null, NowSeconds(), capture: false)",
           StringComparison.Ordinal) &&
       partyRuntimeSource.Contains("ImGuiWindowFlags.Tooltip", StringComparison.Ordinal) &&
-      partyRuntimeSource.Contains("petOrStanceVisible: PetActionBarVisible", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("petOrStanceVisible: PetOrStanceActionBarVisible",
+          StringComparison.Ordinal) &&
       partyRuntimeSource.Contains("min=0;max={memberHealth.Maximum};value={memberHealth.Value}",
           StringComparison.Ordinal) &&
       partyRuntimeSource.Contains(
@@ -3265,7 +3487,7 @@ Check(partyPopupExecutorStart >= 0 && partyDirectHideStart > partyPopupExecutorS
           "StaticPopupCoordinatorLaw.HideByType(", StringComparison.Ordinal) &&
       partyRuntimeSource.Contains("StaticPopupCoordinatorLaw.Escape(_staticPopupSlots)",
           StringComparison.Ordinal) &&
-      partySettingsSource.Contains("PartyFrameUiLaw.IsPartyInviteVisible(_staticPopupSlots)",
+      partySettingsSource.Contains("StaticPopupCoordinatorLaw.AnyVisible(_staticPopupSlots)",
           StringComparison.Ordinal) &&
       partySettingsSource.Contains("TryDismissStaticPopupOnEscape()", StringComparison.Ordinal),
     "PARTY_INVITE slot-commit/effect/guard/direct-hide/shared-Escape seam drift");
@@ -3316,10 +3538,6 @@ Check(partyLawSource.Contains("PartyInvitePopupDefinition = new(", StringCompari
       !partyLawSource.Contains("PartyInviteWireCount", StringComparison.Ordinal) &&
       !partyRuntimeSource.Contains("_partyInviter", StringComparison.Ordinal) &&
       !partyRuntimeSource.Contains("_partyInviteDeadline", StringComparison.Ordinal) &&
-      partyRuntimeSource.Contains("PARTY_INVITE is the only production entry integrated",
-          StringComparison.Ordinal) &&
-      partyRuntimeSource.Contains("slot-two presentation remains an explicit later integration",
-          StringComparison.Ordinal) &&
       partyRuntimeSource.Contains(
           "callback-reentry branches remain an explicit later boundary",
           StringComparison.Ordinal),

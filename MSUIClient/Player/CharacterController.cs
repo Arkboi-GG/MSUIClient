@@ -20,6 +20,9 @@ public struct MovementInput
     /// <summary>Absolute facing in radians CCW about +Z from +X - i.e. the camera yaw.</summary>
     public float Yaw;
 
+    /// <summary>Swim travel pitch: positive aims upward, zero is level.</summary>
+    public float Pitch;
+
     public bool Jump;
     public bool Walking;
     public bool Boost;
@@ -125,10 +128,14 @@ public sealed class CharacterController
     private float? _serverWalkSpeed;
     private float? _serverRunSpeed;
     private float? _serverRunBackSpeed;
+    private float? _serverSwimSpeed;
+    private float? _serverSwimBackSpeed;
 
     public float EffectiveWalkSpeed => _serverWalkSpeed ?? _opts.WalkSpeed;
     public float EffectiveRunSpeed => _serverRunSpeed ?? _opts.RunSpeed;
     public float EffectiveRunBackSpeed => _serverRunBackSpeed ?? _opts.BackwardSpeed;
+    public float EffectiveSwimSpeed => _serverSwimSpeed ?? SwimmingMovementLaw.DefaultForwardSpeed;
+    public float EffectiveSwimBackSpeed => _serverSwimBackSpeed ?? SwimmingMovementLaw.DefaultBackwardSpeed;
 
     public void ApplyServerSpeed(MovementSpeedKind kind, float speed)
     {
@@ -138,11 +145,16 @@ public sealed class CharacterController
             case MovementSpeedKind.Walk: _serverWalkSpeed = speed; break;
             case MovementSpeedKind.Run: _serverRunSpeed = speed; break;
             case MovementSpeedKind.RunBack: _serverRunBackSpeed = speed; break;
+            case MovementSpeedKind.Swim: _serverSwimSpeed = speed; break;
+            case MovementSpeedKind.SwimBack: _serverSwimBackSpeed = speed; break;
         }
     }
 
-    public void ResetServerSpeeds() =>
+    public void ResetServerSpeeds()
+    {
         (_serverWalkSpeed, _serverRunSpeed, _serverRunBackSpeed) = (null, null, null);
+        (_serverSwimSpeed, _serverSwimBackSpeed) = (null, null);
+    }
 
     /// <summary>Scales launch velocity, same prediction caveat as <see cref="SpeedMultiplier"/>.</summary>
     public float JumpMultiplier { get; set; } = 1f;
@@ -150,6 +162,11 @@ public sealed class CharacterController
     public bool WaterWalking { get; set; }
     public bool FeatherFalling { get; set; }
     public bool Hovering { get; set; }
+    public bool Swimming { get; private set; }
+    public float SwimPitch { get; private set; }
+    public float? LiquidSurfaceZ { get; set; }
+    private bool _swimJumpWasDown;
+    private bool _swimBreachActive;
     public float? ExternalWalkableSurfaceZ { get; set; }
     public MovementFlags GrantedMovementFlags =>
         (WaterWalking ? MovementFlags.WaterWalking : MovementFlags.None) |
@@ -334,6 +351,11 @@ public sealed class CharacterController
         Position = new Vector3(x, y, z);
         Velocity = Vector3.Zero;
         HorizontalVelocity = Vector3.Zero;
+        Swimming = false;
+        SwimPitch = 0f;
+        LiquidSurfaceZ = null;
+        _swimJumpWasDown = false;
+        _swimBreachActive = false;
         Grounded = false;
         FallTimeMs = 0;
         _warnedNoGround = false;
@@ -410,6 +432,18 @@ public sealed class CharacterController
 
         Yaw = Normalize(input.Yaw);
 
+        if (_swimBreachActive && Velocity.Z <= SwimmingMovementLaw.JumpSpeed * 0.5f)
+            _swimBreachActive = false;
+        bool nextSwimming = SwimmingMovementLaw.NextState(Swimming, LiquidSurfaceZ,
+            Position.Z, _opts.Height, _swimBreachActive);
+        if (nextSwimming && !Swimming)
+        {
+            Velocity = Vector3.Zero;
+            Grounded = false;
+            FallTimeMs = 0f;
+        }
+        Swimming = nextSwimming;
+
         // Facing and its right-hand side, in WoW space. Matches Camera.FlatForward
         // and Camera.FlatRight exactly - +Y is west, so right is (sin, -cos).
         var forward = new Vector3(MathF.Cos(Yaw), MathF.Sin(Yaw), 0f);
@@ -419,6 +453,24 @@ public sealed class CharacterController
         {
             UpdateFlying(dt, input, forward, right);
             return;
+        }
+
+        if (Swimming)
+        {
+            bool breach = input.Jump && !_swimJumpWasDown;
+            _swimJumpWasDown = input.Jump;
+            if (!breach)
+            {
+                UpdateSwimming(dt, input);
+                return;
+            }
+            Swimming = false;
+            _swimBreachActive = true;
+            Velocity.Z = SwimmingMovementLaw.JumpSpeed;
+        }
+        else
+        {
+            _swimJumpWasDown = input.Jump;
         }
 
         // Vanilla has a distinct MOVE_RUN_BACK speed. The old controller used
@@ -463,6 +515,35 @@ public sealed class CharacterController
         LastBlockAgeSeconds += dt;
 
         FallTimeMs = Grounded ? 0f : FallTimeMs + dt * 1000f;
+    }
+
+    private void UpdateSwimming(float dt, in MovementInput input)
+    {
+        SwimPitch = Math.Clamp(input.Pitch, -1.45f, 1.45f);
+        Vector3 desired = SwimmingMovementLaw.DesiredVelocity(Yaw, SwimPitch,
+            input.Forward, input.Strafe, EffectiveSwimSpeed, EffectiveSwimBackSpeed);
+        if (LiquidSurfaceZ is float surface && desired.Z > 0f)
+        {
+            float cap = SwimmingMovementLaw.RestLine(surface, _opts.Height);
+            float rise = MathF.Max(0f, cap - Position.Z);
+            desired = SwimmingMovementLaw.RedirectAtRestLine(desired,
+                dt > 0f ? rise / dt : 0f);
+        }
+
+        HorizontalVelocity = new Vector3(desired.X, desired.Y, 0f);
+        Vector3 horizontal = HorizontalVelocity * dt;
+        Depenetrate();
+        MoveHorizontal(ref horizontal);
+        Position.Z += desired.Z * dt;
+        if (LiquidSurfaceZ is float top)
+            Position.Z = MathF.Min(Position.Z, SwimmingMovementLaw.RestLine(top, _opts.Height));
+        Velocity = new Vector3(0f, 0f, desired.Z);
+        Grounded = false;
+        FallTimeMs = 0f;
+        GroundZ = null;
+        GroundSource = "liquid";
+        NoGroundBelow = false;
+        LastBlockAgeSeconds += dt;
     }
 
     /// <summary>

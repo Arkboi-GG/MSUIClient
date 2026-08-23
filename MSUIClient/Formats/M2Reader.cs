@@ -39,6 +39,9 @@ public class M2Model
     /// <summary>Weapon trails, spell slashes, and missile streamers.</summary>
     public List<M2RibbonEmitter> RibbonEmitters { get; set; } = new();
 
+    /// <summary>Authored model lights; type 1 and a non-dark visibility track cast in world.</summary>
+    public List<M2Light> Lights { get; set; } = new();
+
     /// <summary>Model animation event markers such as cast release ($CSL/$CSR/$CST/$BWR).</summary>
     public List<M2EventMarker> Events { get; set; } = new();
 
@@ -416,6 +419,19 @@ public class M2Attachment
     public uint Id { get; set; }
     public uint BoneIndex { get; set; }
     public Vector3 Position { get; set; }   // glTF Y-up after conversion
+}
+
+public sealed class M2Light
+{
+    public ushort Type { get; set; }
+    public short Bone { get; set; }
+    public Vector3 Position { get; set; }
+    public Vector3 DiffuseColor { get; set; } = Vector3.One;
+    public float DiffuseIntensity { get; set; } = 1f;
+    public float AttenuationStart { get; set; }
+    public float AttenuationEnd { get; set; }
+    public bool VisibilityOff { get; set; }
+    public bool Casts => Type == 1 && !VisibilityOff;
 }
 
 /// <summary>
@@ -1647,6 +1663,7 @@ public class M2Reader
 
             ParseEvents(data, ReadUInt32(data, 0x114), ReadUInt32(data, 0x118), model);
             ParseRibbonEmitters(data, ReadUInt32(data, 0x134), ReadUInt32(data, 0x138), model);
+            ParseLights(data, ReadUInt32(data, 0x11C), ReadUInt32(data, 0x120), model);
 
             ParsePortraitCamera(data, model);
 
@@ -1704,6 +1721,59 @@ public class M2Reader
         Vector3 target = new(rawTarget.X, rawTarget.Z, -rawTarget.Y);
         model.PortraitCamera = new M2PortraitCamera(
             fov, farClip, nearClip, position, target, roll);
+    }
+
+    private const int LIGHT_STRIDE_VANILLA = 0xD4;
+
+    private static void ParseLights(byte[] data, uint count, uint offset, M2Model model)
+    {
+        if (count == 0 || offset == 0 || !ArrayFits(data, offset, count, LIGHT_STRIDE_VANILLA))
+            return;
+        for (int index = 0; index < count; index++)
+        {
+            int record = checked((int)offset + index * LIGHT_STRIDE_VANILLA);
+            float rawX = BitConverter.ToSingle(data, record + 0x04);
+            float rawY = BitConverter.ToSingle(data, record + 0x08);
+            float rawZ = BitConverter.ToSingle(data, record + 0x0C);
+            Vector3 diffuse = ReadTrackFirstVector3(data, record + 0x48) ?? Vector3.One;
+            model.Lights.Add(new M2Light
+            {
+                Type = ReadUInt16(data, record),
+                Bone = unchecked((short)ReadUInt16(data, record + 0x02)),
+                Position = new Vector3(rawX, rawZ, -rawY),
+                DiffuseColor = diffuse,
+                DiffuseIntensity = ReadTrackFirstFloat(data, record + 0x64) ?? 1f,
+                AttenuationStart = ReadTrackFirstFloat(data, record + 0x80) ?? 0f,
+                AttenuationEnd = ReadTrackFirstFloat(data, record + 0x9C) ?? 0f,
+                VisibilityOff = ReadTrackFirstByte(data, record + 0xB8) == 0,
+            });
+        }
+    }
+
+    private static float? ReadTrackFirstFloat(byte[] data, int track)
+    {
+        uint count = ReadUInt32(data, track + 0x14);
+        uint offset = ReadUInt32(data, track + 0x18);
+        return count > 0 && offset <= data.Length - sizeof(float)
+            ? BitConverter.ToSingle(data, (int)offset) : null;
+    }
+
+    private static Vector3? ReadTrackFirstVector3(byte[] data, int track)
+    {
+        uint count = ReadUInt32(data, track + 0x14);
+        uint offset = ReadUInt32(data, track + 0x18);
+        if (count == 0 || offset > data.Length - 12) return null;
+        float x = BitConverter.ToSingle(data, (int)offset);
+        float y = BitConverter.ToSingle(data, (int)offset + 4);
+        float z = BitConverter.ToSingle(data, (int)offset + 8);
+        return new Vector3(x, y, z);
+    }
+
+    private static byte? ReadTrackFirstByte(byte[] data, int track)
+    {
+        uint count = ReadUInt32(data, track + 0x14);
+        uint offset = ReadUInt32(data, track + 0x18);
+        return count > 0 && offset < data.Length ? data[offset] : null;
     }
 
     private static bool TryReadStaticVectorTrack(byte[] data, int track, out Vector3 value)

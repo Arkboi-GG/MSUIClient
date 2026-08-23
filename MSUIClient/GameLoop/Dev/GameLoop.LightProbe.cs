@@ -193,7 +193,8 @@ public sealed partial class GameLoop
         _exteriorLight.DetectConvention((uint)_config.Start.Map, p);
 
         var applied = _exteriorLight.Resolve(
-            (uint)_config.Start.Map, p, _atmosphere.TimeOfDayHours);
+            (uint)_config.Start.Map, p, _atmosphere.TimeOfDayHours,
+            _weatherVisual.StormBlend);
 
         // WHAT THE SCENE IS ACTUALLY LIT BY, printed when it changes. "It went dark
         // and I changed nothing" is otherwise unanswerable without a build to

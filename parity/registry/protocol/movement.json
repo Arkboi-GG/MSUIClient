@@ -18,16 +18,20 @@
   ],
   "msuiAnchors": [
     "MSUIClient/Net/MovementInfo.cs",
+    "MSUIClient/Net/MovementRelayPackets.cs",
+    "MSUIClient/Net/Entities.cs",
     "MSUIClient/Net/LocalMovementSender.cs",
+    "MSUIClient/Player/SwimmingMovementLaw.cs",
     "MSUIClient/Net/MovementSpeedPackets.cs",
     "MSUIClient/Net/MovementModePackets.cs",
     "MSUIClient/Net/WorldSession.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.MovementSpeed.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.MovementModes.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
     "MSUIClient/Player/CharacterController.cs"
   ],
-  "status": "partial",
-  "summary": "MSUI ports MovementInfo byte-for-byte and handles teleport, the complete force-speed family, and all four granted modes. Mode state affects control and is retained in outbound flags; non-root acknowledgements carry the required apply dword. Observer spline/relay speeds and remote player movement remain.",
+  "status": "complete",
+  "summary": "MSUI ports MovementInfo byte-for-byte and handles the local MSG_MOVE stream including START/STOP_SWIM plus pitch, teleport, the complete force-speed family, all four granted modes, the full 21-opcode inbound relay family, compressed relay batches, and both six-kind observer speed families. Remote players interpolate while retaining reported aim; stop/turn/land edges snap. SPLINE_SET updates live paths and MOVE_SET applies fresh pose then speed. Observer forms never ack; a controlled self-addressed relay takes the dedicated hard-snap/no-ack path while free-view and non-controlled session bodies remain observers.",
   "openItems": [
     {
       "id": "item-triage-f0280b78",
@@ -53,7 +57,8 @@
       "text": "SMSG_SPLINE_SET_* speed packets (non-controlled movers) not handled",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: All six SMSG_SPLINE_SET_* bodies strict-decode [packed guid][f32 speed], and all six MSG_MOVE_SET_* bodies strict-decode [packed guid][MovementInfo][f32 speed]. Both update the addressed entity speed set without ack; MOVE_SET additionally applies its fresh remote-player pose. Focused and full clinical suites pass."
     },
     {
       "id": "item-triage-d944faa7",
@@ -61,12 +66,27 @@
       "text": "Inbound MSG_MOVE_* relays for other players have no dispatch case in Program.Net.cs - Entities.ApplyRemotePlayerMove exists but has no caller",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: MovementRelayPackets defines and strict-decodes Benilla's exact 21 rebroadcast opcodes as [packed guid][MovementInfo]. GameLoop.Net dispatches them to EntityStore.ApplyRemotePlayerMove with self/controlled-mover exclusion. The clinical fixture proves packed GUID/tails, malformed rejection, sparse-position interpolation, authoritative facing and stop snapping; focused and full suites pass."
+    },
+    {
+      "id": "verify-remote-player-movement-relays",
+      "kind": "verify",
+      "text": "Live-verify another player walking, running, strafing, backpedaling, turning, jumping, swimming and stopping: motion should remain smooth between relays, facing should follow reported aim rather than travel tangent, and no self/possessed-body correction should occur.",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "verify-observer-speed-change-families",
+      "kind": "verify",
+      "text": "Live-verify nearby creature and player walk/run/run-back/swim/swim-back/turn-rate changes, including mounting and mid-spline haste: gait thresholds and interpolation speed should update immediately, MOVE_SET should consume its fresh pose, and no observer ack should be emitted.",
+      "added": "2026-08-22",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T03:14:27.0335467Z",
+  "lastReviewedUtc": "2026-08-23T01:35:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

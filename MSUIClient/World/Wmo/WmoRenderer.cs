@@ -5,6 +5,7 @@ using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
 using MSUIClient.World.Collision;
+using MSUIClient.World.Units;
 using Shader = MSUIClient.Engine.Shader;
 using Texture = MSUIClient.Engine.Texture;
 
@@ -636,6 +637,33 @@ public sealed class WmoRenderer : IDisposable
     /// Recomputed once per frame; read by the HUD and, later, by traversal.
     /// </summary>
     public CameraCell? CameraGroup { get; private set; }
+
+    /// <summary>
+    /// True when the camera is outdoors, or an exterior-flagged group is in the
+    /// completed portal flood from its current interior cell. Weather consumes
+    /// this as the reference's portal-aware outdoor visibility bit: an inn room
+    /// freezes precipitation, while the same storm remains alive through an
+    /// open doorway. Missing portal state fails closed only for a positively
+    /// identified interior cell.
+    /// </summary>
+    public bool CameraExteriorPortalVisible
+    {
+        get
+        {
+            if (CameraGroup is not { } cameraCell || cameraCell.IsExterior) return true;
+            foreach (Instance instance in _instances)
+            {
+                if (!instance.Path.Equals(cameraCell.InstancePath,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    !_portalVisible.TryGetValue(instance.Id, out HashSet<int>? visible) ||
+                    visible is null) continue;
+                foreach (GroupMesh group in instance.Model.Groups)
+                    if ((group.GroupFlags & 0x08u) != 0 && visible.Contains(group.GroupIndex))
+                        return true;
+            }
+            return false;
+        }
+    }
 
     /// <summary>How many groups contained the camera before the tie-break.</summary>
     public int CameraGroupCandidates { get; private set; }
@@ -3626,6 +3654,7 @@ public sealed class WmoRenderer : IDisposable
         _shader.Set("uVertexColorScale", VertexColorScale);
         _shader.Set("uInteriorBrightness", InteriorBrightness);
         _shader.Set("uStyleWeight", 0.62f);
+        CarriedLightFrame.Upload(_shader, camera.Position);
 
         var viewProjection = camera.RelativeViewProjection;
         var cameraPosition = camera.Position;

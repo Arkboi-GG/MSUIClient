@@ -1,4 +1,5 @@
 using System.Numerics;
+using MSUIClient.World.Units;
 
 namespace MSUIClient.Net;
 
@@ -15,6 +16,13 @@ public sealed class WorldEntity
     public Vector3 Position;               // raw WoW space
     public float Orientation;
     public float[]? Speeds;                // [walk, run, run_back, swim, swim_back, turn]
+    /// <summary>Rider pose in the named transport's local frame; null while not aboard.</summary>
+    public TransportPose? Transport;
+    /// <summary>Transport GO path-domain progress received in its latest movement block.</summary>
+    public uint? TransportProgress;
+    /// <summary>Local monotonic receipt time paired with <see cref="TransportProgress"/>.</summary>
+    public long TransportProgressReceivedMs;
+    public AuraVisualState AuraVisual { get; } = new();
 
     // The active SMSG_MONSTER_MOVE spline this creature is walking, if any. Advanced
     // each frame by EntityStore.TickSplines; cleared when it finishes or an
@@ -143,7 +151,7 @@ public sealed class EntityStore
         entity.FacingFromSpline = true;
     }
 
-    public void Apply(ObjectUpdate u)
+    public void Apply(ObjectUpdate u, long nowMs = 0)
     {
         switch (u.Kind)
         {
@@ -163,6 +171,14 @@ public sealed class EntityStore
                     e.Orientation = u.Movement.Orientation;
                     e.Speeds = u.Movement.Speeds;
                 }
+                e.Transport = u.Movement?.Transport;
+                e.TransportProgress = u.Movement?.TransportProgress;
+                if (e.TransportProgress is not null) e.TransportProgressReceivedMs = nowMs;
+                if (!e.IsDead && u.Movement?.Spline is { } createSpline)
+                {
+                    e.FacingFromSpline = true;
+                    e.Spline = CreatureSpline.Resume(createSpline, nowMs);
+                }
                 if (e.IsDead) e.Spline = null;
                 _entities[u.Guid] = e;   // a fresh create drops any prior spline with the old entity
                 break;
@@ -179,13 +195,20 @@ public sealed class EntityStore
                 }
                 break;
             case UpdateKind.Movement:
-                if (_entities.TryGetValue(u.Guid, out var em) && u.Movement?.Position is { } mp)
+                if (_entities.TryGetValue(u.Guid, out var em) && u.Movement is { } movement)
                 {
-                    // An authoritative position snapshot supersedes an in-progress spline (benilla parity).
-                    em.Spline = null;
-                    em.Position = mp;
-                    em.Orientation = u.Movement.Orientation;
-                    if (u.Movement.Speeds is not null) em.Speeds = u.Movement.Speeds;
+                    em.Transport = movement.Transport;
+                    em.TransportProgress = movement.TransportProgress;
+                    if (movement.TransportProgress is not null)
+                        em.TransportProgressReceivedMs = nowMs;
+                    if (movement.Position is { } mp)
+                    {
+                        // An authoritative position snapshot supersedes an in-progress spline.
+                        em.Spline = null;
+                        em.Position = mp;
+                        em.Orientation = movement.Orientation;
+                        if (movement.Speeds is not null) em.Speeds = movement.Speeds;
+                    }
                 }
                 break;
             case UpdateKind.OutOfRange:
@@ -214,7 +237,8 @@ public sealed class EntityStore
         // It supersedes the client-facing policy that ApplyRemotePlayerMove installs while a
         // human drives that same body, so turns follow the new path after a free-view order.
         e.FacingFromSpline = true;
-        e.Spline = new CreatureSpline(mm.Points, mm.DurationMs, mm.Flying, nowMs);
+        e.Spline = new CreatureSpline(mm.Points, mm.DurationMs, mm.Flying, nowMs,
+            mm.SplineId);
     }
 
     /// <summary>Position-changing movement flags (turning/pitch alone do not relocate a unit).</summary>
@@ -234,6 +258,7 @@ public sealed class EntityStore
         if (!_entities.TryGetValue(guid, out var e) || !e.IsPlayer) return;
         e.FacingFromSpline = false;   // players face their reported aim, never the travel vector
         e.MoveFlags = mi.Flags;       // direction bits for gait selection (speed comes from the spline)
+        e.Transport = mi.Transport;   // full rider-local frame follows every ON_TRANSPORT relay
 
         if (e.IsDead || (mi.Flags & LocomotionMask) == 0)
         {
@@ -265,6 +290,18 @@ public sealed class EntityStore
 
         // Glide from wherever we currently have them to the freshly reported spot over the packet gap.
         e.Spline = new CreatureSpline(new[] { e.Position, mi.Position }, (uint)dt, flying: false, nowMs);
+    }
+
+    /// <summary>A server-authored move for the locally driven mover is an immediate correction.</summary>
+    public void ApplyServerAuthoredMove(ulong guid, MovementInfo mi, long nowMs)
+    {
+        if (!_entities.TryGetValue(guid, out WorldEntity? entity)) return;
+        entity.Spline = null;
+        entity.Position = mi.Position;
+        entity.Orientation = mi.Orientation;
+        entity.MoveFlags = ServerAuthoredMovementLaw.MergeFlags(entity.MoveFlags, mi.Flags);
+        entity.Transport = mi.Transport;
+        entity.LastMoveMs = nowMs;
     }
 
     /// <summary>Advance every active spline. Call once per frame with a monotonic ms clock.</summary>

@@ -2,33 +2,94 @@ using System.Numerics;
 using System.Text;
 using ImGuiNET;
 using MSUIClient.Engine;
+using MSUIClient.Engine.UI;
 using MSUIClient.Net;
 
 namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    private sealed record GuildMember(ulong Guid, bool Online, string Name, uint Rank,
-        byte Level, byte Class, uint Zone, float OfflineDays, string PublicNote, string OfficerNote);
+    private sealed record GuildMember(ulong Guid, byte Presence, string Name, uint Rank,
+        byte Level, byte Class, uint Zone, float OfflineDays, string PublicNote, string OfficerNote)
+    {
+        public bool Online => Presence != 0;
+    }
 
     private readonly List<GuildMember> _guildMembers = [];
     private readonly List<uint> _guildRankRights = [];
+    private readonly GuildRosterSortLaw _guildSort = new();
+    private readonly HashSet<uint> _guildIdentityQueried = [];
+    private readonly string[] _guildRankNames = new string[10];
+    private uint _guildId;
+    private string _guildName = "";
     private bool _guildOpen;
     private string _guildMotd = "";
     private string _guildInfo = "";
-    private int _guildSelected;
+    private int _guildSelected = -1;
+    private int _guildScroll;
+    private bool _guildShowOffline;
     private readonly byte[] _guildMotdEdit = new byte[256];
     private bool _guildStatusView;
+    private bool _guildInfoOpen;
+    private string _guildInfoDraft = "";
+    private bool _guildMemberDetailOpen;
+    private bool _guildPromotePending;
+    private bool _guildDemotePending;
+    private bool _guildControlOpen;
+    private bool _guildControlDropDownOpen;
+    private int _guildControlRank;
+    private uint _guildControlRights;
+    private string _guildControlRankName = "";
+    private bool _guildControlDirty;
 
     private void InitGuild() { }
     private void ResetGuild()
-    { _guildMembers.Clear(); _guildRankRights.Clear(); _guildOpen = false; _guildMotd = _guildInfo = ""; _guildSelected = 0; }
+    {
+        _guildMembers.Clear(); _guildRankRights.Clear(); _guildIdentityQueried.Clear();
+        Array.Clear(_guildRankNames); _guildId = 0; _guildName = "";
+        _guildOpen = false; _guildMotd = _guildInfo = ""; _guildSelected = -1;
+        _guildInfoOpen = false; _guildInfoDraft = ""; _guildMemberDetailOpen = false;
+        _guildPromotePending = _guildDemotePending = false;
+        _guildControlOpen = _guildControlDropDownOpen = false;
+        _guildControlRank = 0; _guildControlRights = 0; _guildControlRankName = "";
+        _guildControlDirty = false;
+    }
 
     private bool RequestGuildRoster()
     {
         bool sent = _net?.GuildRoster() == true;
         EmitInterface("guild", "roster-send", sent ? "SENT" : "SEND_FAILED", _net?.PlayerGuid ?? 0, "body=EMPTY");
         return sent;
+    }
+
+    private uint CurrentGuildId() =>
+        _entities.TryGet(LocalPlayerGuid, out WorldEntity player)
+            ? player.Fields.PlayerGuildId : 0;
+
+    private void RequestOwnGuildIdentity()
+    {
+        uint guildId = CurrentGuildId();
+        if (guildId == 0 || !_guildIdentityQueried.Add(guildId)) return;
+        _net?.GuildQuery(guildId);
+    }
+
+    private void ApplyGuildQueryResponse(byte[] body)
+    {
+        var r = new PacketReader(body);
+        uint guildId = r.ReadU32();
+        string name = r.ReadCString();
+        var ranks = new string[10];
+        for (int i = 0; i < ranks.Length; i++) ranks[i] = r.ReadCString();
+        for (int i = 0; i < 5; i++) r.ReadU32(); // tabard symbol/color/border/background
+        if (r.Remaining != 0)
+            throw new InvalidDataException($"SMSG_GUILD_QUERY_RESPONSE trailing={r.Remaining}");
+        if (guildId != CurrentGuildId()) return;
+        _guildId = guildId;
+        _guildName = name;
+        ranks.CopyTo(_guildRankNames, 0);
+        if (_guildControlOpen && !_guildControlDirty &&
+            _guildControlRank < _guildRankNames.Length)
+            _guildControlRankName = _guildRankNames[_guildControlRank];
     }
 
     private void ApplyGuildRoster(byte[] body)
@@ -42,16 +103,26 @@ public sealed partial class GameLoop
             var members = new List<GuildMember>((int)count);
             for (int i = 0; i < count; i++)
             {
-                ulong guid = r.ReadU64(); bool online = r.ReadU8() != 0; string name = r.ReadCString();
+                ulong guid = r.ReadU64(); byte presence = r.ReadU8(); string name = r.ReadCString();
                 uint rank = r.ReadU32(); byte level = r.ReadU8(), cls = r.ReadU8(); uint zone = r.ReadU32();
-                float offline = online ? 0 : r.ReadF32(); string note = r.ReadCString(), officer = r.ReadCString();
-                members.Add(new(guid, online, name, rank, level, cls, zone, offline, note, officer));
+                float offline = presence != 0 ? 0 : r.ReadF32(); string note = r.ReadCString(), officer = r.ReadCString();
+                members.Add(new(guid, presence, name, rank, level, cls, zone, offline, note, officer));
             }
             if (r.Remaining != 0) throw new InvalidDataException($"trailing={r.Remaining}");
             _guildMembers.Clear(); _guildMembers.AddRange(members); _guildRankRights.Clear(); _guildRankRights.AddRange(rights);
             _guildMotd = motd; _guildInfo = info; Array.Clear(_guildMotdEdit); byte[] motdBytes = Encoding.UTF8.GetBytes(motd);
             Array.Copy(motdBytes, _guildMotdEdit, Math.Min(motdBytes.Length, _guildMotdEdit.Length - 1));
-            _guildOpen = true; _guildSelected = 0;
+            _guildOpen = true;
+            if (_guildSelected >= _guildMembers.Count)
+            {
+                _guildSelected = -1;
+                _guildMemberDetailOpen = false;
+            }
+            _guildPromotePending = _guildDemotePending = false;
+            if (_guildControlOpen &&
+                (_guildRankRights.Count == 0 || _guildControlRank >= _guildRankRights.Count))
+                LoadGuildControlRank(0);
+            RequestOwnGuildIdentity();
             EmitInterface("guild", "roster", "DECODED", _net?.PlayerGuid ?? 0,
                 $"members={members.Count};ranks={rights.Count};motd={SanitizeEvidence(motd)};online={members.Count(x => x.Online)};names={string.Join('|', members.Select(x => x.Name))}");
         }
@@ -82,17 +153,63 @@ public sealed partial class GameLoop
 
     private void ApplyGuildEvent(byte[] body)
     {
-        if (body.Length < 2) return; var r = new PacketReader(body); byte evt = r.ReadU8(), count = r.ReadU8();
-        var values = new List<string>(); for (int i = 0; i < count && r.HasMore; i++) values.Add(r.ReadCString());
-        EmitInterface("guild", "event", "RECEIVED", 0, $"event={evt};values={string.Join('|', values.Select(SanitizeEvidence))}");
-        if (evt == 5 && values.Count > 0) _guildMotd = values[0];
+        GuildEventWire notice = GuildFramePacketLaw.ParseEvent(body);
+        EmitInterface("guild", "event", "RECEIVED", notice.AffectedGuid ?? 0,
+            $"event={notice.Event};values={string.Join('|', notice.Parameters.Select(SanitizeEvidence))}");
+        if (notice.Event == GuildFramePacketLaw.Motd)
+        {
+            _guildMotd = notice.Parameters.FirstOrDefault() ?? "";
+            AddChatMessage(GuildFramePacketLaw.MotdLine(_guildMotd));
+        }
+        else if (notice.Event == GuildFramePacketLaw.UpdateRankName)
+        {
+            if (notice.Parameters.Count >= 2 &&
+                int.TryParse(notice.Parameters[0], out int rank) &&
+                rank >= 0 && rank < _guildRankNames.Length)
+            {
+                _guildRankNames[rank] = notice.Parameters[1];
+                if (_guildControlOpen && !_guildControlDirty && _guildControlRank == rank)
+                    _guildControlRankName = notice.Parameters[1];
+            }
+        }
+        bool ignored = notice.AffectedGuid is ulong guid && _ignored.Contains(guid);
+        if (GuildFramePacketLaw.EventLine(notice, ignored) is { } line)
+            AddChatMessage(line);
+        if (GuildFramePacketLaw.MakesRosterStale(notice.Event)) RequestGuildRoster();
     }
 
     private void ApplyGuildCommandResult(byte[] body)
     {
-        if (body.Length < 8) return; var r = new PacketReader(body); uint command = r.ReadU32(); string text = r.ReadCString(); uint result = r.ReadU32();
-        EmitInterface("guild", "command", result == 0 ? "SUCCESS" : $"FAILED-{result}", 0,
-            $"command={command};text={SanitizeEvidence(text)};body={Convert.ToHexString(body)}");
+        GuildCommandResultWire result = GuildFramePacketLaw.ParseCommandResult(body);
+        EmitInterface("guild", "command", result.Result == 0 ? "SUCCESS" : $"FAILED-{result.Result}", 0,
+            $"command={result.Command};text={SanitizeEvidence(result.Name)};body={Convert.ToHexString(body)}");
+        if (GuildFramePacketLaw.CommandLine(result) is { } line) AddChatMessage(line);
+        if (GuildFramePacketLaw.CommandMakesRosterStale(result)) RequestGuildRoster();
+    }
+
+    private void ApplyGuildInvite(byte[] body)
+    {
+        GuildInviteWire invite = GuildFramePacketLaw.ParseInvite(body);
+        AddChatMessage(GuildFramePacketLaw.InviteLine(invite));
+        ShowGuildInvitePopup(invite);
+        EmitInterface("guild", "invite", "RECEIVED", 0,
+            $"inviter={SanitizeEvidence(invite.Inviter)};guild={SanitizeEvidence(invite.Guild)}");
+    }
+
+    private void ApplyGuildDecline(byte[] body)
+    {
+        string name = GuildFramePacketLaw.ParseDecline(body);
+        AddChatMessage(GuildFramePacketLaw.DeclineLine(name));
+        EmitInterface("guild", "decline", "RECEIVED", 0,
+            $"name={SanitizeEvidence(name)}");
+    }
+
+    private void ApplyGuildInfo(byte[] body)
+    {
+        GuildInfoWire info = GuildFramePacketLaw.ParseInfo(body);
+        foreach (string line in GuildFramePacketLaw.InfoLines(info)) AddChatMessage(line);
+        EmitInterface("guild", "info", "RECEIVED", 0,
+            $"guild={SanitizeEvidence(info.Name)};created={info.CreatedDay}-{info.CreatedMonth}-{info.CreatedYear};members={info.MemberCount};accounts={info.AccountCount}");
     }
 
     private void SimulateGuildFlow()
@@ -116,55 +233,289 @@ public sealed partial class GameLoop
 
     private void DrawGuildFrame()
     {
-        if (!_guildOpen||_gameplayArt is null) return;float s=GameplayUiScale();Vector2 origin=new(0,104*s),logicalSize=new(384,512);
-        ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
-        if (!ImGui.Begin("##guild",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
-        ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="guild"){BeginUiParityFrame(origin,s);CollectUiParityDraw("GuildFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
-        (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[
-            ("GuildFrame/ShellTopLeft",@"Interface\FriendsFrame\UI-FriendsFrame-TopLeft",Vector2.Zero,new(256,256)),
-            ("GuildFrame/ShellTopRight",@"Interface\FriendsFrame\UI-FriendsFrame-TopRight",new(256,0),new(128,256)),
-            ("GuildFrame/ShellBotLeft",@"Interface\FriendsFrame\UI-FriendsFrame-BotLeft",new(0,256),new(256,256)),
-            ("GuildFrame/ShellBotRight",@"Interface\FriendsFrame\UI-FriendsFrame-BotRight",new(256,256),new(128,256))];
-        foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="guild")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"GuildFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","GuildFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
-        DrawCenteredText(dl,origin+new Vector2(192,18)*s,"Guild",14*s,VanillaGold);
-        DrawCenteredText(dl,origin+new Vector2(192,54)*s,_guildMotd,10*s,0xffffffff);
-        string[] headers=_guildStatusView?["Name","Rank","Note","Last Online"]:["Name","Zone","Lvl","Class"];
-        float[] hx=[22,148,245,285];float[] hw=[128,99,42,72];
-        for(int i=0;i<headers.Length;i++)
+        if (!_guildOpen || _gameplayArt is null) return;
+        RequestOwnGuildIdentity();
+        float s = GameplayUiScale();
+        Vector2 origin = UiPanelFrameOrigin(UiPanelOwnershipRegistry[14], s);
+        Vector2 logicalSize = FriendsFrameUiLaw.FrameSize(1f);
+        ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(logicalSize * s, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0);
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground |
+            ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoScrollbar |
+            ImGuiWindowFlags.NoScrollWithMouse;
+        if (!ImGui.Begin("##guild", flags)) { ImGui.End(); return; }
+
+        ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        if (_uiParityArmed && _uiParityPanel == "guild")
         {
-            dl.AddRectFilled(origin+new Vector2(hx[i],70)*s,origin+new Vector2(hx[i]+hw[i],91)*s,0xff342517);
-            dl.AddText(ImGui.GetFont(),9*s,origin+new Vector2(hx[i]+4,75)*s,0xffffffff,headers[i]);
+            BeginUiParityFrame(origin, s);
+            CollectUiParityDraw("GuildFrame", "Frame", origin, logicalSize * s, "",
+                new("", 0, "IMGUI_HOST", "ANCHOR:ABSOLUTE", "", "", 0, 8));
         }
-        for (int i=0;i<_guildMembers.Count&&i<13;i++)
+        DrawFourPieceShell(dl, origin, s,
+            @"Interface\PaperDollInfoFrame\UI-Character-General-TopLeft",
+            @"Interface\PaperDollInfoFrame\UI-Character-General-TopRight",
+            @"Interface\FriendsFrame\UI-FriendsFrame-BotLeft",
+            @"Interface\FriendsFrame\UI-FriendsFrame-BotRight");
+        DrawArt(dl, @"Interface\FriendsFrame\FriendsFrameScrollIcon",
+            origin + FriendsFrameUiLaw.ScrollIcon.Min * s,
+            FriendsFrameUiLaw.ScrollIcon.Size, s);
+        GameText.DrawCentered(dl, "GameFontNormal", _guildName,
+            origin + new Vector2(192, 18) * s, s);
+
+        DrawGuildOfflineFilter(dl, origin, s);
+        GuildRosterSortProjection[] projections = _guildMembers.Select(GuildProjection).ToArray();
+        int[] displayOrder = _guildSort.Order(projections, _guildShowOffline);
+        int displayCount = GuildRosterSortLaw.DisplayedCount(projections, _guildShowOffline);
+        var shown = displayOrder.Take(displayCount)
+            .Select(index => (Member: _guildMembers[index], Index: index)).ToArray();
+        _guildScroll = GuildFrameUiLaw.ClampOffset(_guildScroll, shown.Length);
+        HandleGuildListWheel(origin, s, shown.Length);
+        bool crowded = GuildFrameUiLaw.IsCrowded(shown.Length);
+        GuildFrameUiLaw.LogicalRect[] headerRects = _guildStatusView
+            ? GuildFrameUiLaw.StatusHeaders(shown.Length)
+            : GuildFrameUiLaw.PlayerHeaders(shown.Length);
+        string[] headerLabels = _guildStatusView
+            ? ["Name", "Rank", "Note", "Last Online"]
+            : ["Name", "Zone", "Lvl", "Class"];
+        GuildRosterSortField[] headerFields = _guildStatusView
+            ? [GuildRosterSortField.Name, GuildRosterSortField.Rank,
+                GuildRosterSortField.Note, GuildRosterSortField.Online]
+            : [GuildRosterSortField.Name, GuildRosterSortField.Zone,
+                GuildRosterSortField.Level, GuildRosterSortField.Class];
+        for (int i = 0; i < headerRects.Length; i++)
+            if (DrawGuildColumnHeader(dl, origin, s, headerRects[i], headerLabels[i], i))
+            {
+                _guildSort.Select(headerFields[i]);
+                _guildScroll = 0;
+                PlayUiSound("igMainMenuOptionCheckBoxOn", "ui.guild");
+            }
+
+        int visible = Math.Min(GuildFrameUiLaw.VisibleRows, shown.Length - _guildScroll);
+        for (int seat = 0; seat < visible; seat++)
         {
-            GuildMember m=_guildMembers[i];
-            string zone=_areas?.ZoneName(m.Zone)??$"Area {m.Zone}";
-            string text=_guildStatusView
-                ?$"{m.Name,-17} Rank {m.Rank,-3} {m.PublicNote,-12} {(m.Online?"Online":$"{m.OfflineDays:F1} days")}"
-                :$"{m.Name,-17} {zone,-13} {m.Level,2}  {ClassName(m.Class)}";
-            if(VanillaListRow(dl,$"##guild-{m.Guid}",origin+new Vector2(22,95+i*19)*s,new Vector2(337,18),s,
-                    text,_guildSelected==i,m.Online?0xffffffff:0xff808080))_guildSelected=i;
+            (GuildMember member, int originalIndex) = shown[_guildScroll + seat];
+            GuildFrameUiLaw.LogicalRect row = GuildFrameUiLaw.Row(seat);
+            Vector2 rowMin = origin + row.Min * s;
+            bool rowClicked = VanillaListRow(dl, $"##guild-{member.Guid}", rowMin,
+                row.Size, s, "", _guildSelected == originalIndex);
+            if (rowClicked)
+            {
+                if (_guildMemberDetailOpen && _guildSelected == originalIndex)
+                {
+                    _guildSelected = -1;
+                    _guildMemberDetailOpen = false;
+                }
+                else
+                {
+                    _guildSelected = originalIndex;
+                    _guildMemberDetailOpen = true;
+                    _guildInfoOpen = false;
+                    _guildControlOpen = false;
+                }
+            }
+            DrawGuildRow(dl, rowMin, s, member, crowded);
         }
-        dl.AddText(ImGui.GetFont(),10*s,origin+new Vector2(23,344)*s,VanillaGold,"Guild Message of the Day:");
-        VanillaInputText(dl,"##guild-motd",_guildMotdEdit,origin+new Vector2(23,362)*s,new Vector2(315,22),s);
-        dl.AddText(ImGui.GetFont(),9*s,origin+new Vector2(23,390)*s,VanillaGold,
-            $"{_guildMembers.Count} members, {_guildMembers.Count(x=>x.Online)} online");
-        if(VanillaButton(dl,"##guild-info","Guild Information",origin+new Vector2(16,408)*s,new Vector2(123,22),s))
-            SetGuildMotd(ReadBuffer(_guildMotdEdit));
-        if(VanillaButton(dl,"##guild-add","Add Member",origin+new Vector2(141,408)*s,new Vector2(98,22),s))
-            AddChatMessage("Enter a player name with /ginvite <name>.");
-        if(VanillaButton(dl,"##guild-control","Guild Control",origin+new Vector2(241,408)*s,new Vector2(104,22),s))
-            _guildStatusView=!_guildStatusView;
-        string[] outer=["Friends","Who","Guild","Raid"];
-        float[] tw=outer.Select(text=>VanillaCharacterTabWidth(text,s,0)).ToArray();float tabX=11;
-        for(int i=0;i<4;i++)
+        DrawSocialFauxScrollBar(dl, "##guild-scroll", origin, s,
+            new FriendsFrameUiLaw.LogicalRect(GuildFrameUiLaw.ScrollFrame.X,
+                GuildFrameUiLaw.ScrollFrame.Y, GuildFrameUiLaw.ScrollFrame.Width,
+                GuildFrameUiLaw.ScrollFrame.Height), _guildScroll,
+            GuildFrameUiLaw.MaximumOffset(shown.Length), value => _guildScroll = value);
+
+        GuildFrameUiLaw.LogicalRect toggle = GuildFrameUiLaw.ViewToggle(shown.Length);
+        string toggleLabel = _guildStatusView ? "Player Status" : "Guild Status";
+        GameText.DrawRightAligned(dl, "GameFontNormalSmall", toggleLabel,
+            origin + new Vector2(toggle.X - 4, toggle.Y + 11) * s, s);
+        DrawImageButton(dl, "##guild-view-toggle", origin + toggle.Min * s,
+            toggle.Size * s, @"Interface\Buttons\UI-SpellbookIcon-NextPage-Up",
+            @"Interface\Buttons\UI-SpellbookIcon-NextPage-Down",
+            @"Interface\Buttons\UI-Common-MouseHilight");
+        if (ImGui.IsItemClicked()) _guildStatusView = !_guildStatusView;
+
+        int online = _guildMembers.Count(member => member.Online);
+        string total = _guildMembers.Count == 1 ? "1 Guild Member" :
+            $"{_guildMembers.Count} Guild Members";
+        GameText.Draw(dl, "GameFontNormalSmall", total,
+            origin + new Vector2(70, 323) * s, s);
+        GameText.Draw(dl, "GameFontNormalSmall", $"({online} Online)",
+            origin + new Vector2(190, 323) * s, s, 0xff00ff00);
+        GameText.Draw(dl, "GameFontNormalSmall", "Guild Message Of The Day:",
+            origin + GuildFrameUiLaw.MotdLabel.Min * s, s);
+        DrawWrappedText(dl, _guildMotd, origin + GuildFrameUiLaw.MotdText.Min * s,
+            GuildFrameUiLaw.MotdText.Width, 9 * s, s, 0xffffffff, 3);
+
+        if (VanillaButton(dl, "##guild-info", "Guild Information",
+                origin + GuildFrameUiLaw.GuildInformation.Min * s,
+                GuildFrameUiLaw.GuildInformation.Size, s))
+            ToggleGuildInfoFrame();
+        if (VanillaButton(dl, "##guild-add", "Add Member",
+                origin + GuildFrameUiLaw.AddMember.Min * s,
+                GuildFrameUiLaw.AddMember.Size, s,
+                GuildFrameUiLaw.HasRight(CurrentGuildRank(), _guildRankRights,
+                    GuildFrameUiLaw.InviteRight)))
+            ShowGuildAddMemberPopup();
+        if (VanillaButton(dl, "##guild-control", "Guild Control",
+                origin + GuildFrameUiLaw.GuildControl.Min * s,
+                GuildFrameUiLaw.GuildControl.Size, s, CurrentGuildRank() == 0))
+            ToggleGuildControlFrame();
+
+        string[] outer = FriendsFrameUiLaw.OuterTabs;
+        float[] widths = outer.Select(text => VanillaCharacterTabWidth(text, s, 0)).ToArray();
+        float tabX = 11;
+        for (int i = 0; i < outer.Length; i++)
         {
-            if(VanillaTab(dl,$"##guild-tab-{i}",origin+new Vector2(tabX,433)*s,outer[i],tw[i],s,i==2)&&i!=2)
-            { _guildOpen=false;OpenSocial();_socialPage=i; if(i==1)_net?.Who(""); }
-            tabX+=tw[i]-14;
+            if (VanillaTab(dl, $"##guild-tab-{i}", origin + new Vector2(tabX, 433) * s,
+                    outer[i], widths[i], s, i == 2) && i != 2)
+            {
+                _guildOpen = false; _guildInfoOpen = false; _guildMemberDetailOpen = false;
+                _guildControlOpen = false;
+                OpenSocial();
+                _socialPage = i;
+                if (i == 1) _net?.Who("");
+            }
+            tabX += widths[i] - 14;
         }
-        Vector2 close=origin+new Vector2(322,8)*s;DrawImageButton(dl,"##guild-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())_guildOpen=false;
-        if(_uiParityArmed&&_uiParityPanel=="guild")MarkUiParityFrameComplete();
+        DrawImageButton(dl, "##guild-close", origin + new Vector2(322, 8) * s,
+            new Vector2(32) * s, @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
+        if (ImGui.IsItemClicked())
+        {
+            _guildOpen = false; _guildInfoOpen = false; _guildMemberDetailOpen = false;
+            _guildControlOpen = false;
+        }
+        if (_uiParityArmed && _uiParityPanel == "guild") MarkUiParityFrameComplete();
         ImGui.End();
+    }
+
+    private void DrawGuildOfflineFilter(ImDrawListPtr draw, Vector2 origin, float scale)
+    {
+        GuildFrameUiLaw.LogicalRect frame = GuildFrameUiLaw.OfflineFilter;
+        Vector2 min = origin + frame.Min * scale;
+        uint border = _gameplayArt?.Handle(
+            @"Interface\ClassTrainerFrame\UI-ClassTrainer-FilterBorder") ?? 0;
+        if (border != 0)
+        {
+            draw.AddImage((nint)border, min, min + new Vector2(12, 28) * scale,
+                Vector2.Zero, new Vector2(.09375f, 1));
+            draw.AddImage((nint)border, min + new Vector2(12, 0) * scale,
+                min + new Vector2(198, 28) * scale,
+                new Vector2(.09375f, 0), new Vector2(.90625f, 1));
+            draw.AddImage((nint)border, min + new Vector2(198, 0) * scale,
+                min + new Vector2(210, 28) * scale,
+                new Vector2(.90625f, 0), Vector2.One);
+        }
+
+        GuildFrameUiLaw.LogicalRect check = GuildFrameUiLaw.OfflineCheck;
+        Vector2 checkMin = origin + check.Min * scale;
+        Vector2 checkSize = check.Size * scale;
+        Vector2 hitMin = origin + new Vector2(146, 38) * scale;
+        Vector2 hitSize = new Vector2(188, 24) * scale;
+        ImGui.SetCursorScreenPos(hitMin);
+        bool clicked = ImGui.InvisibleButton("##guild-show-offline", hitSize);
+        bool held = ImGui.IsItemActive();
+        bool hovered = ImGui.IsItemHovered();
+        string boxPath = held
+            ? @"Interface\Buttons\UI-CheckBox-Down"
+            : @"Interface\Buttons\UI-CheckBox-Up";
+        uint box = _gameplayArt?.Handle(boxPath) ?? 0;
+        if (box != 0) draw.AddImage((nint)box, checkMin, checkMin + checkSize);
+        if (_guildShowOffline)
+        {
+            uint mark = _gameplayArt?.Handle(@"Interface\Buttons\UI-CheckBox-Check") ?? 0;
+            if (mark != 0) draw.AddImage((nint)mark, checkMin, checkMin + checkSize);
+        }
+        if (hovered)
+        {
+            uint highlight = _gameplayArt?.AdditiveHandle(
+                @"Interface\Buttons\UI-CheckBox-Highlight") ?? 0;
+            if (highlight != 0)
+                draw.AddImage((nint)highlight, checkMin, checkMin + checkSize);
+        }
+        GameText.DrawRightAligned(draw, "GameFontHighlightSmall", "Show Offline Members",
+            origin + new Vector2(304, 49) * scale, scale);
+        if (clicked)
+        {
+            _guildShowOffline = !_guildShowOffline;
+            _guildSelected = -1;
+            _guildMemberDetailOpen = false;
+            _guildScroll = 0;
+            // FriendsFrame.xml deliberately plays the sound of the state being left.
+            PlayUiSound(_guildShowOffline ? "igMainMenuOptionCheckBoxOff" :
+                "igMainMenuOptionCheckBoxOn", "ui.guild");
+        }
+    }
+
+    private bool DrawGuildColumnHeader(ImDrawListPtr draw, Vector2 origin, float scale,
+        GuildFrameUiLaw.LogicalRect rect, string label, int index)
+    {
+        Vector2 min = origin + rect.Min * scale;
+        ImGui.SetCursorScreenPos(min);
+        bool clicked = ImGui.InvisibleButton($"##guild-header-{index}", rect.Size * scale);
+        DrawWhoColumnHeader(draw, min, rect.Width, scale, label);
+        return clicked;
+    }
+
+    private GuildRosterSortProjection GuildProjection(GuildMember member) => new(
+        member.Name, member.Rank, member.Level,
+        _areas?.ZoneName(member.Zone) ?? "", ClassName(member.Class),
+        member.Online, member.PublicNote, member.OfflineDays);
+
+    private void HandleGuildListWheel(Vector2 origin, float scale, int itemCount)
+    {
+        Vector2 min = origin + GuildFrameUiLaw.Rows.Min * scale;
+        Vector2 max = min + GuildFrameUiLaw.Rows.Size * scale;
+        float wheel = ImGui.GetIO().MouseWheel;
+        if (wheel != 0 && ImGui.IsMouseHoveringRect(min, max, false))
+            _guildScroll = GuildFrameUiLaw.WheelOffset(_guildScroll, itemCount, wheel);
+    }
+
+    private void DrawGuildRow(ImDrawListPtr draw, Vector2 rowMin, float scale,
+        GuildMember member, bool crowded)
+    {
+        uint nameColor = member.Online ? VanillaGold : 0xff808080;
+        uint valueColor = member.Online ? 0xffffffff : 0xff808080;
+        if (!_guildStatusView)
+        {
+            float zoneWidth = crowded ? 95 : 110;
+            string zone = _areas?.ZoneName(member.Zone) ?? $"Area {member.Zone}";
+            GameText.Draw(draw, "GameFontNormalSmall",
+                GameText.EllipsizeToBox("GameFontNormalSmall", member.Name, 88, 14, scale),
+                rowMin + new Vector2(14, 3) * scale, scale, nameColor);
+            GameText.Draw(draw, "GameFontHighlightSmall",
+                GameText.EllipsizeToBox("GameFontHighlightSmall", zone,
+                    zoneWidth, 14, scale),
+                rowMin + new Vector2(95, 3) * scale, scale, valueColor);
+            GameText.DrawCentered(draw, "GameFontHighlightSmall", member.Level.ToString(),
+                rowMin + new Vector2(109 + zoneWidth, 8) * scale, scale, valueColor);
+            GameText.Draw(draw, "GameFontHighlightSmall",
+                GameText.EllipsizeToBox("GameFontHighlightSmall", ClassName(member.Class),
+                    100, 14, scale),
+                rowMin + new Vector2(131 + zoneWidth, 3) * scale, scale, valueColor);
+            return;
+        }
+
+        float noteWidth = crowded ? 70 : 85;
+        string online = member.Online
+            ? GuildFrameUiLaw.PresenceTag(member.Presence) is { Length: > 0 } tag
+                ? tag : "Online"
+            : GuildFrameUiLaw.LastOnline(member.OfflineDays);
+        GameText.Draw(draw, "GameFontNormalSmall",
+            GameText.EllipsizeToBox("GameFontNormalSmall", member.Name, 75, 14, scale),
+            rowMin + new Vector2(14, 3) * scale, scale, nameColor);
+        string rank = member.Rank < _guildRankNames.Length
+            ? _guildRankNames[member.Rank] : "";
+        GameText.Draw(draw, "GameFontHighlightSmall",
+            GameText.EllipsizeToBox("GameFontHighlightSmall", rank, 55, 14, scale),
+            rowMin + new Vector2(94, 3) * scale, scale, valueColor);
+        GameText.Draw(draw, "GameFontHighlightSmall",
+            GameText.EllipsizeToBox("GameFontHighlightSmall", member.PublicNote,
+                noteWidth, 14, scale),
+            rowMin + new Vector2(160, 3) * scale, scale, valueColor);
+        GameText.Draw(draw, "GameFontHighlightSmall",
+            GameText.EllipsizeToBox("GameFontHighlightSmall", online, 80, 14, scale),
+            rowMin + new Vector2(170 + noteWidth, 3) * scale, scale, valueColor);
     }
 }

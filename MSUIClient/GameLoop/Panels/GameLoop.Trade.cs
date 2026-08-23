@@ -110,7 +110,7 @@ public sealed partial class GameLoop
     {
         if (_tradeInviteGuid != 0) DrawTradeInvitation();
         if (!_tradeOpen || _gameplayArt is null) return;
-        if (!BeginVanillaWindow("##trade", TradeFrameUiLaw.FrameOrigin(1f),
+        if (!BeginVanillaWindow("##trade", UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[3]),
                 TradeFrameUiLaw.FrameSize(1f),
                 out ImDrawListPtr dl, out Vector2 origin, out float s)) { ImGui.End(); return; }
         if (_entities.TryGet(ControlledGuid, out WorldEntity player))

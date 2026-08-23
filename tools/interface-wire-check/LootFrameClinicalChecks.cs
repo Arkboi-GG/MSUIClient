@@ -24,6 +24,9 @@ internal static class LootFrameClinicalChecks
             "GameLoop.Loot.cs"));
         Check(runtime.Contains("PlayUiSound(cue, LootFrameUiLaw.SoundCategory)",
                   StringComparison.Ordinal) &&
+              runtime.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[9], s)",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("new Vector2(16f, 12f) * s", StringComparison.Ordinal) &&
               runtime.Contains(".OverlayPath", StringComparison.Ordinal) &&
               !runtime.Contains("DrawArt(dl, @\"Interface\\TargetingFrame\\TargetDead\"",
                   StringComparison.Ordinal),

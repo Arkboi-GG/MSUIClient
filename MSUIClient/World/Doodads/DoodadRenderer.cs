@@ -2306,6 +2306,7 @@ public sealed class DoodadRenderer : IDisposable
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);
+        CarriedLightFrame.Upload(_shader, camera.Position);
         _shader.Set("uTexture", 0);
         _shader.Set("uVertexColorScale", VertexColorScale);
         _shader.Set("uStyleWeight", 0.42f);

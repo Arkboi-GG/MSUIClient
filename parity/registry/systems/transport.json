@@ -15,8 +15,8 @@
     "MSUIClient/Net/UpdateObject.cs",
     "MSUIClient/Net/MovementInfo.cs"
   ],
-  "status": "missing",
-  "summary": "MSUI parses the transport wire tolerantly but discards it: the GameObject create-block anchor (path-progress u32) is read and dropped (UpdateObject.cs:80), and observed movers' MOVEFLAG_ONTRANSPORT local-pose tails are read and dropped in the LIVING parse (UpdateObject.cs:49). MovementInfo.cs can carry a TransportPose for the self-player, but no timetable or keyframe evaluation exists anywhere - no TaxiPathNode/TransportAnimation loading, no per-frame cycle sampling.",
+  "status": "partial",
+  "summary": "MSUI now preserves the transport wire foundation: a GameObject's path-progress u32 plus local receipt clock reach WorldEntity, and observed riders retain their local TransportPose from UPDATE_OBJECT and MSG_MOVE relays. The actual transport system remains unbuilt: no TaxiPathNode/TransportAnimation timetable evaluation, no per-frame boat/lift sampling, no rider composition through the live transport matrix, and no dock/off-map behavior.",
   "openItems": [
     {
       "id": "item-triage-7c39444b",
@@ -37,7 +37,7 @@
     {
       "id": "item-triage-eb454ec9",
       "kind": "gap",
-      "text": "Observed riders are not carried: the on-transport local pose from create blocks and MSG_MOVE_* relays is discarded, so a deck NPC or fellow passenger renders at a stale world pose instead of being composed through the transport's live matrix.",
+      "text": "Observed riders are not carried: the on-transport local pose from create blocks and MSG_MOVE_* relays now reaches WorldEntity, but it is not yet composed through a live transport matrix, so a deck NPC or fellow passenger still renders at the packet's fallback world pose.",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
       "resolved": false
@@ -54,6 +54,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T00:55:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

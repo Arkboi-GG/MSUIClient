@@ -21,6 +21,7 @@ namespace MSUIClient.Net;
 public sealed class MonsterMove
 {
     public ulong Guid;
+    public uint SplineId;
     public Vector3 Start;
     public Vector3[] Points = Array.Empty<Vector3>();  // travel order [start .. endpoint], raw WoW space
     public uint DurationMs;
@@ -78,7 +79,7 @@ public static class MonsterMoveParser
 
             Vector3 start = r.ReadVector3();
             mm.Start = start;
-            r.ReadU32();                    // spline id (echoed only for our own player's splines)
+            mm.SplineId = r.ReadU32();      // echoed when our own server-driven spline completes
             byte moveType = r.ReadU8();
 
             switch (moveType)
@@ -155,13 +156,18 @@ public sealed class CreatureSpline
     private readonly long _startMs;
     private readonly uint _durationMs;
     public bool Flying { get; }
+    public uint Id { get; }
+    public bool Cyclic { get; }
 
-    public CreatureSpline(Vector3[] points, uint durationMs, bool flying, long startMs)
+    public CreatureSpline(Vector3[] points, uint durationMs, bool flying, long startMs,
+        uint id = 0, bool cyclic = false)
     {
         _pts = points;
         _durationMs = Math.Max(1u, durationMs);
         Flying = flying;
         _startMs = startMs;
+        Id = id;
+        Cyclic = cyclic;
         _segLen = new float[Math.Max(0, points.Length - 1)];
         float sum = 0f;
         for (int i = 0; i < _segLen.Length; i++)
@@ -170,6 +176,20 @@ public sealed class CreatureSpline
             sum += _segLen[i];
         }
         _total = sum;
+    }
+
+    /// <summary>
+    /// Resume a create-block spline at the server-authored fraction already travelled. Cyclic
+    /// metadata is retained, but like current Benilla the path is sampled for this one remaining
+    /// traversal; continuous cyclic following remains a separate transport/motion concern.
+    /// </summary>
+    public static CreatureSpline? Resume(CreateSpline spline, long nowMs)
+    {
+        if (spline.DurationMs == 0 || spline.Path.Length < 2 ||
+            spline.TimePassedMs >= spline.DurationMs)
+            return null;
+        return new CreatureSpline(spline.Path, spline.DurationMs, spline.Flying,
+            nowMs - spline.TimePassedMs, spline.Id, spline.Cyclic);
     }
 
     /// <summary>Average speed along the whole path (yd/s) — used to pick walk vs run later.</summary>

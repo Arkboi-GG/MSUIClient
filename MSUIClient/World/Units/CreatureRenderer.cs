@@ -111,6 +111,8 @@ public sealed partial class CreatureRenderer : IDisposable
     public float PickScale(WorldEntity entity)
         => UnitRenderScale(entity.Scale, ScaleMultiplier);
 
+    public float DisplayBaseAlpha(int displayId) => _resolver?.BaseAlpha(displayId) ?? 1f;
+
     public static float UnitRenderScale(float objectFieldScale, float tuningMultiplier = 1f)
         => MathF.Max(0.01f, objectFieldScale) * tuningMultiplier;
 
@@ -372,6 +374,7 @@ public sealed partial class CreatureRenderer : IDisposable
 
     public void Render(Camera camera, EntityStore entities)
     {
+        _attachedItems?.BeginGlowFrame();
         DrawnLastFrame = 0;
         PlayersDrawnLastFrame = 0;
         AnimatedLastFrame = 0;
@@ -487,7 +490,8 @@ public sealed partial class CreatureRenderer : IDisposable
                     e.Spline?.AverageSpeed ?? 0f,
                     e.Speeds is { Length: > 0 } speeds ? speeds[0] : 0f,
                     e.Flying || e.Spline?.Flying == true,
-                    dt, highlighted, out mount);
+                    dt, highlighted, e.AuraVisual.Alpha, e.AuraVisual.Tint,
+                    e.AuraVisual.Frozen, out mount);
             else ForgetMount(e.Guid);
 
             Matrix4x4 worldModel = mounted
@@ -500,6 +504,11 @@ public sealed partial class CreatureRenderer : IDisposable
             m.M41 -= camPos.X; m.M42 -= camPos.Y; m.M43 -= camPos.Z;
             _shader.Set("uModel", m);
             _shader.Set("uHighlight", highlightStrength);
+            float bodyAlpha = e.AuraVisual.Alpha;
+            Vector3 bodyTint = e.AuraVisual.Tint;
+            bool bodyTranslucent = e.AuraVisual.Translucent;
+            _shader.Set("uBodyAlpha", bodyAlpha);
+            _shader.Set("uBodyTint", bodyTint);
 
             int boneCount = 0;
             if (Animate && model.Animator is not null && model.BoneCount > 0 &&
@@ -507,6 +516,7 @@ public sealed partial class CreatureRenderer : IDisposable
             {
                 string unit = e.IsPlayer ? $"player:{e.Guid:X16}" : $"creature:{e.DisplayId}";
                 if (!_animTime.TryGetValue(e.Guid, out float at)) at = InitialPhase(e.Guid);
+                bool frozen = e.AuraVisual.Frozen;
                 M2Animator.Clip? clip;
                 float rate;
                 if (e.IsDead)
@@ -514,7 +524,7 @@ public sealed partial class CreatureRenderer : IDisposable
                     clip = model.Animator.Resolve(unit, ActionAnimationTrack, 1, true, 6, 0);
                     rate = 1f;
                     float deathAt = _deathTime.GetValueOrDefault(e.Guid, float.PositiveInfinity);
-                    at = float.IsPositiveInfinity(deathAt)
+                    at = frozen ? at : float.IsPositiveInfinity(deathAt)
                         ? clip?.DurationSeconds ?? 0f
                         : MathF.Min(deathAt + dt, clip?.DurationSeconds ?? deathAt + dt);
                     _deathTime[e.Guid] = at;
@@ -524,8 +534,8 @@ public sealed partial class CreatureRenderer : IDisposable
                 {
                     clip = actionClip;
                     rate = 1f;
-                    float actionTime = _globalTime - action.StartedAt;
-                    if (actionTime >= actionClip.DurationSeconds)
+                    float actionTime = frozen ? at : _globalTime - action.StartedAt;
+                    if (!frozen && actionTime >= actionClip.DurationSeconds)
                         _combatActions.Remove(e.Guid);
                     at = actionTime;
                 }
@@ -534,7 +544,7 @@ public sealed partial class CreatureRenderer : IDisposable
                 {
                     clip = holdClip;
                     rate = 1f;
-                    at += dt;
+                    if (!frozen) at += dt;
                 }
                 else if (mounted)
                 {
@@ -542,13 +552,13 @@ public sealed partial class CreatureRenderer : IDisposable
                     // job now, and 91 is the one pose vanilla plays on every mount.
                     clip = model.Animator.Resolve(unit, BaseAnimationTrack, RiderAnimationId, true, 0);
                     rate = 1f;
-                    at += dt;
+                    if (!frozen) at += dt;
                 }
                 else
                 {
                     _combatActions.Remove(e.Guid);
                     clip = SelectClip(e, model.Animator, unit, out rate);
-                    at += dt * rate;
+                    if (!frozen) at += dt * rate;
                 }
                 if (float.IsNaN(at) || float.IsInfinity(at)) at = 0f;
                 _animTime[e.Guid] = at;
@@ -588,7 +598,7 @@ public sealed partial class CreatureRenderer : IDisposable
                 bool additive = b.Blend is 3 or 4;
                 bool alphaKey = b.Blend == 1;
                 if (additive) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); _gl.DepthMask(false); }
-                else if (b.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
+                else if (bodyTranslucent || b.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
                 else { _gl.BlendFunc(BlendingFactor.One, BlendingFactor.Zero); _gl.DepthMask(true); }
                 _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0f);
                 appearance.Textures[batchIndex]?.Bind(0);
@@ -608,7 +618,7 @@ public sealed partial class CreatureRenderer : IDisposable
                     : GroundShadowRadius(model.HorizontalRadius, scale)));
 
             DrawUnitAttachments(camera, e, model, info, m,
-                boneCount > 0 ? _skin : _bindSkin);
+                boneCount > 0 ? _skin : _bindSkin, applyAuraVisual: true);
             // The attachment path has its own shader; restore ours before the
             // next streamed unit uploads its model/bone uniforms.
             _gl.Enable(EnableCap.Blend);
@@ -788,7 +798,8 @@ public sealed partial class CreatureRenderer : IDisposable
     }
 
     private void DrawUnitAttachments(Camera camera, WorldEntity entity, LoadedModel model,
-        in CreatureModelInfo info, Matrix4x4 transform, Matrix4x4[] skin)
+        in CreatureModelInfo info, Matrix4x4 transform, Matrix4x4[] skin,
+        bool applyAuraVisual = false)
     {
         if (model.Source.Attachments.Count == 0 || _attachedItems is null) return;
         uint head = info.HasExtended && info.ExtEquipment.Length > 0
@@ -809,8 +820,13 @@ public sealed partial class CreatureRenderer : IDisposable
                 if (!settled || item is null || item.DisplayInfoId == 0) continue;
                 equipment.Add($"player visible slot {slot}", item.DisplayInfoId,
                     (int)item.InventoryType, slot, (byte)item.Class, (byte)item.Subclass,
-                    (byte)item.Material, (byte)item.Sheath);
-                parts.Add($"{slot}:{item.DisplayInfoId}:{item.InventoryType}:{item.Sheath}");
+                    (byte)item.Material, (byte)item.Sheath,
+                    Enumerable.Range(0, 7)
+                        .Select(enchantSlot => entity.Fields.PlayerVisibleItemEnchant(slot, enchantSlot))
+                        .ToArray());
+                string enchants = string.Join(',', Enumerable.Range(0, 7)
+                    .Select(enchantSlot => entity.Fields.PlayerVisibleItemEnchant(slot, enchantSlot)));
+                parts.Add($"{slot}:{item.DisplayInfoId}:{item.InventoryType}:{item.Sheath}:{enchants}");
             }
             signature = $"player:{suffix}:{string.Join('|', parts)}";
         }
@@ -847,9 +863,18 @@ public sealed partial class CreatureRenderer : IDisposable
             state.Signature = signature;
         }
         state.LastSeenAt = _globalTime;
+        _attachedItems.BodyAlpha = applyAuraVisual ? entity.AuraVisual.Alpha : 1f;
+        _attachedItems.BodyTint = applyAuraVisual ? entity.AuraVisual.Tint : Vector3.One;
+        _attachedItems.GlowOwnerKey = $"unit:{entity.Guid:X16}";
         _attachedItems.Render(camera, transform, model.Source, skin, state.Mounts,
             entity.Fields.SheathState);
     }
+
+    public IReadOnlyList<ItemGlowPlacement> ItemGlowPlacements =>
+        _attachedItems?.GlowPlacements ?? Array.Empty<ItemGlowPlacement>();
+    public IReadOnlyList<CarriedLightPlacement> CarriedLightPlacements =>
+        _attachedItems?.CarriedLights ?? Array.Empty<CarriedLightPlacement>();
+    public void BeginItemGlowFrame() => _attachedItems?.BeginGlowFrame();
 
     private static void AddVirtualPiece(CharacterEquipment equipment, ObjectFields fields,
         int heldSlot, uint display)
@@ -993,6 +1018,8 @@ public sealed partial class CreatureRenderer : IDisposable
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uTex", 0);
         _shader.Set("uHighlight", 0f);
+        _shader.Set("uBodyAlpha", 1f);
+        _shader.Set("uBodyTint", Vector3.One);
         ApplyAttachmentAtmosphere();
 
         int boneCount = 0;
@@ -2180,6 +2207,7 @@ uniform int uBoneCount;
 out vec3 vNorm;
 out vec2 vUv;
 out float vDist;
+out vec3 vWorld;
 vec3 skinPoint(vec3 p, int b){
     vec4 h = vec4(p, 1.0);
     return vec3(dot(uBones[b*3+0], h), dot(uBones[b*3+1], h), dot(uBones[b*3+2], h));
@@ -2208,12 +2236,14 @@ void main(){
     vNorm = normalize(mat3(uModel) * normal);
     vUv = aUv;
     vDist = length(rel.xyz);
+    vWorld = rel.xyz;
 }";
 
     private const string FragSrc = @"#version 330 core
 in vec3 vNorm;
 in vec2 vUv;
 in float vDist;
+in vec3 vWorld;
 uniform sampler2D uTex;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
@@ -2223,9 +2253,28 @@ uniform float uFogStart;
 uniform float uFogEnd;
 uniform float uAlphaCut;
 uniform float uHighlight;
+uniform float uBodyAlpha;
+uniform vec3 uBodyTint;
 uniform vec3 uAmbientColor;
 uniform float uAmbientIntensity;
+uniform int uPointLightCount;
+uniform vec3 uPointLightPos[8];
+uniform vec3 uPointLightColor[8];
 out vec4 frag;
+vec3 carriedPointLight(vec3 normal, vec3 worldPos){
+    float d0=1e30,d1=1e30,d2=1e30; vec3 v0=vec3(0.0),v1=vec3(0.0),v2=vec3(0.0);
+    vec3 c0=vec3(0.0),c1=vec3(0.0),c2=vec3(0.0);
+    for(int i=0;i<8;i++){ if(i>=uPointLightCount) break;
+        vec3 v=uPointLightPos[i]-worldPos; float ds=dot(v,v);
+        if(ds<d0){d2=d1;v2=v1;c2=c1;d1=d0;v1=v0;c1=c0;d0=ds;v0=v;c0=uPointLightColor[i];}
+        else if(ds<d1){d2=d1;v2=v1;c2=c1;d1=ds;v1=v;c1=uPointLightColor[i];}
+        else if(ds<d2){d2=ds;v2=v;c2=uPointLightColor[i];}}
+    vec3 s=vec3(0.0);
+    if(d0<1e29){float d=sqrt(d0);s+=c0*max(dot(normal,v0/max(d,.001)),0.0)/max(.7*d+.03*d*d,.001);}
+    if(d1<1e29){float d=sqrt(d1);s+=c1*max(dot(normal,v1/max(d,.001)),0.0)/max(.7*d+.03*d*d,.001);}
+    if(d2<1e29){float d=sqrt(d2);s+=c2*max(dot(normal,v2/max(d,.001)),0.0)/max(.7*d+.03*d*d,.001);}
+    return s;
+}
 void main(){
     vec4 t = texture(uTex, vUv);
     if (t.a < uAlphaCut) discard;
@@ -2234,7 +2283,8 @@ void main(){
     float ndl = max(dot(normal, normalize(uSunDir)), 0.0);
     vec3 light = uAmbientColor * uAmbientIntensity
         + uSunColor * uSunIntensity * ndl + vec3(uHighlight);
+    light += carriedPointLight(normal, vWorld);
     float fog = clamp((vDist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
-    frag = vec4(mix(t.rgb * light, uFogColor, fog), t.a);
+    frag = vec4(mix(t.rgb * uBodyTint * light, uFogColor, fog), t.a * uBodyAlpha);
 }";
 }

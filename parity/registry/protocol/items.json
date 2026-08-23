@@ -29,8 +29,8 @@
     "tools/interface-wire-check/DeleteItemClinicalChecks.cs",
     "tools/interface-wire-check/ItemEnchantClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "MSUI implements the template query pair, use/open/destroy/auto-equip/swap/swap-inv/split/set-ammo writers, item-push and strict inventory-failure parsing. Openable items use exact CMSG_OPEN_ITEM routing and pending locks; world-drop destruction uses the exact six-byte CMSG_DESTROYITEM body and a law-positioned DELETE_ITEM StaticPopup. Refusals resolve the complete build-5875 GlobalStrings table and unlock immediately. SMSG_ITEM_ENCHANT_TIME_UPDATE is strictly decoded into per-item/slot tooltip deadlines. Auto-store-bag remains.",
+  "status": "complete",
+  "summary": "MSUI implements the template query pair, use/open/destroy/auto-equip/auto-store-bag/swap/swap-inv/split/set-ammo writers, item-push and strict inventory-failure parsing. Openable items use exact CMSG_OPEN_ITEM routing and pending locks; world-drop destruction uses the exact six-byte CMSG_DESTROYITEM body and a law-positioned DELETE_ITEM StaticPopup. Refusals resolve the complete build-5875 GlobalStrings table and unlock immediately. SMSG_ITEM_ENCHANT_TIME_UPDATE is strictly decoded into per-item/slot tooltip deadlines.",
   "openItems": [
     {
       "id": "item-triage-20b4676e",
@@ -56,7 +56,8 @@
       "text": "CMSG_AUTOSTORE_BAG_ITEM: absent (bag-to-bag auto-store; MSUI only has explicit swap/split)",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23: opcode 0x010B and the exact three-u8 source-bag/source-slot/destination-bag builder are exposed through WorldSession and NetworkClient and byte-pinned as FF1813. Like current Benilla's builder-only scope, this adds no new bag presentation or invented click route."
     },
     {
       "id": "item-triage-cd52c5cb",
@@ -80,6 +81,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T00:00:00+00:00",
+  "lastReviewedUtc": "2026-08-23T00:25:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

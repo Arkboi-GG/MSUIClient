@@ -54,7 +54,8 @@ internal static class TradeFrameClinicalChecks
         string root = ClientConfig.FindRepoRoot();
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Trade.cs"));
-        Check(runtime.Contains("TradeFrameUiLaw.FrameOrigin", StringComparison.Ordinal) &&
+        Check(runtime.Contains("UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[3])",
+                  StringComparison.Ordinal) &&
               runtime.Contains("TradeInvitationUiLaw.PopupRect", StringComparison.Ordinal) &&
               runtime.Contains("DrawUnitPortraitImage", StringComparison.Ordinal) &&
               runtime.Contains("DrawTradeAcceptHighlight", StringComparison.Ordinal) &&

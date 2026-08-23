@@ -23,7 +23,7 @@
     "tools/interface-wire-check/GossipClinicalChecks.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "Gossip matches current Benilla's flow and row presentation: message/options/quest decode, per-open weighted and NPC-gender-selected macro-expanded greeting, ask-once eight-block text-record cache, authored shell/title/rows, exact 0..13 option icon table with auctioneer missing-art fallback, ActiveQuestIcon versus AvailableQuestIcon pool split, coded-option guard, route classification, quest query/completion fork, Goodbye and close. CMSG_GOSSIP_CLOSE remains correctly absent because neither client sends one.",
+  "summary": "Generic Gossip now matches current Benilla's flow and row presentation: message/options/quest decode, per-open weighted and NPC-gender-selected macro-expanded greeting, ask-once eight-block text-record cache, authored shell/title/rows, exact 0..13 option icon table with auctioneer missing-art fallback, ActiveQuestIcon versus AvailableQuestIcon pool split, coded-option disable, route classification, quest query/completion fork, Goodbye and close. The outer frame consumes the observer-resolved registered GossipFrame panel seat; GossipUiLaw owns the 384x512 dimensions, 300x334 clipped greeting/list viewport, row height/content range, overflow-only 16px scrollbar furniture, wheel/drag clamp, and close/action seats. Quest rows fill the 32-row pool before option rows, matching current XML, and long greetings/options scroll instead of escaping the parchment. The separate innkeeper presentation is unchanged. CMSG_GOSSIP_CLOSE remains correctly absent because neither client sends one. Focused checks pass; live visual/input verification remains outstanding.",
   "openItems": [
     {
       "id": "item-triage-74f32f9f",
@@ -37,15 +37,32 @@
     {
       "id": "item-msui-gossip-icons-live-verify",
       "kind": "verify",
-      "text": "Focused icon-law and source checks pass. Needs live row checks with an innkeeper, spirit healer, banker, battlemaster, available quest and active/turn-in quest.",
+      "text": "Focused icon, row-order, clipping, and scroll-law checks pass. Live-check generic Gossip with spirit healer, banker, battlemaster, available quest and active/turn-in quest, plus a long/overflowing greeting and coded option; confirm wheel, arrows, thumb drag, disabled tint, and the 32-row cap. Innkeeper remains a separate no-touch presentation.",
       "source": "implementation-2026-08-21",
       "added": "2026-08-21",
+      "resolved": false
+    },
+    {
+      "id": "item-gossip-current-scroll-order-001",
+      "kind": "gap",
+      "text": "Generic Gossip lacks current Benilla's 300x334 clipped ScrollFrame and overflow-only scrollbar; long greetings/options escape the parchment, options render before quest rows, and coded options do not present as disabled.",
+      "source": "benilla-b57ee0e9e2c8822b/GossipFrame.xml",
+      "added": "2026-08-22",
+      "resolved": true,
+      "resolution": "2026-08-22: GossipUiLaw now owns the exact viewport, scrollbar, row/content, wheel/drag, Goodbye, and close geometry. Runtime clips and pans the combined greeting/list, fills quests before options up to 32 rows, disables coded options, and shows the exact cropped 16px scrollbar only on overflow."
+    },
+    {
+      "id": "item-msui-gossip-panel-seat-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live-verify generic Gossip beside another registered left panel: it must consume the resolved panel seat without changing the separate innkeeper presentation.",
+      "source": "msui-runtime-audit-2026-08-22",
+      "added": "2026-08-22",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-21T22:37:24.3864032+00:00",
+  "lastReviewedUtc": "2026-08-22T22:45:05.2576369Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

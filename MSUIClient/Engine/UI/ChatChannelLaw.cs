@@ -2,6 +2,28 @@ using MSUIClient.Net;
 
 namespace MSUIClient.Engine.UI;
 
+public enum ChannelAdminCommand
+{
+    Password,
+    SetOwner,
+    Owner,
+    Moderator,
+    Unmoderator,
+    Mute,
+    Unmute,
+    Invite,
+    Kick,
+    Ban,
+    Unban,
+    Announcements,
+    Moderate,
+}
+
+public readonly record struct ChannelAdminRoute(
+    ChannelAdminCommand Command,
+    string Channel,
+    string Value);
+
 /// <summary>Build-5875 channel slots, slash grammar, and GlobalStrings notice composition.</summary>
 public static class ChatChannelLaw
 {
@@ -68,6 +90,61 @@ public static class ChatChannelLaw
             channel = NameOf(joined, named) ?? "";
         }
         return channel.Length > 0;
+    }
+
+    /// <summary>
+    /// Resolves the vanilla channel-administration slash family. A recognized verb returns
+    /// true even when its operands are incomplete; the empty channel marks a silent no-op so
+    /// a malformed administration command can never fall through as ordinary chat text.
+    /// </summary>
+    public static bool TryResolveAdmin(IReadOnlyList<string?> joined, string command,
+        string arguments, out ChannelAdminRoute route)
+    {
+        string verb = command.ToLowerInvariant();
+        string[] words = arguments.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        string channel = words.Length > 0 ? ResolveSelector(joined, words[0]) : "";
+        string value = words.Length > 1 ? words[1].Trim() : "";
+
+        ChannelAdminCommand? kind = verb switch
+        {
+            "/password" or "/pass" or "/chatpassword" or "/chatpass" or "/cpass" =>
+                ChannelAdminCommand.Password,
+            "/setowner" => ChannelAdminCommand.SetOwner,
+            "/owner" or "/chatowner" => value.Length > 0
+                ? ChannelAdminCommand.SetOwner : ChannelAdminCommand.Owner,
+            "/moderator" or "/mod" => ChannelAdminCommand.Moderator,
+            "/unmoderator" or "/unmod" => ChannelAdminCommand.Unmoderator,
+            "/mute" => ChannelAdminCommand.Mute,
+            "/unmute" or "/unsquelch" => ChannelAdminCommand.Unmute,
+            "/cinvite" => ChannelAdminCommand.Invite,
+            "/ckick" => ChannelAdminCommand.Kick,
+            "/ban" => ChannelAdminCommand.Ban,
+            "/unban" => ChannelAdminCommand.Unban,
+            "/announcements" or "/announce" or "/ann" => ChannelAdminCommand.Announcements,
+            "/moderate" => ChannelAdminCommand.Moderate,
+            _ => null,
+        };
+        if (kind is null)
+        {
+            route = default;
+            return false;
+        }
+
+        bool requiresValue = kind is ChannelAdminCommand.SetOwner or
+            ChannelAdminCommand.Moderator or ChannelAdminCommand.Unmoderator or
+            ChannelAdminCommand.Mute or ChannelAdminCommand.Unmute or
+            ChannelAdminCommand.Invite or ChannelAdminCommand.Kick or
+            ChannelAdminCommand.Ban or ChannelAdminCommand.Unban;
+        if (channel.Length == 0 || (requiresValue && value.Length == 0)) channel = "";
+        route = new(kind.Value, channel, value);
+        return true;
+    }
+
+    private static string ResolveSelector(IReadOnlyList<string?> joined, string selector)
+    {
+        if (int.TryParse(selector, out int number)) return NameOf(joined, number) ?? "";
+        int named = NumberOf(joined, selector);
+        return named == 0 ? selector : NameOf(joined, named) ?? "";
     }
 
     public static string FormatMember(string displayChannel, string player, bool joined) =>

@@ -146,7 +146,7 @@ public sealed partial class CreatureRenderer
     /// </summary>
     public bool TryDrawSelfMount(Camera camera, ulong guid, int mountDisplayId,
         Vector3 position, float orientation, float travelSpeed, float walkSpeed, bool flying,
-        out Matrix4x4 seat)
+        float bodyAlpha, Vector3 bodyTint, bool freezeAnimation, out Matrix4x4 seat)
     {
         seat = Matrix4x4.Identity;
         if (mountDisplayId <= 0 || !Ok || !Enabled || _shader is null)
@@ -163,7 +163,8 @@ public sealed partial class CreatureRenderer
 
         BeginUnitShader(camera);
         bool drew = TryDrawMount(camera, guid, mountDisplayId, position, orientation,
-            travelSpeed, walkSpeed, flying, dt, highlight: false, out MountDraw drawn);
+            travelSpeed, walkSpeed, flying, dt, highlight: false, bodyAlpha, bodyTint,
+            freezeAnimation, out MountDraw drawn);
         _gl.BindVertexArray(0);
         _gl.DepthMask(true);
         if (drew) seat = drawn.Seat;
@@ -190,6 +191,7 @@ public sealed partial class CreatureRenderer
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uTex", 0);
+        CarriedLightFrame.Upload(_shader, camera.Position);
         ApplyAttachmentAtmosphere();
     }
 
@@ -199,7 +201,7 @@ public sealed partial class CreatureRenderer
     /// </summary>
     private bool TryDrawMount(Camera camera, ulong guid, int mountDisplayId, Vector3 position,
         float orientation, float travelSpeed, float walkSpeed, bool flying, float dt, bool highlight,
-        out MountDraw drawn)
+        float bodyAlpha, Vector3 bodyTint, bool freezeAnimation, out MountDraw drawn)
     {
         drawn = default;
         if (_shader is null || _resolver is null || mountDisplayId <= 0) return false;
@@ -244,6 +246,10 @@ public sealed partial class CreatureRenderer
         m.M41 -= camera.Position.X; m.M42 -= camera.Position.Y; m.M43 -= camera.Position.Z;
         _shader.Set("uModel", m);
         _shader.Set("uHighlight", highlight ? 64f / 255f : 0f);
+        bodyAlpha = Math.Clamp(bodyAlpha, 0f, 1f);
+        bool bodyTranslucent = bodyAlpha < 1f - AuraVisualLaw.AlphaSettledEpsilon;
+        _shader.Set("uBodyAlpha", bodyAlpha);
+        _shader.Set("uBodyTint", bodyTint);
 
         int boneCount = 0;
         if (Animate && model.Animator is not null && model.BoneCount > 0 &&
@@ -255,7 +261,7 @@ public sealed partial class CreatureRenderer
             if (_mountFlourishTime.TryGetValue(guid, out float flourishAt) &&
                 model.Animator.Resolve($"mount:{mountDisplayId}", BaseAnimationTrack, 94, true) is { } flourish)
             {
-                flourishAt += dt;
+                if (!freezeAnimation) flourishAt += dt;
                 if (flourishAt < flourish.DurationSeconds)
                 {
                     clip = flourish;
@@ -268,7 +274,8 @@ public sealed partial class CreatureRenderer
                     _mountFlourishTime.Remove(guid);
                     clip = SelectMountClip(model.Animator, mountDisplayId,
                         travelSpeed, walkSpeed, flying, out rate);
-                    at += dt * rate * MathF.Max(0.05f, tune.AnimationRate);
+                    if (!freezeAnimation)
+                        at += dt * rate * MathF.Max(0.05f, tune.AnimationRate);
                 }
             }
             else
@@ -276,7 +283,8 @@ public sealed partial class CreatureRenderer
                 _mountFlourishTime.Remove(guid);
                 clip = SelectMountClip(model.Animator, mountDisplayId,
                     travelSpeed, walkSpeed, flying, out rate);
-                at += dt * rate * MathF.Max(0.05f, tune.AnimationRate);
+                if (!freezeAnimation)
+                    at += dt * rate * MathF.Max(0.05f, tune.AnimationRate);
             }
             if (float.IsNaN(at) || float.IsInfinity(at)) at = 0f;
             _mountAnimTime[guid] = at;
@@ -307,7 +315,7 @@ public sealed partial class CreatureRenderer
             bool additive = b.Blend is 3 or 4;
             bool alphaKey = b.Blend == 1;
             if (additive) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); _gl.DepthMask(false); }
-            else if (b.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
+            else if (bodyTranslucent || b.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
             else { _gl.BlendFunc(BlendingFactor.One, BlendingFactor.Zero); _gl.DepthMask(true); }
             _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0f);
             appearance.Textures[batchIndex]?.Bind(0);

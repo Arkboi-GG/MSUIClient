@@ -31,7 +31,7 @@ namespace MSUIClient;
 // IMPLEMENTED: race/class/gender icon sheets + faction banners (UI-CharacterCreate-* via GlueImageUv),
 // the GlueStrings faction/race/class paragraphs + racial abilities, the class starting outfit on the
 // preview (CharStartOutfit.dbc -> ItemDisplayInfo), the ornate tower/label/rotate art, drag-to-rotate.
-// STILL DEFERRED: the per-race dial-5 rename (ChrRaces tokens) and click SOUNDS (no audio subsystem).
+// Glue interactions use the shared client-data SoundEntries path, which is alive before world entry.
 // Layout numbers are live-tunable via CreateTune (the "tune" toggle, top-right) - dial in, Log, bake.
 public sealed partial class GameLoop
 {
@@ -210,8 +210,16 @@ public sealed partial class GameLoop
         {
             byte ar = CharCreateState.Alliance[i], hr = CharCreateState.Horde[i];
             float ry = y + i * (ic + icGap);
-            if (RaceIconButton(dl, ar, new Vector2(icAx, ry), ic)) SelectRace(ar);
-            if (RaceIconButton(dl, hr, new Vector2(icBx, ry), ic)) SelectRace(hr);
+            if (RaceIconButton(dl, ar, new Vector2(icAx, ry), ic))
+            {
+                PlayCharCreateSound(CharCreateUiLaw.ClassChoiceSound);
+                SelectRace(ar);
+            }
+            if (RaceIconButton(dl, hr, new Vector2(icBx, ry), ic))
+            {
+                PlayCharCreateSound(CharCreateUiLaw.ClassChoiceSound);
+                SelectRace(hr);
+            }
         }
         y += 4 * (ic + icGap) + 8f * s;
 
@@ -223,8 +231,16 @@ public sealed partial class GameLoop
         float gSpan = gs * 2f + CreateTune.GenderGap * s;
         float gx = towerX + (towerW - gSpan) * 0.5f + CreateTune.GenderDX * s;
         float gy = y + CreateTune.GenderTop * s;
-        if (GenderIconButton(dl, 0, new Vector2(gx, gy), gs)) SetGender(0);
-        if (GenderIconButton(dl, 1, new Vector2(gx + gs + CreateTune.GenderGap * s, gy), gs)) SetGender(1);
+        if (GenderIconButton(dl, 0, new Vector2(gx, gy), gs))
+        {
+            PlayCharCreateSound(CharCreateUiLaw.ClassChoiceSound);
+            SetGender(0);
+        }
+        if (GenderIconButton(dl, 1, new Vector2(gx + gs + CreateTune.GenderGap * s, gy), gs))
+        {
+            PlayCharCreateSound(CharCreateUiLaw.ClassChoiceSound);
+            SetGender(1);
+        }
         y = gy + gs + 10f * s;
 
         // Class grid: only the race's valid classes (benilla enumerate-then-hide; CharBaseInfo order).
@@ -239,7 +255,11 @@ public sealed partial class GameLoop
             byte cl = classes[i];
             float cx = clx0 + (i % 3) * (ic + icGap);
             float cyy = y + (i / 3) * (ic + icGap);
-            if (ClassIconButton(dl, cl, new Vector2(cx, cyy), ic)) SetClass(cl);
+            if (ClassIconButton(dl, cl, new Vector2(cx, cyy), ic))
+            {
+                PlayCharCreateSound(CharCreateUiLaw.ClassChoiceSound);
+                SetClass(cl);
+            }
         }
         y += ((classes.Count + 2) / 3) * (ic + icGap) + 10f * s;
 
@@ -305,17 +325,31 @@ public sealed partial class GameLoop
 
             if (_skin is not null && _skin.GlueArrowButton(dl, $"##dial{d}L", true, lPos, aSize, out bool lHit))
             {
-                if (lHit) _cc.CycleDial(cat, d, -1);
+                if (lHit)
+                {
+                    PlayCharCreateSound(CharCreateUiLaw.LookChoiceSound);
+                    _cc.CycleDial(cat, d, -1);
+                }
             }
             else if (TowerButton(dl, $"##dial{d}L", "<", lPos, aSize, false, agly))
+            {
+                PlayCharCreateSound(CharCreateUiLaw.LookChoiceSound);
                 _cc.CycleDial(cat, d, -1);
+            }
 
             if (_skin is not null && _skin.GlueArrowButton(dl, $"##dial{d}R", false, rPos, aSize, out bool rHit))
             {
-                if (rHit) _cc.CycleDial(cat, d, +1);
+                if (rHit)
+                {
+                    PlayCharCreateSound(CharCreateUiLaw.LookChoiceSound);
+                    _cc.CycleDial(cat, d, +1);
+                }
             }
             else if (TowerButton(dl, $"##dial{d}R", ">", rPos, aSize, false, agly))
+            {
+                PlayCharCreateSound(CharCreateUiLaw.LookChoiceSound);
                 _cc.CycleDial(cat, d, +1);
+            }
         }
         y += 5 * (dRowH + rGap) + 8f * s;
 
@@ -325,6 +359,7 @@ public sealed partial class GameLoop
         ImGui.SetCursorScreenPos(new Vector2(towerX + (towerW - rndW) * 0.5f, y + CreateTune.RandomTop * s));
         if (_skin?.GlueButton("Randomize", new Vector2(rndW, rndH)) ?? false)
         {
+            PlayCharCreateSound(CharCreateUiLaw.LookChoiceSound);
             _cc.Randomize(cat, _ccRng);
             // The preview rebuilds off _cc.Dials every frame (Program.Net.cs SetCreateLook), so this is
             // all the button has to do - but log it, because "Randomize does nothing" is impossible to
@@ -370,11 +405,13 @@ public sealed partial class GameLoop
 
         if (doBack)
         {
+            PlayCharCreateSound(CharCreateUiLaw.CancelSound);
             _charCreateOpen = false;
             _ccStatus = "";
         }
         else if (doCreate && acceptEnabled && _net is not null)
         {
+            PlayCharCreateSound(CharCreateUiLaw.CreateSound);
             _cc.Creating = true;
             _ccStatus = "Creating character...";
             _net.CreateCharacter(_cc.Request());
@@ -389,6 +426,9 @@ public sealed partial class GameLoop
         if (_skin is not null) _skin.Scale = savedScale;
         ImGui.End();
     }
+
+    private void PlayCharCreateSound(string cue) =>
+        PlayUiSound(cue, CharCreateUiLaw.SoundCategory);
 
     /// <summary>The three right-hand info panels: faction/race/class, faction-tinted, each with the
     /// title + the GlueStrings paragraph (FACTION_INFO/RACE_INFO/CLASS) word-wrapped and clipped, plus
@@ -833,10 +873,12 @@ public sealed partial class GameLoop
         _cc.Class = c;   // the class picks the starting outfit (preview re-dress = later pass)
     }
 
-    // The five dial labels. SPEC section 11: hardcode the common set; the per-race dial-5 rename
-    // (ChrRaces customization tokens - "Features"/"Piercings"/...) is an open question, deferred.
-    private static string[] DialLabels() =>
-        new[] { "Skin Color", "Face", "Hair Style", "Hair Color", "Facial Hair" };
+    private string[] DialLabels()
+    {
+        string hair = _ccCatalog?.HairCustomization(_cc.Race) ?? "NORMAL";
+        string facial = _ccCatalog?.FacialHairCustomization(_cc.Race, _cc.Sex) ?? "NORMAL";
+        return CharCreateUiLaw.DialLabels(_ccStrings, hair, facial);
+    }
 
     /// <summary>Map a SMSG_CHAR_CREATE result byte to its 1.12 GlueStrings text (benilla char_create/mod.rs
     /// char_result_text, verbatim from GlueStrings.lua; codes are vmangos ResponseCodes,

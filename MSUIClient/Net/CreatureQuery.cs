@@ -9,6 +9,7 @@ public sealed record CreatureQueryInfo(
     string? Subname,
     uint TypeFlags,
     uint CreatureType,
+    uint PetFamily,
     uint Rank,
     bool Civilian,
     bool RacialLeader);
@@ -48,7 +49,7 @@ public static class CreatureQueryPacket
         string subname = r.ReadCString();
         uint typeFlags = r.ReadU32();
         uint creatureType = r.ReadU32();
-        r.ReadU32(); // pet family
+        uint petFamily = r.ReadU32();
         uint rank = r.ReadU32();
         r.ReadU32(); // unknown
         r.ReadU32(); // pet spell-list id
@@ -61,6 +62,6 @@ public static class CreatureQueryPacket
 
         return new(entry, new CreatureQueryInfo(name,
             subname.Length == 0 ? null : subname,
-            typeFlags, creatureType, rank, civilian, racialLeader));
+            typeFlags, creatureType, petFamily, rank, civilian, racialLeader));
     }
 }

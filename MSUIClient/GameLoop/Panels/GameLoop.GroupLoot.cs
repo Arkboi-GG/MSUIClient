@@ -231,6 +231,8 @@ public sealed partial class GameLoop
         ImGui.SetCursorScreenPos(iconMin);
         ImGui.InvisibleButton($"##group-loot-icon-{roll.Id}",
             new Vector2(GroupLootFrameUiLaw.IconSize) * scale);
+        if (ImGui.GetIO().KeyCtrl && ImGui.IsItemClicked(ImGuiMouseButton.Left))
+            TryOnDressUp(roll.ItemId);
         if (ImGui.IsItemHovered() && item is not null)
             OfferPreparedItemTooltip(new("item:group-loot", roll.Id),
                 PrepareItemTooltipBodySnapshot(item, 1));

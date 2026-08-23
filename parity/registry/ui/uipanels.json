@@ -18,6 +18,8 @@
     "tools/interface-wire-check/Program.cs",
     "MSUIClient/Program.VanillaUi.cs",
     "MSUIClient/Engine/UI/UiPanelHostTransition.cs",
+    "MSUIClient/Engine/UI/UiPanelOwnershipLaw.cs",
+    "MSUIClient/Engine/UI/UiPanelOwnershipObserver.cs",
     "MSUIClient/Program.UiPanelOwnership.cs",
     "MSUIClient/Program.CharacterPage.cs",
     "MSUIClient/Program.Spellbook.cs",
@@ -25,6 +27,25 @@
     "MSUIClient/Engine/UI/StaticPopupCoordinatorLaw.cs",
     "MSUIClient/Engine/UI/FriendsFrameUiLaw.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Social.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Guild.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.GuildInfo.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.GuildMemberDetail.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.GuildControl.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Macro.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Quest.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Gossip.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Trade.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Bank.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Trainer.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Taxi.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Professions.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Loot.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Inspect.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Mail.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.DressUp.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Inventory.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Settings.cs",
+    "MSUIClient/Engine/UI/MailUiLaw.cs",
     "MSUIClient/Engine/UI/DeleteItemUiLaw.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.DeleteItem.cs",
     "tools/interface-wire-check/DeleteItemClinicalChecks.cs",
@@ -33,6 +54,7 @@
     "tools/interface-wire-check/UiFoundationClinicalChecks.cs",
     "tools/interface-wire-check/PartyFrameClinicalChecks.cs",
     "tools/interface-wire-check/FriendsFrameClinicalChecks.cs",
+    "tools/interface-wire-check/UiPanelOwnershipAdapterClinicalChecks.cs",
     "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/audit.json",
     "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/README.md",
     "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/evidence/before/frozen-target.md",
@@ -43,7 +65,7 @@
     "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/evidence/live/live-visual-gate.md"
   ],
   "status": "partial",
-  "summary": "MSUI has the bounded host-confirmed Character/SpellBook transition, pure popup/fade/tab laws, Party/Character/inset presentation repairs, and world-item plus social name-entry drivers on the shared two-slot popup coordinator while preserving surface ownership and named differences. The narrow StaticPopup edit branch now has frozen geometry, art, focus and key routing. Center/fullscreen ownership and global CloseWindows remain explicit gaps; implemented facts remain nonterminal where live verification is still required.",
+  "summary": "MSUI now runs all 22 represented build-5875 UIPanelWindows owners through one law-owned host reconciliation before rendering. Single incoming host edges are admitted or refused through the frozen left/center/fullscreen law; displacement, priority moves, native-center/fullscreen eviction, ordinary-bag versus Escape-container closure, and final seat confirmation are coordinator-owned while every surface retains its native callback, wire, sound, and payload behavior. DressUpFrame's omitted pushable=2 row is registered and its window origin consumes the resolved seat. Escape uses the frozen captured left/fullscreen/center closure order, closes the keyring only on CloseAllWindows, and closes ItemRefTooltip afterward; native-center opening preserves the keyring. Focused and full clinical checks pass; authenticated combination testing remains nonterminal.",
   "openItems": [
     {
       "id": "item-claim-partyframe-invite-contract-001-verify",
@@ -62,12 +84,29 @@
       "resolved": false
     },
     {
+      "id": "item-msui-uipanels-friends-seat-live-verify-20260822",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification: open Friends/Who/Guild beside another registered left panel and confirm the FriendsFrame owner moves to the center seat while Guild Information, Member Detail, and Guild Control remain attached to the resolved Guild frame origin.",
+      "source": "msui-runtime-audit-2026-08-22",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-uipanels-registered-seat-consumers-live-verify-20260822",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification: exercise Macro, Quest/QuestLog, generic Gossip, Trade, Bank, Trainer, Taxi, both profession host kinds, Loot, Inspect, and Mail in two-panel combinations; confirm each consumes left/center seats and every authored inset, parent-relative, or display-centered child stays attached. For Mail, also verify read-mail attachment and confirmation placement. This does not cover protected vendor, character, or bag presentation.",
+      "source": "msui-runtime-audit-2026-08-22",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
       "id": "item-claim-uipanels-center-fullscreen-authority-gap-001",
       "kind": "gap",
       "text": "The frozen center/fullscreen seat setters, getters, and left-center movement semantics remain outside the bounded Character/SpellBook host adapter.",
       "source": "claim-uipanels-center-fullscreen-authority-gap-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: every normal single incoming registered host edge now runs through UiPanelOwnershipLaw before render. The adapter executes displacement and container effects through native callbacks, refuses center/fullscreen/death conflicts, and commits only an exact planned final census. DressUpFrame's pushable=2 row and seat-owned origin were added."
     },
     {
       "id": "item-claim-uipanels-close-windows-gap-001",
@@ -75,6 +114,15 @@
       "text": "MSUI retains surface-owned Escape and close paths, but there is no authoritative frozen global CloseWindows/CloseAllWindows coordinator with the full center-ignore and ordered closure contract.",
       "source": "claim-uipanels-close-windows-gap-001",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: TryCloseRegisteredUiPanels plans CloseWindows or CloseAllWindows in the pure law, executes the captured left/fullscreen/center hide sequence through surface-owned callbacks, applies the ordinary-bag versus Escape-container split, closes ItemRefTooltip afterward, and confirms the final host census."
+    },
+    {
+      "id": "item-msui-uipanels-global-coordinator-live-verify-20260822",
+      "kind": "verify",
+      "text": "In an authenticated session, open zero-push, pushable, native-center, and fullscreen combinations (including DressUp beside vendor/trade, Friends plus Macro, World Map over bags, and Game Menu with keyring open). Confirm law-owned left/center movement, refused opens, captured CloseWindows ordering, keyring preservation for native-center opens, Escape keyring closure, and native close side effects/sounds.",
+      "source": "implementation-2026-08-22",
+      "added": "2026-08-22",
       "resolved": false
     },
     {
@@ -190,6 +238,6 @@
     "trace-uipanels-popup-editbox-gap-001"
   ],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T00:00:00+00:00",
+  "lastReviewedUtc": "2026-08-22T23:30:17Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

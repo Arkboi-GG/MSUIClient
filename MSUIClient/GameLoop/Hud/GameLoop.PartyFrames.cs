@@ -294,6 +294,34 @@ public sealed partial class GameLoop
                     AcceptDeleteCharacterSpecificBindings();
                 continue;
             }
+            if (PetMenuUiLaw.IsPetPopup(effect.Type))
+            {
+                ApplyPetMenuPopupEffect(effect);
+                continue;
+            }
+            if (string.Equals(effect.Type, GuildFrameUiLaw.InvitePopupType,
+                    StringComparison.Ordinal))
+            {
+                ApplyGuildInvitePopupEffect(effect);
+                continue;
+            }
+            if (string.Equals(effect.Type, GuildFrameUiLaw.AddMemberPopupType,
+                    StringComparison.Ordinal))
+            {
+                ApplyGuildAddMemberPopupEffect(effect);
+                continue;
+            }
+            if (GuildFrameUiLaw.IsMemberPopup(effect.Type))
+            {
+                ApplyGuildMemberPopupEffect(effect);
+                continue;
+            }
+            if (string.Equals(effect.Type, GuildFrameUiLaw.AddRankPopupType,
+                    StringComparison.Ordinal))
+            {
+                ApplyGuildAddRankPopupEffect(effect);
+                continue;
+            }
             if (!string.Equals(effect.Type, PartyInvitePopupType, StringComparison.Ordinal)) continue;
             switch (effect.Kind)
             {
@@ -316,6 +344,8 @@ public sealed partial class GameLoop
                     break;
             }
         }
+        if (!AnyPetMenuPopupVisible() && _petPopupGuid != 0)
+            ClearPetMenuPopupState();
     }
 
     private void HidePartyInvite() => ExecuteStaticPopupPlan(
@@ -326,7 +356,28 @@ public sealed partial class GameLoop
         StaticPopupCoordinatorLaw.Plan plan;
         (int Slot, StaticPopupCoordinatorLaw.Instance Instance)? social =
             FriendsFrameUiLaw.NamePopup(_staticPopupSlots);
-        if (_socialPopupEditFocused && social is { } focused)
+        (int Slot, StaticPopupCoordinatorLaw.Instance Instance)? petRename =
+            PetMenuUiLaw.Visible(_staticPopupSlots, PetMenuUiLaw.RenamePopupType);
+        (int Slot, StaticPopupCoordinatorLaw.Instance Instance)? guildAdd =
+            GuildFrameUiLaw.AddMemberPopup(_staticPopupSlots);
+        (int Slot, StaticPopupCoordinatorLaw.Instance Instance)? guildMember =
+            GuildFrameUiLaw.MemberPopup(_staticPopupSlots);
+        (int Slot, StaticPopupCoordinatorLaw.Instance Instance)? guildRank =
+            GuildFrameUiLaw.Popup(_staticPopupSlots, GuildFrameUiLaw.AddRankPopupType);
+        if (_petRenameEditFocused && petRename is { } petFocused)
+            plan = StaticPopupCoordinatorLaw.EditBoxEscape(_staticPopupSlots,
+                petFocused.Slot);
+        else if (_guildAddMemberEditFocused && guildAdd is { } guildFocused)
+            plan = StaticPopupCoordinatorLaw.EditBoxEscape(_staticPopupSlots,
+                guildFocused.Slot);
+        else if (guildMember is { } guildMemberFocused &&
+                 _guildNoteEditFocused[guildMemberFocused.Slot - 1])
+            plan = StaticPopupCoordinatorLaw.EditBoxEscape(_staticPopupSlots,
+                guildMemberFocused.Slot);
+        else if (_guildAddRankEditFocused && guildRank is { } guildRankFocused)
+            plan = StaticPopupCoordinatorLaw.EditBoxEscape(_staticPopupSlots,
+                guildRankFocused.Slot);
+        else if (_socialPopupEditFocused && social is { } focused)
             plan = StaticPopupCoordinatorLaw.EditBoxEscape(_staticPopupSlots, focused.Slot);
         else
             plan = StaticPopupCoordinatorLaw.Escape(_staticPopupSlots);

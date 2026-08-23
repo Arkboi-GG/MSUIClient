@@ -1128,7 +1128,10 @@ public sealed class PlayerRenderer : IDisposable
                 if (net is not null) items.Require(entry, e.Guid, net);
                 if (!items.TryGet(entry, out ItemTemplate? t) || t is null) continue;
                 kit.Add($"slot{slot}", t.DisplayInfoId, (int)t.InventoryType, slot,
-                    (byte)t.Class, (byte)t.Subclass, (byte)t.Material, (byte)t.Sheath);
+                    (byte)t.Class, (byte)t.Subclass, (byte)t.Material, (byte)t.Sheath,
+                    Enumerable.Range(0, 7)
+                        .Select(enchantSlot => e.Fields.PlayerVisibleItemEnchant(slot, enchantSlot))
+                        .ToArray());
             }
         }
         kit.Resolve(_itemDisplay);
@@ -1157,7 +1160,11 @@ public sealed class PlayerRenderer : IDisposable
             if (items is null) { sb.Append('?').Append(entry).Append(':'); continue; }
             if (net is not null) items.Require(entry, e.Guid, net);
             if (items.TryGet(entry, out ItemTemplate? t))
+            {
                 sb.Append(t?.DisplayInfoId ?? 0).Append(':');
+                for (int enchantSlot = 0; enchantSlot < 7; enchantSlot++)
+                    sb.Append(e.Fields.PlayerVisibleItemEnchant(slot, enchantSlot)).Append(',');
+            }
             else
                 sb.Append('?').Append(entry).Append(':');
         }

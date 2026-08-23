@@ -161,7 +161,7 @@ public sealed partial class GameLoop
     private void DrawTrainerFrame()
     {
         if (_trainer is null||_gameplayArt is null) return;
-        float scale=GameplayUiScale();Vector2 origin=TrainerFrameUiLaw.FrameOrigin(scale),size=TrainerFrameUiLaw.FrameSize(scale);
+        float scale=GameplayUiScale();Vector2 origin=UiPanelFrameOrigin(UiPanelOwnershipRegistry[4], scale),size=TrainerFrameUiLaw.FrameSize(scale);
         ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(size,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
         if(!ImGui.Begin("##trainer",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)){ImGui.End();return;}
         ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="trainer"){BeginUiParityFrame(origin,scale);CollectUiParityDraw("ClassTrainerFrame","Frame",origin,size,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}

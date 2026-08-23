@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/petpaperdollframe",
+  "title": "petpaperdollframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/PetPaperDollFrame.xml",
+      "fileSha256": "9def5fc79387d826d9fea815391bcb87ea3b2b7d924b905e0c380c78d0558f9d",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_pet_doll.rs",
+      "fileSha256": "74f25b10f7f1f5e01cb931865d83878b0dccda818c49a9ecf8fe9f466012069e",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_pet_stats.rs",
+      "fileSha256": "781e68913da63f393fc2f8e856aade45d3020a4dd86e9a8ac9d1725282e9d506",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/GameLoop/Panels/GameLoop.CharacterPage.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Pet.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.Portraits.cs",
+    "MSUIClient/Engine/UI/PetPaperDollUiLaw.cs",
+    "MSUIClient/Formats/CreatureFamilyCatalog.cs",
+    "MSUIClient/Net/CreatureQuery.cs",
+    "MSUIClient/Net/ObjectFields.cs",
+    "tools/interface-wire-check/PetPaperDollClinicalChecks.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI's already conditional Pet tab is no longer an empty generic page. PetPaperDollUiLaw seats the current 384x512 child page's pet-specific bottom quadrants, 318x224 model pane, 35px rotation controls, 319x11 purple XP bar and dwarf-notch overlay, paired 114x78 attribute plates, five primary and five combat rows, five resistance icons, hunter-only diet/training affordances, and 80x22 Close button. A dedicated appearance-keyed full-body creature render target supplies the model; pet name, level/family, loyalty, XP, training points, stats and resistances come from live descriptors plus CreatureQuery/CreatureFamily/ItemPetFood data. All fifteen stat/resistance rows now expose their exact rule-owned hit rectangles and reference-shaped primary, attack, power, damage, defense, armor, and bare pet-resistance tooltip content through shared tooltip arbitration. Pet loss while this page is selected closes the character window as the reference does. A separate dedicated circular pet portrait also resolves the older pet-unit-frame booth gap. Focused and complete interface clinical checks pass; live verification remains.",
+  "openItems": [
+    {
+      "id": "item-msui-pet-paper-doll-tooltip-calculation-001",
+      "kind": "gap",
+      "text": "The pet page's stat and resistance hover tooltips are not yet reproduced.",
+      "source": "benilla-b57ee0e9e2c8822b/PetPaperDollFrame.xml",
+      "added": "2026-08-22",
+      "resolved": true,
+      "resolution": "All five primary-stat rows, five combat-stat rows and five resistance icons now own their exact authored hit rectangles and publish reference-shaped tooltip titles/breakdowns through shared GameTooltip arbitration. Pet resistance hovers deliberately omit the character page's quality subtext."
+    },
+    {
+      "id": "item-msui-pet-paper-doll-attack-defense-source-001",
+      "kind": "gap",
+      "text": "Attack and Defense currently use the level-derived base when MSUI has no separate streamed pet weapon-skill/defense-skill modifier surface. Tooltip presence and all other visible descriptor rows are implemented; this remains a data-source calculation gap rather than a window-layout gap.",
+      "source": "benilla-b57ee0e9e2c8822b/ui_pet_stats.rs",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-pet-paper-doll-live-verify-001",
+      "kind": "verify",
+      "text": "Live-verify hunter pet and warlock minion paths at representative gameplay scales: conditional tab reflow, name/level/family/loyalty, full-body crop and rotation, XP bar, stat plates and resistance UVs, training-point arithmetic, diet tooltip, both Close controls, painterly rebake, and pet-dismissal closure.",
+      "source": "benilla-b57ee0e9e2c8822b/PetPaperDollFrame.xml",
+      "added": "2026-08-22",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-22T21:20:00Z",
+  "seededUtc": "2026-08-22T22:10:00Z"
+}

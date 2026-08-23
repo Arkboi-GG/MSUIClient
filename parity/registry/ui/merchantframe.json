@@ -7,13 +7,13 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/MerchantFrame.xml",
-      "fileSha256": "a3def20457ce085c5d9e4288e4e1d644c6f727ace8ecb28058b91e9ef8ab6937",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "cdbb37987165b3aebdc412bed61e089e19901b1bcf06b886de074be3e94e511c",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_merchant.rs",
-      "fileSha256": "4f02495ab5145c58dbebd8452821515795a35520fe3fc4910e822e6b214d95da",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "dff9ef2404e587a763caf4467627eb3542dbb93014db7dee0775dab1f411365d",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
@@ -23,6 +23,9 @@
     "MSUIClient/Program.Mail.cs",
     "MSUIClient/Engine/UI/GameTooltipUiLaw.cs",
     "MSUIClient/Engine/UI/MerchantFrameUiLaw.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.UiPanelOwnership.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Vendor.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Vendor.Render.cs",
     "MSUIClient/Formats/DurabilityTables.cs",
     "MSUIClient/Net/Items.cs",
     "MSUIClient/Net/NetworkClient.cs",
@@ -50,7 +53,7 @@
     "tools/interface-wire-check/Program.cs"
   ],
   "status": "partial",
-  "summary": "Merchant money, row projection, paging, shell, live vendor portrait, current-Benilla zero-discount repair arithmetic, release-owned repair interaction, exact GameText/WowSkin item-hover rendering, repair tooltip/button states, protocol bodies, and shared tooltip money pass bounded deterministic checks. Remaining work is concentrated in current-Benilla's own deferred drag-buy/shared cursor-item authority, panel authority, authenticated buyback verification, and human acceptance.",
+  "summary": "Merchant money, row projection, paging, shell, live vendor portrait, current-Benilla zero-discount repair arithmetic, release-owned repair interaction, exact GameText/WowSkin item-hover rendering, repair tooltip/button states, protocol bodies, and shared tooltip money pass bounded deterministic checks. The player update-field snapshot now scans all twelve build-5875 buyback GUID/price/timestamp descriptors, filters incomplete entries, stably orders oldest-first, preserves physical 69-80 wire slots, fills the unpaged twelve-row Buyback tab, and exposes the newest row in the merchant-page recent-buyback slot without altering the protected vendor-main presentation. BenillaMerchantFrame is registered in the global left UIPanel coordinator, so competing registered panels replace it through its native close callback and Escape/center/fullscreen closure uses the same authority. Remaining work is current-Benilla's own deferred drag-buy/shared cursor-item authority, authenticated buyback verification, and human acceptance.",
   "openItems": [
     {
       "id": "item-claim-merchantframe-vendor-money-helper-001-verify",
@@ -114,7 +117,8 @@
       "text": "Buyback commands and partial presentation support exist, but the complete twelve-slot server snapshot and page projection are not implemented.",
       "source": "claim-merchantframe-buyback-page-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "MerchantFrameUiLaw and ObjectFields now cover all twelve build-5875 GUID, price, and timestamp descriptors. VendorBuybackRows builds the complete live player snapshot, filters missing GUID/price pairs, stably sorts timestamp-ascending, retains the physical descriptor and absolute 69-80 wire slot, and DrawVendorBuybackPage projects all twelve unpaged rows over the authored four-slab Buyback overlay with merchant-only controls hidden."
     },
     {
       "id": "item-claim-merchantframe-recent-buyback-001",
@@ -122,6 +126,15 @@
       "text": "Recent buyback remains dependent on the missing authenticated complete buyback snapshot.",
       "source": "claim-merchantframe-recent-buyback-001",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "DrawVendorRecentBuyback consumes the same ordered twelve-slot snapshot and displays rows[^1], the newest timestamp-sorted occupied entry, in the authored compact merchant-page slot; clicking sends the retained absolute physical wire slot."
+    },
+    {
+      "id": "item-merchantframe-buyback-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live-verify all twelve buyback descriptors with empty, sparse, equal-timestamp and full snapshots; oldest-first page ordering; newest merchant-page slot; item template/icon/count arrival; tooltip/cursor affordability states; authored tab art and hidden merchant-only controls; and exactly one absolute-slot CMSG_BUYBACK_ITEM per click.",
+      "source": "benilla-b57ee0e9e2c8822b/ui_merchant.rs",
+      "added": "2026-08-22",
       "resolved": false
     },
     {
@@ -139,7 +152,8 @@
       "text": "Merchant show/update/close and money refresh exist, but shared UIPanel left-slot authority and replacement semantics remain incomplete.",
       "source": "claim-merchantframe-lifecycle-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: BenillaMerchantFrame is an exact left-area registry row. The runtime UIPanel observer plans competing Show transitions, closes displaced owners through CloseVendorSession, confirms the final host census, and routes Escape plus center/fullscreen entry through the same CloseWindows/CloseAllWindows coordinator. Focused and full ownership clinical checks pass; authenticated visual behavior remains covered by the global UIPanel live-verify item."
     },
     {
       "id": "item-claim-merchantframe-shell-quadrants-001-verify",
@@ -224,6 +238,6 @@
     "trace-gametooltip-money-row-001"
   ],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T06:00:00Z",
+  "lastReviewedUtc": "2026-08-22T22:14:49.0309430Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

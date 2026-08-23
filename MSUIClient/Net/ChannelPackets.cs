@@ -47,6 +47,14 @@ public static class ChannelPackets
         return w.ToArray();
     }
 
+    public static byte[] BuildPair(string name, string value)
+    {
+        var w = new PacketWriter();
+        w.WriteCString(name);
+        w.WriteCString(value);
+        return w.ToArray();
+    }
+
     public static ChannelNoticePacket ParseNotice(byte[] body)
     {
         var r = new PacketReader(body);

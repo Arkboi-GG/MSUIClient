@@ -443,7 +443,8 @@ public sealed partial class GameLoop
     private void DrawProfessionFrame()
     {
         if (!_professionOpen || _gameplayArt is null) return;
-        if (!BeginVanillaWindow("##profession", ProfessionFrameUiLaw.FrameOrigin(1f),
+        int panelIndex = _professionPanelKind == ProfessionPanelKind.Craft ? 17 : 16;
+        if (!BeginVanillaWindow("##profession", UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[panelIndex]),
                 ProfessionFrameUiLaw.FrameSize(1f),
                 out ImDrawListPtr dl, out Vector2 origin, out float s)) { ImGui.End(); return; }
         if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))

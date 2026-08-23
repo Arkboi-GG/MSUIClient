@@ -14,6 +14,10 @@ public sealed partial class GameLoop
     private int _bindingCaptureSlot = 1;
     private bool _bindingCaptureReleased;
     private int _bindingScroll;
+    private readonly byte[] _bindingSearch = new byte[64];
+    private readonly HashSet<string> _collapsedBindingCategories =
+        new(StringComparer.Ordinal);
+    private bool _bindingCategoriesInitialized;
     private bool _characterSpecificBindings;
     private string _bindingFeedback = "";
     private double _bindingFeedbackUntil;
@@ -23,6 +27,12 @@ public sealed partial class GameLoop
         EnsureBindingsLoaded();
         _bindingSnapshot = new Dictionary<GameBinding, BindingPair>(_bindings);
         _bindingCapture = null;
+        if (!_bindingCategoriesInitialized)
+        {
+            foreach (string category in BindingRows.Select(row => row.Category).Distinct())
+                _collapsedBindingCategories.Add(category);
+            _bindingCategoriesInitialized = true;
+        }
         _keybindingsOpen = true;
     }
 
@@ -32,66 +42,97 @@ public sealed partial class GameLoop
         EnsureBindingsLoaded();
         _bindingSnapshot ??= new Dictionary<GameBinding, BindingPair>(_bindings);
         float s = GameplayUiScale();
-        if (!BeginVanillaWindow("##keybindings", new Vector2(0, 104), new Vector2(640, 512), out ImDrawListPtr dl,
+        if (!BeginVanillaWindow("##keybindings", new Vector2(0, KeyBindingsUiLaw.FrameTop),
+                KeyBindingsUiLaw.FrameSize, out ImDrawListPtr dl,
                 out Vector2 origin, out s)) return;
 
-        (string Path, Vector2 Offset, Vector2 Size)[] art =
-        [
-            (@"Interface\KeyBindingFrame\UI-KeyBindingFrame-TopLeft", new(0,0), new(256,256)),
-            (@"Interface\KeyBindingFrame\UI-KeyBindingFrame-Top", new(256,0), new(256,256)),
-            (@"Interface\KeyBindingFrame\UI-KeyBindingFrame-TopRight", new(512,0), new(128,256)),
-            (@"Interface\KeyBindingFrame\UI-KeyBindingFrame-BotLeft", new(0,256), new(256,256)),
-            (@"Interface\KeyBindingFrame\UI-KeyBindingFrame-Bot", new(256,256), new(256,256)),
-            (@"Interface\KeyBindingFrame\UI-KeyBindingFrame-BotRight", new(512,256), new(128,256)),
-        ];
-        foreach (var piece in art) DrawArt(dl, piece.Path, origin + piece.Offset * s, piece.Size, s);
-        DrawCenteredText(dl, origin + new Vector2(290, 24) * s, "Key Bindings", 14 * s, VanillaGold);
-        dl.AddText(ImGui.GetFont(), 11f * s, origin + new Vector2(26, 35) * s, VanillaGold, "Command");
-        DrawCenteredText(dl, origin + new Vector2(290, 41) * s, "Key 1", 11f * s, VanillaGold);
-        DrawCenteredText(dl, origin + new Vector2(470, 41) * s, "Key 2", 11f * s, VanillaGold);
+        foreach (KeyBindingsUiLaw.ArtSlice piece in KeyBindingsUiLaw.Art)
+            DrawArt(dl, piece.Path, origin + piece.Offset * s, piece.Size, s);
+        DrawCenteredText(dl, origin + KeyBindingsUiLaw.TitleCenter * s,
+            "Key Bindings", 14 * s, VanillaGold);
+        dl.AddText(ImGui.GetFont(), 11f * s, origin + KeyBindingsUiLaw.CommandTitle * s,
+            VanillaGold, "Command");
+        DrawCenteredText(dl, origin + KeyBindingsUiLaw.KeyOneCenter * s,
+            "Key 1", 11f * s, VanillaGold);
+        DrawCenteredText(dl, origin + KeyBindingsUiLaw.KeyTwoCenter * s,
+            "Key 2", 11f * s, VanillaGold);
+
+        KeyBindingsUiLaw.Rect search = KeyBindingsUiLaw.Search;
+        if (VanillaInputText(dl, "##binding-search", _bindingSearch,
+                origin + search.Min * s, search.Size, s))
+            _bindingScroll = 0;
+        if (ReadBuffer(_bindingSearch).Length == 0 && !ImGui.IsItemActive())
+            GameText.Draw(dl, "GameFontDisableSmall", "Search",
+                origin + (search.Min + new Vector2(7, 5)) * s, s);
 
         var visibleRows = new List<(bool Header, string Category, GameBinding Binding, string Label)>();
-        string lastCategory = "";
-        foreach (var row in BindingRows)
+        string query = ReadBuffer(_bindingSearch).Trim();
+        foreach (IGrouping<string, (string Category, GameBinding Binding, string Label, Key Default)>
+                 group in BindingRows.GroupBy(row => row.Category))
         {
-            if (row.Category != lastCategory)
-            {
-                lastCategory = row.Category;
-                visibleRows.Add((true, row.Category, default, row.Category));
-            }
-            visibleRows.Add((false, row.Category, row.Binding, row.Label));
+            var matches = group.Where(row =>
+                KeyBindingsUiLaw.MatchesSearch(row.Category, row.Label, query)).ToArray();
+            if (matches.Length == 0) continue;
+            visibleRows.Add((true, group.Key, default, group.Key));
+            if (query.Length == 0 && _collapsedBindingCategories.Contains(group.Key)) continue;
+            visibleRows.AddRange(matches.Select(row =>
+                (false, row.Category, row.Binding, row.Label)));
         }
-        _bindingScroll = Math.Clamp(_bindingScroll, 0, Math.Max(0, visibleRows.Count - 17));
-        Vector2 wheelMin = origin + new Vector2(27, 53) * s;
+        _bindingScroll = KeyBindingsUiLaw.ClampScroll(_bindingScroll, visibleRows.Count);
+        Vector2 wheelMin = origin + KeyBindingsUiLaw.Rows.Min * s;
         ImGui.SetCursorScreenPos(wheelMin);
-        ImGui.InvisibleButton("##binding-wheel", new Vector2(535, 390) * s);
-        if (ImGui.IsItemHovered() && ImGui.GetIO().MouseWheel != 0)
-            _bindingScroll = Math.Clamp(_bindingScroll - Math.Sign(ImGui.GetIO().MouseWheel), 0,
-                Math.Max(0, visibleRows.Count - 17));
+        ImGui.InvisibleButton("##binding-wheel", KeyBindingsUiLaw.Rows.Size * s);
+        if (_bindingCapture is null && ImGui.IsItemHovered() && ImGui.GetIO().MouseWheel != 0)
+            _bindingScroll = KeyBindingsUiLaw.ClampScroll(
+                _bindingScroll - Math.Sign(ImGui.GetIO().MouseWheel), visibleRows.Count);
 
-        for (int i = 0; i < 17 && i + _bindingScroll < visibleRows.Count; i++)
+        for (int i = 0; i < KeyBindingsUiLaw.VisibleRows &&
+             i + _bindingScroll < visibleRows.Count; i++)
         {
             var row = visibleRows[i + _bindingScroll];
-            Vector2 rowMin = origin + new Vector2(27, 53 + i * 23) * s;
+            Vector2 rowMin = origin + (KeyBindingsUiLaw.Rows.Min +
+                new Vector2(0, i * KeyBindingsUiLaw.RowPitch)) * s;
             if (row.Header)
             {
-                dl.AddText(ImGui.GetFont(), 12f * s, rowMin + new Vector2(0, 5) * s,
-                    0xffffffff, row.Label);
+                ImGui.SetCursorScreenPos(rowMin);
+                ImGui.InvisibleButton($"##binding-category-{row.Category}",
+                    new Vector2(KeyBindingsUiLaw.Rows.Width,
+                        KeyBindingsUiLaw.RowPitch) * s);
+                if (query.Length == 0 && ImGui.IsItemClicked(ImGuiMouseButton.Left) &&
+                    !_collapsedBindingCategories.Add(row.Category))
+                    _collapsedBindingCategories.Remove(row.Category);
+                bool collapsed = query.Length == 0 &&
+                    _collapsedBindingCategories.Contains(row.Category);
+                uint glyph = _gameplayArt.Handle(collapsed
+                    ? @"Interface\Buttons\UI-PlusButton-Up"
+                    : @"Interface\Buttons\UI-MinusButton-Up");
+                if (glyph != 0)
+                {
+                    KeyBindingsUiLaw.Rect glyphRect = KeyBindingsUiLaw.HeaderGlyph;
+                    Vector2 glyphMin = rowMin + glyphRect.Min * s;
+                    dl.AddImage((nint)glyph, glyphMin, glyphMin + glyphRect.Size * s);
+                }
+                dl.AddText(ImGui.GetFont(), 12f * s,
+                    rowMin + KeyBindingsUiLaw.HeaderTextOffset * s,
+                    VanillaGold, row.Label);
                 continue;
             }
-            dl.AddText(ImGui.GetFont(), 10f * s, rowMin + new Vector2(0, 6) * s,
+            dl.AddText(ImGui.GetFont(), 10f * s,
+                rowMin + KeyBindingsUiLaw.CommandTextOffset * s,
                 VanillaGold, row.Label);
             BindingPair pair = BoundKeys(row.Binding);
             DrawBindingKeyButton(dl, origin, s, rowMin, row.Binding, 1, pair.Primary);
             DrawBindingKeyButton(dl, origin, s, rowMin, row.Binding, 2, pair.Secondary);
         }
 
-        DrawVanillaScrollBar(dl, "##binding-scrollbar", origin + new Vector2(584, 52) * s,
-            390, s, _bindingScroll, Math.Max(0, visibleRows.Count - 17), v => _bindingScroll = v);
+        DrawVanillaScrollBar(dl, "##binding-scrollbar",
+            origin + KeyBindingsUiLaw.ScrollMinimum * s,
+            KeyBindingsUiLaw.ScrollHeight, s, _bindingScroll,
+            KeyBindingsUiLaw.MaximumScroll(visibleRows.Count), v => _bindingScroll = v);
 
         if (_bindingCapture is not null)
         {
-            if (!_bindingCaptureReleased) _bindingCaptureReleased = !AnyBindableKeyDown();
+            if (!_bindingCaptureReleased) _bindingCaptureReleased = !AnyBindableInputDown();
             else if (FirstBindableChordDown() is { } pressed)
             {
                 GameBinding[] previousOwners = _bindings
@@ -115,11 +156,11 @@ public sealed partial class GameLoop
 
         if (_bindingFeedback.Length > 0 && ImGui.GetTime() < _bindingFeedbackUntil)
             GameText.DrawCentered(dl, "GameFontNormalSmall", _bindingFeedback,
-                origin + new Vector2(320, 455) * s, s, 0xff2020ff);
+                origin + KeyBindingsUiLaw.FeedbackCenter * s, s, 0xff2020ff);
 
         bool wasCharacterSpecific = _characterSpecificBindings;
         bool toggledCharacterSpecific = VanillaCheckButton(dl, "##character-bindings",
-            origin + new Vector2(395, 10) * s,
+            origin + KeyBindingsUiLaw.CharacterSpecificMinimum * s,
             "Character Specific Key Bindings", s, ref _characterSpecificBindings);
         if (toggledCharacterSpecific)
         {
@@ -138,17 +179,22 @@ public sealed partial class GameLoop
                     _staticPopupSlots, CharacterBindingsUiLaw.Definition, dead));
             }
         }
-        if (VanillaButton(dl, "Defaults##bindings", "Reset To Default", origin + new Vector2(10, 469) * s,
-                new Vector2(130, 22), s)) ResetBindingsToDefaults();
+        if (VanillaButton(dl, "Defaults##bindings", "Reset To Default",
+                origin + KeyBindingsUiLaw.Defaults.Min * s,
+                KeyBindingsUiLaw.Defaults.Size, s)) ResetBindingsToDefaults();
         bool canUnbind = _bindingCapture is not null;
-        if (VanillaButton(dl, "Unbind##bindings", "Unbind", origin + new Vector2(230, 469) * s,
-                new Vector2(130, 22), s, canUnbind) && _bindingCapture is { } unbind)
+        if (VanillaButton(dl, "Unbind##bindings", "Unbind",
+                origin + KeyBindingsUiLaw.Unbind.Min * s,
+                KeyBindingsUiLaw.Unbind.Size, s, canUnbind) &&
+            _bindingCapture is { } unbind)
         { _bindings[unbind] = BoundKeys(unbind).With(_bindingCaptureSlot, default); _bindingCapture = null; }
-        if (VanillaButton(dl, "Okay##bindings", "Okay", origin + new Vector2(360, 469) * s,
-                new Vector2(130, 22), s))
+        if (VanillaButton(dl, "Okay##bindings", "Okay",
+                origin + KeyBindingsUiLaw.Okay.Min * s,
+                KeyBindingsUiLaw.Okay.Size, s))
         { SaveBindings(); _bindingSnapshot = null; _keybindingsOpen = false; }
-        if (VanillaButton(dl, "Cancel##bindings", "Cancel", origin + new Vector2(490, 469) * s,
-                new Vector2(130, 22), s))
+        if (VanillaButton(dl, "Cancel##bindings", "Cancel",
+                origin + KeyBindingsUiLaw.Cancel.Min * s,
+                KeyBindingsUiLaw.Cancel.Size, s))
         {
             if (_bindingSnapshot is not null)
             { _bindings.Clear(); foreach (var pair in _bindingSnapshot) _bindings[pair.Key] = pair.Value; }
@@ -160,18 +206,22 @@ public sealed partial class GameLoop
     private void DrawBindingKeyButton(ImDrawListPtr dl, Vector2 origin, float s, Vector2 rowMin,
         GameBinding binding, int slot, BindingChord chord)
     {
-        Vector2 min = rowMin + new Vector2(slot == 1 ? 175 : 355, 1) * s;
+        KeyBindingsUiLaw.Rect keyRect = slot == 1
+            ? KeyBindingsUiLaw.PrimaryKey : KeyBindingsUiLaw.SecondaryKey;
+        Vector2 min = rowMin + keyRect.Min * s;
         bool capturing = _bindingCapture == binding && _bindingCaptureSlot == slot;
         string text = capturing ? "Press Key to Bind" : FriendlyChord(chord);
-        if (VanillaButton(dl, $"##bind-{binding}-{slot}", text, min, new Vector2(180, 22), s))
+        if (VanillaButton(dl, $"##bind-{binding}-{slot}", text, min, keyRect.Size, s))
         {
             _bindingCapture = binding;
             _bindingCaptureSlot = slot;
-            _bindingCaptureReleased = !AnyBindableKeyDown();
+            _bindingCaptureReleased = !AnyBindableInputDown();
         }
     }
 
-    private bool AnyBindableKeyDown() => FirstBindableKeyDown() is not null;
+    private bool AnyBindableInputDown() => FirstBindableKeyDown() is not null ||
+        _window.MouseMiddleDown || _window.MouseButton4Down || _window.MouseButton5Down ||
+        ImGui.GetIO().MouseWheel != 0;
 
     private Key? FirstBindableKeyDown()
     {
@@ -184,11 +234,19 @@ public sealed partial class GameLoop
     private BindingChord? FirstBindableChordDown()
     {
         if (InputKeyDown(Key.SuperLeft) || InputKeyDown(Key.SuperRight)) return null;
-        if (FirstBindableKeyDown() is not { } key) return null;
-        return BindingChordLaw.Live(key,
-            InputKeyDown(Key.AltLeft) || InputKeyDown(Key.AltRight),
-            InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight),
-            InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight));
+        bool alt = InputKeyDown(Key.AltLeft) || InputKeyDown(Key.AltRight);
+        bool control = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
+        bool shift = InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight);
+        BindingPointerKey pointer = _window.MouseMiddleDown ? BindingPointerKey.Button3 :
+            _window.MouseButton4Down ? BindingPointerKey.Button4 :
+            _window.MouseButton5Down ? BindingPointerKey.Button5 :
+            ImGui.GetIO().MouseWheel > 0 ? BindingPointerKey.WheelUp :
+            ImGui.GetIO().MouseWheel < 0 ? BindingPointerKey.WheelDown :
+            BindingPointerKey.None;
+        if (pointer != BindingPointerKey.None)
+            return BindingChordLaw.LivePointer(pointer, alt, control, shift);
+        return FirstBindableKeyDown() is { } key
+            ? BindingChordLaw.Live(key, alt, control, shift) : null;
     }
 
     private static string BindingLabel(GameBinding binding) =>

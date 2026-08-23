@@ -1,0 +1,79 @@
+using System.Numerics;
+using MSUIClient;
+using MSUIClient.Engine.UI;
+using MSUIClient.Net;
+
+internal static class ReputationFrameClinicalChecks
+{
+    public static void Run()
+    {
+        Check(ReputationFrameUiLaw.DetailOffset == new Vector2(351, -28) &&
+              ReputationFrameUiLaw.DetailSize == new Vector2(212, 203) &&
+              ReputationFrameUiLaw.Close ==
+                  new ReputationFrameUiLaw.LogicalRect(177, 3, 32, 32) &&
+              ReputationFrameUiLaw.Name ==
+                  new ReputationFrameUiLaw.LogicalRect(20, 21, 170, 12) &&
+              ReputationFrameUiLaw.Description ==
+                  new ReputationFrameUiLaw.LogicalRect(20, 35, 170, 92) &&
+              ReputationFrameUiLaw.AtWarCheck ==
+                  new ReputationFrameUiLaw.LogicalRect(14, 143, 26, 26) &&
+              ReputationFrameUiLaw.MainScreenCheck ==
+                  new ReputationFrameUiLaw.LogicalRect(14, 166, 26, 26),
+            "ReputationDetailFrame authored geometry drift");
+
+        byte flags = ReputationFrameUiLaw.Visible | ReputationFrameUiLaw.AtWar;
+        Check(ReputationFrameUiLaw.IsVisible(flags) &&
+              ReputationFrameUiLaw.IsAtWar(flags) &&
+              !ReputationFrameUiLaw.IsInactive(flags) &&
+              ReputationFrameUiLaw.IsHeader(ReputationFrameUiLaw.Header) &&
+              ReputationFrameUiLaw.CanToggleAtWar(flags, -3000) &&
+              !ReputationFrameUiLaw.CanToggleAtWar(flags, -3001) &&
+              !ReputationFrameUiLaw.CanToggleAtWar(
+                  (byte)(flags | ReputationFrameUiLaw.PeaceForced), 42000) &&
+              ReputationFrameUiLaw.IsInactive(
+                  ReputationFrameUiLaw.WithInactive(flags, true)) &&
+              !ReputationFrameUiLaw.IsAtWar(
+                  ReputationFrameUiLaw.WithAtWar(flags, false)),
+            "reputation flag/display law drift");
+
+        Check(ReputationFrameUiLaw.SlotAndFlagBody(0x12345678, true)
+                  .SequenceEqual(new byte[] { 0x78, 0x56, 0x34, 0x12, 1 }) &&
+              ReputationFrameUiLaw.WatchedBody(-1)
+                  .SequenceEqual(new byte[] { 0xff, 0xff, 0xff, 0xff }) &&
+              (ushort)Op.CMSG_SET_FACTION_ATWAR == 0x0125 &&
+              (ushort)Op.CMSG_SET_FACTION_INACTIVE == 0x0317 &&
+              (ushort)Op.CMSG_SET_WATCHED_FACTION == 0x0318 &&
+              ObjectFields.PLAYER_FIELD_WATCHED_FACTION_INDEX == 1261,
+            "reputation opcode/body/watched-field law drift");
+
+        string root = ClientConfig.FindRepoRoot();
+        string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.CharacterPage.cs"));
+        string state = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Reputation.cs"));
+        string session = SourceText.Read(Path.Combine(root, "MSUIClient", "Net",
+            "WorldSession.cs"));
+        string faction = SourceText.Read(Path.Combine(root, "MSUIClient", "Formats",
+            "Faction.cs"));
+        Check(runtime.Contains("ReputationFrameUiLaw.DetailOffset", StringComparison.Ordinal) &&
+              runtime.Contains("ImGui.Begin(\"##reputation-detail\"", StringComparison.Ordinal) &&
+              runtime.Contains("ReputationFrameUiLaw.AtWarCheck", StringComparison.Ordinal) &&
+              runtime.Contains("ReputationFrameUiLaw.InactiveCheck", StringComparison.Ordinal) &&
+              runtime.Contains("ReputationFrameUiLaw.MainScreenCheck", StringComparison.Ordinal) &&
+              runtime.Contains("SelectReputationDetail(row.Slot)", StringComparison.Ordinal) &&
+              runtime.Contains("ReputationFrameUiLaw.IsHeader", StringComparison.Ordinal) &&
+              runtime.Contains("ReputationFrameUiLaw.InactiveHeaderKey", StringComparison.Ordinal) &&
+              state.Contains("_net.SetFactionAtWar", StringComparison.Ordinal) &&
+              state.Contains("_net.SetFactionInactive", StringComparison.Ordinal) &&
+              state.Contains("_net.SetWatchedFaction", StringComparison.Ordinal) &&
+              session.Contains("ReputationFrameUiLaw.SlotAndFlagBody", StringComparison.Ordinal) &&
+              session.Contains("ReputationFrameUiLaw.WatchedBody", StringComparison.Ordinal) &&
+              faction.Contains("dbc.GetString(row, 28)", StringComparison.Ordinal),
+            "Reputation frame bypasses rule-owned dialog/tree/wire/description law");
+    }
+
+    private static void Check(bool condition, string message)
+    {
+        if (!condition) throw new InvalidDataException(message);
+    }
+}

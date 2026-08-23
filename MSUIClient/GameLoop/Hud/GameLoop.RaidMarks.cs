@@ -24,8 +24,10 @@ public sealed partial class GameLoop
             ulong guid = _partyRaidTargets[slot];
             if (guid == 0 || !_entities.TryGet(guid, out WorldEntity unit)) continue;
 
-            bool hasLiveVplate = _nameplatesVisible && unit.Guid != ControlledGuid && !unit.IsDead &&
+            bool hasLiveVplate = unit.Guid != ControlledGuid && !unit.IsDead &&
                 (unit.Fields.UnitFlags & NotSelectable) == 0 &&
+                NameplateUiLaw.ModeAllows(ReactionTargetTowardPlayer(unit),
+                    _enemyNameplatesVisible, _friendlyNameplatesVisible) &&
                 Vector3.DistanceSquared(selfPosition, UnitWorldPosition(unit)) <=
                     NameplateRangeYards * NameplateRangeYards;
             if (hasLiveVplate) continue;

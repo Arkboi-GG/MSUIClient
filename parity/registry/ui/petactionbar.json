@@ -7,8 +7,8 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/PetActionBar.xml",
-      "fileSha256": "f79034b7648f30d5e5ed0e7c95bdc722c4a4e2f385341209bee06e3085293d89",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "65499a74e5363b46ce0aa47d22e5756ef1323b9e536eb10f8c69174099e877ba",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_pet.rs",
@@ -23,6 +23,9 @@
   ],
   "msuiAnchors": [
     "MSUIClient/Engine/UI/PetActionBarUiLaw.cs",
+    "MSUIClient/Engine/UI/PetMenuUiLaw.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Pet.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.PetMenu.cs",
     "MSUIClient/Net/Opcodes.cs",
     "MSUIClient/Net/WorldSession.cs",
     "MSUIClient/Program.Pet.cs",
@@ -34,6 +37,7 @@
     "MSUIClient/Program.Logout.cs",
     "MSUIClient/Program.DevTools.UiParity.cs",
     "tools/interface-wire-check/Program.cs",
+    "tools/interface-wire-check/PetMenuClinicalChecks.cs",
     "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/README.md",
     "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/audit.json",
     "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/evidence/evidence-index.json",
@@ -46,7 +50,7 @@
     "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/evidence/verification/deterministic-2026-08-08.md"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI now implements the bounded production repairs and strong draw/state/input telemetry while retaining the existing packed core, horizontal seats, assignment model, token art, high-resolution portrait, and always-on bottom multibars. Connected physical input, real controlled-unit wire/state, sound, render/diff, and user-visible proof remain open.",
+  "summary": "MSUI implements the bounded production repairs and strong draw/state/input telemetry while retaining the existing packed core, horizontal seats, assignment model, token art, high-resolution portrait, and always-on bottom multibars. The preserved MSUI pet portrait is now physically interactive: left click targets and right click opens current Benilla's PET menu. Its dialogs use the shared rule-owned StaticPopup coordinator, including the two-slot rename chain and exact abandon/dismiss/rename wire contracts. Connected live-session render/diff and user-visible proof remain open.",
   "openItems": [
     {
       "id": "item-claim-petactionbar-runtime-contract-001-verify",
@@ -79,6 +83,14 @@
       "source": "claim-petactionbar-driver-001",
       "added": "2026-08-09",
       "resolved": false
+    },
+    {
+      "id": "item-petactionbar-pet-menu-live-verify-20260822",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. The preserved pet portrait now targets on left click and opens the backed PET UnitPopup on right click; shared StaticPopup dialogs own abandon and the two-step one-shot rename chain.",
+      "source": "benilla-b57ee0e9e2c8822b/PetActionBar.xml",
+      "added": "2026-08-22",
+      "resolved": false
     }
   ],
   "claims": [
@@ -94,6 +106,6 @@
     "trace-petactionbar-driver-001"
   ],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-07T22:09:44.3649057+00:00",
+  "lastReviewedUtc": "2026-08-22T22:15:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

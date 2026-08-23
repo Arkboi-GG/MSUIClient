@@ -33,7 +33,8 @@ public sealed partial class GameLoop
         _unitPopupSubmenu = UnitPopupSubmenu.None;
         _unitPopupSubmenuParentRow = -1;
         _unitPopupNameOverride = "";
-        if (!_playerNames.ContainsKey(guid)) _net?.NameQuery(guid);
+        if (which != UnitPopupWhich.Pet && !_playerNames.ContainsKey(guid))
+            _net?.NameQuery(guid);
         PlayUiSound("igMainMenuOpen");
     }
 
@@ -59,6 +60,16 @@ public sealed partial class GameLoop
 
     private UnitPopupRow[] UnitPopupVisibleRows(ulong guid, UnitPopupWhich which)
     {
+        if (which == UnitPopupWhich.Pet)
+        {
+            bool tracked = _entities.TryGet(guid, out WorldEntity pet) && pet.IsUnit;
+            bool ownedSummon = tracked && pet.Fields.SummonedBy == LocalPlayerGuid;
+            (bool canAbandon, bool canRename) = tracked
+                ? PetMenuUiLaw.Predicates(pet.Fields.SummonedBy, LocalPlayerGuid,
+                    pet.Fields.UnitFlags)
+                : (false, false);
+            return UnitPopupUiLaw.VisiblePetRows(ownedSummon, canAbandon, canRename);
+        }
         bool inParty = _partyInGroup;
         bool isLeader = inParty && _net is not null && _partyLeaderGuid == _net.PlayerGuid;
         bool isRaid = inParty && _partyGroupType == 1;
@@ -84,7 +95,11 @@ public sealed partial class GameLoop
         float s = GameplayUiScale();
         bool isLeader = _partyInGroup && _net is not null && _partyLeaderGuid == _net.PlayerGuid;
         string title = _unitPopupNameOverride.Length > 0
-            ? _unitPopupNameOverride : _playerNames.GetValueOrDefault(_unitPopupGuid, "Player");
+            ? _unitPopupNameOverride
+            : _unitPopupWhich == UnitPopupWhich.Pet &&
+                _entities.TryGet(_unitPopupGuid, out WorldEntity popupPet)
+                ? ResolveCreatureOrPetName(popupPet, "Pet")
+                : _playerNames.GetValueOrDefault(_unitPopupGuid, "Player");
         float cardWidth = MeasureUnitPopupWidth(rows, hasTitle: true, title, isLeader, s);
         Vector2 logicalSize = new(cardWidth, UnitPopupUiLaw.CardHeight(rows.Length));
         Vector2 physicalSize = logicalSize * s;
@@ -327,6 +342,18 @@ public sealed partial class GameLoop
             ? _unitPopupNameOverride : _playerNames.GetValueOrDefault(guid, "");
         switch (row)
         {
+            case UnitPopupRow.PetPaperDoll:
+                OpenCharacterPageThroughUiPanel(requestedTab: 1);
+                break;
+            case UnitPopupRow.PetRename:
+                ShowPetRenamePopup(guid);
+                break;
+            case UnitPopupRow.PetAbandon:
+                ShowPetAbandonPopup(guid);
+                break;
+            case UnitPopupRow.PetDismiss:
+                _net?.PetAction(guid, PetMenuUiLaw.DismissWord, 0);
+                break;
             case UnitPopupRow.Whisper:
                 if (name.Length > 0) OpenChatEditWith($"/w {name} ");
                 break;

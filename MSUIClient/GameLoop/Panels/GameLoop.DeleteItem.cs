@@ -64,6 +64,16 @@ public sealed partial class GameLoop
             FriendsFrameUiLaw.AddFriendPopupType => FriendsFrameUiLaw.AddFriendPopupText,
             FriendsFrameUiLaw.AddIgnorePopupType => FriendsFrameUiLaw.AddIgnorePopupText,
             CharacterBindingsUiLaw.PopupType => CharacterBindingsUiLaw.ConfirmText,
+            GuildFrameUiLaw.AddMemberPopupType => GuildFrameUiLaw.AddMemberLabel,
+            GuildFrameUiLaw.RemoveMemberPopupType =>
+                GuildFrameUiLaw.RemoveMemberText(first.DataToken ?? ""),
+            GuildFrameUiLaw.SetPublicNotePopupType => "Set Player Note:",
+            GuildFrameUiLaw.SetOfficerNotePopupType => "Set Officer Note:",
+            GuildFrameUiLaw.AddRankPopupType => GuildFrameUiLaw.AddRankLabel,
+            PetMenuUiLaw.AbandonPopupType => PetMenuUiLaw.AbandonText,
+            PetMenuUiLaw.RenamePopupType => PetMenuUiLaw.RenameLabel,
+            PetMenuUiLaw.RenameConfirmPopupType =>
+                PetMenuUiLaw.RenameConfirmation(first.DataToken ?? ""),
             _ => "",
         };
         if (text.Length == 0) return StaticPopupCoordinatorLaw.BaseHeight;

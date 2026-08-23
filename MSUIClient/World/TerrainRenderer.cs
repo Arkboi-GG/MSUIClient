@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
+using MSUIClient.World.Units;
 using Shader = MSUIClient.Engine.Shader; 
 
 namespace MSUIClient.World;
@@ -710,6 +711,7 @@ public sealed class TerrainRenderer : IDisposable
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uDebugMode", DebugMode);
         _shader.Set("uTextureScale", TextureScale);
+        CarriedLightFrame.Upload(_shader, camera.Position);
 
         // Sampler bindings are fixed: unit 0 tileset, unit 1 MCAL, unit 2 MCSH.
         _shader.Set("uTileset", 0);

@@ -208,7 +208,7 @@ public sealed partial class GameLoop
     private void DrawBankFrame()
     {
         if (!_bankOpen || _net is null || _gameplayArt is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
-        float s=GameplayUiScale(); Vector2 origin=BankFrameUiLaw.FrameOrigin(s), logicalSize=new(BankFrameUiLaw.Width,BankFrameUiLaw.Height);
+        float s=GameplayUiScale(); Vector2 origin=UiPanelFrameOrigin(UiPanelOwnershipRegistry[5], s), logicalSize=new(BankFrameUiLaw.Width,BankFrameUiLaw.Height);
         ImGui.SetNextWindowPos(origin,ImGuiCond.Always); ImGui.SetNextWindowSize(BankFrameUiLaw.FrameSize(s),ImGuiCond.Always); ImGui.SetNextWindowBgAlpha(0);
         if (!ImGui.Begin("##bank", ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
         ImDrawListPtr dl=ImGui.GetWindowDrawList();

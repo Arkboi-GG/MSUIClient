@@ -54,12 +54,14 @@ public sealed class LocalMovementSender
     public MovementInfo SnapshotForAck(CharacterController controller, float jumpLaunchSpeed,
         MovementFlags extraFlags = MovementFlags.None)
     {
-        const MovementFlags grantedMask = MovementFlags.WaterWalking |
-            MovementFlags.FeatherFalling | MovementFlags.Hover;
-        MovementFlags flags = (MovementFlags)_previousFlags & ~grantedMask;
+        const MovementFlags controllerStateMask = MovementFlags.WaterWalking |
+            MovementFlags.FeatherFalling | MovementFlags.Hover | MovementFlags.Swimming;
+        MovementFlags flags = (MovementFlags)_previousFlags & ~controllerStateMask;
         flags |= controller.GrantedMovementFlags;
+        if (controller.Swimming) flags |= MovementFlags.Swimming;
         flags |= extraFlags;
-        var info = MovementInfo.Create(controller.Position, Normalize(controller.Yaw), flags);
+            var info = MovementInfo.Create(controller.Position, Normalize(controller.Yaw), flags);
+            if (controller.Swimming) info.Pitch = controller.SwimPitch;
         info.FallTime = (uint)Math.Clamp(MathF.Round(controller.FallTimeMs), 0f, uint.MaxValue);
         if ((flags & MovementFlags.Falling) != 0)
         {
@@ -103,10 +105,14 @@ public sealed class LocalMovementSender
         else if (turn < -0.01f) flags |= MovementFlags.TurnRight;
         if (input.Walking) flags |= MovementFlags.WalkMode;
         flags |= controller.GrantedMovementFlags;
+        if (controller.Swimming) flags |= MovementFlags.Swimming;
         if (!controller.Grounded)
         {
-            flags |= MovementFlags.Falling;
-            if (controller.FallTimeMs >= 500f) flags |= MovementFlags.FallingFar;
+            if (!controller.Swimming)
+            {
+                flags |= MovementFlags.Falling;
+                if (controller.FallTimeMs >= 500f) flags |= MovementFlags.FallingFar;
+            }
         }
 
         uint current = (uint)flags;
@@ -118,6 +124,7 @@ public sealed class LocalMovementSender
         MovementInfo Snapshot()
         {
             var info = MovementInfo.Create(controller.Position, facing, flags);
+            if (controller.Swimming) info.Pitch = controller.SwimPitch;
             info.FallTime = fallTimeMs;
             if (falling)
             {
@@ -145,6 +152,9 @@ public sealed class LocalMovementSender
         if (jumped) Send(Op.MSG_MOVE_JUMP);
         else if (landed) Send(Op.MSG_MOVE_FALL_LAND);
         else if (startedFalling) Send(Op.MSG_MOVE_HEARTBEAT);
+
+        if ((added & (uint)MovementFlags.Swimming) != 0) Send(Op.MSG_MOVE_START_SWIM);
+        else if ((removed & (uint)MovementFlags.Swimming) != 0) Send(Op.MSG_MOVE_STOP_SWIM);
 
         // Vanilla defers ordinary forward/strafe transitions while airborne;
         // the current bits ride the next turn/facing/landing packet instead.

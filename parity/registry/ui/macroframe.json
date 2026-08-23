@@ -33,13 +33,16 @@
   ],
   "msuiAnchors": [
     "MSUIClient/GameLoop/Panels/GameLoop.Macro.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Chat.cs",
     "MSUIClient/Engine/UI/MacroFrameUiLaw.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.ActionBars.cs",
+    "MSUIClient/Formats/SpellCatalog.cs",
     "MSUIClient/Formats/MacroIconCatalog.cs",
     "MSUIClient/Formats/MpqMount.cs",
     "tools/interface-wire-check/MacroFrameClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "MSUI has a 384x512 macro editor plus current Benilla's rule-seated 297x298 name/icon popup: exact four-slice art, 16-character edit field, archive-derived 5x4 chooser with faux-row scrolling, Okay/Cancel rules, persistent chosen icons and reference open/close/accept sounds. Remaining gaps are the account/character split, body scroll frame and broader macro command engine.",
+  "status": "complete",
+  "summary": "MSUI now has current Benilla's rule-seated 384x512 macro editor and 297x298 name/icon popup. MacroFrameUiLaw owns the tabs, exact grid, selected-macro plate, body-editor/scroll furniture, action row, close X, popup slices, name field, archive-derived icon chooser and button rules. Existing slots 1-18 remain General and slots 19-36 form the character set. Execution now mirrors the reference division: each CR/LF-delimited body line enters the same ChatFrame submission path as typed input, so the complete implemented chat/slash surface is shared instead of a macro-only whitelist. Cast/spell/use and attack commands are available through that common path, and rank-qualified spell names resolve exactly. Focused and full clinical checks pass; live visual/input verification remains outstanding.",
   "openItems": [
     {
       "id": "item-triage-97d800c2",
@@ -56,7 +59,8 @@
       "text": "No General vs Character-specific tab split (reference: two tabbed macro sets; MSUI has one flat 18-slot set)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: MacroFrameUiLaw owns the current two-tab seats/fit and the exact 18-button set projection. Existing slots 1-18 remain General macros; slots 19-36 are the character-specific set, selected/edit/new/delete/drag routes use absolute ids, and action-bar macro title/icon execution accepts both ranges."
     },
     {
       "id": "item-msui-macro-popup-live-verify",
@@ -67,12 +71,29 @@
       "resolved": false
     },
     {
+      "id": "item-msui-macro-main-window-live-verify-001",
+      "kind": "verify",
+      "text": "Live-verify the current main MacroFrame at representative gameplay scales: fitted General/character tabs, 36px grid and labels, set isolation/persistence, selected-macro plate, body editor wrapping/focus, external bar show-hide, wheel/arrows/drag scrolling to the final line, Change/Delete/New/Exit enable states, close X, drag to action bar from both macro sets, and preservation of pre-existing slots 1-18.",
+      "source": "benilla-b57ee0e9e2c8822b/MacroFrame.xml",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-macro-panel-seat-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live-verify MacroFrame beside another registered left panel: it must consume the resolved center seat and keep MacroPopup attached to the moved frame origin at its authored (-40,-40) offset.",
+      "source": "msui-runtime-audit-2026-08-22",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
       "id": "item-triage-82b52425",
       "kind": "gap",
       "text": "No scrollbar on the body editor (reference MacroFrameScrollFrame)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: MacroFrameUiLaw now owns the exact body ScrollFrame furniture (up 319,310; 53px track at 319,326; down 319,379), the reference's 14px explicit-line plus 48-character conservative wrap allowance, the 85px viewport floor, 20px step/wheel motion, range clamp and knob projection. GameLoop.Macro hosts the editor in a native-scrollbar-free law-sized child, clips it to the authored 286x85 viewport, and renders clickable disabled/pressed/highlight arrow states plus a draggable stock knob. Focused and full interface clinical checks pass; authenticated live input/visual verification remains tracked separately."
     },
     {
       "id": "item-triage-e03a4726",
@@ -80,7 +101,8 @@
       "text": "Macro execution supports only a small command subset, with 'Unsupported macro command' chat fallback (engine scope, noted for honesty)",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23: ExecuteMacro now tokenizes body lines through MacroFrameUiLaw and feeds every runnable line into the same SubmitChatLine path as typed input, matching Benilla's EXECUTE_CHAT_LINE architecture. The former Unsupported macro command branch is gone; /cast and /spell share rank-aware resolution, /use, /startattack and /stopattack are common chat commands, and all existing chat/channel/group/emote routes are inherited automatically."
     },
     {
       "id": "item-triage-20f59400",
@@ -95,6 +117,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T07:00:00Z",
+  "lastReviewedUtc": "2026-08-23T00:45:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

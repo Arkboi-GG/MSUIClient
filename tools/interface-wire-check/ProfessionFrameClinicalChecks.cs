@@ -52,7 +52,12 @@ internal static class ProfessionFrameClinicalChecks
         string root = ClientConfig.FindRepoRoot();
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Professions.cs"));
-        Check(runtime.Contains("ProfessionFrameUiLaw.FrameOrigin", StringComparison.Ordinal) &&
+        Check(runtime.Contains(
+                  "UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[panelIndex])",
+                  StringComparison.Ordinal) &&
+              runtime.Contains(
+                  "_professionPanelKind == ProfessionPanelKind.Craft ? 17 : 16",
+                  StringComparison.Ordinal) &&
               runtime.Contains("DrawProfessionRankBar", StringComparison.Ordinal) &&
               runtime.Contains("DrawUnitPortraitImage", StringComparison.Ordinal) &&
               runtime.Contains("DrawProfessionScrollBar", StringComparison.Ordinal) &&

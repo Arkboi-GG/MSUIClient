@@ -12,16 +12,28 @@ public sealed partial class GameLoop
 {
     private PortraitRenderTarget? _playerPortrait;
     private PortraitRenderTarget? _targetPortrait;
+    private PortraitRenderTarget? _petPortrait;
     private PortraitRenderTarget? _paperDoll;
     private PortraitRenderTarget? _inspectPaperDoll;
+    private PortraitRenderTarget? _petPaperDoll;
+    private PortraitRenderTarget? _dressUpTarget;
     private bool _playerPortraitDirty = true;
     private bool _paperDollDirty = true;
     private bool _inspectPaperDollDirty = true;
     private bool _inspectPaperDollUsable;
+    private bool _petPaperDollDirty = true;
+    private bool _petPaperDollUsable;
+    private ulong _petPaperDollGuid;
+    private ulong _petPaperDollAppearance;
+    private float _petPaperDollRotation;
     private ulong _inspectPaperDollGuid;
     private ulong _inspectPaperDollAppearance;
     private bool _playerPortraitUsable;
     private bool _targetPortraitUsable;
+    private bool _petPortraitUsable;
+    private ulong _petPortraitGuid;
+    private ulong _petPortraitAppearance;
+    private double _petPortraitRetryAt;
     private bool _playerPortraitFailureDumped;
     private bool _targetPortraitFailureDumped;
     private float _paperDollRotation;
@@ -161,20 +173,29 @@ public sealed partial class GameLoop
         {
             _playerPortrait = new PortraitRenderTarget(gl);
             _targetPortrait = new PortraitRenderTarget(gl);
+            _petPortrait = new PortraitRenderTarget(gl);
             _paperDoll = new PortraitRenderTarget(gl, 466, 448);
             _inspectPaperDoll = new PortraitRenderTarget(gl, 466, 600);
+            _petPaperDoll = new PortraitRenderTarget(gl, 636, 448);
+            _dressUpTarget = new PortraitRenderTarget(gl, 632, 702);
         }
         catch (Exception ex)
         {
             _playerPortrait?.Dispose();
             _targetPortrait?.Dispose();
+            _petPortrait?.Dispose();
             _paperDoll?.Dispose();
             _inspectPaperDoll?.Dispose();
+            _petPaperDoll?.Dispose();
+            _dressUpTarget?.Dispose();
             _labPortrait?.Dispose();
             _playerPortrait = null;
             _targetPortrait = null;
+            _petPortrait = null;
             _paperDoll = null;
             _inspectPaperDoll = null;
+            _petPaperDoll = null;
+            _dressUpTarget = null;
             _labPortrait = null;
             Console.WriteLine($"[portrait] render targets unavailable: {ex.Message}");
         }
@@ -210,12 +231,16 @@ public sealed partial class GameLoop
         // makes BakeDirtyPortraits reconsider it on the next pass.
         _targetPortraitUsable = false;
         _targetPortraitRetryAt = 0;
+        _petPortraitUsable = false;
+        _petPortraitRetryAt = 0;
         // The paper dolls too - they are character renders carrying the same
         // frozen style. Dirty only, NOT "unusable": these rebake solely while
         // their frame is open, and dropping the current image would blank the
         // character sheet for anyone who changed a setting with it closed.
         _paperDollDirty = true;
         _inspectPaperDollDirty = true;
+        _petPaperDollDirty = true;
+        _dressUpDirty = true;
     }
 
     private void BakeDirtyPortraits()
@@ -387,6 +412,27 @@ public sealed partial class GameLoop
             _paperDollDirty = false;
         }
 
+        if (_dressUpOpen && _dressUpDirty && _dressUpTarget is not null &&
+            _dressUpRenderer is { Loaded: true, Enabled: true })
+        {
+            var state = new CharacterRenderer.UnitState
+            {
+                Position = Vector3.Zero,
+                Yaw = 0f,
+                Grounded = true,
+                FreezePose = true,
+                HasIntent = true,
+            };
+            _dressUpRenderer.Update(0f, state);
+            Camera camera = PortraitCamera(Vector3.Zero, _dressUpRotation, 1.15f, 4.15f);
+            camera.FieldOfViewDegrees = 43f;
+            camera.AspectRatio = 316f / 351f;
+            WithPortraitLighting(() => _dressUpTarget.Bake(
+                () => _dressUpRenderer.Render(camera, state), transparent: true));
+            if (PainterlyUi) StylePortrait(_dressUpTarget);
+            _dressUpDirty = false;
+        }
+
         if (_inspectOpen && _inspectPaperDoll is not null && _creatures is not null &&
             _entities.TryGet(_inspectGuid, out WorldEntity inspected) && inspected.IsPlayer)
         {
@@ -431,6 +477,39 @@ public sealed partial class GameLoop
 
         UpdatePartyPortraits();
 
+        if (_petPortrait is not null && _creatures is not null &&
+            TryGetControlledPet(out WorldEntity portraitPet))
+        {
+            ulong appearance = PortraitAppearanceSignature(portraitPet);
+            bool dirty = !_petPortraitUsable || _petPortraitGuid != portraitPet.Guid ||
+                _petPortraitAppearance != appearance;
+            if (dirty && NowSeconds() >= _petPortraitRetryAt &&
+                _creatures.TryGetPortraitFraming(portraitPet, out _))
+            {
+                (PortraitTuning tuning, bool storeHit) =
+                    ResolveTuningWithHit(CreaturePortraitKey(portraitPet.DisplayId));
+                if (TryBakeCreaturePortrait(_petPortrait, portraitPet, tuning, storeHit,
+                        out CreaturePortraitBake petBake))
+                {
+                    _petPortraitUsable = petBake.Drawn && petBake.Stats.HasSubject;
+                    if (_petPortraitUsable)
+                    {
+                        if (PainterlyUi) StylePortrait(_petPortrait);
+                        _petPortrait.UpdateCircularCopy();
+                        _petPortraitGuid = portraitPet.Guid;
+                        _petPortraitAppearance = appearance;
+                        _petPortraitRetryAt = 0;
+                    }
+                    else _petPortraitRetryAt = NowSeconds() + 1;
+                }
+            }
+        }
+        else
+        {
+            _petPortraitUsable = false;
+            _petPortraitGuid = 0;
+        }
+
         if (_targetPortrait is null || _creatures is null || _selectionGuid == 0 ||
             !_entities.TryGet(_selectionGuid, out WorldEntity target) || !target.IsUnit ||
             target.Guid == ControlledGuid)
@@ -439,6 +518,42 @@ public sealed partial class GameLoop
             _portraitRequestAppearance = 0;
             _targetPortraitUsable = false;
             return;
+        }
+
+        if (_characterOpen && _characterTab == 1 && _petPaperDoll is not null &&
+            _creatures is not null && TryGetControlledPet(out WorldEntity pet))
+        {
+            ulong appearance = PortraitAppearanceSignature(pet);
+            if (_petPaperDollGuid != pet.Guid || _petPaperDollAppearance != appearance)
+            {
+                _petPaperDollDirty = true;
+                _petPaperDollUsable = false;
+            }
+            if (_petPaperDollDirty &&
+                _creatures.TryGetPortraitFraming(pet, out CreatureRenderer.PortraitFraming framing))
+            {
+                const float fov = 43f;
+                float window = MathF.Max(.75f, framing.Height * 1.10f);
+                float distance = (window * .5f) / MathF.Tan(fov * .5f * MathF.PI / 180f);
+                Camera camera = PortraitCamera(pet.Position,
+                    pet.Orientation + _petPaperDollRotation,
+                    framing.Height * .52f, distance);
+                camera.FieldOfViewDegrees = fov;
+                camera.AspectRatio = 318f / 224f;
+                camera.NearPlane = MathF.Max(.05f, distance - framing.Height);
+                bool drawn = false;
+                WithPortraitLighting(camera, () => _petPaperDoll.Bake(
+                    () => drawn = _creatures.RenderPortrait(camera, pet), transparent: true));
+                PortraitRenderTarget.ReadbackStats stats = _petPaperDoll.Analyze();
+                _petPaperDollUsable = drawn && stats.HasSubject;
+                if (_petPaperDollUsable)
+                {
+                    if (PainterlyUi) StylePortrait(_petPaperDoll);
+                    _petPaperDollDirty = false;
+                    _petPaperDollGuid = pet.Guid;
+                    _petPaperDollAppearance = appearance;
+                }
+            }
         }
 
         // Benilla keys the frozen booth image by rendered appearance, not by unit GUID.
@@ -613,6 +728,10 @@ public sealed partial class GameLoop
     }
 
     private static string CreaturePortraitKey(int displayId) => $"creature:{displayId}";
+
+    private uint PetPortraitHandle(ulong guid) =>
+        _petPortraitUsable && _petPortraitGuid == guid && _petPortrait is not null
+            ? _petPortrait.CircularTextureHandle : 0;
 
     private static Camera BoundsPortraitCamera(
         Vector3 feet, float modelYaw, float modelHeight, PortraitTuning tuning)
@@ -819,13 +938,21 @@ public sealed partial class GameLoop
     {
         _playerPortrait?.Dispose();
         _targetPortrait?.Dispose();
+        _petPortrait?.Dispose();
         _paperDoll?.Dispose();
         _inspectPaperDoll?.Dispose();
+        _petPaperDoll?.Dispose();
+        _dressUpTarget?.Dispose();
+        _dressUpRenderer?.Dispose();
         _labPortrait?.Dispose();
         _playerPortrait = null;
         _targetPortrait = null;
+        _petPortrait = null;
         _paperDoll = null;
         _inspectPaperDoll = null;
+        _petPaperDoll = null;
+        _dressUpTarget = null;
+        _dressUpRenderer = null;
         _labPortrait = null;
         foreach (PartyPortrait entry in _partyPortraits.Values) entry.Target?.Dispose();
         _partyPortraits.Clear();

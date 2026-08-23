@@ -7,12 +7,28 @@ internal static class QuestLogClinicalChecks
 {
     public static void Run()
     {
+        Check((ushort)Op.CMSG_QUESTLOG_SWAP_QUEST == 0x0193 &&
+              WorldSession.BuildQuestLogSwapBody(3, 7).SequenceEqual(new byte[] { 3, 7 }),
+            "CMSG_QUESTLOG_SWAP_QUEST opcode or two-u8 body drift");
         Check(QuestFrameUiLaw.WindowOrigin(2f) == new Vector2(0, 208) &&
               QuestFrameUiLaw.WindowSize(2f) == new Vector2(768, 1024) &&
               QuestFrameUiLaw.ClampQuestLogOffset(99, 20) == 14 &&
               QuestFrameUiLaw.ClampQuestLogOffset(-1, 4) == 0 &&
-              QuestFrameUiLaw.QuestLogDetailRect == new QuestLogicalRect(20, 175, 305, 250) &&
-              QuestFrameUiLaw.ClampQuestLogDetailScroll(999, 500) == 250 &&
+              QuestFrameUiLaw.QuestLogDetailRect == new QuestLogicalRect(19, 175, 300, 261) &&
+              QuestFrameUiLaw.ClampQuestLogDetailScroll(999, 500) == 239 &&
+              QuestFrameUiLaw.QuestLogCloseRect == new QuestLogicalRect(322, 8, 32, 32) &&
+              QuestFrameUiLaw.QuestLogCountPillRect(50) ==
+                  new QuestLogicalRect(271, 41, 66, 20) &&
+              QuestFrameUiLaw.QuestLogCollapseLeftRect ==
+                  new QuestLogicalRect(64, 40, 8, 32) &&
+              QuestFrameUiLaw.QuestLogTrackRect == new QuestLogicalRect(129, 44, 20, 20) &&
+              QuestFrameUiLaw.QuestLogDetailScrollBarRect ==
+                  new QuestLogicalRect(325, 175, 16, 261) &&
+              QuestFrameUiLaw.QuestLogDetailThumbY(239, 500) == 404 &&
+              QuestFrameUiLaw.QuestLogAbandonRect ==
+                  new QuestLogicalRect(17, 437, 125, 21) &&
+              QuestFrameUiLaw.QuestLogShareRect == new QuestLogicalRect(141, 437, 123, 21) &&
+              QuestFrameUiLaw.QuestLogExitRect == new QuestLogicalRect(264, 437, 77, 21) &&
               QuestFrameUiLaw.QuestLogRowMin(5) == new Vector2(19, 150) &&
               QuestFrameUiLaw.AbandonPopupOrigin(new Vector2(1920, 1080), 2f) ==
                   new Vector2(640, 256) &&
@@ -75,7 +91,16 @@ internal static class QuestLogClinicalChecks
 
         string runtime = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
             "MSUIClient", "Program.Quest.cs"));
-        Check(runtime.Contains("QuestFrameUiLaw.WindowOrigin(s)", StringComparison.Ordinal) &&
+        string session = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
+            "MSUIClient", "Net", "WorldSession.cs"));
+        string client = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
+            "MSUIClient", "Net", "NetworkClient.cs"));
+        Check(session.Contains("Op.CMSG_QUESTLOG_SWAP_QUEST", StringComparison.Ordinal) &&
+              client.Contains("QuestLogSwap(byte firstSlot, byte secondSlot)",
+                  StringComparison.Ordinal) &&
+              runtime.Contains(
+                  "UiPanelFrameOrigin(UiPanelOwnershipRegistry[logMode ? 8 : 7], s)",
+                  StringComparison.Ordinal) &&
               runtime.Contains("QuestFrameUiLaw.AbandonPopupOrigin", StringComparison.Ordinal) &&
               runtime.Contains("_questAbandonConfirmation = new(selected, title);",
                   StringComparison.Ordinal) &&

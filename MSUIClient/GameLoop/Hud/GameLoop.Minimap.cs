@@ -146,21 +146,9 @@ public sealed partial class GameLoop
         {
             float wheel = ImGui.GetIO().MouseWheel;
             if (wheel > 0)
-            {
-                int old = insideWmo ? _minimapInsideZoom : _minimapZoom;
-                if (insideWmo) _minimapInsideZoom = MinimapUiLaw.StepZoom(old, zoomIn: true);
-                else _minimapZoom = MinimapUiLaw.StepZoom(old, zoomIn: true);
-                if ((insideWmo ? _minimapInsideZoom : _minimapZoom) != old)
-                    PlayUiSound(MinimapUiLaw.ZoomInSound, "ui.minimap");
-            }
+                StepMinimapZoom(zoomIn: true, insideWmo);
             else if (wheel < 0)
-            {
-                int old = insideWmo ? _minimapInsideZoom : _minimapZoom;
-                if (insideWmo) _minimapInsideZoom = MinimapUiLaw.StepZoom(old, zoomIn: false);
-                else _minimapZoom = MinimapUiLaw.StepZoom(old, zoomIn: false);
-                if ((insideWmo ? _minimapInsideZoom : _minimapZoom) != old)
-                    PlayUiSound(MinimapUiLaw.ZoomOutSound, "ui.minimap");
-            }
+                StepMinimapZoom(zoomIn: false, insideWmo);
         }
 
         float? interiorBlipRadius = insideWmo ? interiorRadius : null;
@@ -208,19 +196,11 @@ public sealed partial class GameLoop
         DrawMinimapZoomButton(dl, root + zoomIn, zoomIn: true,
             MinimapUiLaw.ZoomInEnabled(activeZoom),
             () =>
-            {
-                if (insideWmo) _minimapInsideZoom =
-                    MinimapUiLaw.StepZoom(_minimapInsideZoom, zoomIn: true);
-                else _minimapZoom = MinimapUiLaw.StepZoom(_minimapZoom, zoomIn: true);
-            });
+                StepMinimapZoom(zoomIn: true, insideWmo, playSound: false));
         DrawMinimapZoomButton(dl, root + zoomOut, zoomIn: false,
             MinimapUiLaw.ZoomOutEnabled(activeZoom),
             () =>
-            {
-                if (insideWmo) _minimapInsideZoom =
-                    MinimapUiLaw.StepZoom(_minimapInsideZoom, zoomIn: false);
-                else _minimapZoom = MinimapUiLaw.StepZoom(_minimapZoom, zoomIn: false);
-            });
+                StepMinimapZoom(zoomIn: false, insideWmo, playSound: false));
         if (!squareMap && _uiParityArmed && _uiParityPanel == "minimap")
         {
             CollectUiParity("MinimapZoomIn", "Button", (root + new Vector2(157, 113)) * s,
@@ -809,6 +789,17 @@ public sealed partial class GameLoop
                 click();
             }
         }
+    }
+
+    private void StepMinimapZoom(bool zoomIn, bool insideWmo, bool playSound = true)
+    {
+        int old = insideWmo ? _minimapInsideZoom : _minimapZoom;
+        int next = MinimapUiLaw.StepZoom(old, zoomIn);
+        if (insideWmo) _minimapInsideZoom = next;
+        else _minimapZoom = next;
+        if (playSound && next != old)
+            PlayUiSound(zoomIn ? MinimapUiLaw.ZoomInSound : MinimapUiLaw.ZoomOutSound,
+                "ui.minimap");
     }
 
     private void SetMinimapVisible(bool visible)

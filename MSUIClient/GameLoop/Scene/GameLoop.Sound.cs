@@ -1,6 +1,7 @@
 using System.Numerics;
 using MSUIClient.Engine.UI;
 using MSUIClient.Net;
+using MSUIClient.World;
 using MSUIClient.World.Sound;
 
 namespace MSUIClient;
@@ -21,6 +22,8 @@ public sealed partial class GameLoop
     private (uint Music, uint Ambience, uint Intro) _soundscapeInterior;
     private bool _soundscapeIndoors;
     private uint _weatherSoundKit;
+    private readonly WeatherVisualLaw _weatherVisual = new();
+    private WeatherPrecipitationRenderer? _weatherPrecipitation;
     private readonly Dictionary<ulong, int> _knownMountSoundDisplays = [];
     private const string DismountSoundName = "SpiritWolf (DONOTRENAME)";
     private bool _soundscapePlaybackArmed;
@@ -241,6 +244,7 @@ public sealed partial class GameLoop
         // retain it through a loading cover so the ambience selector sees the
         // destination zone's weather when playback arms. Grade is visual-only.
         _weatherSoundKit = weather.SoundId;
+        _weatherVisual.Apply(weather.WeatherType, weather.Grade, weather.Instant, NowSeconds());
         Console.WriteLine($"[weather] type={weather.WeatherType} grade={weather.Grade:F2} " +
                           $"sound={weather.SoundId} instant={weather.Instant}");
     }

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/colorpickerframe",
+  "title": "colorpickerframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/ColorPickerFrame.xml",
+      "fileSha256": "c482c8494ecbd7d4bc4f96880c72b7104e0625cdeaa3696f955e965263aa31c8",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    }
+  ],
+  "msuiAnchors": [],
+  "status": "partial",
+  "summary": "Current Benilla's ColorPickerFrame is chiefly an addon/Lua API contract: ColorSelect methods and named globals, caller-installed func/opacityFunc/cancelFunc callbacks, previousValues restoration, live color/opacity callbacks, UISpecialFrames Escape behavior, and 305/365-width geometry. MSUI has no addon Lua VM or dropdown-swatch consumer, so adding an unowned native color modal would create visible furniture with no truthful caller contract. No implementation was added during this pass.",
+  "openItems": [
+    {
+      "id": "item-msui-color-picker-addon-contract-001",
+      "kind": "gap",
+      "text": "If MSUI gains addon/Lua compatibility, implement ColorPickerFrame as one rule-owned centered 305x200 or 365x200 modal with exact named methods/fields, HSV color selection, 32x32 swatch, optional 16x128 opacity slider, live callbacks, Okay/Cancel ordering, previousValues restoration and Escape cancellation. Until a consumer exists, do not add a disconnected ImGui color editor and call it parity.",
+      "source": "benilla-b57ee0e9e2c8822b/ColorPickerFrame.xml",
+      "added": "2026-08-22",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-22T23:25:00Z",
+  "seededUtc": "2026-08-22T23:25:00Z"
+}

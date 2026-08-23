@@ -33,16 +33,24 @@
     {
       "path": "crates/benilla-protocol/src/messages/update_object/movement.rs",
       "fileSha256": "e3427e11ff572afe4e28ebf8af161697027f11c0e1afde48cbbdeb585d107d6b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/net/motion/spline.rs",
+      "fileSha256": "cdb5ca26d6213247b8055c4bc3202a122aee06ef2055cb3b2a55a5d26da2e9e9",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/UpdateObject.cs",
+    "MSUIClient/Net/Entities.cs",
+    "MSUIClient/Net/MonsterMove.cs",
     "MSUIClient/Net/ObjectFields.cs",
-    "MSUIClient/Program.Net.cs"
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "tools/interface-wire-check/MonsterMoveClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "Benilla's SMSG_UPDATE_OBJECT decode: the five update kinds, the movement block (LIVING pose + 6 speeds, rider TransportPose, create-time in-progress CreateSpline with the phantom-endpoint trim, transport GO path progress) and the sparse ObjectFields descriptor accessors. MSUI's UpdateObjectParser + ObjectFields port the framing and field decode faithfully (incl. compressed form and created-mask absent=0 semantics), but the movement block only surfaces position/orientation/speeds - the three richer payloads are parsed for alignment and thrown away.",
+  "status": "complete",
+  "summary": "MSUI now surfaces current Benilla's complete SMSG_UPDATE_OBJECT movement block: LIVING/HAS_POSITION pose, six speeds, rider-local TransportPose, create-time CreateSpline with phantom-endpoint trim, and transport GameObject path progress paired with its local receipt clock. Streamed mid-walk units resume at the exact time_passed/duration fraction and retain id/flying/cyclic metadata. Rider poses persist through both create/movement blocks and later MSG_MOVE relays; transport-cycle and rider composition remain explicitly tracked as systems/transport work rather than decoder loss.",
   "openItems": [
     {
       "id": "item-triage-3c3f943c",
@@ -50,7 +58,8 @@
       "text": "Create-time live spline (MOVEFLAG_SPLINE_ENABLED tail) is read and discarded - a creature already mid-walk when it streams into view stands frozen at its create pose until the next SMSG_MONSTER_MOVE (the exact bug Benilla decision 0708 fixed), and the spline id/time_passed/duration/flying/cyclic never reach the entity layer",
       "source": "triage-2026-08-09/batch-protocol-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: MovementBlock exposes CreateSpline after dropping vmangos' phantom head and virtual tail. EntityStore resumes the existing CreatureSpline with its clock backdated by time_passed_ms, retains id/flying/cyclic metadata, and refuses zero-duration, degenerate, or completed paths. The focused synthetic wire fixture proves parse, trim, quarter-progress resume, continued motion and endpoint completion; focused and full clinical suites pass."
     },
     {
       "id": "item-triage-8564bb4c",
@@ -66,12 +75,21 @@
       "text": "UPDATE_FLAG_TRANSPORT path-progress u32 is discarded - the transport GameObject cycle anchor (Benilla decision 0438) is unavailable to any elevator/ship evaluator",
       "source": "triage-2026-08-09/batch-protocol-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23: MovementBlock now exposes the full u64 transport GUID plus local xyz/orientation tail as TransportPose. EntityStore retains it on create/movement updates and refreshes it from observed MSG_MOVE relays. The synthetic two-object fixture proves tail alignment through all six following speeds and entity delivery."
+    },
+    {
+      "id": "verify-create-time-live-spline",
+      "kind": "verify",
+      "text": "Live-verify a creature first entering interest range while already walking: it should appear at its server-authored in-progress fraction, continue without freezing or the next MONSTER_MOVE horizontal snap, choose the correct ground/flying gait, and finish at the endpoint.",
+      "added": "2026-08-22",
+      "resolved": true,
+      "resolution": "2026-08-23: MovementBlock exposes UPDATE_FLAG_TRANSPORT's u32 path-domain progress. WorldEntity retains it together with the monotonic receipt time needed to evaluate anchor+elapsed; the synthetic GameObject create fixture byte-pins 456789 and entity delivery."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T00:55:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

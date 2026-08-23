@@ -65,6 +65,8 @@ internal static class AutoFollowClinicalChecks
             "GameLoop.UnitPopup.cs"));
         string chat = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Chat.cs"));
+        string bindings = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Bindings.cs"));
         int followInput = program.IndexOf("ApplyAutoFollowInput(ref forward, dt, typing, mouseSteering);",
             StringComparison.Ordinal);
         int scriptedInput = program.IndexOf("OverrideMovementInput(ref forward", StringComparison.Ordinal);
@@ -91,6 +93,14 @@ internal static class AutoFollowClinicalChecks
               runtime.Contains("ImGui.GetBackgroundDrawList()", StringComparison.Ordinal) &&
               runtime.Contains("GameText.DrawCenteredWithAlpha", StringComparison.Ordinal),
             "UnitPopup Follow action or BACKGROUND AutoFollowStatus composition drift");
+        Check(bindings.Contains("GameBinding.FollowTarget, \"Follow Target\", Key.Unknown",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("UpdateFollowTargetBinding(bool typing)",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("StartAutoFollow(_selectionGuid, AutoFollowTargetName",
+                  StringComparison.Ordinal) &&
+              program.Contains("UpdateFollowTargetBinding(typing);", StringComparison.Ordinal),
+            "FOLLOWTARGET binding no longer enters the shared auto-follow funnel");
     }
 
     private static bool Near(float actual, float expected) => MathF.Abs(actual - expected) < 1e-4f;

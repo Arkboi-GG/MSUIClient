@@ -2,9 +2,54 @@ using MSUIClient.Net;
 
 namespace MSUIClient.Engine.UI;
 
+public readonly record struct GossipLogicalRect(float X, float Y, float Width, float Height)
+{
+    public System.Numerics.Vector2 Min => new(X, Y);
+    public System.Numerics.Vector2 Size => new(Width, Height);
+}
+
 /// <summary>Current Benilla gossip option/quest row icon selection.</summary>
 public static class GossipUiLaw
 {
+    public const float Width = 384f;
+    public const float Height = 512f;
+    public const float WindowY = 104f;
+    public const float ScrollStep = 20f;
+    public const float ScrollPad = 20f;
+    public const int MaximumRows = 32;
+    public static readonly GossipLogicalRect Portrait = new(7, 6, 60, 60);
+    public static readonly GossipLogicalRect Scroll = new(23, 81, 300, 334);
+    public static readonly GossipLogicalRect Greeting = new(33, 91, 270, 0);
+    public static readonly GossipLogicalRect ScrollUp = new(329, 81, 16, 16);
+    public static readonly GossipLogicalRect ScrollTrack = new(329, 97, 16, 302);
+    public static readonly GossipLogicalRect ScrollDown = new(329, 399, 16, 16);
+    public static readonly GossipLogicalRect Goodbye = new(267, 417, 78, 22);
+    public static readonly GossipLogicalRect Close = new(326, 15, 32, 32);
+
+    public static float RowTop(float greetingHeight) => 111f + Math.Max(0, greetingHeight);
+    public static float RowHeight(float measuredTextHeight) =>
+        Math.Max(16f, measuredTextHeight) + 2f;
+    public static float ContentHeight(float greetingHeight,
+        IReadOnlyList<float> rowHeights)
+    {
+        float bottom = 10f + Math.Max(0, greetingHeight);
+        if (rowHeights.Count > 0)
+            bottom = 30f + Math.Max(0, greetingHeight) + rowHeights.Sum();
+        return Math.Max(Scroll.Height, bottom + ScrollPad);
+    }
+    public static float MaximumScroll(float contentHeight) =>
+        Math.Max(0, contentHeight - Scroll.Height);
+    public static float ClampScroll(float value, float contentHeight) =>
+        Math.Clamp(value, 0, MaximumScroll(contentHeight));
+    public static float WheelScroll(float value, float contentHeight, float wheel) =>
+        ClampScroll(value - Math.Sign(wheel) * ScrollStep, contentHeight);
+    public static float ThumbY(float value, float contentHeight)
+    {
+        float maximum = MaximumScroll(contentHeight);
+        float fraction = maximum <= 0 ? 0 : Math.Clamp(value / maximum, 0, 1);
+        return ScrollTrack.Y + fraction * (ScrollTrack.Height - 16f);
+    }
+
     /// <summary>
     /// Select one of an NPC text record's eight greeting blocks. The gender column
     /// is fixed for the whole draw and empty strings in that column are excluded;

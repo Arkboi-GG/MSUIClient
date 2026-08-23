@@ -2,12 +2,13 @@ using System.Numerics;
 
 namespace MSUIClient.Engine.UI;
 
-public enum UnitPopupWhich { Self, Party, Player, Friend }
+public enum UnitPopupWhich { Self, Pet, Party, Player, Friend }
 
 public enum UnitPopupSubmenu { None, LootMethod, LootThreshold, RaidTargetIcon }
 
 public enum UnitPopupRow
 {
+    PetPaperDoll, PetRename, PetAbandon, PetDismiss,
     Whisper, Inspect, Invite, Uninvite, Promote, Leave, Trade, Follow, Duel,
     LootMethod, LootThreshold, LootPromote, RaidTargetIcon,
     FreeForAll, RoundRobin, MasterLooter, GroupLoot, NeedBeforeGreed,
@@ -32,6 +33,9 @@ public static class UnitPopupUiLaw
     private static readonly UnitPopupRow[] SelfMenu =
         [UnitPopupRow.LootMethod, UnitPopupRow.LootThreshold, UnitPopupRow.LootPromote,
          UnitPopupRow.Leave, UnitPopupRow.RaidTargetIcon, UnitPopupRow.Cancel];
+    private static readonly UnitPopupRow[] PetMenu =
+        [UnitPopupRow.PetPaperDoll, UnitPopupRow.PetRename, UnitPopupRow.PetAbandon,
+         UnitPopupRow.PetDismiss, UnitPopupRow.Cancel];
     private static readonly UnitPopupRow[] PartyMenu =
         [UnitPopupRow.Whisper, UnitPopupRow.Promote, UnitPopupRow.LootPromote,
          UnitPopupRow.Uninvite, UnitPopupRow.Inspect, UnitPopupRow.Trade,
@@ -57,6 +61,7 @@ public static class UnitPopupUiLaw
     private static UnitPopupRow[] Menu(UnitPopupWhich which) => which switch
     {
         UnitPopupWhich.Self => SelfMenu,
+        UnitPopupWhich.Pet => PetMenu,
         UnitPopupWhich.Party => PartyMenu,
         UnitPopupWhich.Friend => FriendMenu,
         _ => PlayerMenu,
@@ -82,6 +87,10 @@ public static class UnitPopupUiLaw
         => row switch
         {
             UnitPopupRow.Whisper => "Whisper",
+            UnitPopupRow.PetPaperDoll => "Pet Details",
+            UnitPopupRow.PetRename => "Rename",
+            UnitPopupRow.PetAbandon => "Abandon",
+            UnitPopupRow.PetDismiss => "Dismiss",
             UnitPopupRow.Inspect => "Inspect",
             UnitPopupRow.Invite => "Invite",
             UnitPopupRow.Uninvite => "Uninvite",
@@ -132,6 +141,17 @@ public static class UnitPopupUiLaw
             .Where(row => RowShown(row, which, inParty, isLeader, isRaid, canCooperate,
                 unitInParty, isAssistant, lootMethod, unitIsLootMaster))
             .ToArray();
+
+    public static UnitPopupRow[] VisiblePetRows(bool ownedSummon, bool canAbandon,
+        bool canRename) => PetMenu
+        .Where(row => row switch
+        {
+            _ when !ownedSummon => row == UnitPopupRow.Cancel,
+            UnitPopupRow.PetPaperDoll or UnitPopupRow.PetAbandon => canAbandon,
+            UnitPopupRow.PetRename => canAbandon && canRename,
+            UnitPopupRow.PetDismiss => !canAbandon,
+            _ => true,
+        }).ToArray();
 
     private static bool RowShown(UnitPopupRow row, UnitPopupWhich which, bool inParty,
         bool isLeader, bool isRaid, bool canCooperate, bool unitInParty, bool isAssistant,

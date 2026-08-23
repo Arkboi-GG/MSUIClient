@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/dressupframe",
+  "title": "dressupframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/DressUpFrame.xml",
+      "fileSha256": "f09adf23483eb41b6d6acfbdfd398cfa2204704f698a45aa2edd1b9777d328ff",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_dressup.rs",
+      "fileSha256": "4759ab311ec79cc28b458002b7d73569fe3af7ba3364a31cb8e1e26292458afc",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/portrait/dressup.rs",
+      "fileSha256": "4fcee7505f214fb8151ca694ab384b3a600793db2e4d0f42ea8a6f5a56136641",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/DressUpFrameUiLaw.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.DressUp.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.Portraits.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.ItemRef.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Inventory.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.CharacterPage.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Inspect.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Vendor.Render.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Quest.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Loot.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.GroupLoot.cs",
+    "tools/interface-wire-check/DressUpFrameClinicalChecks.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI now has a real isolated dressing room rather than a shell-only window. DressUpFrameUiLaw owns the reference 384x512 shell, portrait, four race-backdrop quadrants, 316x351 model pane, rotation controls, Reset/Close buttons, slot mapping, held-lane eviction, ranged-hand split, and Gnome/Troll backdrop substitutions. A dedicated CharacterRenderer and 632x702 transparent render target clone the current player's body and visible melee look without mutating live equipment; resolved try-ons replace only their visual slot, linked items wait for the item-template cache, Reset reclones the player look, and Close empties the room. Ctrl-click entry points cover chat item links, bags, the paper doll, inspect, merchant rows, quest and quest-log items, loot rows and group-loot icons. Focused and full clinical verification cover geometry, slot/lane laws, isolation, pending resolution, and the complete current item-entry surface set.",
+  "openItems": [
+    {
+      "id": "item-msui-dress-up-secondary-entry-points-001",
+      "kind": "gap",
+      "text": "Reference Ctrl-click try-on arms also exist on quest/quest-log reward items, loot and group-loot rows. MSUI's principal chat, bag, paper-doll, inspect and merchant paths are wired, but those secondary item surfaces still need the same DressUpItemLink route where their current interaction models expose an item entry.",
+      "source": "benilla-b57ee0e9e2c8822b/DressUpFrame.xml",
+      "added": "2026-08-22",
+      "resolved": true,
+      "resolution": "Quest/quest-log item rows now give Ctrl-click precedence over reward selection, LootFrame rows give it precedence over autostore, and GroupLootFrame icons queue the roll item. These join the existing chat, bag, paper-doll, inspect and merchant routes."
+    },
+    {
+      "id": "item-msui-dress-up-live-verify-001",
+      "kind": "verify",
+      "text": "Live-verify representative race/gender backdrops and model crops, base gear cloning, body armor/helm/shoulder/weapon substitutions, bow versus gun hand routing, two-hand eviction, linked-item pending resolution, repeat Ctrl-click accumulation, Reset, both Close controls, tap-and-hold rotation, painterly rebake, and gameplay-scale seating.",
+      "source": "benilla-b57ee0e9e2c8822b/DressUpFrame.xml",
+      "added": "2026-08-22",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-22T23:05:00Z",
+  "seededUtc": "2026-08-22T23:05:00Z"
+}

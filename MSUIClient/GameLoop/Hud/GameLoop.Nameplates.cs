@@ -11,8 +11,14 @@ public sealed partial class GameLoop
     private const float NameplateRangeYards = 20f;
     private readonly List<ScreenRect> _vplateClaims = [];
     private readonly List<(ScreenRect Rect, ulong Guid)> _vplateHits = [];
-    private bool _nameplatesVisible;
-    private bool _nameplateToggleWasDown;
+    private readonly List<World.Units.WorldNameRenderer.Label> _worldNameLabels = [];
+    // Current Benilla boots enemy/neutral plates on and friendly plates off. The two switches
+    // remain independent; ALLNAMEPLATES composes them through NameplateUiLaw.ToggleAll.
+    private bool _enemyNameplatesVisible = true;
+    private bool _friendlyNameplatesVisible;
+    private bool _enemyNameplateToggleWasDown;
+    private bool _friendlyNameplateToggleWasDown;
+    private bool _allNameplateToggleWasDown;
 
     private readonly record struct PlateCandidate(
         WorldEntity Unit, Vector2 Screen, FactionReaction Reaction, float SortDistance);
@@ -32,23 +38,82 @@ public sealed partial class GameLoop
     {
         _vplateHits.Clear();
         DrawChatBubbles();
-        // A world-space unit name is never a separate fallback: if a name is visible,
-        // the bar and level belonging to its in-range nameplate are visible with it.
-        // Background draw-list content also keeps plates below DIALOG-strata frames.
-        if (SettingsModalOpen || !_nameplatesVisible) return;
+        // V-key plates remain a DIALOG-strata 2D overlay. Ordinary overhead names are a
+        // separate depth-tested world batch assembled by RenderWorldUnitNames().
+        if (SettingsModalOpen ||
+            !_enemyNameplatesVisible && !_friendlyNameplatesVisible) return;
         DrawNameplates();
+    }
+
+    private void RenderWorldUnitNames()
+    {
+        if (_worldNames is null || _net is null || SettingsModalOpen ||
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
+
+        Vector2 display = ImGui.GetIO().DisplaySize;
+        Vector3 selfPosition = _controller?.Position ?? player.Position;
+        _worldNameLabels.Clear();
+        foreach (WorldEntity unit in _entities.Units)
+        {
+            bool own = unit.Guid == ControlledGuid;
+            bool selected = unit.Guid == _selectionGuid;
+            if (HasLiveChatBubble(unit.Guid) || WouldHaveActiveNameplate(unit, display)) continue;
+            if (own)
+            {
+                if (!Settings.Controls.ShowOwnName ||
+                    _window.Camera.EffectiveDistance <= FirstPersonBodyHide) continue;
+            }
+            else if ((!selected && unit.IsPlayer && !Settings.Controls.ShowPlayerNames) ||
+                     (!selected && !unit.IsPlayer && !Settings.Controls.ShowNpcNames) ||
+                     (unit.IsDead && !selected))
+            {
+                continue;
+            }
+
+            EnsureUnitNameRequested(unit);
+            string name = unit.IsPlayer
+                ? _playerNames.GetValueOrDefault(unit.Guid, "Player")
+                : ResolveCreatureOrPetName(unit, $"Creature {unit.Entry}");
+            List<string> lines =
+            [
+                NameplateUiLaw.NameLine(name, unit.IsPlayer, unit.Fields.PlayerFlags),
+            ];
+            if (unit.IsCreature &&
+                _creatureQueryRecords.TryGetValue(unit.Entry, out CreatureQueryInfo? creatureInfo) &&
+                NameplateUiLaw.CreatureSubnameLine(true, creatureInfo?.Subname) is { } subname)
+                lines.Add(subname);
+
+            FactionReaction reaction = ReactionTargetTowardPlayer(unit);
+            Vector3 rgb = NameplateUiLaw.SelectionRgb(reaction, unit.IsPlayer, unit.IsDead,
+                _attackTargetGuid == unit.Guid, MovementInfo.ClientUptimeMs());
+            Vector3 position = UnitWorldPosition(unit);
+            float distance = Vector3.Distance(selfPosition, position);
+            _worldNameLabels.Add(new World.Units.WorldNameRenderer.Label(
+                position + new Vector3(0f, 0f, UnitOverheadHeight(unit)),
+                lines, new Vector4(rgb, 1f), NameplateUiLaw.WorldNamePitch(distance)));
+        }
+        _worldNames.Render(_window.Camera, _worldNameLabels);
     }
 
     private void UpdateNameplateInput(bool typing)
     {
-        // 1.12's Ctrl+V behavior: one edge toggles all nearby unit plates. Track the
-        // chord even while typing so Ctrl+V paste cannot fire later on key release.
-        bool control = InputKeyDown(Silk.NET.Input.Key.ControlLeft) ||
-                       InputKeyDown(Silk.NET.Input.Key.ControlRight);
-        bool toggleDown = control && InputKeyDown(Silk.NET.Input.Key.V);
-        if (toggleDown && !_nameplateToggleWasDown && !typing)
-            _nameplatesVisible = !_nameplatesVisible;
-        _nameplateToggleWasDown = toggleDown;
+        bool enemy = BindingDown(GameBinding.ToggleEnemyNameplates);
+        bool friendly = BindingDown(GameBinding.ToggleFriendlyNameplates);
+        bool all = BindingDown(GameBinding.ToggleAllNameplates);
+        if (!typing)
+        {
+            if (enemy && !_enemyNameplateToggleWasDown)
+                _enemyNameplatesVisible = !_enemyNameplatesVisible;
+            if (friendly && !_friendlyNameplateToggleWasDown)
+                _friendlyNameplatesVisible = !_friendlyNameplatesVisible;
+            if (all && !_allNameplateToggleWasDown)
+                (_enemyNameplatesVisible, _friendlyNameplatesVisible) =
+                    NameplateUiLaw.ToggleAll(_enemyNameplatesVisible,
+                        _friendlyNameplatesVisible);
+        }
+        _enemyNameplateToggleWasDown = enemy;
+        _friendlyNameplateToggleWasDown = friendly;
+        _allNameplateToggleWasDown = all;
     }
 
     private void DrawNameplates()
@@ -73,7 +138,7 @@ public sealed partial class GameLoop
             bool namesEnabled = own ? Settings.Controls.ShowOwnName :
                 unit.IsPlayer ? Settings.Controls.ShowPlayerNames :
                 Settings.Controls.ShowNpcNames;
-            if (!namesEnabled || unit.IsDead ||
+            if (own || !namesEnabled || unit.IsDead ||
                 HasLiveChatBubble(unit.Guid) ||
                 (unit.Fields.UnitFlags & NotSelectable) != 0 ||
                 Vector3.DistanceSquared(selfPosition, UnitWorldPosition(unit)) >
@@ -81,6 +146,8 @@ public sealed partial class GameLoop
                 continue;
 
             FactionReaction reaction = ReactionTargetTowardPlayer(unit);
+            if (!NameplateUiLaw.ModeAllows(reaction, _enemyNameplatesVisible,
+                    _friendlyNameplatesVisible)) continue;
 
             Vector3 anchor = UnitWorldPosition(unit) +
                 new Vector3(0f, 0f, UnitOverheadHeight(unit) + 2f / 3f);
@@ -190,12 +257,16 @@ public sealed partial class GameLoop
     /// <summary>The current-frame V-plate spawn verdict used by chat-bubble creation.</summary>
     private bool WouldHaveActiveNameplate(WorldEntity unit, Vector2 display)
     {
-        if (SettingsModalOpen || !_nameplatesVisible || _net is null ||
+        if (SettingsModalOpen ||
+            !_enemyNameplatesVisible && !_friendlyNameplatesVisible || _net is null ||
             !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
         bool own = unit.Guid == ControlledGuid;
         bool namesEnabled = own ? Settings.Controls.ShowOwnName :
             unit.IsPlayer ? Settings.Controls.ShowPlayerNames : Settings.Controls.ShowNpcNames;
-        if (!namesEnabled || unit.IsDead || (unit.Fields.UnitFlags & NotSelectable) != 0)
+        if (own || !namesEnabled || unit.IsDead ||
+            (unit.Fields.UnitFlags & NotSelectable) != 0 ||
+            !NameplateUiLaw.ModeAllows(ReactionTargetTowardPlayer(unit),
+                _enemyNameplatesVisible, _friendlyNameplatesVisible))
             return false;
         Vector3 selfPosition = _controller?.Position ?? player.Position;
         if (Vector3.DistanceSquared(selfPosition, UnitWorldPosition(unit)) >

@@ -296,6 +296,9 @@ public sealed class ClientWindow : IDisposable
 
     /// <summary>Middle button, polled. Used by the in-world group picker.</summary>
     public bool MouseMiddleDown { get; private set; }
+    public bool MouseButton4Down { get; private set; }
+    public bool MouseButton5Down { get; private set; }
+    public float BindingWheelDelta { get; private set; }
 
     /// <summary>Cursor position in window pixels (top-left origin).</summary>
     public Vector2 MousePosition => _mouse?.Position ?? default;
@@ -736,7 +739,10 @@ public sealed class ClientWindow : IDisposable
             mouse.Scroll += (_, wheel) =>
             {
                 if (ImGui.GetIO().WantCaptureMouse) return;
-                _pendingZoom += wheel.Y;
+                BindingWheelDelta += wheel.Y;
+                // Ordinary orbit zoom is a rebindable host command. The free-view rig remains a
+                // physical wheel consumer and drains this path as altitude movement.
+                if (FreeSelectMode) _pendingZoom += wheel.Y;
             };
         }
 
@@ -896,6 +902,8 @@ public sealed class ClientWindow : IDisposable
         MouseLeftDown = _mouse.IsButtonPressed(MouseButton.Left);
         MouseRightDown = _mouse.IsButtonPressed(MouseButton.Right);
         MouseMiddleDown = _mouse.IsButtonPressed(MouseButton.Middle);
+        MouseButton4Down = _mouse.IsButtonPressed(MouseButton.Button4);
+        MouseButton5Down = _mouse.IsButtonPressed(MouseButton.Button5);
 
         // Pressing the right button turns the character to wherever the camera
         // has been swung, without the view moving. Done on the TRANSITION, so a
@@ -936,19 +944,18 @@ public sealed class ClientWindow : IDisposable
 
         Camera.Rotate(_pendingYaw, _pendingPitch);
         Camera.RotateView(_pendingOrbitYaw);
-        // In the free view the wheel belongs to the FLY RIG (altitude), not the
-        // orbit boom — Camera.Zoom clamps at MaxDistance, which read as a hard
-        // height ceiling from the sky. The game loop consumes the accumulator.
+        // In the free view the wheel belongs to the FLY RIG (altitude), not the orbit boom. Normal
+        // camera zoom is dispatched later through the rebindable CAMERAZOOMIN/OUT commands.
         if (_pendingZoom != 0)
         {
             if (FreeSelectMode) _freeFlightScroll += _pendingZoom;
-            else Camera.Zoom(_pendingZoom);
         }
         _pendingYaw = _pendingOrbitYaw = _pendingPitch = _pendingZoom = 0;
 
         InputMilliseconds = Stopwatch.GetElapsedTime(inputStarted).TotalMilliseconds;
 
         OnUpdate?.Invoke(dt);
+        BindingWheelDelta = 0f;
     }
 
     private void HandleRender(float dt)

@@ -133,6 +133,40 @@ public sealed class UiPanelOwnershipObserver
             added.Length == 1 ? $"observed-show:{added[0]}" : $"observed-hide:{removed[0]}");
     }
 
+    /// <summary>
+    /// Commits a host transition that a coordinator already planned through
+    /// <see cref="UiPanelOwnershipLaw"/> and then executed. This is the only
+    /// multi-edge entrance: it still validates every descriptor and requires
+    /// the final visible set to equal the planned seats exactly.
+    /// </summary>
+    public UiPanelOwnershipObservation ConfirmPlannedTransition(
+        UiPanelOwnershipSample sample,
+        UiPanelOwnershipLaw.Seats plannedSeats,
+        IReadOnlyList<UiPanelOwnershipLaw.Effect> effects,
+        string reason)
+    {
+        ArgumentNullException.ThrowIfNull(sample);
+        ArgumentNullException.ThrowIfNull(effects);
+        if (sample.VisibleRegistered is null)
+            return EnterUnknown([], "planned-visible-registry-null");
+
+        UiPanelOwnershipLaw.Panel[] rows = sample.VisibleRegistered.ToArray();
+        string[] ids = rows.Select(row => row.Id).ToArray();
+        if (sample.UnresolvedReason is not null)
+            return EnterUnknown(ids, $"planned-unresolved:{sample.UnresolvedReason}");
+        if (!TryValidateRows(rows, out Dictionary<string, UiPanelOwnershipLaw.Panel> current,
+                out string validationReason))
+            return EnterUnknown(ids, $"planned-{validationReason}");
+        if (!SeatsMatchVisible(plannedSeats, current))
+            return EnterUnknown(ids, "planned-seat-visible-inconsistency");
+
+        _visible = current;
+        _seats = plannedSeats;
+        _confidence = UiPanelObservationConfidence.Known;
+        _unknownReason = "";
+        return Known(_seats, effects.ToArray(), ids, reason);
+    }
+
     private bool TryValidateRows(
         IReadOnlyList<UiPanelOwnershipLaw.Panel> rows,
         out Dictionary<string, UiPanelOwnershipLaw.Panel> current,

@@ -20,6 +20,7 @@ public sealed class CreatureDisplayRow
     public uint ModelId;           // field 1 -> CreatureModelData.Id
     public uint ExtendedDisplayId; // field 3 -> CreatureDisplayInfoExtra.Id (0 = plain beast)
     public float Scale = 1f;       // field 4
+    public uint ModelAlpha = 255;   // field 5, CreatureModelAlpha (0..255)
     public string[] Textures = new string[3];  // fields 6/7/8 (bare stems)
 }
 
@@ -49,6 +50,7 @@ public sealed class CreatureDisplayInfoTable
                 ModelId = dbc.GetUInt(r, 1),
                 ExtendedDisplayId = dbc.FieldCount > 3 ? dbc.GetUInt(r, 3) : 0,
                 Scale = SaneScale(dbc.GetFloat(r, 4)),
+                ModelAlpha = dbc.FieldCount > 5 ? Math.Min(255u, dbc.GetUInt(r, 5)) : 255u,
             };
             for (int t = 0; t < 3; t++) row.Textures[t] = dbc.GetString(r, 6 + t);
             table._rows[id] = row;
@@ -191,6 +193,7 @@ public sealed class CreatureDisplayExtraTable
 public readonly record struct CreatureModelInfo(
     string ModelPath,
     float Scale,
+    float BaseAlpha,
     string[] Textures,       // beast monster-skin variations
     bool HasExtended,        // true = character-model NPC
     uint ExtId,
@@ -235,6 +238,7 @@ public sealed class CreatureModelResolver
         info = new CreatureModelInfo(
             ModelPath: NormalizeModelPath(m.ModelPath),
             Scale: d.Scale * m.Scale,
+            BaseAlpha: d.ModelAlpha / 255f,
             Textures: d.Textures,
             HasExtended: ex is not null,
             ExtId: ex?.Id ?? 0,
@@ -249,6 +253,9 @@ public sealed class CreatureModelResolver
             BakeName: ex?.BakeName ?? "");
         return true;
     }
+
+    public float BaseAlpha(int displayId) => displayId > 0 &&
+        _display.Find((uint)displayId) is { } row ? row.ModelAlpha / 255f : 1f;
 
     /// <summary>DBC stores .mdx/.mdl; the MPQ files are .m2.</summary>
     public static string NormalizeModelPath(string p)

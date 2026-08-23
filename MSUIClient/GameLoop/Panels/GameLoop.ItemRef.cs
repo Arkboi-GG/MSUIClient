@@ -50,6 +50,11 @@ public sealed partial class GameLoop
 
         string entryText = link.Payload[5..].Split(':', 2)[0];
         if (!uint.TryParse(entryText, out uint entry) || entry == 0) return;
+        if (ImGui.GetIO().KeyCtrl)
+        {
+            TryOnDressUp(entry);
+            return;
+        }
         _itemRefEntry = entry;
         _itemRefPayload = link.Payload;
         if (_items is not null && _net is not null) _items.Require(entry, 0, _net);

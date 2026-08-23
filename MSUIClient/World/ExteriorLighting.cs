@@ -272,10 +272,12 @@ public sealed class ExteriorLighting
     /// own falloff weight, farthest first so the nearest zone lands last and
     /// dominates.
     /// </summary>
-    public Sample Resolve(uint mapId, Vector3 position, float timeHours)
+    public Sample Resolve(uint mapId, Vector3 position, float timeHours, float stormBlend = 0f)
     {
         var sample = new Sample();
         if (!Ready) return sample;
+
+        stormBlend = Math.Clamp(stormBlend, 0f, 1f);
 
         var zones = _lights!.ForMap(mapId);
 
@@ -291,7 +293,7 @@ public sealed class ExteriorLighting
                          ?? _lights.ForMap(0).FirstOrDefault(z => z.IsMapDefault);
         if (mapDefault is not null)
         {
-            ReadInto(sample, mapDefault.ParamsClear, timeHours);
+            ReadWeatherInto(sample, mapDefault, timeHours, stormBlend);
             sample.HasData = true;
             sample.Contributors.Add(new Contribution(
                 mapDefault.Id, mapDefault.ParamsClear, true, 0f, 0f, 0f, 1f));
@@ -312,7 +314,7 @@ public sealed class ExteriorLighting
         var scratch = new Sample();
         foreach (var (zone, distance, weight) in scored)
         {
-            ReadInto(scratch, zone.ParamsClear, timeHours);
+            ReadWeatherInto(scratch, zone, timeHours, stormBlend);
 
             for (int i = 0; i < sample.Colors.Length; i++)
                 sample.Colors[i] = Vector3.Lerp(sample.Colors[i], scratch.Colors[i], weight);
@@ -350,6 +352,25 @@ public sealed class ExteriorLighting
             sample.Colors[b] = _intBands!.SampleColor(paramsId, b, hours);
         for (int b = 0; b < LightFloatBandTable.BandsPerParams; b++)
             sample.Floats[b] = _floatBands!.Sample(paramsId, b, hours);
+    }
+
+    /// <summary>
+    /// Resolve one zone's clear/storm LightParams pair. A missing storm row is
+    /// an identity fallback to clear, which is how zones without authored storm
+    /// data remain unchanged instead of resolving to black/zero bands.
+    /// </summary>
+    private void ReadWeatherInto(Sample sample, LightZone zone, float hours, float stormBlend)
+    {
+        ReadInto(sample, zone.ParamsClear, hours);
+        if (stormBlend <= 0f || zone.ParamsStorm == 0 || _params!.Get(zone.ParamsStorm) is null)
+            return;
+
+        var storm = new Sample();
+        ReadInto(storm, zone.ParamsStorm, hours);
+        for (int i = 0; i < sample.Colors.Length; i++)
+            sample.Colors[i] = Vector3.Lerp(sample.Colors[i], storm.Colors[i], stormBlend);
+        for (int i = 0; i < sample.Floats.Length; i++)
+            sample.Floats[i] += (storm.Floats[i] - sample.Floats[i]) * stormBlend;
     }
 
     /// <summary>

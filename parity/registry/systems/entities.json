@@ -42,8 +42,13 @@
     },
     {
       "path": "crates/benilla-app/src/entities/chain_beam.rs",
-      "fileSha256": "3501f9f56ae9165a678083e8e77bc7007e93d2f7ccde16c3a6b2f0d1fcc0ca54",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "4ebe5aa4dab189fa370fdc49a59585bb5a4a8de3e7f189d68e72ab8cd3146024",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-formats/src/spell_visual/chain_effects.rs",
+      "fileSha256": "9485bfde1bf069e0cfd78654320e1d861a7f776cc427b0731a65428b6fbcfcdc",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/entities/collision_height.rs",
@@ -121,13 +126,20 @@
     "MSUIClient/World/Units/CharacterRenderer.cs",
     "MSUIClient/World/Units/CharacterEquipment.cs",
     "MSUIClient/World/Units/AttachedItemRenderer.cs",
+    "MSUIClient/Formats/ItemVisualCatalog.cs",
+    "MSUIClient/Formats/EnchantCatalog.cs",
+    "MSUIClient/World/Units/CarriedLightFrame.cs",
     "MSUIClient/World/Units/CreatureRenderer.Mounts.cs",
     "MSUIClient/World/Units/SpellEffectSource.cs",
     "MSUIClient/World/Units/SpellMissileLaw.cs",
-    "tools/interface-wire-check/MountRenderingClinicalChecks.cs"
+    "MSUIClient/World/Units/SpellChainBeamSource.cs",
+    "MSUIClient/World/Units/SpellChainBeamRenderer.cs",
+    "tools/interface-wire-check/MountRenderingClinicalChecks.cs",
+    "tools/interface-wire-check/ItemGlowClinicalChecks.cs",
+    "tools/interface-wire-check/CarriedLightClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI's World/Units stack realizes the bulk of the entity-visual layer: display-id resolution, character dress/redress and attached gear, spell missiles and per-unit spell-FX lifecycle, scale and collision. UNIT_MOUNTDISPLAYID drives a full local/observed steed pipeline with attachment-0 saddle parenting, rider animation 91, moving/flying gait selection, flourish 94, mount-sized shadows/selection and mounted name clearance. Chain beams, enchant glow and carried lights remain.",
+  "summary": "MSUI's World/Units stack realizes the bulk of the entity-visual layer: display-id resolution, character dress/redress and attached gear, item/enchant glows, carried M2 point lights, spell missiles and per-unit spell-FX lifecycle, scale and collision. UNIT_MOUNTDISPLAYID drives the full steed pipeline. Chain beams use the exact build-5875 DBC, target ownership, hop timing, live endpoints, jitter/advection, spindle ribbon, additive depth-tested render state and cast/channel lifetime laws. ItemDisplayInfo intrinsic visuals and the first visual-bearing live enchant join through ItemVisuals/ItemVisualEffects, attach by slots 0..4 to the held item's own lookup points, and retain mesh/particle/ribbon age through movement and sheath swaps. Casting type-1 M2 lights now ride attached item transforms and illuminate the three nearest candidates per fragment on terrain, units/gear, doodads, and WMOs with the reference 0/.7/.03 falloff.",
   "openItems": [
     {
       "id": "item-triage-e0a2c68a",
@@ -147,12 +159,20 @@
       "resolved": false
     },
     {
+      "id": "verify-chain-beam-world-visuals",
+      "kind": "verify",
+      "text": "Owner-run authenticated visual acceptance: cast Chain Lightning/Chain Heal across moving targets and channel Drain Life/Mind Flay while caster/target move; confirm hop order/stagger, attachment tracking, backward drain scroll, wall depth occlusion, and immediate channel teardown.",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
       "id": "item-triage-86bcfb10",
       "kind": "gap",
       "text": "SMSG_SPELL_UPDATE_CHAIN_TARGETS unhandled: chain spells (Chain Lightning/Chain Heal) draw no jump beams between targets.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: SpellChainEffects.dbc and type-0/type-12 CharProcs now drive a dedicated world renderer. It preserves caster→hop order, SPELL_GO and packet producers, one-consumer hops, channel-object fallback, live attachment endpoints, +2 subdivision floor, length-scaled jitter, 0.75/0.25 advection, signed texture scroll, spindle taper, hop staggering, additive white/depth-write-off/fog-off state, and persistent channel teardown. Actual Chain Lightning and Drain Life rows plus source wiring pass focused/full clinical checks."
     },
     {
       "id": "item-triage-2e9fa2a8",
@@ -160,6 +180,15 @@
       "text": "No enchant item glow: an enchanted weapon's glow effect (item_glow) has no counterpart.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-23: loaded the exact 34-row ItemVisuals/ItemVisualEffects join and SpellItemEnchantment visual column. Held items use the reference intrinsic-wins-or-first-visual-enchant fork, attach each authored effect to lookup-only item attachment ids 0..4, and publish absolute world roots into the shared effect mesh/particle/ribbon pipeline. Public remote enchants and local live item-instance enchants participate in appearance signatures; stable keys preserve live particles across movement/sheathing and retire on gear changes. Actual build-5875 census/row anchors and focused/full clinical suites pass."
+    },
+    {
+      "id": "verify-item-enchant-glow-live-20260823",
+      "kind": "verify",
+      "text": "Owner-run authenticated visual acceptance: inspect intrinsic-glow and enchanted main/off-hand weapons on self and remote players, draw and sheath them, move/turn/fade/stealth and swap gear. Confirm authored slots follow the blade/haft, missing item attachment slots emit nothing, intrinsic visuals suppress enchant visuals, particles retain continuity across sheath motion, and retired weapons leave no orphan glow.",
+      "source": "benilla-5089066fea6adbc3/entities/item_glow.rs",
+      "added": "2026-08-23",
       "resolved": false
     },
     {
@@ -168,12 +197,21 @@
       "text": "No carried-light: point lights attached to carried items (lanterns/torches on NPCs) are not spawned.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-23: M2Reader now parses the exact 0xD4 light block, diffuse tracks, attenuation metadata and byte-valued visibility gate. Casting type-1 lights on attached item models publish from the live hand/sheath item root into a shared previous-frame candidate pack. Terrain, character/creature/gear, doodad and WMO shaders select their three nearest of eight camera-near candidates and apply the fixed 1/(0.7d+0.03d^2) diffuse falloff. The actual Club_1H_Torch_A_01 model resolves one warm intensity-3 light; focused and full clinical suites pass."
+    },
+    {
+      "id": "verify-carried-m2-lights-live-20260823",
+      "kind": "verify",
+      "text": "Owner-run visual acceptance around torch/lantern-bearing NPCs (especially Westfall's Remy Two Times): confirm the warm pool follows the swinging hand and sheath transition, lights terrain/fences/grass, nearby units and WMO surfaces, respects walls through ordinary surface visibility, stays stable in crowds, and retires immediately when the item or carrier despawns.",
+      "source": "benilla-5089066fea6adbc3/entities/carried_light.rs",
+      "added": "2026-08-23",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T03:20:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

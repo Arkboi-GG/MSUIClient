@@ -29,6 +29,17 @@ internal static class NameplateClinicalChecks
               NameplateUiLaw.SelectionRgb(FactionReaction.Hostile, false, false, false, 0) ==
                   new Vector3(1f, 0f, 0f),
             "combat flash no longer outranks the shared reaction palette");
+        Check(NameplateUiLaw.ModeAllows(FactionReaction.Hostile, true, false) &&
+              NameplateUiLaw.ModeAllows(FactionReaction.Neutral, true, false) &&
+              !NameplateUiLaw.ModeAllows(FactionReaction.Friendly, true, false) &&
+              NameplateUiLaw.ModeAllows(FactionReaction.Friendly, false, true) &&
+              NameplateUiLaw.ToggleAll(false, true) == (true, true) &&
+              NameplateUiLaw.ToggleAll(true, true) == (false, false),
+            "enemy/friendly/all V-plate mode law drift");
+        Check(NameplateUiLaw.WorldNamePitch(0f) == 0.2f &&
+              NameplateUiLaw.WorldNamePitch(4f) == 0.2f &&
+              MathF.Abs(NameplateUiLaw.WorldNamePitch(8f) - 0.6f) < .0001f,
+            "depth-tested world-name distance/pitch law drift");
 
         string root = ClientConfig.FindRepoRoot();
         string names = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
@@ -39,10 +50,22 @@ internal static class NameplateClinicalChecks
             "GameLoop.Settings.cs"));
         string model = SourceText.Read(Path.Combine(root, "MSUIClient", "Engine",
             "GameSettings.cs"));
+        string renderer = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Units",
+            "WorldNameRenderer.cs"));
+        string program = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.cs"));
         Check(names.Contains("NameplateUiLaw.NameLine", StringComparison.Ordinal) &&
               names.Contains("creatureInfo?.Subname", StringComparison.Ordinal) &&
               names.Contains("_attackTargetGuid == unit.Guid", StringComparison.Ordinal),
             "overhead identity render wiring drift");
+        Check(names.Contains("BindingDown(GameBinding.ToggleEnemyNameplates)",
+                  StringComparison.Ordinal) &&
+              names.Contains("BindingDown(GameBinding.ToggleFriendlyNameplates)",
+                  StringComparison.Ordinal) &&
+              names.Contains("BindingDown(GameBinding.ToggleAllNameplates)",
+                  StringComparison.Ordinal) &&
+              names.Contains("NameplateUiLaw.ModeAllows", StringComparison.Ordinal) &&
+              !names.Contains("control && InputKeyDown", StringComparison.Ordinal),
+            "V-plate modes escaped the binding table or reaction gate");
         Check(names.Contains("Settings.Controls.ShowOwnName", StringComparison.Ordinal) &&
               names.Contains("Settings.Controls.ShowPlayerNames", StringComparison.Ordinal) &&
               names.Contains("Settings.Controls.ShowNpcNames", StringComparison.Ordinal) &&
@@ -57,6 +80,15 @@ internal static class NameplateClinicalChecks
             "nameplate settings rows or live show gates drift");
         Check(targeting.Contains("NameplateUiLaw.SelectionRgb", StringComparison.Ordinal),
             "ground ring no longer shares the overhead colour selector");
+        Check(names.Contains("WouldHaveActiveNameplate(unit, display)", StringComparison.Ordinal) &&
+              names.Contains("_worldNames.Render(_window.Camera", StringComparison.Ordinal) &&
+              names.Contains("NameplateUiLaw.WorldNamePitch(distance)", StringComparison.Ordinal) &&
+              renderer.Contains("_gl.Enable(EnableCap.DepthTest)", StringComparison.Ordinal) &&
+              renderer.Contains("_gl.DepthMask(false)", StringComparison.Ordinal) &&
+              renderer.Contains("camera.RelativeViewProjection", StringComparison.Ordinal) &&
+              program.IndexOf("RenderWorldUnitNames();", StringComparison.Ordinal) >
+              program.IndexOf("_liquidRenderMilliseconds", StringComparison.Ordinal),
+            "overhead names escaped the late depth-tested world geometry pass");
     }
 
     private static void Check(bool condition, string message)

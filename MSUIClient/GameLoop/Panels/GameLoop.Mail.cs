@@ -59,6 +59,9 @@ public sealed partial class GameLoop
     private StationeryCatalog? _mailStationery;
     private bool _mailStationeryLoaded;
     private string _mailError = "";
+    // Cached only for child/telemetry projection during the current MailFrame draw. The seat
+    // itself remains owned by UiPanelOwnershipLaw.
+    private Vector2 _mailFrameOrigin;
 
     private void InitMail() => ResetComposeMail();
 
@@ -683,7 +686,8 @@ public sealed partial class GameLoop
     {
         if (!_mailOpen || _gameplayArt is null) return;
         float s = GameplayUiScale();
-        Vector2 origin = new(0, 104 * s), logicalSize = new(384, 512);
+        Vector2 origin = UiPanelFrameOrigin(UiPanelOwnershipRegistry[2], s), logicalSize = new(384, 512);
+        _mailFrameOrigin = origin;
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(logicalSize * s, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
@@ -877,7 +881,7 @@ public sealed partial class GameLoop
     private void DrawMailInboxRow(ImDrawListPtr dl, Vector2 min, MailRow row, float s,
         int visibleIndex)
     {
-        Vector4 clip = MailPanelClip(new(0, 104 * s), s);
+        Vector4 clip = MailPanelClip(_mailFrameOrigin, s);
         string frameElement = $"MailItem{visibleIndex + 1}";
         if (_uiParityArmed && _uiParityPanel == "mail")
             CollectUiParityDraw(frameElement, "Frame", min, new Vector2(305, 45) * s,
@@ -1083,7 +1087,7 @@ public sealed partial class GameLoop
                 min + new Vector2(0, 9) * s, s);
         string element = previous ? "InboxPrevPageButton" : "InboxNextPageButton";
         TraceMailControl(element, "InboxFrame", min, size, active, hovered, enabled,
-            MailPanelClip(new(0, 104 * s), s),
+            MailPanelClip(_mailFrameOrigin, s),
             $@"Interface\Buttons\UI-SpellbookIcon-{stem}-{state}");
         return clicked;
     }
@@ -1387,7 +1391,7 @@ public sealed partial class GameLoop
         }
         if (_uiParityArmed && _uiParityPanel == "mail")
         {
-            Vector4 clip = MailPanelClip(new(0, 104 * s), s);
+            Vector4 clip = MailPanelClip(_mailFrameOrigin, s);
             CollectUiParityDraw("SendMailPackageButton", "Button", min, new Vector2(37) * s,
                 "SendMailFrame", new("", 0, "IMGUI_HIT_TARGET", "TOPLEFT", "SendMailFrame",
                     "TOPLEFT", 30, -368,
@@ -1484,7 +1488,7 @@ public sealed partial class GameLoop
         {
             string element = id.Contains("send-money", StringComparison.Ordinal) ?
                 "SendMailSendMoneyButton" : "SendMailCODButton";
-            Vector4 clip = MailPanelClip(new(0, 104 * s), s);
+            Vector4 clip = MailPanelClip(_mailFrameOrigin, s);
             CollectUiParityDraw(element, "CheckButton", min, new Vector2(16) * s,
                 "SendMailFrame", new(@"Interface\Buttons\UI-RadioButton", enabled ? 0xffffffff :
                     0xff808080, "IMGUI_HIT_TARGET", "TOPLEFT", "SendMailFrame", "TOPLEFT",
@@ -1555,7 +1559,8 @@ public sealed partial class GameLoop
     {
         MailRow? row = OpenMailRow();
         if (row is null) return;
-        Vector2 origin = new(374 * s, 104 * s), size = new Vector2(384, 512) * s;
+        Vector2 origin = MailUiLaw.OpenMailOrigin(_mailFrameOrigin, s),
+            size = new Vector2(384, 512) * s;
         Vector4 clip = new(origin.X, origin.Y, origin.X + size.X, origin.Y + size.Y);
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
@@ -1812,8 +1817,8 @@ public sealed partial class GameLoop
         { _mailConfirmation = null; return; }
         float s = GameplayUiScale();
         Vector2 display = ImGui.GetIO().DisplaySize;
-        Vector2 size = new Vector2(360, 96) * s;
-        Vector2 origin = new((display.X - size.X) * .5f, 128 * s);
+        Vector2 size = MailUiLaw.ConfirmationSize(s);
+        Vector2 origin = MailUiLaw.ConfirmationOrigin(display, s);
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);

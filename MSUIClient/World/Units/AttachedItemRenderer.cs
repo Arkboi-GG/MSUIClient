@@ -7,6 +7,8 @@ using Texture = MSUIClient.Engine.Texture;
 
 namespace MSUIClient.World.Units;
 
+public readonly record struct ItemGlowPlacement(string Key, string Path, Matrix4x4 Transform);
+
 /// <summary>
 /// Draws the equipment that has geometry of its own - helms, shoulders,
 /// weapons and shields. Cape cloth is part of the character M2 and is handled
@@ -75,6 +77,7 @@ public sealed class AttachedItemRenderer : IDisposable
         public uint Vao, Vbo, Ebo;
         public List<Batch> Batches = [];
         public string Path = "";
+        public M2Model Source = null!;
 
         private GL? _gl;
         public void Attach(GL gl) => _gl = gl;
@@ -96,6 +99,10 @@ public sealed class AttachedItemRenderer : IDisposable
         public int HeldSlot = -1;
         public int InventoryType;
         public byte ItemSheath;
+        public uint DisplayId;
+        public int EquipmentSlot = -1;
+        public int ItemVisualId;
+        public uint[] Enchants = [];
         public string Label = "";
         public bool Visible = true;
     }
@@ -114,6 +121,9 @@ public sealed class AttachedItemRenderer : IDisposable
             new(StringComparer.OrdinalIgnoreCase);
         public readonly Dictionary<string, Texture?> Textures =
             new(StringComparer.OrdinalIgnoreCase);
+        public ItemVisualCatalog? ItemVisuals;
+        public EnchantCatalog? Enchants;
+        public bool GlowCatalogsLoaded;
         public int Owners;
     }
 
@@ -129,6 +139,8 @@ public sealed class AttachedItemRenderer : IDisposable
     private Dictionary<string, ItemModel?> Models => _shared.Models;
     private Dictionary<string, Texture?> Textures => _shared.Textures;
     private readonly List<Mount> _mounts = [];
+    private readonly List<ItemGlowPlacement> _glowPlacements = [];
+    private readonly List<CarriedLightPlacement> _carriedLights = [];
 
     public bool Enabled { get; set; } = true;
     public int MountCount => _mounts.Count;
@@ -151,6 +163,9 @@ public sealed class AttachedItemRenderer : IDisposable
             if (mount.Label == label) mount.Visible = visible;
     }
     public int DrawnLastFrame { get; private set; }
+    public IReadOnlyList<ItemGlowPlacement> GlowPlacements => _glowPlacements;
+    public IReadOnlyList<CarriedLightPlacement> CarriedLights => _carriedLights;
+    public string GlowOwnerKey { get; set; } = "local";
     public byte SheathState { get; set; }
 
     /// <summary>Matched to the character so a pauldron lights like the shoulder under it.</summary>
@@ -164,6 +179,8 @@ public sealed class AttachedItemRenderer : IDisposable
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
     public float AlphaCutoff { get; set; } = 0.35f;
+    public float BodyAlpha { get; set; } = 1f;
+    public Vector3 BodyTint { get; set; } = Vector3.One;
 
     /// <summary>
     /// Two-letter race code plus M or F, e.g. HuM.
@@ -189,7 +206,21 @@ public sealed class AttachedItemRenderer : IDisposable
                     "attachment resources cannot span unrelated GL contexts");
             _shared = s_shared;
             _shared.Owners++;
+            if (!_shared.GlowCatalogsLoaded)
+            {
+                _shared.GlowCatalogsLoaded = true;
+                _shared.ItemVisuals = ItemVisualCatalog.Load(_config.ClientDataPath);
+                _shared.Enchants = EnchantCatalog.Load(_config.ClientDataPath);
+                Console.WriteLine($"[item-glow] catalogs: visuals={_shared.ItemVisuals?.Count ?? 0}, " +
+                                  $"enchants={_shared.Enchants?.Count ?? 0}");
+            }
         }
+    }
+
+    public void BeginGlowFrame()
+    {
+        _glowPlacements.Clear();
+        _carriedLights.Clear();
     }
 
     /// <summary>
@@ -294,13 +325,16 @@ public sealed class AttachedItemRenderer : IDisposable
             int heldSlot = piece.EquipmentSlot switch { 15 => 0, 16 => 1, 17 => 2, _ => -1 };
             AddMount(mounts, piece.Row.ModelName1, piece.Row.ModelTexture1, folder,
                      AttachmentFor(piece.InventoryType), piece.Name, heldSlot,
-                     piece.InventoryType, piece.Sheath);
+                     piece.InventoryType, piece.Sheath, piece.DisplayId,
+                     piece.EquipmentSlot, unchecked((int)piece.Row.ItemVisualId), piece.Enchants);
         }
     }
 
     private void AddMount(List<Mount> mounts, string modelName, string textureName,
         string folder, int attachmentId, string label,
-        int heldSlot = -1, int inventoryType = 0, byte itemSheath = 0)
+        int heldSlot = -1, int inventoryType = 0, byte itemSheath = 0,
+        uint displayId = 0, int equipmentSlot = -1, int itemVisualId = 0,
+        IReadOnlyList<uint>? enchants = null)
     {
         if (string.IsNullOrWhiteSpace(modelName)) return;
 
@@ -315,6 +349,8 @@ public sealed class AttachedItemRenderer : IDisposable
         {
             Model = model, AttachmentId = attachmentId, Label = label,
             HeldSlot = heldSlot, InventoryType = inventoryType, ItemSheath = itemSheath,
+            DisplayId = displayId, EquipmentSlot = equipmentSlot, ItemVisualId = itemVisualId,
+            Enchants = enchants?.ToArray() ?? [],
         });
         Console.WriteLine($"[attach] {label}: {model.Path} on attachment {attachmentId}");
     }
@@ -425,7 +461,7 @@ public sealed class AttachedItemRenderer : IDisposable
 
         _gl.BindVertexArray(0);
 
-        var model = new ItemModel { Vao = vao, Vbo = vbo, Ebo = ebo };
+        var model = new ItemModel { Vao = vao, Vbo = vbo, Ebo = ebo, Source = m2 };
         model.Attach(_gl);
 
         // An item M2's own texture table is usually a single type-2 slot with
@@ -567,6 +603,35 @@ public sealed class AttachedItemRenderer : IDisposable
         shader.Set("uFogEnd", FogEnd);
         shader.Set("uFogColor", FogColor);
         shader.Set("uTexture", 0);
+        float bodyAlpha = Math.Clamp(BodyAlpha, 0f, 1f);
+        shader.Set("uBodyAlpha", bodyAlpha);
+        shader.Set("uBodyTint", BodyTint);
+        CarriedLightFrame.Upload(shader, camera.Position);
+        bool bodyTranslucent = bodyAlpha < 1f - AuraVisualLaw.AlphaSettledEpsilon;
+
+        // Item geometry is submitted camera-relative for precision. The shared effect pipeline
+        // consumes absolute world transforms and performs its own camera rebase, so restore the
+        // camera translation before publishing glow roots.
+        Matrix4x4 worldInstance = instance;
+        worldInstance.M41 += camera.Position.X;
+        worldInstance.M42 += camera.Position.Y;
+        worldInstance.M43 += camera.Position.Z;
+
+        foreach (Mount mount in mounts)
+        {
+            if (!mount.Visible) continue;
+            int attachmentId = ResolveAttachment(mount, sheathState);
+            if (attachmentId < 0) continue;
+            M2Attachment? attachment = FindAttachment(character, attachmentId);
+            if (attachment is null) continue;
+            int bone = (int)attachment.BoneIndex;
+            Matrix4x4 boneMatrix = bone >= 0 && bone < skin.Length
+                ? skin[bone] : Matrix4x4.Identity;
+            Matrix4x4 itemRoot = Matrix4x4.CreateTranslation(attachment.Position) *
+                                 boneMatrix * worldInstance;
+            AppendCarriedLights(mount, itemRoot);
+            if (mount.HeldSlot >= 0) AppendGlowPlacements(mount, itemRoot);
+        }
 
         bool cullingOn = true;
 
@@ -599,7 +664,7 @@ public sealed class AttachedItemRenderer : IDisposable
 
                 foreach (var batch in mount.Model.Batches)
                 {
-                    if (batch.Transparent != transparentPass) continue;
+                    if ((bodyTranslucent || batch.Transparent) != transparentPass) continue;
 
                     if (batch.TwoSided && cullingOn) { _gl.Disable(EnableCap.CullFace); cullingOn = false; }
                     else if (!batch.TwoSided && !cullingOn) { _gl.Enable(EnableCap.CullFace); cullingOn = true; }
@@ -634,6 +699,36 @@ public sealed class AttachedItemRenderer : IDisposable
 
         if (!cullingOn) _gl.Enable(EnableCap.CullFace);
         _gl.BindVertexArray(0);
+    }
+
+    private void AppendGlowPlacements(Mount mount, Matrix4x4 itemRoot)
+    {
+        int visual = ItemGlowLaw.EffectiveVisual(_shared.ItemVisuals, _shared.Enchants,
+            mount.ItemVisualId, mount.Enchants);
+        string?[]? effects = _shared.ItemVisuals?.Effects(visual);
+        if (effects is null) return;
+        for (int slot = 0; slot < effects.Length; slot++)
+        {
+            string? path = effects[slot];
+            if (path is null || ItemGlowLaw.AttachmentPosition(mount.Model.Source, slot) is not
+                Vector3 local) continue;
+            Matrix4x4 transform = Matrix4x4.CreateTranslation(local) * itemRoot;
+            string key = $"{GlowOwnerKey}:{mount.EquipmentSlot}:{mount.DisplayId}:{slot}";
+            _glowPlacements.Add(new ItemGlowPlacement(key, path, transform));
+        }
+    }
+
+    private void AppendCarriedLights(Mount mount, Matrix4x4 itemRoot)
+    {
+        for (int index = 0; index < mount.Model.Source.Lights.Count; index++)
+        {
+            M2Light light = mount.Model.Source.Lights[index];
+            if (!light.Casts) continue;
+            Vector3 position = Vector3.Transform(light.Position, itemRoot);
+            Vector3 color = light.DiffuseColor * MathF.Max(0f, light.DiffuseIntensity);
+            string key = $"{GlowOwnerKey}:{mount.EquipmentSlot}:{mount.DisplayId}:light:{index}";
+            _carriedLights.Add(new CarriedLightPlacement(key, position, color));
+        }
     }
 
     private static int ResolveAttachment(Mount mount, byte sheathState)

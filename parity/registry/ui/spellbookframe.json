@@ -14,6 +14,11 @@
       "path": "crates/benilla-app/src/ui_spellbook.rs",
       "fileSha256": "4d90d414c605567013e8eeb5a316dc761824ffac11375854e9e83e5a813b647e",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_pet_book.rs",
+      "fileSha256": "e87d8a45b04ede2b8f32a07959cb61c021f7ed55da11a64cc4b5ad3f1aeffeaa",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
@@ -22,9 +27,13 @@
     "MSUIClient/Program.UiPanelOwnership.cs",
     "MSUIClient/Program.ActionBars.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Spellbook.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Pet.cs",
+    "MSUIClient/Engine/UI/PetSpellBookUiLaw.cs",
+    "MSUIClient/Net/WorldSession.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Professions.cs",
     "MSUIClient/Net/ObjectFields.cs",
     "tools/interface-wire-check/SpellbookVisualClinicalChecks.cs",
+    "tools/interface-wire-check/PetSpellBookClinicalChecks.cs",
     "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/audit.json",
     "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/README.md",
     "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/evidence/before/frozen-target.md",
@@ -35,7 +44,7 @@
     "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/evidence/live/live-visual-gate.md"
   ],
   "status": "partial",
-  "summary": "MSUI opens and toggles the spellbook through the bounded host-confirmed adapter, emits the frozen open/close/page-turn cues, renders the centered 36x36 Cooldown child and narrow IsCurrentCast checked ring, exposes all eight skill tabs, and reproduces left/right cast, shift-pickup, raw MacroFrame /cast append, drag-start, and receive-drag cursor behavior. The rich-tooltip difference remains under adjudication and implemented presentation still carries live verification debt.",
+  "summary": "MSUI opens and toggles the spellbook through the bounded host-confirmed adapter, emits the frozen open/close/page-turn cues, renders the centered 36x36 Cooldown child and narrow IsCurrentCast checked ring, exposes all eight skill tabs, and reproduces left/right cast, shift-pickup, raw MacroFrame /cast append, drag-start, and receive-drag cursor behavior. The packet's distinct pet-spell list is now retained and drives the exact bottom Spell/Pet tab pair, class-token title, pet-only 12-slot page, pet cooldown/active/autocast presentation, synthesized pet cast, pet pickup cursor and the distinct CMSG_PET_SPELL_AUTOCAST verb with same-frame bar-bit mirroring. The rich-tooltip difference remains under adjudication and implemented presentation still carries live verification debt.",
   "openItems": [
     {
       "id": "item-claim-spellbookframe-sound-gap-001-verify",
@@ -140,6 +149,14 @@
       "source": "session-memory-2026-08-08",
       "added": "2026-08-09",
       "resolved": true
+    },
+    {
+      "id": "item-msui-pet-spellbook-live-verify-001",
+      "kind": "verify",
+      "text": "Live-verify Shift-P and the bottom tab switch with hunter and warlock pets: Pet/Demon titles, hidden skill-line rail, packet-list ordering, passive presentation, pet-bank cooldowns, active-aura ring/icon, pickup into the pet bar, off-bar casting, right-click autocast and same-frame sparkle mirroring. The focused clinical check covers the geometry, add-gate, packet layout and state laws without claiming a live capture.",
+      "source": "benilla-b57ee0e9e2c8822b/ui_pet_book.rs",
+      "added": "2026-08-22",
+      "resolved": false
     }
   ],
   "claims": [
@@ -176,6 +193,6 @@
     "trace-spellbookframe-window-presentation-001"
   ],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T01:21:19.3207879Z",
+  "lastReviewedUtc": "2026-08-22T21:07:14.9599628Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

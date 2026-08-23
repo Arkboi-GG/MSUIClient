@@ -18,6 +18,9 @@ public static class StaticPopupCoordinatorLaw
     public const float NarrowEditBoxWidth = 130f;
     public const float NarrowEditBoxHeight = 32f;
     public const float NarrowEditBoxBottomOffset = 45f;
+    public const float WideEditBoxWidth = 350f;
+    public const float WideEditBoxHeight = 64f;
+    public const float WideDialogWidth = 420f;
     public const float EditBoxBorderCapWidth = 75f;
     public const float EditBoxBorderOuterOffset = 10f;
 
@@ -28,6 +31,14 @@ public static class StaticPopupCoordinatorLaw
     }
 
     public readonly record struct NarrowEditBoxLayout(
+        float Width,
+        float Height,
+        Rect Text,
+        Rect EditBox,
+        Rect Button1,
+        Rect Button2);
+
+    public readonly record struct WideEditBoxLayout(
         float Width,
         float Height,
         Rect Text,
@@ -407,6 +418,28 @@ public static class StaticPopupCoordinatorLaw
             ButtonWidth, ButtonHeight);
         var button2 = new Rect(firstRight + 13f, button1.Y, ButtonWidth, ButtonHeight);
         return new(BaseWidth, height, text, edit, button1, button2);
+    }
+
+    /// <summary>
+    /// Frozen guild wide-edit layout. StaticPopup_Resize still measures the hidden 32px narrow
+    /// edit box, while the visible 350x64 box is centered in the widened 420px frame. Buttons
+    /// remain anchored beneath the hidden narrow box; that overlap is the reference's own shape.
+    /// </summary>
+    public static WideEditBoxLayout WideEditLayout(float textHeight)
+    {
+        float safeTextHeight = Math.Max(0, textHeight);
+        float height = Height(safeTextHeight, ButtonHeight, NarrowEditBoxHeight,
+            hasEditBox: true);
+        var text = new Rect((WideDialogWidth - TextWidth) * .5f, TextTop,
+            TextWidth, safeTextHeight);
+        var edit = new Rect((WideDialogWidth - WideEditBoxWidth) * .5f,
+            (height - WideEditBoxHeight) * .5f, WideEditBoxWidth, WideEditBoxHeight);
+        float hiddenNarrowBottom = height - NarrowEditBoxBottomOffset;
+        float firstRight = WideDialogWidth * .5f - 6f;
+        var button1 = new Rect(firstRight - ButtonWidth, hiddenNarrowBottom + 8f,
+            ButtonWidth, ButtonHeight);
+        var button2 = new Rect(firstRight + 13f, button1.Y, ButtonWidth, ButtonHeight);
+        return new(WideDialogWidth, height, text, edit, button1, button2);
     }
 
     /// <summary>

@@ -56,19 +56,13 @@ public static class RealmClient
     /// <summary>Full SRP6 logon against a vanilla realmd, then fetch the realm list.</summary>
     public static LogonResult Logon(string host, int port, string username, string password, TimeSpan timeout)
     {
-        using var tcp = new TcpClient();
-        if (!tcp.ConnectAsync(host, port).Wait(timeout))
-            throw new IOException($"realmd connect to {host}:{port} timed out");
-        tcp.NoDelay = true;
-        tcp.ReceiveTimeout = (int)timeout.TotalMilliseconds;
-        tcp.SendTimeout = (int)timeout.TotalMilliseconds;
-        Stream s = new BufferedStream(tcp.GetStream());
-
         string account = Srp6Client.Normalize(username); // uppercased ASCII, sent on the wire
+        _ = Srp6Client.Normalize(password);               // reject invalid credentials before dialing
 
-        WriteLogonChallenge(s, account);
-        s.Flush();
-        var challenge = ReadChallengeReply(s);
+        var dialed = DialEncodingUnambiguousChallenge(host, port, account, timeout);
+        using TcpClient tcp = dialed.Tcp;
+        using Stream s = dialed.Stream;
+        ChallengeReply challenge = dialed.Challenge;
 
         var srp = Srp6Client.ComputeChallenge(
             username, password, challenge.ServerPublicKey, challenge.Generator, challenge.LargeSafePrime, challenge.Salt);
@@ -84,6 +78,44 @@ public static class RealmClient
         var realms = ReadRealmList(s);
 
         return new LogonResult { SessionKey = srp.SessionKey, Realms = realms };
+    }
+
+    private static (TcpClient Tcp, Stream Stream, ChallengeReply Challenge)
+        DialEncodingUnambiguousChallenge(string host, int port, string account, TimeSpan timeout)
+    {
+        for (int dial = 0; dial < RealmLogonLaw.MaximumChallengeDials; dial++)
+        {
+            var tcp = new TcpClient();
+            Stream? stream = null;
+            try
+            {
+                if (!tcp.ConnectAsync(host, port).Wait(timeout))
+                    throw new IOException($"realmd connect to {host}:{port} timed out");
+                tcp.NoDelay = true;
+                tcp.ReceiveTimeout = (int)timeout.TotalMilliseconds;
+                tcp.SendTimeout = (int)timeout.TotalMilliseconds;
+                stream = new BufferedStream(tcp.GetStream());
+
+                WriteLogonChallenge(stream, account);
+                stream.Flush();
+                ChallengeReply challenge = ReadChallengeReply(stream);
+                if (RealmLogonLaw.KeepChallenge(dial, challenge.ServerPublicKey))
+                    return (tcp, stream, challenge);
+            }
+            catch
+            {
+                stream?.Dispose();
+                tcp.Dispose();
+                throw;
+            }
+
+            // An ambiguous B is abandoned before a proof is sent. A new TCP connection is
+            // required because realmd has already advanced this socket's authentication state.
+            stream.Dispose();
+            tcp.Dispose();
+        }
+
+        throw new InvalidOperationException("challenge dial loop did not yield a connection");
     }
 
     // --- challenge ------------------------------------------------------------------------------

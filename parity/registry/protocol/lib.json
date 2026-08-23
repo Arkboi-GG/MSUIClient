@@ -7,16 +7,23 @@
   "benillaSources": [
     {
       "path": "crates/benilla-protocol/src/lib.rs",
-      "fileSha256": "7eebef1fed7a93beeea7ee22f23b6d7eedcaa0f05873378df67406c05ccd51a6",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "d8167ebc47c9bd598d857069a8de5c8b8159f04cc688dbee34f12057a5c8d192",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-srp/src/lib.rs",
+      "fileSha256": "b0cacb77066791cd8f3737b9caaaf9b0d42a6599851567997b7b007f2e2f11fb",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/RealmClient.cs",
+    "MSUIClient/Net/RealmLogonLaw.cs",
+    "MSUIClient/Net/Srp6Client.cs",
     "MSUIClient/ClientConfig.Net.cs"
   ],
-  "status": "support-only",
-  "summary": "Benilla's lib.rs is crate plumbing: module re-exports, AUTH_PORT/CLIENT_BUILD constants, host:port splitting, and the logon() orchestration (challenge -> SRP6 -> proof -> realm list). MSUI realizes the same flow through RealmClient.Logon with the same constants (build 5875, port from config); no independent wire contract beyond what protocol/auth already covers.",
+  "status": "implemented-unverified",
+  "summary": "MSUI now follows current Benilla's complete bounded realmd orchestration: credentials normalize before the first socket, an ambiguous fixed-width server public key B is abandoned before proof and redialed on a fresh connection up to eight times, the eighth challenge is retained as the non-invented fallback, client-generated A/S/K/M1 values redraw under the matching encoding-stability guards, and only the retained socket proceeds through proof verification and realm-list fetch.",
   "openItems": [
     {
       "id": "item-triage-f161eebf",
@@ -24,12 +31,20 @@
       "text": "Ambiguous-B redial: Benilla redials the logon challenge (up to 8 times) when the server's SRP6 public key B is not width-stable (~1 in 137 dials), because those handshakes can fail proof verification despite a correct password; MSUI's RealmClient.Logon dials exactly once, so roughly 0.7% of logons can spuriously reject a correct password",
       "source": "triage-2026-08-09/batch-protocol-1.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-22: RealmLogonLaw owns the exact high-order-byte stability predicate, eight-dial bound, and final-dial fallback. RealmClient abandons ambiguous challenges before proof and disposes each rejected socket; Srp6Client also carries current Benilla's bounded A/S/K/M1 redraw guards. The isolated focused and full clinical suites pass without making a network connection."
+    },
+    {
+      "id": "verify-realm-logon-encoding-stability-live",
+      "kind": "verify",
+      "text": "Live-verify a normal authenticated realmd login and, with an owner-operated controlled challenge fixture if one is available, confirm an ambiguous B closes before proof and the following stable challenge succeeds without a spurious 0x04.",
+      "added": "2026-08-22",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-22T23:38:14.0402901Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

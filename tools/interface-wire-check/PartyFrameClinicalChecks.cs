@@ -13,9 +13,9 @@ internal static class PartyFrameClinicalChecks
         const string partyPath = "crates/benilla-app/assets/ui/PartyFrame.xml";
         const string uiPanelsPath = "crates/benilla-app/assets/ui/UiPanels.xml";
         const string partySha256 =
-            "a2cd548a624a1b1e0044f98eca29aa9a4f6500dda3ec3e095b71f2db86055ede";
+            "c17d929e750812623649a2176813ef602b89622c404f66e64931097cfd324d15";
         const string uiPanelsSha256 =
-            "e7d7770d4c6a662f89302a9f59e879f0a0c0794982725ed29f1478ca31be401b";
+            "649441e1335c0d23e0e15ad71ff2fb7543d11dbe92958443cdb90aad25974da1";
         string zipPath = Path.Combine(root, "parity", "snapshots", "current",
             "benilla.source.zip");
         using ZipArchive archive = ZipFile.OpenRead(zipPath);

@@ -83,6 +83,9 @@ internal static class MinimapClinicalChecks
         string areas = SourceText.Read(Path.Combine(root, "MSUIClient", "Formats", "AreaTable.cs"));
         string poisSource = SourceText.Read(Path.Combine(root, "MSUIClient", "Formats",
             "AreaPoiCatalog.cs"));
+        string bindings = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Bindings.cs"));
+        string program = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.cs"));
         Check(runtime.Contains("MinimapUiLaw.ZonePvp", StringComparison.Ordinal) &&
               runtime.Contains("DrawMinimapZoomButton", StringComparison.Ordinal) &&
               runtime.Contains("SetMinimapVisible", StringComparison.Ordinal) &&
@@ -97,6 +100,13 @@ internal static class MinimapClinicalChecks
               runtime.Contains("MinimapUiLaw.OutdoorDayTint", StringComparison.Ordinal) &&
               runtime.Contains("tint: packedTint", StringComparison.Ordinal) &&
               runtime.Contains("minimap-tracking", StringComparison.Ordinal) &&
+              runtime.Contains("StepMinimapZoom(bool zoomIn, bool insideWmo",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("GameBinding.MinimapZoomIn, \"Minimap Zoom In\", Key.KeypadAdd",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("UpdateMinimapZoomBindings(bool typing)",
+                  StringComparison.Ordinal) &&
+              program.Contains("UpdateMinimapZoomBindings(typing);", StringComparison.Ordinal) &&
               areas.Contains("FactionGroupMask", StringComparison.Ordinal) &&
               areas.Contains("public uint? Flags", StringComparison.Ordinal) &&
               poisSource.Contains("dbc.GetUInt(row, 28)", StringComparison.Ordinal) &&

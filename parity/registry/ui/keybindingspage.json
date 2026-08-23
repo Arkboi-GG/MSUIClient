@@ -14,14 +14,16 @@
   "msuiAnchors": [
     "MSUIClient/GameLoop/Panels/GameLoop.Keybindings.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Bindings.cs",
+    "MSUIClient/Engine/ClientWindow.cs",
     "MSUIClient/Engine/UI/BindingChordLaw.cs",
+    "MSUIClient/Engine/UI/KeyBindingsUiLaw.cs",
     "MSUIClient/Engine/UI/CharacterBindingsUiLaw.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.CharacterBindingsPopup.cs",
     "tools/interface-wire-check/BindingChordClinicalChecks.cs",
     "tools/interface-wire-check/CharacterBindingsClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI's standalone 1.12-style Key Bindings window captures and displays canonical ALT/CTRL/SHIFT keyboard chords, ignores modifier-only and Super captures, and steals exact chords with the reference red fully-unbound warning or success feedback. Character Specific Key Bindings now creates an isolated GUID-keyed set immediately; destructive uncheck springs back and routes the exact confirmation through the shared rule-positioned StaticPopup before loading the account set and deleting the character set. Remaining UI gaps are mouse/wheel capture and collapsible/search presentation.",
+  "summary": "MSUI's preserved standalone 1.12-style Key Bindings shell is now entirely seated by KeyBindingsUiLaw and hosts current Benilla's collapsed-by-default category behavior plus live category/command search. It captures, displays, persists and dispatches canonical ALT/CTRL/SHIFT keyboard, BUTTON3/4/5 and MOUSEWHEELUP/DOWN chords, ignores modifier-only and Super captures, and steals exact chords with the reference red fully-unbound warning or success feedback. Mouse buttons use the same held edge latch as keys; wheel chords are one-frame pulses, and UI mouse ownership blocks gameplay dispatch while the armed page still captures them. Character Specific Key Bindings creates an isolated GUID-keyed set immediately; destructive uncheck springs back and routes the exact confirmation through the shared rule-positioned StaticPopup before loading the account set and deleting the character set. Focused and full clinical checks pass; live visual/input verification remains.",
   "openItems": [
     {
       "id": "item-triage-ee39fce7",
@@ -38,7 +40,8 @@
       "text": "No mouse button (3/4/5) or mouse-wheel binding capture",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: BindingChord now represents current Benilla's BUTTON3/4/5 and MOUSEWHEELUP/DOWN tokens with the same ALT/CTRL/SHIFT prefix order, persistence codec, friendly display, fallback and conflict-steal semantics as keyboard chords. ClientWindow exposes the three bindable mouse buttons plus a world-owned wheel delta. The binding runtime edge-latches held mouse buttons, pulses wheel commands for one update, and suppresses pointer dispatch while ImGui owns the mouse; the armed page captures the same inputs and does not scroll its list when the wheel is being bound. Focused chord and full interface clinical checks pass."
     },
     {
       "id": "item-triage-7322d07a",
@@ -61,7 +64,7 @@
     {
       "id": "item-msui-keybinding-chord-live-verify",
       "kind": "verify",
-      "text": "Focused chord capture, display and conflict source fences pass. Needs owner-run live capture of single and multi-modifier chords, modifier-only/Super refusal, dual-slot steals, visible red victim naming, Cancel rollback and Okay persistence.",
+      "text": "Focused chord capture, display, conflict, rule-owned shell geometry and category/search source fences pass. Needs owner-run live capture of single and multi-modifier keyboard/BUTTON3/4/5/wheel chords, modifier-only/Super refusal, held-button and wheel-pulse action dispatch, UI mouse-ownership blocking, collapsed-category toggles, search filtering/scroll clamping, dual-slot steals, visible red victim naming, Cancel rollback and Okay persistence.",
       "source": "review-2026-08-22/current-benilla-keybindings-page",
       "added": "2026-08-22",
       "resolved": false
@@ -80,12 +83,13 @@
       "text": "Category headers are plain labels - no collapse/expand sections and no binding search",
       "source": "triage-2026-08-09/batch-ui-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: KeyBindingsUiLaw owns the preserved 640x512 shell, search, 535x390 list viewport, 23px rows, key capsules, scrollbar, checkbox, feedback and footer seats. Categories initialize collapsed, use the stock 16px QuestLog plus/minus dress, expand on header click, and contribute children only while open. The law-seated search matches category or command labels case-insensitively, forces matching groups open, resets/clamps scrolling, and yields back to the remembered collapsed tree when cleared. Focused and full interface clinical checks pass."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T08:00:00Z",
+  "lastReviewedUtc": "2026-08-22T20:18:41.0665576Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

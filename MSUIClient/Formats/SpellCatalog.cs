@@ -79,9 +79,28 @@ public sealed class SpellCatalog
     public int Count => _spells.Count;
     public IEnumerable<SpellInfo> Spells => _spells.Values;
     public bool TryGet(uint id, out SpellInfo spell) => _spells.TryGetValue(id, out spell);
-    public SpellInfo? FindKnownByName(string name, IReadOnlySet<uint> known) => _spells.Values
-        .Where(x => known.Contains(x.Id) && x.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
-        .OrderByDescending(x => x.Id).Cast<SpellInfo?>().FirstOrDefault();
+    public SpellInfo? FindKnownByName(string name, IReadOnlySet<uint> known)
+    {
+        (string baseName, string? explicitRank) = SplitCastName(name);
+        IEnumerable<SpellInfo> matches = _spells.Values.Where(x => known.Contains(x.Id) &&
+            x.Name.Equals(baseName, StringComparison.OrdinalIgnoreCase));
+        if (explicitRank is not null)
+            matches = matches.Where(x => x.Rank.Equals(explicitRank,
+                StringComparison.OrdinalIgnoreCase));
+        return matches.OrderByDescending(x => x.SpellLevel).ThenByDescending(x => x.Id)
+            .Cast<SpellInfo?>().FirstOrDefault();
+    }
+
+    public static (string Name, string? Rank) SplitCastName(string text)
+    {
+        string value = text.Trim();
+        if (!value.EndsWith(')')) return (value, null);
+        int open = value.LastIndexOf('(');
+        if (open <= 0) return (value, null);
+        string rank = value[(open + 1)..^1].Trim();
+        string name = value[..open].TrimEnd();
+        return name.Length > 0 && rank.Length > 0 ? (name, rank) : (value, null);
+    }
     public bool TryGetRange(uint rangeIndex, out SpellRangeRow range) => _ranges.TryGetValue(rangeIndex, out range);
     public bool TryGetRadius(uint radiusIndex, out SpellRadiusRow radius) =>
         _radii.TryGetValue(radiusIndex, out radius);

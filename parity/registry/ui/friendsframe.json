@@ -24,16 +24,47 @@
       "path": "crates/benilla-app/src/ui_social/query.rs",
       "fileSha256": "fb14cf4ebf2616cc8dbb24746471b4941d630fb1a754ded8fef183ef2730ed3b",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_guild/feed.rs",
+      "fileSha256": "c6f0f0554fe6d0666c762f55a89759768a6326d27bdd808cf12ccd2f90690d8a",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_guild/lines.rs",
+      "fileSha256": "810c757292bafe717ad10ca927b8ba0010f26d07bf27f6c4b9f3de46890d12e8",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_guild/mod.rs",
+      "fileSha256": "524a14d7d962f5fe4ebe6870fb1cb442067bfbeb995961b084c76669f6753336",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_guild/sort.rs",
+      "fileSha256": "31aefaee6f4c211d729e708fa9589b61bdf2ba6ef1d9db3d9ac7d01541249ccc",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/GameLoop/Panels/GameLoop.Social.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Guild.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.GuildInfo.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.GuildMemberDetail.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.GuildControl.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.GuildPopups.cs",
     "MSUIClient/Engine/UI/FriendsFrameUiLaw.cs",
+    "MSUIClient/Engine/UI/GuildFrameUiLaw.cs",
+    "MSUIClient/Engine/UI/FontStringOverflowLaw.cs",
+    "MSUIClient/Net/ObjectFields.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Net/NetworkClient.cs",
     "MSUIClient/Engine/UI/StaticPopupCoordinatorLaw.cs",
-    "tools/interface-wire-check/FriendsFrameClinicalChecks.cs"
+    "tools/interface-wire-check/FriendsFrameClinicalChecks.cs",
+    "tools/interface-wire-check/GuildFrameClinicalChecks.cs"
   ],
-  "status": "implemented-unverified",
-  "summary": "The social window implements the FriendsFrame shell, Friends/Who/Guild/Raid tabs, Friends/Ignore inset toggle, reference row counts and online details, add/remove/ignore/invite flows, Who columns/search/results, and the selected-friend Send Message route. FriendsFrameUiLaw owns the 384x512 window seat, action rectangles and contact gates. ADD_FRIEND/ADD_IGNORE now occupy the shared two-slot StaticPopup seat with exact law-owned text/edit/button geometry, authored chat-input border slices, twelve-letter cap, OnShow focus, and distinct Enter/Accept/Cancel/Escape routing instead of an ad-hoc in-panel ImGui box.",
+  "status": "partial",
+  "summary": "The social surface follows current Benilla's three-tab Friends/Who/Guild structure (no invented Raid tab). FriendsFrameUiLaw owns the 384x512 window seat, scroll icon, exact Friends/Ignore/Who row and faux-scroll geometry, action rectangles, dynamic Who column widths, and the Zone/Guild/Race selector. GameLoop.Social implements the Friends/Ignore inset toggle, asynchronous contact gates, add/remove/ignore/invite and Send Message flows, independently scrolled lists, Who search/results, and the authored dropdown capsule/menu. Authored fixed-size Who and Guild roster FontStrings now use the shared build-5875 overflow law, so long names/zones/classes/ranks/notes/status values back off to the exact ASCII-three-dot marker inside their seats; auto-height Friends text is deliberately unchanged. GuildFrameUiLaw and GameLoop.Guild provide the matching Guild shell, 298x16 roster rows, faux scrollbar, Show Offline ordered-prefix behavior, player/status column toggle, MotD text, totals, and exact bottom action seats. Guild headers drive the reference eight-key remembered-direction sort stack; the lazy guild query supplies the guild-name title and real rank names, and presence retains the DND-before-AFK status tag. ADD_FRIEND, ADD_IGNORE and ADD_GUILDMEMBER occupy the shared two-slot StaticPopup seat with law-owned edit geometry and exact twelve-letter caps. Guild Information is the exact 297x298 rule-positioned satellite, with its 500-letter board, rank-right gate, placeholder, backdrops, CMSG_GUILD_INFO_TEXT, and roster refresh. The rule-positioned 212px member-detail card toggles from roster rows, changes height with officer-note visibility, gates and sends promote/demote/remove/group-invite actions, and edits both 31-letter notes through the shared 420px wide StaticPopup shape. Guild Control occupies its exact 297x298 satellite seat with the four-piece MacroPopup art, 13-option staged rights buffer, leader gate, rank selector/name editor, inverted checkbox sounds, 15-letter Add Rank popup, bottom-rank removal law, and exact CMSG_GUILD_RANK/ADD_RANK/DEL_RANK bodies. The guild notification family decodes promotion/demotion/membership/leader/presence/MotD events, command results, invitations, declines and /ginfo; composes the reference system lines, suppresses ignored presence, re-asks on exact stale edges, and hosts GUILD_INVITE in the shared rule-sized 60-second StaticPopup with exact empty accept/decline wires.",
   "openItems": [
     {
       "id": "item-triage-b4646363",
@@ -51,11 +82,77 @@
       "source": "claim-uipanels-popup-editbox-gap-001",
       "added": "2026-08-22",
       "resolved": false
+    },
+    {
+      "id": "item-friendsframe-social-guild-live-verify-001",
+      "kind": "verify",
+      "text": "Live-verify Friends, Ignore, Who, and Guild visual placement at empty, partial, and overflowing row counts; exercise wheel scrolling, Who variable dropdown sorting, Show Offline filtering, roster view toggle, and selection retention.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "item-guildframe-detail-control-gap-20260822",
+      "kind": "gap",
+      "text": "Guild Control remains inert. Guild Information, Add Member, and the selected-member detail/promote/demote/remove/note surfaces are implemented with rule-owned geometry and exact wire paths. Implement the rank-control satellite as a rule-owned GuildFrame dialog rather than an ad-hoc ImGui modal.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml",
+      "added": "2026-08-22",
+      "resolved": true,
+      "resolution": "Guild Information, member detail and Guild Control now use authored law-owned satellite seats. Control stages a selected rank's 13 mapped rights and 15-letter name, saves one exact CMSG_GUILD_RANK, adds through ADD_GUILDRANK, removes only an empty sixth-or-lower bottom rank, and keeps the three satellites mutually exclusive."
+    },
+    {
+      "id": "item-guildframe-event-lines-gap-20260822",
+      "kind": "gap",
+      "text": "Guild event/command packets update telemetry and MOTD only; the reference's promotion/demotion/join/leave/remove/leader/presence/invite/decline/info system lines, ignored-member suppression, invite popup, and stale-roster refresh edges remain absent.",
+      "source": "benilla-b57ee0e9e2c8822b/ui_guild/lines.rs",
+      "added": "2026-08-22",
+      "resolved": true,
+      "resolution": "GuildFramePacketLaw now owns the exact event/command/invite/decline/info decoders and reference-composed lines. Runtime applies the MotD/rank-name cache edges, suppresses ignored sign-on/off lines, refreshes stale rosters on the reference event/result bands, wires /ginfo, and shows GUILD_INVITE in the shared 320px law-sized StaticPopup for 60 seconds with exactly one CMSG_GUILD_ACCEPT or CMSG_GUILD_DECLINE action."
+    },
+    {
+      "id": "item-guildframe-roster-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live-verify the guild-name and rank-name cache fill, all eight header sorts and remembered directions, Show Offline ordered prefix, DND/AFK status display, selection retention and crowded column widths.",
+      "source": "benilla-b57ee0e9e2c8822b/ui_guild/sort.rs",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "item-guildframe-info-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live-verify Guild Information's authored satellite position, scroll/caret following, editable and read-only rank-right states, empty-board placeholder, 500-letter cap, disabled Save, close controls, and one CMSG_GUILD_INFO_TEXT followed by one roster refresh.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "item-guildframe-member-detail-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live-verify same-row toggle and cross-row repaint of GuildMemberDetailFrame, its 195/255 officer-note heights, permission-gated arrows/remove/note panes, group invite gating, 31-letter wide note dialogs, and remove confirmation wire cardinality.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "item-guildframe-control-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live-verify Guild Control's leader-only gate, exact satellite placement and MacroPopup art, rank dropdown switching/discard, 13 checkbox positions/mapping/inverted sounds, dirty Accept state, 15-letter Add Rank popup, and last-rank empty-member removal gate.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "item-guildframe-event-family-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live-verify guild promotion/demotion/join/leave/remove/leader/presence/MotD lines, ignored presence suppression, stale-roster request cardinality, /ginfo date/count lines, invite/decline notices, and GUILD_INVITE placement/stacking/60-second timeout/accept/decline cardinality while alive and dead.",
+      "source": "benilla-b57ee0e9e2c8822b/ui_guild/lines.rs",
+      "added": "2026-08-22",
+      "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T02:41:19.9561089Z",
+  "lastReviewedUtc": "2026-08-23T01:45:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

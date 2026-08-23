@@ -195,6 +195,7 @@ public sealed partial class GameLoop
                 itemEstablished ? row.BuyCount : 0,
                 itemEstablished ? row.Price : 0, soldOut, usable);
 
+            if (input.LeftReleased && ImGui.GetIO().KeyCtrl) TryOnDressUp(row.ItemId);
             if (input.RightReleased) BuyVendorEntry(row.ItemId, 1);
             if (!input.Hovered) continue;
             _vendorHoveredRow = index;

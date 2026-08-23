@@ -10,10 +10,13 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private bool _spellbookOpen;
+    private bool _spellbookPetBook;
     private bool _spellbookKeyWasDown;
+    private bool _petSpellbookKeyWasDown;
     private uint _spellbookLine;
     private int _spellbookPage;
     private uint _pressedSpellId;
+    private uint _pressedPetBookWord;
     private uint _draggingSpellId;
     private Vector2 _spellPressPosition;
     private PreparedSharedSpellTooltip? _hoveredSpellTooltip;
@@ -45,9 +48,16 @@ public sealed partial class GameLoop
     {
         if (_spellbookOpen == open) return false;
         _spellbookOpen = open;
-        PlayUiSound(open ? SpellbookLaw.OpenSound : SpellbookLaw.CloseSound, "ui.spellbook");
+        string sound = _spellbookPetBook
+            ? open ? PetSpellBookUiLaw.OpenSound : PetSpellBookUiLaw.CloseSound
+            : open ? SpellbookLaw.OpenSound : SpellbookLaw.CloseSound;
+        PlayUiSound(sound, "ui.spellbook");
         return true;
     }
+
+    private bool HasPetBookSpells => _petGuid != 0 && _spellCatalog is not null &&
+        _petBookSpells.Any(word => _spellCatalog.TryGet(PetSpellBookUiLaw.SpellId(word),
+            out SpellInfo spell) && PetSpellBookUiLaw.Eligible(spell.Attributes));
 
     private void UpdateSpellbookInput(bool typing)
     {
@@ -55,6 +65,11 @@ public sealed partial class GameLoop
         if (calibration && !_spellbookFontCalibrationKeyDown && !typing && _config.DevTools)
             _spellbookFontCalibrationOpen = !_spellbookFontCalibrationOpen;
         _spellbookFontCalibrationKeyDown = calibration;
+
+        bool petDown = BindingDown(GameBinding.OpenPetSpellbook);
+        if (petDown && !_petSpellbookKeyWasDown && !typing && _net is { IsInWorld: true })
+            TogglePetSpellbookThroughUiPanel();
+        _petSpellbookKeyWasDown = petDown;
 
         bool down = BindingDown(GameBinding.OpenSpellbook);
         if (down && !_spellbookKeyWasDown && !typing && _net is { IsInWorld: true })
@@ -65,6 +80,12 @@ public sealed partial class GameLoop
     private void DrawSpellbook()
     {
         if (!_spellbookOpen || _gameplayArt is null || _spellCatalog is null) return;
+        if (_spellbookPetBook && !HasPetBookSpells)
+        {
+            SetSpellbookOpen(false);
+            _spellbookPetBook = false;
+            return;
+        }
         float s = GameplayUiScale();
         Vector2 p = UiPanelFrameOrigin(UiPanelOwnershipRegistry[12], s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
@@ -80,10 +101,11 @@ public sealed partial class GameLoop
             CollectUiParityDraw("SpellBookFrame", "Frame", p, new Vector2(384,512) * s, "",
                 new("", 0, "IMGUI_HOST", "ANCHOR:ABSOLUTE", "", "", p.X/s, p.Y/s));
         }
-        DrawSpellbookArt(dl, p, s);
-
         var identity = _net is not null && _entities.TryGet(ControlledGuid, out WorldEntity playerEntity)
             ? playerEntity.Fields.Bytes0 : default;
+        string petTitle = PetSpellBookUiLaw.Title(identity.Class);
+        DrawSpellbookArt(dl, p, s, _spellbookPetBook ? petTitle : "Spellbook");
+
         var known = _actions.KnownSpells
             .Select(id => _spellCatalog.TryGet(id, out SpellInfo spell) ? (Id: id, Spell: spell) : default)
             .Where(x => x.Id != 0 && SpellbookLaw.Eligible(x.Spell))
@@ -99,9 +121,19 @@ public sealed partial class GameLoop
                     .ThenBy(x => x.Spell.Rank).ToList()))
             .OrderBy(x => x.Id == 0 ? 0 : 1).ThenBy(x => x.Name)
             .Take(SpellbookLaw.MaxClassTabs).ToList();
-        if (tabs.Count > 0 && tabs.All(t => t.Id != _spellbookLine)) { _spellbookLine = tabs[0].Id; _spellbookPage = 0; }
+        var petSpells = _petBookSpells
+            .Select(packed => (Packed: packed, Id: PetSpellBookUiLaw.SpellId(packed)))
+            .Select(entry => _spellCatalog.TryGet(entry.Id, out SpellInfo spell)
+                ? (entry.Packed, entry.Id, Spell: spell) : default)
+            .Where(entry => entry.Id != 0 && PetSpellBookUiLaw.Eligible(entry.Spell.Attributes))
+            .OrderBy(entry => entry.Spell.Name)
+            .ThenBy(entry => SpellbookLaw.LeadingRankNumber(entry.Spell.Rank))
+            .ThenBy(entry => entry.Spell.Rank).ToList();
+        if (!_spellbookPetBook && tabs.Count > 0 && tabs.All(t => t.Id != _spellbookLine))
+        { _spellbookLine = tabs[0].Id; _spellbookPage = 0; }
         var active = tabs.FirstOrDefault(t => t.Id == _spellbookLine);
-        int pages = Math.Max(1, ((active.Spells?.Count ?? 0) + 11) / 12);
+        int pages = _spellbookPetBook ? 1 :
+            Math.Max(1, ((active.Spells?.Count ?? 0) + 11) / 12);
         _spellbookPage = Math.Clamp(_spellbookPage, 0, pages - 1);
 
         _hoveredSpellTooltip = null;
@@ -109,19 +141,36 @@ public sealed partial class GameLoop
         {
             int column = i / 6, row = i % 6;
             Vector2 min = p + new Vector2(34 + column * 157, 85 + row * 51) * s;
-            int index = _spellbookPage * 12 + i;
-            if (active.Spells is null || index >= active.Spells.Count) continue;
-            var entry = active.Spells[index];
-            DrawSpellButton(dl, min, s, i + 1, entry.Id, entry.Spell);
+            int index = _spellbookPetBook ? i : _spellbookPage * 12 + i;
+            if (_spellbookPetBook)
+            {
+                if (index >= petSpells.Count) continue;
+                var entry = petSpells[index];
+                DrawSpellButton(dl, min, s, i + 1, entry.Id, entry.Spell,
+                    petBook: true, entry.Packed);
+            }
+            else
+            {
+                if (active.Spells is null || index >= active.Spells.Count) continue;
+                var entry = active.Spells[index];
+                DrawSpellButton(dl, min, s, i + 1, entry.Id, entry.Spell);
+            }
         }
-        for (int i = 0; i < tabs.Count; i++)
-            DrawSpellTab(dl, p + new Vector2(352, 65 + i * 49) * s, s, i + 1,
-                tabs[i].Id, tabs[i].Name, tabs[i].Icon);
+        if (!_spellbookPetBook)
+            for (int i = 0; i < tabs.Count; i++)
+                DrawSpellTab(dl, p + new Vector2(352, 65 + i * 49) * s, s, i + 1,
+                    tabs[i].Id, tabs[i].Name, tabs[i].Icon);
 
         GameText.DrawCentered(dl, "GameFontNormal", $"Page {_spellbookPage + 1}",
             p + new Vector2(178, 416) * s, s);
         DrawPageButton(dl, p + new Vector2(34, 391) * s, true, s, _spellbookPage > 0);
         DrawPageButton(dl, p + new Vector2(298, 391) * s, false, s, _spellbookPage + 1 < pages);
+
+        if (petSpells.Count > 0)
+        {
+            DrawSpellbookTypeTab(dl, p, s, petBook: false, "Spellbook");
+            DrawSpellbookTypeTab(dl, p, s, petBook: true, petTitle);
+        }
 
         Vector2 close = p + new Vector2(324, 9) * s;
         DrawImageButton(dl, "##spell-close", close, new Vector2(32) * s,
@@ -143,6 +192,14 @@ public sealed partial class GameLoop
         if (_pressedSpellId != 0 && ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
             Vector2.Distance(ImGui.GetIO().MousePos, _spellPressPosition) > 6f * s)
             _draggingSpellId = _pressedSpellId;
+        if (_pressedPetBookWord != 0 && ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
+            Vector2.Distance(ImGui.GetIO().MousePos, _spellPressPosition) > 6f * s &&
+            _spellCatalog.TryGet(PetSpellBookUiLaw.SpellId(_pressedPetBookWord),
+                out SpellInfo pressedPetSpell))
+        {
+            PickupPetBookSpell(_pressedPetBookWord, pressedPetSpell);
+            _pressedPetBookWord = 0;
+        }
         if (_draggingSpellId != 0 && _spellCatalog.TryGet(_draggingSpellId, out SpellInfo dragged))
         {
             WorldEntity? player = _net is not null && _entities.TryGet(ControlledGuid,
@@ -155,7 +212,8 @@ public sealed partial class GameLoop
                     Vector2.Zero, Vector2.One, 0xccffffff);
             }
         }
-        if (ImGui.IsMouseReleased(ImGuiMouseButton.Left)) _pressedSpellId = 0;
+        if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+        { _pressedSpellId = 0; _pressedPetBookWord = 0; }
     }
 
     private bool IsProfessionRecipeSpell(uint id, in SpellInfo spell)
@@ -177,6 +235,36 @@ public sealed partial class GameLoop
         _pressedActionSlot = -1;
     }
 
+    private void PickupPetBookSpell(uint packed, in SpellInfo spell)
+    {
+        _actionCursor = null;
+        _draggingMacroId = 0;
+        _draggingSpellId = 0;
+        _draggingPetAction = packed;
+        _draggingPetActionPassive = spell.Passive;
+        _draggingPetActionIcon = spell.IconPath;
+        _pressedActionSlot = -1;
+    }
+
+    private void CastPetBookSpell(uint packed, in SpellInfo spell, WorldEntity? pet)
+    {
+        if (_petGuid == 0 || spell.Passive) return;
+        if (IsPetSpellShowingActive(packed, spell, pet))
+        {
+            _net?.PetCancelAura(_petGuid, spell.Id);
+            return;
+        }
+        _net?.PetAction(_petGuid, PetSpellBookUiLaw.CastWord(spell.Id),
+            PetActionBarUiLaw.ActionTarget(_selectionGuid));
+    }
+
+    private void TogglePetBookAutocast(uint spellId)
+    {
+        if (_petGuid == 0 || !PetSpellBookUiLaw.TryToggleAutocast(
+                _petBookSpells, _petActions, spellId, out bool enabled)) return;
+        _net?.PetSpellAutocast(_petGuid, spellId, enabled);
+    }
+
     /// <summary>
     /// Frozen MacroFrame_AddMacroLine branch: while the macro body editor is visible a shifted
     /// book click appends the complete /cast token with no inserted separator. Passive spells
@@ -190,7 +278,7 @@ public sealed partial class GameLoop
         return true;
     }
 
-    private void DrawSpellbookArt(ImDrawListPtr dl, Vector2 p, float s)
+    private void DrawSpellbookArt(ImDrawListPtr dl, Vector2 p, float s, string title)
     {
         (string Element,string Path,Vector2 Offset,Vector2 Size)[] regions =
         [
@@ -212,11 +300,11 @@ public sealed partial class GameLoop
         }
         // SpellBookTitleText inherits GameFontNormal (MPQ SpellBookFrame.xml l.264); its
         // CENTER (6,230) anchor is this (198,26) point. Color/height/shadow ride the registry.
-        GameText.DrawCentered(dl, "GameFontNormal", "Spellbook", p + new Vector2(198, 26) * s, s);
+        GameText.DrawCentered(dl, "GameFontNormal", title, p + new Vector2(198, 26) * s, s);
     }
 
     private void DrawSpellButton(ImDrawListPtr dl, Vector2 min, float s, int buttonOrdinal,
-        uint id, SpellInfo spell)
+        uint id, SpellInfo spell, bool petBook = false, uint petPacked = 0)
     {
         static Vector2 Snap(Vector2 value) => new(MathF.Round(value.X), MathF.Round(value.Y));
         Vector2 iconMin = Snap(min), max = Snap(min + new Vector2(37) * s);
@@ -227,7 +315,11 @@ public sealed partial class GameLoop
             Snap(min + new Vector2(61, 61) * s));
         WorldEntity? player = _net is not null && _entities.TryGet(ControlledGuid,
             out WorldEntity owner) ? owner : null;
-        uint icon = _gameplayArt.Handle(ResolveSpellActionIcon(spell, player));
+        WorldEntity? pet = _entities.TryGet(_petGuid, out WorldEntity petEntity) && petEntity.IsUnit
+            ? petEntity : null;
+        string iconPath = petBook && IsPetSpellShowingActive(petPacked, spell, pet)
+            ? spell.ActiveIconPath : ResolveSpellActionIcon(spell, player);
+        uint icon = _gameplayArt.Handle(iconPath);
         if (icon != 0) dl.AddImage((nint)icon, iconMin, max);
         uint ring = _gameplayArt.Handle(@"Interface\Buttons\UI-Quickslot2");
         if (ring != 0)
@@ -238,13 +330,17 @@ public sealed partial class GameLoop
             dl.AddImage((nint)ring, Snap(center - half), Snap(center + half),
                 Vector2.Zero, Vector2.One, spell.Passive ? 0xff000000 : 0xffffffff);
         }
-        bool professionCurrent = _professionOpen && _professionOpenerSpell == id;
-        if (SpellbookLaw.Checked(spell, player?.Fields.ShapeshiftForm ?? 0, professionCurrent))
+        bool professionCurrent = !petBook && _professionOpen && _professionOpenerSpell == id;
+        bool checkedState = petBook
+            ? IsPetSpellShowingActive(petPacked, spell, pet)
+            : SpellbookLaw.Checked(spell, player?.Fields.ShapeshiftForm ?? 0, professionCurrent);
+        if (checkedState)
         {
             uint checkedArt = _gameplayArt.AdditiveHandle(SpellbookLaw.CheckedTexture);
             if (checkedArt != 0) dl.AddImage((nint)checkedArt, iconMin, max);
         }
-        if (_actions.TryCooldownDisplay(id, NowSeconds(), spell.Category,
+        PlayerActions cooldownStore = petBook ? _petCooldowns : _actions;
+        if (cooldownStore.TryCooldownDisplay(id, NowSeconds(), spell.Category,
                 out CooldownDisplay cooldown))
         {
             Vector2 cooldownMin = Snap(SpellbookLaw.CooldownMin(min, s));
@@ -253,6 +349,17 @@ public sealed partial class GameLoop
                 DrawCooldownSwipe(dl, cooldownMin, cooldownMax, sweep);
             if (cooldown.FlashProgress is float flash)
                 DrawCooldownFlash(dl, cooldownMin, cooldownMax, flash);
+        }
+        bool autocastable = petBook && PetSpellBookUiLaw.AutocastAllowed(petPacked);
+        if (autocastable)
+        {
+            uint overlay = _gameplayArt.Handle(@"Interface\Buttons\UI-AutoCastableOverlay");
+            float margin = (PetActionBarUiLaw.AutoCastOverlaySize - SpellbookLaw.ButtonSize) * .5f;
+            Vector2 overlayMin = Snap(iconMin - new Vector2(margin) * s);
+            Vector2 overlayMax = Snap(max + new Vector2(margin) * s);
+            if (overlay != 0) dl.AddImage((nint)overlay, overlayMin, overlayMax);
+            if (PetSpellBookUiLaw.AutocastEnabled(petPacked))
+                DrawPetAutocastSparkles(dl, iconMin, s, NowSeconds());
         }
         // SpellName inherits GameFontNormal; passive names are the Lua SetTextColor override.
         uint? nameColor = spell.Passive ? SpellbookLaw.PassiveNameColor : null;
@@ -291,20 +398,36 @@ public sealed partial class GameLoop
                 snap: _spellbookFontPixelSnap);
         }
         ImGui.SetCursorScreenPos(min);
-        bool clicked = ImGui.InvisibleButton($"##spell-{id}", new Vector2(145, 37) * s,
+        bool clicked = ImGui.InvisibleButton($"##spell-{(petBook ? "pet" : "player")}-{id}", new Vector2(145, 37) * s,
             ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
-        if (ImGui.IsItemActivated()) { _pressedSpellId = id; _spellPressPosition = ImGui.GetIO().MousePos; }
+        if (ImGui.IsItemActivated())
+        {
+            if (petBook) { _pressedPetBookWord = petPacked; _pressedSpellId = 0; }
+            else { _pressedSpellId = id; _pressedPetBookWord = 0; }
+            _spellPressPosition = ImGui.GetIO().MousePos;
+        }
+        bool rightClick = clicked && ImGui.IsMouseReleased(ImGuiMouseButton.Right);
         bool receiveDrag = ImGui.IsItemHovered() && HasActionBarCursor &&
             (ImGui.IsMouseReleased(ImGuiMouseButton.Left) ||
              ImGui.IsMouseReleased(ImGuiMouseButton.Right));
         if (receiveDrag)
-            PickupSpellToCursor(id);
+        {
+            if (petBook) PickupPetBookSpell(petPacked, spell);
+            else PickupSpellToCursor(id);
+        }
         else if (clicked && _draggingSpellId == 0)
         {
-            if (ShiftHeld())
+            if (petBook && rightClick && !ShiftHeld())
+                TogglePetBookAutocast(id);
+            else if (ShiftHeld())
             {
-                if (!TryAppendSpellToOpenMacro(spell)) PickupSpellToCursor(id);
+                if (!TryAppendSpellToOpenMacro(spell))
+                {
+                    if (petBook) PickupPetBookSpell(petPacked, spell);
+                    else PickupSpellToCursor(id);
+                }
             }
+            else if (petBook) CastPetBookSpell(petPacked, spell, pet);
             else if (!TryOpenProfession(id)) TryCast(id);
         }
         if (ImGui.IsItemActive())
@@ -318,8 +441,11 @@ public sealed partial class GameLoop
                 ? @"Interface\Buttons\UI-PassiveHighlight"
                 : @"Interface\Buttons\ButtonHilight-Square");
             if (highlight != 0) dl.AddImage((nint)highlight, iconMin, max);
+            GameTooltipOwnerKey tooltipOwner = petBook
+                ? new GameTooltipOwnerKey("pet-spellbook-button", (ulong)buttonOrdinal)
+                : new GameTooltipOwnerKey("spellbook-button", (ulong)buttonOrdinal);
             _hoveredSpellTooltip = PrepareSharedSpellTooltip(
-                new GameTooltipOwnerKey("spellbook-button", (ulong)buttonOrdinal),
+                tooltipOwner,
                 id, s, SpellTooltipPlacement.OwnerRight, min, max);
         }
     }
@@ -401,6 +527,50 @@ public sealed partial class GameLoop
             "hints - stems can read a hair slimmer. Report that separately from any size or " +
             "spacing miss.");
         ImGui.End();
+    }
+
+    private void DrawSpellbookTypeTab(ImDrawListPtr dl, Vector2 frameOrigin, float s,
+        bool petBook, string label)
+    {
+        PetSpellBookUiLaw.LogicalRect authored = petBook
+            ? PetSpellBookUiLaw.PetTab : PetSpellBookUiLaw.PlayerTab;
+        Vector2 min = frameOrigin + new Vector2(authored.X, authored.Y) * s;
+        Vector2 size = new Vector2(authored.Width, authored.Height) * s;
+        Vector2 hitMin = min + PetSpellBookUiLaw.TabHitMin * s;
+        Vector2 hitMax = min + PetSpellBookUiLaw.TabHitMax * s;
+        ImGui.SetCursorScreenPos(hitMin);
+        ImGui.InvisibleButton($"##spellbook-type-{(petBook ? "pet" : "player")}",
+            hitMax - hitMin);
+        bool hovered = ImGui.IsItemHovered();
+        bool selected = _spellbookPetBook == petBook;
+        if (!selected && ImGui.IsItemClicked())
+            ToggleSpellbookTypeThroughUiPanel(petBook);
+
+        string plate = selected
+            ? @"Interface\SpellBook\UI-SpellBook-Tab1-Selected"
+            : @"Interface\SpellBook\UI-SpellBook-Tab-Unselected";
+        uint texture = _gameplayArt!.Handle(plate);
+        if (texture != 0) dl.AddImage((nint)texture, min, min + size);
+        if (!selected && hovered)
+        {
+            uint highlight = _gameplayArt.AdditiveHandle(
+                @"Interface\SpellBook\UI-SpellbookPanel-Tab-Highlight");
+            if (highlight != 0) dl.AddImage((nint)highlight, min, min + size);
+        }
+        GameText.DrawCentered(dl, selected || hovered ? "GameFontHighlightSmall" :
+            "GameFontNormalSmall", label,
+            min + PetSpellBookUiLaw.TabTextCenterOffset * s, s);
+        if (hovered)
+        {
+            string prepared = label;
+            var owner = new GameTooltipOwnerKey("spellbook-type-tab", petBook ? 2u : 1u);
+            OfferPreservedSharedGameTooltipRenderer(owner, () =>
+            {
+                ImGui.BeginTooltip();
+                ImGui.TextUnformatted(prepared);
+                ImGui.EndTooltip();
+            });
+        }
     }
 
     private void DrawSpellTab(ImDrawListPtr dl, Vector2 min, float s, int tabOrdinal,

@@ -28,12 +28,14 @@
   ],
   "msuiAnchors": [
     "MSUIClient/Net/QuestPackets.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Net/NetworkClient.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Quest.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
     "MSUIClient/Engine/UI/QuestFrameUiLaw.cs"
   ],
-  "status": "partial",
-  "summary": "Benilla implements the full questgiver dialog walk (CMSG_QUESTGIVER_STATUS_QUERY/HELLO/QUERY_QUEST/ACCEPT_QUEST/COMPLETE_QUEST/REQUEST_REWARD/CHOOSE_REWARD, CMSG_QUEST_QUERY) plus the two quest-log verbs (REMOVE, SWAP) and parses the SMSG_QUESTGIVER_* / SMSG_QUESTUPDATE_* / SMSG_QUEST_QUERY_RESPONSE / SMSG_QUESTLOG_FULL set. MSUI matches the whole set except the log-reorder verb.",
+  "status": "complete",
+  "summary": "Benilla implements the full questgiver dialog walk plus the REMOVE and SWAP quest-log verbs and the matching questgiver/update/query/log-full server set. MSUI now matches that protocol surface, including the exact two-u8 CMSG_QUESTLOG_SWAP_QUEST body exposed through the in-world client API; the existing law-owned quest window geometry is unchanged.",
   "openItems": [
     {
       "id": "item-triage-05e28960",
@@ -41,7 +43,8 @@
       "text": "CMSG_QUESTLOG_SWAP_QUEST (two u8 log slots) has no sender - quest log entries cannot be reordered",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-22: opcode 0x0193, the exact [u8 first slot][u8 second slot] builder, WorldSession sender, and NetworkClient in-world façade are implemented and byte-pinned by the focused QuestLog clinical check; full interface checks pass."
     }
   ],
   "claims": [],

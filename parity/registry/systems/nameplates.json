@@ -9,16 +9,24 @@
       "path": "crates/benilla-app/src/nameplates.rs",
       "fileSha256": "1a9e8d8ec94adbc3f28e327c1eb6f0a92833e833e8e1ae2daf071e1555c7a9d7",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/vplates.rs",
+      "fileSha256": "e75f7ffb5ba6fe02c23ed630cbde79e3ba3d1eb1438e77734e55c16a94ca65e0",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Engine/UI/NameplateUiLaw.cs",
     "MSUIClient/GameLoop/Hud/GameLoop.Nameplates.cs",
+    "MSUIClient/World/Units/WorldNameRenderer.cs",
+    "MSUIClient/Program.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Bindings.cs",
     "MSUIClient/GameLoop/Combat/GameLoop.Targeting.cs",
     "tools/interface-wire-check/NameplateClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "MSUI's overhead identity stack now consumes one law for the selection-circle palette and its first-priority 1 Hz red-to-orange auto-attack pulse, player <AFK><DND><GM> flag decorations, creature <Subname> lines, and 1:1 line pitch. The same palette law paints the ground selection ring. The remaining known divergence is architectural: names are still ImGui background-list text rather than depth-tested world geometry, so walls do not occlude them.",
+  "status": "complete",
+  "summary": "MSUI's overhead identity stack now consumes one law for the selection-circle palette and its first-priority 1 Hz red-to-orange auto-attack pulse, player <AFK><DND><GM> flag decorations, creature <Subname> lines, 1:1 line pitch, selection rescue, and current Benilla's close-fixed/far-proportional world pitch. Ordinary overhead names are camera-facing ImGui-atlas glyph meshes in a late depth-tested, depth-write-off world batch, so terrain and walls occlude them; live V-key plates and chat bubbles suppress that batch and remain separate UI overlays. Enemy/neutral, friendly and all-nameplate modes are independent binding-table commands on V, Shift-V and Ctrl-V, with the same V-plate gate shared by plate drawing, bubble exclusion, quest-marker lift and raid-mark placement. The same palette law paints the ground selection ring.",
   "openItems": [
     {
       "id": "item-triage-1c763f6a",
@@ -26,7 +34,8 @@
       "text": "Names are drawn on the ImGui background draw list, not depth-tested world geometry - walls do not occlude overhead names, where the reference's name batch is depth-test ON",
       "source": "triage-2026-08-09/batch-systems-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23: WorldNameRenderer builds camera-facing glyph meshes from the live ImGui atlas, submits them after liquid with depth test on and depth writes off, and restores every mutated GL state. GameLoop separately gates ordinary names from V-key plates/chat bubbles, preserves selection rescue and applies Benilla's uncapped distance pitch. Focused and full clinical suites pass."
     },
     {
       "id": "item-triage-91b0f21d",
@@ -54,11 +63,27 @@
       "added": "2026-08-09",
       "resolved": true,
       "resolution": "2026-08-22: The ground ring and overhead name now call the same NameplateUiLaw.SelectionRgb selector; an active attack target takes its first-priority G-byte 128-to-0-to-128 triangle over red/orange."
+    },
+    {
+      "id": "item-msui-nameplate-bindings-live-verify-20260822",
+      "kind": "verify",
+      "text": "Focused nameplate and binding checks plus the full interface suite pass. Live-verify V enemy/neutral, Shift-V friendly, Ctrl-V all toggle semantics after rebind/save/reload, including bubble exclusion, quest-marker lift and plate-vs-raid-mark placement.",
+      "source": "benilla-b57ee0e9e2c8822b/vplates.rs",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "verify-depth-tested-world-names-live-20260823",
+      "kind": "verify",
+      "text": "Live-verify ordinary player/NPC names disappear behind terrain, buildings and foreground units while V-key plates remain overlay geometry; verify close/far pitch, AFK/DND/GM prefixes, NPC subnames, selection rescue, first-person own-name suppression, bubbles, waterlines and combat-flash colour.",
+      "source": "benilla-b57ee0e9e2c8822b/nameplates.rs",
+      "added": "2026-08-23",
+      "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T01:34:50.6138300Z",
+  "lastReviewedUtc": "2026-08-23T00:45:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -27,6 +27,7 @@ public static class Srp6Client
     public const int SessionKeyLength = 40;
     public const byte Generator = 7;
     private const byte KValue = 3;
+    private const int MaximumEphemeralDraws = 512;
 
     /// <summary>WoW safe prime N, little-endian (as sent in CMD_AUTH_LOGON_CHALLENGE_Server).</summary>
     public static readonly byte[] LargeSafePrimeLE =
@@ -62,27 +63,40 @@ public static class Srp6Client
         BigInteger g = generator;
         BigInteger k = KValue;
 
-        // Random 32-byte private key a, A = g^a mod N.
-        byte[] priv = new byte[32];
-        RandomNumberGenerator.Fill(priv);
-        BigInteger a = FromLE(priv);
-        byte[] aLE = ToLE32(BigInteger.ModPow(g, a, n));
-
         BigInteger x = FromLE(CalcX(user, pass, salt));
-        BigInteger u = FromLE(Sha1(aLE, serverPublicKeyLE)); // u = SHA1(A | B)
-
-        // S = (B - k * (g^x mod N))^(a + u*x) mod N. The base can go negative, so
-        // reduce it into [0, N) before the modpow (.NET's % follows the dividend's sign).
         BigInteger gx = BigInteger.ModPow(g, x, n);
         BigInteger b = FromLE(serverPublicKeyLE);
         BigInteger baseV = ((b - k * gx) % n + n) % n;
-        BigInteger s = BigInteger.ModPow(baseV, a + u * x, n);
-        byte[] sessionKey = Interleave(ToLE32(s));
+        byte[] xor = XorHash(generator, largeSafePrimeLE);
+        byte[] userHash = Sha1(Utf8(user));
 
-        // M1 = SHA1( (SHA1(N) xor SHA1(g)) | SHA1(user) | salt | A | B | K ).
-        byte[] m1 = Sha1(XorHash(generator, largeSafePrimeLE), Sha1(Utf8(user)), salt, aLE, serverPublicKeyLE, sessionKey);
+        // A, S, K, and M1 are downstream of our random private key. Redraw until the fixed-width
+        // 1.12.1 encoding and mangos' minimal BigNumber encoding hash the same bytes. The final
+        // draw is accepted unconditionally so hostile N/g inputs cannot spin forever.
+        for (int draw = 1; draw <= MaximumEphemeralDraws; draw++)
+        {
+            bool last = draw == MaximumEphemeralDraws;
+            byte[] privateKey = new byte[32];
+            RandomNumberGenerator.Fill(privateKey);
+            BigInteger a = FromLE(privateKey);
+            byte[] aLE = ToLE32(BigInteger.ModPow(g, a, n));
+            if (!RealmLogonLaw.IsWidthStable(aLE) && !last) continue;
 
-        return new Srp6Result { A = aLE, M1 = m1, SessionKey = sessionKey };
+            BigInteger u = FromLE(Sha1(aLE, serverPublicKeyLE)); // u = SHA1(A | B)
+            BigInteger shared = BigInteger.ModPow(baseV, a + u * x, n);
+            byte[] sharedLE = ToLE32(shared);
+            if (sharedLE[0] == 0 && !last) continue;
+
+            byte[] sessionKey = Interleave(sharedLE);
+            if (!RealmLogonLaw.IsWidthStable(sessionKey) && !last) continue;
+
+            byte[] m1 = Sha1(xor, userHash, salt, aLE, serverPublicKeyLE, sessionKey);
+            if (!RealmLogonLaw.IsWidthStable(m1) && !last) continue;
+
+            return new Srp6Result { A = aLE, M1 = m1, SessionKey = sessionKey };
+        }
+
+        throw new InvalidOperationException("ephemeral draw loop did not yield a challenge");
     }
 
     /// <summary>Verify the server's proof M2 = SHA1(A | M1 | K). False usually means a wrong password.</summary>

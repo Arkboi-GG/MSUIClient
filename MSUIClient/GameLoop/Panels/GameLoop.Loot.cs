@@ -287,7 +287,8 @@ public sealed partial class GameLoop
         if (!_loot.IsOpen || _gameplayArt is null) return;
 
         float s = GameplayUiScale();
-        Vector2 p = new Vector2(16f, 116f) * s; // the UIPanel "left" seat
+        Vector2 p = UiPanelFrameOrigin(UiPanelOwnershipRegistry[9], s) +
+            new Vector2(16f, 12f) * s;
         Vector2 size = new Vector2(256f, 256f) * s;
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
@@ -413,6 +414,11 @@ public sealed partial class GameLoop
             }
         }
         if (!clicked || _net is null) return;
+        if (!row.IsCoin && row.ItemId != 0 && ImGui.GetIO().KeyCtrl)
+        {
+            TryOnDressUp(row.ItemId);
+            return;
+        }
         if (row.IsCoin) TakeLootMoney();
         else
         {

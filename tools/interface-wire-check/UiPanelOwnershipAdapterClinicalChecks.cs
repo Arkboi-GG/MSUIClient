@@ -25,6 +25,8 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
         new("BenillaTradeSkillFrame", UiPanelOwnershipLaw.Area.Left, 3);
     private static readonly UiPanelOwnershipLaw.Panel Craft =
         new("BenillaCraftFrame", UiPanelOwnershipLaw.Area.Left, 4);
+    private static readonly UiPanelOwnershipLaw.Panel DressUp =
+        new("DressUpFrame", UiPanelOwnershipLaw.Area.Left, 2);
     private static readonly UiPanelOwnershipLaw.Panel GameMenu =
         new("GameMenuFrame", UiPanelOwnershipLaw.Area.Center, WhileDead: true);
     private static readonly UiPanelOwnershipLaw.Panel WorldMap =
@@ -36,6 +38,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
         CheckSingleEdgeAndIdempotence();
         CheckAuthoredSeatOrigins();
         CheckUnknownLatchAndAllClosedRecovery();
+        CheckPlannedTransitionConfirmation();
         CheckRefusalAndLegacyInconsistencies();
         CheckHostConfirmedCharacterSpellbookPair();
         CheckHostTransitionGatesBeforeCallbacks();
@@ -45,6 +48,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
         CheckLockedTaxiIsObservedWithoutCallback();
         CheckProfessionSourceFence();
         CheckObservationOnlySourceFence();
+        CheckRuntimeReconciliationSourceFence();
         CheckHostTransitionSourceFence();
     }
 
@@ -70,6 +74,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
             new("BenillaMacroFrame", UiPanelOwnershipLaw.Area.Left, 5, WhileDead: true),
             TradeSkill,
             Craft,
+            DressUp,
             GameMenu,
             new("OptionsFrame", UiPanelOwnershipLaw.Area.Center, WhileDead: true),
             WorldMap,
@@ -79,8 +84,8 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
             throw new InvalidDataException("UI-panel observer registry seam is missing");
         Check(registryField.GetValue(null) is UiPanelOwnershipLaw.Panel[] actual &&
               actual.SequenceEqual(expected) && actual.Select(panel => panel.Id).Distinct(
-                  StringComparer.Ordinal).Count() == 21,
-            "UI-panel observer 21-row id/area/pushable/whileDead registry drift");
+                  StringComparer.Ordinal).Count() == 22,
+            "UI-panel observer 22-row id/area/pushable/whileDead registry drift");
     }
 
     private static void CheckAuthoredSeatOrigins()
@@ -100,13 +105,111 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
             "MSUIClient", "Program.Spellbook.cs"));
         string talents = SourceText.Read(Path.Combine(root,
             "MSUIClient", "Program.Talents.cs"));
+        string social = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Social.cs"));
+        string guild = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Guild.cs"));
+        string guildInfo = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.GuildInfo.cs"));
+        string guildMember = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.GuildMemberDetail.cs"));
+        string guildControl = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.GuildControl.cs"));
+        string macro = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Macro.cs"));
+        string quest = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Quest.cs"));
+        string gossip = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Gossip.cs"));
+        string trade = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Trade.cs"));
+        string bank = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Bank.cs"));
+        string trainer = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Trainer.cs"));
+        string taxi = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Taxi.cs"));
+        string professions = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Professions.cs"));
+        string loot = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Loot.cs"));
+        string inspect = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Inspect.cs"));
+        string mail = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Mail.cs"));
+        string dressUp = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.DressUp.cs"));
         Check(spellbook.Contains(
                   "UiPanelFrameOrigin(UiPanelOwnershipRegistry[12], s)",
                   StringComparison.Ordinal) &&
               talents.Contains(
                   "UiPanelFrameOrigin(UiPanelOwnershipRegistry[13], s)",
-                  StringComparison.Ordinal),
-            "SpellBookFrame/TalentFrame rendering bypassed the authored panel-seat law");
+                  StringComparison.Ordinal) &&
+              social.Contains(
+                  "UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[14])",
+                  StringComparison.Ordinal) &&
+              guild.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[14], s)",
+                  StringComparison.Ordinal) &&
+              guildInfo.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[14], scale)",
+                  StringComparison.Ordinal) &&
+              guildMember.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[14], scale)",
+                  StringComparison.Ordinal) &&
+              guildControl.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[14], scale)",
+                  StringComparison.Ordinal) &&
+              macro.Contains("UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[15])",
+                  StringComparison.Ordinal) &&
+              quest.Contains(
+                  "UiPanelFrameOrigin(UiPanelOwnershipRegistry[logMode ? 8 : 7], s)",
+                  StringComparison.Ordinal) &&
+              gossip.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[0], s)",
+                  StringComparison.Ordinal) &&
+              trade.Contains("UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[3])",
+                  StringComparison.Ordinal) &&
+              bank.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[5], s)",
+                  StringComparison.Ordinal) &&
+              trainer.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[4], scale)",
+                  StringComparison.Ordinal) &&
+              taxi.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[6], s)",
+                  StringComparison.Ordinal) &&
+              professions.Contains(
+                  "UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[panelIndex])",
+                  StringComparison.Ordinal) &&
+              loot.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[9], s)",
+                  StringComparison.Ordinal) &&
+              inspect.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[11], s)",
+                  StringComparison.Ordinal) &&
+              mail.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[2], s)",
+                  StringComparison.Ordinal) &&
+              mail.Contains("MailUiLaw.OpenMailOrigin(_mailFrameOrigin, s)",
+                  StringComparison.Ordinal) &&
+              mail.Contains("MailUiLaw.ConfirmationOrigin(display, s)",
+                  StringComparison.Ordinal) &&
+              dressUp.Contains(
+                  "UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[18])",
+                  StringComparison.Ordinal) &&
+              !mail.Contains("MailPanelClip(new(0, 104 * s)", StringComparison.Ordinal),
+            "registered panel or FriendsFrame satellite bypassed the authored panel-seat law");
+    }
+
+    private static void CheckPlannedTransitionConfirmation()
+    {
+        var observer = new UiPanelOwnershipObserver();
+        UiPanelOwnershipObservation initial = observer.Observe(new([Character], false));
+        UiPanelOwnershipLaw.Transition planned = UiPanelOwnershipLaw.Show(
+            initial.Seats, SpellBook);
+        UiPanelOwnershipObservation confirmed = observer.ConfirmPlannedTransition(
+            new([SpellBook], false), planned.Seats, planned.Effects, "clinical-atomic-replace");
+        Check(confirmed.Confidence == UiPanelObservationConfidence.Known &&
+              confirmed.Seats == new UiPanelOwnershipLaw.Seats(SpellBook, null, null) &&
+              confirmed.VisibleIds.SequenceEqual([SpellBook.Id]) &&
+              confirmed.Reason == "clinical-atomic-replace",
+            "host-confirmed multi-edge transition did not commit the law-planned seats");
+
+        UiPanelOwnershipObservation rejected = observer.ConfirmPlannedTransition(
+            new([SpellBook, Character], false), planned.Seats, planned.Effects, "invalid");
+        Check(rejected.Confidence == UiPanelObservationConfidence.Unknown &&
+              rejected.Reason == "planned-seat-visible-inconsistency",
+            "planned-transition confirmation accepted a host-visible set outside its seats");
     }
 
     private static void CheckSingleEdgeAndIdempotence()
@@ -610,7 +713,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
     {
         string adapter = Slice(AdapterSource(),
             "    private UiPanelOwnershipSample CaptureUiPanelOwnershipSample()",
-            "    /// <summary>\n    /// The first authoritative host wedge");
+            "    private void ObserveUiPanelOwnership()");
         string observer = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
             "MSUIClient", "Engine", "UI", "UiPanelOwnershipObserver.cs"));
         string program = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
@@ -632,13 +735,14 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
             "IncludeWhen(_inspectOpen, 11);",
             "IncludeWhen(_spellbookOpen, 12);",
             "IncludeWhen(_talentOpen, 13);",
-            "IncludeWhen(_socialOpen, 14);",
+            "IncludeWhen(_socialOpen || _guildOpen, 14);",
             "IncludeWhen(_macroOpen, 15);",
             "IncludeWhen(_professionOpen && _professionPanelKind == ProfessionPanelKind.TradeSkill, 16);",
             "IncludeWhen(_professionOpen && _professionPanelKind == ProfessionPanelKind.Craft, 17);",
-            "IncludeWhen(_settingsOpen && _menuPage == MenuPage.GameMenu, 18);",
-            "IncludeWhen(_settingsOpen && _menuPage != MenuPage.GameMenu, 19);",
-            "IncludeWhen(_worldMapOpen, 20);",
+            "IncludeWhen(_dressUpOpen, 18);",
+            "IncludeWhen(_settingsOpen && _menuPage == MenuPage.GameMenu, 19);",
+            "IncludeWhen(_settingsOpen && _menuPage != MenuPage.GameMenu, 20);",
+            "IncludeWhen(_worldMapOpen, 21);",
         ];
         Check(exactCensus.All(line => adapter.Contains(line, StringComparison.Ordinal)) &&
               adapter.Contains("\"profession-opener-kind-not-retained\"",
@@ -647,7 +751,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
 
         string[] excludedHostFlags =
         [
-            "_auctionOpen", "_helpOpen", "_guildOpen", "_keybindingsOpen", "_tabardOpen",
+            "_auctionOpen", "_helpOpen", "_keybindingsOpen", "_tabardOpen",
             "_backpackOpen", "_keyringOpen", "_equippedBagOpen", "_gameObjectPages",
             "_deathRezOpen", "_hearthOpen",
         ];
@@ -670,7 +774,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
             "_gossipMenu", "_vendor", "_mailOpen", "_tradeOpen", "_trainer", "_bankOpen",
             "_taxiOpen", "_questLogOpen", "_characterOpen", "_inspectOpen", "_spellbookOpen",
             "_talentOpen", "_socialOpen", "_macroOpen", "_settingsOpen", "_menuPage",
-            "_worldMapOpen", "_professionOpen", "_professionPanelKind",
+            "_worldMapOpen", "_professionOpen", "_professionPanelKind", "_dressUpOpen",
         ];
         Check(sourceOwnedFields.All(field =>
                   !System.Text.RegularExpressions.Regex.IsMatch(adapter,
@@ -695,6 +799,53 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
         }
         Check(orderedLifecycle && Count(program, "ObserveUiPanelOwnership();") == 1,
             "UI-panel census is not after the registered NPC lifecycle passes in normal Update");
+    }
+
+    private static void CheckRuntimeReconciliationSourceFence()
+    {
+        string root = ClientConfig.FindRepoRoot();
+        string adapter = AdapterSource();
+        string settings = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Settings.cs"));
+        string inventory = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Inventory.cs"));
+        string observer = SourceText.Read(Path.Combine(root,
+            "MSUIClient", "Engine", "UI", "UiPanelOwnershipObserver.cs"));
+
+        Check(adapter.Contains("UiPanelOwnershipLaw.Show(\n                before.Seats, incoming",
+                  StringComparison.Ordinal) &&
+              adapter.Contains("ApplyUiPanelEffects(planned.Effects, incoming.Id);",
+                  StringComparison.Ordinal) &&
+              adapter.Contains("ConfirmPlannedTransition(\n                    after, planned.Seats",
+                  StringComparison.Ordinal) &&
+              adapter.Contains("case \"DressUpFrame\":", StringComparison.Ordinal) &&
+              adapter.Contains("UiPanelOwnershipLaw.CloseAllWindows(",
+                  StringComparison.Ordinal) &&
+              adapter.Contains("UiPanelOwnershipLaw.CloseWindows(",
+                  StringComparison.Ordinal) &&
+              adapter.Contains("bool specialVisible = CloseItemRefTooltip();",
+                  StringComparison.Ordinal),
+            "registered host reconciliation or CloseWindows runtime dispatch drift");
+
+        Check(observer.Contains("public UiPanelOwnershipObservation ConfirmPlannedTransition(",
+                  StringComparison.Ordinal) &&
+              observer.Contains("SeatsMatchVisible(plannedSeats, current)",
+                  StringComparison.Ordinal),
+            "host-confirmed multi-edge observer entrance lost final-seat validation");
+
+        Check(settings.Contains(
+                  "TryCloseRegisteredUiPanels(closeEscapeContainers: true)",
+                  StringComparison.Ordinal) &&
+              settings.Contains(
+                  "TryCloseRegisteredUiPanels(closeEscapeContainers: false)",
+                  StringComparison.Ordinal) &&
+              settings.Contains("CloseAllNormalBagWindows();", StringComparison.Ordinal) &&
+              inventory.Contains("private bool CloseAllNormalBagWindows()",
+                  StringComparison.Ordinal) &&
+              !Slice(inventory, "    private bool CloseAllNormalBagWindows()",
+                  "    private void TriggerItemPushAnimation")
+                  .Contains("InventoryUiLaw.KeyringContainer", StringComparison.Ordinal),
+            "Escape CloseAllWindows or native-center CloseAllBags/keyring split drift");
     }
 
     private static void CheckHostTransitionSourceFence()

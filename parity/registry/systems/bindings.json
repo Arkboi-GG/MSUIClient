@@ -8,22 +8,22 @@
     {
       "path": "crates/benilla-app/src/bindings.rs",
       "fileSha256": "8fc59311eefb3e2149ee3761e0d25e5af5efb6442c3d51bf82f0ce6f5db2a42a",
-      "snapshotId": "benilla-current-2026-08-22"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/bindings/chord.rs",
       "fileSha256": "f072140b2e5b039d5a80b944ff9af3c436a168c05083e0f93f5acc2fb58d2648",
-      "snapshotId": "benilla-current-2026-08-22"
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/bindings/commands.rs",
-      "fileSha256": "78a25ed9c2a43597f1e81a466bd1e10b75119350bb70b565ba967ba166d8ece5",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "2022135cfc827e09f2a9aeb0b4023699e04ee977a5408a579dc79522e81be2d0",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/bindings/store.rs",
-      "fileSha256": "b1b7c53539abaf8a116d2187f5e351397adb6d08e428157605565e01756de6e1",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "217c5fc0e5702d3cd4a0d9652b793e17a90a406c2982f6418c829561b4444f1b",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
@@ -32,11 +32,13 @@
     "MSUIClient/Engine/UI/BindingChordLaw.cs",
     "MSUIClient/Engine/UI/CharacterBindingsUiLaw.cs",
     "MSUIClient/GameLoop/Combat/GameLoop.Sheath.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Follow.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.Minimap.cs",
     "tools/interface-wire-check/BindingChordClinicalChecks.cs",
     "tools/interface-wire-check/CharacterBindingsClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI runs its rebindable keyboard inputs through canonical ALT-CTRL-SHIFT chords with global exact-match precedence, the reference's single leftmost-modifier fallback, Super rejection, and base-key Held latches that survive modifier changes and clear cleanly for typing. Account and GUID-keyed character binding sets now follow the reference create-copy and confirmed load-account-before-delete lifecycle. Remaining system gaps are broader command and mouse coverage.",
+  "summary": "MSUI runs rebindable keyboard and pointer inputs through canonical ALT-CTRL-SHIFT chords with global exact-match precedence, the reference's single leftmost-modifier fallback, Super rejection, and base-key Held latches that survive modifier changes and clear cleanly for typing. Account and GUID-keyed character sets follow the reference create-copy and confirmed load-account-before-delete lifecycle. The visible page and production dispatcher now cover physical-secondary movement, NumLock/Button4 autorun, X sit/stand, follow target, T attack target, Enter/slash/reply and chat paging, camera wheel zoom, numpad minimap zoom, and independent enemy/friendly/all nameplates. Remaining coverage is the unported tail of the reference registry and exact recent-history previous-target cycling.",
   "openItems": [
     {
       "id": "item-triage-6927a2fd",
@@ -67,15 +69,39 @@
     {
       "id": "item-triage-faaeb2fc",
       "kind": "gap",
-      "text": "Rebindable command coverage is narrower than the reference's engine-wide set (e.g. chat open, autorun, camera zoom are not in the BindingRows table).",
+      "text": "Rebindable command coverage remains narrower than the reference's engine-wide registry. Common host commands now include chat open/slash/reply/page scrolling, autorun, camera/minimap zoom, physical movement secondaries, sit/stand, follow, attack target and enemy/friendly/all nameplates. Remaining work includes Benilla's scored recent-history TARGETPREVIOUSENEMY/TAB cycling and the long tail of reference edge/action commands.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-binding-common-host-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live-verify Enter, slash and reply edit-box focus/prefill; NumLock and Button4 autorun toggling, W/S and both-button cancellation, root/taxi loss, wire movement and walk interaction; rebind/steal camera wheel zoom including consecutive notches and free-view flight; arrow secondaries; numpad jump; and persistence/conflict feedback in Key Bindings.",
+      "source": "benilla-b57ee0e9e2c8822b/bindings/commands.rs",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-binding-nameplates-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live-verify V, Shift-V and Ctrl-V exact-first command dispatch, independent enemy/friendly mode state, all-toggle behavior, custom rebind/conflict stealing, persistence and typing suppression.",
+      "source": "benilla-b57ee0e9e2c8822b/bindings/commands.rs",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-binding-host-tail-live-verify-20260822",
+      "kind": "verify",
+      "text": "Focused StandState, Minimap, Chat, AutoFollow and BindingChord checks plus the full interface suite pass. Live-verify X posture toggle and packet echo; T start/stop/no-target acquisition; custom Follow Target; PageUp/PageDown/Shift-PageDown; and numpad minimap zoom indoors/outdoors, including rebind/conflict persistence and typing gates.",
+      "source": "benilla-b57ee0e9e2c8822b/bindings/commands.rs",
+      "added": "2026-08-22",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T08:00:00Z",
+  "lastReviewedUtc": "2026-08-22T22:35:07.6015994Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -43,6 +43,35 @@ internal static class BindingChordClinicalChecks
         Check(BindingChordLaw.Display(new BindingChord(Key.Z, Alt: true),
                   key => key.ToString()) == "ALT-Z",
             "binding display chord drifted");
+        Check(BindingChordLaw.Live(Key.KeypadEnter, false, false, false) ==
+                  new BindingChord(Key.Enter) &&
+              BindingCommandLaw.ForwardAxis(false, false, false, true) == 1 &&
+              BindingCommandLaw.ForwardAxis(true, false, false, true) == 2 &&
+              BindingCommandLaw.ForwardAxis(false, true, false, true) == 0 &&
+              BindingCommandLaw.AutorunCancelled(true, false, false, false) &&
+              !BindingCommandLaw.AutorunCancelled(false, false, false, false),
+            "binding keypad-enter normalization or autorun axis/cancel law drifted");
+        BindingChord mouse = BindingChordLaw.LivePointer(BindingPointerKey.Button4,
+            alt: false, control: true, shift: true);
+        Check(BindingChordLaw.Canonical(mouse) == "CTRL-SHIFT-BUTTON4" &&
+              BindingChordLaw.TryParse("CTRL-SHIFT-BUTTON4", out BindingChord parsedMouse) &&
+              parsedMouse == mouse &&
+              BindingChordLaw.Display(mouse, key => key.ToString()) ==
+                  "CTRL-SHIFT-Mouse Button 4" &&
+              BindingChordLaw.TryParse("MOUSEWHEELUP", out BindingChord wheel) &&
+              wheel.Pointer == BindingPointerKey.WheelUp && wheel.Key == Key.Unknown,
+            "mouse button/wheel canonical codec or display drifted");
+        Check(KeyBindingsUiLaw.FrameSize == new System.Numerics.Vector2(640, 512) &&
+              KeyBindingsUiLaw.Search == new KeyBindingsUiLaw.Rect(18, 8, 180, 22) &&
+              KeyBindingsUiLaw.Rows == new KeyBindingsUiLaw.Rect(27, 53, 535, 390) &&
+              KeyBindingsUiLaw.VisibleRows == 17 && KeyBindingsUiLaw.RowPitch == 23 &&
+              KeyBindingsUiLaw.PrimaryKey == new KeyBindingsUiLaw.Rect(175, 1, 180, 22) &&
+              KeyBindingsUiLaw.SecondaryKey == new KeyBindingsUiLaw.Rect(355, 1, 180, 22) &&
+              KeyBindingsUiLaw.MaximumScroll(20) == 3 &&
+              KeyBindingsUiLaw.ClampScroll(9, 20) == 3 &&
+              KeyBindingsUiLaw.MatchesSearch("Action Bar", "Action Button 1", "button") &&
+              !KeyBindingsUiLaw.MatchesSearch("Movement", "Jump", "spell"),
+            "keybindings shell/search/collapse geometry law drifted");
     }
 
     private static void CheckRuntimeSourceFence()
@@ -52,8 +81,13 @@ internal static class BindingChordClinicalChecks
             "Panels", "GameLoop.Bindings.cs"));
         string page = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop",
             "Panels", "GameLoop.Keybindings.cs"));
+        string window = File.ReadAllText(Path.Combine(root, "MSUIClient", "Engine",
+            "ClientWindow.cs"));
         string sheath = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop",
             "Combat", "GameLoop.Sheath.cs"));
+        string chat = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop",
+            "Panels", "GameLoop.Chat.cs"));
+        string update = File.ReadAllText(Path.Combine(root, "MSUIClient", "Program.cs"));
 
         Check(bindings.Contains("record struct BindingPair(BindingChord Primary",
                   StringComparison.Ordinal) &&
@@ -64,19 +98,78 @@ internal static class BindingChordClinicalChecks
                   StringComparison.Ordinal) &&
               bindings.Contains("GameBinding[] exact = _bindings",
                   StringComparison.Ordinal) &&
+              bindings.Contains("_bindingPointerLatches", StringComparison.Ordinal) &&
+              bindings.Contains("_window.BindingWheelDelta", StringComparison.Ordinal) &&
+              bindings.Contains("BindingChordLaw.LivePointer", StringComparison.Ordinal) &&
               bindings.Contains("BindingChordLaw.Fallback(live)",
                   StringComparison.Ordinal) &&
               bindings.Contains("if (wasDown || typing || super) continue;",
                   StringComparison.Ordinal) &&
               bindings.Contains("if (typing) _bindingLatches.Clear();",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("GameBinding.ToggleAutorun, \"Auto Run\", Key.NumLock",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("BindingPointerKey.Button4", StringComparison.Ordinal) &&
+              bindings.Contains("GameBinding.OpenChatSlash, \"Open Chat Slash\", Key.Slash",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("GameBinding.CameraZoomIn, \"Zoom In\", Key.Unknown",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("GameBinding.ToggleEnemyNameplates, \"Show Enemy Name Plates\", Key.V",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("GameBinding.AttackTarget, \"Attack Target\", Key.T",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("GameBinding.FollowTarget, \"Follow Target\", Key.Unknown",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("GameBinding.SitOrStand, \"Sit/Stand\", Key.X",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("GameBinding.MinimapZoomIn, \"Minimap Zoom In\", Key.KeypadAdd",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("GameBinding.MinimapZoomOut, \"Minimap Zoom Out\", Key.KeypadSubtract",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("GameBinding.ChatPageUp, \"Chat Page Up\", Key.PageUp",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("new BindingChord(Key.PageDown, Shift: true)",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("ChatFrameLaw.PageUpOffset", StringComparison.Ordinal) &&
+              bindings.Contains("new BindingChord(Key.V, Shift: true)",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("new BindingChord(Key.V, Control: true)",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("UpdateAutorunBinding(bool typing)", StringComparison.Ordinal) &&
+              bindings.Contains("UpdateChatBindings(bool typing)", StringComparison.Ordinal) &&
+              bindings.Contains("UpdateCameraZoomBindings(bool typing)",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("StopAttack(\"attack-target-toggle\")",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("CommitSelection(nearest.Guid, beginAttack: true)",
                   StringComparison.Ordinal),
             "binding storage or exact-first/fallback runtime dispatch escaped the chord law");
         Check(page.Contains("FirstBindableChordDown()", StringComparison.Ordinal) &&
               page.Contains("!BindingChordLaw.IsModifier(key)", StringComparison.Ordinal) &&
               page.Contains("InputKeyDown(Key.SuperLeft)", StringComparison.Ordinal) &&
+              page.Contains("BindingPointerKey.Button3", StringComparison.Ordinal) &&
+              page.Contains("BindingPointerKey.WheelUp", StringComparison.Ordinal) &&
+              page.Contains("AnyBindableInputDown()", StringComparison.Ordinal) &&
+              page.Contains("KeyBindingsUiLaw.FrameSize", StringComparison.Ordinal) &&
+              page.Contains("_collapsedBindingCategories", StringComparison.Ordinal) &&
+              page.Contains("KeyBindingsUiLaw.MatchesSearch", StringComparison.Ordinal) &&
               page.Contains("Function is Now Unbound!", StringComparison.Ordinal) &&
               page.Contains("FriendlyChord(chord)", StringComparison.Ordinal),
             "keybinding capture/display/conflict feedback escaped the chord law");
+        Check(window.Contains("public bool MouseButton4Down", StringComparison.Ordinal) &&
+              window.Contains("public bool MouseButton5Down", StringComparison.Ordinal) &&
+              window.Contains("public float BindingWheelDelta", StringComparison.Ordinal) &&
+              window.Contains("_mouse.IsButtonPressed(MouseButton.Button4)",
+                  StringComparison.Ordinal) &&
+              window.Contains("_mouse.IsButtonPressed(MouseButton.Button5)",
+                  StringComparison.Ordinal) &&
+              window.Contains("BindingWheelDelta += wheel.Y;", StringComparison.Ordinal) &&
+              window.Contains("BindingWheelDelta = 0f;", StringComparison.Ordinal) &&
+              !window.Contains("else Camera.Zoom(_pendingZoom);", StringComparison.Ordinal) &&
+              update.Contains("BindingCommandLaw.ForwardAxis", StringComparison.Ordinal) &&
+              !update.Contains("_window.Axis(Key.Up, Key.Down)", StringComparison.Ordinal) &&
+              !chat.Contains("ImGui.IsKeyPressed(ImGuiKey.Enter", StringComparison.Ordinal),
+            "mouse button/wheel host sampling escaped the binding input seam");
         Check(sheath.Contains("BindingBaseDown(GameBinding.Sheath)",
                   StringComparison.Ordinal) &&
               sheath.Contains("bool acceptedDown = BindingDown(GameBinding.Sheath);",

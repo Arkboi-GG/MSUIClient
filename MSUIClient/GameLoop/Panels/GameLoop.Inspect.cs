@@ -102,7 +102,7 @@ public sealed partial class GameLoop
         if (!_inspectOpen || _items is null || _gameplayArt is null ||
             !_entities.TryGet(_inspectGuid, out WorldEntity player)) return;
         float s = GameplayUiScale();
-        Vector2 p = new(0, 104 * s);
+        Vector2 p = UiPanelFrameOrigin(UiPanelOwnershipRegistry[11], s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
         ImGui.SetNextWindowSize(new Vector2(InspectUiLaw.FrameWidth,
             InspectUiLaw.FrameHeight) * s, ImGuiCond.Always);
@@ -433,6 +433,9 @@ public sealed partial class GameLoop
         ImGui.InvisibleButton($"##inspect-slot-{slot}", max - min);
         bool hovered = ImGui.IsItemHovered();
         bool active = ImGui.IsItemActive();
+        if (entry != 0 && ImGui.GetIO().KeyCtrl &&
+            ImGui.IsItemClicked(ImGuiMouseButton.Left))
+            TryOnDressUp(entry);
         if (parity)
         {
             CollectUiParityDraw(element, "Button", min, max - min, "InspectPaperDollFrame",
