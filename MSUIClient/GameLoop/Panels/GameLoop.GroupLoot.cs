@@ -216,34 +216,65 @@ public sealed partial class GameLoop
             bop ? WowSkin.DialogGold : WowSkin.Dialog);
         DrawArt(draw, GroupLootFrameUiLaw.EmptySlotPath,
             frame.Min + GroupLootFrameUiLaw.ItemPlateMin * scale,
-            new Vector2(GroupLootFrameUiLaw.ItemPlateSize), scale);
+            GroupLootFrameUiLaw.ItemPlateLogicalSize, scale);
         DrawArt(draw, GroupLootFrameUiLaw.NamePlatePath,
-            frame.Min + GroupLootFrameUiLaw.NamePlateMin * scale, new Vector2(128, 64), scale);
+            frame.Min + GroupLootFrameUiLaw.NamePlateMin * scale,
+            GroupLootFrameUiLaw.NamePlateSize, scale);
         if (bop)
             DrawArt(draw, GroupLootFrameUiLaw.DragonPath,
-                frame.Min + GroupLootFrameUiLaw.DragonMin * scale, new Vector2(120), scale);
+                frame.Min + GroupLootFrameUiLaw.DragonMin * scale,
+                GroupLootFrameUiLaw.DragonSize, scale);
         DrawArt(draw, bop ? GroupLootFrameUiLaw.GoldCornerPath : GroupLootFrameUiLaw.PlainCornerPath,
-            frame.Min + GroupLootFrameUiLaw.CornerMin * scale, new Vector2(32), scale);
+            frame.Min + GroupLootFrameUiLaw.CornerMin * scale,
+            GroupLootFrameUiLaw.CornerSize, scale);
 
         string iconPath = item?.IconPath ?? @"Interface\Icons\INV_Misc_QuestionMark";
         Vector2 iconMin = frame.Min + GroupLootFrameUiLaw.IconMin * scale;
-        DrawArt(draw, iconPath, iconMin, new Vector2(GroupLootFrameUiLaw.IconSize), scale);
+        DrawArt(draw, iconPath, iconMin, GroupLootFrameUiLaw.IconLogicalSize, scale);
         ImGui.SetCursorScreenPos(iconMin);
         ImGui.InvisibleButton($"##group-loot-icon-{roll.Id}",
-            new Vector2(GroupLootFrameUiLaw.IconSize) * scale);
-        if (ImGui.GetIO().KeyCtrl && ImGui.IsItemClicked(ImGuiMouseButton.Left))
-            TryOnDressUp(roll.ItemId);
+            GroupLootFrameUiLaw.IconLogicalSize * scale);
+        string itemLink = item is null ? "" :
+            GroupLootFrameUiLaw.ItemLink(roll.ItemId, item.Name, item.Quality);
+        switch (GroupLootFrameUiLaw.IconAction(
+                    ImGui.IsItemClicked(ImGuiMouseButton.Left), ImGui.GetIO().KeyCtrl,
+                    ImGui.GetIO().KeyShift, _chatEditOpen, itemLink.Length > 0))
+        {
+            case GroupLootFrameUiLaw.IconClickAction.DressUp:
+                TryOnDressUp(roll.ItemId);
+                break;
+            case GroupLootFrameUiLaw.IconClickAction.InsertChat:
+                InsertChatText(itemLink);
+                break;
+        }
         if (ImGui.IsItemHovered() && item is not null)
+        {
+            GroupLootFrameUiLaw.TooltipSeat tooltipSeat =
+                GroupLootFrameUiLaw.RightTooltipSeat(iconMin,
+                    GroupLootFrameUiLaw.IconLogicalSize * scale);
             OfferPreparedItemTooltip(new("item:group-loot", roll.Id),
-                PrepareItemTooltipBodySnapshot(item, 1));
+                PrepareItemTooltipBodySnapshot(item, 1), tooltipSeat.Anchor,
+                nextWindowPivot: tooltipSeat.Pivot);
+        }
 
         if (item is not null)
         {
             Vector2 textMin = frame.Min + GroupLootFrameUiLaw.NameMin * scale;
             Vector2 textMax = textMin + GroupLootFrameUiLaw.NameSize * scale;
             draw.PushClipRect(textMin, textMax, true);
-            GameText.Draw(draw, "GameFontNormalSmall", item.Name, textMin, scale,
-                ImGui.ColorConvertFloat4ToU32(GroupLootFrameUiLaw.QualityColor(item.Quality)));
+            float namePitch = GameText.LinePitch(GroupLootFrameUiLaw.NameFont, scale);
+            IReadOnlyList<string> nameLines = GroupLootFrameUiLaw.WrapItemName(item.Name,
+                GroupLootFrameUiLaw.NameSize.X * scale,
+                Math.Max(1, (int)MathF.Floor(
+                    GroupLootFrameUiLaw.NameSize.Y * scale / namePitch)),
+                candidate => GameText.MeasureWidth(
+                    GroupLootFrameUiLaw.NameFont, candidate, scale));
+            uint nameColor = ImGui.ColorConvertFloat4ToU32(
+                GroupLootFrameUiLaw.QualityColor(item.Quality));
+            for (int line = 0; line < nameLines.Count; line++)
+                GameText.Draw(draw, GroupLootFrameUiLaw.NameFont, nameLines[line],
+                    GroupLootFrameUiLaw.NameLineMin(frame.Min, scale, line,
+                        nameLines.Count, namePitch), scale, nameColor);
             draw.PopClipRect();
         }
 
@@ -268,23 +299,20 @@ public sealed partial class GameLoop
         float ratio = roll.CountdownMs == 0 ? 0 :
             Math.Clamp((float)(remaining / roll.CountdownMs), 0, 1);
         Vector2 min = origin + GroupLootFrameUiLaw.TimerMin * scale;
-        Vector2 size = new(GroupLootFrameUiLaw.TimerWidth * ratio,
-            GroupLootFrameUiLaw.TimerHeight * scale);
-        size.X *= scale;
+        Vector2 size = GroupLootFrameUiLaw.TimerFillSize(ratio, scale);
         uint fill = _gameplayArt!.Handle(GroupLootFrameUiLaw.TimerFillPath);
         if (fill != 0 && size.X > 0)
             draw.AddImage((nint)fill, min, min + size, Vector2.Zero,
-                new Vector2(ratio, 1), 0xff00ffff);
+                GroupLootFrameUiLaw.TimerFillUvMax(ratio), 0xff00ffff);
         DrawArt(draw, GroupLootFrameUiLaw.TimerBorderPath,
             origin + GroupLootFrameUiLaw.TimerBorderMin * scale,
-            new Vector2(GroupLootFrameUiLaw.TimerBorderWidth,
-                GroupLootFrameUiLaw.TimerBorderHeight), scale);
+            GroupLootFrameUiLaw.TimerBorderLogicalSize, scale);
     }
 
     private bool DrawGroupLootVoteButton(ImDrawListPtr draw, ulong rollId, GroupLootVote vote,
         Vector2 min, float scale, string tooltip)
     {
-        Vector2 size = new Vector2(GroupLootFrameUiLaw.VoteButtonSize) * scale;
+        Vector2 size = GroupLootFrameUiLaw.VoteButtonLogicalSize * scale;
         ImGui.SetCursorScreenPos(min);
         bool clicked = ImGui.InvisibleButton($"##group-loot-{rollId}-{vote}", size);
         bool active = ImGui.IsItemActive();
@@ -298,13 +326,18 @@ public sealed partial class GameLoop
             _ => (GroupLootFrameUiLaw.PassUpPath,
                 GroupLootFrameUiLaw.PassDownPath, GroupLootFrameUiLaw.PassHighlightPath),
         };
-        DrawArt(draw, active ? down : up, min, new Vector2(GroupLootFrameUiLaw.VoteButtonSize), scale);
+        DrawArt(draw, active ? down : up, min, GroupLootFrameUiLaw.VoteButtonLogicalSize,
+            scale);
         if (hovered)
         {
-            DrawArt(draw, highlight, min, new Vector2(GroupLootFrameUiLaw.VoteButtonSize), scale);
+            DrawArt(draw, highlight, min, GroupLootFrameUiLaw.VoteButtonLogicalSize, scale);
+            GroupLootFrameUiLaw.TooltipSeat tooltipSeat =
+                GroupLootFrameUiLaw.RightTooltipSeat(min, size);
             OfferPreservedSharedGameTooltipRenderer(
                 new($"group-loot-{vote.ToString().ToLowerInvariant()}", rollId), () =>
                 {
+                    ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
+                        tooltipSeat.Pivot);
                     ImGui.BeginTooltip();
                     ImGui.TextUnformatted(tooltip);
                     ImGui.EndTooltip();
@@ -368,20 +401,22 @@ public sealed partial class GameLoop
     private bool DrawGroupLootConfirmButton(ImDrawListPtr draw, int index, string caption,
         Vector2 min, float scale)
     {
-        Vector2 size = new Vector2(GroupLootFrameUiLaw.ConfirmButtonWidth,
-            GroupLootFrameUiLaw.ConfirmButtonHeight) * scale;
+        Vector2 size = GroupLootFrameUiLaw.ConfirmButtonSize * scale;
         ImGui.SetCursorScreenPos(min);
         bool clicked = ImGui.InvisibleButton($"##group-loot-confirm-{index}", size);
         bool active = ImGui.IsItemActive();
         bool hovered = ImGui.IsItemHovered();
         uint art = _skin!.TextureHandle(active ? "dialog.button.down" : "dialog.button.up");
-        if (art != 0) draw.AddImage((nint)art, min, min + size, Vector2.Zero, new Vector2(1, .625f));
+        if (art != 0)
+            draw.AddImage((nint)art, min, min + size, Vector2.Zero,
+                GroupLootFrameUiLaw.ConfirmButtonUvMax);
         if (hovered)
         {
             uint highlight = _gameplayArt?.BrightHighlightHandle(
                 @"Interface\Buttons\UI-DialogBox-Button-Highlight") ?? 0;
             if (highlight != 0)
-                draw.AddImage((nint)highlight, min, min + size, Vector2.Zero, new Vector2(1, .625f));
+                draw.AddImage((nint)highlight, min, min + size, Vector2.Zero,
+                    GroupLootFrameUiLaw.ConfirmButtonUvMax);
         }
         GameText.DrawCentered(draw, hovered ? "GameFontHighlight" : "GameFontNormal",
             caption, min + size * .5f, scale);

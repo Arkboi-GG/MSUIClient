@@ -14,7 +14,46 @@ internal static class TrainerFrameClinicalChecks
               TrainerFrameUiLaw.Title("") == "Trainer" &&
               TrainerFrameUiLaw.Title("  Woo Ping  ") == "Woo Ping" &&
               TrainerFrameUiLaw.PurseRightTop == new Vector2(180, 413) &&
-              TrainerFrameUiLaw.DetailCostLabel == new Vector2(30, 340),
+              TrainerFrameUiLaw.DetailCostLabel == new Vector2(30, 340) &&
+              TrainerFrameUiLaw.Greeting ==
+                  new TrainerFrameUiLaw.LogicalRect(76, 38, 260, 26) &&
+              TrainerFrameUiLaw.DetailNameBox ==
+                  new TrainerFrameUiLaw.LogicalRect(68, 293, 244, 24) &&
+              TrainerFrameUiLaw.DetailRequirementBox ==
+                  new TrainerFrameUiLaw.LogicalRect(68, 309, 244, 20) &&
+              TrainerFrameUiLaw.DetailDescriptionBox ==
+                  new TrainerFrameUiLaw.LogicalRect(30, 360, 290, 30) &&
+              TrainerFrameUiLaw.GreetingFont == "GameFontHighlight" &&
+              TrainerFrameUiLaw.RowNameFont == "GameFontNormal" &&
+              TrainerFrameUiLaw.DetailDescriptionFont == "GameFontHighlightSmall" &&
+              TrainerFrameUiLaw.Row(10) ==
+                  new TrainerFrameUiLaw.LogicalRect(22, 260, 293, 16) &&
+              TrainerFrameUiLaw.FilterRow(2) ==
+                  new TrainerFrameUiLaw.LogicalRect(3, 37, 120, 16) &&
+              TrainerFrameUiLaw.Close ==
+                  new TrainerFrameUiLaw.LogicalRect(322, 8, 32, 32) &&
+              TrainerFrameUiLaw.CollapseAll ==
+                  new TrainerFrameUiLaw.LogicalRect(23, 72, 40, 22) &&
+              TrainerFrameUiLaw.CollapseAllIcon ==
+                  new TrainerFrameUiLaw.LogicalRect(23, 75, 16, 16) &&
+              TrainerFrameUiLaw.CollapseAllLabelCenter == new Vector2(52, 83) &&
+              TrainerFrameUiLaw.CollapseAllTabArt.Select(piece => piece.Element)
+                  .SequenceEqual(new[]
+                  {
+                      "TrainerExpandTabLeft", "TrainerExpandTabMiddle",
+                      "TrainerExpandTabRight",
+                  }) &&
+              TrainerFrameUiLaw.CollapseAllTabArt[1].Rect ==
+                  new TrainerFrameUiLaw.LogicalRect(23, 64, 38, 32) &&
+              TrainerFrameUiLaw.CollapseAllFont == "GameFontNormalSmall" &&
+              TrainerFrameUiLaw.CollapseAllMinusPath ==
+                  @"Interface\Buttons\UI-MinusButton-Up" &&
+              TrainerFrameUiLaw.CollapseAllPlusPath ==
+                  @"Interface\Buttons\UI-PlusButton-Up" &&
+              TrainerFrameUiLaw.CollapseAllHighlightPath ==
+                  @"Interface\Buttons\UI-PlusButton-Hilight" &&
+              TrainerFrameUiLaw.DetailTooltipOwnerBounds(new Vector2(100, 200), 2) ==
+                  (new Vector2(154, 788), new Vector2(228, 862)),
             "trainer identity/window geometry drift");
 
         var available = new TrainerFrameUiLaw.ServiceNode(0, 26, "Arms", "Heroic Strike", 0, 1);
@@ -28,6 +67,19 @@ internal static class TrainerFrameClinicalChecks
                   new HashSet<uint> { 26 }, true, true, true)
                   .Select(row => row.Text).SequenceEqual(new[] { "Arms", "Fury", "Bloodrage" }),
             "trainer filter/collapsible skill-line tree drift");
+
+        Check(TrainerFrameUiLaw.HeaderIcon(TrainerFrameUiLaw.Row(0)) ==
+                  new TrainerFrameUiLaw.LogicalRect(25, 100, 16, 16) &&
+              TrainerFrameUiLaw.RowNameMinimum(new Vector2(22, 100), 16, 12) ==
+                  new Vector2(44, 102) &&
+              TrainerFrameUiLaw.RowSubtextMinimum(new Vector2(44, 102), 80, 1) ==
+                  new Vector2(134, 102) &&
+              TrainerFrameUiLaw.RowNameColor(0, false) == 0xff00ff00 &&
+              TrainerFrameUiLaw.RowSubtextColor(1, false, false) == 0xff000099 &&
+              TrainerFrameUiLaw.RowSubtextColor(1, false, true) == 0xffffffff &&
+              TrainerFrameUiLaw.WrapText("one two three", 7, 2,
+                  candidate => candidate.Length).SequenceEqual(new[] { "one two", "three" }),
+            "trainer authored row typography/color/wrap law drift");
 
         SpellInfo wrapper = new(Id: 1000, Name: "Teach", Rank: "", IconPath: "",
             Attributes: 0, AttributesEx2: 0, AttributesEx3: 0,
@@ -48,11 +100,28 @@ internal static class TrainerFrameClinicalChecks
               runtime.Contains("DrawUnitPortraitImage", StringComparison.Ordinal) &&
               runtime.Contains("DrawNpcModalTitle", StringComparison.Ordinal) &&
               runtime.Contains("DrawTrainerMoney", StringComparison.Ordinal) &&
+              runtime.Contains("DrawTrainerWrappedText", StringComparison.Ordinal) &&
+              runtime.Contains("TrainerFrameUiLaw.RowNameFont", StringComparison.Ordinal) &&
+              runtime.Contains("TrainerFrameUiLaw.RowSubtextFont", StringComparison.Ordinal) &&
+              runtime.Contains("TrainerFrameUiLaw.HeaderIcon", StringComparison.Ordinal) &&
+              !runtime.Contains("DrawWrappedText", StringComparison.Ordinal) &&
+              !runtime.Contains("dl.AddText", StringComparison.Ordinal) &&
               runtime.Contains("TrainerFrameUiLaw.BuildTree", StringComparison.Ordinal) &&
+              runtime.Contains("TrainerFrameUiLaw.CollapseAllTabArt",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("VanillaCollapseAllButton", StringComparison.Ordinal) &&
+              runtime.Contains("bool collapseEnabled = tree.Any(row => row.Header)",
+                  StringComparison.Ordinal) &&
               runtime.Contains("DrawTrainerFilterMenu", StringComparison.Ordinal) &&
+              runtime.Contains("TrainerFrameUiLaw.DetailTooltipOwnerBounds", StringComparison.Ordinal) &&
+              runtime.Contains("SpellTooltipPlacement.OwnerRight", StringComparison.Ordinal) &&
+              runtime.Contains("spell:trainer-service", StringComparison.Ordinal) &&
+              !runtime.Contains("Requires level {row.RequiredLevel}; skill",
+                  StringComparison.Ordinal) &&
               runtime.Contains("PlayUiSound(TrainerFrameUiLaw.OpenSound",
                   StringComparison.Ordinal) &&
               runtime.Contains("CloseTrainerSession", StringComparison.Ordinal) &&
+              !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               !runtime.Contains("DrawCenteredText(dl,origin+new Vector2(192,17)*scale,\"Trainer\"",
                   StringComparison.Ordinal) &&
               !runtime.Contains("$\"Cost: {FormatMoney", StringComparison.Ordinal),

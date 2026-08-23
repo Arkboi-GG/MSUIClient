@@ -100,19 +100,23 @@ public sealed partial class GameLoop
         }
         else
         {
-            draw.PushClipRect(editMin, editMin + edit.Size * scale, true);
-            DrawWrappedText(draw, _guildInfoDraft, editMin, edit.Width,
-                14 * scale, scale, 0xffa6a6a6, 16);
-            draw.PopClipRect();
+            DrawGuildFixedText(draw, origin, scale, edit,
+                GuildFrameUiLaw.InfoTextFont, _guildInfoDraft, 0xffa6a6a6);
         }
 
         GuildFrameUiLaw.LogicalRect save = GuildFrameUiLaw.InfoSaveButton;
         if (VanillaButton(draw, "##guild-info-save", "Accept",
-                origin + save.Min * scale, save.Size, scale, canEdit))
+                origin + save.Min * scale, save.Size, scale, canEdit,
+                normalFont: GuildFrameUiLaw.SmallButtonNormalFont,
+                highlightFont: GuildFrameUiLaw.SmallButtonHighlightFont,
+                disabledFont: GuildFrameUiLaw.SmallButtonDisabledFont))
             SaveGuildInfo();
         GuildFrameUiLaw.LogicalRect cancel = GuildFrameUiLaw.InfoCancelButton;
         if (VanillaButton(draw, "##guild-info-cancel", "Close",
-                origin + cancel.Min * scale, cancel.Size, scale))
+                origin + cancel.Min * scale, cancel.Size, scale,
+                normalFont: GuildFrameUiLaw.SmallButtonNormalFont,
+                highlightFont: GuildFrameUiLaw.SmallButtonHighlightFont,
+                disabledFont: GuildFrameUiLaw.SmallButtonDisabledFont))
             _guildInfoOpen = false;
 
         GuildFrameUiLaw.LogicalRect close = GuildFrameUiLaw.InfoCloseButton;

@@ -254,16 +254,14 @@ public sealed partial class GameLoop
             CollectUiParityDraw("GuildFrame", "Frame", origin, logicalSize * s, "",
                 new("", 0, "IMGUI_HOST", "ANCHOR:ABSOLUTE", "", "", 0, 8));
         }
+        FriendsFrameUiLaw.ShellArt shell = FriendsFrameUiLaw.ShellFor(page: 2, ignore: false);
         DrawFourPieceShell(dl, origin, s,
-            @"Interface\PaperDollInfoFrame\UI-Character-General-TopLeft",
-            @"Interface\PaperDollInfoFrame\UI-Character-General-TopRight",
-            @"Interface\FriendsFrame\UI-FriendsFrame-BotLeft",
-            @"Interface\FriendsFrame\UI-FriendsFrame-BotRight");
+            shell.TopLeft, shell.TopRight, shell.BottomLeft, shell.BottomRight);
         DrawArt(dl, @"Interface\FriendsFrame\FriendsFrameScrollIcon",
             origin + FriendsFrameUiLaw.ScrollIcon.Min * s,
             FriendsFrameUiLaw.ScrollIcon.Size, s);
         GameText.DrawCentered(dl, "GameFontNormal", _guildName,
-            origin + new Vector2(192, 18) * s, s);
+            origin + FriendsFrameUiLaw.TitleCenter * s, s);
 
         DrawGuildOfflineFilter(dl, origin, s);
         GuildRosterSortProjection[] projections = _guildMembers.Select(GuildProjection).ToArray();
@@ -300,7 +298,17 @@ public sealed partial class GameLoop
             GuildFrameUiLaw.LogicalRect row = GuildFrameUiLaw.Row(seat);
             Vector2 rowMin = origin + row.Min * s;
             bool rowClicked = VanillaListRow(dl, $"##guild-{member.Guid}", rowMin,
-                row.Size, s, "", _guildSelected == originalIndex);
+                row.Size, s, "", _guildSelected == originalIndex,
+                highlightPath: GuildFrameUiLaw.RowHighlightPath,
+                additiveHighlight: true,
+                highlightOffset: GuildFrameUiLaw.RowHighlight.Min,
+                highlightLogicalSize: GuildFrameUiLaw.RowHighlight.Size);
+            bool rowRightClicked = ImGui.IsItemClicked(ImGuiMouseButton.Right);
+            if (!_guildStatusView)
+                OfferVanillaNewbieTooltip(new("guild-member-row", member.Guid),
+                    "Guild Member Options", GuildFrameUiLaw.MemberOptionsTooltip);
+            if (rowRightClicked)
+                OpenGuildPopup(member.Guid, member.Name, ImGui.GetIO().MousePos);
             if (rowClicked)
             {
                 if (_guildMemberDetailOpen && _guildSelected == originalIndex)
@@ -327,7 +335,7 @@ public sealed partial class GameLoop
         GuildFrameUiLaw.LogicalRect toggle = GuildFrameUiLaw.ViewToggle(shown.Length);
         string toggleLabel = _guildStatusView ? "Player Status" : "Guild Status";
         GameText.DrawRightAligned(dl, "GameFontNormalSmall", toggleLabel,
-            origin + new Vector2(toggle.X - 4, toggle.Y + 11) * s, s);
+            origin + GuildFrameUiLaw.ViewToggleLabelRight(shown.Length) * s, s);
         DrawImageButton(dl, "##guild-view-toggle", origin + toggle.Min * s,
             toggle.Size * s, @"Interface\Buttons\UI-SpellbookIcon-NextPage-Up",
             @"Interface\Buttons\UI-SpellbookIcon-NextPage-Down",
@@ -337,55 +345,88 @@ public sealed partial class GameLoop
         int online = _guildMembers.Count(member => member.Online);
         string total = _guildMembers.Count == 1 ? "1 Guild Member" :
             $"{_guildMembers.Count} Guild Members";
-        GameText.Draw(dl, "GameFontNormalSmall", total,
-            origin + new Vector2(70, 323) * s, s);
-        GameText.Draw(dl, "GameFontNormalSmall", $"({online} Online)",
-            origin + new Vector2(190, 323) * s, s, 0xff00ff00);
+        Vector2 memberTotalAt = origin + GuildFrameUiLaw.MemberTotalBox.Min * s;
+        memberTotalAt.Y = GameText.BoxCenteredTop("GameFontNormalSmall", memberTotalAt.Y,
+            GuildFrameUiLaw.MemberTotalBox.Height, s);
+        GameText.Draw(dl, "GameFontNormalSmall", total, memberTotalAt, s);
+        float memberTotalWidth = GameText.MeasureWidth("GameFontNormalSmall", total, s) / s;
+        GuildFrameUiLaw.LogicalRect onlineBox = GuildFrameUiLaw.OnlineTotalBox(memberTotalWidth);
+        Vector2 onlineTotalAt = origin + onlineBox.Min * s;
+        onlineTotalAt.Y = GameText.BoxCenteredTop("GameFontNormalSmall", onlineTotalAt.Y,
+            onlineBox.Height, s);
+        GameText.Draw(dl, "GameFontNormalSmall", $"({online} Online)", onlineTotalAt,
+            s, 0xff00ff00);
         GameText.Draw(dl, "GameFontNormalSmall", "Guild Message Of The Day:",
             origin + GuildFrameUiLaw.MotdLabel.Min * s, s);
-        DrawWrappedText(dl, _guildMotd, origin + GuildFrameUiLaw.MotdText.Min * s,
-            GuildFrameUiLaw.MotdText.Width, 9 * s, s, 0xffffffff, 3);
+        IReadOnlyList<string> motdLines = GuildFrameUiLaw.WrapMotd(_guildMotd,
+            GuildFrameUiLaw.MotdText.Width * s, GuildFrameUiLaw.MotdText.Height * s,
+            GameText.LinePitch("GameFontHighlightSmall", s),
+            line => GameText.MeasureWidth("GameFontHighlightSmall", line, s));
+        float motdPitch = GameText.LinePitch("GameFontHighlightSmall", s);
+        for (int line = 0; line < motdLines.Count; line++)
+        {
+            Vector2 at = origin + GuildFrameUiLaw.MotdText.Min * s;
+            at.Y += line * motdPitch;
+            GameText.Draw(dl, "GameFontHighlightSmall", motdLines[line], at, s);
+        }
 
         if (VanillaButton(dl, "##guild-info", "Guild Information",
                 origin + GuildFrameUiLaw.GuildInformation.Min * s,
-                GuildFrameUiLaw.GuildInformation.Size, s))
+                GuildFrameUiLaw.GuildInformation.Size, s,
+                normalFont: GuildFrameUiLaw.SmallButtonNormalFont,
+                highlightFont: GuildFrameUiLaw.SmallButtonHighlightFont,
+                disabledFont: GuildFrameUiLaw.SmallButtonDisabledFont))
             ToggleGuildInfoFrame();
+        OfferVanillaNewbieTooltip(new("guild-action", 1), "Guild Information",
+            GuildFrameUiLaw.InformationTooltip);
         if (VanillaButton(dl, "##guild-add", "Add Member",
                 origin + GuildFrameUiLaw.AddMember.Min * s,
                 GuildFrameUiLaw.AddMember.Size, s,
                 GuildFrameUiLaw.HasRight(CurrentGuildRank(), _guildRankRights,
-                    GuildFrameUiLaw.InviteRight)))
+                    GuildFrameUiLaw.InviteRight),
+                normalFont: GuildFrameUiLaw.SmallButtonNormalFont,
+                highlightFont: GuildFrameUiLaw.SmallButtonHighlightFont,
+                disabledFont: GuildFrameUiLaw.SmallButtonDisabledFont))
             ShowGuildAddMemberPopup();
+        OfferVanillaNewbieTooltip(new("guild-action", 2), "Add Member",
+            GuildFrameUiLaw.AddMemberTooltip);
         if (VanillaButton(dl, "##guild-control", "Guild Control",
                 origin + GuildFrameUiLaw.GuildControl.Min * s,
-                GuildFrameUiLaw.GuildControl.Size, s, CurrentGuildRank() == 0))
+                GuildFrameUiLaw.GuildControl.Size, s, CurrentGuildRank() == 0,
+                normalFont: GuildFrameUiLaw.SmallButtonNormalFont,
+                highlightFont: GuildFrameUiLaw.SmallButtonHighlightFont,
+                disabledFont: GuildFrameUiLaw.SmallButtonDisabledFont))
             ToggleGuildControlFrame();
+        OfferVanillaNewbieTooltip(new("guild-action", 3), "Guild Control",
+            GuildFrameUiLaw.ControlTooltip);
 
         string[] outer = FriendsFrameUiLaw.OuterTabs;
         float[] widths = outer.Select(text => VanillaCharacterTabWidth(text, s, 0)).ToArray();
-        float tabX = 11;
+        float tabX = FriendsFrameUiLaw.OuterTabFirst.X;
         for (int i = 0; i < outer.Length; i++)
         {
-            if (VanillaTab(dl, $"##guild-tab-{i}", origin + new Vector2(tabX, 433) * s,
+            if (VanillaTab(dl, $"##guild-tab-{i}",
+                    origin + FriendsFrameUiLaw.OuterTabMinimum(tabX) * s,
                     outer[i], widths[i], s, i == 2) && i != 2)
             {
-                _guildOpen = false; _guildInfoOpen = false; _guildMemberDetailOpen = false;
-                _guildControlOpen = false;
                 OpenSocial();
+                _guildInfoOpen = false; _guildMemberDetailOpen = false;
+                _guildControlOpen = false;
                 _socialPage = i;
                 if (i == 1) _net?.Who("");
+                PlayUiSound(FriendsFrameUiLaw.OpenSound,
+                    FriendsFrameUiLaw.SoundCategory);
+                PlayUiSound(FriendsFrameUiLaw.TabSound,
+                    FriendsFrameUiLaw.SoundCategory);
             }
-            tabX += widths[i] - 14;
+            tabX += widths[i] - FriendsFrameUiLaw.OuterTabOverlap;
         }
-        DrawImageButton(dl, "##guild-close", origin + new Vector2(322, 8) * s,
-            new Vector2(32) * s, @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
+        DrawImageButton(dl, "##guild-close", origin + FriendsFrameUiLaw.Close.Min * s,
+            FriendsFrameUiLaw.Close.Size * s, @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         if (ImGui.IsItemClicked())
-        {
-            _guildOpen = false; _guildInfoOpen = false; _guildMemberDetailOpen = false;
-            _guildControlOpen = false;
-        }
+            CloseFriendsFrame();
         if (_uiParityArmed && _uiParityPanel == "guild") MarkUiParityFrameComplete();
         ImGui.End();
     }
@@ -397,22 +438,19 @@ public sealed partial class GameLoop
         uint border = _gameplayArt?.Handle(
             @"Interface\ClassTrainerFrame\UI-ClassTrainer-FilterBorder") ?? 0;
         if (border != 0)
-        {
-            draw.AddImage((nint)border, min, min + new Vector2(12, 28) * scale,
-                Vector2.Zero, new Vector2(.09375f, 1));
-            draw.AddImage((nint)border, min + new Vector2(12, 0) * scale,
-                min + new Vector2(198, 28) * scale,
-                new Vector2(.09375f, 0), new Vector2(.90625f, 1));
-            draw.AddImage((nint)border, min + new Vector2(198, 0) * scale,
-                min + new Vector2(210, 28) * scale,
-                new Vector2(.90625f, 0), Vector2.One);
-        }
+            foreach (GuildFrameUiLaw.TextureSlice slice in
+                     GuildFrameUiLaw.OfflineFilterSlices)
+            {
+                Vector2 at = min + slice.Rect.Min * scale;
+                draw.AddImage((nint)border, at, at + slice.Rect.Size * scale,
+                    slice.UvMin, slice.UvMax);
+            }
 
         GuildFrameUiLaw.LogicalRect check = GuildFrameUiLaw.OfflineCheck;
         Vector2 checkMin = origin + check.Min * scale;
         Vector2 checkSize = check.Size * scale;
-        Vector2 hitMin = origin + new Vector2(146, 38) * scale;
-        Vector2 hitSize = new Vector2(188, 24) * scale;
+        Vector2 hitMin = origin + GuildFrameUiLaw.OfflineHit.Min * scale;
+        Vector2 hitSize = GuildFrameUiLaw.OfflineHit.Size * scale;
         ImGui.SetCursorScreenPos(hitMin);
         bool clicked = ImGui.InvisibleButton("##guild-show-offline", hitSize);
         bool held = ImGui.IsItemActive();
@@ -435,7 +473,7 @@ public sealed partial class GameLoop
                 draw.AddImage((nint)highlight, checkMin, checkMin + checkSize);
         }
         GameText.DrawRightAligned(draw, "GameFontHighlightSmall", "Show Offline Members",
-            origin + new Vector2(304, 49) * scale, scale);
+            origin + GuildFrameUiLaw.OfflineLabelRight * scale, scale);
         if (clicked)
         {
             _guildShowOffline = !_guildShowOffline;
@@ -460,13 +498,14 @@ public sealed partial class GameLoop
 
     private GuildRosterSortProjection GuildProjection(GuildMember member) => new(
         member.Name, member.Rank, member.Level,
-        _areas?.ZoneName(member.Zone) ?? "", ClassName(member.Class),
+        GuildFrameUiLaw.ResolvedRosterLabel(_areas?.ZoneName(member.Zone)),
+        GuildFrameUiLaw.ResolvedRosterLabel(ClassName(member.Class)),
         member.Online, member.PublicNote, member.OfflineDays);
 
     private void HandleGuildListWheel(Vector2 origin, float scale, int itemCount)
     {
-        Vector2 min = origin + GuildFrameUiLaw.Rows.Min * scale;
-        Vector2 max = min + GuildFrameUiLaw.Rows.Size * scale;
+        Vector2 min = origin + FriendsFrameUiLaw.ListWheelRegion.Min * scale;
+        Vector2 max = min + FriendsFrameUiLaw.ListWheelRegion.Size * scale;
         float wheel = ImGui.GetIO().MouseWheel;
         if (wheel != 0 && ImGui.IsMouseHoveringRect(min, max, false))
             _guildScroll = GuildFrameUiLaw.WheelOffset(_guildScroll, itemCount, wheel);
@@ -480,20 +519,24 @@ public sealed partial class GameLoop
         if (!_guildStatusView)
         {
             float zoneWidth = crowded ? 95 : 110;
-            string zone = _areas?.ZoneName(member.Zone) ?? $"Area {member.Zone}";
+            string zone = GuildFrameUiLaw.ResolvedRosterLabel(
+                _areas?.ZoneName(member.Zone));
             GameText.Draw(draw, "GameFontNormalSmall",
                 GameText.EllipsizeToBox("GameFontNormalSmall", member.Name, 88, 14, scale),
-                rowMin + new Vector2(14, 3) * scale, scale, nameColor);
+                rowMin + GuildFrameUiLaw.PlayerNameOffset * scale, scale, nameColor);
             GameText.Draw(draw, "GameFontHighlightSmall",
                 GameText.EllipsizeToBox("GameFontHighlightSmall", zone,
                     zoneWidth, 14, scale),
-                rowMin + new Vector2(95, 3) * scale, scale, valueColor);
+                rowMin + GuildFrameUiLaw.PlayerZoneOffset * scale, scale, valueColor);
             GameText.DrawCentered(draw, "GameFontHighlightSmall", member.Level.ToString(),
-                rowMin + new Vector2(109 + zoneWidth, 8) * scale, scale, valueColor);
+                rowMin + GuildFrameUiLaw.PlayerLevelCenter(zoneWidth) * scale,
+                scale, valueColor);
             GameText.Draw(draw, "GameFontHighlightSmall",
-                GameText.EllipsizeToBox("GameFontHighlightSmall", ClassName(member.Class),
+                GameText.EllipsizeToBox("GameFontHighlightSmall",
+                    GuildFrameUiLaw.ResolvedRosterLabel(ClassName(member.Class)),
                     100, 14, scale),
-                rowMin + new Vector2(131 + zoneWidth, 3) * scale, scale, valueColor);
+                rowMin + GuildFrameUiLaw.PlayerClassOffset(zoneWidth) * scale,
+                scale, valueColor);
             return;
         }
 
@@ -504,18 +547,19 @@ public sealed partial class GameLoop
             : GuildFrameUiLaw.LastOnline(member.OfflineDays);
         GameText.Draw(draw, "GameFontNormalSmall",
             GameText.EllipsizeToBox("GameFontNormalSmall", member.Name, 75, 14, scale),
-            rowMin + new Vector2(14, 3) * scale, scale, nameColor);
+            rowMin + GuildFrameUiLaw.StatusNameOffset * scale, scale, nameColor);
         string rank = member.Rank < _guildRankNames.Length
             ? _guildRankNames[member.Rank] : "";
         GameText.Draw(draw, "GameFontHighlightSmall",
             GameText.EllipsizeToBox("GameFontHighlightSmall", rank, 55, 14, scale),
-            rowMin + new Vector2(94, 3) * scale, scale, valueColor);
+            rowMin + GuildFrameUiLaw.StatusRankOffset * scale, scale, valueColor);
         GameText.Draw(draw, "GameFontHighlightSmall",
             GameText.EllipsizeToBox("GameFontHighlightSmall", member.PublicNote,
                 noteWidth, 14, scale),
-            rowMin + new Vector2(160, 3) * scale, scale, valueColor);
+            rowMin + GuildFrameUiLaw.StatusNoteOffset * scale, scale, valueColor);
         GameText.Draw(draw, "GameFontHighlightSmall",
             GameText.EllipsizeToBox("GameFontHighlightSmall", online, 80, 14, scale),
-            rowMin + new Vector2(170 + noteWidth, 3) * scale, scale, valueColor);
+            rowMin + GuildFrameUiLaw.StatusOnlineOffset(noteWidth) * scale,
+            scale, valueColor);
     }
 }

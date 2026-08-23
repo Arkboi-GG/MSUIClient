@@ -7,20 +7,21 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/glue_strings.rs",
-      "fileSha256": "a441bc6d3e6d50b596148bda2956de13bbc6b260168d047626844a09ab54edf8",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "07fe3b0afd9961f8c17bd2855bfec9e147f4f1602458650673ef2d72ef7eee3a",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Formats/GlueStrings.cs",
-    "MSUIClient/Program.CharCreate.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.CharCreate.cs",
+    "tools/interface-wire-check/CharCreateClinicalChecks.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "Benilla parses Interface/GlueXML/GlueStrings.lua off the player's client data (KEY = \"value\" lines) for the glue screens' localized paragraphs and captions, never embedding Blizzard text. MSUI does the same: Formats/GlueStrings.cs loads the table from client data and the create screen quotes the FACTION_INFO_*/RACE_INFO_*/ABILITY_INFO_* paragraphs and captions from it, with graceful absence.",
+  "summary": "Current Benilla parses Interface/GlueXML/GlueStrings.lua off the player's client data (KEY = \"value\" lines) for localized glue paragraphs, captions and modal strings, unfolding newline/tab/quote/backslash escapes and skipping code or malformed assignments. MSUI implements the same loader and graceful fallbacks; its create screen consumes the faction/race/ability/customization keys. MSUI additionally folds a handful of typographic punctuation marks to ASCII because its glue ImGui font lacks those glyphs, preserving readable text rather than replacement boxes.",
   "openItems": [],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T08:30:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

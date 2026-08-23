@@ -146,9 +146,8 @@ public sealed partial class GameLoop
         string[] lines = WrapTooltipText(text, "GameFontHighlight", scale,
             DuelFrameUiLaw.PopupTextWidth * scale).ToArray();
         float logicalTextHeight = lines.Length * GameText.LinePitch("GameFontHighlight", 1);
-        float logicalHeight = DuelFrameUiLaw.PopupHeight(logicalTextHeight, buttons);
         Vector2 origin = StaticPopupOrigin(visible.Slot, DuelFrameUiLaw.PopupWidth, scale);
-        Vector2 size = new(DuelFrameUiLaw.PopupWidth * scale, logicalHeight * scale);
+        Vector2 size = DuelFrameUiLaw.PopupSize(logicalTextHeight, buttons) * scale;
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
@@ -164,9 +163,7 @@ public sealed partial class GameLoop
         _skin.DrawBackdrop(draw, origin, origin + size, WowSkin.Dialog);
         for (int i = 0; i < lines.Length; i++)
             GameText.DrawCentered(draw, "GameFontHighlight", lines[i],
-                origin + new Vector2(DuelFrameUiLaw.PopupWidth * .5f,
-                    DuelFrameUiLaw.PopupTextTop +
-                    (i + .5f) * GameText.LinePitch("GameFontHighlight", 1)) * scale, scale);
+                origin + DuelFrameUiLaw.TextLineCenter(i) * scale, scale);
         bool accept = false, decline = false;
         if (buttons)
         {

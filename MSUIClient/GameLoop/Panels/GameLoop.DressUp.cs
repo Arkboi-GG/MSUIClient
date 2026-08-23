@@ -13,8 +13,9 @@ public sealed partial class GameLoop
         byte Material, byte Sheath);
 
     private bool _dressUpOpen;
-    private float _dressUpRotation;
+    private float _dressUpRotation = DressUpFrameUiLaw.InitialFacing;
     private bool _dressUpDirty = true;
+    private double _dressUpPaneLastUpdate;
     private CharacterRenderer? _dressUpRenderer;
     private readonly Dictionary<int, ItemTemplate> _dressUpSubstitutions = [];
     private readonly List<int> _dressUpHeldOrder = [];
@@ -67,6 +68,7 @@ public sealed partial class GameLoop
         _dressUpSubstitutions.Clear();
         _dressUpHeldOrder.Clear();
         _dressUpPending.Clear();
+        _dressUpPaneLastUpdate = 0;
         RebuildDressUpLook();
         if (playSound) PlayUiSound("gsTitleOptionOK", "ui.dress-up");
         EmitInterface("dress-up", "reset", "RESET", 0, "source=player-look");
@@ -79,6 +81,7 @@ public sealed partial class GameLoop
         _dressUpSubstitutions.Clear();
         _dressUpHeldOrder.Clear();
         _dressUpPending.Clear();
+        _dressUpPaneLastUpdate = 0;
         if (playSound) PlayUiSound("igCharacterInfoClose", "ui.dress-up");
         EmitInterface("dress-up", "close", "CLOSED", 0, "room=emptied");
     }
@@ -105,7 +108,7 @@ public sealed partial class GameLoop
             _dressUpRenderer.Enabled = true;
             _dressUpRenderer.ModelScale = 1f;
             _dressUpRenderer.BindPose = false;
-            _dressUpRenderer.FrozenStandPose = true;
+            _dressUpRenderer.FrozenStandPose = false;
             return true;
         }
         catch (Exception ex)
@@ -128,6 +131,9 @@ public sealed partial class GameLoop
         _dressUpRenderer.FacialHairId = _character.FacialHairId;
 
         var kit = new CharacterEquipment { GuildEmblem = _character.Equipment.GuildEmblem };
+        uint playerFlags = _net is not null &&
+            _entities.TryGet(_net.PlayerGuid, out WorldEntity ownPlayer) && ownPlayer.IsPlayer
+                ? ownPlayer.Fields.PlayerFlags : _net?.Player?.Flags ?? 0;
         DressUpPiece? baseMain = null;
         DressUpPiece? baseOff = null;
         foreach (CharacterEquipment.Piece piece in _character.Equipment.Pieces)
@@ -136,6 +142,8 @@ public sealed partial class GameLoop
             int slot = piece.EquipmentSlot >= 0
                 ? piece.EquipmentSlot
                 : DressUpFrameUiLaw.EquipmentSlot((uint)piece.InventoryType);
+            if (!EquipmentDisplayPreferenceLaw.DressUpPieceShown(
+                    slot, explicitlyTriedOn: false, playerFlags)) continue;
             if (slot == 15) { if (!_dressUpSubstitutions.ContainsKey(15)) baseMain = candidate; continue; }
             if (slot == 16) { if (!_dressUpSubstitutions.ContainsKey(16)) baseOff = candidate; continue; }
             if (slot == 17) continue; // the frozen melee booth does not clone the live ranged arm
@@ -206,7 +214,7 @@ public sealed partial class GameLoop
             !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
         ResolveDressUpPending();
         if (!BeginVanillaWindow("##dress-up", UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[18]),
-                new Vector2(DressUpFrameUiLaw.Width, DressUpFrameUiLaw.Height),
+                DressUpFrameUiLaw.FrameSize,
                 out ImDrawListPtr draw, out Vector2 origin, out float scale))
         {
             ImGui.End();
@@ -218,7 +226,7 @@ public sealed partial class GameLoop
         uint portrait = RoundAperturePortrait(_playerPortrait, _playerPortraitUsable);
         if (portrait != 0)
             draw.AddImage((nint)portrait, portraitMin, portraitMin + portraitRect.Size * scale,
-                new Vector2(0, 1), new Vector2(1, 0));
+                DressUpFrameUiLaw.PortraitUvMin, DressUpFrameUiLaw.PortraitUvMax);
         else
             DrawUnitPortraitImage(draw, player, portraitMin, portraitRect.Width * scale, 0, true);
 
@@ -239,15 +247,16 @@ public sealed partial class GameLoop
         Vector2 modelMin = origin + modelRect.Min * scale;
         if (_dressUpTarget is not null && _dressUpTarget.TextureHandle != 0)
             draw.AddImage((nint)_dressUpTarget.TextureHandle, modelMin,
-                modelMin + modelRect.Size * scale, new Vector2(0, 1), new Vector2(1, 0));
+                modelMin + modelRect.Size * scale, DressUpFrameUiLaw.PortraitUvMin,
+                DressUpFrameUiLaw.PortraitUvMax);
 
         GameText.DrawCentered(draw, "GameFontHighlight", "Dressing Room",
-            origin + new Vector2(192, 17) * scale, scale);
+            origin + DressUpFrameUiLaw.TitleCenter * scale, scale);
         GameText.DrawCentered(draw, "GameFontNormalSmall",
             "CTRL-Left Click additional items to display them",
-            origin + new Vector2(192, 43) * scale, scale);
+            origin + DressUpFrameUiLaw.DescriptionLineOneCenter * scale, scale);
         GameText.DrawCentered(draw, "GameFontNormalSmall", "on your character.",
-            origin + new Vector2(192, 57) * scale, scale);
+            origin + DressUpFrameUiLaw.DescriptionLineTwoCenter * scale, scale);
 
         DrawDressUpRotate(draw, origin, scale, left: true);
         DrawDressUpRotate(draw, origin, scale, left: false);

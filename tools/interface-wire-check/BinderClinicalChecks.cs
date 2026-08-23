@@ -48,7 +48,9 @@ internal static class BinderClinicalChecks
             new Vector2(1920, 1080), 1.5f, 14f);
         Check(rect.Min == new Vector2(720, 192) && rect.Size.X == 480 &&
               BinderConfirmUiLaw.ButtonMin(1, 14f) == new Vector2(26, 38) &&
-              BinderConfirmUiLaw.ButtonMin(2, 14f) == new Vector2(167, 38),
+              BinderConfirmUiLaw.ButtonMin(2, 14f) == new Vector2(167, 38) &&
+              BinderConfirmUiLaw.ButtonSize(1.5f) == new Vector2(192, 30) &&
+              BinderConfirmUiLaw.ButtonUvMax == new Vector2(1f, .625f),
             "binder StaticPopup geometry drift");
 
         Check(BinderConfirmUiLaw.ShouldRemainOpen(true, true, true, false,
@@ -64,8 +66,13 @@ internal static class BinderClinicalChecks
             "GameLoop.Hearth.cs"));
         Check(runtime.Contains("BinderConfirmUiLaw.PopupRect", StringComparison.Ordinal) &&
               runtime.Contains("BinderConfirmUiLaw.ButtonMin", StringComparison.Ordinal) &&
+              !runtime.Contains("DrawHearthFrame", StringComparison.Ordinal) &&
+              !runtime.Contains("Inn & Hearthstone", StringComparison.Ordinal) &&
+              !runtime.Contains("ImGuiCond.FirstUseEver", StringComparison.Ordinal) &&
               !runtime.Contains("logicalDisplay", StringComparison.Ordinal) &&
-              !runtime.Contains("new Vector2(360, 140)", StringComparison.Ordinal),
+              !runtime.Contains("new Vector2(", StringComparison.Ordinal) &&
+              runtime.Contains("BinderConfirmUiLaw.ButtonSize", StringComparison.Ordinal) &&
+              runtime.Contains("BinderConfirmUiLaw.ButtonUvMax", StringComparison.Ordinal),
             "binder renderer bypasses its modal law");
     }
 

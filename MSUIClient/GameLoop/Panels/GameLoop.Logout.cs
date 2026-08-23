@@ -125,6 +125,9 @@ public sealed partial class GameLoop
 
     private void ReturnToCharacterSelectAfterLogout()
     {
+        SaveCameraPoseForSession(forgetIdentity: true);
+        ResetViewSubject();
+        ResetVanillaClientControl();
         CancelRealPortalHandoff("logout returned to character select");
         TearDownWorldContent();
         _entities.Clear();
@@ -192,8 +195,8 @@ public sealed partial class GameLoop
 
         float s = GameplayUiScale();
         Vector2 display = ImGui.GetIO().DisplaySize;
-        Vector2 size = new Vector2(360f, 96f) * s;
-        Vector2 origin = new((display.X - size.X) * .5f, 128f * s);
+        Vector2 size = LogoutUiLaw.FrameSize(s);
+        Vector2 origin = LogoutUiLaw.FrameOrigin(display, s);
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
@@ -209,12 +212,14 @@ public sealed partial class GameLoop
         bool quitting = _logoutDialog == LogoutDialogKind.Quit;
         GameText.DrawCentered(dl, "GameFontNormal",
             LogoutUiLaw.CountdownText(quitting, remaining),
-            origin + new Vector2(180f, 34f) * s, s);
+            LogoutUiLaw.CountdownTextCenter(origin, s), s);
 
+        LogoutUiLaw.LogicalRect primaryRect = LogoutUiLaw.PrimaryButton(quitting);
         bool primary = DrawLogoutPopupButton(dl, quitting ? "Exit now" : "Cancel",
-            origin + new Vector2(quitting ? 42f : 116f, 66f) * s, s, "primary");
+            primaryRect.ScaledMin(origin, s), primaryRect.ScaledSize(s), s, "primary");
         bool cancel = quitting && DrawLogoutPopupButton(dl, "Cancel",
-            origin + new Vector2(190f, 66f) * s, s, "cancel");
+            LogoutUiLaw.QuitCancel.ScaledMin(origin, s),
+            LogoutUiLaw.QuitCancel.ScaledSize(s), s, "cancel");
         ImGui.End();
 
         if (primary)
@@ -230,19 +235,21 @@ public sealed partial class GameLoop
         else if (cancel) CancelLogoutCountdown();
     }
 
-    private bool DrawLogoutPopupButton(ImDrawListPtr dl, string caption, Vector2 at, float s, string id)
+    private bool DrawLogoutPopupButton(ImDrawListPtr dl, string caption, Vector2 at,
+        Vector2 size, float s, string id)
     {
-        Vector2 size = new Vector2(128f, 20f) * s;
         ImGui.SetCursorScreenPos(at);
         bool clicked = ImGui.InvisibleButton($"##logout-{id}", size);
         bool held = ImGui.IsItemActive();
         bool hovered = ImGui.IsItemHovered();
         uint art = _skin!.TextureHandle(held ? "dialog.button.down" : "dialog.button.up");
-        if (art != 0) dl.AddImage((nint)art, at, at + size, Vector2.Zero, new Vector2(1f, .625f));
+        if (art != 0) dl.AddImage((nint)art, at, at + size,
+            LogoutUiLaw.ButtonUvMin, LogoutUiLaw.ButtonUvMax);
         if (hovered)
         {
             uint hi = _skin.TextureHandle("dialog.button.hi");
-            if (hi != 0) dl.AddImage((nint)hi, at, at + size, Vector2.Zero, new Vector2(1f, .625f));
+            if (hi != 0) dl.AddImage((nint)hi, at, at + size,
+                LogoutUiLaw.ButtonUvMin, LogoutUiLaw.ButtonUvMax);
         }
         GameText.DrawCentered(dl, hovered ? "DialogButtonHighlightText" : "DialogButtonNormalText",
             caption, at + size * .5f, s);

@@ -62,6 +62,20 @@ public sealed partial class GameLoop
         RecordEncounterTapeCast(packet);
         double now = NowSeconds();
         SpellInfo? info = _spellCatalog?.TryGet(packet.SpellId, out SpellInfo found) == true ? found : null;
+        // The reference's second SetGoState caller: an open-lock SPELL_GO
+        // names the GameObject whose lid/door becomes ACTIVE. This is observer-
+        // safe and deliberately happens at cast launch, not when loot arrives.
+        if (packet.Targets.Unit is ulong goTarget &&
+            info?.EffectIds?.Any(effect => effect is 33 or 59) == true &&
+            _entities.TryGet(goTarget, out WorldEntity go) && go.IsGameObject)
+            PredictGameObjectAnimationState(goTarget, GameObjectAnimationLaw.StateActive);
+        if (packet.Caster == LocalPlayerGuid && packet.Targets.Unit is ulong lootTarget &&
+            info?.EffectIds?.Any(effect => effect == 33) == true &&
+            _entities.TryGet(lootTarget, out WorldEntity lootObject) && lootObject.IsGameObject)
+        {
+            _lootPendingGuid = lootTarget;
+            RefreshLootKneel();
+        }
         uint visual = EffectiveSpellVisual(info, packet.Caster);
         SpellVisualKitInfo? kit = ResolveSpellKit(visual, static s => s.Cast);
         ushort? anim = kit?.AnimationId;
@@ -92,9 +106,11 @@ public sealed partial class GameLoop
             ObserveHearthSpellGo(packet.SpellId);
             if (info is { } completed)
             {
-                _actions.StartCooldown(packet.SpellId, completed.Category,
-                    completed.RecoveryMs, completed.CategoryRecoveryMs, now,
-                    completed.CooldownOnEvent);
+                uint rangedAttackTimeMs = completed.RangedSpeedCooldown &&
+                    _entities.TryGet(packet.Caster, out WorldEntity cooldownCaster)
+                        ? cooldownCaster.Fields.RangedAttackTime : 0;
+                _actions.StartSpellCooldown(packet.SpellId, completed,
+                    rangedAttackTimeMs, now);
             }
         }
         else _creatures?.ReleaseSpellVisual(packet.Caster, anim);
@@ -223,6 +239,8 @@ public sealed partial class GameLoop
             if (_pendingCastSpell == spellId) _pendingCastSpell = 0;
             if (_queuedMeleeSpell == spellId) _queuedMeleeSpell = 0;
             _globalCooldownUntil = 0;
+            _actions.ClearGlobalCooldown(spellId);
+            _actions.ClearCooldown(spellId);
             CancelControlledSpellVisual();
             FailCastBar(spellId, text);
         }

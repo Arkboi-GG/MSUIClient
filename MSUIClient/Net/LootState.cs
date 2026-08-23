@@ -159,6 +159,15 @@ public sealed class GroupLootRollState
 
 public static class LootPackets
 {
+    public static string ParseFishingVerdict(byte[] body, bool escaped)
+    {
+        if (body.Length != 0)
+            throw new InvalidDataException(
+                $"{(escaped ? nameof(Op.SMSG_FISH_ESCAPED) : nameof(Op.SMSG_FISH_NOT_HOOKED))} " +
+                $"expected empty body, got {body.Length}");
+        return escaped ? "ERR_FISH_ESCAPED" : "ERR_FISH_NOT_HOOKED";
+    }
+
     public static LootStartRoll ParseStartRoll(byte[] body)
     {
         var r = Exact(body, 28, nameof(ParseStartRoll));

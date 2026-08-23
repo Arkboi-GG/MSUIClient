@@ -35,7 +35,7 @@ public sealed partial class GameLoop
         float height = QuestTimerFrameUiLaw.FrameHeight(timers.Count);
         _questTimerFrameHeight = height;
         Vector2 origin = QuestTimerFrameUiLaw.FrameOrigin(ImGui.GetIO().DisplaySize, scale);
-        Vector2 size = new(QuestTimerFrameUiLaw.Width * scale, height * scale);
+        Vector2 size = QuestTimerFrameUiLaw.FrameSize(height, scale);
 
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
@@ -55,21 +55,22 @@ public sealed partial class GameLoop
         DrawArt(draw, @"Interface\DialogFrame\UI-DialogBox-Header",
             origin + QuestTimerFrameUiLaw.HeaderMin * scale,
             QuestTimerFrameUiLaw.HeaderSize, scale);
-        GameText.DrawCentered(draw, "GameFontNormal", "Quest Timers",
+        GameText.DrawCentered(draw, QuestTimerFrameUiLaw.TitleFont, "Quest Timers",
             origin + QuestTimerFrameUiLaw.TitleCenter * scale, scale);
 
         for (int i = 0; i < timers.Count; i++)
         {
             QuestTimerDisplay timer = timers[i];
-            QuestLogicalRect row = QuestTimerFrameUiLaw.RowRect(i);
-            Vector2 rowMin = origin + new Vector2(row.X, row.Y) * scale;
-            Vector2 rowSize = new Vector2(row.Width, row.Height) * scale;
-            ImGui.SetCursorScreenPos(rowMin);
-            ImGui.InvisibleButton($"##quest-timer-{i}", rowSize);
+            QuestTimerFrameUiLaw.ScreenRect row = QuestTimerFrameUiLaw.RowScreen(
+                origin, i, scale);
+            ImGui.SetCursorScreenPos(row.Min);
+            ImGui.InvisibleButton($"##quest-timer-{i}", row.Size);
             bool hovered = ImGui.IsItemHovered();
             bool clicked = ImGui.IsItemClicked(ImGuiMouseButton.Left);
-            GameText.DrawCentered(draw, "GameFontHighlightSmall",
-                QuestFrameUiLaw.SecondsToTime(timer.Seconds), rowMin + rowSize * .5f, scale);
+            GameText.DrawCentered(draw, QuestTimerFrameUiLaw.RowFont,
+                QuestFrameUiLaw.SecondsToTime(timer.Seconds),
+                QuestTimerFrameUiLaw.RowTextCenter(row,
+                    GameText.EmPixels(QuestTimerFrameUiLaw.RowFont, scale)), scale);
             if (hovered)
             {
                 ImGui.BeginTooltip();

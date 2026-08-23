@@ -60,6 +60,13 @@ public static class DuelFrameUiLaw
     public static float PopupButtonTop(float textHeight) =>
         PopupTextTop + Math.Max(0, textHeight) + 8;
 
+    public static Vector2 PopupSize(float textHeight, bool buttons) =>
+        new(PopupWidth, PopupHeight(textHeight, buttons));
+
+    public static Vector2 TextLineCenter(int lineIndex) =>
+        new(PopupWidth * .5f,
+            PopupTextTop + (lineIndex + .5f) * GameText.LinePitch("GameFontHighlight", 1));
+
     public static (int Slot, StaticPopupCoordinatorLaw.Instance Instance)? Visible(
         StaticPopupCoordinatorLaw.Slots slots, string type)
     {

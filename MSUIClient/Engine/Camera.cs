@@ -25,6 +25,7 @@ namespace MSUIClient.Engine;
 /// </summary>
 public sealed class Camera
 {
+    private readonly CameraFollowController _follow = new();
     /// <summary>Point the camera orbits, in WoW space.</summary>
     public Vector3 Target;
 
@@ -110,7 +111,7 @@ public sealed class Camera
     /// <summary>Height above <see cref="Target"/> the camera actually looks at.</summary>
     public float EyeHeight = 2.2f;
 
-    private const float PitchLimit = 1.45f;   // ~83 degrees, short of gimbal lock
+    public const float PitchLimit = 1.45f;   // ~83 degrees, short of gimbal lock
 
     public Vector3 EyeTarget => AuthoredTarget ?? (Target + new Vector3(0, 0, EyeHeight));
 
@@ -217,18 +218,18 @@ public sealed class Camera
     }
 
     /// <summary>
-    /// Ease the camera back behind the character. Called while moving, because
-    /// that is when the real client re-centres.
+    /// Advance vanilla's edge-armed camera return. This only writes the camera-only orbit offset;
+    /// the character facing remains the authority for movement and keyboard-turn carry.
     /// </summary>
-    public void EaseOrbitBehind(float dt, float seconds = 0.15f)
+    public void AdvanceFollow(in CameraFollowInput input, float dt, bool lookHeld)
     {
-        if (OrbitYaw == 0f) return;
-
-        float blend = seconds <= 0f ? 1f : 1f - MathF.Exp(-dt / seconds);
-        OrbitYaw -= OrbitYaw * blend;
-
-        if (MathF.Abs(OrbitYaw) < 0.002f) OrbitYaw = 0f;
+        if (_follow.Advance(input, ViewYaw, dt, lookHeld) is not float viewYaw) return;
+        OrbitYaw = CameraFollowLaw.Wrap(viewYaw - Yaw);
+        if (MathF.Abs(OrbitYaw) < CameraFollowLaw.Epsilon) OrbitYaw = 0f;
     }
+
+    /// <summary>Drop camera-follow edge/transition state across a detached/free-view lifecycle.</summary>
+    public void ResetFollow() => _follow.Reset();
 
     /// <summary>Wrap to (-pi, pi], so easing toward zero always takes the short way.</summary>
     private static float Wrap(float radians)

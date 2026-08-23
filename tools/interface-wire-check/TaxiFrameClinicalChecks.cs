@@ -33,10 +33,21 @@ internal static class TaxiFrameClinicalChecks
               (ushort)Op.CMSG_ACTIVATETAXIEXPRESS == 0x0312 &&
               TaxiFrameUiLaw.FrameOrigin(1.5f) == new Vector2(0, 156) &&
               TaxiFrameUiLaw.FrameSize(1.5f) == new Vector2(576, 768) &&
+              TaxiFrameUiLaw.Frame == new TaxiFrameUiLaw.LogicalRect(0, 0, 384, 512) &&
+              TaxiFrameUiLaw.ShellPieces.Length == 4 &&
+              TaxiFrameUiLaw.ShellPieces[0] ==
+                  new TaxiFrameUiLaw.LogicalRect(0, 0, 256, 256) &&
+              TaxiFrameUiLaw.ShellPieces[3] ==
+                  new TaxiFrameUiLaw.LogicalRect(256, 256, 128, 256) &&
               TaxiFrameUiLaw.PortraitOffset == new Vector2(8, 9) &&
               TaxiFrameUiLaw.PortraitSize == 58 &&
+              TaxiFrameUiLaw.Portrait == new TaxiFrameUiLaw.LogicalRect(8, 9, 58, 58) &&
               TaxiFrameUiLaw.MapOffset == new Vector2(21, 75) &&
               TaxiFrameUiLaw.MapSize == new Vector2(316, 352) &&
+              TaxiFrameUiLaw.Map == new TaxiFrameUiLaw.LogicalRect(21, 75, 316, 352) &&
+              TaxiFrameUiLaw.Close == new TaxiFrameUiLaw.LogicalRect(323, 8, 32, 32) &&
+              TaxiFrameUiLaw.FallbackContent ==
+                  new TaxiFrameUiLaw.LogicalRect(50, 82, 270, 300) &&
               status.FlightMasterGuid == 0x123456789ABCDEF0 && status.Known &&
               TaxiPackets.ParseActivateReply(Convert.FromHexString("03000000")) == 3 &&
               TaxiFrameUiLaw.ActivateErrorText(3) == "You don't have enough money!" &&
@@ -94,6 +105,10 @@ internal static class TaxiFrameClinicalChecks
               !runtime.Contains("if (body.Length < 20)", StringComparison.Ordinal) &&
               !runtime.Contains("UI-Taxi-Icon-Yellow", StringComparison.Ordinal) &&
               !runtime.Contains("float minX=continent", StringComparison.Ordinal) &&
+              !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
+              runtime.Contains("TaxiFrameUiLaw.ShellPieces", StringComparison.Ordinal) &&
+              runtime.Contains("TaxiFrameUiLaw.TitleCenter", StringComparison.Ordinal) &&
+              runtime.Contains("TaxiFrameUiLaw.RouteUvA", StringComparison.Ordinal) &&
               !runtime.Contains("_taxiStart = move.Points[0]; _taxiOpen = true",
                   StringComparison.Ordinal),
             "taxi production wiring drift");

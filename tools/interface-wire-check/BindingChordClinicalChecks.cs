@@ -62,9 +62,22 @@ internal static class BindingChordClinicalChecks
               wheel.Pointer == BindingPointerKey.WheelUp && wheel.Key == Key.Unknown,
             "mouse button/wheel canonical codec or display drifted");
         Check(KeyBindingsUiLaw.FrameSize == new System.Numerics.Vector2(640, 512) &&
+              KeyBindingsUiLaw.WindowMinimum == new System.Numerics.Vector2(0, 104) &&
               KeyBindingsUiLaw.Search == new KeyBindingsUiLaw.Rect(18, 8, 180, 22) &&
+              KeyBindingsUiLaw.SearchPlaceholderOffset ==
+                  new System.Numerics.Vector2(7, 5) &&
               KeyBindingsUiLaw.Rows == new KeyBindingsUiLaw.Rect(27, 53, 535, 390) &&
               KeyBindingsUiLaw.VisibleRows == 17 && KeyBindingsUiLaw.RowPitch == 23 &&
+              KeyBindingsUiLaw.TitleFont == "GameFontNormal" &&
+              KeyBindingsUiLaw.CategoryFont == "GameFontNormal" &&
+              KeyBindingsUiLaw.CommandFont == "GameFontNormalSmall" &&
+              KeyBindingsUiLaw.KeyNormalFont == "GameFontHighlightSmall" &&
+              KeyBindingsUiLaw.HeaderGlyph ==
+                  new KeyBindingsUiLaw.Rect(2, 3.5f, 16, 16) &&
+              KeyBindingsUiLaw.HeaderTextOffset == new System.Numerics.Vector2(24, 5.5f) &&
+              KeyBindingsUiLaw.RowMinimum(3) ==
+                  new System.Numerics.Vector2(27, 122) &&
+              KeyBindingsUiLaw.RowHitSize == new System.Numerics.Vector2(535, 23) &&
               KeyBindingsUiLaw.PrimaryKey == new KeyBindingsUiLaw.Rect(175, 1, 180, 22) &&
               KeyBindingsUiLaw.SecondaryKey == new KeyBindingsUiLaw.Rect(355, 1, 180, 22) &&
               KeyBindingsUiLaw.MaximumScroll(20) == 3 &&
@@ -151,8 +164,14 @@ internal static class BindingChordClinicalChecks
               page.Contains("BindingPointerKey.WheelUp", StringComparison.Ordinal) &&
               page.Contains("AnyBindableInputDown()", StringComparison.Ordinal) &&
               page.Contains("KeyBindingsUiLaw.FrameSize", StringComparison.Ordinal) &&
+              page.Contains("GameText.DrawCentered(dl, KeyBindingsUiLaw.TitleFont",
+                  StringComparison.Ordinal) &&
+              page.Contains("normalFont: KeyBindingsUiLaw.KeyNormalFont",
+                  StringComparison.Ordinal) &&
+              !page.Contains("dl.AddText", StringComparison.Ordinal) &&
               page.Contains("_collapsedBindingCategories", StringComparison.Ordinal) &&
               page.Contains("KeyBindingsUiLaw.MatchesSearch", StringComparison.Ordinal) &&
+              !page.Contains("new Vector2", StringComparison.Ordinal) &&
               page.Contains("Function is Now Unbound!", StringComparison.Ordinal) &&
               page.Contains("FriendlyChord(chord)", StringComparison.Ordinal),
             "keybinding capture/display/conflict feedback escaped the chord law");

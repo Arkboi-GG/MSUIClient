@@ -32,7 +32,7 @@ public sealed partial class GameLoop
     {
         if (active) return true;
         if (player is null || player.IsDead ||
-            _actions.IsOnCooldown(spell.Id, now, spell.Category) || now < _globalCooldownUntil)
+            _actions.IsOnCooldown(spell.Id, 0, spell, now))
             return false;
         return SpellResourceGate(spell, out _, out _);
     }
@@ -93,7 +93,7 @@ public sealed partial class GameLoop
                 ImGui.SetCursorScreenPos(min);
                 clicked[i] = ImGui.InvisibleButton($"##stance-{i}", size);
                 hovered[i] = ImGui.IsItemHovered();
-                pushed[i] = ImGui.IsItemActive();
+                pushed[i] = ImGui.IsItemActive() || BindingDown(ShapeshiftBinding(i));
             }
             ImGui.End();
         }
@@ -135,7 +135,7 @@ public sealed partial class GameLoop
             Vector2 ringHalf = new(ringSize * .5f * scale);
             uint ring = _gameplayArt.Handle(StanceBarUiLaw.RingPath);
             if (ring != 0) dl.AddImage((nint)ring, ringCenter - ringHalf, ringCenter + ringHalf);
-            if (_actions.TryCooldownDisplay(spell.Id, now, spell.Category,
+            if (_actions.TryCooldownDisplay(spell.Id, 0, spell, now,
                     out CooldownDisplay cooldown))
             {
                 if (cooldown.SweepFraction is { } sweep) DrawCooldownSwipe(dl, min, max, sweep);

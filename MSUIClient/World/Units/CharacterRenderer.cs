@@ -95,6 +95,7 @@ public sealed partial class CharacterRenderer : IDisposable
     /// <summary>State the renderer needs about a unit. Player today, packets tomorrow.</summary>
     public struct UnitState
     {
+        public ulong Guid;
         public Vector3 Position;
 
         /// <summary>
@@ -469,6 +470,9 @@ public sealed partial class CharacterRenderer : IDisposable
 
     /// <summary>Fresh Stand animation frozen at time zero, used by the portrait booth.</summary>
     public bool FrozenStandPose { get; set; }
+
+    /// <summary>Client-local held Loot-50 pose; locomotion still outranks it.</summary>
+    public bool LootKneel { get; set; }
 
     /// <summary>
     /// Set when the model has more bones than the shader can hold. Animation is
@@ -3069,6 +3073,9 @@ public sealed partial class CharacterRenderer : IDisposable
 
         if (standing)
         {
+            if (LootKneel)
+                return _animator.Resolve("player", BaseAnimationTrack, 50, false, 0);
+
             if (state.StandState != 0)
             {
                 int pose = Engine.UI.StandStateUiLaw.LoopAnimation(state.StandState);
@@ -3304,6 +3311,8 @@ public sealed partial class CharacterRenderer : IDisposable
         Vector3 bodyTint = state.ApplyBodyVisual ? state.BodyTint : Vector3.One;
         _shader.Set("uBodyAlpha", bodyAlpha);
         _shader.Set("uBodyTint", bodyTint);
+        _shader.Set("uUnlit", 0);
+        _shader.Set("uFogPolicy", 0);
         CarriedLightFrame.Upload(_shader, camera.Position);
 
         if (bones > 0)
@@ -3361,13 +3370,15 @@ public sealed partial class CharacterRenderer : IDisposable
             _attached.BodyAlpha = bodyAlpha;
             _attached.BodyTint = bodyTint;
         }
-        _attached?.Render(camera, modelTransform, _m2, _skin);
+        _attached?.Render(camera, modelTransform, _m2, _skin, state.Guid, _globalTime);
     }
 
     public IReadOnlyList<ItemGlowPlacement> ItemGlowPlacements =>
         _attached?.GlowPlacements ?? Array.Empty<ItemGlowPlacement>();
     public IReadOnlyList<CarriedLightPlacement> CarriedLightPlacements =>
         _attached?.CarriedLights ?? Array.Empty<CarriedLightPlacement>();
+    public IReadOnlyList<FishingPoleTipPlacement> FishingPoleTips =>
+        _attached?.FishingPoleTips ?? Array.Empty<FishingPoleTipPlacement>();
     public void BeginItemGlowFrame() => _attached?.BeginGlowFrame();
 
     private unsafe void DrawPieces(bool transparentPass, bool bodyTranslucent, ref bool cullingOn)

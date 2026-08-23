@@ -18,6 +18,11 @@ internal static class ComboFrameClinicalChecks
         ];
         Check(Enumerable.Range(0, 5).All(i => ComboFrameUiLaw.PointMinimum(i) == expected[i]),
             "ComboFrame diagonal point anchor chain drift");
+        Check(ComboFrameUiLaw.SocketUvMax == new Vector2(.375f, 1) &&
+              ComboFrameUiLaw.HighlightUvMin == new Vector2(.375f, 0) &&
+              ComboFrameUiLaw.HighlightUvMax == new Vector2(.5625f, 1) &&
+              ComboFrameUiLaw.ShineUvMin == new Vector2(.5625f, 0),
+            "ComboFrame authored atlas cells drift");
         Check(Near(ComboFrameUiLaw.FrameAlpha(0.15, 0), 0.5f) &&
               Near(ComboFrameUiLaw.HighlightAlpha(0.2, 0), 0.5f) &&
               Near(ComboFrameUiLaw.ShineAlpha(0.55, 0), 0.5f) &&
@@ -37,6 +42,8 @@ internal static class ComboFrameClinicalChecks
             "combo descriptor fields drift");
         Check(combo.Contains("VisibleComboPoints()", StringComparison.Ordinal) &&
               combo.Contains("ComboFrameUiLaw.ShineAlpha", StringComparison.Ordinal) &&
+              combo.Contains("ComboFrameUiLaw.SocketUvMax", StringComparison.Ordinal) &&
+              !combo.Contains("new Vector2", StringComparison.Ordinal) &&
               frames.Contains("DrawComboFrame(dl, p, s);", StringComparison.Ordinal),
             "ComboFrame target-frame render wiring drift");
     }

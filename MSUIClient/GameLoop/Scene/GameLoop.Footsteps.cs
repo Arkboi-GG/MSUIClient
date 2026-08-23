@@ -1,6 +1,7 @@
 using System.Numerics;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Wmo;
 
 namespace MSUIClient;
 
@@ -46,8 +47,11 @@ public sealed partial class GameLoop
 
         float? terrainZ = _terrain?.SampleHeight(feet.X, feet.Y);
         uint terrainType = 0;
+        int wmoInstanceId = 0;
+        int wmoGroupIndex = -1;
         bool wmoOwnsColumn = _wmo?.TrySampleFootstepTerrain(
-            feet, terrainZ, out terrainType) == true;
+            feet, terrainZ, out terrainType, out wmoInstanceId,
+            out wmoGroupIndex) == true;
         if (!wmoOwnsColumn)
         {
             int? effect = _terrain?.SampleGroundEffect(feet.X, feet.Y);
@@ -58,14 +62,20 @@ public sealed partial class GameLoop
         if (!_footsteps.TryResolveTerrain(voice.FootstepClass, terrainType, out var kits))
             return;
 
-        // LiquidRenderer's query is ADT-only.  Never sample that lake through an
-        // owning WMO floor; WMO-liquid depth remains dry until its retained mesh
-        // gains an equivalent point query.
-        float? depth = !wmoOwnsColumn &&
-            _liquid?.TryGetSurface(feet.X, feet.Y, out float surface, out _) == true &&
-            surface > feet.Z
-                ? surface - feet.Z
-                : null;
+        RefreshRetainedWmoLiquid();
+        float? liquidSurface;
+        if (wmoOwnsColumn && _wmo!.TryGetGroupLiquidOverride(
+                wmoInstanceId, wmoGroupIndex, out byte floodedType))
+            liquidSurface = WmoLiquidPointLaw.IsWater(floodedType) ? float.MaxValue : null;
+        else if (wmoOwnsColumn)
+            liquidSurface = _liquid?.TryGetWmoSurface(feet, wmoInstanceId,
+                out float wmoSurface, out _, waterOnly: true) == true ? wmoSurface : null;
+        else
+            liquidSurface = _liquid?.TryGetSurface(feet.X, feet.Y,
+                out float adtSurface, out byte adtType) == true &&
+                WmoLiquidPointLaw.IsWater(adtType) ? adtSurface : null;
+        float? depth = liquidSurface is float surface && surface > feet.Z
+            ? surface - feet.Z : null;
         float height = _creatureVoices.CollisionHeight((uint)displayId, renderScale);
         if (depth is float deep && deep > 0.75f * height) return;
 

@@ -5,6 +5,7 @@ namespace MSUIClient.Engine.UI;
 /// <summary>Frozen 1.12 GameTimeFrame geometry, clock, and sun/moon atlas laws.</summary>
 public static class GameTimeUiLaw
 {
+    public readonly record struct ScreenRect(Vector2 Min, Vector2 Size);
     public const float Size = 50f;
     public const int DawnMinute = 5 * 60 + 30;
     public const int DuskMinute = 21 * 60;
@@ -18,6 +19,15 @@ public static class GameTimeUiLaw
         new(display.X - 46f * scale, 19f * scale);
 
     public static QuestLogicalRect HitRect => new(6f, 5f, 44f, 35f);
+
+    public static Vector2 FrameSize(float scale) => Vector2.One * (Size * scale);
+
+    public static ScreenRect HitScreen(Vector2 origin, float scale)
+    {
+        QuestLogicalRect hit = HitRect;
+        return new(new(origin.X + hit.X * scale, origin.Y + hit.Y * scale),
+            new(hit.Width * scale, hit.Height * scale));
+    }
 
     public static (int Hour, int Minute) TimeParts(float hours)
     {

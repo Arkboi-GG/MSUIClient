@@ -204,37 +204,31 @@ public sealed partial class GameLoop
         if (!_launchMenuOpen || _skin is null) return;
 
         var disp = ImGui.GetIO().DisplaySize;
-        float w = 420f * s, h = 250f * s;
-        var min = new Vector2((disp.X - w) * 0.5f, (disp.Y - h) * 0.5f);
-        var max = min + new Vector2(w, h);
-        _skin.DrawBackdrop(dl, min, max, WowSkin.Dialog);
-        _skin.HeaderPlaque(dl, min, w, "Launch Options");
+        LoginUiLaw.LaunchOptionsLayout layout = LoginUiLaw.LaunchOptions(disp, s);
+        _skin.DrawBackdrop(dl, layout.Frame.Min, layout.Frame.Max, WowSkin.Dialog);
+        _skin.HeaderPlaque(dl, layout.Frame.Min, layout.Frame.Size.X, "Launch Options");
 
-        GlueText(dl, "What am I launching?", min.X + w * 0.5f, min.Y + 44f * s,
+        GlueText(dl, "What am I launching?", layout.PromptCenter.X, layout.PromptCenter.Y,
                  14f * s, WowSkin.GlueGold, 1);
 
         bool creatorActive = Settings.LaunchMode == LaunchModeCreator;
-        var bSize = new Vector2(250f * s, 40f * s);
-        float bx = min.X + (w - bSize.X) * 0.5f;
-        float tagX = bx + bSize.X + 8f * s;
 
-        ImGui.SetCursorScreenPos(new Vector2(bx, min.Y + 74f * s));
-        if (_skin.GlueButton("SuperUI Client Mode", bSize))
+        ImGui.SetCursorScreenPos(layout.ClientButton.Min);
+        if (_skin.GlueButton("SuperUI Client Mode", layout.ClientButton.Size))
             SetLaunchMode(LaunchModeClient);
         if (!creatorActive)
-            GlueText(dl, "active", tagX, min.Y + 74f * s + bSize.Y * 0.5f - 6f * s,
+            GlueText(dl, "active", layout.ClientActiveLabel.X, layout.ClientActiveLabel.Y,
                      12f * s, WowSkin.GlueGold, 0);
 
-        ImGui.SetCursorScreenPos(new Vector2(bx, min.Y + 124f * s));
-        if (_skin.GlueButton("Creator Mode", bSize))
+        ImGui.SetCursorScreenPos(layout.CreatorButton.Min);
+        if (_skin.GlueButton("Creator Mode", layout.CreatorButton.Size))
             SetLaunchMode(LaunchModeCreator);
         if (creatorActive)
-            GlueText(dl, "active", tagX, min.Y + 124f * s + bSize.Y * 0.5f - 6f * s,
+            GlueText(dl, "active", layout.CreatorActiveLabel.X, layout.CreatorActiveLabel.Y,
                      12f * s, WowSkin.GlueGold, 0);
 
-        var okSize = new Vector2(120f * s, 34f * s);
-        ImGui.SetCursorScreenPos(new Vector2(min.X + (w - okSize.X) * 0.5f, max.Y - 46f * s));
-        if (_skin.GlueButton("Okay", okSize))
+        ImGui.SetCursorScreenPos(layout.OkayButton.Min);
+        if (_skin.GlueButton("Okay", layout.OkayButton.Size))
             _launchMenuOpen = false;
     }
 

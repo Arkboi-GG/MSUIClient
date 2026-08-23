@@ -859,6 +859,8 @@ public sealed partial class GameLoop : IDisposable
         _controller = new CharacterController(_terrain, _config.Movement)
         {
             Collision = null,
+            MovingGroundProbe = ProbeMovingTransportGround,
+            DynamicCollisionProbe = ProbeStatefulGameObjectCollision,
             Yaw = _config.Start.Orientation,
         };
         _controller.Teleport(_config.Start.X, _config.Start.Y, _config.Start.Z);
@@ -1664,6 +1666,8 @@ public sealed partial class GameLoop : IDisposable
         UpdateChatBindings(typing);
         UpdateCameraZoomBindings(typing);
         UpdateMinimapZoomBindings(typing);
+        UpdateMinimapVisibilityBinding(typing);
+        UpdateAudioBindings(typing);
         UpdateSpellFxInspectorInput(typing);
         UpdateActionBarInput(typing);
         UpdateInventoryInput(typing);
@@ -1671,6 +1675,7 @@ public sealed partial class GameLoop : IDisposable
         UpdateSpellbookInput(typing);
         UpdateWorldMapInput(typing);
         UpdateTargetBinding(typing);
+        UpdateDirectTargetBindings(typing);
         UpdateNameplateInput(typing);
         UpdateUiHideBinding(typing);
         UpdateScreenshotBinding(typing);
@@ -1780,6 +1785,11 @@ public sealed partial class GameLoop : IDisposable
             ArmPainterlyComparison();
         _painterlyComparisonKeyDown = painterlyComparisonKey;
 
+        // Transport poses are client-computed. Advance them and rigidly carry an
+        // attached mover before input reads the camera/facing for this frame.
+        UpdateGameObjectTransports();
+        CarryControlledTransportRider();
+
         bool shift = _window.IsDown(Key.ShiftLeft) || _window.IsDown(Key.ShiftRight);
 
         // A and D TURN, they do not strafe. That is vanilla's default bind and
@@ -1794,6 +1804,11 @@ public sealed partial class GameLoop : IDisposable
         // free to become strafe and your hand does not have to move to Q and E
         // mid-fight.
         bool mouseSteering = _window.MouseRightDown;
+
+        bool bindingTurnLeft = !typing && BindingDown(GameBinding.TurnLeft);
+        bool bindingTurnRight = !typing && BindingDown(GameBinding.TurnRight);
+        bool bindingStrafeLeft = !typing && BindingDown(GameBinding.StrafeLeft);
+        bool bindingStrafeRight = !typing && BindingDown(GameBinding.StrafeRight);
 
         float turn = 0f;
         if (!typing && !mouseSteering) turn += BindingAxis(GameBinding.TurnLeft, GameBinding.TurnRight);
@@ -1818,6 +1833,7 @@ public sealed partial class GameLoop : IDisposable
         bool scriptedJump = false;
         OverrideMovementInput(ref forward, ref strafe, ref turn, ref shift, ref scriptedJump);
         ApplyTaxiInputLockout(ref forward, ref strafe, ref turn, ref scriptedJump);
+        ApplyVanillaControlLockout(ref forward, ref strafe, ref turn, ref scriptedJump);
 
         // Root and Ice Block are intentionally separate. A normal root removes translation and
         // jump while leaving turning/casting live. Ice Block additionally freezes facing and the
@@ -1872,18 +1888,20 @@ public sealed partial class GameLoop : IDisposable
         // it needs to know what was pressed and whether the aim is being steered.
         _moveForward = forward;
         _moveStrafe = strafe;
-        _steering = !_iceBlockFrozen && (turn != 0f || mouseSteering);
+        _steering = !_iceBlockFrozen && !_vanillaSelfControlLost &&
+            (turn != 0f || mouseSteering);
 
         var input = new MovementInput
         {
             Forward = forward,
             Strafe = strafe,
-            Up = typing || _movementRooted || _iceBlockFrozen ? 0f : ((BindingDown(GameBinding.Jump) ? 1f : 0f) -
+            Up = typing || _movementRooted || _iceBlockFrozen || _vanillaSelfControlLost ? 0f : ((BindingDown(GameBinding.Jump) ? 1f : 0f) -
                                 (InputKeyDown(Key.CapsLock) ? 1f : 0f)),
-            Yaw = _iceBlockFrozen ? _iceBlockFacing : _window.Camera.Yaw,
+            Yaw = _iceBlockFrozen ? _iceBlockFacing :
+                _vanillaSelfControlLost ? _controller.Yaw : _window.Camera.Yaw,
             Pitch = -_window.Camera.Pitch + DrunkMovementLaw.SwimPitchWobble(
                 drunkWobble, _controller.Swimming, translating),
-            Jump = !_movementRooted && !_iceBlockFrozen && (_movementScript is not null
+            Jump = !_movementRooted && !_iceBlockFrozen && !_vanillaSelfControlLost && (_movementScript is not null
                 ? scriptedJump : !typing && BindingDown(GameBinding.Jump)),
             Walking = (_walkToggled || shift) && !_controller.Flying,
             Boost = shift && _controller.Flying,
@@ -1909,13 +1927,10 @@ public sealed partial class GameLoop : IDisposable
 
         _controller.ExternalWalkableSurfaceZ = null;
         _controller.LiquidSurfaceZ = null;
-        if (_liquid is not null &&
-            _liquid.TryGetSurface(_controller.Position.X, _controller.Position.Y,
-                out float movementLiquidZ, out _))
+        if (TryGetBodyLiquidSurface(_controller.Position, out float movementLiquidZ, out _))
             _controller.LiquidSurfaceZ = movementLiquidZ;
-        if (_controller.WaterWalking && _liquid is not null &&
-            _liquid.TryGetSurface(_controller.Position.X, _controller.Position.Y,
-                out float walkableLiquidZ, out _))
+        if (_controller.WaterWalking &&
+            TryGetBodyLiquidSurface(_controller.Position, out float walkableLiquidZ, out _))
             _controller.ExternalWalkableSurfaceZ = walkableLiquidZ;
 
         bool movementWasGrounded = _controller.Grounded;
@@ -1926,6 +1941,7 @@ public sealed partial class GameLoop : IDisposable
         long phaseStarted = Stopwatch.GetTimestamp();
         bool serverRideActive = UpdateServerRide();
         if (!serverRideActive) _controller.Update(dt, input);
+        ReconcileControlledTransportRider();
         ResolveRealPortalMovement(movementPreviousPosition);
         // The unit we drive is client-authoritative, so its ENTITY is the one thing the server
         // never updates for us. Publish every frame, not just at control hand-offs: anything
@@ -2014,23 +2030,54 @@ public sealed partial class GameLoop : IDisposable
         AdvanceMovementSuiteAfterSample();
         _characterUpdateMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
 
-        // Moving re-centres the camera behind the character, like the real
-        // client. Holding the LEFT button overrides it: you are deliberately
-        // looking at yourself, and having the view fight you would be worse
-        // than not having the feature.
-        // Turning counts as moving here. He said "if you hit wasd it snaps you
-        // back behind the character", and A and D are part of WASD.
-        bool moving = MathF.Abs(input.Forward) > 0.01f
-                   || MathF.Abs(input.Strafe) > 0.01f
-                   || turn != 0f;
-
-        if (moving && !_window.MouseLeftDown) _window.Camera.EaseOrbitBehind(dt);
-
         // The camera orbits the character's feet; Camera.EyeHeight does the rest.
         _window.Camera.Target = _controller.Position;
+        UpdateViewSubject();
+
+        // 1.12 cameraSmoothStyle: command-word EDGES arm one cosine-smoothed return. This is not
+        // the old per-moving-frame exponential chase. Either mouse-look button cancels the active
+        // return, and far sight reads as Never while a remote subject is actually streamed. The
+        // protected SUI free-view/possession camera remains outside this ordinary player law.
+        if (_freeView)
+        {
+            _window.Camera.ResetFollow();
+        }
+        else
+        {
+            uint followCommand = 0;
+            void FollowBit(bool set, uint bit)
+            {
+                if (set) followCommand |= bit;
+            }
+
+            FollowBit(_window.MouseRightDown, CameraFollowCommand.RightMouse);
+            FollowBit(_window.MouseLeftDown, CameraFollowCommand.LeftMouse);
+            FollowBit(bindingForward || _autoFollowGuid != 0, CameraFollowCommand.Forward);
+            FollowBit(bindingBackward, CameraFollowCommand.Backward);
+            FollowBit(bindingStrafeLeft, CameraFollowCommand.StrafeLeft);
+            FollowBit(bindingStrafeRight, CameraFollowCommand.StrafeRight);
+            FollowBit(bindingTurnLeft, CameraFollowCommand.TurnLeft);
+            FollowBit(bindingTurnRight, CameraFollowCommand.TurnRight);
+            FollowBit(_autorunToggled, CameraFollowCommand.Autorun);
+            FollowBit(serverRideActive, CameraFollowCommand.Track);
+            FollowBit(_vanillaSelfControlLost, CameraFollowCommand.Fear);
+
+            CameraFollowStyle ordinaryStyle = Settings.Controls.CameraFollowStyle;
+            CameraFollowStyle trackingStyle = Settings.Controls.CameraFollowTrackingStyle;
+            if (_window.Camera.AuthoredTarget is not null)
+                ordinaryStyle = trackingStyle = CameraFollowStyle.Never;
+            _window.Camera.AdvanceFollow(new CameraFollowInput(
+                    new CameraFollowConfig(ordinaryStyle, trackingStyle,
+                        Settings.Controls.CameraFollowYawSpeed),
+                    _window.Camera.Yaw,
+                    followCommand),
+                dt,
+                _window.MouseLeftDown || _window.MouseRightDown);
+        }
 
         phaseStarted = Stopwatch.GetTimestamp();
         ResolveCameraCollision(dt);
+        UpdateScopedView();
         _cameraCollisionMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
 
         // Portal membership must use the exact camera that this frame renders,
@@ -2244,6 +2291,7 @@ public sealed partial class GameLoop : IDisposable
                 ? visualUnit.AuraVisual : null;
         return new()
         {
+        Guid = ControlledGuid,
         Position = _controller?.Position ?? Vector3.Zero,
         Yaw = _controller?.Yaw ?? 0f,
         Grounded = _controller?.Grounded ?? true,
@@ -2351,7 +2399,7 @@ public sealed partial class GameLoop : IDisposable
         // through it". Vanilla answers the cornered case by dipping into first
         // person: the boom collapses toward the head, and the body render is
         // suppressed below FirstPersonBodyHide at its call site.
-        allowed = Math.Clamp(allowed, FirstPersonDip, cam.Distance);
+        allowed = Math.Clamp(allowed, ScopedViewLaw.FirstPersonDistance, cam.Distance);
 
         // In immediately, out gradually.
         cam.EffectiveDistance = allowed < cam.EffectiveDistance
@@ -2361,8 +2409,6 @@ public sealed partial class GameLoop : IDisposable
 
     /// <summary>Boom length the camera-collision pass may collapse to when cornered
     /// (just clear of the 0.1 near plane). The zoom wheel still stops at MinDistance.</summary>
-    private const float FirstPersonDip = 0.25f;
-
     /// <summary>Below this boom length the first-person body is not drawn — the
     /// camera is effectively inside the character (vanilla hides the model at
     /// full zoom-in for the same reason).</summary>
@@ -2512,6 +2558,8 @@ public sealed partial class GameLoop : IDisposable
         _creatureRenderMilliseconds = Stopwatch.GetElapsedTime(creatureStarted).TotalMilliseconds;
         NoteLoadCreatureDraw(_creatures?.DrawnLastFrame ?? 0);
 
+        if (WarmStage(5)) DrawFishingLines();
+
         long selectionStarted = Stopwatch.GetTimestamp();
         if (WarmStage(5)) DrawSelectionRing();
         _selectionRenderMilliseconds = Stopwatch.GetElapsedTime(selectionStarted).TotalMilliseconds;
@@ -2641,14 +2689,8 @@ public sealed partial class GameLoop : IDisposable
             {
                 var feet = _controller.Position;
 
-                // NOTE the 2-argument overload. PLAN_16 section 4.3 claimed a
-                // 3-argument TryGetSurface taking a query Z; that was added by
-                // PLAN_15 and went away with its revert. The plan was wrong, not
-                // the code. The height test below does the same job for this gate,
-                // and using the existing overload means the shared water query is
-                // not touched at all.
                 bool inWater =
-                    _liquid.TryGetSurface(feet.X, feet.Y, out float wakeZ, out _)
+                    TryGetBodyLiquidSurface(feet, out float wakeZ, out _, waterOnly: true)
                     && wakeZ > feet.Z
                     && wakeZ - feet.Z < WakeMaxWadeDepth;
 
@@ -2666,7 +2708,7 @@ public sealed partial class GameLoop : IDisposable
             _liquid.Render(_window.Camera);
 
             var eye = _window.Camera.Position;
-            if (_liquid.TryGetSurface(eye.X, eye.Y, out float surfaceZ, out byte liquidType)
+            if (TryGetEyeLiquidSurface(eye, out float surfaceZ, out byte liquidType)
                 && eye.Z < surfaceZ)
             {
                 _liquid.RenderUnderwater(surfaceZ - eye.Z, liquidType);
@@ -3941,6 +3983,10 @@ public sealed partial class GameLoop : IDisposable
         if (_disposed) return;
         _disposed = true;
 
+        // Camera pose is per character and must be written before the network identity and world
+        // camera are torn down. Distance is the user's requested boom, not collision pull-in.
+        try { SaveCameraPoseForSession(); } catch { /* never block shutdown */ }
+
         // The creator location must be flushed before anything is torn down.
         try { UpdateCreatorLocationPersist(force: true); } catch { /* never block shutdown */ }
 
@@ -3954,8 +4000,10 @@ public sealed partial class GameLoop : IDisposable
         DisposeGameplayUi();
         DisposePortraits();
         _creatures?.Dispose();
-        _selectionRing?.Dispose();
         _worldNames?.Dispose();
+        _fishingLineRenderer?.Dispose();
+        _minimapInteriorComposite?.Dispose();
+        _minimapInteriorComposite = null;
         _unitShadows?.Dispose();
 
         try { _collisionBuildTask?.GetAwaiter().GetResult(); }

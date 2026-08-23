@@ -12,6 +12,10 @@ public static class WmoMinimapProjection
 {
     public const float YardsPerTexel = 0.5f;
     public const float FullTileYards = 128f;
+    public const uint CompositeSize = 256;
+    public const float CompositeHalfExtentScale = 1.5f;
+    public const float CompositeBlitFraction = 1f / CompositeHalfExtentScale;
+    public const float InteriorAlphaReference = 224f / 255f;
 
     public static readonly float[] ZoomRadiusYards = [150f, 120f, 90f, 60f, 40f, 25f];
 
@@ -42,6 +46,17 @@ public static class WmoMinimapProjection
         => center + new Vector2(
             -(world.Y - playerWorld.Y) * pixelsPerYard,
             -(world.X - playerWorld.X) * pixelsPerYard);
+
+    /// <summary>Convert an on-screen minimap point into the fixed target's GL clip frame.</summary>
+    public static Vector2 ToCompositeClip(Vector2 screenPoint, Vector2 screenCenter, float screenSide)
+    {
+        if (!float.IsFinite(screenSide) || screenSide <= 0f) return Vector2.Zero;
+        Vector2 target = new Vector2(CompositeSize * .5f) +
+            (screenPoint - screenCenter) * (CompositeSize /
+                (CompositeHalfExtentScale * screenSide));
+        return new Vector2(target.X * (2f / CompositeSize) - 1f,
+            1f - target.Y * (2f / CompositeSize));
+    }
 
     private static uint NextPowerOfTwo(uint value)
     {

@@ -22,8 +22,8 @@
     "MSUIClient/Formats/ItemSubClassCatalog.cs",
     "MSUIClient/Engine/UI/ProfessionPanelOpenerLaw.cs"
   ],
-  "status": "implemented-unverified",
-  "summary": "MSUI's current TradeSkillFrame is a law-positioned 384x512 player profession panel with the stock rank StatusBar, exact eight-row faux-scroll controls, created-item (ItemClass, ItemSubClass) groups named verbose-first from ItemSubClass.dbc, tier/item-level/name sorting, fold headers and Collapse All, subclass and byte-law inventory-slot filters, product/list/reagent tooltips, have/need reagents and tool/focus gates, plus typed bounded repeat count, Create All, Create and Exit/Cancel batch behavior.",
+  "status": "implemented-verified",
+  "summary": "MSUI's current TradeSkillFrame is a law-positioned 384x512 player profession panel with the stock rank StatusBar, exact eight-row faux-scroll controls, created-item (ItemClass, ItemSubClass) groups named verbose-first from ItemSubClass.dbc, tier/item-level/name sorting, fold headers and Collapse All, subclass and byte-law inventory-slot filters, product/list/reagent tooltips, have/need reagents and tool/focus gates, plus typed bounded repeat count, Create All, Create and Exit/Cancel batch behavior. The centered title uses GameFontNormal. The split GameFontHighlightSmall Requires label/text occupies the exact recipe-header seat; carried tools use inline red when missing and the spell-focus name remains uncolored. All production geometry is owned by ProfessionFrameUiLaw; focused and full interface-wire suites pass.",
   "openItems": [
     {
       "id": "item-triage-0367972f",
@@ -78,11 +78,56 @@
       "added": "2026-08-09",
       "resolved": true,
       "resolution": "The TradeSkill-only three-digit vanilla input with decrement/increment buttons clamps to current material availability and latches that count into the existing one-cast-at-a-time batch machine."
+    },
+    {
+      "id": "item-tradeskill-requires-header-visual-gap-20260823",
+      "kind": "gap",
+      "text": "TradeSkill requirements were rendered as separate generic ImGui Tool/Requires lines after the reagent grid instead of current Benilla's split GameFontHighlightSmall Requires label and colored tool list directly below the recipe name.",
+      "source": "benilla-b57ee0e9e2c8822b/TradeSkillFrame.xml+ui_tradeskill.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: ProfessionFrameUiLaw now owns the exact header seat, font identity, four-pixel label/text gap, and colored requirement-name grammar. Missing carried tools are red, the spell-focus name stays uncolored, and the old post-reagent generic lines are removed. Enchanting/CraftFrame and crafting readiness are unchanged. Focused ProfessionFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-tradeskill-title-font-visual-gap-20260823",
+      "kind": "gap",
+      "text": "The TradeSkillFrame title used a hand-picked generic 14px ImGui font instead of the authored centered GameFontNormal FontString.",
+      "source": "benilla-b57ee0e9e2c8822b/TradeSkillFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: ProfessionFrameUiLaw now owns the GameFontNormal title identity and the renderer consumes it at the existing exact title center. Focused ProfessionFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-tradeskill-right-tooltip-anchors-20260823",
+      "kind": "gap",
+      "text": "TradeSkill recipe-row and selected-product tooltips used the shared default floating tooltip position instead of the authored ANCHOR_RIGHT owner seats.",
+      "source": "benilla-b57ee0e9e2c8822b/TradeSkillFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "ProfessionFrameUiLaw now owns the shared ANCHOR_RIGHT seat used by Craft and TradeSkill. Recipe rows and the detail product anchor tooltip bottom-left to owner top-right; reagent ANCHOR_TOPLEFT behavior remains intact. Focused and full interface-wire checks pass."
+    },
+    {
+      "id": "item-tradeskill-unresolved-requirement-labels-20260823",
+      "kind": "gap",
+      "text": "Pending tool and spell-focus catalogs leaked synthetic Item <id> and Spell Focus <id> labels into TradeSkillFrame's visible Requires line; Benilla omits unresolved names.",
+      "source": "benilla-b57ee0e9e2c8822b/ui_tradeskill.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "ProfessionFrameUiLaw now owns resolved requirement-name admission. TradeSkillFrame omits pending tool/focus names and paints them when resolved, without changing carried-tool, focus-proximity, or craft-readiness gates. Focused and full interface-wire checks pass."
+    },
+    {
+      "id": "item-tradeskill-collapse-all-tab-visual-gap-20260823",
+      "kind": "gap",
+      "text": "TradeSkill Collapse All was painted as a generic panel button with '+ All'/'− All' copy instead of the authored three-piece tab, separate plus/minus texture, additive hover texture, and small All label; mixed fold state also expanded instead of collapsing all.",
+      "source": "benilla-ac3264a0296ae90e/TradeSkillFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "ProfessionFrameUiLaw owns the exact 54x32 tab artwork, 40x22 hit seat, 16x16 fold icon, small-font label center, and texture identities. The shared renderer consumes those rules, and mixed state now follows Benilla's all-collapsed predicate: any expanded header yields the minus icon and collapses every group on click. Focused ProfessionFrame checks pass."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T01:54:53.6009770+00:00",
+  "lastReviewedUtc": "2026-08-23T19:05:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

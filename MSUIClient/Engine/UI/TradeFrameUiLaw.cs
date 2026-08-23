@@ -7,13 +7,7 @@ public static class TradeFrameUiLaw
 {
     public readonly record struct StatusError(string GlobalStringKey, string Fallback);
     public readonly record struct SlotText(string Text, uint? Color);
-
-    public enum IncomingRequestAction
-    {
-        Prompt,
-        Busy,
-        Ignore,
-    }
+    public readonly record struct TextureSlice(LogicalRect Rect, Vector2 UvMin, Vector2 UvMax);
 
     public readonly record struct LogicalRect(float X, float Y, float Width, float Height)
     {
@@ -36,6 +30,7 @@ public static class TradeFrameUiLaw
     public const float SlotHeight = 37;
     public const float SlotPitch = 44;
     public const float EnchantGap = 28;
+    public const float HighlightCap = 16;
     public const string EnchantLabel = "Will Be Enchanted";
     public const string NonTradedLabel = "Will Not Be Traded";
     public const uint ProposedEnchantColor = 0xff20ff20;
@@ -43,6 +38,10 @@ public static class TradeFrameUiLaw
     public const string EnchantIconPath = @"Interface\TradeFrame\UI-TradeFrame-EnchantIcon";
     public const string EmptySlotPath = @"Interface\Buttons\UI-EmptySlot";
     public const string ItemNameFramePath = @"Interface\QuestFrame\UI-QuestItemNameFrame";
+    public const string MoneyIconPath = @"Interface\MoneyFrame\UI-MoneyIcons";
+    public const string MoneyFont = "NumberFontNormal";
+    public const float MoneyIconSize = 13;
+    public const float MoneyGap = 4;
 
     public static readonly LogicalRect PlayerPortrait = new(7, 6, 60, 60);
     public static readonly LogicalRect RecipientPortrait = new(183, 6, 60, 60);
@@ -52,8 +51,17 @@ public static class TradeFrameUiLaw
     public static readonly LogicalRect RecipientHighlight = new(189, 100, 161, 266);
     public static readonly LogicalRect PlayerEnchantHighlight = new(19, 370, 161, 61);
     public static readonly LogicalRect RecipientEnchantHighlight = new(189, 370, 161, 61);
-    public static readonly LogicalRect PlayerMoneyInput = new(26, 73, 150, 20);
-    public static readonly Vector2 RecipientMoney = new(196, 78);
+    // TradePlayerInputMoney is a 176x18 parent at (26,73). Its three 20px-high
+    // edit boxes are LEFT anchored to that parent's vertical midpoint.
+    public static readonly LogicalRect PlayerGoldInput = new(26, 72, 55, 20);
+    public static readonly LogicalRect PlayerSilverInput = new(107, 72, 30, 20);
+    public static readonly LogicalRect PlayerCopperInput = new(153, 72, 30, 20);
+    public static readonly Vector2 PlayerGoldCoin = new(68, 76);
+    public static readonly Vector2 PlayerSilverCoin = new(124, 76);
+    public static readonly Vector2 PlayerCopperCoin = new(170, 76);
+    // TradeRecipientMoneyFrame TOPRIGHT(-40,-80): its rightmost 13px coin frame
+    // ends at x=344 and the remaining denominations grow left in 4px gaps.
+    public static readonly Vector2 RecipientMoneyRightTop = new(344, 80);
     public static readonly LogicalRect TradeButton = new(186, 435, 85, 22);
     public static readonly LogicalRect CancelButton = new(274, 435, 77, 22);
     public static readonly LogicalRect CloseButton = new(327, 8, 32, 32);
@@ -99,13 +107,39 @@ public static class TradeFrameUiLaw
     public static LogicalRect EnchantIcon(bool player) =>
         new(Slot(player, SlotCount - 1).X, Slot(player, SlotCount - 1).Y, 62, 62);
 
+    public static TextureSlice[] HighlightSlices(LogicalRect rect) =>
+    [
+        new(new(rect.X, rect.Y, rect.Width, HighlightCap),
+            Vector2.Zero, new(.62890625f, .0625f)),
+        new(new(rect.X, rect.Y + HighlightCap, rect.Width,
+                Math.Max(0, rect.Height - HighlightCap * 2)),
+            new(0, .0625f), new(.62890625f, .9375f)),
+        new(new(rect.X, rect.Y + Math.Max(0, rect.Height - HighlightCap),
+                rect.Width, Math.Min(HighlightCap, rect.Height)),
+            new(0, .9375f), new(.62890625f, 1))
+    ];
+
+    public static Vector2 CountPosition(Vector2 buttonMaximum, float textEm, float scale) =>
+        new(buttonMaximum.X - 2 * scale, buttonMaximum.Y - textEm - 2 * scale);
+
+    public static int ComposeMoney(int gold, int silver, int copper) => checked((int)Math.Min(
+        int.MaxValue, (long)Math.Max(0, gold) * 10_000L +
+                      Math.Clamp(silver, 0, 99) * 100L + Math.Clamp(copper, 0, 99)));
+
+    public static (int Gold, int Silver, int Copper) SplitMoney(int copper) =>
+        (Math.Max(0, copper) / 10_000, Math.Max(0, copper) / 100 % 100,
+            Math.Max(0, copper) % 100);
+
+    public static Vector2 CoinUvMin(int denomination) =>
+        new(Math.Clamp(denomination, 0, 2) * .25f, 0);
+
+    public static Vector2 CoinUvMax(int denomination) =>
+        new((Math.Clamp(denomination, 0, 2) + 1) * .25f, 1);
+
+    public static Vector2 CoinSize(float scale) => new(MoneyIconSize * scale);
+
     public static CancelAction CancelClick(bool accepted) =>
         accepted ? CancelAction.Unaccept : CancelAction.Close;
-
-    /// <summary>Resolve the two distinct build-5875 request-decline opcodes before UI opens.</summary>
-    public static IncomingRequestAction IncomingRequest(bool initiatorIgnored, bool busy) =>
-        initiatorIgnored ? IncomingRequestAction.Ignore :
-        busy ? IncomingRequestAction.Busy : IncomingRequestAction.Prompt;
 
     public static bool StatusCloses(uint status) => status is
         0 or 3 or 5 or 6 or 8 or 9 or 10 or 11 or 12 or
@@ -142,25 +176,4 @@ public static class TradeFrameUiLaw
             ? new(proposedEnchant, ProposedEnchantColor)
             : new(NonTradedLabel, 0xffffffff)
         : new(itemName, null);
-}
-
-/// <summary>Law-positioned incoming-trade question; never authored at an ImGui call site.</summary>
-public static class TradeInvitationUiLaw
-{
-    public readonly record struct ScreenRect(Vector2 Min, Vector2 Size);
-
-    public const float Width = 276;
-    public const float Height = 120;
-    public const float Top = 270;
-    public static readonly Vector2 Accept = new(48, 72);
-    public static readonly Vector2 Decline = new(148, 72);
-    public static readonly Vector2 ButtonSize = new(80, 22);
-    public static readonly Vector2 MessageCenter = new(138, 32);
-
-    public static ScreenRect PopupRect(Vector2 displayPixels, float scale)
-    {
-        float safeScale = Math.Max(.01f, scale);
-        return new(new Vector2((displayPixels.X / safeScale - Width) * .5f, Top),
-            new Vector2(Width, Height));
-    }
 }

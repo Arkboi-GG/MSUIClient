@@ -20,6 +20,8 @@ public sealed partial class GameLoop
     private bool _macroOpen;
     private readonly List<MacroDefinition> _macros = [];
     private bool _macrosLoaded;
+    private string _loadedMacroAccountPath = "";
+    private string _loadedMacroCharacterPath = "";
     private int _selectedMacro;
     private bool _macroCharacterSpecific;
     private readonly byte[] _macroName = new byte[32];
@@ -57,26 +59,108 @@ public sealed partial class GameLoop
 
     private void EnsureMacrosLoaded()
     {
-        if (_macrosLoaded) return;
-        _macrosLoaded = true;
+        (string accountPath, string characterPath) = MacroStorePaths();
+        if (_macrosLoaded && _loadedMacroAccountPath == accountPath &&
+            _loadedMacroCharacterPath == characterPath) return;
+        if (_macrosLoaded)
+        {
+            CommitMacroEditor();
+            TryWriteMacroStores(_loadedMacroAccountPath, _loadedMacroCharacterPath);
+        }
+        _macros.Clear();
+        bool migrateLegacy = !File.Exists(accountPath) && !File.Exists(characterPath);
         try
         {
-            string path = Path.Combine(_config.RepoRoot, "macros.json");
-            if (File.Exists(path)) _macros.AddRange(JsonSerializer.Deserialize<List<MacroDefinition>>(File.ReadAllText(path)) ?? []);
+            if (File.Exists(accountPath) || File.Exists(characterPath))
+            {
+                AppendMacroSet(ReadMacroStore(accountPath));
+                AppendMacroSet(ReadMacroStore(characterPath));
+            }
+            else
+            {
+                string legacyPath = Path.Combine(_config.RepoRoot, "macros.json");
+                if (File.Exists(legacyPath))
+                    _macros.AddRange(JsonSerializer.Deserialize<List<MacroDefinition>>(
+                        File.ReadAllText(legacyPath)) ?? []);
+            }
         }
         catch (Exception ex) { Console.WriteLine($"[macros] load failed: {ex.Message}"); }
         while (_macros.Count < MacroFrameUiLaw.TotalMacros) _macros.Add(new MacroDefinition());
         if (_macros.Count > MacroFrameUiLaw.TotalMacros)
             _macros.RemoveRange(MacroFrameUiLaw.TotalMacros,
                 _macros.Count - MacroFrameUiLaw.TotalMacros);
+        _macrosLoaded = true;
+        _loadedMacroAccountPath = accountPath;
+        _loadedMacroCharacterPath = characterPath;
+        if (migrateLegacy && _macros.Any(MacroHasContent))
+            TryWriteMacroStores(accountPath, characterPath);
     }
 
     private void SaveMacros()
     {
         EnsureMacrosLoaded();
         CommitMacroEditor();
-        File.WriteAllText(Path.Combine(_config.RepoRoot, "macros.json"),
-            JsonSerializer.Serialize(_macros, new JsonSerializerOptions { WriteIndented = true }));
+        TryWriteMacroStores(_loadedMacroAccountPath, _loadedMacroCharacterPath);
+    }
+
+    private (string AccountPath, string CharacterPath) MacroStorePaths()
+    {
+        string directory = Path.Combine(_config.RepoRoot, "macros");
+        string realm = MacroFrameUiLaw.StoreFileToken(_net?.RealmName ?? "Realm");
+        string character = MacroFrameUiLaw.StoreFileToken(_net?.PlayerName ?? "Character");
+        return (Path.Combine(directory, "account.txt"),
+            Path.Combine(directory, $"{realm}-{character}.txt"));
+    }
+
+    private static IReadOnlyList<MacroDefinition> ReadMacroStore(string path)
+    {
+        if (!File.Exists(path)) return [];
+        return MacroFrameUiLaw.ParseStore(File.ReadAllText(path))
+            .Select(macro => new MacroDefinition
+            {
+                Name = macro.Name,
+                Body = macro.Body,
+                IconPath = macro.IconPath,
+            }).ToArray();
+    }
+
+    private void AppendMacroSet(IReadOnlyList<MacroDefinition> macros)
+    {
+        int end = _macros.Count + MacroFrameUiLaw.MacrosPerSet;
+        _macros.AddRange(macros.Take(MacroFrameUiLaw.MacrosPerSet));
+        while (_macros.Count < end) _macros.Add(new MacroDefinition());
+    }
+
+    private static bool MacroHasContent(MacroDefinition macro) =>
+        macro.Name.Length > 0 || macro.Body.Length > 0 || macro.IconPath.Length > 0;
+
+    private void TryWriteMacroStores(string accountPath, string characterPath)
+    {
+        try
+        {
+            WriteMacroStoreAtomic(accountPath, 0);
+            WriteMacroStoreAtomic(characterPath, MacroFrameUiLaw.MacrosPerSet);
+        }
+        catch (Exception ex) { Console.WriteLine($"[macros] save failed: {ex.Message}"); }
+    }
+
+    private void WriteMacroStoreAtomic(string path, int start)
+    {
+        string text = MacroFrameUiLaw.WriteStore(_macros.Skip(start)
+            .Take(MacroFrameUiLaw.MacrosPerSet).Where(MacroHasContent)
+            .Select(macro => new MacroFrameUiLaw.StoredMacro(
+                macro.Name, macro.Body, macro.IconPath)));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        string temporary = path + ".tmp";
+        using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write,
+                   FileShare.None, 4096, FileOptions.WriteThrough))
+        using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+        {
+            writer.Write(text);
+            writer.Flush();
+            stream.Flush(flushToDisk: true);
+        }
+        File.Move(temporary, path, overwrite: true);
     }
 
     private void EnsureMacroIconsLoaded()
@@ -241,17 +325,16 @@ public sealed partial class GameLoop
         EnsureMacrosLoaded();
         float s = GameplayUiScale();
         if (!BeginVanillaWindow("##macro", UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[15]),
-                new Vector2(MacroFrameUiLaw.FrameWidth, MacroFrameUiLaw.FrameHeight), out ImDrawListPtr dl,
+                MacroFrameUiLaw.FrameSize, out ImDrawListPtr dl,
                 out Vector2 origin, out s)) return;
-        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-General-TopLeft", origin, new(256), s);
-        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-General-TopRight", origin + new Vector2(256, 0) * s, new(128, 256), s);
-        DrawArt(dl, @"Interface\MacroFrame\MacroFrame-BotLeft", origin + new Vector2(0, 256) * s, new(256), s);
-        DrawArt(dl, @"Interface\MacroFrame\MacroFrame-BotRight", origin + new Vector2(256, 256) * s, new(128, 256), s);
+        foreach (MacroFrameUiLaw.ArtPiece piece in MacroFrameUiLaw.FrameArt)
+            DrawArt(dl, piece.Path, piece.Rect.Minimum(origin, s),
+                piece.Rect.LogicalSize, s);
         DrawArt(dl, @"Interface\MacroFrame\MacroFrame-Icon",
             MacroFrameUiLaw.Portrait.Minimum(origin, s),
-            new(MacroFrameUiLaw.Portrait.Width, MacroFrameUiLaw.Portrait.Height), s);
-        DrawCenteredText(dl, origin + MacroFrameUiLaw.TitleCenter * s,
-            "Create Macros", 14 * s, VanillaGold);
+            MacroFrameUiLaw.Portrait.LogicalSize, s);
+        GameText.DrawCentered(dl, MacroFrameUiLaw.TitleFont, "Create Macros",
+            origin + MacroFrameUiLaw.TitleCenter * s, s);
 
         string generalLabel = "General Macros";
         string characterLabel = MacroCharacterTabLabel();
@@ -265,7 +348,7 @@ public sealed partial class GameLoop
                 generalWidth, s, !_macroCharacterSpecific))
             SwitchMacroSet(false);
         if (VanillaTab(dl, "##macro-character-tab",
-                firstTab + new Vector2(generalWidth, 0) * s, characterLabel,
+                firstTab + MacroFrameUiLaw.CharacterTabOffset(generalWidth) * s, characterLabel,
                 characterWidth, s, _macroCharacterSpecific))
             SwitchMacroSet(true);
 
@@ -276,8 +359,9 @@ public sealed partial class GameLoop
             uint macroId = (uint)macroIndex + 1;
             MacroFrameUiLaw.Rect rect = MacroFrameUiLaw.MacroButton(i);
             Vector2 min = rect.Minimum(origin, s);
+            MacroFrameUiLaw.Rect socket = MacroFrameUiLaw.MacroSocket;
             DrawArt(dl, @"Interface\Buttons\UI-EmptySlot-Disabled",
-                min - new Vector2(14, 15) * s, new(64), s);
+                min + socket.Min * s, socket.LogicalSize, s);
             uint icon = _gameplayArt.Handle(MacroIcon(macroId));
             if (icon != 0) dl.AddImage((nint)icon, min, min + rect.Size(s));
             ImGui.SetCursorScreenPos(min);
@@ -291,7 +375,7 @@ public sealed partial class GameLoop
                 ExecuteMacro(macroId);
             if (_macros[macroIndex].Name.Length > 0)
                 GameText.DrawCentered(dl, "GameFontHighlightSmallOutline",
-                    _macros[macroIndex].Name, min + new Vector2(18, 31) * s, s);
+                    _macros[macroIndex].Name, min + MacroFrameUiLaw.MacroNameCenter * s, s);
             if (_selectedMacro == macroIndex)
             {
                 uint check = _gameplayArt.AdditiveHandle(
@@ -306,15 +390,16 @@ public sealed partial class GameLoop
         {
             MacroFrameUiLaw.Rect left = MacroFrameUiLaw.DividerLeft;
             dl.AddImage((nint)divider, left.Minimum(origin, s),
-                left.Minimum(origin, s) + left.Size(s), Vector2.Zero, new Vector2(1, .25f));
+                left.Minimum(origin, s) + left.Size(s), MacroFrameUiLaw.DividerLeftUvMin,
+                MacroFrameUiLaw.DividerLeftUvMax);
             MacroFrameUiLaw.Rect right = MacroFrameUiLaw.DividerRight;
             dl.AddImage((nint)divider, right.Minimum(origin, s),
-                right.Minimum(origin, s) + right.Size(s), new Vector2(0, .25f),
-                new Vector2(.29296875f, .5f));
+                right.Minimum(origin, s) + right.Size(s), MacroFrameUiLaw.DividerRightUvMin,
+                MacroFrameUiLaw.DividerRightUvMax);
         }
         MacroFrameUiLaw.Rect selectedBackground = MacroFrameUiLaw.SelectedBackground;
         DrawArt(dl, @"Interface\Buttons\UI-EmptySlot",
-            selectedBackground.Minimum(origin, s), new(64), s);
+            selectedBackground.Minimum(origin, s), selectedBackground.LogicalSize, s);
         MacroFrameUiLaw.Rect selectedButton = MacroFrameUiLaw.SelectedButton;
         uint selectedIcon = _gameplayArt.Handle(MacroIcon((uint)_selectedMacro + 1));
         if (selectedIcon != 0)
@@ -352,7 +437,7 @@ public sealed partial class GameLoop
             ImGui.PushStyleColor(ImGuiCol.FrameBgActive, Vector4.Zero);
             ImGui.PushStyleColor(ImGuiCol.Border, Vector4.Zero);
             ImGui.InputTextMultiline("##macro-text", ref _macroBody, 255,
-                new Vector2(body.Width, bodyContentHeight) * s,
+                MacroFrameUiLaw.BodyInputSize(bodyContentHeight) * s,
                 ImGuiInputTextFlags.NoHorizontalScroll);
             ImGui.PopStyleColor(4);
             ImGui.EndChild();
@@ -395,7 +480,12 @@ public sealed partial class GameLoop
         if (_draggingMacroId != 0)
         {
             uint icon = _gameplayArt.Handle(MacroIcon(_draggingMacroId));
-            if (icon != 0) { Vector2 min = ImGui.GetIO().MousePos + new Vector2(10) * s; ImGui.GetForegroundDrawList().AddImage((nint)icon, min, min + new Vector2(32) * s); }
+            if (icon != 0)
+            {
+                Vector2 min = ImGui.GetIO().MousePos + MacroFrameUiLaw.DragPreviewOffset * s;
+                ImGui.GetForegroundDrawList().AddImage((nint)icon, min,
+                    min + MacroFrameUiLaw.DragPreviewSize * s);
+            }
         }
         ImGui.End();
         if (_macroPopupOpen) DrawMacroPopup(origin, s);
@@ -424,14 +514,14 @@ public sealed partial class GameLoop
             uint art = _gameplayArt.Handle($@"Interface\Buttons\{stem}-{state}");
             if (art != 0)
                 draw.AddImage((nint)art, min, min + size,
-                    new Vector2(.25f), new Vector2(.75f));
+                    MacroFrameUiLaw.ScrollUvMin, MacroFrameUiLaw.ScrollUvMax);
             if (hovered)
             {
                 uint highlight = _gameplayArt.AdditiveHandle(
                     $@"Interface\Buttons\{stem}-Highlight");
                 if (highlight != 0)
                     draw.AddImage((nint)highlight, min, min + size,
-                        new Vector2(.25f), new Vector2(.75f));
+                        MacroFrameUiLaw.ScrollUvMin, MacroFrameUiLaw.ScrollUvMax);
             }
             if (clicked)
             {
@@ -446,13 +536,14 @@ public sealed partial class GameLoop
         Arrow("##macro-body-scroll-down", MacroFrameUiLaw.BodyScrollDown, false);
         Vector2 trackMin = MacroFrameUiLaw.BodyScrollTrack.Minimum(origin, scale);
         Vector2 trackSize = MacroFrameUiLaw.BodyScrollTrack.Size(scale);
-        Vector2 knobSize = new(16 * scale);
-        Vector2 knobMin = origin + new Vector2(MacroFrameUiLaw.BodyScrollTrack.X,
-            MacroFrameUiLaw.BodyThumbY(_macroBodyScroll, _macroBody)) * scale;
+        MacroFrameUiLaw.Rect knobRect =
+            MacroFrameUiLaw.BodyScrollKnob(_macroBodyScroll, _macroBody);
+        Vector2 knobSize = knobRect.Size(scale);
+        Vector2 knobMin = knobRect.Minimum(origin, scale);
         uint knob = _gameplayArt.Handle(@"Interface\Buttons\UI-ScrollBar-Knob");
         if (knob != 0)
             draw.AddImage((nint)knob, knobMin, knobMin + knobSize,
-                new Vector2(.25f), new Vector2(.75f));
+                MacroFrameUiLaw.ScrollUvMin, MacroFrameUiLaw.ScrollUvMax);
         ImGui.SetCursorScreenPos(trackMin);
         ImGui.InvisibleButton("##macro-body-scroll-track", trackSize);
         if (ImGui.IsItemActive())
@@ -470,7 +561,7 @@ public sealed partial class GameLoop
         if (_gameplayArt is null) return;
         EnsureMacroIconsLoaded();
         Vector2 origin = MacroFrameUiLaw.PopupMinimum(macroOrigin, scale);
-        Vector2 size = new(MacroFrameUiLaw.PopupWidth, MacroFrameUiLaw.PopupHeight);
+        Vector2 size = MacroFrameUiLaw.PopupSize;
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size * scale, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
@@ -485,18 +576,13 @@ public sealed partial class GameLoop
 
         ImDrawListPtr draw = ImGui.GetWindowDrawList();
         draw.PushClipRectFullScreen();
-        DrawArt(draw, @"Interface\MacroFrame\MacroPopup-TopLeft", origin,
-            new Vector2(256), scale);
-        DrawArt(draw, @"Interface\MacroFrame\MacroPopup-TopRight",
-            origin + new Vector2(256, 0) * scale, new Vector2(64, 256), scale);
-        DrawArt(draw, @"Interface\MacroFrame\MacroPopup-BotLeft",
-            origin + new Vector2(0, 256) * scale, new Vector2(256, 64), scale);
-        DrawArt(draw, @"Interface\MacroFrame\MacroPopup-BotRight",
-            origin + new Vector2(256, 256) * scale, new Vector2(64), scale);
+        foreach (MacroFrameUiLaw.ArtPiece piece in MacroFrameUiLaw.PopupArt)
+            DrawArt(draw, piece.Path, piece.Rect.Minimum(origin, scale),
+                piece.Rect.LogicalSize, scale);
         GameText.Draw(draw, "GameFontHighlightSmall", "Enter Macro Name",
-            origin + new Vector2(24, 21) * scale, scale);
+            origin + MacroFrameUiLaw.PopupNameLabel * scale, scale);
         GameText.Draw(draw, "GameFontHighlightSmall", "Choose an Icon",
-            origin + new Vector2(24, 69) * scale, scale);
+            origin + MacroFrameUiLaw.PopupIconLabel * scale, scale);
 
         DrawMacroPopupNameEdit(draw, origin, scale);
         DrawMacroPopupIconGrid(draw, origin, scale);
@@ -509,12 +595,12 @@ public sealed partial class GameLoop
             _macroPopupSelectedIcon, existingIcon);
         MacroFrameUiLaw.Rect okay = MacroFrameUiLaw.OkayButton;
         if (VanillaButton(draw, "Okay##macro-popup", "Okay",
-                okay.Minimum(origin, scale), new Vector2(okay.Width, okay.Height), scale,
+                okay.Minimum(origin, scale), okay.LogicalSize, scale,
                 okayEnabled))
             CloseMacroPopup(accepted: true);
         MacroFrameUiLaw.Rect cancel = MacroFrameUiLaw.CancelButton;
         if (VanillaButton(draw, "Cancel##macro-popup", "Cancel",
-                cancel.Minimum(origin, scale), new Vector2(cancel.Width, cancel.Height), scale))
+                cancel.Minimum(origin, scale), cancel.LogicalSize, scale))
             CloseMacroPopup(accepted: false);
 
         draw.PopClipRect();
@@ -528,19 +614,15 @@ public sealed partial class GameLoop
         MacroFrameUiLaw.Rect box = MacroFrameUiLaw.NameEdit;
         Vector2 boxMin = box.Minimum(origin, scale);
         if (border != 0)
-        {
-            Vector2 artMin = origin + new Vector2(18, 35) * scale;
-            draw.AddImage((nint)border, artMin, artMin + new Vector2(12, 29) * scale,
-                new Vector2(0, 0), new Vector2(.09375f, 1));
-            draw.AddImage((nint)border, artMin + new Vector2(12, 0) * scale,
-                artMin + new Vector2(187, 29) * scale,
-                new Vector2(.09375f, 0), new Vector2(.90625f, 1));
-            draw.AddImage((nint)border, artMin + new Vector2(187, 0) * scale,
-                artMin + new Vector2(199, 29) * scale,
-                new Vector2(.90625f, 0), Vector2.One);
-        }
-        ImGui.SetCursorScreenPos(boxMin + new Vector2(3, 0) * scale);
-        ImGui.SetNextItemWidth((box.Width - 6) * scale);
+            foreach (MacroFrameUiLaw.TextureSlice slice in MacroFrameUiLaw.NameBorderSlices)
+            {
+                Vector2 at = slice.Rect.Minimum(origin, scale);
+                draw.AddImage((nint)border, at, at + slice.Rect.Size(scale),
+                    slice.UvMin, slice.UvMax);
+            }
+        MacroFrameUiLaw.Rect input = MacroFrameUiLaw.NameInput;
+        ImGui.SetCursorScreenPos(input.Minimum(origin, scale));
+        ImGui.SetNextItemWidth(input.Width * scale);
         ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBgActive, Vector4.Zero);
@@ -563,13 +645,16 @@ public sealed partial class GameLoop
             Vector2 min = rect.Minimum(origin, scale);
             uint socket = _gameplayArt?.Handle(@"Interface\Buttons\UI-EmptySlot-Disabled") ?? 0;
             if (socket != 0)
-                draw.AddImage((nint)socket, min + new Vector2(-14, -15) * scale,
-                    min + new Vector2(50, 49) * scale);
+            {
+                MacroFrameUiLaw.Rect socketRect = MacroFrameUiLaw.PopupIconSocket(rect);
+                draw.AddImage((nint)socket, socketRect.Minimum(origin, scale),
+                    socketRect.Minimum(origin, scale) + socketRect.Size(scale));
+            }
             uint icon = _gameplayArt?.Handle(_macroIcons[catalogIndex]) ?? 0;
             if (icon != 0)
-                draw.AddImage((nint)icon, min, min + new Vector2(36) * scale);
+                draw.AddImage((nint)icon, min, min + rect.Size(scale));
             ImGui.SetCursorScreenPos(min);
-            ImGui.InvisibleButton($"##macro-popup-icon-{visible}", new Vector2(36) * scale);
+            ImGui.InvisibleButton($"##macro-popup-icon-{visible}", rect.Size(scale));
             bool hovered = ImGui.IsItemHovered();
             if (ImGui.IsItemClicked()) _macroPopupSelectedIcon = catalogIndex;
             if (hovered)
@@ -577,14 +662,14 @@ public sealed partial class GameLoop
                 uint highlight = _gameplayArt?.AdditiveHandle(
                     @"Interface\Buttons\ButtonHilight-Square") ?? 0;
                 if (highlight != 0)
-                    draw.AddImage((nint)highlight, min, min + new Vector2(36) * scale);
+                    draw.AddImage((nint)highlight, min, min + rect.Size(scale));
             }
             if (_macroPopupSelectedIcon == catalogIndex)
             {
                 uint check = _gameplayArt?.AdditiveHandle(
                     @"Interface\Buttons\CheckButtonHilight") ?? 0;
                 if (check != 0)
-                    draw.AddImage((nint)check, min, min + new Vector2(36) * scale);
+                    draw.AddImage((nint)check, min, min + rect.Size(scale));
             }
         }
 
@@ -593,16 +678,14 @@ public sealed partial class GameLoop
             enabled: _macroPopupRowOffset > 0);
         DrawMacroPopupScrollButton(draw, origin, scale, up: false,
             enabled: _macroPopupRowOffset < maximum);
-        MacroFrameUiLaw.Rect track = MacroFrameUiLaw.ScrollTrack;
-        float fraction = maximum == 0 ? 0f : (float)_macroPopupRowOffset / maximum;
-        Vector2 knobMin = track.Minimum(origin, scale) +
-            new Vector2(0, fraction * (track.Height - 24f)) * scale;
+        MacroFrameUiLaw.Rect knobRect =
+            MacroFrameUiLaw.PopupScrollKnob(_macroPopupRowOffset, maximum);
+        Vector2 knobMin = knobRect.Minimum(origin, scale);
         uint knob = _gameplayArt?.Handle(@"Interface\Buttons\UI-ScrollBar-Knob") ?? 0;
         if (knob != 0)
-            draw.AddImage((nint)knob, knobMin, knobMin + new Vector2(16, 24) * scale);
+            draw.AddImage((nint)knob, knobMin, knobMin + knobRect.Size(scale));
 
-        Vector2 popupMax = origin + new Vector2(MacroFrameUiLaw.PopupWidth,
-            MacroFrameUiLaw.PopupHeight) * scale;
+        Vector2 popupMax = origin + MacroFrameUiLaw.PopupSize * scale;
         if (ImGui.IsMouseHoveringRect(origin, popupMax) && ImGui.GetIO().MouseWheel != 0f)
             _macroPopupRowOffset = MacroFrameUiLaw.ClampRowOffset(
                 _macroPopupRowOffset - Math.Sign(ImGui.GetIO().MouseWheel), _macroIcons.Count);

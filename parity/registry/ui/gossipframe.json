@@ -23,7 +23,7 @@
     "tools/interface-wire-check/GossipClinicalChecks.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "Generic Gossip now matches current Benilla's flow and row presentation: message/options/quest decode, per-open weighted and NPC-gender-selected macro-expanded greeting, ask-once eight-block text-record cache, authored shell/title/rows, exact 0..13 option icon table with auctioneer missing-art fallback, ActiveQuestIcon versus AvailableQuestIcon pool split, coded-option disable, route classification, quest query/completion fork, Goodbye and close. The outer frame consumes the observer-resolved registered GossipFrame panel seat; GossipUiLaw owns the 384x512 dimensions, 300x334 clipped greeting/list viewport, row height/content range, overflow-only 16px scrollbar furniture, wheel/drag clamp, and close/action seats. Quest rows fill the 32-row pool before option rows, matching current XML, and long greetings/options scroll instead of escaping the parchment. The separate innkeeper presentation is unchanged. CMSG_GOSSIP_CLOSE remains correctly absent because neither client sends one. Focused checks pass; live visual/input verification remains outstanding.",
+  "summary": "Generic Gossip now matches current Benilla's flow and row presentation: message/options/quest decode, per-open weighted and NPC-gender-selected macro-expanded greeting, ask-once eight-block text-record cache, authored shell/title/rows, exact 0..13 option icon table with auctioneer missing-art fallback, ActiveQuestIcon versus AvailableQuestIcon pool split, coded-option disable, route classification, quest query/completion fork, Goodbye and close. The outer frame consumes the observer-resolved registered GossipFrame panel seat; GossipUiLaw owns the 384x512 host, shell quadrants, title, 300x334 clipped greeting/list viewport, row/icon geometry, overflow-only 16px scrollbar furniture, wheel/drag clamp, and close/action seats. Quest rows fill the 32-row pool before option rows, matching current XML, and long greetings/options scroll instead of escaping the parchment. The separate innkeeper presentation is unchanged. CMSG_GOSSIP_CLOSE remains correctly absent because neither client sends one. Focused and full checks pass; live visual/input verification remains outstanding.",
   "openItems": [
     {
       "id": "item-triage-74f32f9f",
@@ -52,6 +52,15 @@
       "resolution": "2026-08-22: GossipUiLaw now owns the exact viewport, scrollbar, row/content, wheel/drag, Goodbye, and close geometry. Runtime clips and pans the combined greeting/list, fills quests before options up to 32 rows, disables coded options, and shows the exact cropped 16px scrollbar only on overflow."
     },
     {
+      "id": "item-gossip-title-font-visual-gap-20260823",
+      "kind": "gap",
+      "text": "Generic Gossip routed its NPC name through the shared gold NPC-modal title helper even though GossipNpcNameText explicitly inherits white GameFontHighlight.",
+      "source": "benilla-b57ee0e9e2c8822b/GossipFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "GossipUiLaw now owns GameFontHighlight as the generic Gossip title font and the renderer consumes it at the existing exact title center. The separate innkeeper presentation and Quest Log are unchanged. Focused Gossip and full interface suites pass."
+    },
+    {
       "id": "item-msui-gossip-panel-seat-live-verify-20260822",
       "kind": "verify",
       "text": "Live-verify generic Gossip beside another registered left panel: it must consume the resolved panel seat without changing the separate innkeeper presentation.",
@@ -63,6 +72,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T22:45:05.2576369Z",
+  "lastReviewedUtc": "2026-08-23T16:02:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

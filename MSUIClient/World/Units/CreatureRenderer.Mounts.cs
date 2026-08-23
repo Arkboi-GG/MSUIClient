@@ -92,7 +92,8 @@ public sealed partial class CreatureRenderer
     /// inherits through the seat — the two things a nameplate needs to clear a rider's head.
     /// </summary>
     internal readonly record struct MountDraw(
-        Matrix4x4 Seat, float GroundRadius, float SeatHeight, float Scale, float LastSeenAt);
+        Matrix4x4 Seat, float GroundRadius, float SeatHeight, float Scale, float LastSeenAt,
+        SpellUnitPose Pose);
 
     /// <summary>
     /// Steeds drawn over the whole frame. Accumulated rather than reset in <see cref="Render"/>,
@@ -135,6 +136,18 @@ public sealed partial class CreatureRenderer
     {
         if (_mountsDrawn.TryGetValue(guid, out MountDraw drawn)) { radius = drawn.GroundRadius; return true; }
         radius = 0f;
+        return false;
+    }
+
+    /// <summary>The mount half of the rider's last-drawn targetable geometry.</summary>
+    public bool TryGetMountSpellPose(ulong guid, out SpellUnitPose pose)
+    {
+        if (_mountsDrawn.TryGetValue(guid, out MountDraw drawn))
+        {
+            pose = drawn.Pose;
+            return pose.Found;
+        }
+        pose = SpellUnitPose.Missing;
         return false;
     }
 
@@ -252,6 +265,7 @@ public sealed partial class CreatureRenderer
         _shader.Set("uBodyTint", bodyTint);
 
         int boneCount = 0;
+        M2Animator.Clip? pickClip = null;
         if (Animate && model.Animator is not null && model.BoneCount > 0 &&
             Vector3.Distance(position, camera.Position) <= AnimateDistance)
         {
@@ -291,6 +305,7 @@ public sealed partial class CreatureRenderer
 
             if (clip is not null)
             {
+                pickClip = clip;
                 EmitFootstepEvents(guid, mountDisplayId, position,
                     scale, model.Source, clip, at, mount: true);
                 boneCount = Math.Min(model.BoneCount, M2Animator.MaxBones);
@@ -325,13 +340,24 @@ public sealed partial class CreatureRenderer
         _gl.DepthMask(true);
         _mountsDrawnAccumulator++;
 
+        Matrix4x4[] poseSkin = new Matrix4x4[model.Source.Bones.Count];
+        IReadOnlyList<Matrix4x4> sourceSkin = boneCount > 0 ? _mountSkin : _bindSkin;
+        for (int poseIndex = 0; poseIndex < poseSkin.Length; poseIndex++)
+            poseSkin[poseIndex] = poseIndex < sourceSkin.Count
+                ? sourceSkin[poseIndex] : Matrix4x4.Identity;
+        var pose = new SpellUnitPose(true, position, orientation, mountWorld,
+            model.Source, poseSkin, GeosetFilter ? appearance.VisibleGeosets : null,
+            pickClip?.BoundsCenter ?? Vector3.Zero,
+            pickClip?.BoundsRadius ?? 0f);
+
         Matrix4x4 seat = SeatTransform(model, mountWorld, boneCount > 0, tune);
         drawn = new MountDraw(
             Seat: seat,
             GroundRadius: GroundShadowRadius(model.HorizontalRadius, scale),
             SeatHeight: MathF.Max(0f, seat.M43 - position.Z),
             Scale: scale,
-            LastSeenAt: _globalTime);
+            LastSeenAt: _globalTime,
+            Pose: pose);
         _mountsDrawn[guid] = drawn;
         return true;
     }

@@ -29,6 +29,16 @@
       "path": "crates/benilla-app/src/ui_items/mod.rs",
       "fileSha256": "be57da4cac57820481f458a9b3575a5f60d50b20304cc169620c05c2bef105e4",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/assets/ui/ContainerFrameAdapters.xml",
+      "fileSha256": "c8ce1af2537f59a360cde2807abccd6c95a3cc1dde7c25f173b1daad34729981",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/assets/ui/ItemButtonTemplate.xml",
+      "fileSha256": "a7668ac3feafda0cd7e19d00193af3c0d4e6f24c937f93606832f7909f00dc53",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
@@ -52,7 +62,7 @@
     "tools/interface-wire-check/BagStateArtClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "Plain B toggles only the backpack; Shift+B toggles all occupied normal bags; tested lifecycle transitions emit exactly one expected named cue; representative bag-bar and equipped-bag portrait icons are strictly contained. Item hover uses ContainerFrameItemButton_OnEnter's exact opposite-screen-side seat. Container item slots render UI-Quickslot-Depress while held, and the keyring button now swaps to its cropped Down atlas while pushed and adds its cropped additive Highlight atlas while hovered. Overall reference parity is not yet established.",
+  "summary": "Plain B toggles only the backpack; Shift+B toggles all occupied normal bags; tested lifecycle transitions emit exactly one expected named cue; representative bag-bar and equipped-bag portrait icons are strictly contained. Item hover uses ContainerFrameItemButton_OnEnter's exact opposite-screen-side seat. Container item slots render UI-Quickslot-Depress while held, and the keyring button swaps to its cropped Down atlas while pushed and adds its cropped additive Highlight atlas while hovered. Dropping a carried item into the world uses the current shared 420-wide DELETE_ITEM showAlert dialog; DeleteItemUiLaw now owns the dynamic frame, centered 290-wide text, 64px alert icon and both button rectangles, with no renderer-local Vector2 geometry. Current Benilla's ContainerFrameAdapters and ItemButtonTemplate sources exist to bridge its sourced FrameXML and third-party addons; they add no authored bag geometry and do not alter the protected MSUI bag presentation. Overall reference parity is not yet established.",
   "openItems": [
     {
       "id": "item-claim-bagframe-protocol-001-verify",
@@ -222,6 +232,6 @@
     "trace-bagframe-slot-depress-art-gap-001"
   ],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-21T00:00:00Z",
+  "lastReviewedUtc": "2026-08-23T04:13:03.2740839Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

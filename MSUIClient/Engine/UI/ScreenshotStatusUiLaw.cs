@@ -11,6 +11,8 @@ public static class ScreenshotStatusUiLaw
     public const string FileStem = "WoWScrnShot";
 
     public static Vector2 TextCenter(Vector2 display) => display * .5f;
+    public static Vector2 TextMinimum(Vector2 display, float measuredWidth,
+        float measuredHeight) => TextCenter(display) - new Vector2(measuredWidth, measuredHeight) * .5f;
     public static float Alpha(double elapsedSeconds) =>
         1f - Math.Clamp((float)elapsedSeconds / FadeSeconds, 0f, 1f);
 

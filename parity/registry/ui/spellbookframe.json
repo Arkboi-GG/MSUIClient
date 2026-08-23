@@ -19,20 +19,27 @@
       "path": "crates/benilla-app/src/ui_pet_book.rs",
       "fileSha256": "e87d8a45b04ede2b8f32a07959cb61c021f7ed55da11a64cc4b5ad3f1aeffeaa",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/autocast_shine.rs",
+      "fileSha256": "85b55defb13c49882fba1ee87b0d3c6c81fa790485eb6747d27757af4e88e9a8",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.Spellbook.cs",
-    "MSUIClient/Engine/UI/SpellbookLaw.cs",
-    "MSUIClient/Program.UiPanelOwnership.cs",
-    "MSUIClient/Program.ActionBars.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Spellbook.cs",
+    "MSUIClient/Engine/UI/SpellbookLaw.cs",
+    "MSUIClient/Engine/UI/SpellTooltipLaw.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.UiPanelOwnership.cs",
+    "MSUIClient/Engine/UI/UiPanelOwnershipLaw.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.ActionBars.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Pet.cs",
     "MSUIClient/Engine/UI/PetSpellBookUiLaw.cs",
     "MSUIClient/Net/WorldSession.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Professions.cs",
     "MSUIClient/Net/ObjectFields.cs",
     "tools/interface-wire-check/SpellbookVisualClinicalChecks.cs",
+    "tools/interface-wire-check/GameTooltipClinicalChecks.cs",
     "tools/interface-wire-check/PetSpellBookClinicalChecks.cs",
     "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/audit.json",
     "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/README.md",
@@ -44,7 +51,7 @@
     "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/evidence/live/live-visual-gate.md"
   ],
   "status": "partial",
-  "summary": "MSUI opens and toggles the spellbook through the bounded host-confirmed adapter, emits the frozen open/close/page-turn cues, renders the centered 36x36 Cooldown child and narrow IsCurrentCast checked ring, exposes all eight skill tabs, and reproduces left/right cast, shift-pickup, raw MacroFrame /cast append, drag-start, and receive-drag cursor behavior. The packet's distinct pet-spell list is now retained and drives the exact bottom Spell/Pet tab pair, class-token title, pet-only 12-slot page, pet cooldown/active/autocast presentation, synthesized pet cast, pet pickup cursor and the distinct CMSG_PET_SPELL_AUTOCAST verb with same-frame bar-bit mirroring. The rich-tooltip difference remains under adjudication and implemented presentation still carries live verification debt.",
+  "summary": "MSUI opens and toggles the spellbook through the bounded host-confirmed adapter, emits the frozen open/close/page-turn cues, and now takes every visible frame, art, grid, rail, page, close, hit, cursor-preview, wrapped-name/rank, type-tab, autocast-corner and tooltip-placement rectangle from SpellbookLaw, PetSpellBookUiLaw or SpellTooltipLaw; the ImGui renderer contains no explicit Vector2 geometry construction. It renders the centered 36x36 Cooldown child, narrow IsCurrentCast ring, all eight skill tabs, exact icon-only 37x37 click ownership, and left/right cast, shift-pickup, raw MacroFrame /cast append, drag-start and receive-drag behavior. The distinct pet-spell list drives the exact bottom Spell/Pet tab pair, class-token title, pet-only 12-slot page, pet cooldown/active state, current-Benilla 71.53-unit autocast brackets and concentric clipped 1,200-star shine, synthesized pet cast, pet pickup cursor and CMSG_PET_SPELL_AUTOCAST with same-frame bar-bit mirroring. The protected rich-tooltip content/right-rank presentation remains unchanged and under adjudication; implemented presentation still carries live verification debt.",
   "openItems": [
     {
       "id": "item-claim-spellbookframe-sound-gap-001-verify",
@@ -151,9 +158,27 @@
       "resolved": true
     },
     {
+      "id": "item-spellbook-current-autocast-geometry-20260823",
+      "kind": "gap",
+      "text": "MSUI reused the pet action bar's 58-unit autocast overlay and 30-unit sampled sparkle path in the 37x37 pet spellbook button, while current Benilla uses a 71.53-unit corner overlay and a concentric, button-clipped scale-1.48 shine. The ImGui hit rectangle also extended 145 units across the label instead of remaining on the authored 37x37 CheckButton.",
+      "source": "benilla-b57ee0e9e2c8822b/SpellBookFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: SpellbookLaw now owns the full frame/host/art/grid/rail/control geometry, exact 37x37 click seat, 71.53-unit overlay and scale-1.48 M2 projection. The renderer emits four 300-particle trails with screen-diagonal star sizing, rotation and a hard button scissor. Focused SpellbookVisual and the full interface clinical suite pass."
+    },
+    {
+      "id": "item-spellbook-renderer-geometry-law-20260823",
+      "kind": "gap",
+      "text": "The Spellbook renderer still authored cursor-preview, text-line, calibration-window, Spell/Pet tab, autocast-star corner and rich-tooltip frame/anchor/text coordinates directly with Vector2 construction instead of consuming rule-owned geometry.",
+      "source": "rule-owned-window-geometry-audit-2026-08-23",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: Moved the calculations unchanged into SpellbookLaw, PetSpellBookUiLaw and SpellTooltipLaw, added behavioral geometry checks plus a renderer source fence, and preserved the existing rich-tooltip content/right-rank presentation. Focused SpellbookVisual and the full interface clinical suite pass."
+    },
+    {
       "id": "item-msui-pet-spellbook-live-verify-001",
       "kind": "verify",
-      "text": "Live-verify Shift-P and the bottom tab switch with hunter and warlock pets: Pet/Demon titles, hidden skill-line rail, packet-list ordering, passive presentation, pet-bank cooldowns, active-aura ring/icon, pickup into the pet bar, off-bar casting, right-click autocast and same-frame sparkle mirroring. The focused clinical check covers the geometry, add-gate, packet layout and state laws without claiming a live capture.",
+      "text": "Live-verify Shift-P and the bottom tab switch with hunter and warlock pets: Pet/Demon titles, hidden skill-line rail, packet-list ordering, passive presentation, pet-bank cooldowns, active-aura ring/icon, pickup into the pet bar, off-bar casting, right-click autocast, 71.53-unit corner brackets and the clipped concentric shine at multiple UI scales. The focused clinical check covers geometry, projection, population, scissor wiring, add-gate, packet layout and state laws without claiming a live capture.",
       "source": "benilla-b57ee0e9e2c8822b/ui_pet_book.rs",
       "added": "2026-08-22",
       "resolved": false
@@ -193,6 +218,6 @@
     "trace-spellbookframe-window-presentation-001"
   ],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T21:07:14.9599628Z",
+  "lastReviewedUtc": "2026-08-23T06:52:31.0527406Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

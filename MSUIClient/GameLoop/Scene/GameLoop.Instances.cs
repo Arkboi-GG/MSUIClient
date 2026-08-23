@@ -639,6 +639,9 @@ public sealed partial class GameLoop
         // same-map teleport must let surviving WorldEntities publish their GOs
         // into that new registry on the next reconciliation pass.
         _gameObjectPlacements.Clear();
+        _gameObjectAnimationStates.Clear();
+        _gameObjectDespawnAnimations.Clear();
+        _gameObjectRetainedDestroys.Clear();
 
         // Pools are keyed by placement position. Keeping them across a map
         // change would leave a dungeon's torches burning in mid-air over Elwynn

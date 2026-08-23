@@ -22,7 +22,7 @@
     "tools/interface-wire-check/BinderClinicalChecks.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "The innkeeper confirmation now follows current Benilla's BinderConfirm StaticPopup behavior: exact area-aware prompt and fallback, law-owned top popup seat and button geometry, stock dialog art, Accept-only CMSG_BINDER_ACTIVATE, cancel/Escape without wire, and the shared 30.864 yd² service-range expiry. The former ad-hoc centered ImGui geometry has been removed.",
+  "summary": "The innkeeper confirmation now follows current Benilla's BinderConfirm StaticPopup behavior: exact area-aware prompt and fallback, fully law-owned top popup seat, text, button size/position and stock-art UV geometry, Accept-only CMSG_BINDER_ACTIVATE, cancel/Escape without wire, and the shared 30.864 yd² service-range expiry. The renderer contains no explicit Vector2 geometry construction. The former ad-hoc centered confirmation geometry is gone, and the unrelated custom 420x250 Inn & Hearthstone ImGui window that appeared after item use has also been removed; hearth wire, cooldown and teleport observation remain intact.",
   "openItems": [
     {
       "id": "item-msui-binder-live-verify",
@@ -31,11 +31,20 @@
       "source": "implementation-2026-08-21",
       "added": "2026-08-21",
       "resolved": false
+    },
+    {
+      "id": "item-binder-renderer-geometry-law-20260823",
+      "kind": "gap",
+      "text": "The BinderConfirm renderer still constructed the button size and stock-art UV maximum directly instead of consuming BinderConfirmUiLaw geometry.",
+      "source": "rule-owned-window-geometry-audit-2026-08-23",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: BinderConfirmUiLaw now owns the scaled button size and UV maximum, the renderer has a no-new-Vector2 source fence, and the focused Binder plus full interface clinical suites pass."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-21T22:59:51.8349179Z",
+  "lastReviewedUtc": "2026-08-23T06:55:33.1992149Z",
   "seededUtc": "2026-08-21T22:59:51.8349179Z"
 }

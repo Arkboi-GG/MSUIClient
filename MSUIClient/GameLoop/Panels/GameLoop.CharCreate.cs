@@ -55,6 +55,7 @@ public sealed partial class GameLoop
     /// <summary>Open the create screen from character-select. Loads the catalog + resets the selection.</summary>
     private void OpenCharCreate()
     {
+        PlayUiSound(CharSelectUiLaw.CreateSound, CharSelectUiLaw.SoundCategory);
         EnsureCatalog();
         _cc.Reset(_ccCatalog);
         WriteBuf(_ccNameBuf, "");
@@ -94,13 +95,14 @@ public sealed partial class GameLoop
     {
         var io = ImGui.GetIO();
         Vector2 disp = io.DisplaySize;
+        var host = CharCreateUiLaw.Host(disp);
         float s = MathF.Max(disp.Y / GlueCanvasH, 0.5f);
         _ccBlink += io.DeltaTime;
         EnsureCatalog();
         var cat = _ccCatalog;
 
-        ImGui.SetNextWindowPos(Vector2.Zero, ImGuiCond.Always);
-        ImGui.SetNextWindowSize(disp, ImGuiCond.Always);
+        ImGui.SetNextWindowPos(host.Min, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(host.Size, ImGuiCond.Always);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
         var flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove
                   | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse
@@ -387,16 +389,13 @@ public sealed partial class GameLoop
         RotateButton(dl, "##ccRotR", false, new Vector2(rotX + rot + CreateTune.RotGap * s, rotY), rot);
 
         // ── Accept over Back (bottom-right; benilla screen.rs BOTTOMRIGHT (-50,20)) ──
-        var accSize = new Vector2(160f * s, 35f * s * GlueTune.ButtonHeightMul);
-        var backSize = new Vector2(120f * s, 30f * s * GlueTune.ButtonHeightMul);
-        float rx = disp.X - 50f * s - accSize.X;
-        float accY = disp.Y - 20f * s - backSize.Y - 5f * s - accSize.Y;
+        var actions = CharCreateUiLaw.Actions(disp, s, GlueTune.ButtonHeightMul);
         bool acceptEnabled = !_cc.Creating && _cc.Name.Length >= 2;
         bool doCreate = false, doBack = false;
-        ImGui.SetCursorScreenPos(new Vector2(rx, accY));
-        if (_skin?.GlueButton("Accept", accSize, acceptEnabled) ?? false) doCreate = true;
-        ImGui.SetCursorScreenPos(new Vector2(disp.X - 50f * s - backSize.X, accY + accSize.Y + 5f * s));
-        if (_skin?.GlueButton("Back", backSize) ?? false) doBack = true;
+        ImGui.SetCursorScreenPos(actions.Accept.Min);
+        if (_skin?.GlueButton("Accept", actions.Accept.Size, acceptEnabled) ?? false) doCreate = true;
+        ImGui.SetCursorScreenPos(actions.Back.Min);
+        if (_skin?.GlueButton("Back", actions.Back.Size) ?? false) doBack = true;
 
         // Keyboard: Enter = Create, Escape = Back (benilla mod.rs name-entry keys).
         if (_ccNameSubmit) doCreate = true;
@@ -1003,8 +1002,9 @@ public sealed partial class GameLoop
     private void DrawCreateTuning()
     {
         if (!_ccTuneOpen) return;
-        ImGui.SetNextWindowSize(new Vector2(400f, 0f), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowPos(new Vector2(48f, 48f), ImGuiCond.FirstUseEver);
+        var tuningWindow = CharCreateUiLaw.TuningWindow;
+        ImGui.SetNextWindowSize(tuningWindow.Size, ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowPos(tuningWindow.Min, ImGuiCond.FirstUseEver);
         _skin?.PushStyle();
         ImGui.PushStyleColor(ImGuiCol.WindowBg, new Vector4(0.05f, 0.04f, 0.03f, 0.96f));
         bool open = _ccTuneOpen;
@@ -1182,106 +1182,4 @@ internal sealed class CharCreateState
     /// <summary>The CMSG_CHAR_CREATE request for the current selection (benilla request()).</summary>
     public CharCreateParams Request() =>
         new(Name, Race, Class, Sex, Dials[0], Dials[1], Dials[2], Dials[3], Dials[4]);
-}
-
-// Live-tunable layout numbers for the create screen (1024x768 glue units, scaled by s at draw time).
-// Driven by the "tune" toggle (DrawCreateTuning); bake the Log() output as the defaults once dialed in.
-internal static class CreateTune
-{
-    // Baked 2026-07-29 from Nico's `[cc-tune]` line - the signed-off character-create layout.
-    public static float TowerX = 28f, TowerTop = 49f, TowerW = 194f, TowerH = 617f;
-    public static float LogoW = 271f, LogoDX = 0f, LogoTop = 0f, ContentTop = 116f, HeaderPx = 15f;
-    public static float PanelW = 240f, PanelTop = 28f, PanelRight = 20f, PanelGap = 10f;
-    public static float PanelMinH = 66f, PanelMaxH = 320f, TitlePx = 15f, BodyPx = 13f;
-    // benilla's FIXED panel heights (char_create/panels.rs right_stack). Auto-size is the old
-    // grow-to-fit behaviour, kept behind a toggle - with it off, more text scrolls instead of resizing.
-    public static bool PanelAutoSize = false;
-    public static float PanelFactionH = 160f, PanelRaceH = 260f, PanelClassH = 210f;
-    // The scroll frame inside a panel (the ref's GlueScrollFrame: 190 wide at (17,10), bottom 10) and
-    // the title/body stack inside it. PanelLineH is the wrapped-text line height as a multiple of the
-    // font size - raise it if outlined body text reads cramped.
-    public static float PanelTitleTop = 8f, PanelBodyGap = 13.2f, PanelLineH = 1.28f;
-    public static float PanelScrollLeft = 17f, PanelScrollRight = 36f, PanelScrollBottom = 10f;
-    // The scrollbar column: inset from the panel's right edge, and the 16x16 button/knob size.
-    public static float PanelBarRight = 27f, PanelBarW = 16f;
-    // The faction/race/class badge on each info panel's top-left corner, relative to the panel's own
-    // top-left. Negative lifts it above / left of the corner (the OG overhang).
-    public static float PanelIconDX = -12.4f, PanelIconTop = -6f, PanelIconSize = 42f;
-    public static float IconSize = 44f, DialRowH = 27f, NameBoxW = 215f, DialLabelPx = 13f;
-    public static float IconGap = 6f, RacePairGap = 26f;
-    // The Alliance / Horde banners behind the race columns, one per column (the sheet's two halves).
-    // BannerH 0 auto-fits the grid; BannerSpread pushes the pair apart, BannerDX slides both together.
-    public static float BannerW = 126.9f, BannerH = 261.9f, BannerTop = -2f, BannerDX = -2.5f, BannerSpread = 17.8f;
-    // The male/female pair: its own size and spacing, centred on the tower (it used to borrow the
-    // race columns, which flung the two icons to opposite sides of the panel).
-    public static float GenderSize = 44f, GenderGap = 3.3f, GenderDX = 0f, GenderTop = 15.3f;
-    // The gold name over an icon's bottom edge (the ref's HighlightText). Shown for the selected and
-    // hovered icons - the same pair the highlight square lights, as the 1.12 shot shows (three labels
-    // lit simultaneously, so it cannot be hover-only). IconLabelsAlways names every icon instead.
-    // IconGlow is the ButtonHilight-Square intensity, shared by the hovered AND the selected state
-    // (in 1.12 the selected one is simply the same square, held lit).
-    public static float HoverLabelPx = 12f, HoverLabelBottom = 1f, IconGlow = 0.71f;
-    public static bool IconLabelsAlways = false;
-    // What the glow lerps the icon towards - 1.12's lit square reads blue-white, not neutral.
-    public static Vector4 IconGlowColor = new(0.81f, 0.89f, 1f, 1f);
-    // How far the glow spills PAST the icon (fraction of icon size) so it lights the shadow ring too,
-    // and how far that shadow ring extends. Keep bleed >= pad or the ring stays dark when selected.
-    public static float IconGlowBleed = 0f, IconShadowPad = 0.16f;
-    public static float DialArrowW = 30.9f, DialArrowH = 28f;
-    // The spinner pair's placement: DialArrowRight insets the RIGHT arrow from the tower's right edge,
-    // DialArrowGap is the space BETWEEN the two, DialArrowDY nudges both off the row's vertical centre.
-    // All in the same units as DialArrowW/H, so scaling the pair proportionally means scaling together.
-    public static float DialArrowGap = -3.5f, DialArrowRight = 0.3f, DialArrowDY = -0.9f;
-    // The appearance-dial label plates (skin / face / hair style / hair colour / facial hair).
-    // PadY grows the box above and below the row; Left and Gap are its two horizontal edges.
-    public static float DialPlatePadY = 20.3f, DialPlateLeft = -8.1f, DialPlateGap = -10f;
-    // The gold "1/10" on each plate: right-aligned DialValueInset inside the plate's right edge, with
-    // DialValueZone reserved so the centred label never overlaps it.
-    public static float DialValueInset = 20.4f, DialValueZone = 22.1f;
-    // Randomize, centred under the dials (benilla's 146x30 Small glue button).
-    public static float RandomW = 163f, RandomH = 41f, RandomTop = 0f;
-    // The bottom rotate pair, centred on the tower. Gap is signed (the OG pair overlaps slightly).
-    public static float RotSize = 50f, RotGap = -8f, RotDX = 164.7f, RotBottom = 20f;
-
-    public static void Reset()
-    {
-        TowerX = 28f; TowerTop = 49f; TowerW = 194f; TowerH = 617f;
-        LogoW = 271f; LogoDX = 0f; LogoTop = 0f; ContentTop = 116f; HeaderPx = 15f;
-        PanelW = 240f; PanelTop = 28f; PanelRight = 20f; PanelGap = 10f;
-        PanelMinH = 66f; PanelMaxH = 320f; TitlePx = 15f; BodyPx = 13f;
-        PanelAutoSize = false; PanelFactionH = 160f; PanelRaceH = 260f; PanelClassH = 210f;
-        PanelTitleTop = 8f; PanelBodyGap = 13.2f; PanelLineH = 1.28f;
-        PanelScrollLeft = 17f; PanelScrollRight = 36f; PanelScrollBottom = 10f;
-        PanelBarRight = 27f; PanelBarW = 16f;
-        PanelIconDX = -12.4f; PanelIconTop = -6f; PanelIconSize = 42f;
-        IconSize = 44f; DialRowH = 27f; NameBoxW = 215f; DialLabelPx = 13f;
-        IconGap = 6f; RacePairGap = 26f;
-        BannerW = 126.9f; BannerH = 261.9f; BannerTop = -2f; BannerDX = -2.5f; BannerSpread = 17.8f;
-        GenderSize = 44f; GenderGap = 3.3f; GenderDX = 0f; GenderTop = 15.3f;
-        HoverLabelPx = 12f; HoverLabelBottom = 1f; IconGlow = 0.71f; IconLabelsAlways = false;
-        IconGlowColor = new(0.81f, 0.89f, 1f, 1f);
-        IconGlowBleed = 0f; IconShadowPad = 0.16f;
-        DialArrowW = 30.9f; DialArrowH = 28f;
-        DialArrowGap = -3.5f; DialArrowRight = 0.3f; DialArrowDY = -0.9f;
-        DialPlatePadY = 20.3f; DialPlateLeft = -8.1f; DialPlateGap = -10f;
-        DialValueInset = 20.4f; DialValueZone = 22.1f;
-        RandomW = 163f; RandomH = 41f; RandomTop = 0f;
-        RotSize = 50f; RotGap = -8f; RotDX = 164.7f; RotBottom = 20f;
-    }
-
-    public static void Log() => Console.WriteLine(
-        $"[cc-tune] tower X{TowerX:F0} top{TowerTop:F0} w{TowerW:F0} h{TowerH:F0} | logo w{LogoW:F0} dx{LogoDX:F0} top{LogoTop:F0} " +
-        $"content{ContentTop:F0} header{HeaderPx:F0} | panel w{PanelW:F0} top{PanelTop:F0} right{PanelRight:F0} gap{PanelGap:F0} " +
-        $"auto{(PanelAutoSize ? 1 : 0)} h{PanelFactionH:F0}/{PanelRaceH:F0}/{PanelClassH:F0} " +
-        $"ttop{PanelTitleTop:F1} bgap{PanelBodyGap:F1} line{PanelLineH:F2} " +
-        $"ins{PanelScrollLeft:F1}/{PanelScrollRight:F1}/{PanelScrollBottom:F1} bar{PanelBarRight:F1}x{PanelBarW:F1} " +
-        $"min{PanelMinH:F0} max{PanelMaxH:F0} title{TitlePx:F0} body{BodyPx:F0} " +
-        $"picon dx{PanelIconDX:F1} top{PanelIconTop:F1} size{PanelIconSize:F1} | icon{IconSize:F0} igap{IconGap:F1} rgap{RacePairGap:F1} " +
-        $"banner w{BannerW:F1} h{BannerH:F1} top{BannerTop:F1} dx{BannerDX:F1} spread{BannerSpread:F1} " +
-        $"gender {GenderSize:F1}/{GenderGap:F1}/{GenderDX:F1}/{GenderTop:F1} hlabel{HoverLabelPx:F1}+{HoverLabelBottom:F1} always{(IconLabelsAlways ? 1 : 0)} iglow{IconGlow:F2}/{IconGlowColor.X:F2},{IconGlowColor.Y:F2},{IconGlowColor.Z:F2},{IconGlowColor.W:F2} bleed{IconGlowBleed:F2} ishadow{IconShadowPad:F2} " +
-        $"dial{DialRowH:F0} name{NameBoxW:F0} dlabel{DialLabelPx:F0} arrow{DialArrowW:F1}x{DialArrowH:F1} gap{DialArrowGap:F1} right{DialArrowRight:F1} dy{DialArrowDY:F1} " +
-        $"dbox pad{DialPlatePadY:F1} left{DialPlateLeft:F1} gap{DialPlateGap:F1} " +
-        $"dval inset{DialValueInset:F1} zone{DialValueZone:F1} " +
-        $"rnd {RandomW:F0}x{RandomH:F0} top{RandomTop:F0} | " +
-        $"rot size{RotSize:F1} gap{RotGap:F1} dx{RotDX:F1} bottom{RotBottom:F1}");
 }

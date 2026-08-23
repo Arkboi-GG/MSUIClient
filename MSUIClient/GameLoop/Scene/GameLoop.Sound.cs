@@ -3,6 +3,7 @@ using MSUIClient.Engine.UI;
 using MSUIClient.Net;
 using MSUIClient.World;
 using MSUIClient.World.Sound;
+using MSUIClient.World.Wmo;
 
 namespace MSUIClient;
 
@@ -30,6 +31,8 @@ public sealed partial class GameLoop
     private bool _audioSelfTestStarted;
     private int _soundscapeSettledFrames;
     private double _soundscapeArmDeadline;
+    private long _glueMusicVoice;
+    private double _glueMusicFadeStartedAt = -1;
 
     /// <summary>Consecutive settled frames required before the first voices of a
     /// world are allowed to exist. Small: this is a "the loader let go" test, not
@@ -54,12 +57,31 @@ public sealed partial class GameLoop
         // system's per-frame tick, which meant a music track could only be noticed
         // as finished on frames where spell audio happened to be ticked.
         _audioMixer.PollFinished();
+        UpdateGlueAudio();
+
+        // SoundListenerAtCharacter=1: ordinary play listens from the avatar's head and facing,
+        // independent of camera zoom/orbit. Detached free view falls back to the camera pose.
+        Vector3 listenerPosition;
+        float listenerYaw;
+        if (_controller is not null && !_freeView)
+        {
+            listenerPosition = SpatialAudioLaw.CharacterListener(_controller.Position);
+            listenerYaw = _controller.Yaw;
+        }
+        else
+        {
+            listenerPosition = _window.Camera.Position;
+            listenerYaw = _window.Camera.ViewYaw;
+        }
+        _spellSounds?.SetListener(listenerPosition, listenerYaw);
 
         bool inWorld = _terrain is not null && _worldLoadStarted && !_worldLoading &&
                        !GlueFrontDoorActive && _controller is not null;
         if (!inWorld)
         {
             StopCreatureBodyLoops();
+            ResetWaterSplashSounds();
+            _liquidAmbient?.Reset();
             _knownMountSoundDisplays.Clear();
             _soundscape?.Reset();
             _soundscapePlaybackArmed = false;
@@ -161,7 +183,7 @@ public sealed partial class GameLoop
         // Submerged means the HEAD is under a liquid surface - the same
         // camera-eye test the underwater screen tint uses.
         var eye = _window.Camera.Position;
-        bool submerged = _liquid?.TryGetSurface(eye.X, eye.Y, out float surfaceZ, out _) == true &&
+        bool submerged = TryGetEyeLiquidSurface(eye, out float surfaceZ, out byte liquidType) &&
                          eye.Z < surfaceZ;
 
         float hours = _atmosphere.TimeOfDayHours;
@@ -175,6 +197,63 @@ public sealed partial class GameLoop
         _soundscape.DayPhase = hours >= 5.5f && hours < 21f;   // vanilla's hard step
         _soundscape.Submerged = submerged;
         _soundscape.Update(now);
+        if (_liquid is not null && _liquidAmbient is not null)
+        {
+            RefreshRetainedWmoLiquid();
+            LiquidRenderer.LiquidSoundCandidate?[] nearest =
+                _liquid.NearestSoundSources(feet, LiquidAmbientLoopLaw.TriggerRadius);
+            _liquidAmbient.Update(now, feet, listenerPosition, listenerYaw, nearest,
+                submerged && WmoLiquidPointLaw.IsWater(liquidType));
+        }
+        UpdateWaterSplashSounds();
+    }
+
+    /// <summary>
+    /// Keep the 1.12 title theme alive across login, character select, and character
+    /// create. Entering a world owns the only stop edge and fades the held voice over
+    /// two seconds; returning to glue restores or restarts it.
+    /// </summary>
+    private void UpdateGlueAudio()
+    {
+        if (_audioMixer is null) return;
+        double now = NowSeconds();
+        bool glueActive = GlueAudioLaw.ShouldPlayMusic(
+            GlueFrontDoorActive, CreatorInWorld, _net?.State);
+        if (glueActive)
+        {
+            _glueMusicFadeStartedAt = -1;
+            if (_glueMusicVoice == 0 || !_audioMixer.IsLive(_glueMusicVoice))
+            {
+                _glueMusicVoice = _audioMixer.Play(new AudioPlayRequest(
+                    GlueAudioLaw.MusicPath,
+                    GlueAudioLaw.MusicCategory,
+                    _audioMixer.CategoryAmp(GlueAudioLaw.MusicCategory),
+                    Looping: false,
+                    RequestedCue: "glue-title-theme",
+                    StartWhenSilent: true,
+                    Announce: true));
+            }
+            else
+                _audioMixer.SetVoiceGain(_glueMusicVoice,
+                    _audioMixer.CategoryAmp(GlueAudioLaw.MusicCategory));
+            return;
+        }
+
+        if (_glueMusicVoice == 0) return;
+        if (!_audioMixer.IsLive(_glueMusicVoice))
+        {
+            _glueMusicVoice = 0;
+            _glueMusicFadeStartedAt = -1;
+            return;
+        }
+        if (_glueMusicFadeStartedAt < 0) _glueMusicFadeStartedAt = now;
+        float envelope = GlueAudioLaw.FadeEnvelope(now, _glueMusicFadeStartedAt);
+        _audioMixer.SetVoiceGain(_glueMusicVoice,
+            _audioMixer.CategoryAmp(GlueAudioLaw.MusicCategory) * envelope);
+        if (!GlueAudioLaw.FadeFinished(now, _glueMusicFadeStartedAt)) return;
+        _audioMixer.Stop(_glueMusicVoice);
+        _glueMusicVoice = 0;
+        _glueMusicFadeStartedAt = -1;
     }
 
     private void ObserveDismountSoundTransitions(bool playbackAllowed)

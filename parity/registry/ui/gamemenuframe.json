@@ -7,8 +7,8 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/GameMenuFrame.xml",
-      "fileSha256": "0137193c532a396c0c9cc31964c5af7435a41bdc2e454b47ea7d982f4a498a30",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "bb832d79e938daae13ab31ea4e1fe4f02c5ee1e7728744c7e7bfb6be01378006",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [
@@ -46,7 +46,8 @@
       "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI's complete existing game-menu composition is preserved; only missing behavior was added, and Benilla's different Era ladder did not replace present MSUI controls.",
       "source": "claim-gamemenu-layout-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Nico's 2026-08-23 no-touch ruling preserves the existing MSUI Game Menu composition under decision 0002; missing behavior remains eligible."
     },
     {
       "id": "item-claim-gamemenu-actions-001-verify",
@@ -70,7 +71,8 @@
       "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI's modal ownership, pushed micro-menu state, and blocked bag input are equivalent; its existing bag-bar presentation is preserved instead of adding Benilla's temporary disabled tint.",
       "source": "claim-gamemenu-lifecycle-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Decision 0002 preserves the existing bag-bar appearance while retaining equivalent modal ownership, pushed-state and input-blocking behavior."
     }
   ],
   "claims": [
@@ -85,7 +87,9 @@
     "trace-gamemenu-logout-001",
     "trace-gamemenu-lifecycle-001"
   ],
-  "decisions": [],
+  "decisions": [
+    "0002-game-menu-presentation"
+  ],
   "lastReviewedUtc": "2026-08-07T22:47:52.9000284+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

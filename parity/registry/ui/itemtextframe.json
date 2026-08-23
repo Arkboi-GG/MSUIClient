@@ -14,6 +14,11 @@
       "path": "crates/benilla-app/src/ui_item_text.rs",
       "fileSha256": "b27379d9f351321bc0278dc52366f1c9f3856f7e0bcbf3f7ee127559c8aea68c",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-protocol/src/messages/page_text.rs",
+      "fileSha256": "f6a41453c588a2c0f9017c6c1e08e40366b6d46efd6104b5f0be63f37a86a782",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
@@ -22,11 +27,13 @@
     "MSUIClient/Formats/PageTextMaterialCatalog.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Inventory.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.GameObjects.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Net/NetworkClient.cs",
     "MSUIClient/Net/Items.cs",
     "MSUIClient/Net/ObjectFields.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI implements current Benilla's GUID-keyed ItemTextFrame reader with a dedicated positioning/geometry law: readable bag letters share the item-text body cache and resolve the instance creator name, item-template books and type-9 world plaques use PageText/PageMaterial data and the page cache, re-click toggles the same object closed, and page navigation retains a visited trail. The law-seated 384x512 renderer uses the exact mixed ItemText/Spellbook shell, Morpheus ItemTextFontNormal body, material corner art and ink tables, title/From line, scroll clipping, current-page chrome, Prev/Next/Close controls, and reference sound cues. Current Benilla explicitly uses no CMSG_READ_ITEM or gameobject-use packet for these local open routes.",
+  "summary": "MSUI implements current Benilla's GUID-keyed ItemTextFrame reader with a dedicated positioning/geometry law: readable bag letters share the item-text body cache and resolve the instance creator name, item-template books and type-9 world plaques use PageText/PageMaterial data and the page cache, re-click toggles the same object closed, and page navigation retains a visited trail. CMSG_PAGE_TEXT_QUERY now carries the exact page-id/full-object-GUID body, the cache suppresses duplicate in-flight asks, and unsolicited whole-chain responses are accepted without recursively querying every next page. The law-seated 384x512 renderer uses the exact mixed ItemText/Spellbook shell, Morpheus ItemTextFontNormal body, material corner art and ink tables, title/From line, scroll clipping, current-page chrome, Prev/Next/Close controls, and reference sound cues. SimpleHTML bodies retain ordered H1/H2/P/BR blocks and their left/center/right alignment while decoding entities and stripping source markup. Per-line placement and alignment are law-owned, leaving no renderer-local Vector2 geometry. Current Benilla explicitly uses no CMSG_READ_ITEM or gameobject-use packet for these local open routes. Focused ItemTextFrame and full interface-wire checks pass.",
   "openItems": [
     {
       "id": "item-triage-4c78e8c7",
@@ -90,11 +97,29 @@
       "added": "2026-08-09",
       "resolved": true,
       "resolution": "The clipped and scrollable page body is now rendered through the baked ItemTextFontNormal FrameXML font object (Morpheus 15) after SimpleHTML-to-visible-text adaptation, replacing the raw default ImGui text path."
+    },
+    {
+      "id": "item-itemtext-simplehtml-block-alignment-20260823",
+      "kind": "gap",
+      "text": "SimpleHTML source markup is hidden, but H1/H2/P align attributes are discarded, making centered or right-aligned plaques render as a uniformly left-aligned text dump.",
+      "source": "benilla-b57ee0e9e2c8822b/item_text_frame.rs+ItemTextFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: ItemTextFrameUiLaw now parses ordered H1/H2/P/BR blocks, decodes visible text, retains left/center/right alignment, composes the exact leading/trailing and creator-tail spacing, and owns measured line X placement. The renderer only wraps and draws those law blocks within the existing clipped/scrolled body. Focused ItemTextFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-itemtext-page-query-guid-chain-cache-20260823",
+      "kind": "gap",
+      "text": "MSUI's CMSG_PAGE_TEXT_QUERY wrote only the page id instead of the required page-id/object-GUID pair, did not suppress duplicate in-flight asks, and recursively queried nextPageId even though vmangos normally responds to the first ask with the whole forward chain.",
+      "source": "benilla-b57ee0e9e2c8822b/page_text.rs+ui_item_text.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: WorldSession now writes the exact 12-byte page-id/full-GUID query, ItemText passes the readable object's GUID and tracks pending page ids, each response clears its pending marker, and ApplyPageText caches unsolicited chain packets without recursively issuing redundant next-page queries. Focused ItemTextFrame and full interface-wire checks pass."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T02:28:18.0220381Z",
+  "lastReviewedUtc": "2026-08-23T07:56:10.7479805Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

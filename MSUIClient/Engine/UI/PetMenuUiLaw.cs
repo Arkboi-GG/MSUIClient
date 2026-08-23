@@ -29,7 +29,10 @@ public static class PetMenuUiLaw
         float Width, float Height,
         StaticPopupCoordinatorLaw.Rect Text,
         StaticPopupCoordinatorLaw.Rect Button1,
-        StaticPopupCoordinatorLaw.Rect Button2);
+        StaticPopupCoordinatorLaw.Rect Button2)
+    {
+        public System.Numerics.Vector2 Size => new(Width, Height);
+    }
 
     public static readonly StaticPopupCoordinatorLaw.Definition AbandonDefinition = new(
         AbandonPopupType, HideOnEscape: true, HasAccept: true, HasCancel: true);
@@ -67,6 +70,11 @@ public static class PetMenuUiLaw
             StaticPopupCoordinatorLaw.ButtonWidth, StaticPopupCoordinatorLaw.ButtonHeight);
         return new(StaticPopupCoordinatorLaw.BaseWidth, height, text, button1, button2);
     }
+
+    public static System.Numerics.Vector2 TextLineCenter(
+        PlainPopupLayout layout, float linePitch, int lineIndex) =>
+        new(layout.Width * .5f,
+            layout.Text.Y + (Math.Max(0, lineIndex) + .5f) * linePitch);
 
     public static (int Slot, StaticPopupCoordinatorLaw.Instance Instance)? Visible(
         StaticPopupCoordinatorLaw.Slots slots, string type)

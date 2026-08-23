@@ -7,16 +7,57 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/transport.rs",
-      "fileSha256": "8902d956ae4c94c951388f219e68acab03e90948b52adb9b7d8fa2362ffb6c3b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "1733b9381b01d601781fe8f835f3db3a8a06a20667655fd4da67ccc0d9719917",
+      "snapshotId": "benilla-current-2026-08-23"
+    },
+    {
+      "path": "crates/benilla-formats/src/elevators.rs",
+      "fileSha256": "aaf6e0982083fc8a42bf58316df09661361aa6a5229967bc8cbddfc3395fccc5",
+      "snapshotId": "benilla-current-2026-08-23"
+    },
+    {
+      "path": "crates/benilla-formats/src/taxi.rs",
+      "fileSha256": "2e3146281c787ea327e2b6a6d5b945373981707f8ac7b63b7de44efbc35f1b9c",
+      "snapshotId": "benilla-current-2026-08-23"
+    },
+    {
+      "path": "crates/benilla-formats/src/transports/mod.rs",
+      "fileSha256": "3c481c517a805130bf5d7b3d3356636d3ddd77355d9334bf52051909031ffcc5",
+      "snapshotId": "benilla-current-2026-08-23"
+    },
+    {
+      "path": "crates/benilla-formats/src/transport_period.rs",
+      "fileSha256": "052585161249f09bc33e34a5cf71cc6e8cd397f16b150b2e9cc68344be698cba",
+      "snapshotId": "benilla-current-2026-08-23"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/display.rs",
+      "fileSha256": "0c72d5b7b96161ccaa7677d53d07a8034534de9b2641b00c7067ee720ce2638c",
+      "snapshotId": "benilla-current-2026-08-23"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/wmo_props.rs",
+      "fileSha256": "76220d16c7dd22f29987c983db3bd6a53179a2f892d2a3894427c1048cbafc31",
+      "snapshotId": "benilla-current-2026-08-23"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/UpdateObject.cs",
-    "MSUIClient/Net/MovementInfo.cs"
+    "MSUIClient/Net/MovementInfo.cs",
+    "MSUIClient/Net/Entities.cs",
+    "MSUIClient/Formats/TransportAnimationCatalog.cs",
+    "MSUIClient/Formats/TaxiTransportCatalog.cs",
+    "MSUIClient/Net/TransportRiderLaw.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Transports.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.GameObjectRender.cs",
+    "MSUIClient/World/Doodads/DoodadRenderer.cs",
+    "MSUIClient/World/Wmo/WmoRenderer.cs",
+    "tools/interface-wire-check/ElevatorTransportClinicalChecks.cs",
+    "tools/interface-wire-check/MoTransportClinicalChecks.cs",
+    "tools/interface-wire-check/WmoGameObjectClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI now preserves the transport wire foundation: a GameObject's path-progress u32 plus local receipt clock reach WorldEntity, and observed riders retain their local TransportPose from UPDATE_OBJECT and MSG_MOVE relays. The actual transport system remains unbuilt: no TaxiPathNode/TransportAnimation timetable evaluation, no per-frame boat/lift sampling, no rider composition through the live transport matrix, and no dock/off-map behavior.",
+  "summary": "MSUI consumes the server path-progress anchor for both transport families. Type-11 lifts sample spawn-quaternion-rotated TransportAnimation keyframes. Type-15 vessels consume template data0..2, build TaxiPathNode Catmull-Rom timetables, self-pin to the exact build-5875 client period, sample (anchor + elapsed) modulo that period, drive dynamic position/facing, dwell at stops, and hide while their cycle is on another map. WMO-display vessels publish owner-keyed hull instances through WmoRenderer and their set-0 MODD sails/rotors/furniture through DoodadRenderer; both move in place and share host-GUID picking/lifecycle. Observed riders compose their retained transport-local pose through either armed transport matrix. Controlled riders consume owner-aware live collision from WMO vessel hulls or M2 lift cars, rigid carry, transport-local movement tails, and vessel worldport continuity under systems/player. Fresh creates and movement-only re-anchors remain distinct.",
   "openItems": [
     {
       "id": "item-triage-7c39444b",
@@ -24,7 +65,8 @@
       "text": "Type-15 MO_TRANSPORT boats/zeppelins never move: no TaxiPathNode.dbc timetable build from the template's (taxiPathId, moveSpeed, accelRate) tuple, no (anchor + elapsed) % period sampling - a streamed boat renders frozen at its create pose (if rendered at all).",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23: TaxiPathNodeCatalog and MoTransportTimetable consume template data0..2, perform the vanilla/vmangos skip dance and 20-chord Catmull-Rom sampling, and pin the clock to the exact client period. Runtime samples (anchor + elapsed) modulo that period before GameObject rendering and supplies a path-derived facing override. All nine live build-5875 periods match exactly in the focused real-data check."
     },
     {
       "id": "item-triage-99cafc76",
@@ -32,7 +74,8 @@
       "text": "Type-11 TRANSPORT elevators/lifts never move: no TransportAnimation.dbc keyframe path keyed by template entry, no spawn-quat composed sampling.",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23: TransportAnimationCatalog loads and validates the seven-field build-5875 table by template entry. Each anchored type-11 GameObject samples (pathProgress + local elapsed) modulo the last-keyframe period, linearly interpolates the bracketing local offsets, rotates by GAMEOBJECT_ROTATION (wire yaw fallback), and writes the world pose before dynamic GameObject rendering. Re-create identity resets the stationary spawn frame; movement-only re-anchors do not. Doodad instances and cull/pick bounds move in place. Armed cars additionally expose their retained M2 collision hull at the live transform, stay out of the static BVH, and feed controlled-rider support/carry. Focused checks cover dwell, interpolation, wrap, spawn rotation, real Mesa 4170/4171 and Undercity 152614 rows; full interface-wire and solution builds pass."
     },
     {
       "id": "item-triage-eb454ec9",
@@ -40,20 +83,47 @@
       "text": "Observed riders are not carried: the on-transport local pose from create blocks and MSG_MOVE_* relays now reaches WorldEntity, but it is not yet composed through a live transport matrix, so a deck NPC or fellow passenger still renders at the packet's fallback world pose.",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23: Observed unit TransportPose values are composed every frame through an armed type-11 or type-15 transport position/yaw. The controlled player is intentionally excluded from this observed-presentation slice and remains separately tracked."
     },
     {
       "id": "item-triage-283d311d",
       "kind": "gap",
-      "text": "No dock/depart behavior, no off-map hiding of a transport sailing another continent's leg.",
+      "text": "Type-15 transports still have no dock/depart timetable behavior or off-map hiding while sailing another continent's leg. Type-11 lift dwell/motion spans now come directly from TransportAnimation keyframes.",
       "source": "triage-2026-08-09/batch-systems-3.json",
       "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-23: Type-15 timetable windows expose authored dwell/motion state and current map. The renderer removes the vessel's local placement for every sample on a different map, preventing a stale dock hull; type-11 dwell/motion continues to come from TransportAnimation keyframes."
+    },
+    {
+      "id": "item-msui-elevator-transport-live-verify-20260823",
+      "kind": "verify",
+      "text": "Focused ElevatorTransport and ControlledTransport checks, the full interface-wire suite, and the client build pass. Live-verify both Thunder Bluff Mesa cars and Undercity elevators: server-clock synchronization, dwell/depart/arrival timing, full vertical travel, correct rotated spawn frame, re-create/re-anchor continuity, dynamic pick and live collision hulls following the car, controlled boarding/walking/jumping/deboarding and ON_TRANSPORT tails, observed passenger carry, no ghost collider, no appear-fade restart or M2 animation reset while moving, and parked behavior for a type-11 entry with no authored path.",
+      "source": "benilla-current-2026-08-23/transport.rs+elevators.rs",
+      "added": "2026-08-23",
       "resolved": false
+    },
+    {
+      "id": "item-msui-mo-transport-live-verify-20260823",
+      "kind": "verify",
+      "text": "Focused MoTransport, ElevatorTransport, WmoGameObject and ControlledTransport checks, the full interface-wire suite, and the client build pass. Live-verify a boat and zeppelin: visible WMO hull, set-0 sails/rotor/furniture, server-clock phase, exact dock dwell/depart/arrival, path heading, map-leg hiding/reappearance, re-anchor continuity, moving hull/prop pick bounds, animation continuity, observed passenger composition, controlled deck support/carry and worldport continuity.",
+      "source": "benilla-current-2026-08-23/transport.rs+taxi.rs+transports+transport_period.rs",
+      "added": "2026-08-23",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-dynamic-wmo-transport-hull-20260823",
+      "kind": "gap",
+      "text": "Stock boat and zeppelin displays are WMO hulls, while the current per-GameObject dynamic renderer is M2-oriented. The exact type-15 timetable/world pose is live, but a dynamic WMO placement/render/pick path is still required to guarantee the stock hull is visible and follows that pose.",
+      "source": "benilla-current-2026-08-23/transport.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: GameObjectDisplayInfo paths ending in .wmo publish into WmoRenderer's owner-keyed dynamic instance lane, using a direct WoW-space scale/Z-yaw/translation transform and in-place draw/cull/pick bound updates. Set-0 MODD props publish into stable host-GUID/prop-index M2 instances, follow the hull every frame, preserve independent animation/particle identity, and are excluded from static residency enumeration. Off-map, display-swap, despawn and residency-reset reconciliation remove/rebuild both lanes. The real build-5875 fixture pins display 3015 to transportship.wmo and its single 134-prop set; focused/full checks and the solution build pass."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T00:55:00Z",
+  "lastReviewedUtc": "2026-08-23T13:15:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -66,6 +66,7 @@ public sealed class ObjectFields
     public const ushort UNIT_FIELD_PETNEXTLEVELEXP = 142;
     public const ushort UNIT_DYNAMIC_FLAGS = 143;
     public const ushort UNIT_CHANNEL_SPELL = 144;
+    public const ushort UNIT_CREATED_BY_SPELL = 146;
     public const ushort UNIT_BASE_MANA = 162;        // PRIVATE+OWNER_ONLY: only our own descriptor
     public const ushort UNIT_NPC_FLAGS = 147;
     public const ushort UNIT_FIELD_TRAINING_POINTS = 149;
@@ -99,6 +100,7 @@ public sealed class ObjectFields
     public const ushort CONTAINER_SLOT_1 = 50;
 
     public const ushort PLAYER_QUEST_LOG_1_1 = 198;
+    public const ushort PLAYER_FARSIGHT = 712; // guid
     public const ushort PLAYER_GUILDID = 191;
     public const ushort PLAYER_GUILDRANK = 192;
     // PLAYER_VISIBLE_ITEM_1_CREATOR begins at 258 (two u32 guid fields); the public worn
@@ -249,6 +251,8 @@ public sealed class ObjectFields
 
     // --- named accessors ---
     public uint? Entry => GetU32(OBJECT_ENTRY);
+    public ulong? PlayerFarsight =>
+        GetGuid(PLAYER_FARSIGHT) is { } g && g != 0 ? g : null;
     public uint PlayerTrackCreatures => GetU32(PLAYER_TRACK_CREATURES) ?? 0;
     public uint PlayerTrackResources => GetU32(PLAYER_TRACK_RESOURCES) ?? 0;
     public bool PlayerHasExplored(uint exploreFlag)
@@ -265,8 +269,10 @@ public sealed class ObjectFields
     public uint GameObjectDynamicFlags => GetU32(GAMEOBJECT_DYN_FLAGS) ?? 0;
     public uint GameObjectFaction => GetU32(GAMEOBJECT_FACTION) ?? 0;
     public uint GameObjectType => GetU32(GAMEOBJECT_TYPE_ID) ?? 0;
-    public uint GameObjectState => _fields.TryGetValue(GAMEOBJECT_STATE, out uint state)
-        ? state : LockCatalog.StateReady;
+    // A zero field is normally omitted from a CREATE mask. GAMEOBJECT_STATE 0
+    // is ACTIVE/open, so absence must remain zero rather than being invented as
+    // READY/closed (open portcullises otherwise seed in the closed state).
+    public uint GameObjectState => GetU32(GAMEOBJECT_STATE) ?? LockCatalog.StateActive;
     public uint GameObjectLevel => GetU32(GAMEOBJECT_LEVEL) ?? 0;
     public ulong? GameObjectCreatedBy =>
         GetGuid(GAMEOBJECT_CREATED_BY) is { } g && g != 0 ? g : null;
@@ -293,6 +299,7 @@ public sealed class ObjectFields
     public ulong? CharmedBy => GetGuid(UNIT_FIELD_CHARMEDBY) is { } g && g != 0 ? g : null;
     public ulong? SummonedBy => GetGuid(UNIT_FIELD_SUMMONEDBY) is { } g && g != 0 ? g : null;
     public ulong? CreatedBy => GetGuid(UNIT_FIELD_CREATEDBY) is { } g && g != 0 ? g : null;
+    public uint CreatedBySpell => GetU32(UNIT_CREATED_BY_SPELL) ?? 0;
     public uint PetNumber => GetU32(UNIT_FIELD_PETNUMBER) ?? 0;
     public bool IsPetOrCharm => PetNumber != 0;
     public uint PetExperience => GetU32(UNIT_FIELD_PETEXPERIENCE) ?? 0;
@@ -395,6 +402,8 @@ public sealed class ObjectFields
     public uint ItemFlags => GetU32(ITEM_FLAGS) ?? 0;
     public uint ItemEnchantmentId(int slot) => slot is >= 0 and < 7
         ? GetU32((ushort)(ITEM_FIELD_ENCHANTMENT + slot * 3)) ?? 0 : 0;
+    public uint ItemEnchantmentDuration(int slot) => slot is >= 0 and < 7
+        ? GetU32((ushort)(ITEM_FIELD_ENCHANTMENT + slot * 3 + 1)) ?? 0 : 0;
     public uint ItemEnchantmentCharges(int slot) => slot is >= 0 and < 7
         ? GetU32((ushort)(ITEM_FIELD_ENCHANTMENT + slot * 3 + 2)) ?? 0 : 0;
     public uint ItemTextId => GetU32(ITEM_TEXT_ID) ?? 0;
@@ -473,6 +482,26 @@ public sealed class ObjectFields
         return 0;
     }
 
+    /// <summary>
+    /// The chat-language fluency read: base + temporary bonus, plus permanent bonus only when the
+    /// base is nonzero. This is the exact 0x5ec720 gate used before the 300-point fluent cutoff.
+    /// </summary>
+    public uint PlayerLanguageSkillValue(uint skillId)
+    {
+        for (byte slot = 0; slot < 128; slot++)
+        {
+            ushort first = (ushort)(PLAYER_SKILL_INFO_1_1 + slot * 3);
+            if ((ushort)(GetU32(first) ?? 0) != skillId) continue;
+            int value = (ushort)(GetU32((ushort)(first + 1)) ?? 0);
+            uint bonuses = GetU32((ushort)(first + 2)) ?? 0;
+            int temporary = unchecked((short)bonuses);
+            int permanent = unchecked((short)(bonuses >> 16));
+            if (value != 0) value += permanent;
+            return (uint)Math.Max(0, value + temporary);
+        }
+        return 0;
+    }
+
     public uint ChannelSpell => GetU32(UNIT_CHANNEL_SPELL) ?? 0;
     public int Stat(int index) => index is >= 0 and < 5 ? GetI32((ushort)(UNIT_STAT0 + index)) ?? 0 : 0;
     public int StatPositive(int index) => index is >= 0 and < 5 ? (int)MathF.Round(GetF32((ushort)(PLAYER_POSSTAT0 + index)) ?? 0) : 0;
@@ -525,6 +554,8 @@ public sealed class ObjectFields
     public uint PlayerFlags => GetU32(PLAYER_FLAGS) ?? 0;
     /// <summary>PLAYER_FLAGS 0x10: the in-world ghost presentation flag.</summary>
     public bool PlayerIsGhost => (PlayerFlags & 0x10u) != 0;
+    public bool PlayerShowsHelm => (PlayerFlags & 0x400u) == 0;
+    public bool PlayerShowsCloak => (PlayerFlags & 0x800u) == 0;
     public uint PlayerFieldBytes => GetU32(PLAYER_FIELD_BYTES) ?? 0;
     public int WatchedFactionIndex =>
         GetI32(PLAYER_FIELD_WATCHED_FACTION_INDEX) ?? -1;

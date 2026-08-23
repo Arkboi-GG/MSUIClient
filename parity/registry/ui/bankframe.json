@@ -24,7 +24,7 @@
     "tools/interface-wire-check/BankFrameClinicalChecks.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "The bank follows current Benilla's law-owned 384x512 left-panel seat and single UI-BankFrame slab, live banker portrait/name, purse and purchase-cost coin cells, MainMenu cues, and law-positioned purchase confirmation. Its 24 generic slots share the inventory cursor law. The six live bank-bag buttons address player slots 63..68, show their bag icons and checked state, accept carried bags, and toggle rule-stacked container windows 5..10 whose contents reuse the ordinary bag pickup/place/swap/split/lock/tooltip flow.",
+  "summary": "The bank follows current Benilla's law-owned 384x512 left-panel seat and single UI-BankFrame slab, live banker portrait/name, purse and purchase-cost coin cells, MainMenu cues, and law-positioned purchase confirmation. A fresh bank session now opens the existing backpack before the bank's own open cue, matching the reference lifecycle without changing MSUI's protected bag geometry or art. Its 24 generic slots use the exact authored (40,73) first seat with 49x44 anchor-chain pitch and share the inventory cursor law. The six live bank-bag buttons use the exact (40,274) first seat with 49-pixel pitch, address player slots 63..68, show their bag icons and checked state, accept carried bags, and toggle rule-stacked container windows 5..10 whose contents reuse the ordinary bag pickup/place/swap/split/lock/tooltip flow. The unreachable raw-ImGui fallback bank surface was removed; the production renderer contains no locally authored Vector2 geometry. Focused BankFrame and full interface-wire checks pass.",
   "openItems": [
     {
       "id": "item-triage-ba7457d3",
@@ -61,11 +61,38 @@
       "added": "2026-08-09",
       "resolved": true,
       "resolution": "2026-08-21: the player purse and next-slot price use denomination coin cells, and Purchase now opens a dedicated law-positioned confirmation before CMSG_BUY_BANK_SLOT is sent."
+    },
+    {
+      "id": "item-bankframe-fresh-open-backpack-20260823",
+      "kind": "gap",
+      "text": "BANKFRAME_OPENED shows the bank but does not open the backpack first, unlike current Benilla's OpenBackpack lifecycle and sound ordering.",
+      "source": "benilla-b57ee0e9e2c8822b/bank_tests.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: A fresh bank session now opens only the existing backpack window before playing igMainMenuOpen. Repeated packets for the same session do not replay either transition, bank closure retains the ordinary backpack, and protected bag presentation remains unchanged. Focused BankFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-bankframe-title-label-purchase-visual-gap-20260823",
+      "kind": "gap",
+      "text": "The bank title used the shared gold NPC-title font instead of BankFrame's authored white GameFontHighlight, the Item Slots and Bag Slots labels were absent, and the purchase question/button bypassed their exact XML font and vertical seats.",
+      "source": "benilla-b57ee0e9e2c8822b/BankFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "BankFrameUiLaw now owns the unique title font, both section-label centers, the centered 280px GameFontHighlight purchase question wrap, and the cost-row-aligned half-pixel button seat. Bank renders all of them without changing protected backpack or container-window presentation. Focused BankFrame and full interface suites pass."
+    },
+    {
+      "id": "item-bankframe-bag-button-tooltip-anchor-20260823",
+      "kind": "gap",
+      "text": "Bank bag-button tooltips followed the mouse instead of the explicit ANCHOR_RIGHT owner seat in BankFrame.",
+      "source": "benilla-b57ee0e9e2c8822b/BankFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "BankFrameUiLaw now owns the bank-bag tooltip anchor and bottom-left pivot. Equipped, empty purchased, and purchasable slot labels sit at the 37px button's top-right without changing protected backpack or bag-window presentation. Focused and full interface-wire checks pass."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T03:18:00Z",
+  "lastReviewedUtc": "2026-08-23T18:36:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

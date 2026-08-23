@@ -81,6 +81,13 @@ public static class ChatMenuUiLaw
     public static Vector2 RowSize => new(ButtonWidth, ButtonHeight);
     public static Vector2 TextOrigin(int index) => RowOrigin(index) + new Vector2(0f, 3f);
 
+    public static Vector2 CardScaledSize(int rows, float scale) =>
+        new Vector2(CardWidth, CardHeight(rows)) * scale;
+
+    public static Vector2 ShortcutPosition(Vector2 rowMin, Vector2 rowSize,
+        float shortcutWidth, float scale) =>
+        rowMin + new Vector2(rowSize.X - shortcutWidth, 3f * scale);
+
     /// <summary>ChatMenu BOTTOMLEFT to the bubble button TOPRIGHT.</summary>
     public static Vector2 RootOrigin(Vector2 buttonMin, int rows, Vector2 displaySize) =>
         Clamp(new Vector2(buttonMin.X + ButtonSize,

@@ -14,7 +14,10 @@ public readonly record struct SpellUnitPose(
     float Yaw,
     Matrix4x4 UnitTransform,
     M2Model? Model,
-    IReadOnlyList<Matrix4x4>? Skin)
+    IReadOnlyList<Matrix4x4>? Skin,
+    IReadOnlySet<int>? VisibleGeosets = null,
+    Vector3 PickBoundsCenter = default,
+    float PickBoundsRadius = 0f)
 {
     public static SpellUnitPose Missing => default;
 

@@ -24,6 +24,8 @@ public sealed partial class GameLoop
     private double _chatMenuCloseAt;
     private string _chatLastTellTarget = "";
     private ExplorationSoundCatalog? _explorationSounds;
+    private ChatLanguageCatalog? _chatLanguages;
+    private bool _chatLanguageLoadAttempted;
 
     // One buffered line: the cleaned text plus its 1.12 message type (the type
     // picks the colour through ChatFrameLaw). Ring-buffered at MaxLines.
@@ -120,6 +122,9 @@ public sealed partial class GameLoop
             message = expansion.Text;
         }
 
+        message = ApplyChatLanguage(type, packet.Language, message,
+            out uint effectiveLanguage, out uint defaultLanguage);
+
         string sender = packet.SenderName.Length > 0
             ? packet.SenderName
             : ResolveChatName(packet.SenderGuid);
@@ -128,9 +133,41 @@ public sealed partial class GameLoop
         if (type == ChatFrameLaw.MsgType.System) UpdateGmModeFrom(message);
         string channel = packet.Channel.Length == 0 ? "" :
             ChatChannelLaw.DisplayName(_chatChannels, packet.Channel);
-        AddChatMessage(ChatFrameLaw.FormatLine(type, sender, channel, message, packet.ChatTag), type);
+        AddChatMessage(ChatFrameLaw.FormatLine(type, sender, channel, message, packet.ChatTag,
+            effectiveLanguage, defaultLanguage), type);
         TrySpawnChatBubble(packet.SenderGuid, type, message);
         return true;
+    }
+
+    private string ApplyChatLanguage(ChatFrameLaw.MsgType type, uint wireLanguage, string text,
+        out uint effectiveLanguage, out uint defaultLanguage)
+    {
+        bool havePlayer = _entities.TryGet(LocalPlayerGuid, out WorldEntity self) && self.IsPlayer;
+        uint flags = havePlayer ? self.Fields.PlayerFlags : 0;
+        byte race = havePlayer ? self.Fields.Bytes0.Race : _net?.Player?.Race ?? 0;
+        defaultLanguage = race == 0 ? 0 : ChatLanguageLaw.DefaultLanguage(race);
+        effectiveLanguage = ChatLanguageLaw.EffectiveLanguage(
+            type, wireLanguage, havePlayer, flags);
+        if (effectiveLanguage == 0 || !havePlayer) return text;
+        if (_mpq is null) return text;
+
+        if (!_chatLanguageLoadAttempted)
+        {
+            _chatLanguageLoadAttempted = true;
+            _chatLanguages = ChatLanguageCatalog.Load(_mpq);
+        }
+        _spellCatalog ??= SpellCatalog.Load(_mpq);
+        _skillLines ??= SkillLineCatalog.Load(_mpq);
+        if (_chatLanguages is null || _spellCatalog is null || _skillLines is null) return text;
+
+        uint skill = 0;
+        foreach (uint knownSpell in _actions.KnownSpells.OrderBy(id => id))
+        {
+            if (_spellCatalog.DeclaredLanguage(knownSpell) != effectiveLanguage) continue;
+            uint skillLine = _skillLines.SpellLine(knownSpell);
+            if (skillLine != 0) skill = self.Fields.PlayerLanguageSkillValue(skillLine);
+        }
+        return _chatLanguages.GarbleChat(effectiveLanguage, skill, text);
     }
 
     private bool TryResolveChatMacroSubject(ulong guid, out QuestTextMacroLaw.Subject? subject)
@@ -425,8 +462,7 @@ public sealed partial class GameLoop
         if (_gameplayArt is null) return;
         float s = GameplayUiScale();
         Vector2 logicalDisplay = ImGui.GetIO().DisplaySize / s;
-        Vector2 root = new(ChatFrameLaw.AnchorX,
-            logicalDisplay.Y - (95f + ChatFrameLaw.FrameHeight));
+        Vector2 root = ChatFrameLaw.FrameOrigin(logicalDisplay);
         Vector2 rootPx = root * s;
         ImDrawListPtr dl = ImGui.GetBackgroundDrawList();
 
@@ -436,31 +472,32 @@ public sealed partial class GameLoop
         {
             BeginUiParityFrame(rootPx, s);
             CollectUiParity("ChatFrame1", "ScrollingMessageFrame", rootPx,
-                new Vector2(ChatFrameLaw.FrameWidth, ChatFrameLaw.FrameHeight) * s,
-                parent: "", point: "BOTTOMLEFT", offsetX: "32", offsetY: "95", strata: "BACKGROUND");
+                ChatFrameLaw.FrameScaledSize(s),
+                parent: "", point: "BOTTOMLEFT", offsetX: "32", offsetY: "85", strata: "BACKGROUND");
             CollectUiParity("ChatFrame1/FontString", "FontString", rootPx,
-                new Vector2(ChatFrameLaw.FrameWidth, ChatFrameLaw.FrameHeight) * s,
+                ChatFrameLaw.FrameScaledSize(s),
                 parent: "ChatFrame1", font: "ChatFontNormal", fontPath: @"Fonts\ARIALN.TTF",
                 fontSize: "14", color: "#FFFFFFFF", strata: "BACKGROUND");
             CollectUiParity("ChatFrame1Background", "Texture",
-                (root + new Vector2(ChatFrameLaw.BgLeft, ChatFrameLaw.BgTop)) * s,
-                new Vector2(ChatFrameLaw.FrameWidth, ChatFrameLaw.FrameHeight) * s,
+                (root + ChatFrameLaw.BackgroundRect.Min) * s,
+                ChatFrameLaw.BackgroundRect.Size * s,
                 parent: "ChatFrame1", point: "TOPLEFT", offsetX: "-2", offsetY: "3",
                 texture: ChatFrameLaw.Background, layer: "BACKGROUND", strata: "BACKGROUND");
         }
 
         DrawChatChrome(dl, root, s);
         DrawChatMessages(dl, root, s);
-        // The left button column is ALWAYS visible (unlike the hover-fade chrome):
-        // the speech-bubble menu on top, then scroll up / down / to-bottom, stacked
-        // 30px (BottomButton BOTTOMLEFT (-32,-4), -2 overlaps).
-        DrawChatMenuButton(dl, root + new Vector2(-32, -6));
-        DrawChatScrollButton(dl, root + new Vector2(-32, 24), "ScrollUp", () => _chatScroll++);
-        DrawChatScrollButton(dl, root + new Vector2(-32, 54), "ScrollDown",
+        // The left button column is always visible; all four seats come from the FrameXML anchor
+        // chain frozen in ChatFrameLaw rather than an ImGui-derived ladder.
+        DrawChatMenuButton(dl, root + ChatFrameLaw.MenuButtonRect.Min);
+        DrawChatScrollButton(dl, root + ChatFrameLaw.ScrollUpButtonRect.Min,
+            "ScrollUp", () => _chatScroll++);
+        DrawChatScrollButton(dl, root + ChatFrameLaw.ScrollDownButtonRect.Min, "ScrollDown",
             () => _chatScroll = Math.Max(0, _chatScroll - 1));
-        DrawChatScrollButton(dl, root + new Vector2(-32, 84), "ScrollEnd", () => _chatScroll = 0);
+        DrawChatScrollButton(dl, root + ChatFrameLaw.ScrollEndButtonRect.Min,
+            "ScrollEnd", () => _chatScroll = 0);
         DrawChatTabs(dl, root, s);
-        DrawChatMenu(root + new Vector2(-32, -6));
+        DrawChatMenu(root + ChatFrameLaw.MenuButtonRect.Min);
 
         if (_chatEditOpen) DrawChatEditBox(dl, root, s);
 
@@ -476,10 +513,8 @@ public sealed partial class GameLoop
     private void UpdateChatReveal(Vector2 root, float s)
     {
         float dt = ImGui.GetIO().DeltaTime;
-        Vector2 min = (root + new Vector2(-ChatFrameLaw.HoverSide, -ChatFrameLaw.HoverUp)) * s;
-        Vector2 max = (root + new Vector2(ChatFrameLaw.FrameWidth + ChatFrameLaw.HoverSide,
-            ChatFrameLaw.FrameHeight + ChatFrameLaw.HoverDown)) * s;
-        bool over = ImGui.IsMouseHoveringRect(min, max, false);
+        ChatFrameLaw.ScreenRect hover = ChatFrameLaw.HoverScreenRect(root, s);
+        bool over = ImGui.IsMouseHoveringRect(hover.Min, hover.Max, false);
         bool moved = ImGui.GetIO().MouseDelta.LengthSquared() > 0.01f;
 
         if (over)
@@ -507,28 +542,21 @@ public sealed partial class GameLoop
         uint tint = BlackAlpha(ChatFrameLaw.ChromeAlpha * _chatReveal);
 
         // Background stretches -2/+2 in x, +3/-6 in y past the frame rect.
-        Vector2 bgMin = root + new Vector2(ChatFrameLaw.BgLeft, ChatFrameLaw.BgTop);
-        Vector2 bgSize = new(ChatFrameLaw.FrameWidth - ChatFrameLaw.BgLeft + ChatFrameLaw.BgRight,
-            ChatFrameLaw.FrameHeight - ChatFrameLaw.BgTop - ChatFrameLaw.BgBottom + 3f);
-        DrawChatTexture(dl, bgMin, bgSize, ChatFrameLaw.Background, Vector2.Zero, Vector2.One, tint);
+        DrawChatTexture(dl, root + ChatFrameLaw.BackgroundRect.Min,
+            ChatFrameLaw.BackgroundRect.Size, ChatFrameLaw.Background,
+            Vector2.Zero, Vector2.One, tint);
 
-        // 8 border slices anchored to the background rect, corners 16x16.
-        float c = ChatFrameLaw.BorderCorner;
-        float w = bgSize.X, h = bgSize.Y;
-        DrawBorderSlice(dl, bgMin + new Vector2(-2, 2), new(c, c), 0, tint);            // TopLeft
-        DrawBorderSlice(dl, bgMin + new Vector2(w + 2 - c, 2), new(c, c), 1, tint);      // TopRight
-        DrawBorderSlice(dl, bgMin + new Vector2(-2, h - 2 - c), new(c, c), 2, tint);     // BottomLeft
-        DrawBorderSlice(dl, bgMin + new Vector2(w + 2 - c, h - 2 - c), new(c, c), 3, tint); // BottomRight
-        DrawBorderSlice(dl, bgMin + new Vector2(-2 + c, 2), new(w + 4 - 2 * c, c), 4, tint);      // Top
-        DrawBorderSlice(dl, bgMin + new Vector2(-2 + c, h - 2 - c), new(w + 4 - 2 * c, c), 5, tint); // Bottom
-        DrawBorderSlice(dl, bgMin + new Vector2(-2, 2 + c), new(c, h - 2 * c), 6, tint);            // Left
-        DrawBorderSlice(dl, bgMin + new Vector2(w + 2 - c, 2 + c), new(c, h - 2 * c), 7, tint);     // Right
+        for (int slice = 0; slice < 8; slice++)
+        {
+            ChatFrameLaw.LogicalRect rect = ChatFrameLaw.BorderRect(slice);
+            DrawBorderSlice(dl, root + rect.Min, rect.Size, slice, tint);
+        }
     }
 
     private void DrawBorderSlice(ImDrawListPtr dl, Vector2 min, Vector2 size, int slice, uint tint)
     {
-        var (u0, v0, u1, v1) = ChatFrameLaw.BorderUv(slice);
-        DrawChatTexture(dl, min, size, ChatFrameLaw.Border, new(u0, v0), new(u1, v1), tint);
+        DrawChatTexture(dl, min, size, ChatFrameLaw.Border,
+            ChatFrameLaw.BorderUvMin(slice), ChatFrameLaw.BorderUvMax(slice), tint);
     }
 
     private void DrawChatMessages(ImDrawListPtr dl, Vector2 root, float s)
@@ -552,13 +580,10 @@ public sealed partial class GameLoop
         int bottom = lines.Count - _chatScroll;
         int top = Math.Max(0, bottom - maxVisible);
 
-        float leftPx = (root.X + 4f) * s;
-        float bottomLineTop = (root.Y + ChatFrameLaw.FrameHeight) * s - pitch;
-
         int linkId = 0;
         for (int i = bottom - 1, row = 0; i >= top; i--, row++)
         {
-            Vector2 at = new(leftPx, bottomLineTop - row * pitch);
+            Vector2 at = ChatFrameLaw.MessagePosition(root, row, pitch, s);
             foreach (UiTextColorRun run in lines[i].Runs)
             {
                 uint runColor = ImGui.ColorConvertFloat4ToU32(run.Color);
@@ -567,11 +592,13 @@ public sealed partial class GameLoop
                 if (run.Link is { Markup.Length: > 0 } link && width > 0)
                 {
                     ImGui.SetCursorScreenPos(at);
-                    ImGui.InvisibleButton($"##chat-link-{i}-{linkId++}", new Vector2(width, pitch));
+                    ImGui.InvisibleButton($"##chat-link-{i}-{linkId++}",
+                        ChatFrameLaw.LinkHitSize(width, pitch));
                     if (ImGui.IsItemHovered())
                     {
-                        dl.AddLine(new(at.X, at.Y + pitch - 1),
-                            new(at.X + width, at.Y + pitch - 1), runColor, MathF.Max(1, s));
+                        ChatFrameLaw.ScreenLine underline =
+                            ChatFrameLaw.LinkUnderline(at, width, pitch);
+                        dl.AddLine(underline.Start, underline.End, runColor, MathF.Max(1, s));
                         if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
                             ActivateChatLink(link, ImGuiMouseButton.Left);
                         else if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
@@ -586,7 +613,8 @@ public sealed partial class GameLoop
     private void DrawChatScrollButton(ImDrawListPtr dl, Vector2 logicalMin, string direction, Action click)
     {
         float s = GameplayUiScale();
-        Vector2 min = logicalMin * s, size = new Vector2(32) * s;
+        Vector2 min = logicalMin * s,
+            size = ChatFrameLaw.ControlButtonScaledSize(s);
         bool hovered = ImGui.IsMouseHoveringRect(min, min + size, false);
         bool pressed = hovered && ImGui.IsMouseDown(ImGuiMouseButton.Left);
         string texture = $@"Interface\ChatFrame\UI-ChatIcon-{direction}-{(pressed ? "Down" : "Up")}";
@@ -636,37 +664,33 @@ public sealed partial class GameLoop
             string label = ChatTabs[t];
             bool selected = t == _chatSelectedTab;
             float midW = GameText.MeasureWidth(ChatFrameLaw.TabFont, label, s) / s + 5f;
-            float tabW = ChatFrameLaw.TabCap * 2 + midW;
-            Vector2 min = root + new Vector2(x, -35);
+            ChatFrameLaw.TabLayout tab = ChatFrameLaw.TabGeometry(root, x, midW, s, em);
             float alpha = (selected ? ChatFrameLaw.TabSelectedAlpha : ChatFrameLaw.TabUnselectedAlpha) * _chatReveal;
             uint tint = WhiteAlpha(alpha);
 
-            DrawChatTexture(dl, min, new(ChatFrameLaw.TabCap, ChatFrameLaw.TabHeight),
-                ChatFrameLaw.Tab, new(0, 0), new(.25f, 1), tint);
-            DrawChatTexture(dl, min + new Vector2(ChatFrameLaw.TabCap, 0), new(midW, ChatFrameLaw.TabHeight),
-                ChatFrameLaw.Tab, new(.25f, 0), new(.75f, 1), tint);
-            DrawChatTexture(dl, min + new Vector2(ChatFrameLaw.TabCap + midW, 0),
-                new(ChatFrameLaw.TabCap, ChatFrameLaw.TabHeight),
-                ChatFrameLaw.Tab, new(.75f, 0), Vector2.One, tint);
+            DrawChatTexture(dl, tab.Left.Min, tab.Left.Size, ChatFrameLaw.Tab,
+                ChatFrameLaw.TabLeftUvMin, ChatFrameLaw.TabLeftUvMax, tint);
+            DrawChatTexture(dl, tab.Middle.Min, tab.Middle.Size, ChatFrameLaw.Tab,
+                ChatFrameLaw.TabMiddleUvMin, ChatFrameLaw.TabMiddleUvMax, tint);
+            DrawChatTexture(dl, tab.Right.Min, tab.Right.Size, ChatFrameLaw.Tab,
+                ChatFrameLaw.TabRightUvMin, Vector2.One, tint);
 
-            if (ImGui.IsMouseHoveringRect(min * s, (min + new Vector2(tabW, ChatFrameLaw.TabHeight)) * s, false))
+            if (ImGui.IsMouseHoveringRect(tab.Hit.Min * s,
+                    (tab.Hit.Min + tab.Hit.Size) * s, false))
             {
                 uint hl = _gameplayArt?.AdditiveHandle(ChatFrameLaw.TabHighlight) ?? 0;
                 if (hl != 0)
                     dl.AddImage((nint)hl,
-                        (min + new Vector2(0, ChatFrameLaw.TabHighlightDrop)) * s,
-                        (min + new Vector2(tabW, ChatFrameLaw.TabHeight + ChatFrameLaw.TabHighlightDrop)) * s,
+                        tab.Highlight.Min * s,
+                        (tab.Highlight.Min + tab.Highlight.Size) * s,
                         Vector2.Zero, Vector2.One, WhiteAlpha(_chatReveal));
                 if (ImGui.IsMouseClicked(ImGuiMouseButton.Left)) _chatSelectedTab = t;
             }
 
             uint labelColor = WithAlpha(FontObjectLaw.Get(ChatFrameLaw.TabFont).Color, alpha);
-            GameText.Draw(dl, ChatFrameLaw.TabFont, label,
-                new Vector2((min.X + ChatFrameLaw.TabCap + 3f) * s,
-                    min.Y * s + (ChatFrameLaw.TabHeight * s - em) * 0.5f + ChatFrameLaw.TabLabelDrop * s),
-                s, labelColor);
+            GameText.Draw(dl, ChatFrameLaw.TabFont, label, tab.LabelPosition, s, labelColor);
 
-            x += tabW;
+            x += tab.Width;
         }
     }
 
@@ -674,7 +698,8 @@ public sealed partial class GameLoop
     private void DrawChatMenuButton(ImDrawListPtr dl, Vector2 logicalMin)
     {
         float s = GameplayUiScale();
-        Vector2 min = logicalMin * s, size = new Vector2(32) * s;
+        Vector2 min = logicalMin * s,
+            size = ChatFrameLaw.ControlButtonScaledSize(s);
         bool hovered = ImGui.IsMouseHoveringRect(min, min + size, false);
         bool pressed = hovered && ImGui.IsMouseDown(ImGuiMouseButton.Left);
         string texture = pressed
@@ -776,8 +801,7 @@ public sealed partial class GameLoop
         IReadOnlyList<ChatMenuRow> rows, int hoveredRow, float s)
     {
         Vector2 origin = logicalOrigin * s;
-        Vector2 size = new Vector2(ChatMenuUiLaw.CardWidth,
-            ChatMenuUiLaw.CardHeight(rows.Count)) * s;
+        Vector2 size = ChatMenuUiLaw.CardScaledSize(rows.Count, s);
         _skin!.DrawBackdrop(dl, origin, origin + size, WowSkin.Tooltip);
         uint highlight = _gameplayArt?.AdditiveHandle(
             @"Interface\QuestFrame\UI-QuestTitleHighlight") ?? 0;
@@ -794,7 +818,8 @@ public sealed partial class GameLoop
                 (logicalOrigin + ChatMenuUiLaw.TextOrigin(i)) * s, s);
             if (row.Shortcut.Length == 0) continue;
             float shortcutWidth = GameText.MeasureWidth(font, row.Shortcut, s);
-            Vector2 shortcutPos = rowMin + new Vector2(rowSize.X - shortcutWidth, 3f * s);
+            Vector2 shortcutPos = ChatMenuUiLaw.ShortcutPosition(
+                rowMin, rowSize, shortcutWidth, s);
             GameText.Draw(dl, font, row.Shortcut, shortcutPos, s);
         }
     }
@@ -812,48 +837,39 @@ public sealed partial class GameLoop
     /// </summary>
     private void DrawChatEditBox(ImDrawListPtr dl, Vector2 root, float s)
     {
-        Vector2 min = root + new Vector2(-ChatFrameLaw.EditOutset,
-            ChatFrameLaw.FrameHeight + ChatFrameLaw.EditDrop);
-        float w = ChatFrameLaw.FrameWidth + 2f * ChatFrameLaw.EditOutset;
-        DrawChatTexture(dl, min, new(ChatFrameLaw.EditLeftCap, ChatFrameLaw.EditHeight),
-            ChatFrameLaw.EditLeft, Vector2.Zero, Vector2.One, 0xffffffffu);
-        DrawChatTexture(dl, min + new Vector2(ChatFrameLaw.EditLeftCap, 0),
-            new(w - ChatFrameLaw.EditLeftCap - ChatFrameLaw.EditRightCap, ChatFrameLaw.EditHeight),
-            ChatFrameLaw.EditRight, Vector2.Zero, new(.9375f, 1), 0xffffffffu);
-        DrawChatTexture(dl, min + new Vector2(w - ChatFrameLaw.EditRightCap, 0),
-            new(ChatFrameLaw.EditRightCap, ChatFrameLaw.EditHeight),
-            ChatFrameLaw.EditRight, new(.9375f, 0), Vector2.One, 0xffffffffu);
-
-        // The header reflects the send type peeked from a leading /slash, and tints
-        // both it and the typed text (Say white, Guild green, Whisper pink…).
         _chatSendType = PeekChatType(_chatInput);
         string header = ChatFrameLaw.Header(_chatSendType);
         uint color = ChatFrameLaw.Color(_chatSendType);
         int em = GameText.EmPixels(ChatFrameLaw.ChatFont, s);
-        float textTop = min.Y * s + (ChatFrameLaw.EditHeight * s - em) * 0.5f;
-        GameText.Draw(dl, ChatFrameLaw.ChatFont, header,
-            new Vector2((min.X + ChatFrameLaw.EditHeaderInset) * s, textTop), s, color);
+        float headerWidth = GameText.MeasureWidth(ChatFrameLaw.ChatFont, header, s);
+        ChatFrameLaw.EditLayout edit = ChatFrameLaw.EditGeometry(
+            root, s, em, headerWidth, ImGui.GetFontSize());
+
+        DrawChatTexture(dl, edit.Left.Min, edit.Left.Size,
+            ChatFrameLaw.EditLeft, Vector2.Zero, Vector2.One, 0xffffffffu);
+        DrawChatTexture(dl, edit.Middle.Min, edit.Middle.Size,
+            ChatFrameLaw.EditRight, Vector2.Zero, ChatFrameLaw.EditMiddleUvMax, 0xffffffffu);
+        DrawChatTexture(dl, edit.Right.Min, edit.Right.Size,
+            ChatFrameLaw.EditRight, ChatFrameLaw.EditRightUvMin, Vector2.One, 0xffffffffu);
+
+        // The header reflects the send type peeked from a leading /slash, and tints
+        // both it and the typed text (Say white, Guild green, Whisper pink…).
+        GameText.Draw(dl, ChatFrameLaw.ChatFont, header, edit.HeaderPosition, s, color);
 
         // The editable field is a transparent ImGui InputText overlaid after the
         // header. Its focus sets WantCaptureKeyboard, which the movement gate at
         // Program.cs already honours - so WASD won't walk while typing.
-        float headerW = GameText.MeasureWidth(ChatFrameLaw.ChatFont, header, s);
-        float inX = (min.X + ChatFrameLaw.EditHeaderInset) * s + headerW + 2f * s;
-        float inRight = (min.X + w - ChatFrameLaw.EditRightCap) * s;
-        float inW = MathF.Max(16f, inRight - inX);
-        float pad = MathF.Max(0f, (ChatFrameLaw.EditHeight * s - ImGui.GetFontSize()) * 0.5f);
-
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
-        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(0f, pad));
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, edit.FramePadding);
         ImGui.PushStyleColor(ImGuiCol.FrameBg, 0u);
         ImGui.PushStyleColor(ImGuiCol.Text, color);
-        ImGui.SetNextWindowPos(new Vector2(inX, min.Y * s));
-        ImGui.SetNextWindowSize(new Vector2(inW, ChatFrameLaw.EditHeight * s));
+        ImGui.SetNextWindowPos(edit.InputPosition);
+        ImGui.SetNextWindowSize(edit.InputSize);
         if (ImGui.Begin("##chat-input-window", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoBackground |
                 ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoNav))
         {
             if (_chatEditJustOpened) { ImGui.SetKeyboardFocusHere(); _chatEditJustOpened = false; }
-            ImGui.SetNextItemWidth(inW);
+            ImGui.SetNextItemWidth(edit.InputSize.X);
             unsafe { _chatEditCallback ??= ChatEditCursorCallback; }
             bool submit = ImGui.InputText("##chat-edit", ref _chatInput, 255,
                 ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.CallbackAlways,
@@ -882,6 +898,13 @@ public sealed partial class GameLoop
     {
         OpenChatEdit();
         _chatInput = prefill;
+        _chatEditCursorToEnd = true;
+    }
+
+    private void InsertChatText(string text)
+    {
+        int room = Math.Max(0, 255 - _chatInput.Length);
+        if (room > 0) _chatInput += text[..Math.Min(text.Length, room)];
         _chatEditCursorToEnd = true;
     }
 
@@ -947,6 +970,27 @@ public sealed partial class GameLoop
         int space = raw.IndexOf(' ');
         string command = (space < 0 ? raw : raw[..space]).ToLowerInvariant();
         string args = space < 0 ? "" : raw[(space + 1)..];
+        if (command == "/partytest")
+        {
+            string mode = args.ToLowerInvariant();
+            switch (mode)
+            {
+                case "off":
+                    ResetParty();
+                    break;
+                case "invite":
+                    ShowPartyTestInvite();
+                    break;
+                case "mark":
+                    PartyTestSandboxLaw.ApplyRaidTarget(
+                        _partyRaidTargets, _selectionGuid, requested: 8);
+                    break;
+                default:
+                    ApplyPartyTestRoster(lead: mode == "lead");
+                    break;
+            }
+            return true;
+        }
         if (ChatChannelLaw.TryResolveAdmin(_chatChannels, command, args, out var channelAdmin))
         {
             if (channelAdmin.Channel.Length > 0)
@@ -1013,14 +1057,20 @@ public sealed partial class GameLoop
                     _net?.GroupInvite(name);
                     break;
                 case GroupSlashCommand.Uninvite:
-                    _net?.GroupUninvite(name);
+                {
+                    PartyMember? member = _partyMembers.FirstOrDefault(member =>
+                        member.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                    if (member is null || !TryPartyTestUninvite(member.Guid))
+                        _net?.GroupUninvite(name);
                     break;
+                }
                 case GroupSlashCommand.Promote:
                 {
                     PartyMember? member = _partyMembers.FirstOrDefault(member =>
                         member.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-                    if (member is not null) _net?.GroupSetLeader(member.Guid);
-                    else AddChatMessage($"{name} is not in your party.");
+                    if (member is null) AddChatMessage($"{name} is not in your party.");
+                    else if (!TryPartyTestPromote(member.Guid))
+                        _net?.GroupSetLeader(member.Guid);
                     break;
                 }
             }

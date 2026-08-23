@@ -20,7 +20,7 @@
     "tools/interface-wire-check/GameTimeClinicalChecks.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI now implements current Benilla's GameTimeFrame from the already authoritative SMSG_LOGIN_SETTIMESPEED clock: exact 50px minimap-relative overhang, hit insets, UI-TOD-Indicator day/night atlas windows, 05:30 dawn and 21:00 dusk boundaries, en-GB 24-hour tooltip formatting, and per-frame live clock updates. Deterministic geometry, formatter, threshold, and production-wiring checks pass; live pixel/tooltip verification remains open.",
+  "summary": "MSUI now implements current Benilla's GameTimeFrame from the already authoritative SMSG_LOGIN_SETTIMESPEED clock: exact 50px minimap-relative overhang, hit insets, UI-TOD-Indicator day/night atlas windows, 05:30 dawn and 21:00 dusk boundaries, en-GB 24-hour tooltip formatting, and per-frame live clock updates. GameTimeUiLaw owns the frame size and hit-screen projection; the renderer contains no local Vector2 geometry. Focused and full deterministic checks pass; live pixel/tooltip verification remains open.",
   "openItems": [
     {
       "id": "item-msui-gametime-live-verify",
@@ -34,6 +34,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-21T00:00:00+00:00",
+  "lastReviewedUtc": "2026-08-23T04:49:32.6361394Z",
   "seededUtc": "2026-08-21T00:00:00+00:00"
 }

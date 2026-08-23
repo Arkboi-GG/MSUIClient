@@ -25,7 +25,7 @@
     "tools/interface-wire-check/ScreenshotStatusClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "PrintScreen is a normal bindable in-world command with the reference default, plus the reference's separate hard-coded physical PrintScreen edge on login, connecting, character-select, and character-create glue screens. Both routes hide any previous status before arming the shutter, capture the final framebuffer after ImGui and the top overlay, write a uniquely suffixed WoWScrnShot_MMDDYY_HHMMSS PNG under the workspace Screenshots folder, and only then announce byte-exact success/failure text at the rule-owned full-display center. The SystemFont line fades linearly over the reference 1.5 seconds, so a rapid second capture cannot photograph the first result.",
+  "summary": "PrintScreen is a normal bindable in-world command with the reference default, plus the reference's separate hard-coded physical PrintScreen edge on login, connecting, character-select, and character-create glue screens. Both routes hide any previous status before arming the shutter, capture the final framebuffer after ImGui and the top overlay, write a uniquely suffixed WoWScrnShot_MMDDYY_HHMMSS PNG under the workspace Screenshots folder, and only then announce byte-exact success/failure text at the rule-owned full-display center. ScreenshotStatusUiLaw owns the measured text minimum as well as the center seat; the renderer contains no local Vector2 geometry. The SystemFont line fades linearly over the reference 1.5 seconds, so a rapid second capture cannot photograph the first result. Focused and full deterministic checks pass.",
   "openItems": [
     {
       "id": "item-msui-screenshot-glue-001",
@@ -48,6 +48,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T23:26:00Z",
+  "lastReviewedUtc": "2026-08-23T04:57:20.0000000Z",
   "seededUtc": "2026-08-22T23:25:00Z"
 }

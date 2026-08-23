@@ -27,6 +27,10 @@ public sealed partial class GameLoop
         StaticPopupCoordinatorLaw.Show(_staticPopupSlots,
             GuildFrameUiLaw.AddRankDefinition, playerDeadOrGhost: false));
 
+    private void ShowGuildActionPopup(StaticPopupCoordinatorLaw.Definition definition,
+        string value) => ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(
+            _staticPopupSlots, definition, playerDeadOrGhost: false, dataToken: value));
+
     private void ShowGuildInvitePopup(in GuildInviteWire invite) => ExecuteStaticPopupPlan(
         StaticPopupCoordinatorLaw.Show(_staticPopupSlots,
             GuildFrameUiLaw.InviteDefinition, playerDeadOrGhost: false,
@@ -122,6 +126,10 @@ public sealed partial class GameLoop
                     _guildMemberDetailOpen = false;
                     _guildSelected = -1;
                 }
+                else if (effect.Type == GuildFrameUiLaw.ConfirmPromotePopupType)
+                    _net?.GuildLeader(name);
+                else if (effect.Type == GuildFrameUiLaw.ConfirmLeavePopupType)
+                    _net?.GuildLeave();
                 else if (effect.Type == GuildFrameUiLaw.SetPublicNotePopupType)
                     _net?.GuildSetPublicNote(name, _guildNoteInputs[seat]);
                 else if (effect.Type == GuildFrameUiLaw.SetOfficerNotePopupType)
@@ -155,7 +163,7 @@ public sealed partial class GameLoop
 
     private void DrawGuildMemberPopups()
     {
-        DrawGuildRemoveMemberPopup();
+        DrawGuildActionPopup();
         DrawGuildNotePopup(GuildFrameUiLaw.SetPublicNotePopupType, "Set Player Note:");
         DrawGuildNotePopup(GuildFrameUiLaw.SetOfficerNotePopupType, "Set Officer Note:");
         DrawGuildAddRankPopup();
@@ -174,8 +182,7 @@ public sealed partial class GameLoop
             GuildFrameUiLaw.InvitePopupTextWidth * scale).ToArray();
         float logicalTextHeight = lines.Length *
             GameText.LinePitch("GameFontHighlight", 1);
-        Vector2 logicalSize = new(GuildFrameUiLaw.InvitePopupWidth,
-            GuildFrameUiLaw.InvitePopupHeight(logicalTextHeight));
+        Vector2 logicalSize = GuildFrameUiLaw.InvitePopupSize(logicalTextHeight);
         Vector2 origin = StaticPopupOrigin(visible.Slot,
             GuildFrameUiLaw.InvitePopupWidth, scale);
         if (!BeginGuildPopupWindow($"##guild-invite-popup-{visible.Slot}", origin,
@@ -185,17 +192,19 @@ public sealed partial class GameLoop
         _skin.DrawBackdrop(draw, origin, origin + size, WowSkin.Dialog);
         for (int i = 0; i < lines.Length; i++)
             GameText.DrawCentered(draw, "GameFontHighlight", lines[i],
-                origin + new Vector2(GuildFrameUiLaw.InvitePopupWidth * .5f,
-                    GuildFrameUiLaw.InvitePopupTextTop +
-                    (i + .5f) * GameText.LinePitch("GameFontHighlight", 1)) * scale, scale);
-        float buttonY = GuildFrameUiLaw.InvitePopupButtonTop(logicalTextHeight);
+                origin + GuildFrameUiLaw.InvitePopupLineCenter(i,
+                    GameText.LinePitch("GameFontHighlight", 1)) * scale, scale);
+        GuildFrameUiLaw.LogicalRect acceptSeat =
+            GuildFrameUiLaw.InvitePopupButton(1, logicalTextHeight);
         bool accept = DrawPartyInviteButton(draw,
             $"StaticPopup{visible.Slot}Button1", "Accept",
-            origin + new Vector2(GuildFrameUiLaw.InvitePopupButtonOneX, buttonY) * scale,
+            origin + acceptSeat.Min * scale,
             scale, false, default);
+        GuildFrameUiLaw.LogicalRect declineSeat =
+            GuildFrameUiLaw.InvitePopupButton(2, logicalTextHeight);
         bool decline = DrawPartyInviteButton(draw,
             $"StaticPopup{visible.Slot}Button2", "Decline",
-            origin + new Vector2(GuildFrameUiLaw.InvitePopupButtonTwoX, buttonY) * scale,
+            origin + declineSeat.Min * scale,
             scale, false, default);
         draw.PopClipRect();
         ImGui.End();
@@ -215,16 +224,15 @@ public sealed partial class GameLoop
         StaticPopupCoordinatorLaw.NarrowEditBoxLayout layout =
             StaticPopupCoordinatorLaw.NarrowEditLayout(textHeight);
         Vector2 origin = StaticPopupOrigin(visible.Slot, layout.Width, scale);
-        Vector2 size = new(layout.Width, layout.Height);
+        Vector2 size = layout.Size;
         if (!BeginGuildPopupWindow($"##guild-add-rank-popup-{visible.Slot}", origin,
                 size, scale, out ImDrawListPtr draw)) return;
         _skin.DrawBackdrop(draw, origin, origin + size * scale, WowSkin.Dialog);
         GameText.DrawCentered(draw, "GameFontHighlight", GuildFrameUiLaw.AddRankLabel,
-            origin + new Vector2(layout.Width * .5f,
-                layout.Text.Y + layout.Text.Height * .5f) * scale, scale);
-        Vector2 editMin = origin + new Vector2(layout.EditBox.X, layout.EditBox.Y) * scale;
+            origin + layout.Text.Center * scale, scale);
+        Vector2 editMin = origin + layout.EditBox.Min * scale;
         DrawStaticPopupEditBoxBorder(draw, editMin, scale);
-        ImGui.SetCursorScreenPos(editMin + new Vector2(0, 7) * scale);
+        ImGui.SetCursorScreenPos(editMin + GuildFrameUiLaw.NarrowPopupEditTextOffset * scale);
         ImGui.SetNextItemWidth(layout.EditBox.Width * scale);
         ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
@@ -245,11 +253,11 @@ public sealed partial class GameLoop
         ImGui.PopStyleColor(4);
         bool accept = DrawPartyInviteButton(draw,
             $"StaticPopup{visible.Slot}Button1", "Accept",
-            origin + new Vector2(layout.Button1.X, layout.Button1.Y) * scale,
+            origin + layout.Button1.Min * scale,
             scale, false, default);
         bool cancel = DrawPartyInviteButton(draw,
             $"StaticPopup{visible.Slot}Button2", "Cancel",
-            origin + new Vector2(layout.Button2.X, layout.Button2.Y) * scale,
+            origin + layout.Button2.Min * scale,
             scale, false, default);
         ImGui.End();
         if (entered)
@@ -265,36 +273,35 @@ public sealed partial class GameLoop
             _staticPopupSlots, visible.Slot, 2));
     }
 
-    private void DrawGuildRemoveMemberPopup()
+    private void DrawGuildActionPopup()
     {
-        var popup = GuildFrameUiLaw.Popup(_staticPopupSlots,
-            GuildFrameUiLaw.RemoveMemberPopupType);
+        var popup = GuildFrameUiLaw.GuildActionPopup(_staticPopupSlots);
         if (popup is not { } visible || _skin is null) return;
         float scale = GameplayUiScale();
-        string text = GuildFrameUiLaw.RemoveMemberText(
+        string type = visible.Instance.Definition.Type;
+        string text = GuildFrameUiLaw.GuildActionText(type,
             visible.Instance.DataToken ?? "");
         string[] lines = WrapTooltipText(text, "GameFontHighlight", scale,
             StaticPopupCoordinatorLaw.TextWidth * scale).ToArray();
         float textHeight = lines.Length * GameText.LinePitch("GameFontHighlight", 1);
-        float height = StaticPopupCoordinatorLaw.Height(textHeight,
-            StaticPopupCoordinatorLaw.ButtonHeight);
-        float width = StaticPopupCoordinatorLaw.BaseWidth;
-        Vector2 origin = StaticPopupOrigin(visible.Slot, width, scale);
-        Vector2 size = new(width, height);
-        if (!BeginGuildPopupWindow($"##guild-remove-popup-{visible.Slot}", origin,
+        Vector2 size = GuildFrameUiLaw.RemoveMemberPopupSize(textHeight);
+        Vector2 origin = StaticPopupOrigin(visible.Slot, size.X, scale);
+        if (!BeginGuildPopupWindow($"##guild-action-popup-{visible.Slot}", origin,
                 size, scale, out ImDrawListPtr draw)) return;
         _skin.DrawBackdrop(draw, origin, origin + size * scale, WowSkin.Dialog);
         for (int i = 0; i < lines.Length; i++)
             GameText.DrawCentered(draw, "GameFontHighlight", lines[i],
-                origin + new Vector2(width * .5f,
-                    StaticPopupCoordinatorLaw.TextTop +
-                    (i + .5f) * GameText.LinePitch("GameFontHighlight", 1)) * scale, scale);
-        float buttonY = StaticPopupCoordinatorLaw.TextTop + textHeight + 8;
-        float firstX = width * .5f - 134;
-        bool yes = DrawPartyInviteButton(draw, $"StaticPopup{visible.Slot}Button1", "Yes",
-            origin + new Vector2(firstX, buttonY) * scale, scale, false, default);
-        bool no = DrawPartyInviteButton(draw, $"StaticPopup{visible.Slot}Button2", "No",
-            origin + new Vector2(firstX + 141, buttonY) * scale, scale, false, default);
+                origin + GuildFrameUiLaw.RemoveMemberPopupLineCenter(i,
+                    GameText.LinePitch("GameFontHighlight", 1)) * scale, scale);
+        GuildFrameUiLaw.LogicalRect yesSeat =
+            GuildFrameUiLaw.RemoveMemberPopupButton(1, textHeight);
+        (string acceptText, string cancelText) = GuildFrameUiLaw.GuildActionButtons(type);
+        bool yes = DrawPartyInviteButton(draw, $"StaticPopup{visible.Slot}Button1", acceptText,
+            origin + yesSeat.Min * scale, scale, false, default);
+        GuildFrameUiLaw.LogicalRect noSeat =
+            GuildFrameUiLaw.RemoveMemberPopupButton(2, textHeight);
+        bool no = DrawPartyInviteButton(draw, $"StaticPopup{visible.Slot}Button2", cancelText,
+            origin + noSeat.Min * scale, scale, false, default);
         ImGui.End();
         if (yes) ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Click(
             _staticPopupSlots, visible.Slot, 1));
@@ -312,16 +319,15 @@ public sealed partial class GameLoop
         StaticPopupCoordinatorLaw.WideEditBoxLayout layout =
             StaticPopupCoordinatorLaw.WideEditLayout(textHeight);
         Vector2 origin = StaticPopupOrigin(visible.Slot, layout.Width, scale);
-        Vector2 size = new(layout.Width, layout.Height);
+        Vector2 size = layout.Size;
         if (!BeginGuildPopupWindow($"##guild-note-popup-{type}-{visible.Slot}", origin,
                 size, scale, out ImDrawListPtr draw)) return;
         _skin.DrawBackdrop(draw, origin, origin + size * scale, WowSkin.Dialog);
         GameText.DrawCentered(draw, "GameFontHighlight", label,
-            origin + new Vector2(layout.Width * .5f,
-                layout.Text.Y + layout.Text.Height * .5f) * scale, scale);
-        Vector2 editMin = origin + new Vector2(layout.EditBox.X, layout.EditBox.Y) * scale;
+            origin + layout.Text.Center * scale, scale);
+        Vector2 editMin = origin + layout.EditBox.Min * scale;
         DrawStaticPopupWideEditBoxBorder(draw, editMin, scale);
-        ImGui.SetCursorScreenPos(editMin + new Vector2(0, 23) * scale);
+        ImGui.SetCursorScreenPos(editMin + GuildFrameUiLaw.WidePopupEditTextOffset * scale);
         ImGui.SetNextItemWidth(layout.EditBox.Width * scale);
         ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
@@ -341,11 +347,11 @@ public sealed partial class GameLoop
         ImGui.PopStyleColor(4);
         bool accept = DrawPartyInviteButton(draw,
             $"StaticPopup{visible.Slot}Button1", "Accept",
-            origin + new Vector2(layout.Button1.X, layout.Button1.Y) * scale,
+            origin + layout.Button1.Min * scale,
             scale, false, default);
         bool cancel = DrawPartyInviteButton(draw,
             $"StaticPopup{visible.Slot}Button2", "Cancel",
-            origin + new Vector2(layout.Button2.X, layout.Button2.Y) * scale,
+            origin + layout.Button2.Min * scale,
             scale, false, default);
         ImGui.End();
         if (entered)
@@ -383,19 +389,23 @@ public sealed partial class GameLoop
     {
         uint left = _gameplayArt?.Handle(@"Interface\ChatFrame\UI-ChatInputBorder-Left") ?? 0;
         uint right = _gameplayArt?.Handle(@"Interface\ChatFrame\UI-ChatInputBorder-Right") ?? 0;
-        float width = StaticPopupCoordinatorLaw.WideEditBoxWidth;
         if (left != 0)
         {
-            draw.AddImage((nint)left, editMin + new Vector2(-10, 16) * scale,
-                editMin + new Vector2(246, 48) * scale);
-            draw.AddImage((nint)left, editMin + new Vector2(246, 16) * scale,
-                editMin + new Vector2(width - 65, 48) * scale,
-                new Vector2(.29296875f, 0), Vector2.One);
+            GuildFrameUiLaw.LogicalRect cap = GuildFrameUiLaw.WideEditBorderLeft;
+            GuildFrameUiLaw.LogicalRect middle = GuildFrameUiLaw.WideEditBorderMiddle;
+            draw.AddImage((nint)left, editMin + cap.Min * scale,
+                editMin + (cap.Min + cap.Size) * scale);
+            draw.AddImage((nint)left, editMin + middle.Min * scale,
+                editMin + (middle.Min + middle.Size) * scale,
+                GuildFrameUiLaw.WideEditBorderMiddleUvMin, Vector2.One);
         }
         if (right != 0)
-            draw.AddImage((nint)right, editMin + new Vector2(width - 65, 16) * scale,
-                editMin + new Vector2(width + 10, 48) * scale,
-                new Vector2(.70703125f, 0), Vector2.One);
+        {
+            GuildFrameUiLaw.LogicalRect cap = GuildFrameUiLaw.WideEditBorderRight;
+            draw.AddImage((nint)right, editMin + cap.Min * scale,
+                editMin + (cap.Min + cap.Size) * scale,
+                GuildFrameUiLaw.WideEditBorderRightUvMin, Vector2.One);
+        }
     }
 
     private void DrawGuildAddMemberPopup()
@@ -408,7 +418,7 @@ public sealed partial class GameLoop
         StaticPopupCoordinatorLaw.NarrowEditBoxLayout layout =
             StaticPopupCoordinatorLaw.NarrowEditLayout(textHeight);
         Vector2 origin = StaticPopupOrigin(visible.Slot, layout.Width, s);
-        Vector2 size = new Vector2(layout.Width, layout.Height) * s;
+        Vector2 size = layout.Size * s;
 
         // ImGui hosts only the law-resolved modal and hit rectangles.
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
@@ -427,11 +437,10 @@ public sealed partial class GameLoop
         dl.PushClipRectFullScreen();
         _skin.DrawBackdrop(dl, origin, origin + size, WowSkin.Dialog);
         GameText.DrawCentered(dl, "GameFontHighlight", GuildFrameUiLaw.AddMemberLabel,
-            origin + new Vector2(layout.Width * .5f,
-                layout.Text.Y + layout.Text.Height * .5f) * s, s);
-        Vector2 editMin = origin + new Vector2(layout.EditBox.X, layout.EditBox.Y) * s;
+            origin + layout.Text.Center * s, s);
+        Vector2 editMin = origin + layout.EditBox.Min * s;
         DrawStaticPopupEditBoxBorder(dl, editMin, s);
-        ImGui.SetCursorScreenPos(editMin + new Vector2(0, 7) * s);
+        ImGui.SetCursorScreenPos(editMin + GuildFrameUiLaw.NarrowPopupEditTextOffset * s);
         ImGui.SetNextItemWidth(layout.EditBox.Width * s);
         ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
@@ -450,11 +459,11 @@ public sealed partial class GameLoop
         ImGui.PopStyleColor(4);
         bool accepted = DrawPartyInviteButton(dl,
             $"StaticPopup{visible.Slot}Button1", "Accept",
-            origin + new Vector2(layout.Button1.X, layout.Button1.Y) * s,
+            origin + layout.Button1.Min * s,
             s, capture: false, default);
         bool cancelled = DrawPartyInviteButton(dl,
             $"StaticPopup{visible.Slot}Button2", "Cancel",
-            origin + new Vector2(layout.Button2.X, layout.Button2.Y) * s,
+            origin + layout.Button2.Min * s,
             s, capture: false, default);
         dl.PopClipRect();
         ImGui.End();

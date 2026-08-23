@@ -38,6 +38,7 @@ public sealed partial class GameLoop
     private MinimapResourceTooltipRuntime? _minimapResourceTooltip;
     private AreaPoiCatalog? _minimapAreaPois;
     private bool _minimapAreaPoisLoaded;
+    private InteriorMinimapComposite? _minimapInteriorComposite;
 
     private readonly record struct MinimapResourceTooltipCandidate(ulong Guid, string Name);
     private readonly record struct MinimapResourceTooltipRuntime(
@@ -154,10 +155,12 @@ public sealed partial class GameLoop
         float? interiorBlipRadius = insideWmo ? interiorRadius : null;
         MinimapResourceTooltipCandidate? landmarkTooltip = DrawMinimapLandmarks(
             dl, playerPosition, mapMin, mapMax, interiorBlipRadius);
-        DrawMinimapPartyDots(dl, player, playerPosition, mapMin, mapMax, s, interiorBlipRadius);
+        DrawMinimapPartyArrows(dl, playerPosition, mapMin, mapMax, interiorBlipRadius);
+        DrawMinimapCorpseArrow(dl, playerPosition, mapMin, mapMax, interiorBlipRadius);
+        DrawMinimapPlayerArrow(dl, playerOrientation, (mapMin + mapMax) * .5f, s);
+        DrawMinimapPartyDots(dl, playerPosition, mapMin, mapMax, s, interiorBlipRadius);
         DrawMinimapCorpseMarker(dl, playerPosition, mapMin, mapMax, s,
             interiorBlipRadius);
-        DrawMinimapPlayerArrow(dl, playerOrientation, (mapMin + mapMax) * .5f, s);
         MinimapResourceTooltipCandidate? resourceTooltip =
             DrawMinimapResourceDots(dl, player, playerPosition, mapMin, mapMax, s,
                 interiorBlipRadius);
@@ -373,21 +376,68 @@ public sealed partial class GameLoop
         }
     }
 
-    private void DrawMinimapPartyDots(ImDrawListPtr dl, WorldEntity player, Vector3 playerPosition,
+    private IEnumerable<Vector2> PartyMinimapPositions()
+    {
+        // The reference's place_party_raid_blips consumes party1..party4: own subgroup, packet
+        // order, capped at four. Preserve the existing SuperUI possession projection separately;
+        // that custom controlled-subject state is not a Benilla surface to normalize here.
+        IEnumerable<PartyMember> members = ControlledGuid == LocalPlayerGuid
+            ? PartyFrameMembers()
+            : _partyMembers;
+        foreach (PartyMember member in members)
+        {
+            if (_entities.TryGet(member.Guid, out WorldEntity unit))
+            {
+                Vector3 live = UnitWorldPosition(unit);
+                yield return new(live.X, live.Y);
+                continue;
+            }
+            if (_partyStats.TryGetValue(member.Guid, out PartyMemberStatsSnapshot stats) &&
+                stats.PositionX is short x && stats.PositionY is short y)
+                yield return new(x, y);
+        }
+    }
+
+    private void DrawMinimapPartyArrows(ImDrawListPtr dl, Vector3 playerPosition,
+        Vector2 mapMin, Vector2 mapMax, float? radiusOverride = null)
+    {
+        uint arrow = _gameplayArt?.Handle(@"Interface\Minimap\ROTATING-MINIMAPARROW") ?? 0;
+        if (arrow == 0) return;
+        float radiusYards = radiusOverride ?? MinimapUiLaw.OutdoorRadius(_minimapZoom);
+        float side = mapMax.X - mapMin.X;
+        Vector2 center = (mapMin + mapMax) * .5f;
+        Vector2 player = new(playerPosition.X, playerPosition.Y);
+        foreach (Vector2 member in PartyMinimapPositions())
+        {
+            MinimapPartyBlip blip = MinimapUiLaw.PartyBlip(
+                player, member, center, side, radiusYards);
+            if (blip.IsArrow)
+                AddRotatedMinimapImage(dl, arrow, blip.Center, blip.Size, blip.Rotation);
+        }
+    }
+
+    private void DrawMinimapPartyDots(ImDrawListPtr dl, Vector3 playerPosition,
         Vector2 mapMin, Vector2 mapMax, float s, float? radiusOverride = null)
     {
         float radiusYards = radiusOverride ?? MinimapUiLaw.OutdoorRadius(_minimapZoom);
-        float pixelsPerYard = (mapMax.X - mapMin.X) / (2f * radiusYards);
+        float side = mapMax.X - mapMin.X;
         Vector2 center = (mapMin + mapMax) * .5f;
-        foreach (PartyMember member in _partyMembers)
+        Vector2 player = new(playerPosition.X, playerPosition.Y);
+        uint icons = _gameplayArt?.Handle(@"Interface\Minimap\ObjectIcons") ?? 0;
+        dl.PushClipRect(mapMin, mapMax, true);
+        foreach (Vector2 member in PartyMinimapPositions())
         {
-            if (member.Guid == player.Guid || !_entities.TryGet(member.Guid, out WorldEntity unit)) continue;
-            Vector2 dot = center + new Vector2(
-                -(unit.Position.Y - playerPosition.Y),
-                -(unit.Position.X - playerPosition.X)) * pixelsPerYard;
-            if (Vector2.DistanceSquared(dot, center) > MathF.Pow(66f * s, 2)) continue;
-            dl.AddCircleFilled(dot, MathF.Max(2f, 2.5f * s), 0xff00a5ff);
+            MinimapPartyBlip blip = MinimapUiLaw.PartyBlip(
+                player, member, center, side, radiusYards);
+            if (blip.IsArrow) continue;
+            Vector2 half = new(blip.Size * .5f);
+            if (icons != 0)
+                dl.AddImage((nint)icons, blip.Center - half, blip.Center + half,
+                    MinimapUiLaw.PartyDotUvMin, MinimapUiLaw.PartyDotUvMax);
+            else
+                dl.AddCircleFilled(blip.Center, MathF.Max(2f, 2.5f * s), 0xff00a5ff);
         }
+        dl.PopClipRect();
     }
 
     private static void DrawMinimapPlayerArrow(ImDrawListPtr dl, float orientation, Vector2 center, float s)
@@ -614,6 +664,23 @@ public sealed partial class GameLoop
         if (texture == 0) return;
         draw.AddImage((nint)texture, rect.Min, rect.Min + rect.Size,
             DeathFrameUiLaw.CorpseUvMin, DeathFrameUiLaw.CorpseUvMax);
+    }
+
+    private void DrawMinimapCorpseArrow(ImDrawListPtr draw, Vector3 playerPosition,
+        Vector2 mapMin, Vector2 mapMax, float? radiusOverride = null)
+    {
+        if (_corpseLocation is not { } corpse || corpse.DisplayMap < 0 ||
+            (uint)corpse.DisplayMap != checked((uint)Math.Max(0, _config.Start.Map))) return;
+        uint arrow = _gameplayArt?.Handle(@"Interface\Minimap\ROTATING-MINIMAPARROW") ?? 0;
+        if (arrow == 0) return;
+        float radiusYards = radiusOverride ?? MinimapUiLaw.OutdoorRadius(_minimapZoom);
+        float side = mapMax.X - mapMin.X;
+        MinimapPartyBlip blip = MinimapUiLaw.PartyBlip(
+            new(playerPosition.X, playerPosition.Y),
+            new(corpse.Position.X, corpse.Position.Y),
+            (mapMin + mapMax) * .5f, side, radiusYards);
+        if (blip.IsArrow)
+            AddRotatedMinimapImage(draw, arrow, blip.Center, blip.Size, blip.Rotation);
     }
 
     /// <summary>
@@ -950,7 +1017,32 @@ public sealed partial class GameLoop
         else
             dl.AddRectFilled(mapMin, mapMax, 0xff000000);
 
-        if (anyTile)
+        bool compositeDrawn = false;
+        if (anyTile && _minimapInteriorComposite is not null)
+        {
+            float side = mapMax.X - mapMin.X;
+            var compositeTiles = tiles.Select(tile => new InteriorMinimapComposite.Tile(
+                tile.Texture,
+                WmoMinimapProjection.ToCompositeClip(tile.P00, center, side),
+                WmoMinimapProjection.ToCompositeClip(tile.P10, center, side),
+                WmoMinimapProjection.ToCompositeClip(tile.P11, center, side),
+                WmoMinimapProjection.ToCompositeClip(tile.P01, center, side))).ToArray();
+            compositeDrawn = _minimapInteriorComposite.Render(compositeTiles);
+            if (compositeDrawn)
+            {
+                float gutter = (1f - WmoMinimapProjection.CompositeBlitFraction) * .5f;
+                Vector2 uvMin = new(gutter, 1f - gutter);
+                Vector2 uvMax = new(1f - gutter, gutter);
+                if (circular)
+                    AddImageCircleClipped(dl, _minimapInteriorComposite.TextureHandle,
+                        mapMin, mapMax, center, circleRadius, uvMin: uvMin, uvMax: uvMax);
+                else
+                    dl.AddImage((nint)_minimapInteriorComposite.TextureHandle,
+                        mapMin, mapMax, uvMin, uvMax, 0xffffffff);
+            }
+        }
+
+        if (anyTile && !compositeDrawn)
         {
             foreach (var tile in tiles)
             {
@@ -1063,7 +1155,8 @@ public sealed partial class GameLoop
     /// </summary>
     private static void AddImageCircleClipped(ImDrawListPtr dl, uint texture,
         Vector2 rectMin, Vector2 rectMax, Vector2 centre, float radius,
-        int segments = 48, uint tint = 0xffffffff)
+        int segments = 48, uint tint = 0xffffffff,
+        Vector2? uvMin = null, Vector2? uvMax = null)
     {
         Vector2 size = rectMax - rectMin;
         if (size.X <= 0f || size.Y <= 0f || radius <= 0f) return;
@@ -1103,6 +1196,8 @@ public sealed partial class GameLoop
         }
         if (count < 3) return;
 
+        Vector2 uv0 = uvMin ?? Vector2.Zero;
+        Vector2 uv1 = uvMax ?? Vector2.One;
         // ImGui's own convex-fill contract: capture the base index BEFORE reserving.
         uint baseIndex = dl._VtxCurrentIdx;
         dl.PushTextureID((nint)texture);
@@ -1111,7 +1206,8 @@ public sealed partial class GameLoop
         {
             Vector2 p = poly[i];
             dl.PrimWriteVtx(p,
-                new Vector2((p.X - rectMin.X) / size.X, (p.Y - rectMin.Y) / size.Y), tint);
+                uv0 + new Vector2((p.X - rectMin.X) / size.X,
+                    (p.Y - rectMin.Y) / size.Y) * (uv1 - uv0), tint);
         }
         for (int i = 2; i < count; i++)
         {

@@ -211,4 +211,7 @@ public static class BindingCommandLaw
     public static bool AutorunCancelled(bool forwardStarted, bool backwardStarted,
         bool bothButtonsEngaged, bool lostMover) =>
         forwardStarted || backwardStarted || bothButtonsEngaged || lostMover;
+
+    public static float StepMasterVolume(float current, int direction) =>
+        Math.Clamp(current + Math.Sign(direction) * .1f, 0f, 1f);
 }

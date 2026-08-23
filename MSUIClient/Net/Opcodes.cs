@@ -86,6 +86,9 @@ public enum Op : ushort
     MSG_RAID_TARGET_UPDATE       = 0x0321,
     MSG_RAID_READY_CHECK         = 0x0322,
     CMSG_MOVE_WORLDPORT_ACK      = 0x00DC,
+    // Benilla/reference spelling retained as a numeric-table alias. The packet
+    // is client->server in practice; 1.12's table names it MSG_*.
+    MSG_MOVE_WORLDPORT_ACK       = 0x00DC,
     CMSG_ZONEUPDATE              = 0x01F4,
     CMSG_AREATRIGGER             = 0x00B4,
     SMSG_AREA_TRIGGER_MESSAGE    = 0x02B8,
@@ -147,6 +150,9 @@ public enum Op : ushort
     SMSG_PAGE_TEXT_QUERY_RESPONSE = 0x005B,
     CMSG_GAMEOBJ_USE              = 0x00B1,
     SMSG_GAMEOBJECT_CUSTOM_ANIM   = 0x00B3,
+    SMSG_FISH_NOT_HOOKED          = 0x01C8,
+    SMSG_FISH_ESCAPED             = 0x01C9,
+    SMSG_GAMEOBJECT_DESPAWN_ANIM  = 0x0215,
 
     // --- Questing ---
     CMSG_QUESTGIVER_STATUS_QUERY   = 0x0182,
@@ -355,6 +361,9 @@ public enum Op : ushort
     SMSG_SPLINE_SET_WALK_SPEED  = 0x0301,
     SMSG_SPLINE_SET_SWIM_BACK_SPEED = 0x0302,
     SMSG_SPLINE_SET_TURN_RATE   = 0x0303,
+    CMSG_MOVE_NOT_ACTIVE_MOVER  = 0x02D1,
+    SMSG_CLIENT_CONTROL_UPDATE  = 0x0159,
+    CMSG_FAR_SIGHT              = 0x027A,
 
     // --- Combat / spells ---
     CMSG_SET_SELECTION           = 0x013D,
@@ -388,6 +397,9 @@ public enum Op : ushort
     CMSG_CANCEL_CHANNELLING      = 0x013B,
     CMSG_CANCEL_AUTO_REPEAT_SPELL = 0x026D,
     CMSG_SET_ACTION_BUTTON       = 0x0128,
+    CMSG_SET_ACTIONBAR_TOGGLES   = 0x02BF,
+    CMSG_TOGGLE_HELM             = 0x02B9,
+    CMSG_TOGGLE_CLOAK            = 0x02BA,
     CMSG_USE_ITEM                = 0x00AB,
     CMSG_OPEN_ITEM               = 0x00AC,
     CMSG_AUTOEQUIP_ITEM          = 0x010A,

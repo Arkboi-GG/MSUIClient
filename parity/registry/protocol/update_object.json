@@ -7,28 +7,28 @@
   "benillaSources": [
     {
       "path": "crates/benilla-protocol/src/messages/update_object/fields/mod.rs",
-      "fileSha256": "dec706f8e12486f0221a2958f216e3a4b454b7de4b063577f7bff09dea22009b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "24a0edc57a4706d03b6cc06805e4b2897b0cff62190ec83e5e6b776d682cf45e",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-protocol/src/messages/update_object/fields/player.rs",
-      "fileSha256": "c514257caeaa60f34f37223f209dd976e8a1e559915c72a1ac991add200b8b9d",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "77cfdcf04b9b3b2a747b3eed5d59ebf4d0c2a19c261c3f11993da62930e9d7cc",
+      "snapshotId": "benilla-current-2026-08-23"
     },
     {
       "path": "crates/benilla-protocol/src/messages/update_object/fields/tests.rs",
-      "fileSha256": "a3daff1164cc167c9e367907c79afa37d25549f19b27866cc5537b1830e0e9bb",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "6fbcbdde4c3fc29444df91367fe9316278c4f8f43787ef951cde047aa316dbee",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-protocol/src/messages/update_object/fields/unit.rs",
-      "fileSha256": "674cd2a53b03c46391030e74701b343b213fa1291f84c9e593a99b5deb7c949d",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "4dcf334e9222a96b4a84cc3ac8d2c7e598a2d2fadba203f617ce379f88446f31",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-protocol/src/messages/update_object/mod.rs",
-      "fileSha256": "3ce2dc8d3d7fd59f50152af62fd4904ef2368d35d7f018e2db521af2c0ed700a",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "795e2570081e9c556fccf29e77c32df4d05b1a46f22036ebfccd7b8f851df89a",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-protocol/src/messages/update_object/movement.rs",
@@ -47,10 +47,11 @@
     "MSUIClient/Net/MonsterMove.cs",
     "MSUIClient/Net/ObjectFields.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
-    "tools/interface-wire-check/MonsterMoveClinicalChecks.cs"
+    "tools/interface-wire-check/MonsterMoveClinicalChecks.cs",
+    "tools/interface-wire-check/EquipmentDisplayPreferenceClinicalChecks.cs"
   ],
   "status": "complete",
-  "summary": "MSUI now surfaces current Benilla's complete SMSG_UPDATE_OBJECT movement block: LIVING/HAS_POSITION pose, six speeds, rider-local TransportPose, create-time CreateSpline with phantom-endpoint trim, and transport GameObject path progress paired with its local receipt clock. Streamed mid-walk units resume at the exact time_passed/duration fraction and retain id/flying/cyclic metadata. Rider poses persist through both create/movement blocks and later MSG_MOVE relays; transport-cycle and rider composition remain explicitly tracked as systems/transport work rather than decoder loss.",
+  "summary": "MSUI now surfaces current Benilla's complete SMSG_UPDATE_OBJECT movement block: LIVING/HAS_POSITION pose, six speeds, rider-local TransportPose, create-time CreateSpline with phantom-endpoint trim, and transport GameObject path progress paired with its local receipt clock. Streamed mid-walk units resume at the exact time_passed/duration fraction and retain id/flying/cyclic metadata. Rider poses persist through both create/movement blocks and later MSG_MOVE relays. PLAYER_FLAGS field 190 is also typed for the public HIDE_HELM/HIDE_CLOAK bits, and real self/controlled-player flag edges refresh equipment presentation while repeated identical observations preserve pending optimistic Options intent.",
   "openItems": [
     {
       "id": "item-triage-3c3f943c",
@@ -67,7 +68,8 @@
       "text": "Rider TransportPose (MOVEFLAG_ON_TRANSPORT tail in the LIVING block) is discarded - an observed unit standing on a boat/zeppelin/elevator cannot be re-anchored through the transport frame",
       "source": "triage-2026-08-09/batch-protocol-3.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23: MovementBlock exposes the full u64 transport GUID plus local xyz/orientation tail as TransportPose. EntityStore retains it on create/movement updates and refreshes it from observed MSG_MOVE relays. The synthetic two-object fixture proves tail alignment through all six following speeds and entity delivery. Composition through a moving transport remains separately tracked under systems/transport."
     },
     {
       "id": "item-triage-221109c1",
@@ -76,20 +78,19 @@
       "source": "triage-2026-08-09/batch-protocol-3.json",
       "added": "2026-08-09",
       "resolved": true,
-      "resolution": "2026-08-23: MovementBlock now exposes the full u64 transport GUID plus local xyz/orientation tail as TransportPose. EntityStore retains it on create/movement updates and refreshes it from observed MSG_MOVE relays. The synthetic two-object fixture proves tail alignment through all six following speeds and entity delivery."
+      "resolution": "2026-08-23: MovementBlock exposes UPDATE_FLAG_TRANSPORT's u32 path-domain progress. WorldEntity retains it together with the monotonic receipt time needed to evaluate anchor plus elapsed time; the synthetic GameObject create fixture byte-pins 456789 and entity delivery. Timetable evaluation remains separately tracked under systems/transport."
     },
     {
       "id": "verify-create-time-live-spline",
       "kind": "verify",
       "text": "Live-verify a creature first entering interest range while already walking: it should appear at its server-authored in-progress fraction, continue without freezing or the next MONSTER_MOVE horizontal snap, choose the correct ground/flying gait, and finish at the endpoint.",
       "added": "2026-08-22",
-      "resolved": true,
-      "resolution": "2026-08-23: MovementBlock exposes UPDATE_FLAG_TRANSPORT's u32 path-domain progress. WorldEntity retains it together with the monotonic receipt time needed to evaluate anchor+elapsed; the synthetic GameObject create fixture byte-pins 456789 and entity delivery."
+      "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T00:55:00Z",
+  "lastReviewedUtc": "2026-08-23T14:04:56Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

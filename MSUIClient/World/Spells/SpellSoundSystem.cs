@@ -40,7 +40,10 @@ public sealed class SpellSoundSystem
 
     /// <summary>Last volume actually sent per positional looping voice, so a
     /// standing voice does not re-send an identical gain every frame.</summary>
-    private readonly Dictionary<long, int> _sentVolume = [];
+    private readonly Dictionary<long, (int Volume, int Pan)> _sentVolume = [];
+    private Vector3 _listenerPosition;
+    private float _listenerYaw;
+    private bool _listenerSet;
 
     public SpellSoundSystem(AudioMixer mixer, SoundKitLibrary library)
     {
@@ -61,6 +64,14 @@ public sealed class SpellSoundSystem
     public bool IsAuthoredLoop(uint? soundId) => _library.IsAuthoredLoop(soundId);
 
     public bool IsLive(long voiceId) => _mixer.IsLive(voiceId);
+
+    /// <summary>Current character-head listener pose; orientation is character facing.</summary>
+    public void SetListener(Vector3 position, float yaw)
+    {
+        _listenerPosition = position;
+        _listenerYaw = yaw;
+        _listenerSet = true;
+    }
 
     public long Play(uint? soundId, ulong unit, Vector3 source, Vector3 listener,
         bool forceLoop = false, bool trackHold = true, string category = "spell")
@@ -129,10 +140,14 @@ public sealed class SpellSoundSystem
         // mixer runs the stop first and the two never overlap.
         if (looping && trackHold && _holds.Remove(unit, out long held)) _mixer.Stop(held);
 
-        float gain = Gain(entry, source, listener) * _mixer.CategoryAmp(category);
+        Vector3 effectiveListener = _listenerSet ? _listenerPosition : listener;
+        float gain = Gain(entry, source, effectiveListener) * _mixer.CategoryAmp(category);
+        float pan = entry.CutoffDistance > 0f
+            ? SpatialAudioLaw.Pan(source, effectiveListener, _listenerYaw) : 0f;
         long voiceId = _mixer.Play(new AudioPlayRequest(
             variant.Path, category, gain, looping,
-            RequestedCue: requestedCue, SoundId: entry.Id, Owner: unit, TrackHold: trackHold));
+            RequestedCue: requestedCue, SoundId: entry.Id, Owner: unit, TrackHold: trackHold,
+            Pan: pan));
         if (voiceId == 0) return 0;
 
         if (looping)
@@ -172,8 +187,12 @@ public sealed class SpellSoundSystem
             }
             (bool found, Vector3 position) = unitPosition(voice.Unit);
             if (!found) { Stop(id); continue; }
-            float gain = Gain(voice.Entry, position, listener) * _mixer.CategoryAmp(voice.Category);
+            Vector3 effectiveListener = _listenerSet ? _listenerPosition : listener;
+            float gain = Gain(voice.Entry, position, effectiveListener) *
+                _mixer.CategoryAmp(voice.Category);
             if (gain <= 0) { Stop(id); continue; }
+            float pan = voice.Entry.CutoffDistance > 0f
+                ? SpatialAudioLaw.Pan(position, effectiveListener, _listenerYaw) : 0f;
 
             // Only when the quantized value moved. Every mciSendString is a
             // synchronous cross-process call made on the one thread that also pumps
@@ -181,9 +200,11 @@ public sealed class SpellSoundSystem
             // re-sending an IDENTICAL volume every frame put a few hundred blocking
             // calls a second in front of that pump.
             int volume = (int)Math.Clamp(gain * 1000f, 0, 1000);
-            if (_sentVolume.TryGetValue(id, out int last) && last == volume) continue;
-            _sentVolume[id] = volume;
-            _mixer.SetVoiceGain(id, gain);
+            int panLevel = (int)Math.Clamp(pan * 1000f, -1000f, 1000f);
+            if (_sentVolume.TryGetValue(id, out var last) &&
+                last == (volume, panLevel)) continue;
+            _sentVolume[id] = (volume, panLevel);
+            _mixer.SetVoiceGainPan(id, gain, pan);
         }
 
         // A hold whose voice finished on its own leaves a dead id behind; stopping
@@ -193,13 +214,6 @@ public sealed class SpellSoundSystem
     }
 
     private static float Gain(in SoundEntry entry, Vector3 source, Vector3 listener)
-    {
-        float volume = float.IsFinite(entry.Volume) ? Math.Clamp(entry.Volume, 0f, 1f) : 1f;
-        if (entry.CutoffDistance <= 0) return volume;
-        float distance = Vector3.Distance(source, listener);
-        if (distance >= entry.CutoffDistance) return 0;
-        if (distance <= entry.MinDistance) return volume;
-        float span = Math.Max(.001f, entry.CutoffDistance - entry.MinDistance);
-        return volume * (1f - (distance - entry.MinDistance) / span);
-    }
+        => SpatialAudioLaw.Gain(entry.Volume, entry.MinDistance, entry.CutoffDistance,
+            source, listener);
 }

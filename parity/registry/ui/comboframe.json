@@ -19,7 +19,7 @@
     "tools/interface-wire-check/ComboFrameClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI now reads the private combo-point byte and owner GUID, applies the frozen rogue/druid and current-target gates, and draws all five authored socket/highlight/shine slices against TargetFrame. Newly earned points run the exact 0.4s highlight, 0.3s shine-in, and 0.4s shine-out chain; the frame fades in over 0.3s and clears immediately when the target no longer owns the points. Deterministic coverage is complete; live rendered acceptance remains.",
+  "summary": "MSUI now reads the private combo-point byte and owner GUID, applies the frozen rogue/druid and current-target gates, and draws all five authored socket/highlight/shine slices against TargetFrame. Newly earned points run the exact 0.4s highlight, 0.3s shine-in, and 0.4s shine-out chain; the frame fades in over 0.3s and clears immediately when the target no longer owns the points. ComboFrameUiLaw owns the atlas cells and placement; the renderer contains no local Vector2 geometry. Focused and full deterministic checks pass; live rendered acceptance remains.",
   "openItems": [
     {
       "id": "item-triage-4c302133",
@@ -33,6 +33,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T04:49:32.6361394Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

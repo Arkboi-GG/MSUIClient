@@ -56,7 +56,7 @@ public sealed partial class GameLoop
                     WithAlpha(zone.Tint, alpha));
                 if (zone.Extra.Length > 0)
                     GameText.DrawCentered(draw, "SubZoneTextFont", zone.Extra,
-                        center + new Vector2(0, (zoneEm + subEm) * .5f), scale,
+                        ZoneTextUiLaw.ZoneExtraCenter(center, zoneEm, subEm), scale,
                         WithAlpha(zone.Tint, alpha));
             }
         }
@@ -67,15 +67,14 @@ public sealed partial class GameLoop
             if (alpha <= 0) _subZoneTextSplash = null;
             else
             {
-                float seat = zoneEm * .5f + subEm * .5f;
-                if (sub.TerritorySeat) seat += subEm;
-                Vector2 subCenter = center + new Vector2(0, seat);
+                Vector2 subCenter = ZoneTextUiLaw.SubZoneCenter(center,
+                    zoneEm, subEm, sub.TerritorySeat);
                 if (sub.Text.Length > 0)
                     GameText.DrawCentered(draw, "SubZoneTextFont", sub.Text, subCenter, scale,
                         WithAlpha(sub.Tint, alpha));
                 if (sub.Extra.Length > 0)
                     GameText.DrawCentered(draw, "SubZoneTextFont", sub.Extra,
-                        subCenter + new Vector2(0, subEm), scale,
+                        ZoneTextUiLaw.SubZoneExtraCenter(subCenter, subEm), scale,
                         WithAlpha(ZoneTextUiLaw.ArenaTint, alpha));
             }
         }

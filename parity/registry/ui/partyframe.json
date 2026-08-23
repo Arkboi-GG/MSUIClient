@@ -7,8 +7,8 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/PartyFrame.xml",
-      "fileSha256": "a2cd548a624a1b1e0044f98eca29aa9a4f6500dda3ec3e095b71f2db86055ede",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "c17d929e750812623649a2176813ef602b89622c404f66e64931097cfd324d15",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [
@@ -58,7 +58,8 @@
       "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). The user-directed target presentation difference is intentionally preserved while missing containment, state, and lifecycle work is added, but that preserved presentation remains unverified.",
       "source": "claim-partyframe-template-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Nico's 2026-08-23 no-touch ruling preserves the existing Party Frame presentation under decision 0004; roster, lifecycle, containment and wire behavior remain must-match and live-unverified."
     },
     {
       "id": "item-claim-partyframe-instances-driver-001-verify",
@@ -81,7 +82,9 @@
     "trace-partyframe-template-001",
     "trace-partyframe-instances-driver-001"
   ],
-  "decisions": [],
+  "decisions": [
+    "0004-party-frame-presentation"
+  ],
   "lastReviewedUtc": "2026-08-08T06:45:14.6011181+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

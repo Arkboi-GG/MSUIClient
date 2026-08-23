@@ -16,6 +16,12 @@ public static class ComboFrameUiLaw
     public static readonly Vector2 HighlightSize = new(8, 16);
     public static readonly Vector2 ShineOffset = new(0, -4);
     public static readonly Vector2 ShineSize = new(14, 16);
+    public static readonly Vector2 SocketUvMin = Vector2.Zero;
+    public static readonly Vector2 SocketUvMax = new(.375f, 1);
+    public static readonly Vector2 HighlightUvMin = new(.375f, 0);
+    public static readonly Vector2 HighlightUvMax = new(.5625f, 1);
+    public static readonly Vector2 ShineUvMin = new(.5625f, 0);
+    public static readonly Vector2 ShineUvMax = Vector2.One;
 
     private static readonly Vector2[] PointFrameSizes =
     [

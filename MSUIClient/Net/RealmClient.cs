@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace MSUIClient.Net;
@@ -9,10 +10,8 @@ namespace MSUIClient.Net;
 // header-encrypted and each is self-delimiting, read in request/response order.
 // Opcodes: CMD_AUTH_LOGON_CHALLENGE = 0x00, CMD_AUTH_LOGON_PROOF = 0x01,
 // CMD_REALM_LIST = 0x10.
-//
-// NOTE: like benilla, this sends a zero crc_hash in the logon proof (there is no
-// WoW.exe to checksum), so the realmd must run with StrictVersionCheck = 0 or it
-// answers 0x09 WOW_FAIL_VERSION_INVALID at the proof stage regardless of account.
+// The challenge's crc_salt is answered with the mangos-family build-5875 Windows integrity
+// digest, allowing the ordinary desktop client to authenticate with StrictVersionCheck enabled.
 
 /// <summary>A realm as advertised by the auth server's realm list.</summary>
 public sealed record RealmInfo(string Name, string Address, float Population, byte Characters, uint RealmType);
@@ -33,7 +32,7 @@ public sealed class AuthRejectException(byte code)
     private static string Describe(byte code) => code switch
     {
         0x04 => " unknown account / wrong password",
-        0x09 => " version invalid — set realmd StrictVersionCheck = 0",
+        0x09 => " wrong client version",
         0x0A => " version update required",
         _ => "",
     };
@@ -53,6 +52,13 @@ public static class RealmClient
     private const uint OsWindows   = 0x0057_696e;
     private const uint LocaleEnUs  = 0x656e_5553;
 
+    // vmangos and cmangos both use this fixed challenge and this stored build-5875 Win/x86
+    // integrity digest. The proof field is SHA1(A || H), where A is the exact 32 wire bytes.
+    private static readonly byte[] MangosVersionChallenge =
+        Convert.FromHexString("BAA31E99A00B2157FC373FB369CDD2F1");
+    private static readonly byte[] IntegrityHash5875Windows =
+        Convert.FromHexString("95EDB27C7823B363CBDDAB56A392E7CB73FCCA20");
+
     /// <summary>Full SRP6 logon against a vanilla realmd, then fetch the realm list.</summary>
     public static LogonResult Logon(string host, int port, string username, string password, TimeSpan timeout)
     {
@@ -67,7 +73,7 @@ public static class RealmClient
         var srp = Srp6Client.ComputeChallenge(
             username, password, challenge.ServerPublicKey, challenge.Generator, challenge.LargeSafePrime, challenge.Salt);
 
-        WriteLogonProof(s, srp.A, srp.M1);
+        WriteLogonProof(s, srp.A, srp.M1, challenge.CrcSalt);
         s.Flush();
         byte[] serverProof = ReadProofReply(s);
         if (!Srp6Client.VerifyServerProof(srp.A, srp.M1, srp.SessionKey, serverProof))
@@ -145,7 +151,8 @@ public static class RealmClient
         WriteAll(s, packet.AsSpan());
     }
 
-    private readonly record struct ChallengeReply(byte[] ServerPublicKey, byte Generator, byte[] LargeSafePrime, byte[] Salt);
+    private readonly record struct ChallengeReply(byte[] ServerPublicKey, byte Generator,
+        byte[] LargeSafePrime, byte[] Salt, byte[] CrcSalt);
 
     private static ChallengeReply ReadChallengeReply(Stream s)
     {
@@ -164,25 +171,45 @@ public static class RealmClient
         byte[] prime = ReadN(s, primeLen);
         if (prime.Length != 32) throw new IOException($"safe prime was {primeLen} bytes, expected 32");
         byte[] salt = ReadN(s, 32);
-        ReadN(s, 16);                 // crc_salt (unused)
+        byte[] crcSalt = ReadN(s, 16);
         byte securityFlag = ReadU8(s);
         if ((securityFlag & 0x01) != 0) { ReadN(s, 4); ReadN(s, 16); } // PIN block (vmangos sends 0)
 
-        return new ChallengeReply(serverPublicKey, generator, prime, salt);
+        return new ChallengeReply(serverPublicKey, generator, prime, salt, crcSalt);
     }
 
     // --- proof ----------------------------------------------------------------------------------
 
-    private static void WriteLogonProof(Stream s, byte[] aLE, byte[] m1)
+    private static void WriteLogonProof(Stream s, byte[] aLE, byte[] m1, byte[] crcSalt)
+        => WriteAll(s, BuildLogonProof(aLE, m1, crcSalt));
+
+    public static byte[] BuildLogonProof(ReadOnlySpan<byte> aLE, ReadOnlySpan<byte> m1,
+        ReadOnlySpan<byte> crcSalt)
     {
-        var p = new PacketWriter(74);
+        if (aLE.Length != 32) throw new ArgumentException("client public key must be 32 bytes");
+        if (m1.Length != 20) throw new ArgumentException("client proof must be 20 bytes");
+        var p = new PacketWriter(75);
         p.WriteU8(CmdAuthLogonProof);
         p.WriteBytes(aLE);            // A (32)
         p.WriteBytes(m1);             // M1 (20)
-        p.WriteBytes(new byte[20]);   // crc_hash (zeros — needs StrictVersionCheck=0 server-side)
+        p.WriteBytes(VersionProof(crcSalt, aLE)); // crc_hash = SHA1(A || build-integrity H)
         p.WriteU8(0);                 // number of telemetry keys
         p.WriteU8(0);                 // security flag = none
-        WriteAll(s, p.AsSpan());
+        return p.ToArray();
+    }
+
+    /// <summary>Answer realmd's version challenge for the desktop Windows build-5875 client.</summary>
+    public static byte[] VersionProof(ReadOnlySpan<byte> crcSalt,
+        ReadOnlySpan<byte> clientPublicKey)
+    {
+        if (crcSalt.Length != 16) throw new ArgumentException("crc salt must be 16 bytes");
+        if (clientPublicKey.Length != 32)
+            throw new ArgumentException("client public key must be 32 bytes");
+        if (!crcSalt.SequenceEqual(MangosVersionChallenge)) return new byte[20];
+        Span<byte> input = stackalloc byte[52];
+        clientPublicKey.CopyTo(input);
+        IntegrityHash5875Windows.CopyTo(input[32..]);
+        return SHA1.HashData(input);
     }
 
     private static byte[] ReadProofReply(Stream s)

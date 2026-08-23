@@ -29,6 +29,8 @@ internal sealed class WaveOutVoice : IDisposable
     private nint _data;
     private nint _header;
     private bool _prepared;
+    private float _gain;
+    private float _pan;
 
     public bool Looping { get; private init; }
 
@@ -39,7 +41,7 @@ internal sealed class WaveOutVoice : IDisposable
     /// not PCM we can describe or the driver refuses the format - the caller falls
     /// back to the MCI path rather than going silent.
     /// </summary>
-    public static WaveOutVoice? Open(byte[] wav, bool looping, float gain)
+    public static WaveOutVoice? Open(byte[] wav, bool looping, float gain, float pan = 0f)
     {
         if (!OperatingSystem.IsWindows()) return null;
         if (!TryDescribe(wav, out WaveFormatEx format, out int dataOffset, out int dataLength))
@@ -70,7 +72,7 @@ internal sealed class WaveOutVoice : IDisposable
             { voice.Dispose(); return null; }
             voice._prepared = true;
 
-            voice.SetGain(gain);
+            voice.SetMix(gain, pan);
 
             if (waveOutWrite(voice._device, voice._header, (uint)Marshal.SizeOf<WaveHdr>()) != 0)
             { voice.Dispose(); return null; }
@@ -87,9 +89,19 @@ internal sealed class WaveOutVoice : IDisposable
     /// <summary>Absolute output gain, 0..1, on this stream only.</summary>
     public void SetGain(float gain)
     {
+        SetMix(gain, _pan);
+    }
+
+    /// <summary>Absolute gain plus stereo balance on this stream only.</summary>
+    public void SetMix(float gain, float pan)
+    {
+        _gain = Math.Clamp(gain, 0f, 1f);
+        _pan = Math.Clamp(pan, -1f, 1f);
         if (_device == 0) return;
-        uint level = (uint)Math.Clamp(gain * 0xFFFF, 0f, 0xFFFF);
-        waveOutSetVolume(_device, (level << 16) | level);   // right | left
+        (float left, float right) = SpatialAudioLaw.StereoLevels(_gain, _pan);
+        uint leftLevel = (uint)Math.Clamp(left * 0xFFFF, 0f, 0xFFFF);
+        uint rightLevel = (uint)Math.Clamp(right * 0xFFFF, 0f, 0xFFFF);
+        waveOutSetVolume(_device, (rightLevel << 16) | leftLevel);
     }
 
     /// <summary>True once the driver is done with the buffer. Always false while

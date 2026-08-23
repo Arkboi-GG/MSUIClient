@@ -100,6 +100,7 @@ public sealed partial class GameLoop
 
     private GameSettings Settings => SettingsFile?.Settings ?? _fallbackSettings;
     private readonly GameSettings _fallbackSettings = GameSettings.Defaults();
+    private readonly EquipmentDisplayPreferenceController _equipmentDisplayPreferences = new();
 
     // Escape/Options scale is deliberately independent of gameplay Interface scale. Keeping this
     // window on _skin.Scale made the Interface slider resize and re-center the modal containing
@@ -276,12 +277,11 @@ public sealed partial class GameLoop
         if (_macroPopupOpen) { CloseMacroPopup(accepted: false); return true; }
         if (_macroOpen) { CloseMacros(); return true; }
         if (_helpOpen) { _helpOpen = false; return true; }
-        if (_socialOpen) { _socialOpen = false; return true; }
+        if (_socialOpen || _guildOpen) return CloseFriendsFrame();
         if (_guildInfoOpen) { _guildInfoOpen = false; return true; }
         if (_guildMemberDetailOpen) { _guildMemberDetailOpen = false; return true; }
         if (_guildControlOpen) { _guildControlOpen = false; return true; }
-        if (_guildOpen) { _guildOpen = false; return true; }
-        if (_professionOpen) { _professionOpen = false; return true; }
+        if (CloseProfessionFrame()) return true;
         if (_bankOpen) return CloseBankSession();
         if (_tabardOpen) { _tabardOpen = false; return true; }
         if (_taxiOpen && !_taxiLocked) return CloseTaxiMap();
@@ -1994,6 +1994,26 @@ public sealed partial class GameLoop
                     "Unbounded look with the cursor locked - the mode a game wants, and the\n" +
                     "one a platform is most likely to refuse. If look is dead, turn this OFF\n" +
                     "first.");
+                Check("Sticky Targeting", () => s.Controls.StickyTargeting,
+                    v => s.Controls.StickyTargeting = v,
+                    "Keep the current target when an empty part of the world is left-clicked.\n" +
+                    "Selecting another unit and clearing with Escape still work normally.");
+            }
+            EndBox();
+
+            BeginBox("action-bars", "Action Bars");
+            {
+                Check("Lock ActionBars", () => s.Controls.LockActionBars,
+                    v => s.Controls.LockActionBars = v,
+                    "Prevent drag-to-move on the main and pet action bars.\n" +
+                    "Shift-click still picks an action up, matching the vanilla escape hatch.");
+            }
+            EndBox();
+
+            BeginBox("display", "Display");
+            {
+                EquipmentDisplayPreferenceRow(EquipmentDisplayPreference.Cloak, "Show Cloak");
+                EquipmentDisplayPreferenceRow(EquipmentDisplayPreference.Helm, "Show Helm");
             }
             EndBox();
 
@@ -2044,6 +2064,7 @@ public sealed partial class GameLoop
 
             BeginBox("camera", "Camera");
             {
+                CameraFollowStyleRow(s.Controls);
                 Check("Camera collision", () => s.Controls.CameraCollision,
                     v => { s.Controls.CameraCollision = v; _config.Camera.Collision = v; },
                     "Pulls the camera in when terrain or a building is between it and you.\n" +
@@ -2076,7 +2097,8 @@ public sealed partial class GameLoop
                     "Arrow keys turn and walk, PgUp/PgDn look up and down, Shift walks, Space " +
                     "jumps, F toggles fly, C toggles the collision wireframe. LEFT mouse swings " +
                     "the camera without turning you; RIGHT mouse turns you and the camera " +
-                    "together; moving re-centres the camera behind you. Wheel zooms.");
+                    "together; Camera Following Style decides when movement returns the view " +
+                    "behind you. Wheel zooms.");
                 ImGui.TextDisabled("Rebindable keys are not built yet.");
             }
             EndBox();
@@ -2475,6 +2497,44 @@ public sealed partial class GameLoop
         set(v);
         ApplySettings(Settings);
         return true;
+    }
+
+    private bool CameraFollowStyleRow(GameSettings.ControlSettings controls)
+    {
+        IReadOnlyList<CameraFollowStyle> order = CameraFollowLaw.DisplayOrder;
+        CameraFollowStyle current = CameraFollowLaw.NormalizeStyle(controls.CameraFollowStyle);
+        int selected = 0;
+        for (int i = 0; i < order.Count; i++)
+            if (order[i] == current) { selected = i; break; }
+        if (selected < 0) selected = 0;
+        string[] labels = order.Select(CameraFollowLaw.Label).ToArray();
+        ImGui.SetNextItemWidth(ControlWidth());
+        bool changed = ImGui.Combo("Camera Following Style##camera-follow-style",
+            ref selected, labels, labels.Length);
+        Tip(CameraFollowLaw.Description(order[selected]));
+        if (!changed) return false;
+        controls.CameraFollowStyle = order[selected];
+        ApplySettings(Settings);
+        return true;
+    }
+
+    private bool EquipmentDisplayPreferenceRow(
+        EquipmentDisplayPreference preference, string label)
+    {
+        bool shown = preference == EquipmentDisplayPreference.Helm
+            ? _equipmentDisplayPreferences.HelmShown
+            : _equipmentDisplayPreferences.CloakShown;
+        bool changed = _skin is not null
+            ? _skin.CheckBox(label, ref shown)
+            : ImGui.Checkbox(label, ref shown);
+        Tip("Show this worn item on your character. This per-character preference is stored " +
+            "by the game server and is visible to nearby players.");
+        if (!changed) return false;
+        EquipmentDisplayPreference? toggle =
+            _equipmentDisplayPreferences.Request(preference, shown);
+        if (toggle == EquipmentDisplayPreference.Helm) _net?.ToggleHelm();
+        else if (toggle == EquipmentDisplayPreference.Cloak) _net?.ToggleCloak();
+        return toggle is not null;
     }
 
     // ── apply / capture ──────────────────────────────────────────────────────

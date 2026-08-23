@@ -1,3 +1,4 @@
+using System.Numerics;
 using MSUIClient;
 using MSUIClient.Engine.UI;
 using MSUIClient.Net;
@@ -38,8 +39,33 @@ internal static class GuildFrameClinicalChecks
         Check(GuildFrameUiLaw.PresenceTag(0) == "" &&
               GuildFrameUiLaw.PresenceTag(0x02) == "<AFK>" &&
               GuildFrameUiLaw.PresenceTag(0x04) == "<DND>" &&
-              GuildFrameUiLaw.PresenceTag(0x06) == "<DND>",
+              GuildFrameUiLaw.PresenceTag(0x06) == "<DND>" &&
+              GuildFrameUiLaw.ResolvedRosterLabel(null) == "" &&
+              GuildFrameUiLaw.ResolvedRosterLabel("?") == "" &&
+              GuildFrameUiLaw.ResolvedRosterLabel("Ironforge") == "Ironforge",
             "guild DND-before-AFK presence tag drift");
+        IReadOnlyList<GuildFrameUiLaw.TextureSlice> offlineSlices =
+            GuildFrameUiLaw.OfflineFilterSlices;
+        Check(GuildFrameUiLaw.OfflineHit ==
+                  new GuildFrameUiLaw.LogicalRect(146, 38, 188, 24) &&
+              GuildFrameUiLaw.OfflineLabelRight ==
+                  new System.Numerics.Vector2(304, 49) &&
+              offlineSlices.Count == 3 &&
+              offlineSlices[0].Rect ==
+                  new GuildFrameUiLaw.LogicalRect(0, 0, 12, 28) &&
+              offlineSlices[1].Rect ==
+                  new GuildFrameUiLaw.LogicalRect(12, 0, 186, 28) &&
+              offlineSlices[2].Rect ==
+                  new GuildFrameUiLaw.LogicalRect(198, 0, 12, 28) &&
+              GuildFrameUiLaw.ViewToggleLabelRight(13) ==
+                  new System.Numerics.Vector2(303, 318) &&
+              GuildFrameUiLaw.ViewToggleLabelRight(14) ==
+                  new System.Numerics.Vector2(280, 318) &&
+              GuildFrameUiLaw.PlayerLevelCenter(110) ==
+                  new System.Numerics.Vector2(219, 8) &&
+              GuildFrameUiLaw.StatusOnlineOffset(85) ==
+                  new System.Numerics.Vector2(255, 3),
+            "guild main-frame child geometry drift");
 
         const uint guildId = 0x1122_3344;
         Check((ushort)Op.CMSG_GUILD_QUERY == 0x0054 &&
@@ -93,6 +119,11 @@ internal static class GuildFrameClinicalChecks
         Check(GuildFrameUiLaw.MemberDetailOffset == new System.Numerics.Vector2(351, 28) &&
               GuildFrameUiLaw.MemberDetailHeight(false) == 195 &&
               GuildFrameUiLaw.MemberDetailHeight(true) == 255 &&
+              GuildFrameUiLaw.MemberDetailSize(195) ==
+                  new System.Numerics.Vector2(212, 195) &&
+              GuildFrameUiLaw.MemberRankArrowHit(
+                  GuildFrameUiLaw.MemberPromoteButton(195)) ==
+                  new GuildFrameUiLaw.LogicalRect(158, 40.5f, 16, 14) &&
               GuildFrameUiLaw.MemberRemoveButton(195) ==
                   new GuildFrameUiLaw.LogicalRect(10, 161, 96, 22) &&
               GuildFrameUiLaw.MemberInviteButton(255) ==
@@ -106,10 +137,19 @@ internal static class GuildFrameClinicalChecks
                   GuildFrameUiLaw.PublicNotePlaceholder) ==
                   "Click here to set a Public Note." &&
               wide.Width == 420 && wide.Height == 112 &&
+              wide.Size == new System.Numerics.Vector2(420, 112) &&
               wide.EditBox == new StaticPopupCoordinatorLaw.Rect(35, 24, 350, 64) &&
+              wide.EditBox.Min == new System.Numerics.Vector2(35, 24) &&
+              wide.EditBox.Size == new System.Numerics.Vector2(350, 64) &&
               wide.Button1.Y == 75 &&
               GuildFrameUiLaw.NoteMaxLetters == 31,
             "GuildMemberDetail geometry, rights gates, note placeholders, or wide popup drift");
+        Check(GuildFrameUiLaw.InfoTextFont == "GameFontHighlight" &&
+              GuildFrameUiLaw.MemberNoteFont == "GameFontHighlight" &&
+              GuildFrameUiLaw.FixedTextLineMin(new System.Numerics.Vector2(100, 200),
+                  GuildFrameUiLaw.MemberNoteText, 2, 1, 24) ==
+                  new System.Numerics.Vector2(146, 486),
+            "Guild fixed note/info FontString adapter drift");
         byte[] notes = WorldSession.BuildTwoCStringBody("Bob", "hi");
         Check((ushort)Op.CMSG_GUILD_REMOVE == 0x008E &&
               (ushort)Op.CMSG_GUILD_SET_PUBLIC_NOTE == 0x0234 &&
@@ -132,6 +172,24 @@ internal static class GuildFrameClinicalChecks
                   new System.Numerics.Vector2(349, 65) &&
               GuildFrameUiLaw.ControlFrame ==
                   new GuildFrameUiLaw.LogicalRect(0, 0, 297, 298) &&
+              GuildFrameUiLaw.ControlShellTopLeft ==
+                  new GuildFrameUiLaw.LogicalRect(0, 0, 256, 256) &&
+              GuildFrameUiLaw.ControlShellBottomRight ==
+                  new GuildFrameUiLaw.LogicalRect(256, 256, 64, 64) &&
+              GuildFrameUiLaw.ControlSelectLabel.Center ==
+                  new System.Numerics.Vector2(148.5f, 23) &&
+              GuildFrameUiLaw.ControlAllowLabel.Center ==
+                  new System.Numerics.Vector2(148.5f, 114) &&
+              GuildFrameUiLaw.ControlRankNameLabelRight ==
+                  new System.Numerics.Vector2(106, 84) &&
+              GuildFrameUiLaw.ControlRankNameTextOffset ==
+                  new System.Numerics.Vector2(0, 7) &&
+              GuildFrameUiLaw.ControlDropDownArrow ==
+                  new GuildFrameUiLaw.LogicalRect(185, 34, 24, 24) &&
+              GuildFrameUiLaw.ControlDropDownRowTextOffset ==
+                  new System.Numerics.Vector2(5, 3) &&
+              GuildFrameUiLaw.ControlCheckboxLabelOffset ==
+                  new System.Numerics.Vector2(21, 4) &&
               GuildFrameUiLaw.ControlCheckbox(1) ==
                   new GuildFrameUiLaw.LogicalRect(25, 123, 20, 20) &&
               GuildFrameUiLaw.ControlCheckbox(2) ==
@@ -146,6 +204,29 @@ internal static class GuildFrameClinicalChecks
               GuildFrameUiLaw.ShowRemoveRank(5, 6) &&
               GuildFrameUiLaw.CanRemoveRank(5, 6, 0) &&
               !GuildFrameUiLaw.CanRemoveRank(5, 6, 1) &&
+              GuildFrameUiLaw.ControlAddRankTooltip == "Click to add rank" &&
+              GuildFrameUiLaw.ControlRemoveRankTooltip == "Click to remove this rank" &&
+              GuildFrameUiLaw.MemberOptionsTooltip ==
+                  "Right-click a guild member for more options." &&
+              GuildFrameUiLaw.InformationTooltip.StartsWith(
+                  "Click to see additional information about your guild.",
+                  StringComparison.Ordinal) &&
+              GuildFrameUiLaw.AddMemberTooltip == "Adds a new player to the guild." &&
+              GuildFrameUiLaw.ControlTooltip.StartsWith(
+                  "Allows you to customize the names of each rank",
+                  StringComparison.Ordinal) &&
+              GuildFrameUiLaw.RemoveMemberTooltip ==
+                  "Removes the selected player from the guild." &&
+              GuildFrameUiLaw.PromoteMemberTooltip ==
+                  "Promotes the selected player one rank higher." &&
+              GuildFrameUiLaw.DemoteMemberTooltip ==
+                  "Demotes the selected player one rank lower." &&
+              GuildFrameUiLaw.SmallButtonNormalFont == "GameFontNormalSmall" &&
+              GuildFrameUiLaw.SmallButtonHighlightFont == "GameFontHighlightSmall" &&
+              GuildFrameUiLaw.SmallButtonDisabledFont == "GameFontDisableSmall" &&
+              GuildFrameUiLaw.RightTooltipSeat(new Vector2(100, 200),
+                  new Vector2(16, 16)) ==
+                  new GuildFrameUiLaw.TooltipSeat(new Vector2(116, 200), Vector2.UnitY) &&
               GuildFrameUiLaw.AddRankDefinition.MaxLetters == 15,
             "GuildControl geometry, rights order, rank bounds, or wire contract drift");
 
@@ -211,6 +292,24 @@ internal static class GuildFrameClinicalChecks
               decodedInviter == "Tigole" && decodedGuild == "Legacy of Steel" &&
               GuildFrameUiLaw.InvitePopupText(decodedInviter, decodedGuild) ==
                   "Tigole invites you to join Legacy of Steel." &&
+              GuildFrameUiLaw.InvitePopupSize(14) ==
+                  new System.Numerics.Vector2(320, 74) &&
+              GuildFrameUiLaw.InvitePopupLineCenter(0, 14) ==
+                  new System.Numerics.Vector2(160, 23) &&
+              GuildFrameUiLaw.InvitePopupButton(1, 14) ==
+                  new GuildFrameUiLaw.LogicalRect(26, 38, 128, 20) &&
+              GuildFrameUiLaw.InvitePopupButton(2, 14) ==
+                  new GuildFrameUiLaw.LogicalRect(167, 38, 128, 20) &&
+              GuildFrameUiLaw.RemoveMemberPopupSize(14) ==
+                  new System.Numerics.Vector2(320, 74) &&
+              GuildFrameUiLaw.RemoveMemberPopupButton(2, 14) ==
+                  new GuildFrameUiLaw.LogicalRect(167, 38, 128, 20) &&
+              GuildFrameUiLaw.WideEditBorderLeft ==
+                  new GuildFrameUiLaw.LogicalRect(-10, 16, 256, 32) &&
+              GuildFrameUiLaw.WideEditBorderMiddle ==
+                  new GuildFrameUiLaw.LogicalRect(246, 16, 39, 32) &&
+              GuildFrameUiLaw.WideEditBorderRight ==
+                  new GuildFrameUiLaw.LogicalRect(285, 16, 75, 32) &&
               GuildFramePacketLaw.InviteLine(guildInvite) ==
                   "Tigole invites you join Legacy of Steel." &&
               GuildFrameUiLaw.InviteDefinition.WhileDead &&
@@ -238,6 +337,21 @@ internal static class GuildFrameClinicalChecks
               GuildFramePacketLaw.DeclineLine("Kaplan") ==
                   "Kaplan declines your guild invitation.",
             "guild decline or /ginfo line composition drift");
+        Check(WorldSession.BuildCStringBody("Furor").SequenceEqual(
+                  new byte[] { 0x46, 0x75, 0x72, 0x6F, 0x72, 0x00 }) &&
+              GuildFrameUiLaw.GuildActionText(
+                  GuildFrameUiLaw.ConfirmPromotePopupType, "Furor") ==
+                  "Really promote Furor to Guildmaster?" &&
+              GuildFrameUiLaw.GuildActionText(
+                  GuildFrameUiLaw.ConfirmLeavePopupType, "Legacy of Steel") ==
+                  "Really leave Legacy of Steel?" &&
+              GuildFrameUiLaw.GuildActionButtons(
+                  GuildFrameUiLaw.ConfirmPromotePopupType) == ("Accept", "Cancel") &&
+              GuildFrameUiLaw.GuildActionButtons(
+                  GuildFrameUiLaw.RemoveMemberPopupType) == ("Yes", "No") &&
+              GuildFrameUiLaw.ConfirmPromoteDefinition.WhileDead &&
+              GuildFrameUiLaw.ConfirmLeaveDefinition.HideOnEscape,
+            "guild leader handover/leave confirmation law drift");
 
         string root = ClientConfig.FindRepoRoot();
         string guild = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
@@ -254,6 +368,12 @@ internal static class GuildFrameClinicalChecks
             "GameLoop.GuildControl.cs"));
         string chat = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Chat.cs"));
+        string unitPopup = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
+            "GameLoop.UnitPopup.cs"));
+        string worldSession = SourceText.Read(Path.Combine(root, "MSUIClient", "Net",
+            "WorldSession.cs"));
+        string networkClient = SourceText.Read(Path.Combine(root, "MSUIClient", "Net",
+            "NetworkClient.cs"));
         Check(guild.Contains("_guildSort.Order(projections, _guildShowOffline)",
                   StringComparison.Ordinal) &&
               guild.Contains("GuildRosterSortLaw.DisplayedCount", StringComparison.Ordinal) &&
@@ -261,11 +381,17 @@ internal static class GuildFrameClinicalChecks
               guild.Contains("DrawGuildColumnHeader", StringComparison.Ordinal) &&
               guild.Contains("GuildFrameUiLaw.PresenceTag(member.Presence)",
                   StringComparison.Ordinal) &&
+              guild.Contains("GuildFrameUiLaw.ResolvedRosterLabel(",
+                  StringComparison.Ordinal) &&
+              !guild.Contains("$\"Area {member.Zone}\"", StringComparison.Ordinal) &&
               guild.Contains("_guildRankNames[member.Rank]", StringComparison.Ordinal) &&
               guild.Contains("GameText.DrawCentered(dl, \"GameFontNormal\", _guildName",
                   StringComparison.Ordinal) &&
               guild.Contains("RequestOwnGuildIdentity()", StringComparison.Ordinal) &&
               guild.Contains("ShowGuildAddMemberPopup();", StringComparison.Ordinal) &&
+              guild.Contains("OpenGuildPopup(member.Guid, member.Name",
+                  StringComparison.Ordinal) &&
+              !guild.Contains("new Vector2", StringComparison.Ordinal) &&
               net.Contains("case Op.SMSG_GUILD_QUERY_RESPONSE:", StringComparison.Ordinal) &&
               net.Contains("ApplyGuildQueryResponse(body);", StringComparison.Ordinal) &&
               net.Contains("case Op.SMSG_GUILD_INVITE:", StringComparison.Ordinal) &&
@@ -285,24 +411,59 @@ internal static class GuildFrameClinicalChecks
               info.Contains("_skin.DrawBackdrop(draw, origin, origin + size, WowSkin.Dialog)",
                   StringComparison.Ordinal) &&
               info.Contains("_net?.GuildInfoText(text);", StringComparison.Ordinal) &&
+              info.Contains("GuildFrameUiLaw.InfoTextFont", StringComparison.Ordinal) &&
               info.Contains("RequestGuildRoster();", StringComparison.Ordinal),
             "GuildInfoFrame regressed from rule-owned satellite geometry or save flow");
         Check(guild.Contains("_guildMemberDetailOpen && _guildSelected == originalIndex",
                   StringComparison.Ordinal) &&
               member.Contains("GuildFrameUiLaw.MemberDetailOrigin", StringComparison.Ordinal) &&
               member.Contains("GuildFrameUiLaw.MemberDetailHeight", StringComparison.Ordinal) &&
+              member.Contains("GuildFrameUiLaw.MemberNoteFont", StringComparison.Ordinal) &&
+              member.Contains("GuildFrameUiLaw.FixedTextLineMin", StringComparison.Ordinal) &&
+              !member.Contains("DrawWrappedText(draw, value", StringComparison.Ordinal) &&
+              member.Contains("GuildFrameUiLaw.MemberRankArrowHit", StringComparison.Ordinal) &&
+              !member.Contains("new Vector2", StringComparison.Ordinal) &&
               member.Contains("ShowGuildMemberPopup(GuildFrameUiLaw.RemoveMemberDefinition)",
                   StringComparison.Ordinal) &&
               member.Contains("_net?.GroupInvite(member.Name);", StringComparison.Ordinal) &&
+              member.Contains("OfferVanillaNewbieTooltip", StringComparison.Ordinal) &&
+              member.Contains("GuildFrameUiLaw.SmallButtonNormalFont",
+                  StringComparison.Ordinal) &&
+              info.Contains("GuildFrameUiLaw.SmallButtonNormalFont",
+                  StringComparison.Ordinal) &&
+              guild.Contains("OfferVanillaNewbieTooltip(new(\"guild-member-row\"",
+                  StringComparison.Ordinal) &&
+              guild.Contains("OfferVanillaNewbieTooltip(new(\"guild-action\"",
+                  StringComparison.Ordinal) &&
+              guild.Contains("GuildFrameUiLaw.SmallButtonNormalFont",
+                  StringComparison.Ordinal) &&
               modal.Contains("StaticPopupCoordinatorLaw.WideEditLayout", StringComparison.Ordinal) &&
               modal.Contains("_net?.GuildSetPublicNote", StringComparison.Ordinal) &&
               modal.Contains("_net?.GuildSetOfficerNote", StringComparison.Ordinal) &&
               modal.Contains("_net?.GuildRemove", StringComparison.Ordinal),
             "GuildMemberDetail or its rule-owned shared-popup action surfaces regressed");
+        Check(modal.Contains("GuildFrameUiLaw.GuildActionPopup", StringComparison.Ordinal) &&
+              modal.Contains("_net?.GuildLeader(name);", StringComparison.Ordinal) &&
+              modal.Contains("_net?.GuildLeave();", StringComparison.Ordinal) &&
+              unitPopup.Contains("UnitPopupUiLaw.VisibleGuildRows", StringComparison.Ordinal) &&
+              unitPopup.Contains("GuildFrameUiLaw.ConfirmPromoteDefinition",
+                  StringComparison.Ordinal) &&
+              unitPopup.Contains("GuildFrameUiLaw.ConfirmLeaveDefinition",
+                  StringComparison.Ordinal) &&
+              worldSession.Contains("Op.CMSG_GUILD_LEADER", StringComparison.Ordinal) &&
+              networkClient.Contains("InWorld(s => s.GuildLeader(name))",
+                  StringComparison.Ordinal),
+            "guild roster UnitPopup leader/leave confirmations are not wired");
         Check(guild.Contains("ToggleGuildControlFrame();", StringComparison.Ordinal) &&
               control.Contains("GuildFrameUiLaw.ControlFrameOrigin", StringComparison.Ordinal) &&
               control.Contains("DrawGuildControlShell", StringComparison.Ordinal) &&
+              control.Contains("GuildFrameUiLaw.ControlShellTopLeft", StringComparison.Ordinal) &&
+              control.Contains("GuildFrameUiLaw.ControlDropDownArrow", StringComparison.Ordinal) &&
               control.Contains("GuildFrameUiLaw.ControlCheckbox", StringComparison.Ordinal) &&
+              control.Contains("GuildFrameUiLaw.RightTooltipSeat", StringComparison.Ordinal) &&
+              control.Contains("GuildFrameUiLaw.ControlAddRankTooltip", StringComparison.Ordinal) &&
+              control.Contains("GuildFrameUiLaw.ControlRemoveRankTooltip", StringComparison.Ordinal) &&
+              !control.Contains("new Vector2", StringComparison.Ordinal) &&
               control.Contains("_net?.GuildRank", StringComparison.Ordinal) &&
               control.Contains("_net?.GuildDeleteRank", StringComparison.Ordinal) &&
               control.Contains("ShowGuildAddRankPopup();", StringComparison.Ordinal) &&
@@ -315,7 +476,9 @@ internal static class GuildFrameClinicalChecks
               guild.Contains("_ignored.Contains(guid)", StringComparison.Ordinal) &&
               guild.Contains("GuildFramePacketLaw.MakesRosterStale", StringComparison.Ordinal) &&
               guild.Contains("ShowGuildInvitePopup(invite);", StringComparison.Ordinal) &&
-              modal.Contains("GuildFrameUiLaw.InvitePopupHeight", StringComparison.Ordinal) &&
+              modal.Contains("GuildFrameUiLaw.InvitePopupSize", StringComparison.Ordinal) &&
+              modal.Contains("GuildFrameUiLaw.WideEditBorderMiddle", StringComparison.Ordinal) &&
+              !modal.Contains("new Vector2", StringComparison.Ordinal) &&
               modal.Contains("StaticPopupOrigin(visible.Slot", StringComparison.Ordinal) &&
               modal.Contains("_net?.GuildAccept();", StringComparison.Ordinal) &&
               modal.Contains("_net?.GuildDecline();", StringComparison.Ordinal) &&

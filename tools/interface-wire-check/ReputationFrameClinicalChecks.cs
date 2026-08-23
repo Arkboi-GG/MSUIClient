@@ -15,11 +15,26 @@ internal static class ReputationFrameClinicalChecks
                   new ReputationFrameUiLaw.LogicalRect(20, 21, 170, 12) &&
               ReputationFrameUiLaw.Description ==
                   new ReputationFrameUiLaw.LogicalRect(20, 35, 170, 92) &&
+              ReputationFrameUiLaw.Corner ==
+                  new ReputationFrameUiLaw.LogicalRect(174, 7, 32, 32) &&
               ReputationFrameUiLaw.AtWarCheck ==
                   new ReputationFrameUiLaw.LogicalRect(14, 143, 26, 26) &&
               ReputationFrameUiLaw.MainScreenCheck ==
                   new ReputationFrameUiLaw.LogicalRect(14, 166, 26, 26),
             "ReputationDetailFrame authored geometry drift");
+
+        ReputationFrameUiLaw.ScreenRect frame =
+            ReputationFrameUiLaw.DetailScreenRect(new Vector2(10, 20), 2);
+        ReputationFrameUiLaw.CheckGeometry sword = ReputationFrameUiLaw.Check(
+            frame.Min, ReputationFrameUiLaw.AtWarCheck, 2, true);
+        Check(frame == new ReputationFrameUiLaw.ScreenRect(
+                  new Vector2(712, -36), new Vector2(424, 406)) &&
+              sword.Hit == new ReputationFrameUiLaw.ScreenRect(
+                  new Vector2(740, 250), new Vector2(52, 52)) &&
+              sword.MarkMin == new Vector2(746, 240) &&
+              sword.MarkSize == new Vector2(64) &&
+              sword.LabelPosition == new Vector2(788, 264),
+            "ReputationDetailFrame screen/checkbox projection drift");
 
         byte flags = ReputationFrameUiLaw.Visible | ReputationFrameUiLaw.AtWar;
         Check(ReputationFrameUiLaw.IsVisible(flags) &&
@@ -55,7 +70,7 @@ internal static class ReputationFrameClinicalChecks
             "WorldSession.cs"));
         string faction = SourceText.Read(Path.Combine(root, "MSUIClient", "Formats",
             "Faction.cs"));
-        Check(runtime.Contains("ReputationFrameUiLaw.DetailOffset", StringComparison.Ordinal) &&
+        Check(runtime.Contains("ReputationFrameUiLaw.DetailScreenRect", StringComparison.Ordinal) &&
               runtime.Contains("ImGui.Begin(\"##reputation-detail\"", StringComparison.Ordinal) &&
               runtime.Contains("ReputationFrameUiLaw.AtWarCheck", StringComparison.Ordinal) &&
               runtime.Contains("ReputationFrameUiLaw.InactiveCheck", StringComparison.Ordinal) &&
@@ -70,6 +85,16 @@ internal static class ReputationFrameClinicalChecks
               session.Contains("ReputationFrameUiLaw.WatchedBody", StringComparison.Ordinal) &&
               faction.Contains("dbc.GetString(row, 28)", StringComparison.Ordinal),
             "Reputation frame bypasses rule-owned dialog/tree/wire/description law");
+
+        int detailStart = runtime.IndexOf("private void DrawReputationDetail", StringComparison.Ordinal);
+        int detailEnd = runtime.IndexOf("private void DrawHonorPage", detailStart,
+            StringComparison.Ordinal);
+        string detailRuntime = runtime[detailStart..detailEnd];
+        Check(detailStart >= 0 && detailEnd > detailStart &&
+              detailRuntime.Contains("ReputationFrameUiLaw.DetailScreenRect", StringComparison.Ordinal) &&
+              detailRuntime.Contains("ReputationFrameUiLaw.Check", StringComparison.Ordinal) &&
+              !detailRuntime.Contains("new Vector2", StringComparison.Ordinal),
+            "ReputationDetailFrame renderer owns modal geometry");
     }
 
     private static void Check(bool condition, string message)

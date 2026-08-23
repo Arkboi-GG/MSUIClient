@@ -76,7 +76,27 @@ internal static class GroupLootClinicalChecks
             new Vector2(1920, 1080), 1, 1, managed);
         Check(first.Min == new Vector2(838.5f, 852) && first.Size == new Vector2(243, 84) &&
               second.Min == new Vector2(838.5f, 753) &&
+              GroupLootFrameUiLaw.FrameLogicalSize == new Vector2(243, 84) &&
+              GroupLootFrameUiLaw.ItemPlateLogicalSize == new Vector2(64, 64) &&
+              GroupLootFrameUiLaw.NamePlateSize == new Vector2(128, 64) &&
+              GroupLootFrameUiLaw.DragonSize == new Vector2(120, 120) &&
+              GroupLootFrameUiLaw.CornerSize == new Vector2(32, 32) &&
+              GroupLootFrameUiLaw.IconLogicalSize == new Vector2(34, 34) &&
+              GroupLootFrameUiLaw.VoteButtonLogicalSize == new Vector2(32, 32) &&
+              GroupLootFrameUiLaw.RightTooltipSeat(new Vector2(18, 18),
+                  new Vector2(34, 34)) == new GroupLootFrameUiLaw.TooltipSeat(
+                      new Vector2(52, 18), new Vector2(0, 1)) &&
+              GroupLootFrameUiLaw.TimerFillSize(.5f, 2) == new Vector2(152, 20) &&
+              GroupLootFrameUiLaw.TimerFillUvMax(.5f) == new Vector2(.5f, 1) &&
               GroupLootFrameUiLaw.IconMin == new Vector2(18, 18) &&
+              GroupLootFrameUiLaw.NameFont == "GameFontNormalSmall" &&
+              GroupLootFrameUiLaw.WrapItemName("Worn Short Sword", 10, 3,
+                  candidate => candidate.Length).SequenceEqual(
+                      new[] { "Worn Short", "Sword" }) &&
+              GroupLootFrameUiLaw.NameLineMin(Vector2.Zero, 1, 0, 1, 10) ==
+                  new Vector2(62, 25) &&
+              GroupLootFrameUiLaw.NameLineMin(Vector2.Zero, 1, 1, 2, 10) ==
+                  new Vector2(62, 30) &&
               GroupLootFrameUiLaw.NeedMin == new Vector2(174, 14) &&
               GroupLootFrameUiLaw.GreedMin == new Vector2(172, 44) &&
               GroupLootFrameUiLaw.TimerMin == new Vector2(16, 57),
@@ -85,9 +105,25 @@ internal static class GroupLootClinicalChecks
             new Vector2(1920, 1080), 1, 14);
         Check(popup.Min.X == 800 && popup.Min.Y == 128 && popup.Size.X == 320 &&
               GroupLootFrameUiLaw.ConfirmText == "Looting this item will bind it to you." &&
+              GroupLootFrameUiLaw.ConfirmButtonSize == new Vector2(128, 20) &&
+              GroupLootFrameUiLaw.ConfirmButtonUvMax == new Vector2(1, .625f) &&
               GroupLootFrameUiLaw.ConfirmButtonMin(1, 14).X == 26 &&
               GroupLootFrameUiLaw.ConfirmButtonMin(2, 14).X == 167,
             "CONFIRM_LOOT_ROLL popup law drift");
+
+        const string swordLink = "|cffffffff|Hitem:25:0:0:0|h[Worn Shortsword]|h|r";
+        Check(GroupLootFrameUiLaw.ItemLink(25, "Worn Shortsword", 1) == swordLink &&
+              GroupLootFrameUiLaw.IconAction(true, true, true, true, true) ==
+                  GroupLootFrameUiLaw.IconClickAction.DressUp &&
+              GroupLootFrameUiLaw.IconAction(true, false, true, true, true) ==
+                  GroupLootFrameUiLaw.IconClickAction.InsertChat &&
+              GroupLootFrameUiLaw.IconAction(true, false, true, false, true) ==
+                  GroupLootFrameUiLaw.IconClickAction.None &&
+              GroupLootFrameUiLaw.IconAction(true, false, false, true, true) ==
+                  GroupLootFrameUiLaw.IconClickAction.None &&
+              GroupLootFrameUiLaw.IconAction(true, true, false, true, false) ==
+                  GroupLootFrameUiLaw.IconClickAction.None,
+            "GroupLootFrame icon modifier/link fork drift");
 
         string root = ClientConfig.FindRepoRoot();
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
@@ -100,12 +136,23 @@ internal static class GroupLootClinicalChecks
               runtime.Contains("UiParentManagedState", StringComparison.Ordinal) &&
               runtime.Contains("WowSkin.DialogGold", StringComparison.Ordinal) &&
               runtime.Contains("VoteOnGroupLoot", StringComparison.Ordinal) &&
+              runtime.Contains("GroupLootFrameUiLaw.IconAction", StringComparison.Ordinal) &&
+              runtime.Contains("GroupLootFrameUiLaw.RightTooltipSeat(",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("nextWindowPivot: tooltipSeat.Pivot",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("GroupLootFrameUiLaw.WrapItemName", StringComparison.Ordinal) &&
+              runtime.Contains("GroupLootFrameUiLaw.NameLineMin", StringComparison.Ordinal) &&
+              runtime.Contains("InsertChatText(itemLink)", StringComparison.Ordinal) &&
               runtime.Contains("GroupLootFrameUiLaw.ConfirmRect", StringComparison.Ordinal) &&
               dispatch.Contains("case Op.SMSG_LOOT_START_ROLL", StringComparison.Ordinal) &&
               dispatch.Contains("case Op.SMSG_LOOT_ALL_PASSED", StringComparison.Ordinal) &&
               draw.Contains("DrawGroupLootFrames();", StringComparison.Ordinal) &&
               draw.Contains("DrawGroupLootConfirmation();", StringComparison.Ordinal) &&
-              !runtime.Contains("SetNextWindowPos(new", StringComparison.Ordinal),
+              !runtime.Contains("SetNextWindowPos(new", StringComparison.Ordinal) &&
+              !runtime.Contains("new Vector2", StringComparison.Ordinal),
             "group-loot production wiring bypasses packet/frame/modal laws");
     }
 

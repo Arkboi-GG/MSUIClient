@@ -14,6 +14,11 @@
       "path": "crates/benilla-app/src/ui_merchant.rs",
       "fileSha256": "dff9ef2404e587a763caf4467627eb3542dbb93014db7dee0775dab1f411365d",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/assets/ui/MoneyFrame.xml",
+      "fileSha256": "7d12dc8d53a5ea6cb52f4b5b0efec26b457e202deb88cab82c6b9b6fbd2cc51d",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
@@ -53,7 +58,7 @@
     "tools/interface-wire-check/Program.cs"
   ],
   "status": "partial",
-  "summary": "Merchant money, row projection, paging, shell, live vendor portrait, current-Benilla zero-discount repair arithmetic, release-owned repair interaction, exact GameText/WowSkin item-hover rendering, repair tooltip/button states, protocol bodies, and shared tooltip money pass bounded deterministic checks. The player update-field snapshot now scans all twelve build-5875 buyback GUID/price/timestamp descriptors, filters incomplete entries, stably orders oldest-first, preserves physical 69-80 wire slots, fills the unpaged twelve-row Buyback tab, and exposes the newest row in the merchant-page recent-buyback slot without altering the protected vendor-main presentation. BenillaMerchantFrame is registered in the global left UIPanel coordinator, so competing registered panels replace it through its native close callback and Escape/center/fullscreen closure uses the same authority. Remaining work is current-Benilla's own deferred drag-buy/shared cursor-item authority, authenticated buyback verification, and human acceptance.",
+  "summary": "Merchant money, row projection, paging, shell, live vendor portrait, current-Benilla zero-discount repair arithmetic, release-owned repair interaction, exact GameText/WowSkin item-hover rendering, repair tooltip/button states, protocol bodies, and shared tooltip money pass bounded deterministic checks. The player update-field snapshot now scans all twelve build-5875 buyback GUID/price/timestamp descriptors, filters incomplete entries, stably orders oldest-first, preserves physical 69-80 wire slots, fills the unpaged twelve-row Buyback tab, and exposes the newest row in the merchant-page recent-buyback slot without altering the protected vendor-main presentation. BenillaMerchantFrame is registered in the global left UIPanel coordinator, so competing registered panels replace it through its native close callback and Escape/center/fullscreen closure uses the same authority. Current Benilla explicitly identifies MoneyFrame.xml as an addon compatibility kit not consumed by its eight authored money windows, so it creates no vendor-main presentation delta. Remaining work is current-Benilla's own deferred drag-buy/shared cursor-item authority, authenticated buyback verification, and human acceptance.",
   "openItems": [
     {
       "id": "item-claim-merchantframe-vendor-money-helper-001-verify",
@@ -238,6 +243,6 @@
     "trace-gametooltip-money-row-001"
   ],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T22:14:49.0309430Z",
+  "lastReviewedUtc": "2026-08-23T02:56:49Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

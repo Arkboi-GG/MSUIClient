@@ -8,9 +8,9 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    private const float NameplateRangeYards = 20f;
-    private readonly List<ScreenRect> _vplateClaims = [];
-    private readonly List<(ScreenRect Rect, ulong Guid)> _vplateHits = [];
+    private const float NameplateRangeYards = NameplateUiLaw.RangeYards;
+    private readonly List<NameplateUiLaw.Bounds> _vplateClaims = [];
+    private readonly List<(NameplateUiLaw.Bounds Rect, ulong Guid)> _vplateHits = [];
     private readonly List<World.Units.WorldNameRenderer.Label> _worldNameLabels = [];
     // Current Benilla boots enemy/neutral plates on and friendly plates off. The two switches
     // remain independent; ALLNAMEPLATES composes them through NameplateUiLaw.ToggleAll.
@@ -23,15 +23,12 @@ public sealed partial class GameLoop
     private readonly record struct PlateCandidate(
         WorldEntity Unit, Vector2 Screen, FactionReaction Reaction, float SortDistance);
 
+    // Shared only with the developer waypoint editor's screen-space hit regions. Player-facing
+    // V-plate geometry uses NameplateUiLaw.Bounds below.
     private readonly record struct ScreenRect(float Left, float Top, float Right, float Bottom)
     {
-        public float Width => Right - Left;
-        public float Height => Bottom - Top;
         public bool Contains(Vector2 point) =>
             point.X >= Left && point.X <= Right && point.Y >= Top && point.Y <= Bottom;
-        public bool Overlaps(ScreenRect other) =>
-            Right > other.Left && Left < other.Right && Bottom > other.Top && Top < other.Bottom;
-        public ScreenRect Offset(float x, float y) => new(Left + x, Top + y, Right + x, Bottom + y);
     }
 
     private void DrawWorldUnitNames()
@@ -122,14 +119,8 @@ public sealed partial class GameLoop
             !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
 
         Vector2 display = ImGui.GetIO().DisplaySize;
-        float diagonal = MathF.Sqrt(display.X * display.X + display.Y * display.Y);
-        float basis = diagonal <= 1280f ? diagonal : 1280f + (diagonal - 1280f) * 0.5f;
-        float width = MathF.Round(0.1f * basis);
-        float height = MathF.Round(0.025f * basis);
-        float nameSize = MathF.Min(32f, MathF.Round(0.01f * basis));
-        float levelSize = MathF.Min(32f, MathF.Round(0.0086f * basis));
+        NameplateUiLaw.PlateLayout layout = NameplateUiLaw.Layout(display);
         Vector3 selfPosition = _controller?.Position ?? player.Position;
-        Vector2 sortPoint = new(0.4f * diagonal, display.Y - 0.3f * diagonal);
         List<PlateCandidate> candidates = [];
 
         foreach (WorldEntity unit in _entities.Units)
@@ -142,7 +133,7 @@ public sealed partial class GameLoop
                 HasLiveChatBubble(unit.Guid) ||
                 (unit.Fields.UnitFlags & NotSelectable) != 0 ||
                 Vector3.DistanceSquared(selfPosition, UnitWorldPosition(unit)) >
-                    NameplateRangeYards * NameplateRangeYards)
+                    NameplateUiLaw.RangeYards * NameplateUiLaw.RangeYards)
                 continue;
 
             FactionReaction reaction = ReactionTargetTowardPlayer(unit);
@@ -153,24 +144,23 @@ public sealed partial class GameLoop
                 new Vector3(0f, 0f, UnitOverheadHeight(unit) + 2f / 3f);
             if (!_window.Camera.TryWorldToScreen(anchor, display, out Vector2 screen)) continue;
             candidates.Add(new PlateCandidate(unit, screen, reaction,
-                Vector2.DistanceSquared(screen, sortPoint)));
+                Vector2.DistanceSquared(screen, layout.SortPoint)));
         }
 
         candidates.Sort(static (a, b) => a.SortDistance.CompareTo(b.SortDistance));
         _vplateClaims.Clear();
         foreach (PlateCandidate candidate in candidates)
         {
-            ScreenRect desired = new(candidate.Screen.X - width * 0.5f, candidate.Screen.Y,
-                candidate.Screen.X + width * 0.5f, candidate.Screen.Y + height);
-            ScreenRect plate = ResolveVplate(desired, display);
+            NameplateUiLaw.Bounds desired = NameplateUiLaw.DesiredPlate(candidate.Screen, layout);
+            NameplateUiLaw.Bounds plate = ResolveVplate(desired, display);
             _vplateClaims.Add(plate);
             _vplateHits.Add((plate, candidate.Unit.Guid));
-            DrawNameplate(candidate.Unit, candidate.Reaction, plate, basis, nameSize, levelSize, player);
+            DrawNameplate(candidate.Unit, candidate.Reaction, plate, layout, player);
         }
     }
 
-    private void DrawNameplate(WorldEntity unit, FactionReaction reaction, ScreenRect plate,
-        float basis, float nameSize, float levelSize, WorldEntity player)
+    private void DrawNameplate(WorldEntity unit, FactionReaction reaction,
+        NameplateUiLaw.Bounds plate, NameplateUiLaw.PlateLayout layout, WorldEntity player)
     {
         ImDrawListPtr draw = ImGui.GetBackgroundDrawList();
         bool target = unit.Guid == _selectionGuid;
@@ -179,24 +169,23 @@ public sealed partial class GameLoop
         float alpha = _selectionGuid == 0 || target ? 1f : 178f / 255f;
         uint alphaWhite = ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 1f, 1f, alpha));
 
-        float Gx(float value) => MathF.Round(value * basis);
         float health = Math.Clamp(unit.HealthFraction, 0f, 1f);
-        float barLeft = plate.Left + Gx(0.0031f);
-        float barBottom = plate.Bottom - Gx(0.003125f);
-        float barWidth = Gx(0.0804f);
-        float barHeight = Gx(0.007025f);
-        Vector2 barMin = new(barLeft, barBottom - barHeight);
-        Vector2 barMax = new(barLeft + barWidth * health, barBottom);
+        NameplateUiLaw.ImageRect healthRect =
+            NameplateUiLaw.HealthFill(plate, layout.Basis, health);
         uint fill = _gameplayArt!.Handle(@"Interface\TargetingFrame\UI-TargetingFrame-BarFill");
         if (fill != 0 && health > 0f)
-            draw.AddImage((nint)fill, barMin, barMax, Vector2.Zero, new Vector2(health, 1f),
+            draw.AddImage((nint)fill, healthRect.Min, healthRect.Max, Vector2.Zero,
+                NameplateUiLaw.HealthUvMax(health),
                 PlateTintU32(reaction, unit.IsPlayer, alpha, lit));
 
         // benilla vplates.rs:619-663: the border is above the cropped fill.
         uint border = _gameplayArt.Handle(@"Interface\Tooltips\Nameplate-Border");
         if (border != 0)
-            draw.AddImage((nint)border, new Vector2(plate.Left, plate.Top),
-                new Vector2(plate.Right, plate.Bottom), Vector2.Zero, Vector2.One, alphaWhite);
+        {
+            NameplateUiLaw.ImageRect frame = NameplateUiLaw.Frame(plate);
+            draw.AddImage((nint)border, frame.Min, frame.Max,
+                Vector2.Zero, Vector2.One, alphaWhite);
+        }
 
         EnsureUnitNameRequested(unit);
         string name = unit.IsPlayer
@@ -210,22 +199,18 @@ public sealed partial class GameLoop
         Vector3 nameRgb = NameplateUiLaw.SelectionRgb(reaction, unit.IsPlayer, unit.IsDead,
             _attackTargetGuid == unit.Guid, MovementInfo.ClientUptimeMs());
         uint nameColor = ImGui.ColorConvertFloat4ToU32(new Vector4(nameRgb, alpha));
-        float firstLineBottom = (plate.Top + plate.Bottom) * 0.5f;
-        float centerX = (plate.Left + plate.Right) * 0.5f;
-        DrawPlateText(draw, new Vector2(centerX,
-                NameplateUiLaw.LineBottom(firstLineBottom, 0, nameSize)),
-            nameLine, nameSize, nameColor, bottomSeated: true);
+        DrawPlateText(draw, NameplateUiLaw.NameAnchor(plate, 0, layout.NameSize),
+            nameLine, layout.NameSize, nameColor, bottomSeated: true);
         if (subnameLine is not null)
-            DrawPlateText(draw, new Vector2(centerX,
-                    NameplateUiLaw.LineBottom(firstLineBottom, 1, nameSize)),
-                subnameLine, nameSize, nameColor, bottomSeated: true);
+            DrawPlateText(draw, NameplateUiLaw.NameAnchor(plate, 1, layout.NameSize),
+                subnameLine, layout.NameSize, nameColor, bottomSeated: true);
 
-        Vector2 levelAnchor = new(plate.Right - Gx(0.0092f), plate.Bottom - Gx(0.0071f));
+        Vector2 levelAnchor = NameplateUiLaw.LevelAnchor(plate, layout.Basis);
         bool skull = reaction == FactionReaction.Hostile && unit.Level >= player.Level + 10 &&
                      !UnitIsGrey(player.Level, unit.Level);
         if (!skull && unit.Level > 0)
         {
-            DrawPlateText(draw, levelAnchor, unit.Level.ToString(), levelSize,
+            DrawPlateText(draw, levelAnchor, unit.Level.ToString(), layout.LevelSize,
                 WithAlpha(ConColorU32(player.Level, unit.Level), alpha), bottomSeated: false);
         }
 
@@ -236,7 +221,7 @@ public sealed partial class GameLoop
             if (texture != 0)
             {
                 RaidMarkerRect icon = RaidMarkerUiLaw.NameplateRect(
-                    plate.Left, plate.Top, plate.Bottom, basis);
+                    plate.Left, plate.Top, plate.Bottom, layout.Basis);
                 RaidMarkerUv uv = RaidMarkerUiLaw.AtlasUv(raidMark);
                 draw.AddImage((nint)texture, icon.Min, icon.Max, uv.Min, uv.Max, alphaWhite);
             }
@@ -247,9 +232,9 @@ public sealed partial class GameLoop
             uint texture = _gameplayArt.Handle(@"Interface\TargetingFrame\UI-TargetingFrame-Skull");
             if (texture != 0)
             {
-                float half = Gx(0.01f) * 0.5f;
-                draw.AddImage((nint)texture, levelAnchor - new Vector2(half),
-                    levelAnchor + new Vector2(half), Vector2.Zero, Vector2.One, alphaWhite);
+                NameplateUiLaw.ImageRect skullRect = NameplateUiLaw.Skull(levelAnchor, layout.Basis);
+                draw.AddImage((nint)texture, skullRect.Min, skullRect.Max,
+                    Vector2.Zero, Vector2.One, alphaWhite);
             }
         }
     }
@@ -270,22 +255,22 @@ public sealed partial class GameLoop
             return false;
         Vector3 selfPosition = _controller?.Position ?? player.Position;
         if (Vector3.DistanceSquared(selfPosition, UnitWorldPosition(unit)) >
-            NameplateRangeYards * NameplateRangeYards) return false;
+            NameplateUiLaw.RangeYards * NameplateUiLaw.RangeYards) return false;
         Vector3 anchor = UnitWorldPosition(unit) +
             new Vector3(0f, 0f, UnitOverheadHeight(unit) + 2f / 3f);
         return _window.Camera.TryWorldToScreen(anchor, display, out _);
     }
 
-    private ScreenRect ResolveVplate(ScreenRect desired, Vector2 viewport)
+    private NameplateUiLaw.Bounds ResolveVplate(NameplateUiLaw.Bounds desired, Vector2 viewport)
     {
-        ScreenRect result = ClampRect(desired, viewport);
+        NameplateUiLaw.Bounds result = ClampRect(desired, viewport);
         int bound = Math.Max(1, ((int)(viewport.X / MathF.Max(result.Width, 1f)) + 1) *
                                 ((int)(viewport.Y / MathF.Max(result.Height, 1f)) + 1));
         for (int i = 0; i < bound; i++)
         {
-            ScreenRect blocker = default;
+            NameplateUiLaw.Bounds blocker = default;
             bool found = false;
-            foreach (ScreenRect claim in _vplateClaims)
+            foreach (NameplateUiLaw.Bounds claim in _vplateClaims)
             {
                 if (!result.Overlaps(claim)) continue;
                 blocker = claim;
@@ -296,11 +281,11 @@ public sealed partial class GameLoop
             result = result.Offset(0f, blocker.Top - result.Bottom); // center-region first try: UP
             result = ClampRect(result, viewport);
         }
-        return new ScreenRect(MathF.Round(result.Left), MathF.Round(result.Top),
+        return new NameplateUiLaw.Bounds(MathF.Round(result.Left), MathF.Round(result.Top),
             MathF.Round(result.Left) + result.Width, MathF.Round(result.Top) + result.Height);
     }
 
-    private static ScreenRect ClampRect(ScreenRect rect, Vector2 viewport)
+    private static NameplateUiLaw.Bounds ClampRect(NameplateUiLaw.Bounds rect, Vector2 viewport)
     {
         float x = rect.Left;
         float y = rect.Top;
@@ -308,7 +293,7 @@ public sealed partial class GameLoop
         if (x + rect.Width > viewport.X) x = MathF.Max(0f, viewport.X - rect.Width);
         if (y < 0f) y = 0f;
         if (y + rect.Height > viewport.Y) y = MathF.Max(0f, viewport.Y - rect.Height);
-        return new ScreenRect(x, y, x + rect.Width, y + rect.Height);
+        return new NameplateUiLaw.Bounds(x, y, x + rect.Width, y + rect.Height);
     }
 
     private Vector3 UnitWorldPosition(WorldEntity unit) =>
@@ -360,10 +345,8 @@ public sealed partial class GameLoop
         ImFontPtr font = ImGui.GetFont();
         Vector2 extent = ImGui.CalcTextSize(text) *
             (fontSize / MathF.Max(ImGui.GetFontSize(), 1f));
-        Vector2 position = new(anchor.X - extent.X * 0.5f,
-            bottomSeated ? anchor.Y - extent.Y : anchor.Y - extent.Y * 0.5f);
-        float shadow = MathF.Max(1f, MathF.Round(fontSize * 0.1f));
-        draw.AddText(font, fontSize, position + new Vector2(shadow),
+        Vector2 position = NameplateUiLaw.TextPosition(anchor, extent, bottomSeated);
+        draw.AddText(font, fontSize, position + NameplateUiLaw.TextShadow(fontSize),
             WithAlpha(0xff000000u, MathF.Max(0.85f, AlphaOf(color))), text);
         draw.AddText(font, fontSize, position, color, text);
     }

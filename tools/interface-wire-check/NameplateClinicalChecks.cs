@@ -40,6 +40,23 @@ internal static class NameplateClinicalChecks
               NameplateUiLaw.WorldNamePitch(4f) == 0.2f &&
               MathF.Abs(NameplateUiLaw.WorldNamePitch(8f) - 0.6f) < .0001f,
             "depth-tested world-name distance/pitch law drift");
+        NameplateUiLaw.PlateLayout layout = NameplateUiLaw.Layout(new Vector2(1024, 768));
+        NameplateUiLaw.Bounds plate = NameplateUiLaw.DesiredPlate(new Vector2(500, 200), layout);
+        NameplateUiLaw.ImageRect health = NameplateUiLaw.HealthFill(plate, layout.Basis, .5f);
+        Check(layout == new NameplateUiLaw.PlateLayout(1280, 128, 32, 13, 11,
+                  new Vector2(512, 384)) &&
+              plate == new NameplateUiLaw.Bounds(436, 200, 564, 232) &&
+              health == new NameplateUiLaw.ImageRect(
+                  new Vector2(440, 219), new Vector2(491.5f, 228)) &&
+              NameplateUiLaw.NameAnchor(plate, 1, 13) == new Vector2(500, 229) &&
+              NameplateUiLaw.LevelAnchor(plate, 1280) == new Vector2(552, 223) &&
+              NameplateUiLaw.Skull(new Vector2(552, 223), 1280) ==
+                  new NameplateUiLaw.ImageRect(
+                      new Vector2(545.5f, 216.5f), new Vector2(558.5f, 229.5f)) &&
+              NameplateUiLaw.TextPosition(new Vector2(500, 216), new Vector2(100, 20), true) ==
+                  new Vector2(450, 196) &&
+              NameplateUiLaw.TextShadow(13) == new Vector2(1),
+            "V-plate authored screen geometry drift");
 
         string root = ClientConfig.FindRepoRoot();
         string names = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
@@ -64,6 +81,10 @@ internal static class NameplateClinicalChecks
               names.Contains("BindingDown(GameBinding.ToggleAllNameplates)",
                   StringComparison.Ordinal) &&
               names.Contains("NameplateUiLaw.ModeAllows", StringComparison.Ordinal) &&
+              names.Contains("NameplateUiLaw.Layout", StringComparison.Ordinal) &&
+              names.Contains("NameplateUiLaw.HealthFill", StringComparison.Ordinal) &&
+              names.Contains("NameplateUiLaw.TextPosition", StringComparison.Ordinal) &&
+              !names.Contains("new Vector2", StringComparison.Ordinal) &&
               !names.Contains("control && InputKeyDown", StringComparison.Ordinal),
             "V-plate modes escaped the binding table or reaction gate");
         Check(names.Contains("Settings.Controls.ShowOwnName", StringComparison.Ordinal) &&

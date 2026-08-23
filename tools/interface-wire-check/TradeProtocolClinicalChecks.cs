@@ -10,16 +10,6 @@ internal static class TradeProtocolClinicalChecks
               (ushort)Op.CMSG_IGNORE_TRADE == 0x0119 &&
               WorldSession.BuildTradeDeclineBody().Length == 0,
             "trade decline opcodes or empty body drift");
-        Check(TradeFrameUiLaw.IncomingRequest(false, false) ==
-                  TradeFrameUiLaw.IncomingRequestAction.Prompt &&
-              TradeFrameUiLaw.IncomingRequest(false, true) ==
-                  TradeFrameUiLaw.IncomingRequestAction.Busy &&
-              TradeFrameUiLaw.IncomingRequest(true, false) ==
-                  TradeFrameUiLaw.IncomingRequestAction.Ignore &&
-              TradeFrameUiLaw.IncomingRequest(true, true) ==
-                  TradeFrameUiLaw.IncomingRequestAction.Ignore,
-            "ignored/busy incoming-trade precedence drift");
-
         TradePackets.Status begin = TradePackets.ParseStatus(
             Convert.FromHexString("010000008877665544332211"));
         Check(begin.Code == 1 && begin.Partner == 0x1122334455667788,
@@ -89,9 +79,11 @@ internal static class TradeProtocolClinicalChecks
         string root = ClientConfig.FindRepoRoot();
         string trade = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Trade.cs"));
-        Check(trade.Contains("_net?.IgnoreTrade();", StringComparison.Ordinal) &&
-              trade.Split("_net?.BusyTrade();", StringSplitOptions.None).Length - 1 >= 2,
-            "incoming ignored/busy/cancel production routing is unwired");
+        Check(trade.Contains("_tradePartnerGuid = wire.Partner", StringComparison.Ordinal) &&
+              trade.Contains("_net?.BeginTrade();", StringComparison.Ordinal) &&
+              !trade.Contains("_tradeInviteGuid", StringComparison.Ordinal) &&
+              !trade.Contains("DrawTradeInvitation", StringComparison.Ordinal),
+            "BEGIN_TRADE must auto-answer without a custom client prompt");
         Check(trade.Contains("TradePackets.ParseStatus(body)", StringComparison.Ordinal) &&
               trade.Contains("TradePackets.ParseExtended(body)", StringComparison.Ordinal),
             "production trade decoder is not using the strict packet law");

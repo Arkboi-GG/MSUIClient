@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 using MSUIClient.Net;
 
 namespace MSUIClient;
@@ -41,26 +42,22 @@ public sealed partial class GameLoop
     private void DrawHelpFrame()
     {
         if (!_helpOpen || _gameplayArt is null) return;
-        float s = GameplayUiScale(); Vector2 logicalDisplay = ImGui.GetIO().DisplaySize / s;
-        Vector2 logicalOrigin = new((logicalDisplay.X - 640) * .5f, (logicalDisplay.Y - 512) * .5f);
-        if (!BeginVanillaWindow("##help", logicalOrigin, new Vector2(640, 512),
+        float s = GameplayUiScale();
+        Vector2 logicalDisplay = ImGui.GetIO().DisplaySize / s;
+        HelpFrameUiLaw.LogicalRect frame = HelpFrameUiLaw.Frame(logicalDisplay);
+        if (!BeginVanillaWindow("##help", frame.Min, frame.Size,
                 out ImDrawListPtr dl, out Vector2 origin, out s)) { ImGui.End(); return; }
-        string[] paths =
-        [
-            @"Interface\HelpFrame\HelpFrame-TopLeft", @"Interface\HelpFrame\HelpFrame-Top",
-            @"Interface\HelpFrame\HelpFrame-TopRight", @"Interface\HelpFrame\HelpFrame-BotLeft",
-            @"Interface\HelpFrame\HelpFrame-Bottom", @"Interface\HelpFrame\HelpFrame-BotRight"
-        ];
-        Vector2[] offsets = [new(0,0),new(256,0),new(512,0),new(0,256),new(256,256),new(512,256)];
-        Vector2[] sizes = [new(256),new(256),new(128,256),new(256),new(256),new(128,256)];
-        for (int i = 0; i < paths.Length; i++) DrawArt(dl, paths[i], origin + offsets[i] * s, sizes[i], s);
+        foreach (HelpFrameUiLaw.ArtSeat seat in HelpFrameUiLaw.Art)
+            DrawArt(dl, seat.Path, origin + seat.Rect.Min * s, seat.Rect.Size, s);
         DrawArt(dl, @"Interface\DialogFrame\UI-DialogBox-Header",
-            origin + new Vector2(140, -12) * s, new Vector2(336, 64), s);
-        DrawCenteredText(dl, origin + new Vector2(308, 18) * s, "Help Request", 14f * s, VanillaGold);
+            origin + HelpFrameUiLaw.Header.Min * s, HelpFrameUiLaw.Header.Size, s);
+        DrawCenteredText(dl, origin + HelpFrameUiLaw.TitleCenter * s,
+            "Help Request", 14f * s, VanillaGold);
         if (_helpPage == 0) DrawHelpHome(dl, origin, s);
         else if (_helpPage == 1) DrawHelpCategories(dl, origin, s);
         else DrawOpenTicket(dl, origin, s);
-        DrawImageButton(dl, "##help-close", origin + new Vector2(566, 3) * s, new Vector2(32) * s,
+        DrawImageButton(dl, "##help-close", origin + HelpFrameUiLaw.Close.Min * s,
+            HelpFrameUiLaw.Close.Size * s,
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up", @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         if (ImGui.IsItemClicked()) _helpOpen = false;
@@ -69,11 +66,12 @@ public sealed partial class GameLoop
 
     private void DrawHelpHome(ImDrawListPtr dl, Vector2 origin, float s)
     {
-        dl.AddText(ImGui.GetFont(), 18f * s, origin + new Vector2(42, 58) * s, VanillaGold,
+        dl.AddText(ImGui.GetFont(), 18f * s, origin + HelpFrameUiLaw.HomeHeading * s, VanillaGold,
             "Petition a Game Master");
         DrawWrappedText(dl,
             "Before submitting a request, please check whether one of the options below can solve the problem immediately.",
-            origin + new Vector2(42, 92) * s, 550, 11f * s, s, 0xffffffff);
+            origin + HelpFrameUiLaw.HomeIntroduction.Min * s,
+            HelpFrameUiLaw.HomeIntroduction.Width, 11f * s, s, 0xffffffff);
         string[] headings = ["Character stuck", "Player behavior", "Gameplay or item issue"];
         string[] descriptions =
         [
@@ -83,54 +81,66 @@ public sealed partial class GameLoop
         ];
         for (int i = 0; i < headings.Length; i++)
         {
-            dl.AddText(ImGui.GetFont(), 12f * s, origin + new Vector2(54, 145 + i * 72) * s, VanillaGold, headings[i]);
-            DrawWrappedText(dl, descriptions[i], origin + new Vector2(70, 166 + i * 72) * s,
-                500, 10f * s, s, 0xffffffff);
+            dl.AddText(ImGui.GetFont(), 12f * s,
+                origin + HelpFrameUiLaw.HomeIssueHeading(i) * s, VanillaGold, headings[i]);
+            HelpFrameUiLaw.LogicalRect description = HelpFrameUiLaw.HomeIssueDescription(i);
+            DrawWrappedText(dl, descriptions[i], origin + description.Min * s,
+                description.Width, 10f * s, s, 0xffffffff);
         }
         if (VanillaButton(dl, "##help-open-issues", "Open a Ticket",
-                origin + new Vector2(213, 405) * s, new Vector2(214, 24), s)) _helpPage = 1;
+                origin + HelpFrameUiLaw.HomeOpenTicket.Min * s,
+                HelpFrameUiLaw.HomeOpenTicket.Size, s)) _helpPage = 1;
         if (VanillaButton(dl, "##help-home-cancel", "Cancel",
-                origin + new Vector2(270, 447) * s, new Vector2(100, 22), s)) _helpOpen = false;
+                origin + HelpFrameUiLaw.HomeCancel.Min * s,
+                HelpFrameUiLaw.HomeCancel.Size, s)) _helpOpen = false;
     }
 
     private void DrawHelpCategories(ImDrawListPtr dl, Vector2 origin, float s)
     {
-        DrawCenteredText(dl, origin + new Vector2(320, 62) * s,
+        DrawCenteredText(dl, origin + HelpFrameUiLaw.CategoryHeadingCenter * s,
             "Select the category that best describes the issue", 12f * s, 0xffffffff);
         int type = _helpTicketType;
         string[] types = ["Stuck", "Behavior / Harassment", "Guild", "Item", "Environment", "Other"];
         for (int i = 0; i < types.Length; i++)
             if (VanillaButton(dl, $"##help-category-{i}", types[i],
-                    origin + new Vector2(86 + (i % 2) * 250, 105 + (i / 2) * 74) * s,
-                    new Vector2(218, 52), s))
+                    origin + HelpFrameUiLaw.CategoryButton(i).Min * s,
+                    HelpFrameUiLaw.CategoryButton(i).Size, s))
             { _helpTicketType = (byte)(i + 1); _helpPage = 2; }
-        if (VanillaButton(dl, "##help-category-back", "Back", origin + new Vector2(213, 447) * s,
-                new Vector2(100, 22), s)) _helpPage = 0;
-        if (VanillaButton(dl, "##help-category-cancel", "Cancel", origin + new Vector2(327, 447) * s,
-                new Vector2(100, 22), s)) _helpOpen = false;
+        if (VanillaButton(dl, "##help-category-back", "Back",
+                origin + HelpFrameUiLaw.CategoryBack.Min * s,
+                HelpFrameUiLaw.CategoryBack.Size, s)) _helpPage = 0;
+        if (VanillaButton(dl, "##help-category-cancel", "Cancel",
+                origin + HelpFrameUiLaw.CategoryCancel.Min * s,
+                HelpFrameUiLaw.CategoryCancel.Size, s)) _helpOpen = false;
     }
 
     private void DrawOpenTicket(ImDrawListPtr dl, Vector2 origin, float s)
     {
         string[] types = ["Stuck", "Behavior / Harassment", "Guild", "Item", "Environment", "Other"];
-        dl.AddText(ImGui.GetFont(), 11f * s, origin + new Vector2(44, 66) * s, 0xffffffff,
+        dl.AddText(ImGui.GetFont(), 11f * s, origin + HelpFrameUiLaw.TicketCategory * s, 0xffffffff,
             $"Category: {types[Math.Clamp(_helpTicketType - 1, 0, types.Length - 1)]}");
         DrawWrappedText(dl,
             "Describe the problem in detail. A Game Master can review this ticket on the server.",
-            origin + new Vector2(44, 91) * s, 548, 10f * s, s, 0xffffffff);
+            origin + HelpFrameUiLaw.TicketInstructions.Min * s,
+            HelpFrameUiLaw.TicketInstructions.Width, 10f * s, s, 0xffffffff);
         VanillaInputText(dl,"##ticket-text",ref _helpTicketText,2047,
-            origin+new Vector2(44,125)*s,new Vector2(548,265),s,true);
-        dl.AddText(ImGui.GetFont(), 10f * s, origin + new Vector2(44, 405) * s, 0xffaaaaaa, _helpTicketStatus);
+            origin + HelpFrameUiLaw.TicketInput.Min * s,
+            HelpFrameUiLaw.TicketInput.Size, s, true);
+        dl.AddText(ImGui.GetFont(), 10f * s, origin + HelpFrameUiLaw.TicketStatus * s,
+            0xffaaaaaa, _helpTicketStatus);
         bool hasText = !string.IsNullOrWhiteSpace(_helpTicketText);
-        if (VanillaButton(dl, "##ticket-back", "Back", origin + new Vector2(251, 441) * s,
-                new Vector2(100, 22), s)) _helpPage = 1;
-        if (VanillaButton(dl, "##ticket-submit", "Submit", origin + new Vector2(365, 441) * s,
-                new Vector2(100, 22), s, hasText))
+        if (VanillaButton(dl, "##ticket-back", "Back",
+                origin + HelpFrameUiLaw.TicketBack.Min * s,
+                HelpFrameUiLaw.TicketBack.Size, s)) _helpPage = 1;
+        if (VanillaButton(dl, "##ticket-submit", "Submit",
+                origin + HelpFrameUiLaw.TicketSubmit.Min * s,
+                HelpFrameUiLaw.TicketSubmit.Size, s, hasText))
         {
             uint map = _net?.Player?.Map ?? 0; Vector3 pos = _controller?.Position ?? Vector3.Zero;
             _net?.GmTicketCreate(_helpTicketType, map, pos, _helpTicketText);
         }
-        if (VanillaButton(dl, "##ticket-delete", "Delete Ticket", origin + new Vector2(475, 441) * s,
-                new Vector2(110, 22), s)) _net?.GmTicketDelete();
+        if (VanillaButton(dl, "##ticket-delete", "Delete Ticket",
+                origin + HelpFrameUiLaw.TicketDelete.Min * s,
+                HelpFrameUiLaw.TicketDelete.Size, s)) _net?.GmTicketDelete();
     }
 }

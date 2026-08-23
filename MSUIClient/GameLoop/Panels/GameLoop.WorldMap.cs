@@ -60,8 +60,11 @@ public sealed partial class GameLoop
         string[] shellRows = ["Top", "Middle", "Bottom"];
         for (int row = 0; row < 3; row++)
         for (int col = 0; col < 4; col++)
+        {
+            WorldMapUiLaw.LogicalRect tile = WorldMapUiLaw.ShellTile(row, col);
             DrawArt(dl, $@"Interface\WorldMap\UI-WorldMap-{shellRows[row]}{col + 1}",
-                origin + new Vector2(col * 256, row * 256) * s, new Vector2(256), s);
+                tile.ScaledMin(origin, s), tile.Size, s);
+        }
 
         EnsureWorldMapAreas();
         EnsureAreaTableForMinimap();
@@ -87,8 +90,8 @@ public sealed partial class GameLoop
         }
         string directory = !haveMapArea || string.IsNullOrWhiteSpace(area.Directory)
             ? (playerMap == 1 ? "Kalimdor" : "Azeroth") : area.Directory;
-        Vector2 mapMin = origin + new Vector2(11, 69) * s;
-        Vector2 mapSize = new Vector2(1002, 668) * s;
+        Vector2 mapMin = WorldMapUiLaw.MapRect.ScaledMin(origin, s);
+        Vector2 mapSize = WorldMapUiLaw.MapRect.ScaledSize(s);
         dl.PushClipRect(mapMin, mapMin + mapSize, true);
         for (int row = 0; row < 3; row++)
         for (int col = 0; col < 4; col++)
@@ -97,8 +100,9 @@ public sealed partial class GameLoop
             uint texture = _gameplayArt.Handle(
                 $@"Interface\WorldMap\{directory}\{directory}{index}.blp");
             if (texture == 0) continue;
-            Vector2 min = mapMin + new Vector2(col * 256, row * 256) * s;
-            dl.AddImage((nint)texture, min, min + new Vector2(256) * s);
+            WorldMapUiLaw.LogicalRect tile = WorldMapUiLaw.DetailTile(row, col);
+            Vector2 min = tile.ScaledMin(mapMin, s);
+            dl.AddImage((nint)texture, min, min + tile.ScaledSize(s));
         }
         dl.PopClipRect();
 
@@ -152,46 +156,41 @@ public sealed partial class GameLoop
             float fy = (playerPosition.X - area.Top) / (area.Bottom - area.Top);
             if (fx is >= 0f and <= 1f && fy is >= 0f and <= 1f)
             {
-                Vector2 marker = mapMin + new Vector2(fx * mapSize.X, fy * mapSize.Y);
+                Vector2 marker = WorldMapUiLaw.MapPoint(mapMin, mapSize, fx, fy);
                 DrawMinimapPlayerArrow(dl, player.Orientation, marker, s);
             }
         }
         DrawWorldMapCorpseMarker(dl, haveMapArea, area, mapMin, mapSize, s);
 
-        string viewLabel = haveArea
-            ? (_areas?.ZoneName(viewedAreaId) ?? directory)
-            : haveMapArea ? (area.MapId == 1 ? "Kalimdor" : "Eastern Kingdoms")
-                : "Map unavailable";
-        DrawCenteredText(dl, origin + new Vector2(512, 17) * s,
-            "World Map", 14 * s, VanillaGold);
-        DrawCenteredText(dl, origin + new Vector2(512, 48) * s,
-            viewLabel, 12 * s, 0xffffffff);
+        GameText.DrawCentered(dl, WorldMapUiLaw.TitleFont, "World Map",
+            WorldMapUiLaw.At(origin, WorldMapUiLaw.TitleCenter, s), s);
         DrawWorldMapDropdowns(dl, origin, s, area.MapId, viewedAreaId,
             continentRows, zoneRows, continentDrop, zoneDrop);
         if (haveHoveredArea)
         {
             string hoverLabel = _areas?.ZoneName(hoveredArea.AreaId) ?? hoveredArea.Directory;
-            DrawWorldMapOutlinedCenteredText(dl,
-                mapMin + new Vector2(mapSize.X * 0.5f + 20f * s, 20f * s),
-                hoverLabel, 16f * s, 0xfff2e8d4);
+            GameText.DrawCentered(dl, WorldMapUiLaw.HoverLabelFont, hoverLabel,
+                WorldMapUiLaw.HoverLabel(mapMin, mapSize, s), s);
         }
         if (haveArea && VanillaButton(dl, "##world-map-zoomout", "Zoom Out",
-                origin + new Vector2(680, 34) * s, new Vector2(110, 22), s))
+                WorldMapUiLaw.ViewAction.ScaledMin(origin, s),
+                WorldMapUiLaw.ViewAction.Size, s))
         {
             _worldMapZoom = 0;
             _worldMapSelectedMapId = area.MapId;
             CloseWorldMapDropdowns();
         }
         else if (!haveArea && VanillaButton(dl, "##world-map-zone", "Current Zone",
-                     origin + new Vector2(680, 34) * s, new Vector2(110, 22), s))
+                     WorldMapUiLaw.ViewAction.ScaledMin(origin, s),
+                     WorldMapUiLaw.ViewAction.Size, s))
         {
             _worldMapSelectedAreaId = 0;
             _worldMapSelectedMapId = null;
             _worldMapZoom = 1;
             CloseWorldMapDropdowns();
         }
-        Vector2 close = origin + new Vector2(982,4) * s;
-        DrawImageButton(dl, "##world-map-close", close, new Vector2(32) * s,
+        Vector2 close = WorldMapUiLaw.Close.ScaledMin(origin, s);
+        DrawImageButton(dl, "##world-map-close", close, WorldMapUiLaw.Close.ScaledSize(s),
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up", @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         if (ImGui.IsItemClicked())
@@ -264,32 +263,32 @@ public sealed partial class GameLoop
         string selected, in WorldMapDropdownGeometry geometry, float scale,
         ref bool open, ref bool otherOpen)
     {
-        Vector2 artMin = geometry.FrameMin + new Vector2(0f, -17f) * scale;
         uint art = _gameplayArt?.Handle(WorldMapUiLaw.CapsuleTexture) ?? 0;
         if (art != 0)
         {
-            draw.AddImage((nint)art, artMin, artMin + new Vector2(25, 64) * scale,
-                new Vector2(0, 0), new Vector2(.1953125f, 1));
-            draw.AddImage((nint)art, artMin + new Vector2(25, 0) * scale,
-                artMin + new Vector2(155, 64) * scale,
-                new Vector2(.1953125f, 0), new Vector2(.8046875f, 1));
-            draw.AddImage((nint)art, artMin + new Vector2(155, 0) * scale,
-                artMin + new Vector2(180, 64) * scale,
-                new Vector2(.8046875f, 0), Vector2.One);
+            foreach (WorldMapUiLaw.TextureSlice slice in WorldMapUiLaw.CapsuleSlices)
+            {
+                Vector2 min = slice.Rect.ScaledMin(geometry.FrameMin, scale);
+                draw.AddImage((nint)art, min, min + slice.Rect.ScaledSize(scale),
+                    slice.UvMin, slice.UvMax);
+            }
         }
         GameText.Draw(draw, "GameFontNormalSmall", label,
-            geometry.FrameMin + new Vector2(20, -10) * scale, scale);
+            WorldMapUiLaw.At(geometry.FrameMin, WorldMapUiLaw.CapsuleLabel, scale), scale);
         GameText.DrawRightAligned(draw, "GameFontHighlightSmall", selected,
-            geometry.FrameMin + new Vector2(137, 11) * scale, scale);
+            WorldMapUiLaw.At(geometry.FrameMin,
+                WorldMapUiLaw.CapsuleSelectionRight, scale), scale);
 
-        Vector2 buttonMin = geometry.FrameMin + new Vector2(140, 1) * scale;
+        Vector2 buttonMin = WorldMapUiLaw.CapsuleButton.ScaledMin(
+            geometry.FrameMin, scale);
+        Vector2 buttonSize = WorldMapUiLaw.CapsuleButton.ScaledSize(scale);
         uint button = _gameplayArt?.Handle(open
             ? @"Interface\ChatFrame\UI-ChatIcon-ScrollDown-Down"
             : @"Interface\ChatFrame\UI-ChatIcon-ScrollDown-Up") ?? 0;
         if (button != 0)
-            draw.AddImage((nint)button, buttonMin, buttonMin + new Vector2(24) * scale);
+            draw.AddImage((nint)button, buttonMin, buttonMin + buttonSize);
         ImGui.SetCursorScreenPos(buttonMin);
-        if (ImGui.InvisibleButton($"##world-map-{id}-dropdown", new Vector2(24) * scale))
+        if (ImGui.InvisibleButton($"##world-map-{id}-dropdown", buttonSize))
         {
             open = !open;
             otherOpen = false;
@@ -308,8 +307,7 @@ public sealed partial class GameLoop
         for (int i = 0; i < count; i++)
         {
             Vector2 rowMin = WorldMapUiLaw.RowMin(geometry, i, scale);
-            Vector2 rowSize = new Vector2(
-                WorldMapUiLaw.DropWidth, WorldMapUiLaw.RowHeight) * scale;
+            Vector2 rowSize = WorldMapUiLaw.DropdownRow.ScaledSize(scale);
             ImGui.SetCursorScreenPos(rowMin);
             bool clicked = ImGui.InvisibleButton($"##world-map-{id}-row-{i}", rowSize);
             if (ImGui.IsItemHovered())
@@ -323,12 +321,13 @@ public sealed partial class GameLoop
                 uint check = _gameplayArt!.Handle(@"Interface\Buttons\UI-CheckBox-Check");
                 if (check != 0)
                 {
-                    Vector2 checkMin = rowMin + new Vector2(0, -4) * scale;
-                    draw.AddImage((nint)check, checkMin, checkMin + new Vector2(24) * scale);
+                    Vector2 checkMin = WorldMapUiLaw.DropdownCheck.ScaledMin(rowMin, scale);
+                    draw.AddImage((nint)check, checkMin,
+                        checkMin + WorldMapUiLaw.DropdownCheck.ScaledSize(scale));
                 }
             }
             GameText.Draw(draw, "GameFontHighlightSmall", rows[i].Text,
-                rowMin + new Vector2(27, 2) * scale, scale);
+                WorldMapUiLaw.At(rowMin, WorldMapUiLaw.DropdownText, scale), scale);
             if (clicked)
             {
                 rows[i].Select();
@@ -345,14 +344,26 @@ public sealed partial class GameLoop
                 corpse.Position, area.Left, area.Right, area.Top, area.Bottom,
                 out Vector2 fraction)) return;
         uint texture = _gameplayArt?.Handle(DeathFrameUiLaw.CorpseMarkerPath) ?? 0;
-        Vector2 size = new(DeathFrameUiLaw.WorldMapCorpseSize * scale);
+        Vector2 size = Vector2.One * (DeathFrameUiLaw.WorldMapCorpseSize * scale);
         Vector2 center = mapMin + fraction * mapSize;
         Vector2 min = center - size * .5f;
         if (texture != 0)
             draw.AddImage((nint)texture, min, min + size,
                 DeathFrameUiLaw.CorpseUvMin, DeathFrameUiLaw.CorpseUvMax);
         if (ImGui.IsMouseHoveringRect(min, min + size, false))
-            ImGui.SetTooltip(DeathFrameUiLaw.CorpseTooltip);
+        {
+            WorldMapUiLaw.TooltipSeat tooltipSeat =
+                WorldMapUiLaw.CorpseTooltipSeat(min, size, mapMin, mapSize);
+            OfferPreservedSharedGameTooltipRenderer(new("world-map-corpse", 0), () =>
+            {
+                ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
+                    tooltipSeat.Pivot);
+                ImGui.BeginTooltip();
+                ImGui.TextColored(WorldMapUiLaw.CorpseTooltipColor,
+                    DeathFrameUiLaw.CorpseTooltip);
+                ImGui.EndTooltip();
+            });
+        }
     }
 
     private void DrawWorldMapAreaHighlight(ImDrawListPtr dl, WorldMapAreaInfo area,
@@ -362,13 +373,13 @@ public sealed partial class GameLoop
                 out WorldMapHighlightInfo highlight) != true) return;
         uint texture = _gameplayArt!.AdditiveHandle(highlight.TexturePath);
         if (texture == 0) return;
-        Vector2 min = mapMin + new Vector2(
-            highlight.Bounds.Left * mapSize.X, highlight.Bounds.Top * mapSize.Y);
-        Vector2 max = mapMin + new Vector2(
-            highlight.Bounds.Right * mapSize.X, highlight.Bounds.Bottom * mapSize.Y);
+        Vector2 min = WorldMapUiLaw.MapPoint(mapMin, mapSize,
+            highlight.Bounds.Left, highlight.Bounds.Top);
+        Vector2 max = WorldMapUiLaw.MapPoint(mapMin, mapSize,
+            highlight.Bounds.Right, highlight.Bounds.Bottom);
         dl.PushClipRect(mapMin, mapMin + mapSize, true);
         dl.AddImage((nint)texture, Vector2.Min(min, max), Vector2.Max(min, max),
-            Vector2.Zero, new Vector2(highlight.UMax, highlight.VMax), 0xffffffff);
+            Vector2.Zero, WorldMapUiLaw.UvMaximum(highlight.UMax, highlight.VMax), 0xffffffff);
         dl.PopClipRect();
     }
 
@@ -386,10 +397,12 @@ public sealed partial class GameLoop
             {
                 uint texture = _gameplayArt!.Handle(chunk.TexturePath);
                 if (texture == 0) continue;
-                Vector2 min = mapMin + new Vector2(chunk.OffsetX, chunk.OffsetY) * s;
-                Vector2 max = min + new Vector2(chunk.PixelWidth, chunk.PixelHeight) * s;
+                WorldMapUiLaw.ScreenRect chunkRect = WorldMapUiLaw.PixelRect(mapMin,
+                    chunk.OffsetX, chunk.OffsetY, chunk.PixelWidth, chunk.PixelHeight, s);
+                Vector2 min = chunkRect.Min;
+                Vector2 max = min + chunkRect.Size;
                 dl.AddImage((nint)texture, min, max, Vector2.Zero,
-                    new Vector2(chunk.UMax, chunk.VMax), 0xffffffff);
+                    WorldMapUiLaw.UvMaximum(chunk.UMax, chunk.VMax), 0xffffffff);
             }
         }
         dl.PopClipRect();

@@ -11,6 +11,21 @@
       "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
+      "path": "crates/benilla-ui/src/script/social.rs",
+      "fileSha256": "36717bfcb864633df0b488964d4b52f12564b73188260f19167491d9ea8c6bd0",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-protocol/src/messages/social.rs",
+      "fileSha256": "cd0e459306ef4e1f9ee4fdc86b3ae386f609a5c38bb92ed2ac9afca43194bce3",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/social.rs",
+      "fileSha256": "6582fe3cfda091b5b4b59d9209bae5f503a434998c92141a25ae33acfa5f25a2",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
       "path": "crates/benilla-app/src/ui_social/feed.rs",
       "fileSha256": "320f2aeb517881987a6be63c2390f312b67fc6aa189a70ddd5e75488736b3ede",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
@@ -44,6 +59,16 @@
       "path": "crates/benilla-app/src/ui_guild/sort.rs",
       "fileSha256": "31aefaee6f4c211d729e708fa9589b61bdf2ba6ef1d9db3d9ac7d01541249ccc",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-protocol/src/messages/guild.rs",
+      "fileSha256": "78a57ff66e9910e27f01d941bcb1e27b919f6410f4f9ca8cd6bbe18bed24eec9",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/guild.rs",
+      "fileSha256": "2d23c7cf60dd702be4e8215833df3503e47e62aebf4a8e2eda45f5ad209435f8",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
@@ -53,8 +78,10 @@
     "MSUIClient/GameLoop/Panels/GameLoop.GuildMemberDetail.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.GuildControl.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.GuildPopups.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.UnitPopup.cs",
     "MSUIClient/Engine/UI/FriendsFrameUiLaw.cs",
     "MSUIClient/Engine/UI/GuildFrameUiLaw.cs",
+    "MSUIClient/Engine/UI/UnitPopupUiLaw.cs",
     "MSUIClient/Engine/UI/FontStringOverflowLaw.cs",
     "MSUIClient/Net/ObjectFields.cs",
     "MSUIClient/Net/WorldSession.cs",
@@ -64,7 +91,7 @@
     "tools/interface-wire-check/GuildFrameClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "The social surface follows current Benilla's three-tab Friends/Who/Guild structure (no invented Raid tab). FriendsFrameUiLaw owns the 384x512 window seat, scroll icon, exact Friends/Ignore/Who row and faux-scroll geometry, action rectangles, dynamic Who column widths, and the Zone/Guild/Race selector. GameLoop.Social implements the Friends/Ignore inset toggle, asynchronous contact gates, add/remove/ignore/invite and Send Message flows, independently scrolled lists, Who search/results, and the authored dropdown capsule/menu. Authored fixed-size Who and Guild roster FontStrings now use the shared build-5875 overflow law, so long names/zones/classes/ranks/notes/status values back off to the exact ASCII-three-dot marker inside their seats; auto-height Friends text is deliberately unchanged. GuildFrameUiLaw and GameLoop.Guild provide the matching Guild shell, 298x16 roster rows, faux scrollbar, Show Offline ordered-prefix behavior, player/status column toggle, MotD text, totals, and exact bottom action seats. Guild headers drive the reference eight-key remembered-direction sort stack; the lazy guild query supplies the guild-name title and real rank names, and presence retains the DND-before-AFK status tag. ADD_FRIEND, ADD_IGNORE and ADD_GUILDMEMBER occupy the shared two-slot StaticPopup seat with law-owned edit geometry and exact twelve-letter caps. Guild Information is the exact 297x298 rule-positioned satellite, with its 500-letter board, rank-right gate, placeholder, backdrops, CMSG_GUILD_INFO_TEXT, and roster refresh. The rule-positioned 212px member-detail card toggles from roster rows, changes height with officer-note visibility, gates and sends promote/demote/remove/group-invite actions, and edits both 31-letter notes through the shared 420px wide StaticPopup shape. Guild Control occupies its exact 297x298 satellite seat with the four-piece MacroPopup art, 13-option staged rights buffer, leader gate, rank selector/name editor, inverted checkbox sounds, 15-letter Add Rank popup, bottom-rank removal law, and exact CMSG_GUILD_RANK/ADD_RANK/DEL_RANK bodies. The guild notification family decodes promotion/demotion/membership/leader/presence/MotD events, command results, invitations, declines and /ginfo; composes the reference system lines, suppresses ignored presence, re-asks on exact stale edges, and hosts GUILD_INVITE in the shared rule-sized 60-second StaticPopup with exact empty accept/decline wires.",
+  "summary": "The social surface follows current Benilla's three-tab Friends/Who/Guild structure (no invented Raid tab). FriendsFrameUiLaw owns the complete 384x512 Friends/Ignore/Who composition: title/tabs/close, scroll icon, exact list rows and faux-scroll arrow/track/knob geometry, friend text offsets, actions, three-slice Who headers, dynamic Who columns, totals, and the complete Zone/Guild/Race capsule/menu art, checks and button seats. GameLoop.Social contains no locally authored Vector2 geometry; ImGui only hosts law-computed draw and hit rectangles. The title now consumes GameFontNormal, Friends/Ignore/Who rows use the authored additive Quest-title highlight instead of the generic MSUI listbox strip, friend name/location copy starts at its exact 10px/3px inset, Ignore names consume their exact GameFontNormal 10px inset, and the Who total consumes its exact centered 298x16 GameFontNormalSmall box. Friends and Ignore contacts sort by resolved name with unresolved name-query rows last, and each sublist preserves selection by GUID as asynchronous names and fresh snapshots reorder the display. It implements the Friends/Ignore inset toggle, asynchronous contact gates, add/remove/ignore/invite and Send Message flows, independently scrolled lists, Who search/results, and the authored dropdown. A fresh Who answer has the reference's explicit no-selection state, leaving Add Friend and Group Invite disabled until a left-click; right-clicking a Who result or an online named friend opens the existing shared FRIEND UnitPopup without selecting the row, while offline/unknown friends remain gated. Entering Who resets the variable column to Zone, Refresh clears selection immediately, and Enter/Keypad Enter in the active search box sends its filter. The Name, Lvl, and Class column headers carry the reference highlight seat, click sound, and client-side ascending comparator; dropdown Zone/Guild/Race choices sort by the reference numeric/string keys rather than display-text approximations. Who total copy retains the reference's exact two-space separator even without the over-50 suffix. Authored fixed-size Who and Guild roster FontStrings use the shared build-5875 overflow law, so long names/zones/classes/ranks/notes/status values back off to the exact ASCII-three-dot marker inside their seats; auto-height Friends text is deliberately unchanged. GuildFrameUiLaw and GameLoop.Guild provide the matching Guild shell, 298x16 roster rows, faux scrollbar, Show Offline ordered-prefix behavior, player/status column toggle, MotD text, totals, and exact bottom action seats. Guild headers drive the reference eight-key remembered-direction sort stack; the lazy guild query supplies the guild-name title and real rank names, and presence retains the DND-before-AFK status tag. Guild roster right-click now opens the reference FRIEND menu fork: rank 0 sees Promote to Guild Master only on another member, self sees Leave Guild, and both actions use rule-owned shared confirmation dialogs with exact copy and CMSG_GUILD_LEADER/CMSG_GUILD_LEAVE bodies. ADD_FRIEND, ADD_IGNORE and ADD_GUILDMEMBER occupy the shared two-slot StaticPopup seat with law-owned edit geometry, border slices, text inset and exact twelve-letter caps. Guild Information is the exact 297x298 rule-positioned satellite, with its 500-letter board, rank-right gate, placeholder, backdrops, CMSG_GUILD_INFO_TEXT, and roster refresh. The rule-positioned 212px member-detail card toggles from roster rows, changes height with officer-note visibility, gates and sends promote/demote/remove/group-invite actions, and edits both 31-letter notes through the shared 420px wide StaticPopup shape. Guild Control occupies its exact 297x298 satellite seat with the four-piece MacroPopup art, 13-option staged rights buffer, leader gate, rank selector/name editor, inverted checkbox sounds, 15-letter Add Rank popup, bottom-rank removal law, and exact CMSG_GUILD_RANK/ADD_RANK/DEL_RANK bodies; every shell, label, edit, dropdown, mini-button, checkbox and row seat is consumed from GuildFrameUiLaw, with no renderer-authored Vector2 geometry. The guild notification family decodes promotion/demotion/membership/leader/presence/MotD events, command results, invitations, declines and /ginfo; composes the reference system lines, suppresses ignored presence, re-asks on exact stale edges, and hosts GUILD_INVITE in the shared rule-sized 60-second StaticPopup with exact empty accept/decline wires. The newly split Benilla guild protocol reader/writer modules are covered by these strict decoders and exact request builders for the reachable desktop guild surface.",
   "openItems": [
     {
       "id": "item-triage-b4646363",
@@ -74,6 +101,78 @@
       "added": "2026-08-09",
       "resolved": true,
       "resolution": "The exact 131x21 Send Message button at (214,384) opens the chat edit box prefilled `/w <selected name> ` and, like current Benilla, is enabled only for a selected online friend (also waiting for MSUI's asynchronous name resolution)."
+    },
+    {
+      "id": "item-friendsframe-page-shell-row-copy-gap-20260822",
+      "kind": "gap",
+      "text": "Friends, Ignore, Who, and Guild reused the Friends bottom shell regardless of page, Friends rows used non-reference location/offline copy, and Who totals used an invented shown-of-total label.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml",
+      "added": "2026-08-22",
+      "resolved": true,
+      "resolution": "FriendsFrameUiLaw now owns the exact FriendsFrame_Update four-quadrant shell matrix; Social and Guild consume it. Friend rows use the reference gold-name/white-zone/status and gray offline/Unknown two-line templates, and WhoTotals owns the singular/plural result text plus the over-50 displayed suffix. Focused FriendsFrame and full clinical suites pass."
+    },
+    {
+      "id": "item-friendsframe-who-selection-friend-menu-gap-20260823",
+      "kind": "gap",
+      "text": "Who results implicitly selected row one and enabled both actions before a click; Who and online-friend rows did not open the shared FRIEND menu on right-click.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "Who selection now starts at -1 and resets on every fresh answer/tab entry; FriendsFrameUiLaw validates selection before enabling actions. Right-click routes named online friend and Who rows through OpenFriendPopup without changing the left-click selection, while offline/unknown friend rows remain gated. Exact Who total separator copy is restored. The law also owns the Who header highlight rectangle, default Zone column, active-input submission gate, and exact client-side Name/Level/Class/Zone/Guild/Race ascending sort keys; clickable headers, dropdown choices, Refresh, and Enter/Keypad Enter consume them. Focused FriendsFrame and full suites pass."
+    },
+    {
+      "id": "item-guildframe-roster-unitpopup-leader-leave-20260823",
+      "kind": "gap",
+      "text": "Guild roster rows did not open the reference FRIEND UnitPopup fork, leaving Guild Master handoff and self-only Leave Guild unreachable; CMSG_GUILD_LEADER had no sender.",
+      "source": "benilla-b57ee0e9e2c8822b/UnitPopup.xml+guild.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "Guild row right-click now opens the law-owned FRIEND menu fork without changing left selection. Rank 0 gets Promote to Guild Master only for another member; self gets Leave Guild. Both use the shared two-slot rule-owned confirmation geometry and exact copy, and accept sends the exact name-cstring CMSG_GUILD_LEADER or empty CMSG_GUILD_LEAVE body. Focused GuildFrame, UnitPopup and full interface suites pass."
+    },
+    {
+      "id": "item-friendsframe-lifecycle-pending-ignore-copy-20260823",
+      "kind": "gap",
+      "text": "FriendsFrame omitted its current lifecycle/tab/list-row sound family, close paths bypassed one shared hide transition, and unresolved ignore names displayed an invented Player-plus-GUID placeholder instead of the reference's empty text.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml+social.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "FriendsFrameUiLaw now owns igMainMenuOpen/Close, igCharacterInfoTab, and igMainMenuOptionCheckBoxOn. Social and Guild route main exits through one once-only close helper, outer/inset tabs and Friends/Ignore/Who rows consume the authored cues, and pending ignore rows stay blank until the asynchronous name resolves. Focused FriendsFrame and full interface suites pass."
+    },
+    {
+      "id": "item-friendsframe-row-font-highlight-total-visual-gap-20260823",
+      "kind": "gap",
+      "text": "Friends, Ignore, and Who rows used the generic non-additive MSUI listbox strip; Ignore names used raw ImGui text at a 5px inset; the title and Who total bypassed their authored font objects and the Who total's centered 298x16 seat.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "FriendsFrameUiLaw owns the additive Quest-title highlight path, exact Ignore name inset and exact Who total FontString box. Social consumes those laws through GameFontNormal/GameFontNormalSmall and the shared list-row host now accepts an explicitly additive authored highlight. Focused FriendsFrame and full interface suites pass."
+    },
+    {
+      "id": "item-friendsframe-contact-order-selection-offset-20260823",
+      "kind": "gap",
+      "text": "Friends and Ignore rows follow server packet order and share one selected index, while current Benilla name-sorts each display with unresolved names last and maps independent friend/ignore selections back by GUID after asynchronous reordering; friend name/location copy is also seated one pixel below its authored offset.",
+      "source": "benilla-b57ee0e9e2c8822b/ui_social/feed.rs:180-256+FriendsFrame.xml:1760-1800",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: FriendsFrameUiLaw owns the stable resolved-name contact order and GUID-to-selection mapping. Friend and Ignore selections are independent, survive list refreshes/status changes/name-query reorders by identity, and actions resolve through the same ordered list. The friend name/location FontString now starts at the exact (10,3) row inset. Focused FriendsFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-friendsframe-full-subframe-wheel-scope-20260823",
+      "kind": "gap",
+      "text": "Friends, Ignore, Who, and Guild wheel scrolling is restricted to the visible row rectangle, while each current Benilla list subframe uses setAllPoints with an OnMouseWheel handler over the full 384x512 FriendsFrame host.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml:2075-2772",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: FriendsFrameUiLaw now owns the full host wheel region. Friends, Ignore, Who, and Guild list offsets consume wheel input anywhere within their authored setAllPoints subframe, while their row and faux-scroll furniture geometry remains unchanged. Focused FriendsFrame and full interface-wire checks are the verification gate."
+    },
+    {
+      "id": "item-guildframe-row-total-motd-visual-gap-20260823",
+      "kind": "gap",
+      "text": "Guild roster rows used the generic row-filling MSUI listbox strip instead of the offset FriendsFrame highlight bar; totals used guessed fixed text positions instead of their XML anchor chain; and the MotD used raw 9px ImGui wrapping instead of its fixed GameFontHighlightSmall box.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "GuildFrameUiLaw owns the exact additive 298x16 row highlight at (5,2), the auto-width member/online total anchor chain and the 315x45 MotD wrap/clip policy. Guild renders those through the authored GameFontNormalSmall and GameFontHighlightSmall objects. Focused FriendsFrame, GuildFrame and full interface suites pass."
     },
     {
       "id": "item-friendsframe-staticpopup-editbox-verify-001",
@@ -148,11 +247,65 @@
       "source": "benilla-b57ee0e9e2c8822b/ui_guild/lines.rs",
       "added": "2026-08-22",
       "resolved": false
+    },
+    {
+      "id": "item-guildframe-fixed-note-info-font-visual-gap-20260823",
+      "kind": "gap",
+      "text": "Guild member public/officer notes and the read-only Guild Information board used generic 12/14px wrapping instead of the authored top-justified GameFontHighlight fixed boxes.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: GuildFrameUiLaw now owns the GameFontHighlight identity and fixed-box line seats. The member notes and read-only information board wrap, clip, and top-justify through GameText inside their exact authored boxes; permissions, popups, edit/save flows, and active multiline input remain unchanged. Focused GuildFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-social-guild-resolved-display-labels-20260823",
+      "kind": "gap",
+      "text": "Friends and Guild roster surfaces synthesized developer-facing Area <id> and '?' labels when AreaTable or class/race resolution missed, while Benilla feeds empty display strings to FrameXML.",
+      "source": "benilla-b57ee0e9e2c8822b/ui_social/feed.rs+ui_guild/feed.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "FriendsFrameUiLaw and GuildFrameUiLaw now own the empty-on-unresolved display rule. Friends, Who, Guild roster sorting/drawing, and Guild member detail all consume the resolved labels without numeric or question-mark fallbacks; focused and full interface-wire checks pass."
+    },
+    {
+      "id": "item-whoframe-bare-filter-editbox-20260823",
+      "kind": "gap",
+      "text": "WhoFrameEditBox incorrectly painted the shared Common-Input-Border even though the authored 296x32 ChatFontNormal edit box has no backdrop and zero text insets.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "FriendsFrameUiLaw now owns the bare field seat and zero inset. The Who filter uses a transparent full-height edit control with no synthetic border; input, Enter/Keypad Enter submission, positioning, and established font hosting remain unchanged. Focused and full interface-wire checks pass."
+    },
+    {
+      "id": "item-guildcontrol-rank-button-tooltips-20260823",
+      "kind": "gap",
+      "text": "Guild Control's add/remove-rank buttons had their authored art and actions but omitted GUILDADDRANK_BUTTON_TOOLTIP and GUILDREMOVERANK_BUTTON_TOOLTIP.",
+      "source": "benilla-ac3264a0296ae90e/FriendsFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "GuildFrameUiLaw owns the exact Click to add rank / Click to remove this rank copy and ANCHOR_RIGHT seat; both enabled mini-buttons publish through shared GameTooltip arbitration."
+    },
+    {
+      "id": "item-social-guild-newbie-tooltips-20260823",
+      "kind": "gap",
+      "text": "Friends/Guild action buttons, player-view guild rows, and GuildMemberDetail actions omitted their authored GameTooltip_AddNewbieTip hover help.",
+      "source": "benilla-ac3264a0296ae90e/FriendsFrame.xml+GameTooltip.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "FriendsFrameUiLaw and GuildFrameUiLaw own the exact English newbie copy. Eligible authored owners now submit detailed-tip content through the shared typed GameTooltip responder, which retains the reference default-corner position and wrapped title/description presentation; status-view rows and Ignore actions remain tooltip-free as authored."
+    },
+    {
+      "id": "item-guild-small-button-fonts-20260823",
+      "kind": "gap",
+      "text": "GuildFrame's three footer actions and the Guild Information / GuildMemberDetail satellite actions override UIPanelButtonTemplate to the small font trio, but MSUI retained the generic larger panel-button labels.",
+      "source": "benilla-ac3264a0296ae90e/FriendsFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "GuildFrameUiLaw owns GameFontNormalSmall, GameFontHighlightSmall, and GameFontDisableSmall for the authored override sites. The main guild footer plus Guild Information and member-detail action buttons consume those identities; Guild Control Accept/Cancel retain the base UIPanelButtonTemplate fonts because FrameXML does not override them."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T01:45:00Z",
+  "lastReviewedUtc": "2026-08-23T18:00:00.0000000Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

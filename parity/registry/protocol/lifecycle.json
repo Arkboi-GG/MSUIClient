@@ -7,8 +7,8 @@
   "benillaSources": [
     {
       "path": "crates/benilla-protocol/src/world/writer/lifecycle.rs",
-      "fileSha256": "af5fbf2c0f9e9bce999b91a99baea584d1f5b05a03977ae03edbb587bb368031",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "6ee88e20ed584b5c1b7a1a300572095691162d19a3c103b8665cb1e28802405c",
+      "snapshotId": "benilla-current-2026-08-23"
     }
   ],
   "msuiAnchors": [
@@ -18,11 +18,11 @@
     "MSUIClient/Program.Logout.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "Benilla defines the three session-obligation sends (CMSG_PING with sequence+lastRtt, CMSG_LOGOUT_REQUEST/CMSG_LOGOUT_CANCEL, CMSG_COMPLETE_CINEMATIC) plus their answers. MSUI sends all four (ping body with counters, empty logout/cancel/cinematic bodies) and handles SMSG_PONG, SMSG_LOGOUT_RESPONSE, SMSG_LOGOUT_CANCEL_ACK, SMSG_LOGOUT_COMPLETE and SMSG_TRIGGER_CINEMATIC (acked as an immediate ESC-style skip).",
+  "summary": "Current Benilla defines the session-obligation sends CMSG_PING (sequence + lastRtt), CMSG_LOGOUT_REQUEST/CMSG_LOGOUT_CANCEL, CMSG_QUERY_TIME and CMSG_COMPLETE_CINEMATIC. MSUI implements each exact body and its consumer: bounded ping cadence/PONG latency, logout response/cancel/complete, world-entry plus timed-quest server-clock sampling, and immediate ESC-style cinematic completion so the body-centered world stream resumes.",
   "openItems": [],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T13:40:46.0924044Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -3,6 +3,7 @@ namespace MSUIClient.Engine.UI;
 public enum WorldCursorKind
 {
     Point,
+    Cast,
     Attack,
     Speak,
     Pickup,
@@ -53,6 +54,9 @@ public static class WorldCursorUiLaw
     public const float MeleeReachOffset = 1.33333f;
     public const float MeleeReachFloor = 5f;
     public const float GameObjectInteractRangeSquared = ServiceRangeSquared;
+
+    public static WorldCursorState ItemTargeting(bool pointerOverUi) =>
+        new(WorldCursorKind.Cast, Unable: !pointerOverUi);
 
     public static bool QuestgiverHasQuest(uint? status) =>
         status is not (null or 0u or 1u);

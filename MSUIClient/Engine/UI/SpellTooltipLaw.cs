@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Numerics;
 using System.Text;
 using MSUIClient.Formats;
 
@@ -24,6 +25,37 @@ public static class SpellTooltipLaw
     public const float DoubleGap = 40f;
     public const float WrapWidth = 260f;
     public const uint RankColor = 0xff808080; // byte-verified RGB(128,128,128), ImGui ABGR.
+
+    public static Vector2 FrameSize(float contentWidth, float rowStackHeight, float scale) => new(
+        MathF.Round(contentWidth + Pad * 2f * scale),
+        MathF.Round(rowStackHeight + Pad * 2f * scale));
+
+    public static Vector2 DefaultBottomRightOrigin(Vector2 displaySize, Vector2 frameSize,
+        float scale) => new(
+            displaySize.X - 13f * scale - frameSize.X,
+            displaySize.Y - 70f * scale - frameSize.Y);
+
+    public static Vector2 OwnerRightOrigin(Vector2 ownerMin, Vector2 ownerMax,
+        Vector2 frameSize, Vector2 displaySize, float scale)
+    {
+        Vector2 position = new(ownerMax.X + 4f * scale, ownerMin.Y);
+        if (position.X + frameSize.X > displaySize.X - 4f)
+            position.X = ownerMin.X - frameSize.X - 4f * scale;
+        return ClampOrigin(position, frameSize, displaySize);
+    }
+
+    public static Vector2 ClampOrigin(Vector2 position, Vector2 frameSize, Vector2 displaySize)
+    {
+        position.X = Math.Clamp(position.X, 4f, Math.Max(4f, displaySize.X - frameSize.X - 4f));
+        position.Y = Math.Clamp(position.Y, 4f, Math.Max(4f, displaySize.Y - frameSize.Y - 4f));
+        return position;
+    }
+
+    public static Vector2 LeftTextPosition(Vector2 origin, float y, float scale) =>
+        new(origin.X + Pad * scale, y);
+
+    public static Vector2 RightTextPosition(Vector2 origin, Vector2 frameSize, float y,
+        float scale) => new(origin.X + frameSize.X - Pad * scale, y);
 
     public static SpellTooltipView Build(in SpellInfo spell, SpellCatalog catalog, uint casterLevel = 0)
     {

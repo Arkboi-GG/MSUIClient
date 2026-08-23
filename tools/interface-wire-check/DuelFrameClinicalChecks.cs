@@ -54,7 +54,9 @@ internal static class DuelFrameClinicalChecks
               DuelFrameUiLaw.OutOfBoundsText(9.2) ==
                   "Exiting duel area, you will forfeit in 10 seconds." &&
               DuelFrameUiLaw.OutOfBoundsText(.2) ==
-                  "Exiting duel area, you will forfeit in 1 second.",
+                  "Exiting duel area, you will forfeit in 1 second." &&
+              DuelFrameUiLaw.PopupSize(12, buttons: true) == new System.Numerics.Vector2(320, 72) &&
+              DuelFrameUiLaw.TextLineCenter(0) == new System.Numerics.Vector2(160, 22),
             "duel spell/UnitPopup/dialog text law drift");
 
         StaticPopupCoordinatorLaw.Plan shown = StaticPopupCoordinatorLaw.Show(
@@ -82,7 +84,11 @@ internal static class DuelFrameClinicalChecks
               runtime.Contains("DuelFrameUiLaw.IsDuelSpell", StringComparison.Ordinal) &&
               runtime.Contains("TryCast(spellId)", StringComparison.Ordinal) &&
               unitPopup.Contains("case UnitPopupRow.Duel", StringComparison.Ordinal) &&
-              net.Contains("case Op.SMSG_DUEL_COUNTDOWN", StringComparison.Ordinal),
+              net.Contains("case Op.SMSG_DUEL_COUNTDOWN", StringComparison.Ordinal) &&
+              runtime.Contains("DuelFrameUiLaw.PopupSize", StringComparison.Ordinal) &&
+              runtime.Contains("DuelFrameUiLaw.TextLineCenter", StringComparison.Ordinal) &&
+              !MethodBody(runtime, "private void DrawDuelPopup").Contains(
+                  "new Vector2", StringComparison.Ordinal),
             "duel production request/UnitPopup/net wiring drift");
     }
 
@@ -107,5 +113,14 @@ internal static class DuelFrameClinicalChecks
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidDataException(message);
+    }
+
+    private static string MethodBody(string source, string signature)
+    {
+        int start = source.IndexOf(signature, StringComparison.Ordinal);
+        if (start < 0) return "";
+        int next = source.IndexOf("\n    private ", start + signature.Length,
+            StringComparison.Ordinal);
+        return next < 0 ? source[start..] : source[start..next];
     }
 }

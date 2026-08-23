@@ -2,14 +2,15 @@ using System.Numerics;
 
 namespace MSUIClient.Engine.UI;
 
-public enum UnitPopupWhich { Self, Pet, Party, Player, Friend }
+public enum UnitPopupWhich { Self, Pet, Party, Player, Friend, Guild }
 
 public enum UnitPopupSubmenu { None, LootMethod, LootThreshold, RaidTargetIcon }
 
 public enum UnitPopupRow
 {
     PetPaperDoll, PetRename, PetAbandon, PetDismiss,
-    Whisper, Inspect, Invite, Uninvite, Promote, Leave, Trade, Follow, Duel,
+    Whisper, Inspect, Invite, Uninvite, Promote, Leave, GuildPromote, GuildLeave,
+    Trade, Follow, Duel,
     LootMethod, LootThreshold, LootPromote, RaidTargetIcon,
     FreeForAll, RoundRobin, MasterLooter, GroupLoot, NeedBeforeGreed,
     Quality2, Quality3, Quality4,
@@ -47,6 +48,9 @@ public static class UnitPopupUiLaw
          UnitPopupRow.RaidTargetIcon, UnitPopupRow.Cancel];
     private static readonly UnitPopupRow[] FriendMenu =
         [UnitPopupRow.Whisper, UnitPopupRow.Invite, UnitPopupRow.Cancel];
+    private static readonly UnitPopupRow[] GuildMenu =
+        [UnitPopupRow.Whisper, UnitPopupRow.Invite, UnitPopupRow.GuildPromote,
+         UnitPopupRow.GuildLeave, UnitPopupRow.Cancel];
     private static readonly UnitPopupRow[] LootMethodMenu =
         [UnitPopupRow.FreeForAll, UnitPopupRow.RoundRobin, UnitPopupRow.MasterLooter,
          UnitPopupRow.GroupLoot, UnitPopupRow.NeedBeforeGreed, UnitPopupRow.Cancel];
@@ -64,6 +68,7 @@ public static class UnitPopupUiLaw
         UnitPopupWhich.Pet => PetMenu,
         UnitPopupWhich.Party => PartyMenu,
         UnitPopupWhich.Friend => FriendMenu,
+        UnitPopupWhich.Guild => GuildMenu,
         _ => PlayerMenu,
     };
 
@@ -96,6 +101,8 @@ public static class UnitPopupUiLaw
             UnitPopupRow.Uninvite => "Uninvite",
             UnitPopupRow.Promote => "Promote to leader",
             UnitPopupRow.Leave => "Leave Party",
+            UnitPopupRow.GuildPromote => "Promote to Guild Master",
+            UnitPopupRow.GuildLeave => "Leave Guild",
             UnitPopupRow.Trade => "Trade",
             UnitPopupRow.Follow => "Follow",
             UnitPopupRow.Duel => "Duel",
@@ -150,6 +157,16 @@ public static class UnitPopupUiLaw
             UnitPopupRow.PetPaperDoll or UnitPopupRow.PetAbandon => canAbandon,
             UnitPopupRow.PetRename => canAbandon && canRename,
             UnitPopupRow.PetDismiss => !canAbandon,
+            _ => true,
+        }).ToArray();
+
+    public static UnitPopupRow[] VisibleGuildRows(bool unitInParty, bool guildLeader,
+        bool self) => GuildMenu
+        .Where(row => row switch
+        {
+            UnitPopupRow.Invite => !unitInParty,
+            UnitPopupRow.GuildPromote => guildLeader && !self,
+            UnitPopupRow.GuildLeave => self,
             _ => true,
         }).ToArray();
 
@@ -265,6 +282,9 @@ public static class UnitPopupUiLaw
     // GameTooltip.xml globals applied by UIDropDownListTemplate's MENU backdrop OnLoad.
     public static readonly Vector4 MenuBackdropFillTint = new(.09f, .09f, .19f, 1f);
     public static readonly Vector4 MenuBackdropEdgeTint = Vector4.One;
+    public static readonly Vector2 CheckSize = new(24);
+    public static readonly Vector2 RaidIconSize = new(15);
+    public static readonly Vector2 ArrowSize = new(16);
 
     public static float CardWidth(float widestText) => CardWidth(
         [new UnitPopupWidthMeasure(widestText, true, false, false)]);

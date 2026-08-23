@@ -932,10 +932,10 @@ public class WmoGroupData
     public float BbMaxY { get; set; }
     public float BbMaxZ { get; set; }
     /// <summary>
-    /// MOGP +0x34 groupLiquid — LiquidType DBC id. May be 0 even when MLIQ is present
-    /// (vanilla WMOs frequently leave this unset and rely on per-tile bits in SMOLTile).
+    /// MOGP +0x34 groupLiquid — whole-group liquid override. 0x0F means no
+    /// override; an MLIQ grid's per-tile nibble remains a separate mechanism.
     /// </summary>
-    public uint GroupLiquid { get; set; }
+    public uint GroupLiquid { get; set; } = 0x0fu;
     /// <summary>MOGP +0x24: first index into the root MOPR portal-reference array for this group.</summary>
     public ushort PortalStart { get; set; }
     /// <summary>MOGP +0x26: number of MOPR portal references that belong to this group.</summary>
@@ -1087,6 +1087,14 @@ public class WmoLiquid
     {
         int k = j * XTiles + i;
         return (uint)k >= (uint)TileFlags.Length ? 0 : TileFlags[k] & 0x03;
+    }
+
+    /// <summary>Raw liquid/speed low nibble; 0x0f means no liquid.</summary>
+    public byte TypeNibble(int i, int j)
+    {
+        int k = j * XTiles + i;
+        return (uint)k >= (uint)TileFlags.Length ? (byte)0x0f :
+            (byte)(TileFlags[k] & 0x0f);
     }
 
     /// <summary>Absolute height of grid vertex (i, j). Row-major over (yverts x xverts).</summary>

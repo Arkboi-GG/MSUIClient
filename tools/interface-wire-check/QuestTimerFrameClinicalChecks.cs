@@ -15,6 +15,15 @@ internal static class QuestTimerFrameClinicalChecks
                   new Vector2(1600, 384) &&
               QuestTimerFrameUiLaw.RowRect(0) == new QuestLogicalRect(10, 30, 140, 16) &&
               QuestTimerFrameUiLaw.RowRect(19) == new QuestLogicalRect(10, 334, 140, 16) &&
+              QuestTimerFrameUiLaw.FrameSize(77, 2) == new Vector2(320, 154) &&
+              QuestTimerFrameUiLaw.RowScreen(new Vector2(1600, 384), 1, 2) ==
+                  new QuestTimerFrameUiLaw.ScreenRect(new Vector2(1620, 476),
+                      new Vector2(280, 32)) &&
+              QuestTimerFrameUiLaw.TitleFont == "GameFontNormal" &&
+              QuestTimerFrameUiLaw.RowFont == "GameFontHighlightSmall" &&
+              QuestTimerFrameUiLaw.RowTextCenter(
+                  new QuestTimerFrameUiLaw.ScreenRect(new Vector2(10, 20),
+                      new Vector2(140, 16)), 10) == new Vector2(80, 25) &&
               QuestFrameUiLaw.SecondsToTime(859) == "14 Mins 19 Secs " &&
               QuestFrameUiLaw.SecondsToTime(44) == "44 Secs ",
             "quest-timer frame geometry/countdown law drift");
@@ -34,6 +43,10 @@ internal static class QuestTimerFrameClinicalChecks
             "GameLoop.CombatFeedback.cs"));
         Check(runtime.Contains("QuestTimerFrameUiLaw.FrameOrigin", StringComparison.Ordinal) &&
               runtime.Contains("QuestTimerFrameUiLaw.FrameHeight", StringComparison.Ordinal) &&
+              runtime.Contains("QuestTimerFrameUiLaw.RowScreen", StringComparison.Ordinal) &&
+              runtime.Contains("QuestTimerFrameUiLaw.RowTextCenter", StringComparison.Ordinal) &&
+              runtime.Contains("QuestTimerFrameUiLaw.RowFont", StringComparison.Ordinal) &&
+              !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               runtime.Contains("QuestSignedSecondsLeft", StringComparison.Ordinal) &&
               runtime.Contains("UI-DialogBox-Header", StringComparison.Ordinal) &&
               runtime.Contains("_questLogSelectedQuestId = timer.QuestId", StringComparison.Ordinal) &&

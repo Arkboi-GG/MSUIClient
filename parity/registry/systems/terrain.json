@@ -6,11 +6,6 @@
   "deviationPolicy": "must-match",
   "benillaSources": [
     {
-      "path": "crates/benilla-app/src/terrain.rs",
-      "fileSha256": "ddddc500ae256d6c1bc27b43ef57b4d54893be64b78752e974fad0de3c40a6a0",
-      "snapshotId": "benilla-5089066fea6adbc3"
-    },
-    {
       "path": "crates/benilla-world/src/weather/mod.rs",
       "fileSha256": "481a2ce37febaa06d96aa1462e73d779a388b9f69da37707b90d20de4b18e6b5",
       "snapshotId": "benilla-current-2026-08-22"

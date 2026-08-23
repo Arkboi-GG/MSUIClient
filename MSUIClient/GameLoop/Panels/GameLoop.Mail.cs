@@ -28,7 +28,7 @@ public sealed partial class GameLoop
     private readonly HashSet<uint> _mailBodyPending = [];
     private bool _mailOpen;
     private bool _hasNewMail;
-    private float _nextMailSeconds = -86400f;
+    private float _nextMailSeconds = MailUiLaw.NoMailQueryStamp;
     private bool _mailRefreshPending;
     private ulong _mailboxGuid;
     private uint _openMailId;
@@ -72,7 +72,7 @@ public sealed partial class GameLoop
         _mailBodyPending.Clear();
         _mailOpen = false;
         _hasNewMail = false;
-        _nextMailSeconds = -86400f;
+        _nextMailSeconds = MailUiLaw.NoMailQueryStamp;
         _mailRefreshPending = false;
         _mailboxGuid = 0;
         _openMailId = 0;
@@ -184,10 +184,13 @@ public sealed partial class GameLoop
         _mailConfirmation = null;
         _mailSendPending = false;
         SetBagWindowOpen(0, false);
-        if (_mailRefreshPending && _net?.QueryNextMailTime() == true)
+        if (_mailRefreshPending)
         {
-            _nextMailSeconds = -86400f;
+            // The reference stamps -1 before attempting the query, rather than copying the
+            // server's separate -86400 "nothing unread" answer into client-owned state.
+            _nextMailSeconds = MailUiLaw.NoMailQueryStamp;
             _hasNewMail = false;
+            _net?.QueryNextMailTime();
         }
         _mailRefreshPending = false;
         _mailboxGuid = 0;
@@ -355,6 +358,10 @@ public sealed partial class GameLoop
         if (_mailOpen)
         {
             _mailRefreshPending = true;
+            // Keep the pending-mail countdown stable while the mailbox is open, but do not
+            // leave the newly delivered row invisible. Current Benilla bypasses CheckInbox's
+            // normal throttle for this server push and immediately re-requests the list.
+            RefreshMailList(force: true);
         }
         else
         {
@@ -686,7 +693,8 @@ public sealed partial class GameLoop
     {
         if (!_mailOpen || _gameplayArt is null) return;
         float s = GameplayUiScale();
-        Vector2 origin = UiPanelFrameOrigin(UiPanelOwnershipRegistry[2], s), logicalSize = new(384, 512);
+        Vector2 origin = UiPanelFrameOrigin(UiPanelOwnershipRegistry[2], s);
+        Vector2 logicalSize = MailUiLaw.Frame.Size;
         _mailFrameOrigin = origin;
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(logicalSize * s, ImGuiCond.Always);
@@ -697,8 +705,7 @@ public sealed partial class GameLoop
         ImGui.PopStyleVar(2);
         if (!began) { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
-        Vector4 panelClip = new(origin.X, origin.Y, origin.X + logicalSize.X * s,
-            origin.Y + logicalSize.Y * s);
+        Vector4 panelClip = MailUiLaw.Clip(origin, logicalSize * s);
         if (_uiParityArmed && _uiParityPanel == "mail")
         {
             BeginUiParityFrame(origin, s);
@@ -710,16 +717,19 @@ public sealed partial class GameLoop
                     HitMin: origin, HitMax: origin + logicalSize * s, Strata: "MEDIUM"));
         }
 
-        Vector2 shell = origin + (_mailTab == 1 ? new Vector2(2, 1) * s : Vector2.Zero);
+        Vector2 shell = MailUiLaw.At(origin,
+            _mailTab == 1 ? MailUiLaw.ComposeShellOffset : Vector2.Zero, s);
         // MailFramePortrait is BACKGROUND and the four-piece shell is BORDER. Draw the square
         // portrait first so the shell's round aperture contains it instead of exposing its corners.
-        Vector2 portraitMin = origin + new Vector2(10, 8) * s;
-        DrawArt(dl, @"Interface\MailFrame\Mail-Icon", portraitMin, new Vector2(58), s);
+        Vector2 portraitMin = MailUiLaw.Portrait.ScaledMin(origin, s);
+        DrawArt(dl, @"Interface\MailFrame\Mail-Icon", portraitMin,
+            MailUiLaw.Portrait.Size, s);
         if (_uiParityArmed && _uiParityPanel == "mail")
-            CollectUiParityDraw("MailFramePortrait", "Texture", portraitMin, new Vector2(58) * s,
+            CollectUiParityDraw("MailFramePortrait", "Texture", portraitMin,
+                MailUiLaw.Portrait.ScaledSize(s),
                 "MailFrame", new(@"Interface\MailFrame\Mail-Icon", 0xffffffff, "BACKGROUND",
                     "TOPLEFT", "MailFrame", "TOPLEFT", 10, -8,
-                    ContentRect: MailContent(portraitMin, new Vector2(58) * s),
+                    ContentRect: MailContent(portraitMin, MailUiLaw.Portrait.ScaledSize(s)),
                     ClipRect: panelClip, ClipMask: "WINDOW_RECT", BlendMode: "BLEND",
                     Visible: true, Strata: "MEDIUM"));
         if (_mailTab == 0)
@@ -752,34 +762,37 @@ public sealed partial class GameLoop
         if (_mailTab == 0) DrawMailInbox(dl, origin, s);
         else DrawMailCompose(dl, origin, s);
 
-        Vector2 close = origin + new Vector2(323, 9) * s;
-        DrawImageButton(dl, "##mail-close", close, new Vector2(32) * s,
+        Vector2 close = MailUiLaw.Close.ScaledMin(origin, s);
+        Vector2 closeSize = MailUiLaw.Close.ScaledSize(s);
+        DrawImageButton(dl, "##mail-close", close, closeSize,
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         bool closeActive = ImGui.IsItemActive(), closeHovered = ImGui.IsItemHovered();
         bool closeClicked = MailReleasedCurrentItem();
-        TraceMailControl("MailFrameCloseButton", "MailFrame", close, new Vector2(32) * s,
+        TraceMailControl("MailFrameCloseButton", "MailFrame", close, closeSize,
             closeActive, closeHovered, true, panelClip,
             closeActive ? @"Interface\Buttons\UI-Panel-MinimizeButton-Down" :
                 @"Interface\Buttons\UI-Panel-MinimizeButton-Up");
 
         float inboxWidth = VanillaCharacterTabWidth("Inbox", s, 0);
         float sendWidth = VanillaCharacterTabWidth("Send Mail", s, 0);
-        Vector2 inboxTabMin = origin + new Vector2(24, 436) * s;
+        MailUiLaw.LogicalRect inboxTab = MailUiLaw.FirstTab(inboxWidth);
+        Vector2 inboxTabMin = inboxTab.ScaledMin(origin, s);
         VanillaTab(dl, "##mail-inbox-tab", inboxTabMin, "Inbox", inboxWidth, s, _mailTab == 0);
         bool inboxActive = ImGui.IsItemActive(), inboxHovered = ImGui.IsItemHovered();
         bool inboxClicked = MailReleasedCurrentItem();
         TraceMailControl("MailFrameTab1", "MailFrame", inboxTabMin,
-            new Vector2(inboxWidth, 32) * s, inboxActive, inboxHovered, true, panelClip,
+            inboxTab.ScaledSize(s), inboxActive, inboxHovered, true, panelClip,
             _mailTab == 0 ? @"Interface\PaperDollInfoFrame\UI-Character-ActiveTab" :
                 @"Interface\PaperDollInfoFrame\UI-Character-InActiveTab");
-        Vector2 sendTabMin = origin + new Vector2(24 + inboxWidth - 8, 436) * s;
+        MailUiLaw.LogicalRect sendTab = MailUiLaw.SecondTab(inboxWidth, sendWidth);
+        Vector2 sendTabMin = sendTab.ScaledMin(origin, s);
         VanillaTab(dl, "##mail-send-tab", sendTabMin, "Send Mail", sendWidth, s, _mailTab == 1);
         bool sendActive = ImGui.IsItemActive(), sendHovered = ImGui.IsItemHovered();
         bool sendClicked = MailReleasedCurrentItem();
         TraceMailControl("MailFrameTab2", "MailFrame", sendTabMin,
-            new Vector2(sendWidth, 32) * s, sendActive, sendHovered, true, panelClip,
+            sendTab.ScaledSize(s), sendActive, sendHovered, true, panelClip,
             _mailTab == 1 ? @"Interface\PaperDollInfoFrame\UI-Character-ActiveTab" :
                 @"Interface\PaperDollInfoFrame\UI-Character-InActiveTab");
         ImGui.End();
@@ -801,20 +814,18 @@ public sealed partial class GameLoop
         string topLeft, string topRight, string bottomLeft, string bottomRight)
     {
         if (!_uiParityArmed || _uiParityPanel != "mail") return;
-        (string Element, string Path, Vector2 Offset, Vector2 Size)[] pieces =
-        [
-            ($"{parent}TopLeft", topLeft, Vector2.Zero, new(256, 256)),
-            ($"{parent}TopRight", topRight, new(256, 0), new(128, 256)),
-            ($"{parent}BotLeft", bottomLeft, new(0, 256), new(256, 256)),
-            ($"{parent}BotRight", bottomRight, new(256, 256), new(128, 256))
-        ];
-        foreach (var piece in pieces)
+        string[] elements = [$"{parent}TopLeft", $"{parent}TopRight",
+            $"{parent}BotLeft", $"{parent}BotRight"];
+        string[] paths = [topLeft, topRight, bottomLeft, bottomRight];
+        for (int index = 0; index < MailUiLaw.ShellPieces.Length; index++)
         {
-            Vector2 min = origin + piece.Offset * s;
-            CollectUiParityDraw(piece.Element, "Texture", min, piece.Size * s, parent,
-                new(piece.Path, 0xffffffff, "BORDER", "TOPLEFT", parent, "TOPLEFT",
-                    piece.Offset.X, -piece.Offset.Y,
-                    ContentRect: MailContent(min, piece.Size * s), ClipRect: clip,
+            MailUiLaw.LogicalRect piece = MailUiLaw.ShellPieces[index];
+            Vector2 min = piece.ScaledMin(origin, s);
+            Vector2 size = piece.ScaledSize(s);
+            CollectUiParityDraw(elements[index], "Texture", min, size, parent,
+                new(paths[index], 0xffffffff, "BORDER", "TOPLEFT", parent, "TOPLEFT",
+                    piece.X, -piece.Y,
+                    ContentRect: MailContent(min, size), ClipRect: clip,
                     ClipMask: "WINDOW_RECT", BlendMode: "BLEND", Visible: true,
                     Strata: "MEDIUM"));
         }
@@ -847,22 +858,23 @@ public sealed partial class GameLoop
     private void DrawMailInbox(ImDrawListPtr dl, Vector2 origin, float s)
     {
         GameText.DrawCentered(dl, "GameFontNormal", "Inbox",
-            origin + new Vector2(198, 26) * s, s);
+            MailUiLaw.At(origin, MailUiLaw.TitleCenter, s), s);
         int first = MailUiLaw.FirstIndex(_mailPage, _mail.Count);
         for (int visible = 0; visible < MailUiLaw.InboxItemsPerPage; visible++)
         {
             int index = first + visible;
-            Vector2 rowMin = origin + new Vector2(28, 80 + visible * 45) * s;
+            MailUiLaw.LogicalRect row = MailUiLaw.InboxRow(visible);
+            Vector2 rowMin = row.ScaledMin(origin, s);
             if (index < _mail.Count)
                 DrawMailInboxRow(dl, rowMin, _mail[index], s, visible);
             else if (_uiParityArmed && _uiParityPanel == "mail")
             {
                 Vector4 clip = MailPanelClip(origin, s);
                 CollectUiParityDraw($"MailItem{visible + 1}", "Frame", rowMin,
-                    new Vector2(305, 45) * s, "InboxFrame",
+                    row.ScaledSize(s), "InboxFrame",
                     new("", 0, "NOT_DRAWN", "TOPLEFT", "InboxFrame", "TOPLEFT", 28,
                         -(80 + visible * 45),
-                        ContentRect: MailContent(rowMin, new Vector2(305, 45) * s),
+                        ContentRect: MailContent(rowMin, row.ScaledSize(s)),
                         ClipRect: clip,
                         ClipMask: "WINDOW_RECT", Visible: false, Enabled: false,
                         InteractionState: "absent", Strata: "MEDIUM"));
@@ -870,10 +882,12 @@ public sealed partial class GameLoop
         }
 
         int pages = MailUiLaw.PageCount(_mail.Count);
-        if (DrawMailPageButton(dl, "##mail-prev", origin + new Vector2(34, 392) * s,
+        if (DrawMailPageButton(dl, "##mail-prev",
+                MailUiLaw.InboxPreviousPage.ScaledMin(origin, s),
                 previous: true, enabled: _mailPage > 1, s))
         { _mailPage--; PlayUiSound("igMainMenuOptionCheckBoxOn"); }
-        if (DrawMailPageButton(dl, "##mail-next", origin + new Vector2(298, 392) * s,
+        if (DrawMailPageButton(dl, "##mail-next",
+                MailUiLaw.InboxNextPage.ScaledMin(origin, s),
                 previous: false, enabled: _mailPage < pages, s))
         { _mailPage++; PlayUiSound("igMainMenuOptionCheckBoxOn"); }
     }
@@ -884,55 +898,74 @@ public sealed partial class GameLoop
         Vector4 clip = MailPanelClip(_mailFrameOrigin, s);
         string frameElement = $"MailItem{visibleIndex + 1}";
         if (_uiParityArmed && _uiParityPanel == "mail")
-            CollectUiParityDraw(frameElement, "Frame", min, new Vector2(305, 45) * s,
+            CollectUiParityDraw(frameElement, "Frame", min, MailUiLaw.InboxRowSize * s,
                 "InboxFrame", new("", 0, "IMGUI_COMPOSED", "TOPLEFT", "InboxFrame",
                     "TOPLEFT", 28, -(80 + visibleIndex * 45),
-                    ContentRect: MailContent(min, new Vector2(305, 45) * s),
+                    ContentRect: MailContent(min, MailUiLaw.InboxRowSize * s),
                     ClipRect: clip, ClipMask: "WINDOW_RECT", Visible: true, Enabled: true,
                     InteractionState: MailUiLaw.IsRead(row.Checked) ? "read" : "unread",
                     Strata: "MEDIUM"));
         uint border = _gameplayArt?.Handle(@"Interface\MailFrame\MailItemBorder") ?? 0;
+        MailUiLaw.TextureSlice leftBorder = MailUiLaw.InboxBorderLeft;
+        MailUiLaw.TextureSlice rightBorder = MailUiLaw.InboxBorderRight;
+        Vector2 leftBorderMin = leftBorder.Rect.ScaledMin(min, s);
+        Vector2 leftBorderSize = leftBorder.Rect.ScaledSize(s);
+        Vector2 rightBorderMin = rightBorder.Rect.ScaledMin(min, s);
+        Vector2 rightBorderSize = rightBorder.Rect.ScaledSize(s);
         if (border != 0)
         {
-            dl.AddImage((nint)border, min, min + new Vector2(42, 48) * s,
-                Vector2.Zero, new Vector2(.1640625f, .75f));
-            dl.AddImage((nint)border, min + new Vector2(42, 0) * s,
-                min + new Vector2(305, 48) * s, new Vector2(.1640625f, 0), new Vector2(1, .75f));
+            dl.AddImage((nint)border, leftBorderMin, leftBorderMin + leftBorderSize,
+                leftBorder.UvMin, leftBorder.UvMax);
+            dl.AddImage((nint)border, rightBorderMin, rightBorderMin + rightBorderSize,
+                rightBorder.UvMin, rightBorder.UvMax);
         }
         if (_uiParityArmed && _uiParityPanel == "mail")
         {
-            CollectUiParityDraw(frameElement + "BorderLeft", "TextureUv", min,
-                new Vector2(42, 48) * s, frameElement,
+            CollectUiParityDraw(frameElement + "BorderLeft", "TextureUv", leftBorderMin,
+                leftBorderSize, frameElement,
                 new(@"Interface\MailFrame\MailItemBorder", 0xffffffff, "BACKGROUND",
                     "TOPLEFT", frameElement, "TOPLEFT", 0, 0,
                     TexCoords: "0|0|0.1640625|0.75",
-                    ContentRect: MailContent(min, new Vector2(42, 48) * s), ClipRect: clip,
+                    ContentRect: MailContent(leftBorderMin, leftBorderSize), ClipRect: clip,
                     ClipMask: "WINDOW_RECT", BlendMode: "BLEND", Strata: "MEDIUM"));
             CollectUiParityDraw(frameElement + "BorderRight", "TextureUv",
-                min + new Vector2(42, 0) * s, new Vector2(263, 48) * s, frameElement,
+                rightBorderMin, rightBorderSize, frameElement,
                 new(@"Interface\MailFrame\MailItemBorder", 0xffffffff, "BACKGROUND",
                     "TOPRIGHT", frameElement, "TOPRIGHT", 0, 0,
                     TexCoords: "0.1640625|0|1|0.75",
-                    ContentRect: MailContent(min + new Vector2(42, 0) * s,
-                        new Vector2(263, 48) * s), ClipRect: clip,
+                    ContentRect: MailContent(rightBorderMin, rightBorderSize), ClipRect: clip,
                     ClipMask: "WINDOW_RECT", BlendMode: "BLEND", Strata: "MEDIUM"));
         }
-        dl.AddRectFilled(min + new Vector2(-8, 43) * s, min + new Vector2(314, 45) * s,
-            0x4d002955);
+        MailUiLaw.LogicalRect divider = MailUiLaw.InboxDivider;
+        Vector2 dividerMin = divider.ScaledMin(min, s);
+        dl.AddRectFilled(dividerMin, dividerMin + divider.ScaledSize(s), 0x4d002955);
 
         bool read = MailUiLaw.IsRead(row.Checked);
         uint senderColor = read ? 0xffbfbfbf : VanillaGold;
         uint subjectColor = read ? 0xffbfbfbf : 0xffffffff;
-        GameText.Draw(dl, "GameFontNormal", MailSender(row), min + new Vector2(47, 4) * s,
-            s, senderColor);
-        GameText.Draw(dl, "GameFontHighlightSmall", row.Subject,
-            min + new Vector2(47, 20) * s, s, subjectColor);
+        Vector2 senderAt = MailUiLaw.InboxSenderBox.ScaledMin(min, s);
+        senderAt.Y = GameText.BoxCenteredTop("GameFontNormal", senderAt.Y,
+            MailUiLaw.InboxSenderBox.Height, s);
+        GameText.Draw(dl, "GameFontNormal",
+            GameText.EllipsizeToBox("GameFontNormal", MailSender(row),
+                MailUiLaw.InboxSenderBox.Width, MailUiLaw.InboxSenderBox.Height, s),
+            senderAt, s, senderColor);
+        GameText.Draw(dl, "GameFontHighlightSmall",
+            GameText.EllipsizeToBox("GameFontHighlightSmall", row.Subject,
+                MailUiLaw.InboxSubjectBox.Width, MailUiLaw.InboxSubjectBox.Height, s),
+            MailUiLaw.InboxSubjectBox.ScaledMin(min, s), s, subjectColor);
         string expiry = MailUiLaw.ExpiryText(row.ExpireDays);
         uint expiryColor = row.ExpireDays >= 1f ? 0xff20ff20 : 0xff2020ff;
+        Vector2 expiryAt = MailUiLaw.InboxExpiryBox.ScaledMin(min, s);
+        expiryAt.Y = GameText.BoxCenteredTop("GameFontHighlightSmall", expiryAt.Y,
+            MailUiLaw.InboxExpiryBox.Height, s);
         GameText.DrawRightAligned(dl, "GameFontHighlightSmall", expiry,
-            min + new Vector2(301, 4) * s, s, expiryColor);
-        ImGui.SetCursorScreenPos(min + new Vector2(201, 1) * s);
-        ImGui.InvisibleButton($"##mail-expiry-{row.Id}", new Vector2(100, 16) * s);
+            expiryAt with { X = expiryAt.X + MailUiLaw.InboxExpiryBox.Width * s },
+            s, expiryColor);
+        Vector2 expiryMin = MailUiLaw.InboxExpiryBox.ScaledMin(min, s);
+        Vector2 expirySize = MailUiLaw.InboxExpiryBox.ScaledSize(s);
+        ImGui.SetCursorScreenPos(expiryMin);
+        ImGui.InvisibleButton($"##mail-expiry-{row.Id}", expirySize);
         bool expiryHovered = ImGui.IsItemHovered();
         if (expiryHovered)
         {
@@ -940,8 +973,12 @@ public sealed partial class GameLoop
                 row.ItemEntry != 0, row.Money)
                 ? "Time until message is deleted" : "Time until message is returned";
             GameTooltipOwnerKey tooltipOwner = new("mail-inbox-expiry", (ulong)visibleIndex);
+            MailUiLaw.TooltipSeat tooltipSeat =
+                MailUiLaw.RightTooltipSeat(expiryMin, expirySize);
             OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
             {
+                ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
+                    tooltipSeat.Pivot);
                 ImGui.BeginTooltip();
                 ImGui.TextUnformatted(expiryTooltip);
                 ImGui.EndTooltip();
@@ -949,86 +986,87 @@ public sealed partial class GameLoop
         }
         if (_uiParityArmed && _uiParityPanel == "mail")
         {
-            Vector2 expiryMin = min + new Vector2(201, 1) * s;
             CollectUiParityDraw(frameElement + "ExpireTime", "Button", expiryMin,
-                new Vector2(100, 16) * s, frameElement,
+                expirySize, frameElement,
                 new("", 0, "IMGUI_HIT_TARGET", "TOPRIGHT", frameElement, "TOPRIGHT", -4,
-                    -4, ContentRect: MailContent(expiryMin, new Vector2(100, 16) * s),
+                    -4, ContentRect: MailContent(expiryMin, expirySize),
                     ClipRect: clip, ClipMask: "WINDOW_RECT",
                     Visible: true, Enabled: true,
                     InteractionState: expiryHovered ? "highlighted" : "normal",
-                    HitMin: expiryMin, HitMax: expiryMin + new Vector2(100, 16) * s,
+                    HitMin: expiryMin, HitMax: expiryMin + expirySize,
                     Strata: "MEDIUM"));
         }
 
-        Vector2 button = min + new Vector2(4, 3) * s;
+        Vector2 button = MailUiLaw.InboxItemButton.ScaledMin(min, s);
+        Vector2 buttonSize = MailUiLaw.InboxItemButton.ScaledSize(s);
+        Vector2 ringMin = MailUiLaw.InboxItemRing.ScaledMin(min, s);
+        Vector2 ringSize = MailUiLaw.InboxItemRing.ScaledSize(s);
         ItemTemplate? item = MailItem(row);
         string iconPath = row.ItemEntry != 0 && row.Stationery != 61 && item is not null
             ? item.IconPath : MailStationeryIcon(row);
         uint ring = _gameplayArt?.Handle(@"Interface\Buttons\UI-EmptySlot-White") ?? 0;
         uint tint = read ? 0xff808080 : 0xffffffff;
         if (ring != 0)
-            dl.AddImage((nint)ring, button - new Vector2(13.5f) * s,
-                button + new Vector2(50.5f) * s, Vector2.Zero, Vector2.One,
+            dl.AddImage((nint)ring, ringMin, ringMin + ringSize, Vector2.Zero, Vector2.One,
                 read ? 0xff808080 : VanillaGold);
         uint icon = _gameplayArt?.Handle(iconPath) ?? 0;
-        if (icon != 0) dl.AddImage((nint)icon, button, button + new Vector2(37) * s,
+        if (icon != 0) dl.AddImage((nint)icon, button, button + buttonSize,
             Vector2.Zero, Vector2.One, tint);
         ImGui.SetCursorScreenPos(button);
-        bool clicked = ImGui.InvisibleButton($"##mail-row-{row.Id}", new Vector2(37) * s,
+        bool clicked = ImGui.InvisibleButton($"##mail-row-{row.Id}", buttonSize,
             ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
         bool hovered = ImGui.IsItemHovered(), active = ImGui.IsItemActive();
         if (hovered)
         {
             uint hi = _gameplayArt?.AdditiveHandle(@"Interface\Buttons\ButtonHilight-Square") ?? 0;
-            if (hi != 0) dl.AddImage((nint)hi, button, button + new Vector2(37) * s);
-            OfferMailInboxRowTooltip(visibleIndex, row, item);
+            if (hi != 0) dl.AddImage((nint)hi, button, button + buttonSize);
+            OfferMailInboxRowTooltip(visibleIndex, row, item, button, buttonSize);
         }
         if (row.Cod > 0)
             GameText.DrawCentered(dl, "GameFontHighlightSmall", "COD",
-                button + new Vector2(18.5f, 30) * s, s);
+                MailUiLaw.At(button, MailUiLaw.InboxCodCenter, s), s);
         if (row.Id == _openMailId)
         {
             uint checkedArt = _gameplayArt?.AdditiveHandle(@"Interface\Buttons\CheckButtonHilight") ?? 0;
-            if (checkedArt != 0) dl.AddImage((nint)checkedArt, button, button + new Vector2(37) * s);
+            if (checkedArt != 0) dl.AddImage((nint)checkedArt, button, button + buttonSize);
         }
         if (_uiParityArmed && _uiParityPanel == "mail")
         {
-            CollectUiParityDraw(frameElement + "ButtonSlot", "Texture", button - new Vector2(13.5f) * s,
-                new Vector2(64) * s, frameElement,
+            CollectUiParityDraw(frameElement + "ButtonSlot", "Texture", ringMin,
+                ringSize, frameElement,
                 new(@"Interface\Buttons\UI-EmptySlot-White", read ? 0xff808080 : VanillaGold,
                     "BACKGROUND", "CENTER", frameElement + "Button", "CENTER", 0, 0,
                     TexCoords: "0|0|1|1",
-                    ContentRect: MailContent(button - new Vector2(13.5f) * s,
-                        new Vector2(64) * s), ClipRect: clip,
+                    ContentRect: MailContent(ringMin, ringSize), ClipRect: clip,
                     ClipMask: "WINDOW_RECT", BlendMode: "BLEND", Strata: "MEDIUM"));
             CollectUiParityDraw(frameElement + "ButtonIcon", "Texture", button,
-                new Vector2(37) * s, frameElement + "Button",
+                buttonSize, frameElement + "Button",
                 new(iconPath, tint, "ARTWORK", "CENTER", frameElement + "Button", "CENTER", 0,
                     0, TexCoords: "0|0|1|1",
-                    ContentRect: MailContent(button, new Vector2(37) * s), ClipRect: clip,
+                    ContentRect: MailContent(button, buttonSize), ClipRect: clip,
                     ClipMask: "WINDOW_RECT", BlendMode: "BLEND", Strata: "MEDIUM"));
             CollectUiParityDraw(frameElement + "Button", "CheckButton", button,
-                new Vector2(37) * s, frameElement,
+                buttonSize, frameElement,
                 new("", 0, "IMGUI_HIT_TARGET", "TOPLEFT", frameElement, "TOPLEFT", 4, -3,
-                    ContentRect: MailContent(button, new Vector2(37) * s), ClipRect: clip,
+                    ContentRect: MailContent(button, buttonSize), ClipRect: clip,
                     ClipMask: "WINDOW_RECT", Visible: true,
                     Enabled: true, InteractionState: active ? "pushed" : hovered ? "highlighted" :
                         row.Id == _openMailId ? "checked" : "normal", HitMin: button,
-                    HitMax: button + new Vector2(37) * s, Strata: "MEDIUM"));
+                    HitMax: button + buttonSize, Strata: "MEDIUM"));
             if (hovered)
                 CollectUiParityDraw(frameElement + "ButtonHighlight", "HighlightTexture", button,
-                    new Vector2(37) * s, frameElement + "Button",
+                    buttonSize, frameElement + "Button",
                     new(@"Interface\Buttons\ButtonHilight-Square", 0xffffffff, "HIGHLIGHT",
                         "CENTER", frameElement + "Button", "CENTER", 0, 0,
                         TexCoords: "0|0|1|1",
-                        ContentRect: MailContent(button, new Vector2(37) * s), ClipRect: clip,
+                        ContentRect: MailContent(button, buttonSize), ClipRect: clip,
                         ClipMask: "WINDOW_RECT", BlendMode: "ADD", Strata: "MEDIUM"));
         }
         if (clicked) ToggleOpenMail(row);
     }
 
-    private void OfferMailInboxRowTooltip(int visibleIndex, MailRow row, ItemTemplate? item)
+    private void OfferMailInboxRowTooltip(int visibleIndex, MailRow row, ItemTemplate? item,
+        Vector2 ownerMin, Vector2 ownerSize)
     {
         // Mail rows deliberately keep their compact authored wording instead of adopting the
         // richer shared item body or its compact money channel. Freeze every value before the
@@ -1039,8 +1077,12 @@ public sealed partial class GameLoop
         string? enclosedAmount = row.Money > 0 ? FormatMoney(row.Money) : null;
         string? codAmount = row.Money == 0 && row.Cod > 0 ? FormatMoney(row.Cod) : null;
         GameTooltipOwnerKey owner = new("item:mail-inbox", (ulong)visibleIndex);
+        MailUiLaw.TooltipSeat tooltipSeat =
+            MailUiLaw.RightTooltipSeat(ownerMin, ownerSize);
         OfferPreservedSharedGameTooltipRenderer(owner, () =>
         {
+            ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
+                tooltipSeat.Pivot);
             ImGui.BeginTooltip();
             if (hasItem)
             {
@@ -1066,7 +1108,8 @@ public sealed partial class GameLoop
     private bool DrawMailPageButton(ImDrawListPtr dl, string id, Vector2 min,
         bool previous, bool enabled, float s)
     {
-        Vector2 size = new Vector2(32) * s;
+        Vector2 size = (previous ? MailUiLaw.InboxPreviousPage :
+            MailUiLaw.InboxNextPage).ScaledSize(s);
         ImGui.SetCursorScreenPos(min);
         if (!enabled) ImGui.BeginDisabled();
         bool released = ImGui.InvisibleButton(id, size);
@@ -1077,14 +1120,15 @@ public sealed partial class GameLoop
         string stem = previous ? "PrevPage" : "NextPage";
         string state = !enabled ? "Disabled" : active ? "Down" : "Up";
         DrawArt(dl, $@"Interface\Buttons\UI-SpellbookIcon-{stem}-{state}", min,
-            new Vector2(32), s);
+            (previous ? MailUiLaw.InboxPreviousPage : MailUiLaw.InboxNextPage).Size, s);
         if (hovered) DrawArt(dl, @"Interface\Buttons\UI-Common-MouseHilight", min,
-            new Vector2(32), s);
+            (previous ? MailUiLaw.InboxPreviousPage : MailUiLaw.InboxNextPage).Size, s);
         if (previous)
-            GameText.Draw(dl, "GameFontNormal", "Prev", min + new Vector2(32, 9) * s, s);
+            GameText.Draw(dl, "GameFontNormal", "Prev",
+                MailUiLaw.At(min, MailUiLaw.PreviousPageLabel, s), s);
         else
             GameText.DrawRightAligned(dl, "GameFontNormal", "Next",
-                min + new Vector2(0, 9) * s, s);
+                MailUiLaw.At(min, MailUiLaw.NextPageLabel, s), s);
         string element = previous ? "InboxPrevPageButton" : "InboxNextPageButton";
         TraceMailControl(element, "InboxFrame", min, size, active, hovered, enabled,
             MailPanelClip(_mailFrameOrigin, s),
@@ -1093,79 +1137,88 @@ public sealed partial class GameLoop
     }
 
     private static Vector4 MailPanelClip(Vector2 origin, float s) =>
-        new(origin.X, origin.Y, origin.X + 384 * s, origin.Y + 512 * s);
+        MailUiLaw.Clip(origin, MailUiLaw.Frame.ScaledSize(s));
 
     private static Vector4 MailContent(Vector2 min, Vector2 size) =>
-        new(min.X, min.Y, min.X + size.X, min.Y + size.Y);
+        MailUiLaw.Clip(min, size);
 
     private void DrawMailCompose(ImDrawListPtr dl, Vector2 origin, float s)
     {
         Vector4 clip = MailPanelClip(origin, s);
         GameText.DrawCentered(dl, "GameFontNormal", "Send Mail",
-            origin + new Vector2(198, 26) * s, s);
-        Vector2 stationeryMin = origin + new Vector2(21, 97) * s;
+            MailUiLaw.At(origin, MailUiLaw.TitleCenter, s), s);
+        Vector2 stationeryMin = MailUiLaw.StationeryFrame.ScaledMin(origin, s);
         DrawMailStationery(dl, stationeryMin, "STATIONERYTEST", s);
         TraceMailStationery("SendStationeryBackground", "SendMailScrollFrame", stationeryMin,
             "STATIONERYTEST", s, clip);
-        DrawMailScrollRest(dl, origin + new Vector2(317, 97) * s, 257, s,
+        DrawMailScrollRest(dl, MailUiLaw.At(origin, MailUiLaw.OpenMailScrollRight, s),
+            MailUiLaw.StationeryFrame.Height, s,
             "SendMailScrollFrame", "SendMailScroll", clip);
-        DrawMailHorizontalBar(dl, origin + new Vector2(15, 350) * s, "SendMailFrame", s,
+        DrawMailHorizontalBar(dl, MailUiLaw.HorizontalBarLeft.ScaledMin(origin, s),
+            "SendMailFrame", s,
             clip);
 
         GameText.DrawRightAligned(dl, "GameFontNormal", "To:",
-            origin + new Vector2(93, 50) * s, s);
+            MailUiLaw.At(origin, MailUiLaw.ComposeToLabelRight, s), s);
         if (_mailFocusRecipient) { ImGui.SetKeyboardFocusHere(); _mailFocusRecipient = false; }
         bool recipientChanged = VanillaInputText(dl, "##mail-to", _mailRecipient,
-            origin + new Vector2(105, 46) * s, new Vector2(122, 20), s);
+            MailUiLaw.ComposeRecipient.ScaledMin(origin, s),
+            MailUiLaw.ComposeRecipient.Size, s);
         bool recipientActive = ImGui.IsItemActive(), recipientHovered = ImGui.IsItemHovered();
         if (recipientActive && (ImGui.IsKeyPressed(ImGuiKey.Enter) ||
                 ImGui.IsKeyPressed(ImGuiKey.Tab)))
             _mailFocusSubject = true;
         if (recipientChanged) NormalizeMailBuffer(_mailRecipient, MailUiLaw.MaxRecipientLetters);
         GameText.DrawRightAligned(dl, "GameFontNormal", "Subject:",
-            origin + new Vector2(93, 73) * s, s);
+            MailUiLaw.At(origin, MailUiLaw.ComposeSubjectLabelRight, s), s);
         if (_mailFocusSubject) { ImGui.SetKeyboardFocusHere(); _mailFocusSubject = false; }
         bool subjectChanged = VanillaInputText(dl, "##mail-subject", _mailSubject,
-            origin + new Vector2(105, 69) * s, new Vector2(237, 20), s);
+            MailUiLaw.ComposeSubject.ScaledMin(origin, s), MailUiLaw.ComposeSubject.Size, s);
         bool subjectActive = ImGui.IsItemActive(), subjectHovered = ImGui.IsItemHovered();
         if (subjectActive && (ImGui.IsKeyPressed(ImGuiKey.Enter) ||
                 ImGui.IsKeyPressed(ImGuiKey.Tab)))
             _mailFocusBody = true;
         if (subjectChanged) NormalizeMailBuffer(_mailSubject, MailUiLaw.MaxSubjectLetters);
-        DrawMailBodyInput("##mail-body", _mailBody, origin + new Vector2(41, 107) * s,
-            new Vector2(270, 200), s, MailUiLaw.MaxBodyLetters, _mailFocusBody);
+        DrawMailBodyInput("##mail-body", _mailBody,
+            MailUiLaw.ComposeBody.ScaledMin(origin, s), MailUiLaw.ComposeBody.Size, s,
+            MailUiLaw.MaxBodyLetters, _mailFocusBody);
         bool bodyActive = ImGui.IsItemActive(), bodyHovered = ImGui.IsItemHovered();
         _mailFocusBody = false;
 
         if (_uiParityArmed && _uiParityPanel == "mail")
         {
-            TraceMailEdit("SendMailNameEditBox", origin + new Vector2(105, 46) * s,
-                new Vector2(122, 20) * s, ReadBuffer(_mailRecipient),
+            TraceMailEdit("SendMailNameEditBox",
+                MailUiLaw.ComposeRecipient.ScaledMin(origin, s),
+                MailUiLaw.ComposeRecipient.ScaledSize(s), ReadBuffer(_mailRecipient),
                 MailUiLaw.MaxRecipientLetters, recipientActive, recipientHovered, clip);
-            TraceMailEdit("SendMailSubjectEditBox", origin + new Vector2(105, 69) * s,
-                new Vector2(237, 20) * s, ReadBuffer(_mailSubject),
+            TraceMailEdit("SendMailSubjectEditBox",
+                MailUiLaw.ComposeSubject.ScaledMin(origin, s),
+                MailUiLaw.ComposeSubject.ScaledSize(s), ReadBuffer(_mailSubject),
                 MailUiLaw.MaxSubjectLetters, subjectActive, subjectHovered, clip);
-            TraceMailEdit("SendMailBodyEditBox", origin + new Vector2(41, 107) * s,
-                new Vector2(270, 200) * s, ReadBuffer(_mailBody), MailUiLaw.MaxBodyLetters,
+            TraceMailEdit("SendMailBodyEditBox", MailUiLaw.ComposeBody.ScaledMin(origin, s),
+                MailUiLaw.ComposeBody.ScaledSize(s), ReadBuffer(_mailBody),
+                MailUiLaw.MaxBodyLetters,
                 bodyActive, bodyHovered, clip);
         }
 
         GameText.DrawRightAligned(dl, "GameFontNormal", "Cost:",
-            origin + new Vector2(269, 50) * s, s);
+            MailUiLaw.At(origin, MailUiLaw.ComposeCostLabelRight, s), s);
         uint costColor = PlayerMoney() < MailUiLaw.PostageCopper ? 0xff1a1aff : 0xffffffff;
-        DrawMailMoneyDisplay(dl, MailUiLaw.PostageCopper, origin + new Vector2(338, 48) * s, s,
+        DrawMailMoneyDisplay(dl, MailUiLaw.PostageCopper,
+            MailUiLaw.At(origin, MailUiLaw.ComposeCostRight, s), s,
             costColor, "SendMailCost", clip);
 
-        Vector2 slot = origin + new Vector2(30, 368) * s;
+        Vector2 slot = MailUiLaw.ComposeAttachment.ScaledMin(origin, s);
         DrawMailSendSlot(dl, slot, s);
         string moneyLabel = _mailCodMode ? "Cash on Delivery Amount:" : "Amount to send:";
         GameText.Draw(dl, "GameFontNormalSmall", moneyLabel,
-            origin + new Vector2(79, 373) * s, s);
-        DrawMailMoneyInputs(dl, origin + new Vector2(82, 386) * s, s);
-        DrawMailRadio(dl, "##mail-send-money", origin + new Vector2(252, 362) * s,
+            MailUiLaw.At(origin, MailUiLaw.ComposeMoneyLabel, s), s);
+        DrawMailMoneyInputs(dl, MailUiLaw.At(origin, MailUiLaw.ComposeMoneyInputs, s), s);
+        DrawMailRadio(dl, "##mail-send-money",
+            MailUiLaw.ComposeSendMoneyRadio.ScaledMin(origin, s),
             "Send Money", !_mailCodMode, enabled: true, s, () =>
             { _mailCodMode = false; PlayUiSound("igMainMenuOptionCheckBoxOn"); });
-        DrawMailRadio(dl, "##mail-cod", origin + new Vector2(252, 379) * s,
+        DrawMailRadio(dl, "##mail-cod", MailUiLaw.ComposeCodRadio.ScaledMin(origin, s),
             "C.O.D.", _mailCodMode, _mailAttachmentGuid != 0, s, () =>
             { _mailCodMode = true; PlayUiSound("igMainMenuOptionCheckBoxOn"); });
 
@@ -1173,36 +1226,44 @@ public sealed partial class GameLoop
         if (_mailCodMode && amount > MailUiLaw.MaxCodCopper)
         {
             const string error = "COD amount is too high.";
-            Vector2 errorMin = origin + new Vector2(79, 358) * s;
+            Vector2 errorMin = MailUiLaw.At(origin, MailUiLaw.ComposeCodError, s);
             GameText.Draw(dl, "GameFontRedSmall", error, errorMin, s);
-            DrawMailCoin(dl, 0, new Vector2(errorMin.X +
-                GameText.MeasureWidth("GameFontRedSmall", error, s) + s, errorMin.Y - s), s);
+            DrawMailCoin(dl, 0, MailUiLaw.CodErrorCoin(errorMin,
+                GameText.MeasureWidth("GameFontRedSmall", error, s), s), s);
         }
-        DrawMailMoneyDisplay(dl, PlayerMoney(), origin + new Vector2(183, 415) * s, s,
+        DrawMailMoneyDisplay(dl, PlayerMoney(),
+            MailUiLaw.At(origin, MailUiLaw.ComposePurseRight, s), s,
             0xffffffff, "SendMailMoneyFrame", clip);
         bool ready = MailUiLaw.CanSend(ReadBuffer(_mailRecipient), ReadBuffer(_mailSubject),
             _mailCodMode, amount, _mailAttachmentGuid != 0, _mailSendPending);
-        Vector2 sendMin = origin + new Vector2(185, 410) * s;
-        VanillaButton(dl, "##mail-send", "Send", sendMin, new Vector2(80, 22), s, ready);
+        Vector2 sendMin = MailUiLaw.ComposeSend.ScaledMin(origin, s);
+        VanillaButton(dl, "##mail-send", "Send", sendMin, MailUiLaw.ComposeSend.Size, s,
+            ready, normalFont: MailUiLaw.ActionNormalFont,
+            highlightFont: MailUiLaw.ActionHighlightFont,
+            disabledFont: MailUiLaw.ActionDisabledFont);
         bool sendActive = ImGui.IsItemActive(), sendHovered = ImGui.IsItemHovered();
         bool sendReleased = MailReleasedCurrentItem(ready);
         TraceMailControl("SendMailMailButton", "SendMailFrame", sendMin,
-            new Vector2(80, 22) * s, sendActive, sendHovered, ready, clip,
+            MailUiLaw.ComposeSend.ScaledSize(s), sendActive, sendHovered, ready, clip,
             !ready ? @"Interface\Buttons\UI-Panel-Button-Disabled" : sendActive ?
                 @"Interface\Buttons\UI-Panel-Button-Down" : @"Interface\Buttons\UI-Panel-Button-Up");
-        Vector2 cancelMin = origin + new Vector2(265, 410) * s;
-        VanillaButton(dl, "##mail-cancel", "Cancel", cancelMin, new Vector2(80, 22), s);
+        Vector2 cancelMin = MailUiLaw.ComposeCancel.ScaledMin(origin, s);
+        VanillaButton(dl, "##mail-cancel", "Cancel", cancelMin,
+            MailUiLaw.ComposeCancel.Size, s,
+            normalFont: MailUiLaw.ActionNormalFont,
+            highlightFont: MailUiLaw.ActionHighlightFont,
+            disabledFont: MailUiLaw.ActionDisabledFont);
         bool cancelActive = ImGui.IsItemActive(), cancelHovered = ImGui.IsItemHovered();
         bool cancelReleased = MailReleasedCurrentItem();
         TraceMailControl("SendMailCancelButton", "SendMailFrame", cancelMin,
-            new Vector2(80, 22) * s, cancelActive, cancelHovered, true, clip,
+            MailUiLaw.ComposeCancel.ScaledSize(s), cancelActive, cancelHovered, true, clip,
             cancelActive ? @"Interface\Buttons\UI-Panel-Button-Down" :
                 @"Interface\Buttons\UI-Panel-Button-Up");
         if (sendReleased) SendCurrentMail();
         if (cancelReleased) CloseMailSession();
         if (_mailError.Length > 0)
             GameText.DrawCentered(dl, "GameFontRedSmall", _mailError,
-                origin + new Vector2(192, 445) * s, s);
+                MailUiLaw.At(origin, MailUiLaw.ComposeErrorCenter, s), s);
     }
 
     private uint PlayerMoney() => _net is not null &&
@@ -1210,9 +1271,10 @@ public sealed partial class GameLoop
 
     private void DrawMailStationery(ImDrawListPtr dl, Vector2 min, string stem, float s)
     {
-        DrawArt(dl, $@"Interface\Stationery\{stem}1", min, new Vector2(252, 256), s);
-        DrawArt(dl, $@"Interface\Stationery\{stem}2", min + new Vector2(252, 0) * s,
-            new Vector2(64, 256), s);
+        DrawArt(dl, $@"Interface\Stationery\{stem}1",
+            MailUiLaw.StationeryLeft.ScaledMin(min, s), MailUiLaw.StationeryLeft.Size, s);
+        DrawArt(dl, $@"Interface\Stationery\{stem}2",
+            MailUiLaw.StationeryRight.ScaledMin(min, s), MailUiLaw.StationeryRight.Size, s);
     }
 
     private void TraceMailStationery(string prefix, string parent, Vector2 min, string stem,
@@ -1221,22 +1283,26 @@ public sealed partial class GameLoop
         if (!_uiParityArmed || _uiParityPanel != "mail") return;
         string root = prefix.StartsWith("Send", StringComparison.Ordinal) ?
             "SendMailFrame" : "OpenMailFrame";
-        CollectUiParityDraw(parent, "Frame", min, new Vector2(296, 257) * s, root,
+        Vector2 frameSize = MailUiLaw.StationeryFrame.ScaledSize(s);
+        Vector2 leftMin = MailUiLaw.StationeryLeft.ScaledMin(min, s);
+        Vector2 leftSize = MailUiLaw.StationeryLeft.ScaledSize(s);
+        Vector2 right = MailUiLaw.StationeryRight.ScaledMin(min, s);
+        Vector2 rightSize = MailUiLaw.StationeryRight.ScaledSize(s);
+        CollectUiParityDraw(parent, "Frame", min, frameSize, root,
             new("", 0, "IMGUI_COMPOSED", "TOPLEFT", root, "TOPLEFT", 21, -97,
-                ContentRect: MailContent(min, new Vector2(296, 257) * s), ClipRect: clip,
+                ContentRect: MailContent(min, frameSize), ClipRect: clip,
                 ClipMask: "WINDOW_RECT", Visible: true, Enabled: false,
                 InteractionState: "inert-scroll", Strata: "MEDIUM"));
-        CollectUiParityDraw(prefix + "Left", "Texture", min, new Vector2(252, 256) * s,
+        CollectUiParityDraw(prefix + "Left", "Texture", leftMin, leftSize,
             parent, new($@"Interface\Stationery\{stem}1", 0xffffffff, "BACKGROUND",
                 "TOPLEFT", parent, "TOPLEFT", 0, 0, TexCoords: "0|0|1|1",
-                ContentRect: MailContent(min, new Vector2(252, 256) * s), ClipRect: clip,
+                ContentRect: MailContent(leftMin, leftSize), ClipRect: clip,
                 ClipMask: "WINDOW_RECT", BlendMode: "BLEND", Visible: true,
                 Strata: "MEDIUM"));
-        Vector2 right = min + new Vector2(252, 0) * s;
-        CollectUiParityDraw(prefix + "Right", "Texture", right, new Vector2(64, 256) * s,
+        CollectUiParityDraw(prefix + "Right", "Texture", right, rightSize,
             parent, new($@"Interface\Stationery\{stem}2", 0xffffffff, "BACKGROUND",
                 "TOPLEFT", prefix + "Left", "TOPRIGHT", 0, 0, TexCoords: "0|0|1|1",
-                ContentRect: MailContent(right, new Vector2(64, 256) * s), ClipRect: clip,
+                ContentRect: MailContent(right, rightSize), ClipRect: clip,
                 ClipMask: "WINDOW_RECT", BlendMode: "BLEND", Visible: true,
                 Strata: "MEDIUM"));
     }
@@ -1245,23 +1311,28 @@ public sealed partial class GameLoop
         Vector4 clip)
     {
         const string path = @"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar";
-        DrawMailArtUv(dl, path, min, new Vector2(256, 16), s, Vector2.Zero,
-            new Vector2(1, .25f));
-        Vector2 right = min + new Vector2(256, 0) * s;
-        DrawMailArtUv(dl, path, right, new Vector2(75, 16), s, new Vector2(0, .25f),
-            new Vector2(.29296875f, .5f));
+        MailUiLaw.TextureSlice leftSlice = MailUiLaw.HorizontalBarLeftSlice;
+        MailUiLaw.TextureSlice rightSlice = MailUiLaw.HorizontalBarRightSlice;
+        Vector2 left = leftSlice.Rect.ScaledMin(min, s);
+        Vector2 right = rightSlice.Rect.ScaledMin(min, s);
+        DrawMailArtUv(dl, path, left, leftSlice.Rect.Size, s,
+            leftSlice.UvMin, leftSlice.UvMax);
+        DrawMailArtUv(dl, path, right, rightSlice.Rect.Size, s,
+            rightSlice.UvMin, rightSlice.UvMax);
         if (!_uiParityArmed || _uiParityPanel != "mail") return;
-        CollectUiParityDraw(parent + "HorizontalBarLeft", "TextureUv", min,
-            new Vector2(256, 16) * s, parent,
+        Vector2 leftSize = leftSlice.Rect.ScaledSize(s);
+        Vector2 rightSize = rightSlice.Rect.ScaledSize(s);
+        CollectUiParityDraw(parent + "HorizontalBarLeft", "TextureUv", left,
+            leftSize, parent,
             new(path, 0xffffffff, "ARTWORK", "TOPLEFT", parent, "TOPLEFT", 15, -350,
                 TexCoords: "0|0|1|0.25",
-                ContentRect: MailContent(min, new Vector2(256, 16) * s), ClipRect: clip,
+                ContentRect: MailContent(left, leftSize), ClipRect: clip,
                 ClipMask: "WINDOW_RECT", BlendMode: "BLEND", Strata: "MEDIUM"));
         CollectUiParityDraw(parent + "HorizontalBarRight", "TextureUv", right,
-            new Vector2(75, 16) * s, parent,
+            rightSize, parent,
             new(path, 0xffffffff, "ARTWORK", "LEFT", parent + "HorizontalBarLeft", "RIGHT",
                 0, 0, TexCoords: "0|0.25|0.29296875|0.5",
-                ContentRect: MailContent(right, new Vector2(75, 16) * s),
+                ContentRect: MailContent(right, rightSize),
                 ClipRect: clip, ClipMask: "WINDOW_RECT", BlendMode: "BLEND",
                 Strata: "MEDIUM"));
     }
@@ -1273,36 +1344,42 @@ public sealed partial class GameLoop
         const string up = @"Interface\Buttons\UI-ScrollBar-ScrollUpButton-Disabled";
         const string down = @"Interface\Buttons\UI-ScrollBar-ScrollDownButton-Disabled";
         const string knob = @"Interface\Buttons\UI-ScrollBar-Knob";
-        Vector2 topMin = right + new Vector2(-2, -5) * s;
-        Vector2 bottomMin = right + new Vector2(-2, height - 104) * s;
-        Vector2 upMin = right + new Vector2(6, 0) * s;
-        Vector2 downMin = right + new Vector2(6, height - 16) * s;
-        Vector2 knobMin = right + new Vector2(6, 16) * s;
-        DrawMailArtUv(dl, track, topMin, new Vector2(31, 256), s,
-            Vector2.Zero, new Vector2(.484375f, 1));
-        DrawMailArtUv(dl, track, bottomMin, new Vector2(31, 106), s,
-            new Vector2(.515625f, 0), new Vector2(1, .4140625f));
-        Vector2 controlUv0 = new(.25f, .25f);
-        Vector2 controlUv1 = new(.75f, .75f);
-        DrawMailArtUv(dl, up, upMin, new Vector2(16), s, controlUv0, controlUv1);
-        DrawMailArtUv(dl, down, downMin, new Vector2(16), s, controlUv0, controlUv1);
-        DrawMailArtUv(dl, knob, knobMin, new Vector2(16), s, controlUv0, controlUv1);
+        MailUiLaw.TextureSlice topSlice = MailUiLaw.ScrollTrackTop;
+        MailUiLaw.TextureSlice bottomSlice = MailUiLaw.ScrollTrackBottom(height);
+        MailUiLaw.LogicalRect upRect = MailUiLaw.ScrollUp(height);
+        MailUiLaw.LogicalRect downRect = MailUiLaw.ScrollDown(height);
+        MailUiLaw.LogicalRect knobRect = MailUiLaw.ScrollKnob(height);
+        Vector2 topMin = topSlice.Rect.ScaledMin(right, s);
+        Vector2 bottomMin = bottomSlice.Rect.ScaledMin(right, s);
+        Vector2 upMin = upRect.ScaledMin(right, s);
+        Vector2 downMin = downRect.ScaledMin(right, s);
+        Vector2 knobMin = knobRect.ScaledMin(right, s);
+        DrawMailArtUv(dl, track, topMin, topSlice.Rect.Size, s,
+            topSlice.UvMin, topSlice.UvMax);
+        DrawMailArtUv(dl, track, bottomMin, bottomSlice.Rect.Size, s,
+            bottomSlice.UvMin, bottomSlice.UvMax);
+        DrawMailArtUv(dl, up, upMin, upRect.Size, s,
+            MailUiLaw.ScrollControlUvMin, MailUiLaw.ScrollControlUvMax);
+        DrawMailArtUv(dl, down, downMin, downRect.Size, s,
+            MailUiLaw.ScrollControlUvMin, MailUiLaw.ScrollControlUvMax);
+        DrawMailArtUv(dl, knob, knobMin, knobRect.Size, s,
+            MailUiLaw.ScrollControlUvMin, MailUiLaw.ScrollControlUvMax);
         if (!_uiParityArmed || _uiParityPanel != "mail") return;
         bool openReader = prefix.StartsWith("Open", StringComparison.Ordinal);
         (string Element, string Path, Vector2 Min, Vector2 Size, string Uv, string State,
             string Layer, string Point, string RelativePoint, float OffsetX, float OffsetY)[] rows =
         [
-            ($"{prefix}TrackTop", track, topMin, new Vector2(31, 256) * s,
+            ($"{prefix}TrackTop", track, topMin, topSlice.Rect.ScaledSize(s),
                 "0|0|0.484375|1", "inert-track", openReader ? "OVERLAY" : "ARTWORK",
                 "TOPLEFT", "TOPRIGHT", -2, 5),
-            ($"{prefix}TrackBottom", track, bottomMin, new Vector2(31, 106) * s,
+            ($"{prefix}TrackBottom", track, bottomMin, bottomSlice.Rect.ScaledSize(s),
                 "0.515625|0|1|0.4140625", "inert-track", openReader ? "OVERLAY" : "ARTWORK",
                 "BOTTOMLEFT", "BOTTOMRIGHT", -2, -2),
-            ($"{prefix}UpButton", up, upMin, new Vector2(16) * s,
+            ($"{prefix}UpButton", up, upMin, upRect.ScaledSize(s),
                 "0.25|0.25|0.75|0.75", "disabled", "OVERLAY", "TOPLEFT", "TOPRIGHT", 6, 0),
-            ($"{prefix}DownButton", down, downMin, new Vector2(16) * s,
+            ($"{prefix}DownButton", down, downMin, downRect.ScaledSize(s),
                 "0.25|0.25|0.75|0.75", "disabled", "OVERLAY", "BOTTOMLEFT", "BOTTOMRIGHT", 6, 0),
-            ($"{prefix}Knob", knob, knobMin, new Vector2(16) * s,
+            ($"{prefix}Knob", knob, knobMin, knobRect.ScaledSize(s),
                 "0.25|0.25|0.75|0.75", "inert-top", "OVERLAY", "TOPLEFT", "TOPRIGHT", 6, -16)
         ];
         foreach (var row in rows)
@@ -1350,39 +1427,49 @@ public sealed partial class GameLoop
 
     private void DrawMailSendSlot(ImDrawListPtr dl, Vector2 min, float s)
     {
+        Vector2 slotSize = MailUiLaw.ComposeAttachment.ScaledSize(s);
+        Vector2 backgroundMin = MailUiLaw.AttachmentBackground.ScaledMin(min, s);
+        Vector2 backgroundSize = MailUiLaw.AttachmentBackground.ScaledSize(s);
         DrawMailArtUv(dl, @"Interface\Buttons\UI-Slot-Background",
-            min + new Vector2(-2, -2) * s, new Vector2(39), s,
-            Vector2.Zero, new Vector2(.640625f));
+            backgroundMin, MailUiLaw.AttachmentBackground.Size, s,
+            Vector2.Zero, MailUiLaw.AttachmentBackgroundUvMax);
         ItemTemplate? item = null;
         if (_mailAttachmentEntry != 0) _items?.TryGet(_mailAttachmentEntry, out item);
         if (item is not null)
         {
             uint icon = _gameplayArt?.Handle(item.IconPath) ?? 0;
-            if (icon != 0) dl.AddImage((nint)icon, min, min + new Vector2(37) * s);
+            if (icon != 0) dl.AddImage((nint)icon, min, min + slotSize);
         }
         uint count = MailAttachmentCount();
         if (count > 1)
             GameText.DrawRightAligned(dl, "NumberFontNormal", count.ToString(CultureInfo.InvariantCulture),
-                min + new Vector2(32, 25) * s, s);
+                MailUiLaw.At(min, MailUiLaw.AttachmentCountRight, s), s);
         ImGui.SetCursorScreenPos(min);
-        bool released = ImGui.InvisibleButton("##mail-send-item", new Vector2(37) * s);
+        bool released = ImGui.InvisibleButton("##mail-send-item", slotSize);
         bool hovered = ImGui.IsItemHovered(), active = ImGui.IsItemActive();
         if (hovered)
         {
             uint hi = _gameplayArt?.AdditiveHandle(@"Interface\Buttons\ButtonHilight-Square") ?? 0;
-            if (hi != 0) dl.AddImage((nint)hi, min, min + new Vector2(37) * s);
+            if (hi != 0) dl.AddImage((nint)hi, min, min + slotSize);
             if (item is not null)
             {
                 ItemTooltipBodySnapshot tooltipBody =
                     PrepareItemTooltipBodySnapshot(item, count);
+                MailUiLaw.TooltipSeat tooltipSeat =
+                    MailUiLaw.RightTooltipSeat(min, slotSize);
                 OfferPreparedItemTooltip(
-                    new("item:mail-send-attachment", 0), tooltipBody);
+                    new("item:mail-send-attachment", 0), tooltipBody,
+                    tooltipSeat.Anchor, nextWindowPivot: tooltipSeat.Pivot);
             }
             else
             {
                 GameTooltipOwnerKey tooltipOwner = new("item:mail-send-attachment", 0);
+                MailUiLaw.TooltipSeat tooltipSeat =
+                    MailUiLaw.RightTooltipSeat(min, slotSize);
                 OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
                 {
+                    ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
+                        tooltipSeat.Pivot);
                     ImGui.BeginTooltip();
                     ImGui.TextUnformatted("Attach an item to send.");
                     ImGui.EndTooltip();
@@ -1392,28 +1479,28 @@ public sealed partial class GameLoop
         if (_uiParityArmed && _uiParityPanel == "mail")
         {
             Vector4 clip = MailPanelClip(_mailFrameOrigin, s);
-            CollectUiParityDraw("SendMailPackageButton", "Button", min, new Vector2(37) * s,
+            CollectUiParityDraw("SendMailPackageButton", "Button", min, slotSize,
                 "SendMailFrame", new("", 0, "IMGUI_HIT_TARGET", "TOPLEFT", "SendMailFrame",
                     "TOPLEFT", 30, -368,
-                    ContentRect: MailContent(min, new Vector2(37) * s), ClipRect: clip,
+                    ContentRect: MailContent(min, slotSize), ClipRect: clip,
                     ClipMask: "WINDOW_RECT", Visible: true, Enabled: true,
                     InteractionState: active ? "pushed" : hovered ? "highlighted" :
                         _mailAttachmentGuid != 0 ? "occupied" : "empty", HitMin: min,
-                    HitMax: min + new Vector2(37) * s, Strata: "MEDIUM"));
+                    HitMax: min + slotSize, Strata: "MEDIUM"));
             CollectUiParityDraw("SendMailPackageButtonNormalTexture", "TextureUv",
-                min + new Vector2(-2) * s, new Vector2(39) * s, "SendMailPackageButton",
+                backgroundMin, backgroundSize, "SendMailPackageButton",
                 new(@"Interface\Buttons\UI-Slot-Background", 0xffffffff, "BACKGROUND", "CENTER",
                     "SendMailPackageButton", "CENTER", 0, 0,
                     TexCoords: "0|0|0.640625|0.640625",
-                    ContentRect: MailContent(min + new Vector2(-2) * s, new Vector2(39) * s),
+                    ContentRect: MailContent(backgroundMin, backgroundSize),
                     ClipRect: clip,
                     ClipMask: "WINDOW_RECT", BlendMode: "BLEND", Strata: "MEDIUM"));
             if (item is not null)
                 CollectUiParityDraw("SendMailPackageButtonIcon", "Texture", min,
-                    new Vector2(37) * s, "SendMailPackageButton",
+                    slotSize, "SendMailPackageButton",
                     new(item.IconPath, 0xffffffff, "ARTWORK", "CENTER", "SendMailPackageButton",
                         "CENTER", 0, 0, TexCoords: "0|0|1|1",
-                        ContentRect: MailContent(min, new Vector2(37) * s),
+                        ContentRect: MailContent(min, slotSize),
                         ClipRect: clip, ClipMask: "WINDOW_RECT", BlendMode: "BLEND",
                         Strata: "MEDIUM"));
         }
@@ -1442,70 +1529,72 @@ public sealed partial class GameLoop
 
     private void DrawMailMoneyInputs(ImDrawListPtr dl, Vector2 min, float s)
     {
-        VanillaInputInt(dl, "##mail-gold", ref _mailGoldInput, min,
-            new Vector2(58, 20), s);
+        VanillaInputInt(dl, "##mail-gold", ref _mailGoldInput,
+            MailUiLaw.MoneyGoldInput.ScaledMin(min, s), MailUiLaw.MoneyGoldInput.Size, s);
         bool goldActive = ImGui.IsItemActive();
         if (goldActive && (ImGui.IsKeyPressed(ImGuiKey.Enter) ||
                 ImGui.IsKeyPressed(ImGuiKey.Tab)))
             _mailFocusSilver = true;
-        DrawMailCoin(dl, 0, min + new Vector2(60, 4) * s, s);
+        DrawMailCoin(dl, 0, MailUiLaw.At(min, MailUiLaw.MoneyGoldCoin, s), s);
         if (_mailFocusSilver) { ImGui.SetKeyboardFocusHere(); _mailFocusSilver = false; }
         VanillaInputInt(dl, "##mail-silver", ref _mailSilverInput,
-            min + new Vector2(84, 0) * s, new Vector2(30, 20), s);
+            MailUiLaw.MoneySilverInput.ScaledMin(min, s), MailUiLaw.MoneySilverInput.Size, s);
         bool silverActive = ImGui.IsItemActive();
         if (silverActive && (ImGui.IsKeyPressed(ImGuiKey.Enter) ||
                 ImGui.IsKeyPressed(ImGuiKey.Tab)))
             _mailFocusCopper = true;
-        DrawMailCoin(dl, 1, min + new Vector2(106, 4) * s, s);
+        DrawMailCoin(dl, 1, MailUiLaw.At(min, MailUiLaw.MoneySilverCoin, s), s);
         if (_mailFocusCopper) { ImGui.SetKeyboardFocusHere(); _mailFocusCopper = false; }
         VanillaInputInt(dl, "##mail-copper", ref _mailCopperInput,
-            min + new Vector2(130, 0) * s, new Vector2(30, 20), s);
-        DrawMailCoin(dl, 2, min + new Vector2(152, 4) * s, s);
+            MailUiLaw.MoneyCopperInput.ScaledMin(min, s), MailUiLaw.MoneyCopperInput.Size, s);
+        DrawMailCoin(dl, 2, MailUiLaw.At(min, MailUiLaw.MoneyCopperCoin, s), s);
     }
 
     private void DrawMailRadio(ImDrawListPtr dl, string id, Vector2 min, string caption,
         bool selected, bool enabled, float s, Action click)
     {
         uint radio = _gameplayArt?.Handle(@"Interface\Buttons\UI-RadioButton") ?? 0;
-        Vector2 uv0 = selected ? new(.25f, 0) : Vector2.Zero;
-        Vector2 uv1 = selected ? new(.5f, 1) : new(.25f, 1);
-        if (radio != 0) dl.AddImage((nint)radio, min, min + new Vector2(16) * s,
+        Vector2 uv0 = selected ? MailUiLaw.RadioCheckedUvMin : MailUiLaw.RadioUncheckedUvMin;
+        Vector2 uv1 = selected ? MailUiLaw.RadioCheckedUvMax : MailUiLaw.RadioUncheckedUvMax;
+        Vector2 radioSize = MailUiLaw.RadioSize * s;
+        if (radio != 0) dl.AddImage((nint)radio, min, min + radioSize,
             uv0, uv1, enabled ? 0xffffffff : 0xff808080);
         ImGui.SetCursorScreenPos(min);
         if (!enabled) ImGui.BeginDisabled();
-        bool released = ImGui.InvisibleButton(id, new Vector2(16) * s);
+        bool released = ImGui.InvisibleButton(id, radioSize);
         bool clicked = enabled && released;
         bool active = enabled && ImGui.IsItemActive();
         bool hovered = enabled && ImGui.IsItemHovered();
         if (!enabled) ImGui.EndDisabled();
         if (hovered && (_gameplayArt?.AdditiveHandle(@"Interface\Buttons\UI-RadioButton") ?? 0)
                 is uint highlight && highlight != 0)
-            dl.AddImage((nint)highlight, min, min + new Vector2(16) * s,
-                new Vector2(.5f, 0), new Vector2(.75f, 1));
-        GameText.Draw(dl, "GameFontNormalSmall", caption, min + new Vector2(18, 2) * s,
+            dl.AddImage((nint)highlight, min, min + radioSize,
+                MailUiLaw.RadioHighlightUvMin, MailUiLaw.RadioHighlightUvMax);
+        GameText.Draw(dl, "GameFontNormalSmall", caption,
+            MailUiLaw.At(min, MailUiLaw.RadioLabel, s),
             s, enabled ? null : 0xff808080);
         if (_uiParityArmed && _uiParityPanel == "mail")
         {
             string element = id.Contains("send-money", StringComparison.Ordinal) ?
                 "SendMailSendMoneyButton" : "SendMailCODButton";
             Vector4 clip = MailPanelClip(_mailFrameOrigin, s);
-            CollectUiParityDraw(element, "CheckButton", min, new Vector2(16) * s,
+            CollectUiParityDraw(element, "CheckButton", min, radioSize,
                 "SendMailFrame", new(@"Interface\Buttons\UI-RadioButton", enabled ? 0xffffffff :
                     0xff808080, "IMGUI_HIT_TARGET", "TOPLEFT", "SendMailFrame", "TOPLEFT",
                     (min.X - clip.X) / s, -(min.Y - clip.Y) / s,
                     TexCoords: selected ? "0.25|0|0.5|1" : "0|0|0.25|1",
-                    ContentRect: MailContent(min, new Vector2(16) * s), ClipRect: clip,
+                    ContentRect: MailContent(min, radioSize), ClipRect: clip,
                     ClipMask: "WINDOW_RECT", BlendMode: "BLEND",
                     Visible: true, Enabled: enabled,
                     InteractionState: !enabled ? "disabled" : active ? "pushed" : hovered ?
                         "highlighted" : selected ? "checked" : "normal", HitMin: min,
-                    HitMax: min + new Vector2(16) * s, Strata: "MEDIUM"));
+                    HitMax: min + radioSize, Strata: "MEDIUM"));
             if (hovered)
                 CollectUiParityDraw(element + "HighlightTexture", "HighlightTexture", min,
-                    new Vector2(16) * s, element,
+                    radioSize, element,
                     new(@"Interface\Buttons\UI-RadioButton", 0xffffffff, "HIGHLIGHT", "CENTER",
                         element, "CENTER", 0, 0, TexCoords: "0.5|0|0.75|1",
-                        ContentRect: MailContent(min, new Vector2(16) * s), ClipRect: clip,
+                        ContentRect: MailContent(min, radioSize), ClipRect: clip,
                         ClipMask: "WINDOW_RECT",
                         BlendMode: "ADD", Strata: "MEDIUM"));
         }
@@ -1518,30 +1607,32 @@ public sealed partial class GameLoop
         IReadOnlyList<MailUiLaw.MoneyDenomination> denominations = MailUiLaw.Money(copper);
         float width = denominations.Sum(d =>
             GameText.MeasureWidth("NumberFontNormal", d.Value.ToString(CultureInfo.InvariantCulture), s) +
-            13 * s) + Math.Max(0, denominations.Count - 1) * 4 * s;
+            MailUiLaw.CoinSize.X * s) +
+            Math.Max(0, denominations.Count - 1) * MailUiLaw.MoneyCoinGap * s;
         float x = rightTop.X - width;
         for (int index = 0; index < denominations.Count; index++)
         {
             MailUiLaw.MoneyDenomination denomination = denominations[index];
             string text = denomination.Value.ToString(CultureInfo.InvariantCulture);
             float numberWidth = GameText.MeasureWidth("NumberFontNormal", text, s);
-            GameText.Draw(dl, "NumberFontNormal", text, new Vector2(x, rightTop.Y), s, color);
+            GameText.Draw(dl, "NumberFontNormal", text,
+                MailUiLaw.ScreenPoint(x, rightTop.Y), s, color);
             x += numberWidth;
             Vector2 coinMin = new(x, rightTop.Y);
             DrawMailCoin(dl, denomination.Icon, coinMin, s);
             if (_uiParityArmed && _uiParityPanel == "mail")
                 CollectUiParityDraw($"{parityElement}Coin{index + 1}", "Frame", coinMin,
-                    new Vector2(13) * s, parityElement,
+                    MailUiLaw.CoinSize * s, parityElement,
                     new(@"Interface\MoneyFrame\UI-MoneyIcons", 0xffffffff, "OVERLAY", "RIGHT",
                         parityElement, "RIGHT", 0, 0,
                         TexCoords: $"{denomination.Icon * .25f:R}|0|{(denomination.Icon + 1) * .25f:R}|1",
-                        ContentRect: MailContent(coinMin, new Vector2(13) * s), ClipRect: clip,
+                        ContentRect: MailContent(coinMin, MailUiLaw.CoinSize * s), ClipRect: clip,
                         ClipMask: "WINDOW_RECT",
                         BlendMode: "BLEND", Visible: true, Enabled: true,
                         InteractionState: $"value={denomination.Value};total={copper};min=0;max={uint.MaxValue}",
                         Strata: "MEDIUM"));
-            x += 13 * s;
-            if (index + 1 < denominations.Count) x += 4 * s;
+            x += MailUiLaw.CoinSize.X * s;
+            if (index + 1 < denominations.Count) x += MailUiLaw.MoneyCoinGap * s;
         }
     }
 
@@ -1551,8 +1642,8 @@ public sealed partial class GameLoop
         uint money = _gameplayArt?.Handle(@"Interface\MoneyFrame\UI-MoneyIcons") ?? 0;
         if (money == 0) return;
         float u0 = icon * .25f;
-        dl.AddImage((nint)money, min, min + new Vector2(13) * s,
-            new Vector2(u0, 0), new Vector2(u0 + .25f, 1), color);
+        dl.AddImage((nint)money, min, min + MailUiLaw.CoinSize * s,
+            MailUiLaw.CoinUvMin(icon), MailUiLaw.CoinUvMax(icon), color);
     }
 
     private void DrawOpenMailFrame(float s)
@@ -1560,8 +1651,8 @@ public sealed partial class GameLoop
         MailRow? row = OpenMailRow();
         if (row is null) return;
         Vector2 origin = MailUiLaw.OpenMailOrigin(_mailFrameOrigin, s),
-            size = new Vector2(384, 512) * s;
-        Vector4 clip = new(origin.X, origin.Y, origin.X + size.X, origin.Y + size.Y);
+            size = MailUiLaw.OpenMailFrame.ScaledSize(s);
+        Vector4 clip = MailUiLaw.Clip(origin, size);
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
@@ -1573,18 +1664,21 @@ public sealed partial class GameLoop
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
         if (_uiParityArmed && _uiParityPanel == "mail")
             CollectUiParityDraw("OpenMailFrame", "Frame", origin, size, "InboxFrame",
-                new("", 0, "IMGUI_HOST", "TOPLEFT", "InboxFrame", "TOPRIGHT", -10, 0,
+                new("", 0, "IMGUI_HOST", "TOPLEFT", "InboxFrame", "TOPRIGHT",
+                    MailUiLaw.OpenMailAnchorX, 0,
                     ContentRect: clip, ClipRect: clip, ClipMask: "WINDOW_RECT", Visible: true,
                     Enabled: true, InteractionState: "open", HitMin: origin,
                     HitMax: origin + size, Strata: "MEDIUM"));
-        Vector2 portraitMin = origin + new Vector2(9, 6) * s;
-        DrawArt(dl, MailStationeryIcon(row), portraitMin, new Vector2(60), s);
+        Vector2 portraitMin = MailUiLaw.OpenMailIcon.ScaledMin(origin, s);
+        DrawArt(dl, MailStationeryIcon(row), portraitMin, MailUiLaw.OpenMailIcon.Size, s);
         if (_uiParityArmed && _uiParityPanel == "mail")
             CollectUiParityDraw("OpenMailFrameIcon", "Texture", portraitMin,
-                new Vector2(60) * s, "OpenMailFrame",
+                MailUiLaw.OpenMailIcon.ScaledSize(s), "OpenMailFrame",
                 new(MailStationeryIcon(row), 0xffffffff, "BACKGROUND", "TOPLEFT",
-                    "OpenMailFrame", "TOPLEFT", 9, -6,
-                    ContentRect: MailContent(portraitMin, new Vector2(60) * s), ClipRect: clip,
+                    "OpenMailFrame", "TOPLEFT", MailUiLaw.OpenMailIcon.X,
+                    -MailUiLaw.OpenMailIcon.Y,
+                    ContentRect: MailContent(portraitMin, MailUiLaw.OpenMailIcon.ScaledSize(s)),
+                    ClipRect: clip,
                     ClipMask: "WINDOW_RECT", BlendMode: "BLEND", Visible: true,
                     Strata: "MEDIUM"));
         DrawFourPieceShell(dl, origin, s,
@@ -1598,100 +1692,125 @@ public sealed partial class GameLoop
             @"Interface\MailFrame\UI-OpenMail-BotLeft",
             @"Interface\ClassTrainerFrame\UI-ClassTrainer-BotRight");
         GameText.DrawCentered(dl, "GameFontNormal", "Open Mail",
-            origin + new Vector2(198, 24) * s, s);
-        GameText.DrawRightAligned(dl, "GameFontHighlight", "From:",
-            origin + new Vector2(114, 45) * s, s);
-        GameText.Draw(dl, "GameFontNormal", MailSender(row),
-            origin + new Vector2(119, 45) * s, s);
-        GameText.DrawRightAligned(dl, "GameFontHighlight", "Subject:",
-            origin + new Vector2(114, 65) * s, s);
-        GameText.Draw(dl, "GameFontNormalSmall", row.Subject,
-            origin + new Vector2(119, 69) * s, s);
-        DrawMailHorizontalBar(dl, origin + new Vector2(15, 350) * s, "OpenMailFrame", s,
-            clip);
-        Vector2 stationeryMin = origin + new Vector2(21, 97) * s;
+            origin + MailUiLaw.OpenMailTitleCenter * s, s);
+        Vector2 senderLabelAt = MailUiLaw.OpenMailSenderLabelBox.ScaledMin(origin, s);
+        senderLabelAt.Y = GameText.BoxCenteredTop("GameFontHighlight", senderLabelAt.Y,
+            MailUiLaw.OpenMailSenderLabelBox.Height, s);
+        GameText.DrawRightAligned(dl, "GameFontHighlight", "From:", senderLabelAt, s);
+        GameText.Draw(dl, "GameFontNormal",
+            GameText.EllipsizeToBox("GameFontNormal", MailSender(row),
+                MailUiLaw.OpenMailSenderBox.Width, MailUiLaw.OpenMailSenderBox.Height, s),
+            MailUiLaw.OpenMailSenderBox.ScaledMin(origin, s), s);
+        Vector2 subjectLabelAt = MailUiLaw.OpenMailSubjectLabelBox.ScaledMin(origin, s);
+        subjectLabelAt.Y = GameText.BoxCenteredTop("GameFontHighlight", subjectLabelAt.Y,
+            MailUiLaw.OpenMailSubjectLabelBox.Height, s);
+        GameText.DrawRightAligned(dl, "GameFontHighlight", "Subject:", subjectLabelAt, s);
+        GameText.Draw(dl, "GameFontNormalSmall",
+            GameText.EllipsizeToBox("GameFontNormalSmall", row.Subject,
+                MailUiLaw.OpenMailSubjectBox.Width, MailUiLaw.OpenMailSubjectBox.Height, s),
+            MailUiLaw.OpenMailSubjectBox.ScaledMin(origin, s), s);
+        DrawMailHorizontalBar(dl, origin + MailUiLaw.OpenMailHorizontalBar.Min * s,
+            "OpenMailFrame", s, clip);
+        Vector2 stationeryMin = MailUiLaw.OpenMailScrollFrame.ScaledMin(origin, s);
         string stationeryStem = MailStationeryStem(row.Stationery);
         DrawMailStationery(dl, stationeryMin, stationeryStem, s);
         TraceMailStationery("OpenStationeryBackground", "OpenMailScrollFrame", stationeryMin,
             stationeryStem, s, clip);
-        DrawMailScrollRest(dl, origin + new Vector2(317, 97) * s, 257, s,
+        DrawMailScrollRest(dl, origin + MailUiLaw.OpenMailScrollRight * s,
+            MailUiLaw.OpenMailScrollFrame.Height, s,
             "OpenMailScrollFrame", "OpenMailScroll", clip);
         string body = row.ItemTextId != 0 && _mailBodies.TryGetValue(row.ItemTextId, out string? text)
             ? text : "";
-        DrawMailWrappedText(dl, ExpandQuestText(body), origin + new Vector2(31, 107) * s,
-            276, 240, s);
+        DrawMailWrappedText(dl, ExpandQuestText(body),
+            MailUiLaw.OpenMailBody.ScaledMin(origin, s), MailUiLaw.OpenMailBody.Width,
+            MailUiLaw.OpenMailBody.Height, s);
 
         bool copy = row.ItemTextId != 0 && !MailUiLaw.IsCopied(row.Checked);
         bool package = row.ItemEntry != 0;
         bool money = row.Money != 0;
         bool attachments = copy || package || money;
         string attachmentText = attachments ? "Take Attachments:" : "No Attachments";
-        Vector2 captionCenter = origin + new Vector2(attachments ? 124 : 187, 389) * s;
+        Vector2 captionCenter = origin + MailUiLaw.OpenMailCaptionCenter(attachments) * s;
         GameText.DrawCentered(dl, "GameFontHighlightSmall", attachmentText, captionCenter, s,
             attachments ? null : 0xff808080);
-        float slotX = attachments ? 189 : 0;
+        int slotIndex = 0;
         if (copy)
         {
-            if (DrawOpenMailSlot(dl, "##mail-copy", origin + new Vector2(slotX, 371) * s,
+            if (DrawOpenMailSlot(dl, "##mail-copy",
+                    MailUiLaw.OpenMailAttachmentSlot(slotIndex).ScaledMin(origin, s),
                     MailStationeryIcon(row), 1, s, new("mail-open-letter", 0),
-                    "Click to make a permanent\ncopy of this letter."))
+                    "Click to make a permanent\ncopy of this letter.", clip))
                 MakeMailPermanent(row.Id);
-            slotX += 47;
+            slotIndex++;
         }
         if (package)
         {
             ItemTemplate? item = MailItem(row);
             string path = item?.IconPath ?? @"Interface\Icons\INV_Misc_QuestionMark";
-            if (DrawOpenMailSlot(dl, "##mail-package", origin + new Vector2(slotX, 371) * s,
-                    path, row.ItemCount, s, new("item:mail-open-package", 0), null, row, item))
+            if (DrawOpenMailSlot(dl, "##mail-package",
+                    MailUiLaw.OpenMailAttachmentSlot(slotIndex).ScaledMin(origin, s),
+                    path, row.ItemCount, s, new("item:mail-open-package", 0), null, clip,
+                    row, item))
                 TakeMailItem(row.Id);
-            slotX += 47;
+            slotIndex++;
         }
         if (money)
         {
-            if (DrawOpenMailSlot(dl, "##mail-money", origin + new Vector2(slotX, 371) * s,
+            if (DrawOpenMailSlot(dl, "##mail-money",
+                    MailUiLaw.OpenMailAttachmentSlot(slotIndex).ScaledMin(origin, s),
                     @"Interface\Icons\INV_Misc_Coin_01", 1, s,
-                    new("mail-open-money", 0), FormatMoney(row.Money)))
+                    new("mail-open-money", 0), FormatMoney(row.Money), clip))
                 TakeMailMoney(row.Id);
         }
 
         bool canDelete = MailUiLaw.CanDelete(row.Type, row.Checked, package, row.Money);
         bool canReply = MailUiLaw.CanReply(row.Type, row.Checked, SenderResolved(row));
-        Vector2 replyMin = origin + new Vector2(101, 410) * s;
+        Vector2 replyMin = MailUiLaw.OpenMailReply.ScaledMin(origin, s);
         VanillaButton(dl, "##open-mail-reply", "Reply", replyMin,
-            new Vector2(82, 22), s, canReply);
+            MailUiLaw.OpenMailReply.Size, s, canReply,
+            normalFont: MailUiLaw.ActionNormalFont,
+            highlightFont: MailUiLaw.ActionHighlightFont,
+            disabledFont: MailUiLaw.ActionDisabledFont);
         bool replyActive = ImGui.IsItemActive(), replyHovered = ImGui.IsItemHovered();
         bool replyReleased = MailReleasedCurrentItem(canReply);
         TraceMailControl("OpenMailReplyButton", "OpenMailFrame", replyMin,
-            new Vector2(82, 22) * s, replyActive, replyHovered, canReply, clip,
+            MailUiLaw.OpenMailReply.ScaledSize(s), replyActive, replyHovered, canReply, clip,
             !canReply ? @"Interface\Buttons\UI-Panel-Button-Disabled" : replyActive ?
                 @"Interface\Buttons\UI-Panel-Button-Down" : @"Interface\Buttons\UI-Panel-Button-Up");
-        Vector2 deleteMin = origin + new Vector2(183, 410) * s;
+        Vector2 deleteMin = MailUiLaw.OpenMailDelete.ScaledMin(origin, s);
         VanillaButton(dl, "##open-mail-delete", canDelete ? "Delete" : "Return", deleteMin,
-            new Vector2(82, 22), s);
+            MailUiLaw.OpenMailDelete.Size, s,
+            normalFont: MailUiLaw.ActionNormalFont,
+            highlightFont: MailUiLaw.ActionHighlightFont,
+            disabledFont: MailUiLaw.ActionDisabledFont);
         bool deleteActive = ImGui.IsItemActive(), deleteHovered = ImGui.IsItemHovered();
         bool deleteReleased = MailReleasedCurrentItem();
         TraceMailControl("OpenMailDeleteButton", "OpenMailFrame", deleteMin,
-            new Vector2(82, 22) * s, deleteActive, deleteHovered, true, clip,
+            MailUiLaw.OpenMailDelete.ScaledSize(s), deleteActive, deleteHovered, true, clip,
             deleteActive ? @"Interface\Buttons\UI-Panel-Button-Down" :
                 @"Interface\Buttons\UI-Panel-Button-Up");
-        Vector2 bottomCloseMin = origin + new Vector2(265, 410) * s;
+        Vector2 bottomCloseMin = MailUiLaw.OpenMailBottomClose.ScaledMin(origin, s);
         VanillaButton(dl, "##open-mail-close-bottom", "Close", bottomCloseMin,
-            new Vector2(80, 22), s);
+            MailUiLaw.OpenMailBottomClose.Size, s,
+            normalFont: MailUiLaw.ActionNormalFont,
+            highlightFont: MailUiLaw.ActionHighlightFont,
+            disabledFont: MailUiLaw.ActionDisabledFont);
         bool bottomCloseActive = ImGui.IsItemActive(), bottomCloseHovered = ImGui.IsItemHovered();
         bool bottomCloseReleased = MailReleasedCurrentItem();
         TraceMailControl("OpenMailCancelButton", "OpenMailFrame", bottomCloseMin,
-            new Vector2(80, 22) * s, bottomCloseActive, bottomCloseHovered, true, clip,
+            MailUiLaw.OpenMailBottomClose.ScaledSize(s), bottomCloseActive, bottomCloseHovered,
+            true, clip,
             bottomCloseActive ? @"Interface\Buttons\UI-Panel-Button-Down" :
                 @"Interface\Buttons\UI-Panel-Button-Up");
-        Vector2 close = origin + new Vector2(321, 9) * s;
-        DrawImageButton(dl, "##open-mail-close", close, new Vector2(32) * s,
+        Vector2 close = MailUiLaw.OpenMailTopClose.ScaledMin(origin, s);
+        DrawImageButton(dl, "##open-mail-close", close, MailUiLaw.OpenMailTopClose.ScaledSize(s),
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         bool closeActive = ImGui.IsItemActive(), closeHovered = ImGui.IsItemHovered();
         bool closeClicked = MailReleasedCurrentItem();
-        TraceMailControl("OpenMailCloseButton", "OpenMailFrame", close, new Vector2(32) * s,
+        TraceMailControl("OpenMailCloseButton", "OpenMailFrame", close,
+            MailUiLaw.OpenMailTopClose.ScaledSize(s),
             closeActive, closeHovered, true, clip,
             closeActive ? @"Interface\Buttons\UI-Panel-MinimizeButton-Down" :
                 @"Interface\Buttons\UI-Panel-MinimizeButton-Up");
@@ -1703,24 +1822,26 @@ public sealed partial class GameLoop
     }
 
     private bool DrawOpenMailSlot(ImDrawListPtr dl, string id, Vector2 min, string iconPath,
-        uint count, float s, GameTooltipOwnerKey tooltipOwner, string? tooltip,
+        uint count, float s, GameTooltipOwnerKey tooltipOwner, string? tooltip, Vector4 clip,
         MailRow? row = null, ItemTemplate? item = null)
     {
-        DrawArt(dl, @"Interface\Buttons\UI-EmptySlot", min - new Vector2(10.5f) * s,
-            new Vector2(58), s);
+        DrawArt(dl, @"Interface\Buttons\UI-EmptySlot",
+            MailUiLaw.OpenMailSlotArt.ScaledMin(min, s), MailUiLaw.OpenMailSlotArt.Size, s);
         uint icon = _gameplayArt?.Handle(iconPath) ?? 0;
-        if (icon != 0) dl.AddImage((nint)icon, min, min + new Vector2(37) * s);
+        if (icon != 0) dl.AddImage((nint)icon, min, min + MailUiLaw.OpenMailSlotSize * s);
         if (count > 1)
             GameText.DrawRightAligned(dl, "NumberFontNormal", count.ToString(),
-                min + new Vector2(35, 25) * s, s);
+                min + MailUiLaw.OpenMailSlotCount * s, s);
         ImGui.SetCursorScreenPos(min);
-        bool released = ImGui.InvisibleButton(id, new Vector2(37) * s,
+        bool released = ImGui.InvisibleButton(id, MailUiLaw.OpenMailSlotSize * s,
             ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
         bool hovered = ImGui.IsItemHovered(), active = ImGui.IsItemActive();
         if (hovered)
         {
+            MailUiLaw.TooltipSeat tooltipSeat = MailUiLaw.RightTooltipSeat(min,
+                MailUiLaw.OpenMailSlotSize * s);
             uint hi = _gameplayArt?.AdditiveHandle(@"Interface\Buttons\ButtonHilight-Square") ?? 0;
-            if (hi != 0) dl.AddImage((nint)hi, min, min + new Vector2(37) * s);
+            if (hi != 0) dl.AddImage((nint)hi, min, min + MailUiLaw.OpenMailSlotSize * s);
             if (item is not null && row is not null)
             {
                 ItemTooltipBodySnapshot tooltipBody = PrepareItemTooltipBodySnapshot(
@@ -1733,13 +1854,16 @@ public sealed partial class GameLoop
                         PreparedItemTooltipPlain("Cash on Delivery Amount:"),
                         PreparedItemTooltipPlain(codAmount));
                 }
-                OfferPreparedItemTooltip(tooltipOwner, tooltipBody);
+                OfferPreparedItemTooltip(tooltipOwner, tooltipBody, tooltipSeat.Anchor,
+                    nextWindowPivot: tooltipSeat.Pivot);
             }
             else if (!string.IsNullOrEmpty(tooltip))
             {
                 string tooltipText = tooltip;
                 OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
                 {
+                    ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
+                        tooltipSeat.Pivot);
                     ImGui.BeginTooltip();
                     ImGui.TextUnformatted(tooltipText);
                     ImGui.EndTooltip();
@@ -1751,25 +1875,28 @@ public sealed partial class GameLoop
             string element = id.Contains("copy", StringComparison.Ordinal) ? "OpenMailLetterButton" :
                 id.Contains("package", StringComparison.Ordinal) ? "OpenMailPackageButton" :
                     "OpenMailMoneyButton";
-            Vector4 clip = new(374 * s, 104 * s, 758 * s, 616 * s);
-            CollectUiParityDraw(element, "Button", min, new Vector2(37) * s, "OpenMailFrame",
+            CollectUiParityDraw(element, "Button", min, MailUiLaw.OpenMailSlotSize * s,
+                "OpenMailFrame",
                 new("", 0, "IMGUI_HIT_TARGET", "CENTER", "OpenMailAttachmentText", "RIGHT", 5,
-                    0, ContentRect: MailContent(min, new Vector2(37) * s), ClipRect: clip,
+                    0, ContentRect: MailContent(min, MailUiLaw.OpenMailSlotSize * s),
+                    ClipRect: clip,
                     ClipMask: "WINDOW_RECT", Visible: true,
                     Enabled: true, InteractionState: active ? "pushed" : hovered ? "highlighted" :
-                        "normal", HitMin: min, HitMax: min + new Vector2(37) * s,
-                    Strata: "MEDIUM"));
-            CollectUiParityDraw(element + "Icon", "Texture", min, new Vector2(37) * s, element,
+                        "normal", HitMin: min, HitMax: min + MailUiLaw.OpenMailSlotSize * s,
+                        Strata: "MEDIUM"));
+            CollectUiParityDraw(element + "Icon", "Texture", min,
+                MailUiLaw.OpenMailSlotSize * s, element,
                 new(iconPath, 0xffffffff, "BORDER", "CENTER", element, "CENTER", 0, 0,
                     TexCoords: "0|0|1|1",
-                    ContentRect: MailContent(min, new Vector2(37) * s), ClipRect: clip,
+                    ContentRect: MailContent(min, MailUiLaw.OpenMailSlotSize * s), ClipRect: clip,
                     ClipMask: "WINDOW_RECT", BlendMode: "BLEND", Strata: "MEDIUM"));
             if (hovered)
                 CollectUiParityDraw(element + "HighlightTexture", "HighlightTexture", min,
-                    new Vector2(37) * s, element,
+                    MailUiLaw.OpenMailSlotSize * s, element,
                     new(@"Interface\Buttons\ButtonHilight-Square", 0xffffffff, "HIGHLIGHT",
                         "CENTER", element, "CENTER", 0, 0, TexCoords: "0|0|1|1",
-                        ContentRect: MailContent(min, new Vector2(37) * s), ClipRect: clip,
+                        ContentRect: MailContent(min, MailUiLaw.OpenMailSlotSize * s),
+                        ClipRect: clip,
                         ClipMask: "WINDOW_RECT",
                         BlendMode: "ADD", Strata: "MEDIUM"));
         }
@@ -1793,7 +1920,7 @@ public sealed partial class GameLoop
                     GameText.MeasureWidth("MailTextFontNormal", candidate, s) > width)
                 {
                     GameText.Draw(dl, "MailTextFontNormal", current,
-                        min + new Vector2(0, line * pitch), s);
+                        MailUiLaw.TextLine(min, pitch, line), s);
                     if (++line >= maxLines) return;
                     current = word;
                 }
@@ -1802,7 +1929,7 @@ public sealed partial class GameLoop
             if (current.Length > 0)
             {
                 GameText.Draw(dl, "MailTextFontNormal", current,
-                    min + new Vector2(0, line * pitch), s);
+                    MailUiLaw.TextLine(min, pitch, line), s);
                 if (++line >= maxLines) return;
             }
         }
@@ -1829,7 +1956,7 @@ public sealed partial class GameLoop
         ImGui.PopStyleVar(2);
         if (!began) { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
-        Vector4 clip = new(origin.X, origin.Y, origin.X + size.X, origin.Y + size.Y);
+        Vector4 clip = MailUiLaw.Clip(origin, size);
         if (_uiParityArmed && _uiParityPanel == "mail")
             CollectUiParityDraw("MailConfirmation", "Frame", origin, size, "MailFrame",
                 new("", 0, "IMGUI_HOST", "CENTER", "UIParent", "TOP", 0, -128,
@@ -1839,8 +1966,10 @@ public sealed partial class GameLoop
                     HitMax: origin + size, Strata: "DIALOG"));
         _skin.DrawBackdrop(dl, origin, origin + size, WowSkin.Dialog);
         bool alert = confirmation.Kind is MailConfirmationKind.DeleteItem or MailConfirmationKind.DeleteMoney;
-        if (alert) _skin.GlueImage(dl, "dialog.alert", origin + new Vector2(12, 8) * s,
-            origin + new Vector2(76, 72) * s);
+        if (alert) _skin.GlueImage(dl, "dialog.alert",
+            MailUiLaw.ConfirmationAlert.ScaledMin(origin, s),
+            MailUiLaw.ConfirmationAlert.ScaledMin(origin, s) +
+                MailUiLaw.ConfirmationAlert.ScaledSize(s));
         string message = confirmation.Kind switch
         {
             MailConfirmationKind.Cod => "Accepting this item will cost:",
@@ -1849,11 +1978,13 @@ public sealed partial class GameLoop
             _ => $"Really send {ReadBuffer(_mailRecipient)} the following amount?"
         };
         GameText.DrawCentered(dl, "GameFontNormal", message,
-            origin + new Vector2(alert ? 218 : 180, 30) * s, s);
+            origin + MailUiLaw.ConfirmationMessagePosition(alert) * s, s);
         // Frozen MailFrame names the shared StaticPopup money frames as intentionally inert;
         // confirmation content is text-only here as well.
-        bool accept = DrawMailPopupButton(dl, "Accept", origin + new Vector2(48, 68) * s, s, "accept");
-        bool cancel = DrawMailPopupButton(dl, "Cancel", origin + new Vector2(184, 68) * s, s, "cancel");
+        bool accept = DrawMailPopupButton(dl, "Accept", origin,
+            MailUiLaw.ConfirmationAccept, s, "accept");
+        bool cancel = DrawMailPopupButton(dl, "Cancel", origin,
+            MailUiLaw.ConfirmationCancel, s, "cancel");
         ImGui.End();
         if (cancel)
         { _mailConfirmation = null; _mailSendPending = false; }
@@ -1877,32 +2008,33 @@ public sealed partial class GameLoop
         if (_uiParityArmed && _uiParityPanel == "mail") MarkUiParityFrameComplete();
     }
 
-    private bool DrawMailPopupButton(ImDrawListPtr dl, string caption, Vector2 min, float s, string id)
+    private bool DrawMailPopupButton(ImDrawListPtr dl, string caption, Vector2 dialogOrigin,
+        MailUiLaw.LogicalRect seat, float s, string id)
     {
-        Vector2 size = new Vector2(128, 20) * s;
+        Vector2 min = seat.ScaledMin(dialogOrigin, s);
+        Vector2 size = seat.ScaledSize(s);
         ImGui.SetCursorScreenPos(min);
         bool released = ImGui.InvisibleButton($"##mail-confirm-{id}", size);
         bool active = ImGui.IsItemActive();
         bool hovered = ImGui.IsItemHovered();
         uint art = _skin!.TextureHandle(active ? "dialog.button.down" : "dialog.button.up");
-        if (art != 0) dl.AddImage((nint)art, min, min + size, Vector2.Zero, new Vector2(1, .625f));
+        if (art != 0) dl.AddImage((nint)art, min, min + size, Vector2.Zero,
+            MailUiLaw.ConfirmationButtonUvMax);
         if (hovered)
         {
             uint hi = _skin.TextureHandle("dialog.button.hi");
-            if (hi != 0) dl.AddImage((nint)hi, min, min + size, Vector2.Zero, new Vector2(1, .625f));
+            if (hi != 0) dl.AddImage((nint)hi, min, min + size, Vector2.Zero,
+                MailUiLaw.ConfirmationButtonUvMax);
         }
         GameText.DrawCentered(dl, hovered ? "DialogButtonHighlightText" : "DialogButtonNormalText",
             caption, min + size * .5f, s);
         if (_uiParityArmed && _uiParityPanel == "mail")
         {
-            Vector2 display = ImGui.GetIO().DisplaySize;
-            Vector2 dialogSize = new Vector2(360, 96) * s;
-            Vector2 dialogOrigin = new((display.X - dialogSize.X) * .5f, 128 * s);
-            Vector4 clip = new(dialogOrigin.X, dialogOrigin.Y, dialogOrigin.X + dialogSize.X,
-                dialogOrigin.Y + dialogSize.Y);
+            Vector2 dialogSize = MailUiLaw.ConfirmationFrame.ScaledSize(s);
+            Vector4 clip = MailUiLaw.Clip(dialogOrigin, dialogSize);
             CollectUiParityDraw("MailConfirmation" + caption + "Button", "Button", min, size,
                 "MailConfirmation", new("", 0, "IMGUI_HIT_TARGET", "TOPLEFT",
-                    "MailConfirmation", "TOPLEFT", id == "accept" ? 48 : 184, -68,
+                    "MailConfirmation", "TOPLEFT", seat.X, -seat.Y,
                     ContentRect: MailContent(min, size), ClipRect: clip,
                     ClipMask: "WINDOW_RECT", Visible: true,
                     Enabled: true, InteractionState: active ? "pushed" : hovered ? "highlighted" :

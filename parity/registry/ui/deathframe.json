@@ -34,7 +34,7 @@
     "tools/interface-wire-check/DeathFrameClinicalChecks.cs"
   ],
   "status": "complete",
-  "summary": "MSUI implements the current Benilla death arc through a dedicated DeathFrame law: release/no-timer, corpse recovery and in-instance notice, strict sickness/timer resurrect variants, two-stage alert-width spirit-healer confirmation, exact countdown/range/Escape behavior, death durability warning, own-corpse tracking, and POIIcons corpse markers on the world map and in-range minimap.",
+  "summary": "MSUI implements the current Benilla death arc through a dedicated DeathFrame law: release/no-timer, corpse recovery and in-instance notice, strict sickness/timer resurrect variants, two-stage alert-width spirit-healer confirmation, exact countdown/range/Escape behavior, death durability warning, own-corpse tracking, and POIIcons corpse markers on the world map and in-range minimap. DeathFrameUiLaw owns alert dimensions, button size, dialog-button UV, and popup seats; the renderer contains no local Vector2 geometry. Focused and full deterministic checks pass.",
   "openItems": [
     {
       "id": "item-triage-26a60ca8",
@@ -76,6 +76,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-21T15:30:00+00:00",
+  "lastReviewedUtc": "2026-08-23T04:49:32.6361394Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

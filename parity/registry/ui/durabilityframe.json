@@ -18,7 +18,7 @@
     "MSUIClient/GameLoop/Panels/GameLoop.Quest.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI now implements the current Benilla durability alert: exact absolute 1..5 damaged and zero/force-red broken classification with wrapped-item suppression, all eight body glyphs as one figure, separate main-hand/off-hand/ranged alerts, shield versus off-hand-weapon substitution, exact UI-Durability-Icons atlas cells and colors, and managed seating between the dynamic quest-timer window and quest-watch tracker. Deterministic checks pass; live equipment-stream and pixel verification remain open.",
+  "summary": "MSUI now implements the current Benilla durability alert: exact absolute 1..5 damaged and zero/force-red broken classification with wrapped-item suppression, all eight body glyphs as one figure, separate main-hand/off-hand/ranged alerts, shield versus off-hand-weapon substitution, exact UI-Durability-Icons atlas cells and colors, and managed seating between the dynamic quest-timer window and quest-watch tracker. The 2026-08-23 re-review also confirms that MSUI's per-frame recompute covers Benilla's late side-glyph reseat case; the engine-only low-ammo status is not consumed by DurabilityFrame.xml and is not a visual window delta. Deterministic checks pass; live equipment-stream and pixel verification remain open.",
   "openItems": [
     {
       "id": "item-triage-1acf66dd",
@@ -41,6 +41,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T06:41:44.5549405Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

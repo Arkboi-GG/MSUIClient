@@ -2,8 +2,10 @@ using System.Numerics;
 using ImGuiNET;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Spells;
 using MSUIClient.World.Units;
 
 namespace MSUIClient;
@@ -17,6 +19,10 @@ public sealed partial class GameLoop
     private PortraitRenderTarget? _inspectPaperDoll;
     private PortraitRenderTarget? _petPaperDoll;
     private PortraitRenderTarget? _dressUpTarget;
+    private PortraitGlowLane? _paperDollGlow;
+    private PortraitGlowLane? _inspectPaperDollGlow;
+    private PortraitGlowLane? _dressUpGlow;
+    private bool _portraitGlowUnavailable;
     private bool _playerPortraitDirty = true;
     private bool _paperDollDirty = true;
     private bool _inspectPaperDollDirty = true;
@@ -26,6 +32,8 @@ public sealed partial class GameLoop
     private ulong _petPaperDollGuid;
     private ulong _petPaperDollAppearance;
     private float _petPaperDollRotation;
+    private float _petPaperDollAnimationTime;
+    private double _petPaperDollLastUpdate;
     private ulong _inspectPaperDollGuid;
     private ulong _inspectPaperDollAppearance;
     private bool _playerPortraitUsable;
@@ -69,8 +77,43 @@ public sealed partial class GameLoop
             (ulong)hairStyle << 8 | hairColor)) * 1099511628211ul);
         hash = unchecked((hash ^ unit.Fields.PlayerFacialHair) * 1099511628211ul);
         for (int slot = 0; slot < 19; slot++)
+        {
             hash = unchecked((hash ^ unit.Fields.PlayerVisibleItemEntry(slot)) * 1099511628211ul);
+            for (int enchantSlot = 0; enchantSlot < 7; enchantSlot++)
+                hash = unchecked((hash ^ unit.Fields.PlayerVisibleItemEnchant(slot, enchantSlot)) *
+                    1099511628211ul);
+        }
         return hash;
+    }
+
+    /// <summary>
+    /// A body-model pane is a live model widget, not a cached round unit portrait. Keep its
+    /// item/enchant effect source and particle history isolated from the world and from the other
+    /// panes: syncing one booth must never retire another booth's glow or draw world spell FX into
+    /// a UI render target.
+    /// </summary>
+    private sealed class PortraitGlowLane : IDisposable
+    {
+        public readonly SpellEffectSource Source;
+        public readonly SpellParticleSystem Particles;
+        public readonly SpellRibbonRenderer Ribbons;
+        public bool Active;
+        public double LastUpdate;
+
+        public PortraitGlowLane(GL gl, ClientConfig config, MpqMount mpq, string shaderDirectory)
+        {
+            Source = new SpellEffectSource(mpq);
+            Particles = new SpellParticleSystem(gl, config, mpq) { FogEnabled = false };
+            Particles.LoadShaders(shaderDirectory);
+            Ribbons = new SpellRibbonRenderer(gl, mpq) { FogEnabled = false };
+            Ribbons.LoadShaders();
+        }
+
+        public void Dispose()
+        {
+            Particles.Dispose();
+            Ribbons.Dispose();
+        }
     }
 
     private static ulong PortraitAppearanceSignature(in WorldEntity unit)
@@ -243,11 +286,116 @@ public sealed partial class GameLoop
         _dressUpDirty = true;
     }
 
+    private bool RenderPortraitItemGlows(ref PortraitGlowLane? lane, string laneKey,
+        Camera camera, IReadOnlyList<ItemGlowPlacement> placements)
+    {
+        if (_portraitGlowUnavailable || _gl is null || _mpq is null ||
+            _spellEffectMeshes is null) return false;
+
+        double now = NowSeconds();
+        if (placements.Count == 0)
+        {
+            if (lane is not null)
+            {
+                lane.Source.SyncItemGlows(Array.Empty<ItemGlowPlacement>(), now);
+                lane.Active = false;
+            }
+            return false;
+        }
+
+        if (lane is null)
+        {
+            try
+            {
+                string shaderDirectory = Path.Combine(AppContext.BaseDirectory, "Shaders");
+                if (!File.Exists(Path.Combine(shaderDirectory, "spell_particle.vert")))
+                    shaderDirectory = Path.Combine(_config.RepoRoot, "MSUIClient", "Shaders");
+                lane = new PortraitGlowLane(_gl, _config, _mpq, shaderDirectory);
+            }
+            catch (Exception ex)
+            {
+                _portraitGlowUnavailable = true;
+                Console.WriteLine($"[portrait-glow] renderer unavailable: {ex.Message}");
+                return false;
+            }
+        }
+
+        ItemGlowPlacement[] scoped = placements.Select(placement => new ItemGlowPlacement(
+            $"portrait:{laneKey}:{placement.Key}", placement.Path, placement.Transform,
+            placement.RenderMesh)).ToArray();
+        lane.Source.SyncItemGlows(scoped, now);
+        float dt = lane.LastUpdate > 0
+            ? (float)Math.Clamp(now - lane.LastUpdate, 1.0 / 240.0, 0.05)
+            : 1f / 30f;
+        lane.LastUpdate = now;
+        lane.Active = true;
+
+        lane.Particles.FarClip = camera.FarPlane;
+        lane.Particles.FogEnabled = false;
+        lane.Particles.Simulate(dt, camera.Position, lane.Source.EmitterInstances(
+            now, static _ => SpellUnitPose.Missing, cameraWorld: camera.Position,
+            cameraForwardWorld: camera.Forward));
+
+        SpellEffectMeshRenderer meshes = _spellEffectMeshes;
+        Vector3 savedSunDirection = meshes.SunDirection;
+        Vector3 savedSunColor = meshes.SunColor;
+        float savedSunIntensity = meshes.SunIntensity;
+        Vector3 savedAmbientColor = meshes.AmbientColor;
+        float savedAmbientIntensity = meshes.AmbientIntensity;
+        Vector3 savedFogColor = meshes.FogColor;
+        float savedFogStart = meshes.FogStart;
+        float savedFogEnd = meshes.FogEnd;
+        float savedFarClip = meshes.FarClip;
+        bool savedFogEnabled = meshes.FogEnabled;
+        try
+        {
+            meshes.SunDirection = Vector3.Normalize(new Vector3(0.25f, -0.45f, 0.85f));
+            meshes.SunColor = new Vector3(0.85f, 0.82f, 0.78f);
+            meshes.SunIntensity = 1f;
+            meshes.AmbientColor = new Vector3(0.58f, 0.56f, 0.54f);
+            meshes.AmbientIntensity = 1f;
+            meshes.FogEnabled = false;
+            meshes.FarClip = camera.FarPlane;
+            IEnumerable<SpellMeshDraw> draws = lane.Source.MeshInstances(
+                now, static _ => SpellUnitPose.Missing).Concat(lane.Particles.GeometryInstances());
+            meshes.Render(camera, draws);
+
+            lane.Ribbons.FogEnabled = false;
+            lane.Ribbons.FarClip = camera.FarPlane;
+            lane.Ribbons.Render(camera, lane.Source.RibbonInstances(
+                now, static _ => SpellUnitPose.Missing));
+            lane.Particles.Render(camera);
+        }
+        finally
+        {
+            meshes.SunDirection = savedSunDirection;
+            meshes.SunColor = savedSunColor;
+            meshes.SunIntensity = savedSunIntensity;
+            meshes.AmbientColor = savedAmbientColor;
+            meshes.AmbientIntensity = savedAmbientIntensity;
+            meshes.FogColor = savedFogColor;
+            meshes.FogStart = savedFogStart;
+            meshes.FogEnd = savedFogEnd;
+            meshes.FarClip = savedFarClip;
+            meshes.FogEnabled = savedFogEnabled;
+        }
+        return true;
+    }
+
     private void BakeDirtyPortraits()
     {
         // Settle any pending painterly rebake first, so a style change that
         // lands this frame is baked in this frame rather than the next one.
         FlushPainterlyArt();
+
+        // The reference's body-model widgets are live while an item/enchant effect is present.
+        // One final bake after an effect disappears clears it; then the ordinary appearance-edge
+        // cache takes over again. Round unit portraits deliberately remain one-shot stills.
+        if (_paperDollGlow?.Active == true) _paperDollDirty = true;
+        if (_inspectPaperDollGlow?.Active == true) _inspectPaperDollDirty = true;
+        if (_dressUpOpen) _dressUpDirty = true;
+        if (_characterOpen && _characterTab == 1) _petPaperDollDirty = true;
+        else _petPaperDollLastUpdate = 0;
 
         if (_playerPortraitDirty && NowSeconds() >= _playerPortraitRetryAt &&
             _playerPortrait is not null && _character is { Loaded: true, Enabled: true })
@@ -403,13 +551,18 @@ public sealed partial class GameLoop
                 1.25f * scale, distance);
             camera.FieldOfViewDegrees = 43f;
             camera.AspectRatio = 233f / 224f;
-            WithPortraitLighting(() => _paperDoll.Bake(() => _character.Render(camera, state), transparent: true));
+            WithPortraitLighting(() => _paperDoll.Bake(() =>
+            {
+                _character.Render(camera, state);
+                RenderPortraitItemGlows(ref _paperDollGlow, "paper-doll", camera,
+                    _character.ItemGlowPlacements);
+            }, transparent: true));
             // Painted like every other character surface when the mode is on.
             // Safe on a cut-out bake: the style pass writes the SOURCE alpha
             // back, so the transparent background survives styling and the doll
             // does not gain a painted rectangle behind it.
             if (PainterlyUi) StylePortrait(_paperDoll);
-            _paperDollDirty = false;
+            _paperDollDirty = _paperDollGlow?.Active == true;
         }
 
         if (_dressUpOpen && _dressUpDirty && _dressUpTarget is not null &&
@@ -420,15 +573,22 @@ public sealed partial class GameLoop
                 Position = Vector3.Zero,
                 Yaw = 0f,
                 Grounded = true,
-                FreezePose = true,
                 HasIntent = true,
             };
-            _dressUpRenderer.Update(0f, state);
+            double dressUpNow = NowSeconds();
+            float dressUpDt = DressUpFrameUiLaw.LiveAnimationStep(
+                dressUpNow, _dressUpPaneLastUpdate);
+            _dressUpPaneLastUpdate = dressUpNow;
+            _dressUpRenderer.Update(dressUpDt, state);
             Camera camera = PortraitCamera(Vector3.Zero, _dressUpRotation, 1.15f, 4.15f);
             camera.FieldOfViewDegrees = 43f;
             camera.AspectRatio = 316f / 351f;
-            WithPortraitLighting(() => _dressUpTarget.Bake(
-                () => _dressUpRenderer.Render(camera, state), transparent: true));
+            WithPortraitLighting(() => _dressUpTarget.Bake(() =>
+            {
+                _dressUpRenderer.Render(camera, state);
+                RenderPortraitItemGlows(ref _dressUpGlow, "dress-up", camera,
+                    _dressUpRenderer.ItemGlowPlacements);
+            }, transparent: true));
             if (PainterlyUi) StylePortrait(_dressUpTarget);
             _dressUpDirty = false;
         }
@@ -438,8 +598,14 @@ public sealed partial class GameLoop
         {
             ulong appearance = unchecked((ulong)(uint)inspected.DisplayId + 1469598103934665603ul);
             for (int slot = 0; slot < 19; slot++)
+            {
                 appearance = unchecked((appearance ^ inspected.Fields.PlayerVisibleItemEntry(slot)) *
                     1099511628211ul);
+                for (int enchantSlot = 0; enchantSlot < 7; enchantSlot++)
+                    appearance = unchecked((appearance ^
+                        inspected.Fields.PlayerVisibleItemEnchant(slot, enchantSlot)) *
+                        1099511628211ul);
+            }
             if (_inspectPaperDollGuid != inspected.Guid ||
                 _inspectPaperDollAppearance != appearance)
             {
@@ -460,7 +626,14 @@ public sealed partial class GameLoop
                 camera.NearPlane = MathF.Max(.05f, distance - framing.Height);
                 bool drawn = false;
                 WithPortraitLighting(camera, () => _inspectPaperDoll.Bake(
-                    () => drawn = _creatures.RenderPortrait(camera, inspected), transparent: true));
+                    () =>
+                    {
+                        _creatures.BeginItemGlowFrame();
+                        drawn = _creatures.RenderPortrait(camera, inspected);
+                        if (drawn)
+                            RenderPortraitItemGlows(ref _inspectPaperDollGlow, "inspect",
+                                camera, _creatures.ItemGlowPlacements);
+                    }, transparent: true));
                 PortraitRenderTarget.ReadbackStats stats = _inspectPaperDoll.Analyze();
                 _inspectPaperDollUsable = drawn && stats.HasSubject;
                 if (_inspectPaperDollUsable)
@@ -468,7 +641,7 @@ public sealed partial class GameLoop
                     // After Analyze, whose clear-colour comparison assumes an
                     // unstyled surface; the cut-out survives styling as above.
                     if (PainterlyUi) StylePortrait(_inspectPaperDoll);
-                    _inspectPaperDollDirty = false;
+                    _inspectPaperDollDirty = _inspectPaperDollGlow?.Active == true;
                     _inspectPaperDollGuid = inspected.Guid;
                     _inspectPaperDollAppearance = appearance;
                 }
@@ -528,6 +701,8 @@ public sealed partial class GameLoop
             {
                 _petPaperDollDirty = true;
                 _petPaperDollUsable = false;
+                _petPaperDollAnimationTime = 0;
+                _petPaperDollLastUpdate = 0;
             }
             if (_petPaperDollDirty &&
                 _creatures.TryGetPortraitFraming(pet, out CreatureRenderer.PortraitFraming framing))
@@ -541,9 +716,14 @@ public sealed partial class GameLoop
                 camera.FieldOfViewDegrees = fov;
                 camera.AspectRatio = 318f / 224f;
                 camera.NearPlane = MathF.Max(.05f, distance - framing.Height);
+                double petDollNow = NowSeconds();
+                _petPaperDollAnimationTime += PetPaperDollUiLaw.LiveAnimationStep(
+                    petDollNow, _petPaperDollLastUpdate);
+                _petPaperDollLastUpdate = petDollNow;
                 bool drawn = false;
                 WithPortraitLighting(camera, () => _petPaperDoll.Bake(
-                    () => drawn = _creatures.RenderPortrait(camera, pet), transparent: true));
+                    () => drawn = _creatures.RenderPortrait(
+                        camera, pet, _petPaperDollAnimationTime), transparent: true));
                 PortraitRenderTarget.ReadbackStats stats = _petPaperDoll.Analyze();
                 _petPaperDollUsable = drawn && stats.HasSubject;
                 if (_petPaperDollUsable)
@@ -943,6 +1123,9 @@ public sealed partial class GameLoop
         _inspectPaperDoll?.Dispose();
         _petPaperDoll?.Dispose();
         _dressUpTarget?.Dispose();
+        _paperDollGlow?.Dispose();
+        _inspectPaperDollGlow?.Dispose();
+        _dressUpGlow?.Dispose();
         _dressUpRenderer?.Dispose();
         _labPortrait?.Dispose();
         _playerPortrait = null;
@@ -952,6 +1135,9 @@ public sealed partial class GameLoop
         _inspectPaperDoll = null;
         _petPaperDoll = null;
         _dressUpTarget = null;
+        _paperDollGlow = null;
+        _inspectPaperDollGlow = null;
+        _dressUpGlow = null;
         _dressUpRenderer = null;
         _labPortrait = null;
         foreach (PartyPortrait entry in _partyPortraits.Values) entry.Target?.Dispose();

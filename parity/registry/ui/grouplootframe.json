@@ -25,7 +25,7 @@
     "tools/interface-wire-check/GroupLootClinicalChecks.cs"
   ],
   "status": "complete",
-  "summary": "MSUI implements the current four-frame Need/Greed/Pass family: strict group-roll packets, first-hidden managed stacking, authored dialog/name/icon/button/timer art, saturated server-owned lifetime, immediate predicted close on vote, loot-chat announcements, BoP gold treatment, and a separately law-positioned CONFIRM_LOOT_ROLL popup.",
+  "summary": "MSUI implements the current four-frame Need/Greed/Pass family: strict group-roll packets, first-hidden managed stacking, authored dialog/name/icon/button/timer art, saturated server-owned lifetime, immediate predicted close on vote, loot-chat announcements, BoP gold treatment, and a separately law-positioned CONFIRM_LOOT_ROLL popup. Every visible plate, name slab, dragon/corner, icon, vote button, timer, and confirmation-button size/UV now comes from GroupLootFrameUiLaw; the renderer contains no locally authored Vector2 geometry. The fixed 90x30 GameFontNormalSmall name box wraps and vertically centers its line block. The item icon also follows current Benilla's isolated modifier fork: Ctrl previews, Shift posts the classic quality-colored link only into an open chat edit, and plain/unresolved clicks remain inert without voting. Focused GroupLootFrame and full interface-wire checks pass.",
   "openItems": [
     {
       "id": "item-triage-3ea8aa1c",
@@ -71,11 +71,38 @@
       "added": "2026-08-09",
       "resolved": true,
       "resolution": "2026-08-21: GroupLootRollState owns four first-hidden slots and GroupLootFrameUiLaw consumes UiParentUiLaw's GroupLoot managed placement, including bar/pet offsets."
+    },
+    {
+      "id": "item-grouplootframe-icon-modifier-fork-20260823",
+      "kind": "gap",
+      "text": "The group-roll item icon supports Ctrl-preview but not current Benilla's Shift-post of the resolved item link into an open chat edit; the icon's plain click must remain inert and never cast a vote.",
+      "source": "benilla-b57ee0e9e2c8822b/group_loot_tests.rs+GroupLootFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: GroupLootFrameUiLaw now owns the icon click decision fork and shared classic item-link payload. Ctrl previews, Shift inserts only when chat is open and the item is resolved, and every other icon click remains inert; Need/Greed/Pass wiring is unchanged. Focused GroupLootFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-grouploot-name-wrap-seat-visual-gap-20260823",
+      "kind": "gap",
+      "text": "The group-roll item name was top-painted and clipped to one line instead of using current Benilla's wrapped, vertically centered fixed 90x30 GameFontNormalSmall box.",
+      "source": "benilla-b57ee0e9e2c8822b/GroupLootFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: GroupLootFrameUiLaw now owns name wrapping and line-block centering inside the exact authored box; quality color, clipping, vote behavior, and roll lifetime are unchanged. Focused GroupLootFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-grouploot-right-tooltip-anchors-20260823",
+      "kind": "gap",
+      "text": "The item icon and Pass/Need/Greed button tooltips followed the mouse even though every GroupLootFrame OnEnter owner uses ANCHOR_RIGHT.",
+      "source": "benilla-b57ee0e9e2c8822b/GroupLootFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "GroupLootFrameUiLaw now owns the shared right-owner tooltip seat. Item and vote tooltips anchor bottom-left to their control's top-right; item content, vote wiring, and confirmation behavior remain unchanged. Focused and full interface-wire checks pass."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-21T12:00:00+00:00",
+  "lastReviewedUtc": "2026-08-23T18:44:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -122,6 +122,8 @@ public sealed class WowSkin : IDisposable
         ("dialog.button.off",  @"Interface\Buttons\UI-DialogBox-Button-Disabled.blp", false),
         ("dialog.button.hi",   @"Interface\Buttons\UI-DialogBox-Button-Highlight.blp", false),
         ("dialog.alert",       @"Interface\DialogFrame\DialogAlertIcon.blp", false),
+        ("chat.input.left",    @"Interface\ChatFrame\UI-ChatInputBorder-Left.blp", false),
+        ("chat.input.right",   @"Interface\ChatFrame\UI-ChatInputBorder-Right.blp", false),
         ("check.box",      @"Interface\Buttons\UI-CheckBox-Up.blp",              false),
         ("check.down",     @"Interface\Buttons\UI-CheckBox-Down.blp",            false),
         ("check.mark",     @"Interface\Buttons\UI-CheckBox-Check.blp",           false),

@@ -7,7 +7,8 @@ using Texture = MSUIClient.Engine.Texture;
 
 namespace MSUIClient.World.Units;
 
-public readonly record struct ItemGlowPlacement(string Key, string Path, Matrix4x4 Transform);
+public readonly record struct ItemGlowPlacement(string Key, string Path, Matrix4x4 Transform,
+    bool RenderMesh = true);
 
 /// <summary>
 /// Draws the equipment that has geometry of its own - helms, shoulders,
@@ -58,8 +59,8 @@ public sealed class AttachedItemRenderer : IDisposable
     public const int AttachHipMain = 32;
     public const int AttachHipOff = 33;
 
-    /// <summary>Position(3) Normal(3) UV(2) - the doodad layout, since nothing here is skinned.</summary>
-    private const int FloatsPerVertex = 8;
+    /// <summary>Position(3), normal(3), UV(2), normalized bone weights(4), bone indices(4).</summary>
+    private const int FloatsPerVertex = 16;
 
     internal sealed class Batch
     {
@@ -69,6 +70,10 @@ public sealed class AttachedItemRenderer : IDisposable
         public bool TwoSided;
         public int BlendMode;
         public bool NoZWrite;
+        public bool NoZTest;
+        public bool Unlit;
+        public int FogPolicy;
+        public M2Batch? Source;
         public bool Transparent => BlendMode >= 2 || NoZWrite;
     }
 
@@ -78,6 +83,7 @@ public sealed class AttachedItemRenderer : IDisposable
         public List<Batch> Batches = [];
         public string Path = "";
         public M2Model Source = null!;
+        public bool UsesCameraFacingPalette;
 
         private GL? _gl;
         public void Attach(GL gl) => _gl = gl;
@@ -141,6 +147,9 @@ public sealed class AttachedItemRenderer : IDisposable
     private readonly List<Mount> _mounts = [];
     private readonly List<ItemGlowPlacement> _glowPlacements = [];
     private readonly List<CarriedLightPlacement> _carriedLights = [];
+    private readonly List<FishingPoleTipPlacement> _fishingPoleTips = [];
+    private readonly Matrix4x4[] _itemSkin = new Matrix4x4[M2Animator.MaxBones];
+    private readonly float[] _packedItemSkin = new float[M2Animator.MaxBones * 12];
 
     public bool Enabled { get; set; } = true;
     public int MountCount => _mounts.Count;
@@ -165,6 +174,7 @@ public sealed class AttachedItemRenderer : IDisposable
     public int DrawnLastFrame { get; private set; }
     public IReadOnlyList<ItemGlowPlacement> GlowPlacements => _glowPlacements;
     public IReadOnlyList<CarriedLightPlacement> CarriedLights => _carriedLights;
+    public IReadOnlyList<FishingPoleTipPlacement> FishingPoleTips => _fishingPoleTips;
     public string GlowOwnerKey { get; set; } = "local";
     public byte SheathState { get; set; }
 
@@ -221,6 +231,7 @@ public sealed class AttachedItemRenderer : IDisposable
     {
         _glowPlacements.Clear();
         _carriedLights.Clear();
+        _fishingPoleTips.Clear();
     }
 
     /// <summary>
@@ -431,6 +442,11 @@ public sealed class AttachedItemRenderer : IDisposable
             vertices[o + 0] = v.PosX; vertices[o + 1] = v.PosY; vertices[o + 2] = v.PosZ;
             vertices[o + 3] = v.NormX; vertices[o + 4] = v.NormY; vertices[o + 5] = v.NormZ;
             vertices[o + 6] = v.TexU; vertices[o + 7] = v.TexV;
+            SpellMeshSkinningLaw.VertexSkin skin = SpellMeshSkinningLaw.Resolve(v);
+            vertices[o + 8] = skin.Weights.X; vertices[o + 9] = skin.Weights.Y;
+            vertices[o + 10] = skin.Weights.Z; vertices[o + 11] = skin.Weights.W;
+            vertices[o + 12] = skin.Indices.X; vertices[o + 13] = skin.Indices.Y;
+            vertices[o + 14] = skin.Indices.Z; vertices[o + 15] = skin.Indices.W;
         }
 
         var indices = m2.Indices.ToArray();
@@ -458,10 +474,21 @@ public sealed class AttachedItemRenderer : IDisposable
         _gl.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, stride, (void*)(3 * sizeof(float)));
         _gl.EnableVertexAttribArray(2);
         _gl.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, stride, (void*)(6 * sizeof(float)));
+        _gl.EnableVertexAttribArray(3);
+        _gl.VertexAttribPointer(3, 4, VertexAttribPointerType.Float, false, stride, (void*)(8 * sizeof(float)));
+        _gl.EnableVertexAttribArray(4);
+        _gl.VertexAttribPointer(4, 4, VertexAttribPointerType.Float, false, stride, (void*)(12 * sizeof(float)));
 
         _gl.BindVertexArray(0);
 
-        var model = new ItemModel { Vao = vao, Vbo = vbo, Ebo = ebo, Source = m2 };
+        var model = new ItemModel
+        {
+            Vao = vao,
+            Vbo = vbo,
+            Ebo = ebo,
+            Source = m2,
+            UsesCameraFacingPalette = AttachedItemBillboardLaw.UsesCameraFacingPalette(m2),
+        };
         model.Attach(_gl);
 
         // An item M2's own texture table is usually a single type-2 slot with
@@ -475,6 +502,7 @@ public sealed class AttachedItemRenderer : IDisposable
         // Keep one base pass per submesh, preferring the authored opaque pass.
         var baseBatches = m2.Batches
             .Select((batch, index) => (batch, index))
+            .Where(x => !m2.IsBatchConstantInvisible(x.batch))
             .GroupBy(x => x.batch.SubmeshIndex)
             .Select(group => group
                 .OrderBy(x => x.batch.MaterialIndex < m2.RenderFlags.Count &&
@@ -516,10 +544,18 @@ public sealed class AttachedItemRenderer : IDisposable
                 TwoSided = renderFlags?.TwoSided ?? false,
                 BlendMode = renderFlags?.BlendingMode ?? 0,
                 NoZWrite = renderFlags?.NoZWrite ?? false,
+                NoZTest = renderFlags?.NoZTest ?? false,
+                Unlit = renderFlags?.Unlit ?? false,
+                FogPolicy = AttachedItemMaterialLaw.FogPolicy(
+                    renderFlags?.BlendingMode ?? 0, renderFlags?.Unfogged ?? false),
+                Source = batch,
             });
         }
 
-        if (model.Batches.Count == 0)
+        // Only a truly batch-less file needs the raw-geometry fallback. A model whose authored
+        // batches all combine to alpha zero is intentionally meshless (often an emitter helper);
+        // re-adding its whole index buffer here would undo the visibility law above.
+        if (model.Batches.Count == 0 && m2.Batches.Count == 0)
             model.Batches.Add(new Batch { IndexStart = 0, IndexCount = (uint)indices.Length, Texture = texture, TwoSided = true });
 
         return model;
@@ -576,16 +612,20 @@ public sealed class AttachedItemRenderer : IDisposable
     /// hand instead of hovering where the hand started.
     /// </summary>
     public unsafe void Render(Camera camera, Matrix4x4 instance,
-                              M2Model? character, Matrix4x4[] skin)
-        => RenderMounts(camera, instance, character, skin, _mounts, SheathState);
+                              M2Model? character, Matrix4x4[] skin, ulong ownerGuid = 0,
+                              float modelTime = 0f)
+        => RenderMounts(camera, instance, character, skin, _mounts, SheathState, ownerGuid,
+            modelTime);
 
     public unsafe void Render(Camera camera, Matrix4x4 instance,
-        M2Model? character, Matrix4x4[] skin, MountSet mounts, byte sheathState)
-        => RenderMounts(camera, instance, character, skin, mounts.Items, sheathState);
+        M2Model? character, Matrix4x4[] skin, MountSet mounts, byte sheathState,
+        ulong ownerGuid = 0, float modelTime = 0f)
+        => RenderMounts(camera, instance, character, skin, mounts.Items, sheathState, ownerGuid,
+            modelTime);
 
     private unsafe void RenderMounts(Camera camera, Matrix4x4 instance,
         M2Model? character, Matrix4x4[] skin, IReadOnlyList<Mount> mounts,
-        byte sheathState)
+        byte sheathState, ulong ownerGuid, float modelTime)
     {
         DrawnLastFrame = 0;
         Shader? shader = Shader;
@@ -630,10 +670,16 @@ public sealed class AttachedItemRenderer : IDisposable
             Matrix4x4 itemRoot = Matrix4x4.CreateTranslation(attachment.Position) *
                                  boneMatrix * worldInstance;
             AppendCarriedLights(mount, itemRoot);
+            AppendItemModelEffects(mount, itemRoot);
             if (mount.HeldSlot >= 0) AppendGlowPlacements(mount, itemRoot);
+            if (ownerGuid != 0 && mount.HeldSlot == 0 &&
+                attachmentId == AttachHandRight)
+                AppendFishingPoleTip(ownerGuid, mount, itemRoot);
         }
 
         bool cullingOn = true;
+        bool hadDepthTest = _gl.IsEnabled(EnableCap.DepthTest);
+        bool depthTestOn = hadDepthTest;
 
         for (int pass = 0; pass < 2; pass++)
         {
@@ -659,12 +705,38 @@ public sealed class AttachedItemRenderer : IDisposable
                 var model = Matrix4x4.CreateTranslation(attachment.Position) * boneMatrix * instance;
                 shader.Set("uModel", model);
                 shader.Set("uModelViewProjection", model * camera.RelativeViewProjection);
+                Matrix4x4 worldModel = Matrix4x4.CreateTranslation(attachment.Position) *
+                    boneMatrix * worldInstance;
+                int itemBoneCount = AttachedItemBillboardLaw.PreparePalette(
+                    mount.Model.Source, mount.Model.UsesCameraFacingPalette, worldModel,
+                    camera.Position, camera.Forward, _itemSkin);
+                if (itemBoneCount > 0)
+                {
+                    M2Animator.Pack(_itemSkin, itemBoneCount, _packedItemSkin);
+                    shader.SetVec4Array("uBones", _packedItemSkin, itemBoneCount * 3);
+                }
+                shader.Set("uBoneCount", itemBoneCount);
 
                 _gl.BindVertexArray(mount.Model.Vao);
 
                 foreach (var batch in mount.Model.Batches)
                 {
-                    if ((bodyTranslucent || batch.Transparent) != transparentPass) continue;
+                    AttachedItemMaterialLaw.Sample material = AttachedItemMaterialLaw.At(
+                        mount.Model.Source, batch.Source, modelTime);
+                    if (!material.Visible) continue;
+                    if ((bodyTranslucent || batch.Transparent || material.Translucent) !=
+                        transparentPass) continue;
+
+                    if (batch.NoZTest && depthTestOn)
+                    {
+                        _gl.Disable(EnableCap.DepthTest);
+                        depthTestOn = false;
+                    }
+                    else if (!batch.NoZTest && !depthTestOn)
+                    {
+                        _gl.Enable(EnableCap.DepthTest);
+                        depthTestOn = true;
+                    }
 
                     if (batch.TwoSided && cullingOn) { _gl.Disable(EnableCap.CullFace); cullingOn = false; }
                     else if (!batch.TwoSided && !cullingOn) { _gl.Enable(EnableCap.CullFace); cullingOn = true; }
@@ -683,6 +755,12 @@ public sealed class AttachedItemRenderer : IDisposable
 
                     if (transparentPass) ApplyBlendMode(batch.BlendMode);
 
+                    shader.Set("uBodyTint", BodyTint * material.Tint);
+                    shader.Set("uBodyAlpha", bodyAlpha * material.Alpha);
+                    shader.Set("uUvOffset", material.UvOffset);
+                    shader.Set("uUnlit", batch.Unlit ? 1 : 0);
+                    shader.Set("uFogPolicy", batch.FogPolicy);
+
                     _gl.DrawElements(PrimitiveType.Triangles, batch.IndexCount,
                         DrawElementsType.UnsignedShort, (void*)(batch.IndexStart * sizeof(ushort)));
                 }
@@ -698,6 +776,8 @@ public sealed class AttachedItemRenderer : IDisposable
         }
 
         if (!cullingOn) _gl.Enable(EnableCap.CullFace);
+        if (hadDepthTest && !depthTestOn) _gl.Enable(EnableCap.DepthTest);
+        else if (!hadDepthTest && depthTestOn) _gl.Disable(EnableCap.DepthTest);
         _gl.BindVertexArray(0);
     }
 
@@ -716,6 +796,30 @@ public sealed class AttachedItemRenderer : IDisposable
             string key = $"{GlowOwnerKey}:{mount.EquipmentSlot}:{mount.DisplayId}:{slot}";
             _glowPlacements.Add(new ItemGlowPlacement(key, path, transform));
         }
+    }
+
+    /// <summary>
+    /// Equipped M2s can author their own particle/ribbon effects (torch flames and shoulder
+    /// sparkles). Publish the item root through the shared effect pipeline, but suppress its mesh:
+    /// the ordinary attached-item pass already drew that geometry.
+    /// </summary>
+    private void AppendItemModelEffects(Mount mount, Matrix4x4 itemRoot)
+    {
+        M2Model source = mount.Model.Source;
+        if (source.ParticleEmitters.Count == 0 && source.RibbonEmitters.Count == 0) return;
+        string key = $"{GlowOwnerKey}:{mount.EquipmentSlot}:{mount.DisplayId}:" +
+            $"item-effects:{mount.Model.Path}";
+        _glowPlacements.Add(new ItemGlowPlacement(
+            key, mount.Model.Path, itemRoot, RenderMesh: false));
+    }
+
+    private void AppendFishingPoleTip(ulong ownerGuid, Mount mount, Matrix4x4 itemRoot)
+    {
+        M2EventMarker? marker = mount.Model.Source.Events.FirstOrDefault(e =>
+            string.Equals(e.Identifier, "$CCH", StringComparison.Ordinal));
+        if (marker is null) return;
+        _fishingPoleTips.Add(new FishingPoleTipPlacement(ownerGuid,
+            Vector3.Transform(marker.Position, itemRoot)));
     }
 
     private void AppendCarriedLights(Mount mount, Matrix4x4 itemRoot)

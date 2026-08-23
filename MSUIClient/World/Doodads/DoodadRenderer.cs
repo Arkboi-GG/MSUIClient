@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
+using MSUIClient.Net;
 using MSUIClient.World.Collision;
 using MSUIClient.World.Units;
 using Shader = MSUIClient.Engine.Shader;
@@ -237,6 +238,7 @@ public sealed class DoodadRenderer : IDisposable
         /// <summary>Wall clock of the last re-skin, so a second render pass in
         /// the same frame does not skin (and upload) twice.</summary>
         public float LastAnimSampleTime = float.NegativeInfinity;
+        public ulong LastAnimSampleDynamicGuid;
 
         /// <summary>The M2's own collision hull, local space, three verts per triangle.</summary>
         public Vector3[] CollisionTriangles = [];
@@ -322,6 +324,24 @@ public sealed class DoodadRenderer : IDisposable
         public ulong DynamicGuid;
 
         /// <summary>
+        /// Moving owner-keyed placements are queried from their live transform instead of being
+        /// baked into CollisionWorld. Ordinary stationary GameObjects retain the snapshot path.
+        /// </summary>
+        public bool LiveCollision;
+
+        /// <summary>An exact AnimationData one-shot owned by this dynamic
+        /// GameObject placement. Static scenery never carries one.</summary>
+        public DynamicAnimation? OneShot;
+
+        /// <summary>
+        /// Per-GameObject held state pose. Unlike the shared model idle, this is
+        /// owner-local: two copies of one crate model may be open and closed at
+        /// the same time. A transition OneShot draws over it for one authored
+        /// window and then hands back to this pose.
+        /// </summary>
+        public DynamicStateAnimation? StateAnimation;
+
+        /// <summary>
         /// Baked interior light for THIS placement. rgb is MODD.color / 255,
         /// a is how much daylight to use instead (0 interior, 1 exterior).
         ///
@@ -342,6 +362,12 @@ public sealed class DoodadRenderer : IDisposable
         public int WmoInstanceId;
         public int[] OwnerGroups = [];
     }
+
+    private sealed record DynamicAnimation(
+        int AnimationId, float StartedAt, float DurationSeconds);
+
+    private sealed record DynamicStateAnimation(
+        int AnimationId, float StartedAt, bool Frozen);
 
     /// <summary>
     /// What actually goes in the instance VBO: the placement matrix, the baked
@@ -845,6 +871,7 @@ public sealed class DoodadRenderer : IDisposable
         _cullBounds.Clear();
         _placed.Clear();
         _dynamicByKey.Clear();   // instances died with _byModel; the GO sync re-adds via HasDynamic
+        _dynamicWmoProps.Clear();
         InstanceCount = 0;
         InteriorLitCount = 0;
         TotalTriangles = 0;
@@ -1199,25 +1226,182 @@ public sealed class DoodadRenderer : IDisposable
     /// the per-frame gameobject sync notices HasDynamic went false and re-adds.
     /// </summary>
     private readonly Dictionary<ulong, (Model Model, Instance Instance)> _dynamicByKey = [];
+    private readonly Dictionary<(ulong HostGuid, int PropIndex),
+        (Model Model, Instance Instance)> _dynamicWmoProps = [];
+    private ulong _nextDynamicWmoPropIdentity = 1;
 
     public bool HasDynamic(ulong key) => _dynamicByKey.ContainsKey(key);
+
+    public bool SetDynamicCollisionLive(ulong key, bool live = true)
+    {
+        if (!_dynamicByKey.TryGetValue(key, out var entry)) return false;
+        entry.Instance.LiveCollision = live;
+        return true;
+    }
+
+    /// <summary>
+    /// Move one existing dynamic placement without removing/recreating its
+    /// Instance. Transport cars change every frame; preserving the instance also
+    /// preserves any active authored animation and avoids list churn.
+    /// </summary>
+    public bool TryUpdateDynamicTransform(ulong key, Matrix4x4 transform)
+    {
+        if (!_dynamicByKey.TryGetValue(key, out var entry) ||
+            !_byModel.TryGetValue(entry.Model, out List<Instance>? instances))
+            return false;
+        int index = instances.IndexOf(entry.Instance);
+        if (index < 0) return false;
+        var (min, max) = TransformedBounds(entry.Model, transform);
+        entry.Instance.Transform = transform;
+        entry.Instance.WorldMin = min;
+        entry.Instance.WorldMax = max;
+        if (_cullBounds.TryGetValue(entry.Model, out List<CullBounds>? bounds) &&
+            index < bounds.Count)
+            bounds[index] = new CullBounds(min, max);
+        return true;
+    }
+
+    public bool TryUpdateDynamicWmoPropTransform(
+        ulong hostGuid, int propIndex, Matrix4x4 transform)
+    {
+        if (!_dynamicWmoProps.TryGetValue((hostGuid, propIndex), out var entry) ||
+            !_byModel.TryGetValue(entry.Model, out List<Instance>? instances))
+            return false;
+        int index = instances.IndexOf(entry.Instance);
+        if (index < 0) return false;
+        var (min, max) = TransformedBounds(entry.Model, transform);
+        entry.Instance.Transform = transform;
+        entry.Instance.WorldMin = min;
+        entry.Instance.WorldMax = max;
+        if (_cullBounds.TryGetValue(entry.Model, out List<CullBounds>? bounds) &&
+            index < bounds.Count)
+            bounds[index] = new CullBounds(min, max);
+        return true;
+    }
+
+    /// <summary>Publish one set-0 MODD prop under a dynamic WMO GameObject.
+    /// The host/prop tuple owns lifecycle while a reserved synthetic identity
+    /// keeps per-prop animation/particle state distinct.</summary>
+    public DynamicPlacement AddDynamicWmoProp(ulong hostGuid, int propIndex,
+        string modelPath, Matrix4x4 transform, Vector4 light,
+        int wmoInstanceId, int[] ownerGroups)
+    {
+        RemoveDynamicWmoProp((hostGuid, propIndex));
+        Model? model = ResolveModel(modelPath);
+        if (model is null)
+        {
+            if (_models.ContainsKey(ModelCacheKey(modelPath)))
+                return DynamicPlacement.Unavailable;
+            QueuePreloadModel(modelPath, 0f, "wmo-gameobject-prop");
+            return DynamicPlacement.Pending;
+        }
+
+        var (min, max) = TransformedBounds(model, transform);
+        if (!_byModel.TryGetValue(model, out List<Instance>? list))
+            _byModel[model] = list = [];
+        ulong identity = 0xFFFF_0000_0000_0000UL |
+            (_nextDynamicWmoPropIdentity++ & 0x0000_FFFF_FFFF_FFFFUL);
+        var instance = new Instance
+        {
+            Transform = transform,
+            WorldMin = min,
+            WorldMax = max,
+            Path = modelPath,
+            DynamicGuid = identity,
+            Light = light,
+            WmoInstanceId = wmoInstanceId,
+            OwnerGroups = ownerGroups,
+            AppearStart = 0f,
+        };
+        list.Add(instance);
+        CullBoundsFor(model).Add(new CullBounds(min, max));
+        _dynamicWmoProps[(hostGuid, propIndex)] = (model, instance);
+        InstanceCount++;
+        if (light.W < 0.5f) InteriorLitCount++;
+        TotalTriangles += model.TriangleCount;
+        return DynamicPlacement.Placed;
+    }
+
+    public void RemoveDynamicWmoPropsExcept(ulong hostGuid, IReadOnlySet<int> retained)
+    {
+        foreach (var key in _dynamicWmoProps.Keys
+                     .Where(key => key.HostGuid == hostGuid && !retained.Contains(key.PropIndex))
+                     .ToArray())
+            RemoveDynamicWmoProp(key);
+    }
+
+    public void RemoveDynamicWmoProps(ulong hostGuid)
+    {
+        foreach (var key in _dynamicWmoProps.Keys
+                     .Where(key => key.HostGuid == hostGuid).ToArray())
+            RemoveDynamicWmoProp(key);
+    }
+
+    private bool RemoveDynamicWmoProp((ulong HostGuid, int PropIndex) key)
+    {
+        if (!_dynamicWmoProps.Remove(key, out var entry)) return false;
+        return RemoveDynamicInstance(entry.Model, entry.Instance);
+    }
+
+    /// <summary>
+    /// Reference fishing-line far endpoint: the gameobject's placement base plus
+    /// half of its scaled authored bounding-box height. WorldMin.Z is not used;
+    /// the bobber pivot remains the waterline authority.
+    /// </summary>
+    public bool TryGetDynamicFishingLineEnd(ulong key, out Vector3 endpoint)
+    {
+        endpoint = default;
+        if (!_dynamicByKey.TryGetValue(key, out var entry)) return false;
+        Instance instance = entry.Instance;
+        float localHeight = MathF.Max(0f, entry.Model.LocalMax.Z - entry.Model.LocalMin.Z);
+        float scale = new Vector3(instance.Transform.M11, instance.Transform.M12,
+            instance.Transform.M13).Length();
+        float height = localHeight * scale;
+        endpoint = new Vector3(instance.Transform.M41, instance.Transform.M42,
+            instance.Transform.M43 + height * .5f);
+        return true;
+    }
 
     /// <summary>
     /// Expose the already-parsed animation event timeline for one dynamic
     /// GameObject. The renderer remains the model owner; callers receive a
-    /// read-only reference and the exact sequence its idle evaluator uses.
+    /// read-only reference, the exact currently armed sequence, and that arm's
+    /// local monotonic clock (not the unrelated process wall clock).
     /// </summary>
     public bool TryGetDynamicEventTimeline(ulong key, out M2Model model,
-        out int sequenceIndex)
+        out int sequenceIndex, out double playbackSeconds)
     {
         model = null!;
         sequenceIndex = -1;
+        playbackSeconds = 0;
         if (!_dynamicByKey.TryGetValue(key, out var entry) ||
             entry.Model.EventSource is not { } source || source.Sequences.Count == 0)
             return false;
         model = source;
-        sequenceIndex = entry.Model.BoneClip?.SequenceIndex ??
-            source.TryFindSequenceIndexByAnimationId(0);
+        if (entry.Model.BoneAnimator is { } animator &&
+            entry.Instance.OneShot is { } oneShot)
+        {
+            sequenceIndex = animator.FindOrBake(oneShot.AnimationId,
+                includeStaticSequences: true)?.SequenceIndex ?? -1;
+            playbackSeconds = Math.Clamp(
+                NowSeconds - oneShot.StartedAt, 0f, oneShot.DurationSeconds);
+        }
+        else if (entry.Model.BoneAnimator is { } stateAnimator &&
+                 entry.Instance.StateAnimation is { } state)
+        {
+            // A frozen missing-rest fallback never advances and therefore never
+            // crosses an event marker.
+            if (state.Frozen) return false;
+            sequenceIndex = stateAnimator.FindOrBake(state.AnimationId,
+                includeStaticSequences: true)?.SequenceIndex ?? -1;
+            playbackSeconds = Math.Max(0f, NowSeconds - state.StartedAt);
+        }
+        else
+        {
+            sequenceIndex = entry.Model.BoneClip?.SequenceIndex ??
+                source.TryFindSequenceIndexByAnimationId(0);
+            playbackSeconds = NowSeconds;
+        }
         if (sequenceIndex < 0) sequenceIndex = 0;
         return true;
     }
@@ -1261,7 +1445,85 @@ public sealed class DoodadRenderer : IDisposable
                 hit = true;
             }
         }
+        foreach (var (owner, entry) in _dynamicWmoProps)
+        {
+            Instance instance = entry.Instance;
+            if (RayAabb(origin, direction, instance.WorldMin, instance.WorldMax, out float t) &&
+                t < distance)
+            {
+                distance = t;
+                key = owner.HostGuid;
+                hit = true;
+            }
+        }
         return hit;
+    }
+
+    /// <summary>
+    /// Raycast owner-keyed M2 collision at its current retained transform. Lift cars move every
+    /// frame and cannot be baked into the static BVH without leaving a solid ghost behind.
+    /// </summary>
+    public bool TryRaycastDynamicCollision(Vector3 origin, Vector3 direction,
+        float maxDistance, out ulong key, out RayHit hit, Predicate<ulong>? accept = null)
+    {
+        key = 0;
+        hit = default;
+        if (maxDistance <= 0f || direction.LengthSquared() < 1e-12f) return false;
+
+        Vector3 worldDirection = Vector3.Normalize(direction);
+        float best = maxDistance;
+        bool found = false;
+        foreach ((ulong candidate, var entry) in _dynamicByKey)
+        {
+            if (accept is not null && !accept(candidate)) continue;
+            Instance instance = entry.Instance;
+            Vector3[] triangles = entry.Model.CollisionTriangles;
+            if (triangles.Length < 3 ||
+                !RayAabb(origin, worldDirection, instance.WorldMin, instance.WorldMax,
+                    out float boxDistance) || boxDistance > best ||
+                !Matrix4x4.Invert(instance.Transform, out Matrix4x4 inverse))
+                continue;
+
+            Vector3 localOrigin = Vector3.Transform(origin, inverse);
+            Vector3 localEnd = Vector3.Transform(origin + worldDirection * best, inverse);
+            Vector3 localDelta = localEnd - localOrigin;
+            float localLimit = localDelta.Length();
+            if (localLimit <= 1e-6f) continue;
+            Vector3 localDirection = localDelta / localLimit;
+
+            for (int index = 0; index + 2 < triangles.Length; index += 3)
+            {
+                if (!RayTriangle(localOrigin, localDirection,
+                        triangles[index], triangles[index + 1], triangles[index + 2],
+                        out float localDistance) ||
+                    localDistance < 0f || localDistance > localLimit)
+                    continue;
+
+                Vector3 localPoint = localOrigin + localDirection * localDistance;
+                Vector3 worldPoint = Vector3.Transform(localPoint, instance.Transform);
+                float worldDistance = Vector3.Distance(origin, worldPoint);
+                if (worldDistance > best) continue;
+
+                Vector3 localNormal = Vector3.Cross(
+                    triangles[index + 1] - triangles[index],
+                    triangles[index + 2] - triangles[index]);
+                Vector3 worldNormal = Vector3.TransformNormal(localNormal, instance.Transform);
+                if (worldNormal.LengthSquared() <= 1e-12f) continue;
+                worldNormal = Vector3.Normalize(worldNormal);
+                if (Vector3.Dot(worldNormal, worldDirection) > 0f) worldNormal = -worldNormal;
+
+                best = worldDistance;
+                key = candidate;
+                hit = new RayHit(worldDistance, worldPoint, worldNormal, index / 3);
+                found = true;
+
+                localEnd = Vector3.Transform(origin + worldDirection * best, inverse);
+                localDelta = localEnd - localOrigin;
+                localLimit = localDelta.Length();
+                if (localLimit > 1e-6f) localDirection = localDelta / localLimit;
+            }
+        }
+        return found;
     }
 
     /// <summary>Slab test. Enter distance is 0 when the origin is inside the
@@ -1293,6 +1555,27 @@ public sealed class DoodadRenderer : IDisposable
         return true;
     }
 
+    private static bool RayTriangle(
+        Vector3 origin, Vector3 direction, Vector3 a, Vector3 b, Vector3 c, out float distance)
+    {
+        distance = 0f;
+        const float epsilon = 1e-7f;
+        Vector3 edge1 = b - a;
+        Vector3 edge2 = c - a;
+        Vector3 p = Vector3.Cross(direction, edge2);
+        float determinant = Vector3.Dot(edge1, p);
+        if (MathF.Abs(determinant) < epsilon) return false;
+        float inverse = 1f / determinant;
+        Vector3 t = origin - a;
+        float u = Vector3.Dot(t, p) * inverse;
+        if (u < 0f || u > 1f) return false;
+        Vector3 q = Vector3.Cross(t, edge1);
+        float v = Vector3.Dot(direction, q) * inverse;
+        if (v < 0f || u + v > 1f) return false;
+        distance = Vector3.Dot(edge2, q) * inverse;
+        return distance > epsilon;
+    }
+
     /// <summary>
     /// Place (or replace) a dynamic per-entity model. Deliberately NOT routed
     /// through <see cref="AddPlaced"/>: that path's positional dedup key is
@@ -1300,7 +1583,8 @@ public sealed class DoodadRenderer : IDisposable
     /// with a new transform/display must replace the old placement, not be
     /// swallowed as a duplicate.
     /// </summary>
-    public DynamicPlacement AddDynamic(ulong key, string modelPath, Matrix4x4 transform)
+    public DynamicPlacement AddDynamic(ulong key, string modelPath, Matrix4x4 transform,
+        bool liveCollision = false)
     {
         RemoveDynamic(key);
 
@@ -1330,6 +1614,7 @@ public sealed class DoodadRenderer : IDisposable
             WorldMax = max,
             Path = modelPath,
             DynamicGuid = key,
+            LiveCollision = liveCollision,
             AppearStart = ResolveAppearStart($"go|{key:X16}"),
         };
         list.Add(instance);
@@ -1341,6 +1626,83 @@ public sealed class DoodadRenderer : IDisposable
         return DynamicPlacement.Placed;
     }
 
+    /// <summary>
+    /// Arm one exact AnimationData clip on one dynamic placement. Missing placements,
+    /// static models, and models that do not author the requested clip reject the arm;
+    /// callers then retain their existing immediate/no-animation behavior.
+    /// </summary>
+    public bool TryPlayDynamicAnimation(ulong key, int animationId,
+        out float durationSeconds)
+    {
+        durationSeconds = 0;
+        if (!_dynamicByKey.TryGetValue(key, out var entry) ||
+            entry.Model.BoneAnimator is null)
+            return false;
+        M2Animator.Clip? clip = entry.Model.BoneAnimator.FindOrBake(animationId);
+        if (clip is null || clip.DurationSeconds <= 0) return false;
+        durationSeconds = clip.DurationSeconds;
+        entry.Instance.OneShot = new(animationId, NowSeconds, durationSeconds);
+        return true;
+    }
+
+    /// <summary>
+    /// Apply one GAMEOBJECT_STATE observation to an owner-local M2. First sight
+    /// snaps to the held rest pose. A real edge arms exactly one transition
+    /// window and preloads the destination rest pose it will settle onto.
+    /// Missing/static models remain rendered at their loader pose.
+    /// </summary>
+    public bool TryApplyDynamicStateAnimation(ulong key, uint? previousState,
+        uint state, out int playedAnimationId, out bool transition)
+    {
+        playedAnimationId = -1;
+        transition = false;
+        if (!_dynamicByKey.TryGetValue(key, out var entry)) return false;
+        if (entry.Model.BoneAnimator is not { } animator) return true;
+
+        bool Owns(int id) => animator.FindOrBake(
+            id, includeStaticSequences: true) is not null;
+        GameObjectAnimationLaw.StatePlay? play =
+            GameObjectAnimationLaw.ResolveStatePlay(previousState, state);
+        if (play is not { } requested)
+        {
+            entry.Instance.OneShot = null;
+            entry.Instance.StateAnimation = null;
+            return true;
+        }
+
+        // Resolve and retain the destination pose before arming a motion. The
+        // render sampler automatically falls back to it when the one-shot's
+        // exact window ends.
+        if (GameObjectAnimationLaw.RestAnimationId(state) is int restRequested)
+        {
+            GameObjectAnimationLaw.OwnedAnimation rest =
+                GameObjectAnimationLaw.RemapMissing(restRequested, Owns);
+            if (animator.FindOrBake(rest.AnimationId,
+                    includeStaticSequences: true) is not null)
+                entry.Instance.StateAnimation = new(
+                    rest.AnimationId, NowSeconds, rest.Frozen);
+        }
+
+        GameObjectAnimationLaw.OwnedAnimation resolved =
+            GameObjectAnimationLaw.RemapMissing(requested.AnimationId, Owns);
+        M2Animator.Clip? clip = animator.FindOrBake(resolved.AnimationId,
+            includeStaticSequences: true);
+        if (clip is null) return true;
+
+        playedAnimationId = resolved.AnimationId;
+        transition = requested.Kind == GameObjectAnimationLaw.StatePlayKind.Motion;
+        if (transition && clip.DurationSeconds > 0f && !resolved.Frozen)
+            entry.Instance.OneShot = new(
+                resolved.AnimationId, NowSeconds, clip.DurationSeconds);
+        else
+        {
+            entry.Instance.OneShot = null;
+            entry.Instance.StateAnimation = new(
+                resolved.AnimationId, NowSeconds, resolved.Frozen);
+        }
+        return true;
+    }
+
     /// <summary>Remove a dynamic placement (despawn, out-of-range, or the first
     /// half of a re-add). The parallel cull-bounds entry goes at the same index,
     /// like <see cref="RemoveNearEmitterPlacement"/>; RebuildCullBounds would
@@ -1348,20 +1710,26 @@ public sealed class DoodadRenderer : IDisposable
     public bool RemoveDynamic(ulong key)
     {
         if (!_dynamicByKey.Remove(key, out var entry)) return false;
-        if (_byModel.TryGetValue(entry.Model, out var list))
+        return RemoveDynamicInstance(entry.Model, entry.Instance);
+    }
+
+    private bool RemoveDynamicInstance(Model model, Instance instance)
+    {
+        if (_byModel.TryGetValue(model, out var list))
         {
-            int index = list.IndexOf(entry.Instance);
+            int index = list.IndexOf(instance);
             if (index >= 0)
             {
-                if (entry.Instance.Light.W < 0.5f) InteriorLitCount--;
+                if (instance.Light.W < 0.5f) InteriorLitCount--;
                 list.RemoveAt(index);
-                if (_cullBounds.TryGetValue(entry.Model, out var bounds) && index < bounds.Count)
+                if (_cullBounds.TryGetValue(model, out var bounds) && index < bounds.Count)
                     bounds.RemoveAt(index);
                 InstanceCount--;
-                TotalTriangles -= entry.Model.TriangleCount;
+                TotalTriangles -= model.TriangleCount;
+                return true;
             }
         }
-        return true;
+        return false;
     }
 
     /// <summary>Report after a batch of AddPlaced calls.</summary>
@@ -1963,6 +2331,7 @@ public sealed class DoodadRenderer : IDisposable
 
             foreach (var instance in instances)
             {
+                if (instance.LiveCollision) continue;
                 into.Add(new CollisionBatch(tris, instance.Transform, instance.Path, 0));
                 solid++;
             }
@@ -1982,6 +2351,7 @@ public sealed class DoodadRenderer : IDisposable
 
             foreach (var instance in instances)
             {
+                if (instance.LiveCollision) continue;
                 int source = world.RegisterSource(Path.GetFileName(instance.Path));
                 var m = instance.Transform;
 
@@ -2116,7 +2486,8 @@ public sealed class DoodadRenderer : IDisposable
         bool animationZeroTimeline = m2.Sequences.All(sequence => sequence.AnimationId == 0);
         if (!animationZeroTimeline)
         {
-            model.BoneAnimator = M2Animator.Build(m2, [0], includeStaticSequences: true);
+            model.BoneAnimator = M2Animator.Build(m2,
+                [0, 153, 154, 155, 156, 157], includeStaticSequences: true);
             model.BoneClip = model.BoneAnimator?.Find(0)
                 ?? model.BoneAnimator?.FindSequenceOrBake(0, includeStaticSequences: true);
         }
@@ -2177,16 +2548,43 @@ public sealed class DoodadRenderer : IDisposable
     /// composed with the parent. In System.Numerics row-vector convention that
     /// is T(−pivot)·S·R·T(pivot+translation), then local · parent.
     /// </summary>
-    private unsafe void UpdateAnimatedVertices(Model model)
+    private unsafe void UpdateAnimatedVertices(Model model, Instance? instance = null)
     {
         var m2 = model.BoneAnimSource;
         if (m2 is null || model.AnimVertexScratch is null || model.AnimBoneMatrices is null)
             return;
-        if (model.LastAnimSampleTime == NowSeconds) return;
+        DynamicAnimation? oneShot = instance?.OneShot;
+        if (oneShot is not null &&
+            NowSeconds - oneShot.StartedAt >= oneShot.DurationSeconds)
+        {
+            instance!.OneShot = null;
+            oneShot = null;
+        }
+        DynamicStateAnimation? stateAnimation = instance?.StateAnimation;
+        ulong sampleGuid = oneShot is null && stateAnimation is null
+            ? 0 : instance!.DynamicGuid;
+        if (model.LastAnimSampleTime == NowSeconds &&
+            model.LastAnimSampleDynamicGuid == sampleGuid) return;
         model.LastAnimSampleTime = NowSeconds;
+        model.LastAnimSampleDynamicGuid = sampleGuid;
 
         var mats = model.AnimBoneMatrices;
-        if (model.BoneAnimator is not null && model.BoneClip is not null)
+        if (model.BoneAnimator is not null && oneShot is not null)
+        {
+            M2Animator.Clip? clip = model.BoneAnimator.FindOrBake(oneShot.AnimationId);
+            model.BoneAnimator.Evaluate(clip,
+                MathF.Min(NowSeconds - oneShot.StartedAt, oneShot.DurationSeconds),
+                NowSeconds, mats);
+        }
+        else if (model.BoneAnimator is not null && stateAnimation is not null)
+        {
+            M2Animator.Clip? clip = model.BoneAnimator.FindOrBake(
+                stateAnimation.AnimationId, includeStaticSequences: true);
+            float elapsed = stateAnimation.Frozen
+                ? 0f : MathF.Max(0f, NowSeconds - stateAnimation.StartedAt);
+            model.BoneAnimator.Evaluate(clip, elapsed, NowSeconds, mats);
+        }
+        else if (model.BoneAnimator is not null && model.BoneClip is not null)
         {
             model.BoneAnimator.Evaluate(model.BoneClip, NowSeconds, NowSeconds, mats);
         }
@@ -2291,12 +2689,18 @@ public sealed class DoodadRenderer : IDisposable
             return;
         }
 
+        bool dynamicOwnerAnimation = _dynamicByKey.Values.Any(entry =>
+            entry.Instance.StateAnimation is not null ||
+            entry.Instance.OneShot is { } oneShot &&
+            NowSeconds - oneShot.StartedAt < oneShot.DurationSeconds);
+        bool useInstancingNow = UseInstancing && !dynamicOwnerAnimation;
+
         _shader.Use();
         _shader.Set("uViewProjection", camera.RelativeViewProjection);
         _shader.Set("uWorldClipPlane", worldClipPlane is { IsValid: true } clip
             ? clip.RelativeEquation(camera.Position)
             : new Vector4(0f, 0f, 0f, 1f));
-        _shader.Set("uUseInstancing", UseInstancing ? 1 : 0);
+        _shader.Set("uUseInstancing", useInstancingNow ? 1 : 0);
         _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uSunDirection", SunDirection);
         _shader.Set("uSunColor", SunColor);
@@ -2332,7 +2736,7 @@ public sealed class DoodadRenderer : IDisposable
         float maxDistanceSq = effectiveDrawDistance * effectiveDrawDistance;
         bool cullingOn = true;
 
-        if (UseInstancing)
+        if (useInstancingNow)
         {
             RenderInstanced(viewProjection, eye, maxDistanceSq, highlighted, ref cullingOn);
             if (!cullingOn) _gl.Enable(EnableCap.CullFace);
@@ -2374,10 +2778,10 @@ public sealed class DoodadRenderer : IDisposable
                         instance.WorldMin - eye,
                         instance.WorldMax - eye)) { FrustumCulledLastFrame++; continue; }
 
+                if (model.BoneAnimSource is not null)
+                    UpdateAnimatedVertices(model, instance);
                 if (!bound)
                 {
-                    // Same re-skin hook as the instanced path, once per model.
-                    if (model.BoneAnimSource is not null) UpdateAnimatedVertices(model);
                     _gl.BindVertexArray(model.Vao);
                     bound = true;
                 }
@@ -2485,6 +2889,8 @@ public sealed class DoodadRenderer : IDisposable
         Model? boundModel = null;
         foreach (var (model, instance) in _deferredBlended)
         {
+            if (model.BoneAnimSource is not null)
+                UpdateAnimatedVertices(model, instance);
             if (!ReferenceEquals(model, boundModel))
             {
                 _gl.BindVertexArray(model.Vao);

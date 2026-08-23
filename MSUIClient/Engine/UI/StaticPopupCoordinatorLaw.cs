@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace MSUIClient.Engine.UI;
 
 /// <summary>
@@ -10,6 +12,7 @@ public static class StaticPopupCoordinatorLaw
     public const int SlotCount = 2;
     public const float BaseWidth = 320f;
     public const float BaseHeight = 72f;
+    public const float ScreenTop = 128f;
     public const float SecondSlotGap = 8f;
     public const float TextWidth = 290f;
     public const float TextTop = 16f;
@@ -23,12 +26,28 @@ public static class StaticPopupCoordinatorLaw
     public const float WideDialogWidth = 420f;
     public const float EditBoxBorderCapWidth = 75f;
     public const float EditBoxBorderOuterOffset = 10f;
+    public static readonly Vector2 EditTextOffset = new(0, 7);
 
     public readonly record struct Rect(float X, float Y, float Width, float Height)
     {
         public float Right => X + Width;
         public float Bottom => Y + Height;
+        public Vector2 Min => new(X, Y);
+        public Vector2 Size => new(Width, Height);
+        public Vector2 Center => new(X + Width * .5f, Y + Height * .5f);
     }
+
+    public readonly record struct TextureSlice(Rect Rect, Vector2 UvMin, Vector2 UvMax);
+
+    public static IReadOnlyList<TextureSlice> NarrowEditBorderSlices =>
+    [
+        new(new(-EditBoxBorderOuterOffset, 0, EditBoxBorderCapWidth,
+                NarrowEditBoxHeight),
+            Vector2.Zero, new(.29296875f, 1)),
+        new(new(NarrowEditBoxWidth + EditBoxBorderOuterOffset - EditBoxBorderCapWidth,
+                0, EditBoxBorderCapWidth, NarrowEditBoxHeight),
+            new(.70703125f, 0), Vector2.One),
+    ];
 
     public readonly record struct NarrowEditBoxLayout(
         float Width,
@@ -36,7 +55,10 @@ public static class StaticPopupCoordinatorLaw
         Rect Text,
         Rect EditBox,
         Rect Button1,
-        Rect Button2);
+        Rect Button2)
+    {
+        public Vector2 Size => new(Width, Height);
+    }
 
     public readonly record struct WideEditBoxLayout(
         float Width,
@@ -44,7 +66,10 @@ public static class StaticPopupCoordinatorLaw
         Rect Text,
         Rect EditBox,
         Rect Button1,
-        Rect Button2);
+        Rect Button2)
+    {
+        public Vector2 Size => new(Width, Height);
+    }
 
     public readonly record struct Definition(
         string Type,
@@ -78,6 +103,14 @@ public static class StaticPopupCoordinatorLaw
     }
 
     public static bool AnyVisible(Slots slots) => slots.First is not null || slots.Second is not null;
+
+    public static Vector2 ScreenOrigin(Vector2 displayPixels, float logicalWidth, float scale,
+        int slot, float firstHeight)
+    {
+        float top = ScreenTop;
+        if (slot == 2) top += Math.Max(0, firstHeight) + SecondSlotGap;
+        return new((displayPixels.X - logicalWidth * scale) * .5f, top * scale);
+    }
 
     public enum EffectKind
     {

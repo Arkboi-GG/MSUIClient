@@ -7,22 +7,22 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/ScrollTemplates.xml",
-      "fileSha256": "4b3ddae6f41e10c1adcdaa9525034dbbe5c9f35226a353b93001a332d371484b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "ba322b654dd5ae94e3a99ae5eab63cf0dc820537a8fce7af453a19abd7431d38",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Keybindings.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.SkillFrame.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/SkillFrameUiLaw.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/QuestFrameUiLaw.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Keybindings.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.SkillFrame.cs",
+    "MSUIClient/Engine/UI/SkillFrameUiLaw.cs",
+    "MSUIClient/Engine/UI/QuestFrameUiLaw.cs"
   ],
   "status": "support-only",
-  "summary": "Benilla's ScrollTemplates.xml is shared plumbing (the faux-scroll kit and the real-scroll/clip kit: scrollbar slider, arrow buttons, wheel bubbling, offset math). MSUIClient realizes the same affordances through its own ImGui framework rather than as a surface: DrawVanillaScrollBar (keybindings), the SkillFrame scrollbar with arrow buttons/knob/track-drag law (SkillFrameUiLaw), quest-panel clip + wheel scrolling (QuestFrameUiLaw.ClampScroll), and per-panel paging where the reference pages (loot). No standalone counterpart is expected.",
+  "summary": "Benilla's current ScrollTemplates.xml is shared framework plumbing, not a standalone window: it now carries both the fixed-row faux-scroll kit and the variable-height real ScrollFrame kit, including shared slider art, arrow/wheel routing, range/offset math, clipping, and synchronization. MSUIClient realizes those desktop affordances through its native panel laws and render helpers: the keybindings scrollbar, SkillFrame arrow/knob/track-drag law, quest-panel clipping and wheel scrolling, and per-panel paging where the reference pages. The 2026-08-23 source expansion adds framework behavior rather than a new authored desktop surface, so no standalone counterpart is expected.",
   "openItems": [],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T02:53:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

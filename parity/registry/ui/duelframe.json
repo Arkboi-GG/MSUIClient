@@ -23,8 +23,8 @@
     "MSUIClient/GameLoop/Hud/GameLoop.UnitPopup.cs",
     "MSUIClient/GameLoop/Hud/GameLoop.PartyFrames.cs"
   ],
-  "status": "implemented-unverified",
-  "summary": "MSUI implements current Benilla duel behavior through the shared two-slot StaticPopup coordinator and a dedicated DuelFrame law: asynchronous named challenge with ignore rejection, own-challenge auto-accept, explicit Accept/Decline/ESC replies, silent timeout/sweep, 10-second out-of-bounds warning dismissed by INBOUNDS, immediate then one-second system-chat countdown ticks, completion cancellation text and popup sweep, winner/retreat system lines, and the learned effect-83 spell path from UnitPopup Duel.",
+  "status": "implemented-verified",
+  "summary": "MSUI implements current Benilla duel behavior through the shared two-slot StaticPopup coordinator and a dedicated DuelFrame law: asynchronous named challenge with ignore rejection, own-challenge auto-accept, explicit Accept/Decline/ESC replies, silent timeout/sweep, 10-second out-of-bounds warning dismissed by INBOUNDS, immediate then one-second system-chat countdown ticks, completion cancellation text and popup sweep, winner/retreat system lines, and the learned effect-83 spell path from UnitPopup Duel. Popup host size, text-line seats, and button seats are law-owned; focused and full interface-wire suites pass.",
   "openItems": [
     {
       "id": "item-triage-6d2babfa",
@@ -66,6 +66,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T02:18:36.5431369Z",
+  "lastReviewedUtc": "2026-08-23T03:40:41.8479184Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

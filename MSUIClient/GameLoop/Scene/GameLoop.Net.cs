@@ -39,7 +39,6 @@ public sealed partial class GameLoop
     private GlueScene? _glue;                          // the login-screen glue scene (UI_MainMenu)
     private GlueBooth? _booth;                         // the character-select per-race booth (UI_<Race>)
     private CreatureRenderer? _creatures;              // draws streamed creatures and remote players (UPDATE_OBJECT)
-    private SelectionRingRenderer? _selectionRing;
     private WorldNameRenderer? _worldNames;
     private SpellEffectSource? _spellEffects;
     private QuestMarkerModelSource? _questMarkerModels;
@@ -47,12 +46,14 @@ public sealed partial class GameLoop
     private SpellRibbonRenderer? _spellRibbons;
     private SpellChainBeamSource? _spellChainBeams;
     private SpellChainBeamRenderer? _spellChainBeamRenderer;
+    private FishingLineRenderer? _fishingLineRenderer;
     private World.Spells.SpellParticleSystem? _spellParticles;
     // The audio device and the SoundEntries policy over it are SHARED: spell audio
     // and the world soundscape are two callers of one mixer, not one system with a
     // hole punched in it for the other.
     private World.Sound.AudioMixer? _audioMixer;
     private World.Sound.SoundKitLibrary? _soundKits;
+    private World.Sound.LiquidAmbientLoopSystem? _liquidAmbient;
     private World.Spells.SpellSoundSystem? _spellSounds;
     private CreatureVoiceCatalog? _creatureVoices;
     private EmoteCatalog? _emotes;
@@ -63,6 +64,7 @@ public sealed partial class GameLoop
     private EnterWorldInfo? _queuedWorldEntry;        // captured at the ordered inbound NEW_WORLD boundary
     private bool _worldportAckPending;                // only NEW_WORLD owns this; LOGIN_VERIFY_WORLD never does
     private uint _pendingWorldportMapId;
+    private TransferPendingPacket? _pendingTransfer;
     private long _netInbound;
     private int _netUpdatesLastFrame;
     private int _creaturesLogged;
@@ -144,13 +146,15 @@ public sealed partial class GameLoop
             }
         }
         catch (Exception ce) { Console.WriteLine($"[creature] init failed: {ce.Message}"); }
-        try { if (_mpq is not null) _selectionRing = new SelectionRingRenderer(gl, _mpq); }
-        catch (Exception ex) { Console.WriteLine($"[target] selection ring unavailable: {ex.Message}"); }
 
         InitPortraits(gl);
         InitGameplayUi(gl);
+        try { _minimapInteriorComposite = new InteriorMinimapComposite(gl); }
+        catch (Exception ex) { Console.WriteLine($"[minimap] interior composite unavailable: {ex.Message}"); }
         try { _worldNames = new WorldNameRenderer(gl); }
         catch (Exception ex) { Console.WriteLine($"[names] world name renderer unavailable: {ex.Message}"); }
+        try { _fishingLineRenderer = new FishingLineRenderer(gl); }
+        catch (Exception ex) { Console.WriteLine($"[fishing-line] renderer unavailable: {ex.Message}"); }
         if (_mpq is not null)
         {
             _spellEffects = new SpellEffectSource(_mpq);
@@ -172,6 +176,8 @@ public sealed partial class GameLoop
                 _audioMixer = new World.Sound.AudioMixer(_mpq);
                 _soundKits = new World.Sound.SoundKitLibrary(_mpq);
                 _spellSounds = new World.Spells.SpellSoundSystem(_audioMixer, _soundKits);
+                _liquidAmbient = new World.Sound.LiquidAmbientLoopSystem(
+                    _audioMixer, _soundKits, _mpq);
                 _creatureVoices = CreatureVoiceCatalog.Load(_mpq);
                 _npcGreetings = NpcGreetingCatalog.Load(_mpq);
                 _gameObjectSounds = GameObjectSoundCatalog.Load(_mpq);
@@ -286,6 +292,9 @@ public sealed partial class GameLoop
         if (_net is not { } net) return;
         if (net.State is NetState.Failed or NetState.Disconnected)
         {
+            SaveCameraPoseForSession(forgetIdentity: true);
+            ResetViewSubject();
+            ResetVanillaClientControl();
             CancelRealPortalHandoff("world connection closed");
             // A dead session is terminal to packet application. Its queue can
             // contain a valid world boundary followed by destination updates,
@@ -325,6 +334,9 @@ public sealed partial class GameLoop
         if (_queuedWorldEntry is { } enter && _controller is not null)
         {
             _queuedWorldEntry = null;
+            LoadCameraPoseForWorldEntry();
+            TransferPendingPacket? announcedTransfer = _pendingTransfer;
+            _pendingTransfer = null;
             // Capture this BEFORE committing the authoritative destination below.
             // Comparing after `_config.Start.Map = enter.Map` makes every transfer
             // look same-map and leaves the old map's terrain/WMO/collision resident
@@ -366,7 +378,26 @@ public sealed partial class GameLoop
                 TryPromotePreparedRealPortalWorld(enter.Map, enter.Position);
             if (_pendingObjectParse is not null)
                 _objectUpdateBuffer = new ObjectUpdateBuffer(12_000);
-            _entities.Clear();
+            ControlledTransportRide? crossingRide = null;
+            WorldEntity? crossingTransport = null;
+            if (announcedTransfer?.RidingTransport == true &&
+                _controlledTransportRide is { } liveRide &&
+                _entities.TryGet(liveRide.Guid, out WorldEntity? liveTransport) &&
+                liveTransport.Entry == announcedTransfer.Value.TransportEntry)
+            {
+                crossingRide = new ControlledTransportRide
+                {
+                    Guid = liveRide.Guid,
+                    LocalPosition = enter.Position,
+                    TransportYaw = liveRide.TransportYaw,
+                };
+                crossingTransport = liveTransport;
+                _entities.ClearExcept(liveRide.Guid);
+            }
+            else
+            {
+                _entities.Clear();
+            }
             _spellChainBeams?.Clear();
             ClearChatBubbles();
             ResetControlledHardLandingArc();
@@ -431,11 +462,32 @@ public sealed partial class GameLoop
             // Commit to the server-authoritative spawn. BeginWorldLoad reads _config.Start for the
             // load centre, and its Finish phase teleports us onto real ground there.
             _config.Start.Map = (int)enter.Map;
-            _config.Start.X = enter.Position.X;
-            _config.Start.Y = enter.Position.Y;
-            _config.Start.Z = enter.Position.Z;
-            _config.Start.Orientation = enter.Orientation;
-            _controller.Teleport(enter.Position.X, enter.Position.Y, enter.Position.Z);
+            Vector3 adoptedPosition = enter.Position;
+            float adoptedOrientation = enter.Orientation;
+            if (crossingRide is not null && crossingTransport is not null)
+            {
+                // NEW_WORLD's pose is transport-local on a seam. Re-arm the
+                // spared client-simulated vessel against the destination map,
+                // then compose the rider before seeding terrain residency.
+                UpdateGameObjectTransports();
+                float boatYaw = crossingTransport.GameObjectFacing;
+                crossingRide.TransportYaw = boatYaw;
+                TransportRiderLaw.WorldPose world = TransportRiderLaw.Compose(
+                    crossingTransport.Position, boatYaw,
+                    crossingRide.LocalPosition, enter.Orientation);
+                adoptedPosition = world.Position;
+                adoptedOrientation = world.Orientation;
+                _controlledTransportRide = crossingRide;
+            }
+
+            _config.Start.X = adoptedPosition.X;
+            _config.Start.Y = adoptedPosition.Y;
+            _config.Start.Z = adoptedPosition.Z;
+            _config.Start.Orientation = adoptedOrientation;
+            _controller.Teleport(adoptedPosition.X, adoptedPosition.Y, adoptedPosition.Z);
+            if (crossingRide is not null)
+                _controller.Transport = new TransportPose(crossingRide.Guid,
+                    crossingRide.LocalPosition, enter.Orientation);
 
             // THE CAMERA IS THE FACING, so setting the controller's Yaw alone
             // did nothing: CharacterController.Update overwrites Yaw from
@@ -446,12 +498,12 @@ public sealed partial class GameLoop
             // actually reads. Initial login starts behind the character; a worldport
             // preserves the user's world-space view direction instead of forcing the
             // boom directly into the portal wall and collapsing to first person.
-            _controller.Yaw = enter.Orientation;
+            _controller.Yaw = adoptedOrientation;
             if (_worldLoadStarted)
-                _window.Camera.SetFacingKeepingView(enter.Orientation);
+                _window.Camera.SetFacingKeepingView(adoptedOrientation);
             else
             {
-                _window.Camera.Yaw = enter.Orientation;
+                _window.Camera.Yaw = adoptedOrientation;
                 _window.Camera.OrbitYaw = 0f;
             }
             _window.Camera.Target = _controller.Position;
@@ -539,6 +591,7 @@ public sealed partial class GameLoop
                         {
                             TransferPendingPacket transfer =
                                 SessionTransferPackets.ParsePending(body);
+                            _pendingTransfer = transfer;
                             // An ordinary portal is about to unload this world: cover it now,
                             // while NEW_WORLD remains the only map/position authority. A boat or
                             // zeppelin seam remains visibly in-world until the worldport lands.
@@ -557,6 +610,7 @@ public sealed partial class GameLoop
                     case Op.SMSG_TRANSFER_ABORTED:
                         {
                             byte reason = SessionTransferPackets.ParseAborted(body);
+                            _pendingTransfer = null;
                             CancelPendingWorldCurtain();
                             _travelStatus = $"server refused the portal transfer (reason {reason})";
                             ShowUiError("Transfer aborted.");
@@ -903,6 +957,9 @@ public sealed partial class GameLoop
                     case Op.SMSG_FORCE_TURN_RATE_CHANGE:
                         ApplyForceSpeedChange(net, (Op)opcode, body);
                         break;
+                    case Op.SMSG_CLIENT_CONTROL_UPDATE:
+                        ApplyClientControlUpdate(net, body);
+                        break;
                     case Op.MSG_MOVE_START_FORWARD:
                     case Op.MSG_MOVE_START_BACKWARD:
                     case Op.MSG_MOVE_STOP:
@@ -984,11 +1041,7 @@ public sealed partial class GameLoop
                         }
                         break;
                     case Op.SMSG_DESTROY_OBJECT:
-                        {
-                            ulong destroyed = new PacketReader(body).ReadU64();
-                            _entities.Remove(destroyed);
-                            _spellChainBeams?.ClearUnit(destroyed);
-                        }
+                        ApplyDestroyObject(body);
                         break;
                     case Op.SMSG_TRIGGER_CINEMATIC:
                         {
@@ -1106,6 +1159,15 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_GAMEOBJECT_CUSTOM_ANIM:
                         ApplyGameObjectCustomAnim(body);
+                        break;
+                    case Op.SMSG_GAMEOBJECT_DESPAWN_ANIM:
+                        ApplyGameObjectDespawnAnim(body);
+                        break;
+                    case Op.SMSG_FISH_NOT_HOOKED:
+                        ApplyFishingVerdict(body, escaped: false);
+                        break;
+                    case Op.SMSG_FISH_ESCAPED:
+                        ApplyFishingVerdict(body, escaped: true);
                         break;
                     case Op.SMSG_PAGE_TEXT_QUERY_RESPONSE:
                         ApplyPageText(body);
@@ -1278,6 +1340,7 @@ public sealed partial class GameLoop
                                 _playerTraits[response.Guid] = response.Traits;
                             else
                                 _playerTraits.Remove(response.Guid);
+                            ReorderSocialContactsAfterNameResolution();
                             FlushPendingChatMacros(response.Guid);
                             FlushPendingChatXp(response.Guid);
                             FlushPendingChatChannelNotices(response.Guid);
@@ -1580,6 +1643,8 @@ public sealed partial class GameLoop
     {
         _entities.TryGet(u.Guid, out WorldEntity? auraUnitBefore);
         bool? readsDeadBefore = auraUnitBefore?.Fields.ReadsDead;
+        uint? playerFlagsBefore = auraUnitBefore?.IsPlayer == true
+            ? auraUnitBefore.Fields.PlayerFlags : null;
         Dictionary<byte, AuraSnapshot> aurasBefore = SnapshotAuras(auraUnitBefore);
         if ((u.Kind is UpdateKind.CreateObject or UpdateKind.CreateObject2) &&
             u.Type == ObjectTypeId.Unit)
@@ -1593,6 +1658,17 @@ public sealed partial class GameLoop
             ForgetCreatureVoiceState(u.Guids);
         }
         _entities.Apply(u, MovementInfo.ClientUptimeMs());
+        if (u.Guid != 0 && _entities.TryGet(u.Guid, out WorldEntity updatedPlayer) &&
+            updatedPlayer.IsPlayer && playerFlagsBefore != updatedPlayer.Fields.PlayerFlags)
+        {
+            if (u.Guid == _net?.PlayerGuid)
+                _equipmentDisplayPreferences.Observe(updatedPlayer.Fields.PlayerFlags);
+            if (u.Guid == ControlledGuid)
+            {
+                ApplyControlledCharacter();
+                if (_dressUpOpen) RebuildDressUpLook();
+            }
+        }
         if (u.Guid != 0) ObserveCreatureDeathVoice(u.Guid, readsDeadBefore);
         if (u.Guid == ControlledGuid && _entities.TryGet(u.Guid, out WorldEntity controlledMover))
             SyncControlledSpeeds(controlledMover);
@@ -1638,7 +1714,9 @@ public sealed partial class GameLoop
 
         bool sameBody = race.Equals(_character.Race, StringComparison.OrdinalIgnoreCase) &&
                         gender.Equals(_character.Gender, StringComparison.OrdinalIgnoreCase);
-        CharacterEquipment equipment = BuildEquipment(c);
+        uint playerFlags = _entities.TryGet(c.Guid, out WorldEntity player) && player.IsPlayer
+            ? player.Fields.PlayerFlags : c.Flags;
+        CharacterEquipment equipment = BuildEquipment(c, playerFlags);
         bool sameAppearance = sameBody &&
                               _character.SkinId == c.Skin &&
                               _character.FaceId == c.Face &&
@@ -1766,6 +1844,7 @@ public sealed partial class GameLoop
         uint destinationMapId = _pendingWorldportMapId;
         _worldportAckPending = false;
         _pendingWorldportMapId = 0;
+        _pendingTransfer = null;
         _queuedWorldEntry = null;
         _worldEntryTransitionStage = 0;
         _worldLoading = false;
@@ -1783,6 +1862,7 @@ public sealed partial class GameLoop
     private void DiscardPendingNetApplicationState()
     {
         _queuedWorldEntry = null;
+        _pendingTransfer = null;
         _worldEntryTransitionStage = 0;
 
         // A parser task owns the buffer instance it captured. If it is still
@@ -1859,17 +1939,15 @@ public sealed partial class GameLoop
     }
 
     /// <summary>Turn the roster's 19 visible-item display ids into a dressable equipment set.</summary>
-    private static CharacterEquipment BuildEquipment(Character c)
+    private static CharacterEquipment BuildEquipment(Character c, uint playerFlags)
     {
-        const uint HideHelm = 0x400, HideCloak = 0x800;   // CHARACTER_FLAG_HIDE_HELM / _HIDE_CLOAK
         var kit = new CharacterEquipment();
         for (int i = 0; i < c.Equipment.Length; i++)
         {
             var eq = c.Equipment[i];
             if (eq.DisplayId == 0) continue;
             int inv = eq.InventoryType;
-            if (inv == CharacterEquipment.Slot.Head && (c.Flags & HideHelm) != 0) continue;
-            if (inv == CharacterEquipment.Slot.Cloak && (c.Flags & HideCloak) != 0) continue;
+            if (!EquipmentDisplayPreferenceLaw.InventoryTypeShown(inv, playerFlags)) continue;
             kit.Add($"slot{i}", eq.DisplayId, inv, i);
         }
         return kit;
@@ -1912,6 +1990,8 @@ public sealed partial class GameLoop
             uint entry = bot.Fields.PlayerVisibleItemEntry(slot);
             if (entry == 0 || _items is null) continue;
             if (_net is not null) _items.Require(entry, guid, _net);
+            if (!EquipmentDisplayPreferenceLaw.EquipmentSlotShown(
+                    slot, bot.Fields.PlayerFlags)) continue;
             if (!_items.TryGet(entry, out ItemTemplate? t) || t is null || t.DisplayInfoId == 0)
                 continue;   // template still in flight: partial gear until the next rebuild
             kit.Add($"slot{slot}", t.DisplayInfoId, (int)t.InventoryType, slot,
@@ -2099,8 +2179,6 @@ public sealed partial class GameLoop
             return;
         }
 
-        ImGui.SetNextWindowPos(ImGui.GetIO().DisplaySize * 0.5f, ImGuiCond.Always, new Vector2(0.5f, 0.5f));
-        ImGui.SetNextWindowSize(new Vector2(460, 0), ImGuiCond.Always);
         DrawConnecting();
         DrawScreenshotStatus();
     }
@@ -2118,18 +2196,24 @@ public sealed partial class GameLoop
         Vector2 disp = io.DisplaySize;
         float s = MathF.Max(disp.Y / GlueCanvasH, 0.5f);   // glue scales with height, letterboxes width
         float cx = disp.X * 0.5f;
+        var host = LoginUiLaw.Host(disp);
 
         if (!_loginInit)
         {
-            WriteBuf(_acctBuf, _config.Server.Account ?? "");
-            _rememberAccount = !string.IsNullOrEmpty(_config.Server.Account);
+            string savedAccount = string.IsNullOrWhiteSpace(Settings.SavedAccountName)
+                ? _config.Server.Account ?? ""
+                : Settings.SavedAccountName;
+            WriteBuf(_acctBuf, savedAccount);
+            _rememberAccount = !string.IsNullOrEmpty(savedAccount);
             _loginInit = true;
         }
+        bool loginFailureOpen = _net is { State: NetState.Failed } &&
+            !_loginFailureDismissed && !string.IsNullOrWhiteSpace(_net.Status);
 
         // Full-screen, transparent, input-catching window kept at the back (NoBringToFrontOnFocus)
         // so the dev HUD / settings modal sit over it. The glue widgets hit-test inside it.
-        ImGui.SetNextWindowPos(Vector2.Zero, ImGuiCond.Always);
-        ImGui.SetNextWindowSize(disp, ImGuiCond.Always);
+        ImGui.SetNextWindowPos(host.Min, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(host.Size, ImGuiCond.Always);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
         var flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove
                   | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse
@@ -2158,6 +2242,8 @@ public sealed partial class GameLoop
         GlueText(dl, "Sep 19 2006", 4f * s, disp.Y - 19f * s, 12f * s, WowSkin.GlueGold, 0);
         GlueText(dl, "Copyright 2004-2006  Blizzard Entertainment. All Rights Reserved.",
                  cx, disp.Y - 17f * s, 12f * s, WowSkin.GlueGold, 1);
+
+        if (loginFailureOpen) ImGui.BeginDisabled();
 
         // Creator mode and serverless client mode have no account. Serverless
         // shows BOTH destinations as their own buttons - clicking one IS the
@@ -2218,12 +2304,18 @@ public sealed partial class GameLoop
                 string a = BufToString(_acctBuf), p = BufToString(_passBuf);
                 if (a.Length > 0 && p.Length > 0 && _net is not null)
                 {
-                    _config.Server.Account = _rememberAccount ? a : "";
+                    _loginFailureDismissed = false;
+                    string savedAccount = _rememberAccount ? a : "";
+                    _config.Server.Account = savedAccount;
+                    if (!string.Equals(Settings.SavedAccountName, savedAccount,
+                        StringComparison.Ordinal))
+                    {
+                        Settings.SavedAccountName = savedAccount;
+                        SettingsFile?.Save();
+                    }
                     _net.Login(a, p);
                 }
             }
-            if (_net is { State: NetState.Failed } failedNet && !string.IsNullOrEmpty(failedNet.Status))
-                GlueText(dl, failedNet.Status, cx, 519f * s + loginSize.Y + 6f * s, 12f * s, new Vector4(1f, 0.5f, 0.4f, 1f), 1);
         }
 
         // Remember Account Name checkbox (at 17,653). Box + label sizes are live-tunable - the label
@@ -2283,12 +2375,18 @@ public sealed partial class GameLoop
 
         // The Launch Options modal draws last so it sits over the rest of the login chrome.
         DrawLaunchOptionsMenu(dl, s);
+        if (loginFailureOpen)
+        {
+            ImGui.EndDisabled();
+            DrawLoginFailureDialog(dl, disp, s, _net!.Status);
+        }
 
         if (_skin is not null) _skin.Scale = savedScale;
         ImGui.End();
     }
 
     private bool _glueTuneOpen;
+    private bool _loginFailureDismissed;
 
     /// <summary>
     /// The live login-tuning modal - the same skinned-ImGui approach as the in-game options modal.
@@ -2301,8 +2399,9 @@ public sealed partial class GameLoop
     {
         if (!_glueTuneOpen) return;
 
-        ImGui.SetNextWindowSize(new Vector2(380f, 0f), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowPos(new Vector2(48f, 48f), ImGuiCond.FirstUseEver);
+        var tuningWindow = LoginUiLaw.TuningWindow;
+        ImGui.SetNextWindowSize(tuningWindow.Size, ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowPos(tuningWindow.Min, ImGuiCond.FirstUseEver);
         _skin?.PushStyle();
         // PushStyle makes WindowBg transparent (the in-game frames paint their own backdrop); this is
         // a plain window, so give it an opaque dark panel so the sliders are readable over the scene.
@@ -2448,9 +2547,10 @@ public sealed partial class GameLoop
         var io = ImGui.GetIO();
         var disp = io.DisplaySize;
         float s = MathF.Max(disp.Y / 768f, 0.1f);
+        var host = LoginUiLaw.Host(disp);
 
-        ImGui.SetNextWindowPos(Vector2.Zero, ImGuiCond.Always);
-        ImGui.SetNextWindowSize(disp, ImGuiCond.Always);
+        ImGui.SetNextWindowPos(host.Min, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(host.Size, ImGuiCond.Always);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
         var flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove
                   | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse
@@ -2466,24 +2566,21 @@ public sealed partial class GameLoop
         if (_skin is not null) _skin.Scale = s;
 
         string caption = LogonCaption(_net!.State);
-        float w = GlueTune.LogonBoxW * s, h = GlueTune.LogonBoxH * s;
-        var min = new Vector2((disp.X - w) * 0.5f, (disp.Y - h) * 0.5f + GlueTune.LogonBoxDY * s);
-        var max = min + new Vector2(w, h);
+        float linePitch = LoginUiLaw.MessageFontSize * 1.25f;
+        LoginUiLaw.DialogLayout dialog = LoginUiLaw.Dialog(disp, s, linePitch);
 
         if (_skin is not null)
-            _skin.DrawBackdrop(dl, min, max, WowSkin.Dialog);
+            _skin.DrawBackdrop(dl, dialog.Frame.Min, dialog.Frame.Max, WowSkin.Dialog);
         else
-            dl.AddRectFilled(min, max, ImGui.ColorConvertFloat4ToU32(new Vector4(0f, 0f, 0f, 0.85f)));
+            dl.AddRectFilled(dialog.Frame.Min, dialog.Frame.Max,
+                ImGui.ColorConvertFloat4ToU32(new Vector4(0f, 0f, 0f, 0.85f)));
 
-        float cx = min.X + w * 0.5f;
-        GlueText(dl, caption, cx, min.Y + 18f * s, GlueTune.LogonTitlePx * s, WowSkin.GlueGold, 1);
-        if (!string.IsNullOrWhiteSpace(_net.Status))
-            GlueText(dl, _net.Status, cx, min.Y + 18f * s + GlueTune.LogonTitlePx * s + 8f * s,
-                     GlueTune.LogonStatusPx * s, WowSkin.Normal, 1);
+        GlueText(dl, caption, dialog.Frame.Min.X + dialog.Frame.Size.X * .5f,
+            dialog.Message.Min.Y, LoginUiLaw.MessageFontSize * s, WowSkin.GlueGold, 1);
 
-        var btn = new Vector2(GlueTune.LogonBtnW * s, GlueTune.LogonBtnH * s);
-        ImGui.SetCursorScreenPos(new Vector2(cx - btn.X * 0.5f, max.Y - btn.Y - 16f * s));
-        bool cancel = _skin?.GlueButton("Cancel", btn) ?? ImGui.Button("Cancel", btn);
+        ImGui.SetCursorScreenPos(dialog.Button.Min);
+        bool cancel = _skin?.GlueButton("Cancel", dialog.Button.Size) ??
+            ImGui.Button("Cancel", dialog.Button.Size);
         if (cancel) { _net.Stop(); Array.Clear(_passBuf); }
 
         if (_skin is not null) _skin.Scale = savedScale;
@@ -2494,11 +2591,39 @@ public sealed partial class GameLoop
     private static string LogonCaption(NetState s) => s switch
     {
         NetState.ConnectingRealm => "Connecting",
-        NetState.Authenticating => "Authentication Successful",
-        NetState.ConnectingWorld => "Connecting",
+        NetState.Authenticating => "Authenticating",
+        NetState.ConnectingWorld => "Handshaking",
         NetState.EnteringWorld => "Entering World",
         _ => "Connecting",
     };
+
+    private void DrawLoginFailureDialog(ImDrawListPtr dl, Vector2 disp, float s, string status)
+    {
+        string message = LoginUiLaw.FailureText(status);
+        float wrapScale = s * LoginUiLaw.MessageFontSize / 16f;
+        string[] lines = WrapTooltipText(message, "GameFontNormalLarge", wrapScale,
+            LoginUiLaw.MessageWidth * s).ToArray();
+        if (lines.Length == 0) lines = ["Unable to connect"];
+        float linePitch = LoginUiLaw.MessageFontSize * 1.25f;
+        LoginUiLaw.DialogLayout dialog = LoginUiLaw.Dialog(disp, s, lines.Length * linePitch);
+
+        if (_skin is not null)
+            _skin.DrawBackdrop(dl, dialog.Frame.Min, dialog.Frame.Max, WowSkin.Dialog);
+        else
+            dl.AddRectFilled(dialog.Frame.Min, dialog.Frame.Max,
+                ImGui.ColorConvertFloat4ToU32(new Vector4(0f, 0f, 0f, .85f)));
+        float centerX = dialog.Frame.Min.X + dialog.Frame.Size.X * .5f;
+        for (int i = 0; i < lines.Length; i++)
+            GlueText(dl, lines[i], centerX, dialog.Message.Min.Y + i * linePitch * s,
+                LoginUiLaw.MessageFontSize * s, WowSkin.GlueGold, 1);
+
+        ImGui.SetCursorScreenPos(dialog.Button.Min);
+        bool okay = _skin?.GlueButton("Okay", dialog.Button.Size) ??
+            ImGui.Button("Okay", dialog.Button.Size);
+        if (okay || ImGui.IsKeyPressed(ImGuiKey.Escape) ||
+            ImGui.IsKeyPressed(ImGuiKey.Enter) || ImGui.IsKeyPressed(ImGuiKey.KeypadEnter))
+            _loginFailureDismissed = true;
+    }
 
     private bool _boothTuneOpen;
     private ulong _deleteConfirmGuid;   // non-zero while the delete confirmation is up
@@ -2574,8 +2699,9 @@ public sealed partial class GameLoop
             catch (Exception e) { Console.WriteLine($"[glue] AreaTable load failed: {e.Message}"); }
         }
 
-        ImGui.SetNextWindowPos(Vector2.Zero, ImGuiCond.Always);
-        ImGui.SetNextWindowSize(disp, ImGuiCond.Always);
+        var host = CharSelectUiLaw.Host(disp);
+        ImGui.SetNextWindowPos(host.Min, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(host.Size, ImGuiCond.Always);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
         var flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove
                   | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse
@@ -2792,13 +2918,17 @@ public sealed partial class GameLoop
         ImGui.SetCursorScreenPos(new Vector2(disp.X - 30f * s - backSize.X - 8f * s - delSize.X, backTop));
         bool canDelete = chars.Count > 0 && _selectedChar >= 0 && _selectedChar < chars.Count;
         if ((_skin?.GlueButton("Delete Character", delSize, canDelete) ?? false) && canDelete)
+        {
+            PlayUiSound(CharSelectUiLaw.DeleteSound, CharSelectUiLaw.SoundCategory);
             OpenDeleteConfirm(chars[_selectedChar]);
+        }
         ImGui.SetCursorScreenPos(new Vector2(disp.X - 30f * s - backSize.X, backTop));
-        if (_skin?.GlueButton("Back", backSize) ?? ImGui.Button("Back", backSize)) { _net.Stop(); Array.Clear(_passBuf); }
-
-        // AddOns bottom-left (cosmetic/disabled), for OG parity.
-        ImGui.SetCursorScreenPos(new Vector2(30f * s, backTop));
-        _skin?.GlueButton("AddOns", new Vector2(100f * s, 35f * s * GlueTune.ButtonHeightMul), enabled: false);
+        if (_skin?.GlueButton("Back", backSize) ?? ImGui.Button("Back", backSize))
+        {
+            PlayUiSound(CharSelectUiLaw.BackSound, CharSelectUiLaw.SoundCategory);
+            _net.Stop();
+            Array.Clear(_passBuf);
+        }
 
         // Dev: the booth-tuning toggle (small "tune" at the top-right, clear of the logo).
         ImGui.SetCursorScreenPos(new Vector2(disp.X - 58f * s, 6f * s));
@@ -2810,7 +2940,7 @@ public sealed partial class GameLoop
         // DRAG THE MODEL TO SPIN IT (benilla char_select/input.rs rotate_model; 1.12 lets you grab the
         // character anywhere on the scene). Registered LAST on purpose: ImGui gives hover to the FIRST
         // item that claims a position, so every real widget above - the rows, Enter World, the rotate
-        // pair, Back, AddOns, the tune toggle - wins the hit test and this catcher only ever sees what
+        // pair, Back, and the tune toggle - wins the hit test and this catcher only ever sees what
         // is left, i.e. the booth itself. It also stops at the roster panel's left edge, so dragging on
         // the panel does nothing, same as the reference. Left-drag only; a plain click does nothing.
         float dragW = MathF.Max(frameMin.X, 1f);
@@ -2838,23 +2968,41 @@ public sealed partial class GameLoop
             if (doomed is null) CloseDeleteConfirm();
             else
             {
-                float dw = 512f * s, dh = 256f * s;
-                var dmin = new Vector2((disp.X - dw) * 0.5f, (disp.Y - dh) * 0.5f);
-                var dmax = dmin + new Vector2(dw, dh);
-                if (_skin is not null) _skin.DrawBackdrop(dl, dmin, dmax, WowSkin.Dialog);
-                else dl.AddRectFilled(dmin, dmax, ImGui.ColorConvertFloat4ToU32(new Vector4(0f, 0f, 0f, 0.9f)));
+                CharSelectUiLaw.DeleteDialogLayout dialog = CharSelectUiLaw.DeleteDialog(disp, s);
+                if (_skin is not null)
+                {
+                    _skin.DrawBackdrop(dl, dialog.Frame.Min, dialog.Frame.Max, WowSkin.Dialog);
+                    _skin.GlueImage(dl, "dialog.alert", dialog.Alert.Min, dialog.Alert.Max);
+                    _skin.GlueImageUv(dl, "chat.input.left", dialog.EditBorderLeft.Min,
+                        dialog.EditBorderLeft.Max, CharSelectUiLaw.EditLeftUvMin,
+                        CharSelectUiLaw.EditLeftUvMax);
+                    _skin.GlueImageUv(dl, "chat.input.right", dialog.EditBorderRight.Min,
+                        dialog.EditBorderRight.Max, CharSelectUiLaw.EditRightUvMin,
+                        CharSelectUiLaw.EditRightUvMax);
+                }
+                else
+                    dl.AddRectFilled(dialog.Frame.Min, dialog.Frame.Max,
+                        ImGui.ColorConvertFloat4ToU32(new Vector4(0f, 0f, 0f, 0.9f)));
 
-                float dcx = dmin.X + dw * 0.5f;
-                GlueText(dl, "Do you want to delete", dcx, dmin.Y + 16f * s,
+                GlueText(dl, "Do you want to delete", dialog.LeadCenter.X, dialog.LeadCenter.Y,
                     18f * s, WowSkin.GlueGold, 1);
                 GlueText(dl,
                     $"{_deleteConfirmName}   Level {_deleteConfirmLevel}   {ClassName(_deleteConfirmClass)}?",
-                    dcx, dmin.Y + 40f * s, 18f * s, WowSkin.Normal, 1);
-                GlueText(dl, "Type \"DELETE\" into the field to confirm.", dcx,
-                    dmin.Y + 83f * s, 12f * s, WowSkin.GlueGold, 1);
+                    dialog.IdentityCenter.X, dialog.IdentityCenter.Y, 18f * s, WowSkin.Normal, 1);
+                GlueText(dl, "Type \"DELETE\" into the field to confirm.",
+                    dialog.InstructionsCenter.X, dialog.InstructionsCenter.Y,
+                    12f * s, WowSkin.GlueGold, 1);
 
-                ImGui.SetCursorScreenPos(new Vector2(dcx - 65f * s, dmin.Y + 102f * s));
-                ImGui.SetNextItemWidth(130f * s);
+                float baseFont = ImGui.GetFontSize();
+                ImGui.SetWindowFontScale(baseFont > 0f ? 15f * s / baseFont : 1f);
+                float inputY = dialog.Edit.Min.Y +
+                    MathF.Max(0f, (dialog.Edit.Size.Y - ImGui.GetFrameHeight()) * .5f);
+                ImGui.SetCursorScreenPos(new Vector2(dialog.Edit.Min.X, inputY));
+                ImGui.SetNextItemWidth(dialog.Edit.Size.X);
+                ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
+                ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
+                ImGui.PushStyleColor(ImGuiCol.FrameBgActive, Vector4.Zero);
+                ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0f);
                 if (_deleteConfirmFocus)
                 {
                     ImGui.SetKeyboardFocusHere();
@@ -2862,26 +3010,32 @@ public sealed partial class GameLoop
                 }
                 ImGui.InputText("##delete-confirm-text", _deleteConfirmText,
                     (uint)_deleteConfirmText.Length);
-                bool armed = string.Equals(BufToString(_deleteConfirmText), "DELETE",
+                ImGui.PopStyleVar();
+                ImGui.PopStyleColor(3);
+                ImGui.SetWindowFontScale(1f);
+                bool armed = string.Equals(BufToString(_deleteConfirmText), CharSelectUiLaw.ConfirmText,
                     StringComparison.OrdinalIgnoreCase);
                 bool cancelDelete = ImGui.IsKeyPressed(ImGuiKey.Escape);
                 bool confirmDelete = armed && ImGui.IsKeyPressed(ImGuiKey.Enter);
 
-                var dbtn = new Vector2(200f * s, 40f * s);
-                ImGui.SetCursorScreenPos(new Vector2(dcx - dbtn.X - 6f * s,
-                    dmax.Y - dbtn.Y - 16f * s));
-                bool okay = _skin?.GlueButton("Okay", dbtn, armed) ??
-                    (armed && ImGui.Button("Okay", dbtn));
-                if ((okay && armed) || confirmDelete)
+                ImGui.SetCursorScreenPos(dialog.Okay.Min);
+                bool okay = _skin?.GlueButton("Okay", dialog.Okay.Size, armed) ??
+                    (armed && ImGui.Button("Okay", dialog.Okay.Size));
+                bool acceptedDelete = (okay && armed) || confirmDelete;
+                if (acceptedDelete)
                 {
+                    PlayUiSound(CharSelectUiLaw.AcceptSound, CharSelectUiLaw.SoundCategory);
                     _net.DeleteCharacter(_deleteConfirmGuid);
                     CloseDeleteConfirm();
                 }
-                ImGui.SetCursorScreenPos(new Vector2(dcx + 7f * s,
-                    dmax.Y - dbtn.Y - 16f * s));
-                if ((_skin?.GlueButton("Cancel", dbtn) ?? ImGui.Button("Cancel", dbtn)) ||
-                    cancelDelete)
+                ImGui.SetCursorScreenPos(dialog.Cancel.Min);
+                bool cancelPressed = _skin?.GlueButton("Cancel", dialog.Cancel.Size) ??
+                    ImGui.Button("Cancel", dialog.Cancel.Size);
+                if (!acceptedDelete && (cancelPressed || cancelDelete))
+                {
+                    PlayUiSound(CharSelectUiLaw.CancelSound, CharSelectUiLaw.SoundCategory);
                     CloseDeleteConfirm();
+                }
             }
         }
 
@@ -2894,6 +3048,7 @@ public sealed partial class GameLoop
 
         if (enterGuid != 0)
         {
+            PlayUiSound(CharSelectUiLaw.EnterWorldSound, CharSelectUiLaw.SoundCategory);
             RememberCharacterSelection(enterGuid);
             if (_gl is not null)
             {
@@ -2942,8 +3097,9 @@ public sealed partial class GameLoop
     {
         if (!_boothTuneOpen) return;
 
-        ImGui.SetNextWindowSize(new Vector2(360f, 0f), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowPos(new Vector2(48f, 48f), ImGuiCond.FirstUseEver);
+        var tuningWindow = CharSelectUiLaw.TuningWindow;
+        ImGui.SetNextWindowSize(tuningWindow.Size, ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowPos(tuningWindow.Min, ImGuiCond.FirstUseEver);
         _skin?.PushStyle();
         ImGui.PushStyleColor(ImGuiCol.WindowBg, new Vector4(0.05f, 0.04f, 0.03f, 0.96f));
         bool open = _boothTuneOpen;

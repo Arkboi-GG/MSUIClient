@@ -49,6 +49,31 @@
       "path": "crates/benilla-app/src/ui_chat/input/parse.rs",
       "fileSha256": "4ee3a7c49fc198ff535369d862449133882e043ff99ba405e346e8fda7015d26",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_chat/channels.rs",
+      "fileSha256": "0efc11f3b395fe9a93bd2c570bd89cd21d47eb466bcea99a53b46089ca16b73e",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_chat/language.rs",
+      "fileSha256": "aa0d9cfadcddf099d48603278dbeb8d60d32b40ad6f2ea83746a7cb79c87e1e4",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-formats/src/garble.rs",
+      "fileSha256": "cd5d189c84ca625ac537fe6b3f2f1d81c78b59671ef6138ee1d3a7197bcf53ce",
+      "snapshotId": "benilla-current-2026-08-23"
+    },
+    {
+      "path": "crates/benilla-formats/src/languages.rs",
+      "fileSha256": "bb13b5beb92dd1d54f8b3937d1acc4ad07d4a72dcfa4deef7ee28c579fe3e489",
+      "snapshotId": "benilla-current-2026-08-23"
+    },
+    {
+      "path": "crates/benilla-formats/src/spells/mod.rs",
+      "fileSha256": "19f1cfbe2430002c78fd2629b3c74399449cc7ba8f90756d70c6af8c476d95d0",
+      "snapshotId": "benilla-current-2026-08-23"
     }
   ],
   "msuiAnchors": [
@@ -57,10 +82,15 @@
     "MSUIClient/Engine/UI/GroupSlashCommandLaw.cs",
     "MSUIClient/Engine/UI/ChatMenuUiLaw.cs",
     "MSUIClient/Engine/UI/ChatChannelLaw.cs",
-    "MSUIClient/Net/ChannelPackets.cs"
+    "MSUIClient/Engine/UI/ChatLanguageLaw.cs",
+    "MSUIClient/Formats/ChatLanguageCatalog.cs",
+    "MSUIClient/Formats/SpellCatalog.cs",
+    "MSUIClient/Net/ObjectFields.cs",
+    "MSUIClient/Net/ChannelPackets.cs",
+    "tools/interface-wire-check/ChatLanguageClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "Chat frame has the reference presentation plus current typed composition, group utilities, distinct General/Combat Log feeds and canonical XP lines. The bubble button opens the full law-positioned ChatMenu with both nested emote tables, freeform /e and last-teller /r. Channel parity now includes exact join/leave/list writers and server parsers, stable server-confirmed /1-/10 slots with hole preservation, /c sends, numbered incoming lines, all 1.12 channel-notice strings with deferred player names, and roster-count replies. Scrolling, hover chrome, tabs, controls and the edit box remain intact.",
+  "summary": "ChatFrameLaw owns the current Benilla frame anchor, background, border, authored controls, reveal/message/link seats, tabs and edit-box geometry; ChatMenuUiLaw owns popup placement. Typed composition, group utilities, channel protocol/notice behavior, scrolling and canonical XP lines remain intact. Chat now also applies the reference's client-side language barrier after NPC macro expansion: LanguageWords.dbc's 1,481 rows form 13 length-indexed pools; case-folded SStrHash chooses deterministic per-word substitutes and the skill/300 gate preserves graduated comprehension. Known language spells resolve through SkillLineAbility into authoritative PLAYER_SKILL_INFO fluency. No-player, GM and narration exemptions force Universal; foreign-language headers use the listener's faction default; the single rewritten buffer feeds both the chat line and speech bubble. LANG_ADDON is dropped even for non-ignored senders. Window geometry and the existing General/Combat Log product choice were not changed.",
   "openItems": [
     {
       "id": "item-triage-a7efe951",
@@ -106,11 +136,55 @@
       "added": "2026-08-09",
       "resolved": true,
       "resolution": "2026-08-22: ChatMenuUiLaw owns the exact 104x16 row pool, 12px tooltip borders, button-relative root and nested anchors, viewport clamping, hit testing, two-second timeout, root table and both Emote/Voice Emote tables. The draw path uses no ImGui window placement, opens the edit pipeline with reference prefixes, supports freeform /e and last-teller /r, and submits nested commands through the same posture/text-emote router. Focused ChatMenu plus ChatTab, Chat and EmoteAnimation regressions pass."
+    },
+    {
+      "id": "item-chatframe-current-geometry-20260823",
+      "kind": "gap",
+      "text": "MSUI anchored ChatFrame1 ten pixels above the authored BOTTOMLEFT (32,85) seat, shortened its background to 434x120, invented a 30-pixel menu/scroll ladder, and inverted or shortened several FrameXML border anchors.",
+      "source": "benilla-b57ee0e9e2c8822b/ChatFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: ChatFrameLaw owns the exact frame origin, 434x129 background, four-button anchor chain, tab/edit seats and all eight border rectangles. The renderer consumes the law seats; focused Chat, focused ChatTab and the full interface clinical suite pass."
+    },
+    {
+      "id": "item-chatframe-renderer-geometry-law-20260823",
+      "kind": "gap",
+      "text": "The Chat renderer still assembled reveal, message/link, control, tab, popup-card and edit-input coordinates directly even though the surface already had rule-owned base constants.",
+      "source": "rule-owned-window-geometry-audit-2026-08-23",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: ChatFrameLaw and ChatMenuUiLaw now return cohesive layout records/vectors for every remaining adapter calculation, with behavioral geometry checks and a no-new-Vector2 source fence. The General/Combat Log routing difference was not changed. Focused Chat and the full interface clinical suite pass."
+    },
+    {
+      "id": "item-chatframe-combat-tab-preserved-20260823",
+      "kind": "adjudicate",
+      "text": "Current Benilla intentionally does not construct ChatFrame2Tab until its complete combat-event pipeline exists, while MSUI exposes a functioning Combat Log tab with Money and XP routing. Decide whether desktop parity should hide that working MSUI surface or preserve it as an explicit MSUI behavior.",
+      "source": "benilla-b57ee0e9e2c8822b/ChatFrame.xml",
+      "added": "2026-08-23",
+      "resolved": false
+    },
+    {
+      "id": "item-chatframe-language-garble-20260823",
+      "kind": "gap",
+      "text": "Current Benilla applies the build-5875 client-side language comprehension and LanguageWords substitution before chat, event and bubble consumers, while MSUI exposed the server's foreign-language plaintext unchanged.",
+      "source": "benilla-current-2026-08-23/ui_chat/language.rs+garble.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: added the exact LanguageWords loader, SStrHash/token/length/case substitution kernel, spell-to-language-to-skill fluency chain, GM/no-player/narration gates, faction-default headers and shared chat/bubble rewritten text. The mounted build-5875 census and representative reference golden vectors plus focused/full suites pass.",
+      "resolvedUtc": "2026-08-23T14:13:55Z"
+    },
+    {
+      "id": "verify-chatframe-language-garble-live-20260823",
+      "kind": "verify",
+      "text": "Owner-run two-faction live acceptance: send Say/Yell and monster speech in Common, Orcish and a racial language at skill 0/partial/300; confirm deterministic word survival, punctuation collapse, case stamping, correct foreign header suppression for the faction tongue, identical garbled chat/bubble text, narration remaining plain, GM bypass and no readable LANG_ADDON payload.",
+      "source": "benilla-current-2026-08-23/ui_chat/language.rs+garble.rs",
+      "added": "2026-08-23",
+      "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T01:01:10.5124167Z",
+  "lastReviewedUtc": "2026-08-23T14:13:55Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

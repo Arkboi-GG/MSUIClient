@@ -89,7 +89,7 @@ public sealed partial class GameLoop
         float s = GameplayUiScale();
         Vector2 p = UiPanelFrameOrigin(UiPanelOwnershipRegistry[12], s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
-        ImGui.SetNextWindowSize(new Vector2(416, 512) * s, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(SpellbookLaw.HostSize * s, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
         if (!ImGui.Begin("##spellbook", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav))
@@ -98,7 +98,7 @@ public sealed partial class GameLoop
         if (_uiParityArmed && _uiParityPanel == "spellbook")
         {
             BeginUiParityFrame(p, s);
-            CollectUiParityDraw("SpellBookFrame", "Frame", p, new Vector2(384,512) * s, "",
+            CollectUiParityDraw("SpellBookFrame", "Frame", p, SpellbookLaw.FrameSize * s, "",
                 new("", 0, "IMGUI_HOST", "ANCHOR:ABSOLUTE", "", "", p.X/s, p.Y/s));
         }
         var identity = _net is not null && _entities.TryGet(ControlledGuid, out WorldEntity playerEntity)
@@ -137,10 +137,9 @@ public sealed partial class GameLoop
         _spellbookPage = Math.Clamp(_spellbookPage, 0, pages - 1);
 
         _hoveredSpellTooltip = null;
-        for (int i = 0; i < 12; i++)
+        for (int i = 0; i < SpellbookLaw.SpellsPerPage; i++)
         {
-            int column = i / 6, row = i % 6;
-            Vector2 min = p + new Vector2(34 + column * 157, 85 + row * 51) * s;
+            Vector2 min = p + SpellbookLaw.SpellButtonSeat(i).Min * s;
             int index = _spellbookPetBook ? i : _spellbookPage * 12 + i;
             if (_spellbookPetBook)
             {
@@ -158,13 +157,15 @@ public sealed partial class GameLoop
         }
         if (!_spellbookPetBook)
             for (int i = 0; i < tabs.Count; i++)
-                DrawSpellTab(dl, p + new Vector2(352, 65 + i * 49) * s, s, i + 1,
+                DrawSpellTab(dl, p + SpellbookLaw.SkillLineTabSeat(i).Min * s, s, i + 1,
                     tabs[i].Id, tabs[i].Name, tabs[i].Icon);
 
         GameText.DrawCentered(dl, "GameFontNormal", $"Page {_spellbookPage + 1}",
-            p + new Vector2(178, 416) * s, s);
-        DrawPageButton(dl, p + new Vector2(34, 391) * s, true, s, _spellbookPage > 0);
-        DrawPageButton(dl, p + new Vector2(298, 391) * s, false, s, _spellbookPage + 1 < pages);
+            p + SpellbookLaw.PageTextCenter * s, s);
+        DrawPageButton(dl, p + SpellbookLaw.PreviousPageButton.Min * s, true, s,
+            _spellbookPage > 0);
+        DrawPageButton(dl, p + SpellbookLaw.NextPageButton.Min * s, false, s,
+            _spellbookPage + 1 < pages);
 
         if (petSpells.Count > 0)
         {
@@ -172,8 +173,8 @@ public sealed partial class GameLoop
             DrawSpellbookTypeTab(dl, p, s, petBook: true, petTitle);
         }
 
-        Vector2 close = p + new Vector2(324, 9) * s;
-        DrawImageButton(dl, "##spell-close", close, new Vector2(32) * s,
+        Vector2 close = p + SpellbookLaw.CloseButton.Min * s;
+        DrawImageButton(dl, "##spell-close", close, SpellbookLaw.CloseButton.Size * s,
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up", @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         if (ImGui.IsItemClicked()) SetSpellbookOpen(false);
@@ -207,8 +208,10 @@ public sealed partial class GameLoop
             uint icon = _gameplayArt.Handle(ResolveSpellActionIcon(dragged, player));
             if (icon != 0)
             {
-                Vector2 min = ImGui.GetIO().MousePos + new Vector2(10) * s;
-                ImGui.GetForegroundDrawList().AddImage((nint)icon, min, min + new Vector2(32) * s,
+                Vector2 mouse = ImGui.GetIO().MousePos;
+                Vector2 min = SpellbookLaw.DragPreviewMin(mouse, s);
+                ImGui.GetForegroundDrawList().AddImage((nint)icon, min,
+                    SpellbookLaw.DragPreviewMax(mouse, s),
                     Vector2.Zero, Vector2.One, 0xccffffff);
             }
         }
@@ -280,39 +283,37 @@ public sealed partial class GameLoop
 
     private void DrawSpellbookArt(ImDrawListPtr dl, Vector2 p, float s, string title)
     {
-        (string Element,string Path,Vector2 Offset,Vector2 Size)[] regions =
-        [
-            // Spellbook-Icon is BACKGROUND in FrameXML. The four panel quadrants are ARTWORK and
-            // must be painted afterward so their circular bezel masks/seats the icon correctly.
-            ("SpellBookFrame/Texture", @"Interface\Spellbook\Spellbook-Icon", new(10,8), new(58,58)),
-            ("SpellBookFrame/Texture#2", @"Interface\Spellbook\UI-SpellbookPanel-TopLeft", Vector2.Zero, new(256,256)),
-            ("SpellBookFrame/Texture#3", @"Interface\Spellbook\UI-SpellbookPanel-TopRight", new(256,0), new(128,256)),
-            ("SpellBookFrame/Texture#4", @"Interface\Spellbook\UI-SpellbookPanel-BotLeft", new(0,256), new(256,256)),
-            ("SpellBookFrame/Texture#5", @"Interface\Spellbook\UI-SpellbookPanel-BotRight", new(256,256), new(128,256)),
-        ];
-        foreach(var region in regions)
+        // Spellbook-Icon is BACKGROUND. The four panel quadrants follow at ARTWORK so their
+        // circular bezel masks/seats it; SpellbookLaw retains that authored order.
+        for (int index = 0; index < SpellbookLaw.PanelArt.Length; index++)
         {
-            Vector2 min=p+region.Offset*s;
-            DrawArt(dl,region.Path,min,region.Size,s);
+            SpellbookArtSeat region = SpellbookLaw.PanelArt[index];
+            Vector2 min = p + region.Rect.Min * s;
+            DrawArt(dl, region.Path, min, region.Rect.Size, s);
             if(_uiParityArmed&&_uiParityPanel=="spellbook")
-                CollectUiParityDraw(region.Element,"Texture",min,region.Size*s,"SpellBookFrame",
-                    new(region.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","SpellBookFrame","TOPLEFT",region.Offset.X,-region.Offset.Y));
+                CollectUiParityDraw(index == 0 ? "SpellBookFrame/Texture" :
+                        $"SpellBookFrame/Texture#{index + 1}", "Texture", min,
+                    region.Rect.Size * s, "SpellBookFrame",
+                    new(region.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","SpellBookFrame","TOPLEFT",
+                        region.Rect.X,-region.Rect.Y));
         }
         // SpellBookTitleText inherits GameFontNormal (MPQ SpellBookFrame.xml l.264); its
         // CENTER (6,230) anchor is this (198,26) point. Color/height/shadow ride the registry.
-        GameText.DrawCentered(dl, "GameFontNormal", title, p + new Vector2(198, 26) * s, s);
+        GameText.DrawCentered(dl, "GameFontNormal", title, p + SpellbookLaw.TitleCenter * s, s);
     }
 
     private void DrawSpellButton(ImDrawListPtr dl, Vector2 min, float s, int buttonOrdinal,
         uint id, SpellInfo spell, bool petBook = false, uint petPacked = 0)
     {
         static Vector2 Snap(Vector2 value) => new(MathF.Round(value.X), MathF.Round(value.Y));
-        Vector2 iconMin = Snap(min), max = Snap(min + new Vector2(37) * s);
+        Vector2 iconMin = Snap(min), max = Snap(min + SpellbookLaw.ButtonScaledSize(s));
         uint bg = _gameplayArt!.Handle(@"Interface\Spellbook\UI-Spellbook-SpellBackground");
         // FrameXML TOPLEFT(-3,+3) is y-up; ImGui is y-down. The 64x64 backplate therefore spans
         // screen offsets (-3,-3)..(+61,+61), centered around the authored 37x37 icon button.
-        if (bg != 0) dl.AddImage((nint)bg, Snap(min + new Vector2(-3, -3) * s),
-            Snap(min + new Vector2(61, 61) * s));
+        if (bg != 0) dl.AddImage((nint)bg,
+            Snap(min + SpellbookLaw.SpellButtonBackground.Min * s),
+            Snap(min + (SpellbookLaw.SpellButtonBackground.Min +
+                SpellbookLaw.SpellButtonBackground.Size) * s));
         WorldEntity? player = _net is not null && _entities.TryGet(ControlledGuid,
             out WorldEntity owner) ? owner : null;
         WorldEntity? pet = _entities.TryGet(_petGuid, out WorldEntity petEntity) && petEntity.IsUnit
@@ -324,10 +325,12 @@ public sealed partial class GameLoop
         uint ring = _gameplayArt.Handle(@"Interface\Buttons\UI-Quickslot2");
         if (ring != 0)
         {
-            Vector2 center = (iconMin + max) * .5f, half = new(32f * s);
             // FrameXML grays passive spells by blackening the NormalTexture ring. The spell icon
             // itself remains full white; tinting the icon is a visually similar but wrong shortcut.
-            dl.AddImage((nint)ring, Snap(center - half), Snap(center + half),
+            dl.AddImage((nint)ring,
+                Snap(min + SpellbookLaw.SpellButtonNormalRing.Min * s),
+                Snap(min + (SpellbookLaw.SpellButtonNormalRing.Min +
+                    SpellbookLaw.SpellButtonNormalRing.Size) * s),
                 Vector2.Zero, Vector2.One, spell.Passive ? 0xff000000 : 0xffffffff);
         }
         bool professionCurrent = !petBook && _professionOpen && _professionOpenerSpell == id;
@@ -340,7 +343,7 @@ public sealed partial class GameLoop
             if (checkedArt != 0) dl.AddImage((nint)checkedArt, iconMin, max);
         }
         PlayerActions cooldownStore = petBook ? _petCooldowns : _actions;
-        if (cooldownStore.TryCooldownDisplay(id, NowSeconds(), spell.Category,
+        if (cooldownStore.TryCooldownDisplay(id, 0, spell, NowSeconds(),
                 out CooldownDisplay cooldown))
         {
             Vector2 cooldownMin = Snap(SpellbookLaw.CooldownMin(min, s));
@@ -354,12 +357,12 @@ public sealed partial class GameLoop
         if (autocastable)
         {
             uint overlay = _gameplayArt.Handle(@"Interface\Buttons\UI-AutoCastableOverlay");
-            float margin = (PetActionBarUiLaw.AutoCastOverlaySize - SpellbookLaw.ButtonSize) * .5f;
-            Vector2 overlayMin = Snap(iconMin - new Vector2(margin) * s);
-            Vector2 overlayMax = Snap(max + new Vector2(margin) * s);
+            Vector2 overlayMin = Snap(min + SpellbookLaw.SpellButtonAutocastOverlay.Min * s);
+            Vector2 overlayMax = Snap(min + (SpellbookLaw.SpellButtonAutocastOverlay.Min +
+                SpellbookLaw.SpellButtonAutocastOverlay.Size) * s);
             if (overlay != 0) dl.AddImage((nint)overlay, overlayMin, overlayMax);
             if (PetSpellBookUiLaw.AutocastEnabled(petPacked))
-                DrawPetAutocastSparkles(dl, iconMin, s, NowSeconds());
+                DrawSpellbookAutocastSparkles(dl, iconMin, s, NowSeconds());
         }
         // SpellName inherits GameFontNormal; passive names are the Lua SetTextColor override.
         uint? nameColor = spell.Passive ? SpellbookLaw.PassiveNameColor : null;
@@ -375,13 +378,11 @@ public sealed partial class GameLoop
         float nameAnchorY = hasRank ? SpellbookLaw.NameAnchorYWithRank
             : SpellbookLaw.NameAnchorYWithoutRank;
         // SpellName's LEFT anchor is the vertical center of its auto-height, wrapped block.
-        Vector2 namePos = new(
-            min.X + (SpellbookLaw.ButtonSize + SpellbookLaw.NameAnchorX) * s,
-            min.Y + SpellbookLaw.ButtonSize * .5f * s - nameAnchorY * s - nameBlockHeight * .5f);
+        Vector2 namePos = SpellbookLaw.SpellNamePosition(min, s, nameAnchorY, nameBlockHeight);
         if (_spellbookFontPixelSnap) namePos = Snap(namePos);
         for (int line = 0; line < nameLines.Count; line++)
             GameText.Draw(dl, "GameFontNormal", nameLines[line],
-                namePos + new Vector2(0, line * namePitch), fs, nameColor,
+                SpellbookLaw.SpellNameLinePosition(namePos, line, namePitch), fs, nameColor,
                 snap: _spellbookFontPixelSnap);
         if (hasRank)
         {
@@ -391,14 +392,13 @@ public sealed partial class GameLoop
             // air between name and rank in 1.12; drawing the ink at the box top (the previous
             // conversion) is what made them touch.
             float rankEm = GameText.EmPixels("SubSpellFont", fs);
-            Vector2 rankPos = namePos + new Vector2(0,
-                nameBlockHeight - SpellbookLaw.RankAnchorY * s +
-                (SpellbookLaw.RankBoxHeight * s - rankEm) * .5f);
+            Vector2 rankPos = SpellbookLaw.SpellRankPosition(namePos, nameBlockHeight, s, rankEm);
             GameText.Draw(dl, "SubSpellFont", spell.Rank, rankPos, fs,
                 snap: _spellbookFontPixelSnap);
         }
         ImGui.SetCursorScreenPos(min);
-        bool clicked = ImGui.InvisibleButton($"##spell-{(petBook ? "pet" : "player")}-{id}", new Vector2(145, 37) * s,
+        bool clicked = ImGui.InvisibleButton($"##spell-{(petBook ? "pet" : "player")}-{id}",
+            SpellbookLaw.ButtonScaledSize(s),
             ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
         if (ImGui.IsItemActivated())
         {
@@ -479,8 +479,9 @@ public sealed partial class GameLoop
 
     private void DrawSpellbookFontCalibration(Vector2 spellbookOrigin, float s)
     {
-        ImGui.SetNextWindowPos(spellbookOrigin + new Vector2(420, 25) * s, ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(430, 0), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowPos(SpellbookLaw.FontCalibrationPosition(spellbookOrigin, s),
+            ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(SpellbookLaw.FontCalibrationSize, ImGuiCond.FirstUseEver);
         bool open = _spellbookFontCalibrationOpen;
         if (!ImGui.Begin("Spellbook Font Calibration", ref open,
                 ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoCollapse))
@@ -534,8 +535,8 @@ public sealed partial class GameLoop
     {
         PetSpellBookUiLaw.LogicalRect authored = petBook
             ? PetSpellBookUiLaw.PetTab : PetSpellBookUiLaw.PlayerTab;
-        Vector2 min = frameOrigin + new Vector2(authored.X, authored.Y) * s;
-        Vector2 size = new Vector2(authored.Width, authored.Height) * s;
+        Vector2 min = authored.ScaledMin(frameOrigin, s);
+        Vector2 size = authored.ScaledSize(s);
         Vector2 hitMin = min + PetSpellBookUiLaw.TabHitMin * s;
         Vector2 hitMax = min + PetSpellBookUiLaw.TabHitMax * s;
         ImGui.SetCursorScreenPos(hitMin);
@@ -579,24 +580,27 @@ public sealed partial class GameLoop
         static Vector2 Snap(Vector2 value) => new(MathF.Round(value.X), MathF.Round(value.Y));
         uint back = _gameplayArt!.Handle(@"Interface\SpellBook\SpellBook-SkillLineTab");
         // FrameXML TOPLEFT(-3,+11) converts to screen (-3,-11); retain the authored 64x64 size.
-        if (back != 0) dl.AddImage((nint)back, Snap(min + new Vector2(-3, -11) * s),
-            Snap(min + new Vector2(61, 53) * s));
+        if (back != 0) dl.AddImage((nint)back,
+            Snap(min + SpellbookLaw.SkillLineTabBackdrop.Min * s),
+            Snap(min + (SpellbookLaw.SkillLineTabBackdrop.Min +
+                SpellbookLaw.SkillLineTabBackdrop.Size) * s));
         uint icon = _gameplayArt.Handle(iconPath);
         // Skill-line icons stay full-bright in 1.12. Selection is conveyed solely by the
         // CheckButtonHilight overlay; dimming inactive tabs makes the whole right rail look disabled.
-        if (icon != 0) dl.AddImage((nint)icon, Snap(min), Snap(min + new Vector2(32) * s));
+        Vector2 tabSize = SpellbookLaw.SkillLineTabScaledSize(s);
+        if (icon != 0) dl.AddImage((nint)icon, Snap(min), Snap(min + tabSize));
         ImGui.SetCursorScreenPos(min);
-        ImGui.InvisibleButton($"##spell-tab-{id}", new Vector2(32) * s);
+        ImGui.InvisibleButton($"##spell-tab-{id}", tabSize);
         if (ImGui.IsItemClicked()) { _spellbookLine = id; _spellbookPage = 0; }
         if (id == _spellbookLine)
         {
             uint checkedArt = _gameplayArt.AdditiveHandle(@"Interface\Buttons\CheckButtonHilight");
-            if (checkedArt != 0) dl.AddImage((nint)checkedArt, Snap(min), Snap(min + new Vector2(32) * s));
+            if (checkedArt != 0) dl.AddImage((nint)checkedArt, Snap(min), Snap(min + tabSize));
         }
         else if (ImGui.IsItemHovered())
         {
             uint highlight = _gameplayArt.BrightHighlightHandle(@"Interface\Buttons\ButtonHilight-Square");
-            if (highlight != 0) dl.AddImage((nint)highlight, Snap(min), Snap(min + new Vector2(32) * s));
+            if (highlight != 0) dl.AddImage((nint)highlight, Snap(min), Snap(min + tabSize));
         }
         if (ImGui.IsItemHovered())
         {
@@ -609,6 +613,35 @@ public sealed partial class GameLoop
                 ImGui.EndTooltip();
             });
         }
+    }
+
+    private void DrawSpellbookAutocastSparkles(ImDrawListPtr draw, Vector2 buttonMin,
+        float scale, double now)
+    {
+        uint star = _gameplayArt!.AdditiveHandle(@"Interface\Buttons\GlowStar");
+        if (star == 0) return;
+        Vector2 buttonMax = buttonMin + SpellbookLaw.ButtonScaledSize(scale);
+        Vector2 display = ImGui.GetIO().DisplaySize;
+        float diagonal = MathF.Sqrt(display.X * display.X + display.Y * display.Y);
+        float lap = SpellbookLaw.AutocastLap(now);
+        draw.PushClipRect(buttonMin, buttonMax, true);
+        for (int emitter = 0; emitter < SpellbookLaw.AutocastEmitterCount; emitter++)
+        for (int particle = 0; particle < SpellbookLaw.AutocastParticlesPerEmitter; particle++)
+        {
+            float age = SpellbookLaw.AutocastParticleAge(particle);
+            Vector2 center = buttonMin +
+                SpellbookLaw.AutocastPoint(lap, emitter, age) * scale;
+            float half = SpellbookLaw.AutocastStarHalfExtent(age, diagonal);
+            float angle = SpellbookLaw.AutocastSpinRadians * age;
+            uint color = ImGui.ColorConvertFloat4ToU32(SpellbookLaw.AutocastStarColor(age));
+            draw.AddImageQuad((nint)star,
+                SpellbookLaw.AutocastStarCorner(center, -half, -half, angle),
+                SpellbookLaw.AutocastStarCorner(center, half, -half, angle),
+                SpellbookLaw.AutocastStarCorner(center, half, half, angle),
+                SpellbookLaw.AutocastStarCorner(center, -half, half, angle),
+                Vector2.Zero, Vector2.UnitX, Vector2.One, Vector2.UnitY, color);
+        }
+        draw.PopClipRect();
     }
 
     private PreparedSharedSpellTooltip? PrepareSharedSpellTooltip(
@@ -680,19 +713,14 @@ public sealed partial class GameLoop
             rowStackHeight += GameText.LinePitch(row.FontObject, s);
             if (row.GapBefore) rowStackHeight += SpellTooltipLaw.LineGap * s;
         }
-        Vector2 size = new(
-            MathF.Round(contentWidth + SpellTooltipLaw.Pad * 2f * s),
-            MathF.Round(rowStackHeight + SpellTooltipLaw.Pad * 2f * s));
+        Vector2 size = SpellTooltipLaw.FrameSize(contentWidth, rowStackHeight, s);
         Vector2 display = snapshot.DisplaySize;
         Vector2 pos = placement == SpellTooltipPlacement.DefaultBottomRight
             // GameTooltip_SetDefaultAnchor: BOTTOMRIGHT of UIParent at
             // (-CONTAINER_OFFSET_X - 13, CONTAINER_OFFSET_Y), defaults 0 and 70.
-            ? new Vector2(display.X - 13f * s - size.X, display.Y - 70f * s - size.Y)
-            : new Vector2(ownerMax.X + 4f * s, ownerMin.Y);
-        if (placement == SpellTooltipPlacement.OwnerRight && pos.X + size.X > display.X - 4f)
-            pos.X = ownerMin.X - size.X - 4f * s;
-        pos.X = Math.Clamp(pos.X, 4f, Math.Max(4f, display.X - size.X - 4f));
-        pos.Y = Math.Clamp(pos.Y, 4f, Math.Max(4f, display.Y - size.Y - 4f));
+            ? SpellTooltipLaw.ClampOrigin(
+                SpellTooltipLaw.DefaultBottomRightOrigin(display, size, s), size, display)
+            : SpellTooltipLaw.OwnerRightOrigin(ownerMin, ownerMax, size, display, s);
 
         ImGui.SetNextWindowPos(pos, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
@@ -716,10 +744,10 @@ public sealed partial class GameLoop
                 TooltipPaintRow row = rows[rowIndex];
                 if (row.GapBefore) y += SpellTooltipLaw.LineGap * s;
                 GameText.Draw(dl, row.FontObject, row.Left,
-                    new Vector2(pos.X + SpellTooltipLaw.Pad * s, y), s, row.Color);
+                    SpellTooltipLaw.LeftTextPosition(pos, y, s), s, row.Color);
                 if (!string.IsNullOrEmpty(row.Right))
                     GameText.DrawRightAligned(dl, row.FontObject, row.Right,
-                        new Vector2(pos.X + size.X - SpellTooltipLaw.Pad * s, y), s,
+                        SpellTooltipLaw.RightTextPosition(pos, size, y, s), s,
                         rowIndex == 0 ? SpellTooltipLaw.RankColor : row.Color);
                 y += GameText.LinePitch(row.FontObject, s);
             }
@@ -753,7 +781,8 @@ public sealed partial class GameLoop
     private void DrawPageButton(ImDrawListPtr dl, Vector2 min, bool previous, float s, bool enabled)
     {
         string stem = previous ? "UI-SpellbookIcon-PrevPage" : "UI-SpellbookIcon-NextPage";
-        DrawImageButton(dl, previous ? "##spell-prev" : "##spell-next", min, new Vector2(32) * s,
+        DrawImageButton(dl, previous ? "##spell-prev" : "##spell-next", min,
+            SpellbookLaw.PreviousPageButton.Size * s,
             $@"Interface\Buttons\{stem}-{(enabled ? "Up" : "Disabled")}",
             $@"Interface\Buttons\{stem}-Down", @"Interface\Buttons\UI-Common-MouseHilight");
         if (enabled && ImGui.IsItemClicked())

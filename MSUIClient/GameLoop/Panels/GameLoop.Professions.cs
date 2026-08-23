@@ -18,6 +18,7 @@ public sealed partial class GameLoop
 
     private bool _professionOpen;
     private ProfessionPanelKind? _professionPanelKind;
+    private uint _professionCraftType;
     private uint _professionOpenerSpell;
     private uint _professionLine;
     private int _professionSelected;
@@ -58,10 +59,7 @@ public sealed partial class GameLoop
         if (_skillLines is null) return true;
         uint line = _skillLines.SpellLine(spellId);
         if (!IsCraftProfessionLine(line) || _spellCatalog.CreatedItem(spellId) != 0) return true;
-        bool hasKnownRecipe = _skillLines.Recipes(line).Any(r => _actions.KnownSpells.Contains(r.SpellId) &&
-            (_spellCatalog.CreatedItem(r.SpellId) != 0 || _spellCatalog.Reagents(r.SpellId).Count > 0));
-        if (!hasKnownRecipe) return true;
-        _ = OpenProfession(line, spellId, provenance.PanelKind);
+        _ = OpenProfession(line, spellId, provenance.PanelKind, provenance.CraftType);
         return true;
     }
 
@@ -106,17 +104,37 @@ public sealed partial class GameLoop
         }
     }
 
-    private bool OpenProfession(uint line, uint opener, ProfessionPanelKind? panelKind)
+    private bool OpenProfession(uint line, uint opener, ProfessionPanelKind? panelKind,
+        uint craftType = 0, bool preserveSelection = false)
     {
         if (_skillLines is null || _spellCatalog is null || !IsCraftProfessionLine(line)) return false;
+        bool wasOpen = _professionOpen;
+        uint selectedSpellId = preserveSelection && _professionSelected >= 0 &&
+            _professionSelected < _professionRecipes.Count
+                ? _professionRecipes[_professionSelected].SpellId : 0;
+        int previousScroll = _professionScroll;
         _professionRecipes.Clear();
-        foreach (SkillRecipeInfo recipe in _skillLines.Recipes(line))
+        // Current CraftState membership is the player's known-spell set filtered by the opener's
+        // exact craft type; it is deliberately not a skill-line join. Every shipped Enchanting
+        // recipe currently agrees with SkillLineAbility, but the castUI list is the client law.
+        IEnumerable<SkillRecipeInfo> recipeCandidates = panelKind == ProfessionPanelKind.Craft
+            ? _actions.KnownSpells.Select(spellId =>
+                _skillLines.TryGetRecipe(spellId, out SkillRecipeInfo recipe) ? recipe : default)
+                .Where(recipe => recipe.SpellId != 0)
+            : _skillLines.Recipes(line);
+        foreach (SkillRecipeInfo recipe in recipeCandidates)
         {
             if (!_actions.KnownSpells.Contains(recipe.SpellId) ||
                 !_spellCatalog.TryGet(recipe.SpellId, out SpellInfo spell)) continue;
+            if (panelKind == ProfessionPanelKind.Craft &&
+                !ProfessionFrameUiLaw.CraftRecipeEligible(spell.CastUi, spell.Attributes, craftType))
+                continue;
+            if (panelKind == ProfessionPanelKind.TradeSkill &&
+                !ProfessionFrameUiLaw.TradeSkillRecipeEligible(spell.Attributes))
+                continue;
             uint product = _spellCatalog.CreatedItem(recipe.SpellId);
             IReadOnlyList<SpellReagent> reagents = _spellCatalog.Reagents(recipe.SpellId);
-            if (product == 0 && reagents.Count == 0) continue;
+            if (panelKind is null && product == 0 && reagents.Count == 0) continue;
             IReadOnlyList<uint> tools = _spellCatalog.Tools(recipe.SpellId);
             _professionRecipes.Add(new(recipe.SpellId, spell.Name, spell.Rank,
                 spell.Description, product, reagents, tools, spell.RequiredFocus, recipe));
@@ -124,17 +142,32 @@ public sealed partial class GameLoop
             foreach (SpellReagent reagent in reagents) _items?.Require(reagent.ItemId, 0, _net!);
             foreach (uint tool in tools) _items?.Require(tool, 0, _net!);
         }
-        _professionRecipes.Sort((a, b) =>
-        {
-            int minimum = a.Skill.Minimum.CompareTo(b.Skill.Minimum);
-            if (minimum != 0) return minimum;
-            int reagents = a.Reagents.Sum(x => (int)x.Count).CompareTo(b.Reagents.Sum(x => (int)x.Count));
-            return reagents != 0 ? reagents : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
-        });
-        _professionLine = line; _professionSelected = 0; _professionScroll = 0;
+        GetSkillValueAndBonus(line, out ushort rank, out _, out int bonus);
+        uint difficultyRank = panelKind == ProfessionPanelKind.Craft
+            ? ProfessionFrameUiLaw.EffectiveSkill(rank, bonus) : rank;
+        _professionRecipes.Sort((a, b) => panelKind == ProfessionPanelKind.Craft
+            ? ProfessionFrameUiLaw.CompareCraftRecipes(
+                ProfessionFrameUiLaw.DifficultyTier(difficultyRank, a.Skill.TrivialLow,
+                    a.Skill.TrivialHigh), a.Name,
+                _spellCatalog.TryGet(a.SpellId, out SpellInfo aSpell) ? aSpell.SpellLevel : 0,
+                a.SpellId,
+                ProfessionFrameUiLaw.DifficultyTier(difficultyRank, b.Skill.TrivialLow,
+                    b.Skill.TrivialHigh), b.Name,
+                _spellCatalog.TryGet(b.SpellId, out SpellInfo bSpell) ? bSpell.SpellLevel : 0,
+                b.SpellId, craftType)
+            : CompareTradeSkillRecipes(a, b));
+        _professionLine = line;
+        _professionSelected = preserveSelection
+            ? ProfessionFrameUiLaw.RefreshedSelection(selectedSpellId,
+                _professionRecipes.Select(recipe => recipe.SpellId).ToArray())
+            : 0;
+        _professionScroll = preserveSelection ? previousScroll : 0;
         _professionCreateCount = 1;
-        _professionOpen = _professionRecipes.Count > 0;
+        _professionOpen = ProfessionFrameUiLaw.OpenForSnapshot(
+            panelKind.HasValue, _professionRecipes.Count);
         _professionPanelKind = _professionOpen ? panelKind : null;
+        _professionCraftType = _professionOpen && panelKind == ProfessionPanelKind.Craft
+            ? craftType : 0;
         _professionOpenerSpell = _professionOpen ? opener : 0;
         _professionKnownSnapshot.Clear();
         foreach (uint known in _actions.KnownSpells) _professionKnownSnapshot.Add(known);
@@ -142,7 +175,20 @@ public sealed partial class GameLoop
         EmitInterface("profession", "open", _professionOpen ? "OPEN" : "EMPTY", _net?.PlayerGuid ?? 0,
             $"line={line};opener={opener};recipes={_professionRecipes.Count};skill={value}/{max}");
         EmitProfessionRecipeSnapshot();
+        if (!wasOpen && _professionOpen)
+            PlayUiSound(ProfessionFrameUiLaw.OpenSound, ProfessionFrameUiLaw.SoundCategory);
         return _professionOpen;
+    }
+
+    private bool CloseProfessionFrame()
+    {
+        if (!_professionOpen) return false;
+        _professionOpen = false;
+        _professionPanelKind = null;
+        _professionCraftType = 0;
+        _professionOpenerSpell = 0;
+        PlayUiSound(ProfessionFrameUiLaw.CloseSound, ProfessionFrameUiLaw.SoundCategory);
+        return true;
     }
 
     // SkillLine.dbc primary professions plus the three player craft books that
@@ -371,6 +417,9 @@ public sealed partial class GameLoop
         bool delta = _professionKnownSnapshot.Add(spellId);
         EmitInterface("profession", "learned-recipe", delta ? "DELTA" : "KNOWN", spellId,
             $"line={recipe.SkillLineId};minimum={recipe.Minimum};known={_actions.KnownSpells.Count}");
+        if (_professionOpen && recipe.SkillLineId == _professionLine)
+            _ = OpenProfession(_professionLine, _professionOpenerSpell, _professionPanelKind,
+                _professionCraftType, preserveSelection: true);
     }
 
     private void SimulateProfessionFlow()
@@ -382,43 +431,44 @@ public sealed partial class GameLoop
     }
 
     public static string ProfessionSkillColor(uint value, uint low, uint high)
+        => ProfessionFrameUiLaw.DifficultyName(value, low, high);
+
+    private static int CompareTradeSkillRecipes(ProfessionRecipe a, ProfessionRecipe b)
     {
-        if (low == 0 && high == 0) return "orange";
-        if (value < low) return "orange";
-        uint yellowEnd = low + (high > low ? (high - low) / 2 : 0);
-        if (value < yellowEnd) return "yellow";
-        if (value < high) return "green";
-        return "gray";
+        int minimum = a.Skill.Minimum.CompareTo(b.Skill.Minimum);
+        if (minimum != 0) return minimum;
+        int reagents = a.Reagents.Sum(x => (int)x.Count)
+            .CompareTo(b.Reagents.Sum(x => (int)x.Count));
+        return reagents != 0 ? reagents :
+            string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
     }
 
     private bool GetSkillValue(uint line, out ushort value, out ushort max)
     {
-        value = max = 0;
+        return GetSkillValueAndBonus(line, out value, out max, out _);
+    }
+
+    private bool GetSkillValueAndBonus(uint line, out ushort value, out ushort max, out int bonus)
+    {
+        value = max = 0; bonus = 0;
         if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
         for (int slot = 0; slot < 128; slot++)
         {
             ushort field = (ushort)(ObjectFields.PLAYER_SKILL_INFO_1_1 + slot * 3);
             if ((ushort)(player.Fields.GetU32(field) ?? 0) != line) continue;
             uint packed = player.Fields.GetU32((ushort)(field + 1)) ?? 0;
-            value = (ushort)packed; max = (ushort)(packed >> 16); return true;
+            value = (ushort)packed; max = (ushort)(packed >> 16);
+            uint packedBonus = player.Fields.GetU32((ushort)(field + 2)) ?? 0;
+            bonus = unchecked((short)packedBonus) + unchecked((short)(packedBonus >> 16));
+            return true;
         }
         return false;
     }
 
     private uint BackpackCount(uint entry)
-        => CarriedCount(entry);
-
-    private uint CarriedCount(uint entry)
     {
         if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return 0;
         uint count = 0;
-        // Tools may be equipped (weapon, off-hand, profession item) rather than bagged.
-        for (int slot = 0; slot < 19; slot++)
-        {
-            ulong guid = player.Fields.PlayerInventorySlot(slot);
-            if (guid != 0 && _entities.TryGet(guid, out WorldEntity item) && item.Entry == entry)
-                count += Math.Max(1, item.Fields.ItemStackCount);
-        }
         for (int slot = 0; slot < 16; slot++)
         {
             ulong guid = player.Fields.PlayerBackpackSlot(slot);
@@ -440,6 +490,21 @@ public sealed partial class GameLoop
         return count;
     }
 
+    private uint CarriedCount(uint entry)
+    {
+        uint count = BackpackCount(entry);
+        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return count;
+        // Tools may be equipped (weapon, off-hand, profession item) rather than bagged. Reagent
+        // counts deliberately use BackpackCount and exclude this equipment band.
+        for (int slot = 0; slot < 19; slot++)
+        {
+            ulong guid = player.Fields.PlayerInventorySlot(slot);
+            if (guid != 0 && _entities.TryGet(guid, out WorldEntity item) && item.Entry == entry)
+                count += Math.Max(1, item.Fields.ItemStackCount);
+        }
+        return count;
+    }
+
     private void DrawProfessionFrame()
     {
         if (!_professionOpen || _gameplayArt is null) return;
@@ -451,19 +516,37 @@ public sealed partial class GameLoop
             DrawUnitPortraitImage(dl, player,
                 origin + ProfessionFrameUiLaw.PortraitOffset * s,
                 ProfessionFrameUiLaw.PortraitSize * s, 0, false);
+        bool tradeSkill = _professionPanelKind != ProfessionPanelKind.Craft;
         DrawFourPieceShell(dl, origin, s,
-            @"Interface\ClassTrainerFrame\UI-ClassTrainer-TopLeft",
-            @"Interface\ClassTrainerFrame\UI-ClassTrainer-TopRight",
-            @"Interface\TradeSkillFrame\UI-TradeSkill-BotLeft",
-            @"Interface\ClassTrainerFrame\UI-ClassTrainer-BotRight");
+            ProfessionFrameUiLaw.TopLeftArt,
+            ProfessionFrameUiLaw.TopRightArt,
+            ProfessionFrameUiLaw.BottomLeftArtFor(tradeSkill),
+            ProfessionFrameUiLaw.BottomRightArt);
         string lineName = _skillLines?.TryGet(_professionLine, out SkillLineInfo line) == true ? line.Name : $"Skill {_professionLine}";
         GetSkillValue(_professionLine, out ushort value, out ushort max);
-        DrawCenteredText(dl, origin + ProfessionFrameUiLaw.TitleCenter * s,
-            lineName, 14f * s, VanillaGold);
+        GameText.DrawCentered(dl, ProfessionFrameUiLaw.TitleFont, lineName,
+            origin + ProfessionFrameUiLaw.TitleCenter * s, s);
         DrawProfessionRankBar(dl, origin, s, lineName, value, max);
+        uint skillBorder = _gameplayArt.Handle(ProfessionFrameUiLaw.SkillBorderPath);
+        if (skillBorder != 0)
+        {
+            Vector2 leftMin = origin + ProfessionFrameUiLaw.SkillBorderLeft.Min * s;
+            dl.AddImage((nint)skillBorder, leftMin,
+                leftMin + ProfessionFrameUiLaw.SkillBorderLeft.Size * s,
+                ProfessionFrameUiLaw.SkillBorderLeftUvMin,
+                ProfessionFrameUiLaw.SkillBorderLeftUvMax);
+            Vector2 rightMin = origin + ProfessionFrameUiLaw.SkillBorderRight.Min * s;
+            dl.AddImage((nint)skillBorder, rightMin,
+                rightMin + ProfessionFrameUiLaw.SkillBorderRight.Size * s,
+                ProfessionFrameUiLaw.SkillBorderRightUvMin,
+                ProfessionFrameUiLaw.SkillBorderRightUvMax);
+        }
 
-        bool tradeSkill = _professionPanelKind != ProfessionPanelKind.Craft;
-        IReadOnlyList<ProfessionDisplayRow> displayRows = ProfessionDisplayRows(tradeSkill, value);
+        GetSkillValueAndBonus(_professionLine, out _, out _, out int skillBonus);
+        uint difficultyRank = tradeSkill ? value :
+            ProfessionFrameUiLaw.EffectiveSkill(value, skillBonus);
+        IReadOnlyList<ProfessionDisplayRow> displayRows =
+            ProfessionDisplayRows(tradeSkill, difficultyRank);
         int maximumScroll = ProfessionFrameUiLaw.MaximumScroll(displayRows.Count);
         _professionScroll = ProfessionFrameUiLaw.ClampScroll(_professionScroll, displayRows.Count);
         Vector2 listMin = origin + ProfessionFrameUiLaw.List.Min * s;
@@ -489,41 +572,72 @@ public sealed partial class GameLoop
                         ProfessionFrameUiLaw.MaximumScroll(displayRows.Count));
                 }
                 GameText.Draw(dl, "GameFontNormalSmall", displayRow.Expanded ? "−" : "+",
-                    rowMin + new Vector2(1, 1) * s, s, VanillaGold);
+                    rowMin + ProfessionFrameUiLaw.HeaderMarkerOffset * s, s, VanillaGold);
                 GameText.Draw(dl, "GameFontNormalSmall", displayRow.Text,
-                    rowMin + new Vector2(18, 1) * s, s, VanillaGold);
+                    rowMin + ProfessionFrameUiLaw.HeaderTextOffset * s, s, VanillaGold);
                 continue;
             }
             int i = displayRow.RecipeIndex;
             ProfessionRecipe recipe = _professionRecipes[i];
-            string difficulty = ProfessionSkillColor(value, recipe.Skill.TrivialLow, recipe.Skill.TrivialHigh);
-            Vector4 c = ProfessionColor(difficulty);
+            int difficultyTier = ProfessionFrameUiLaw.DifficultyTier(difficultyRank,
+                recipe.Skill.TrivialLow, recipe.Skill.TrivialHigh);
+            Vector4 c = ProfessionFrameUiLaw.DifficultyColor(difficultyTier);
             uint color = ImGui.ColorConvertFloat4ToU32(c);
             int craftable = ProfessionCraftableCount(recipe);
             if (VanillaListRow(dl, $"##recipe-{recipe.SpellId}",
                     rowMin, logicalRow.Size, s,
-                    ProfessionFrameUiLaw.RowLabel(recipe.Name, craftable),
-                    _professionSelected == i, color))
+                    "",
+                    _professionSelected == i, color, selectedColor: color,
+                    hoverHighlight: ProfessionFrameUiLaw.RowHoverHighlight(tradeSkill)))
             {
                 _professionSelected = i;
                 _professionCreateCount = 1;
             }
+            string rowLabel = ProfessionFrameUiLaw.RowLabel(recipe.Name, craftable);
+            Vector2 rowText = rowMin + ProfessionFrameUiLaw.RecipeNameOffset(tradeSkill) * s;
+            rowText.Y = GameText.BoxCenteredTop("GameFontNormal", rowMin.Y,
+                ProfessionFrameUiLaw.RowHeight, s);
+            GameText.Draw(dl, "GameFontNormal", rowLabel, rowText, s, color);
             if (!tradeSkill && recipe.Rank.Length > 0)
+            {
+                Vector2 subText = rowMin + ProfessionFrameUiLaw.CraftSubTextOffset * s;
+                subText.Y = GameText.BoxCenteredTop("GameFontNormalSmall", rowMin.Y,
+                    ProfessionFrameUiLaw.RowHeight, s);
                 GameText.Draw(dl, "GameFontNormalSmall",
                     ProfessionFrameUiLaw.CraftSubText(recipe.Rank),
-                    rowMin + new Vector2(190, 1) * s, s, color);
+                    subText, s, color);
+            }
             if (tradeSkill && ImGui.IsItemHovered() && recipe.Product != 0 &&
                 _items?.TryGet(recipe.Product, out ItemTemplate? rowProduct) == true && rowProduct is not null)
+            {
+                ProfessionFrameUiLaw.TooltipSeat tooltipSeat =
+                    ProfessionFrameUiLaw.RightTooltipSeat(rowMin,
+                        rowMin + logicalRow.Size * s);
                 OfferPreparedItemTooltip(new("item:profession-row",
                         ((ulong)recipe.SpellId << 32) | recipe.Product),
-                    PrepareItemTooltipBodySnapshot(rowProduct, 1));
+                    PrepareItemTooltipBodySnapshot(rowProduct, 1),
+                    tooltipSeat.Anchor, nextWindowPivot: tooltipSeat.Pivot);
+            }
         }
         if (tradeSkill)
             DrawProfessionTradeSkillControls(dl, origin, s, displayRows);
         if (maximumScroll > 0)
             DrawProfessionScrollBar(dl, origin, s, maximumScroll);
         DrawArt(dl, @"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar",
-            origin + ProfessionFrameUiLaw.HorizontalBar * s, new Vector2(331, 16), s);
+            origin + ProfessionFrameUiLaw.HorizontalBar * s,
+            ProfessionFrameUiLaw.HorizontalBarSize, s);
+        DrawArt(dl, @"Interface\ClassTrainerFrame\UI-ClassTrainer-DetailHeaderLeft",
+            origin + ProfessionFrameUiLaw.DetailHeaderLeft.Min * s,
+            ProfessionFrameUiLaw.DetailHeaderLeft.Size, s);
+        DrawArt(dl, @"Interface\ClassTrainerFrame\UI-ClassTrainer-DetailHeaderRight",
+            origin + ProfessionFrameUiLaw.DetailHeaderRight.Min * s,
+            ProfessionFrameUiLaw.DetailHeaderRight.Size, s);
+        if (ProfessionFrameUiLaw.DetailIconVisible(_professionRecipes.Count))
+            DrawArt(dl, @"Interface\Buttons\UI-EmptySlot",
+                origin + ProfessionFrameUiLaw.DetailEmptySlot.Min * s,
+                ProfessionFrameUiLaw.DetailEmptySlot.Size, s);
+        PreparedSharedSpellTooltip? hoveredCraftSpellTooltip = null;
+        bool selectedRecipeReady = false;
         if (_professionRecipes.Count > 0)
         {
             ProfessionRecipe recipe = _professionRecipes[Math.Clamp(_professionSelected, 0, _professionRecipes.Count - 1)];
@@ -533,76 +647,183 @@ public sealed partial class GameLoop
             ItemTemplate? product = null;
             if (recipe.Product != 0 && _items?.TryGet(recipe.Product, out product) == true && product is not null)
                 productIcon = product.IconPath;
+            SpellInfo detailSpell = default;
+            bool hasDetailSpell = _spellCatalog?.TryGet(recipe.SpellId, out detailSpell) == true;
+            if (!tradeSkill && hasDetailSpell)
+                productIcon = string.IsNullOrWhiteSpace(detailSpell.IconPath)
+                    ? ProfessionFrameUiLaw.FallbackIconPath : detailSpell.IconPath;
             if (productIcon.Length > 0)
             {
                 uint icon = _gameplayArt.Handle(productIcon);
-                Vector2 productMin = origin + ProfessionFrameUiLaw.ProductTexture.Min * s;
+                Vector2 productMin = origin + ProfessionFrameUiLaw.DetailProduct.Min * s;
                 if (icon != 0) dl.AddImage((nint)icon, productMin,
-                    productMin + ProfessionFrameUiLaw.ProductTexture.Size * s);
+                    productMin + ProfessionFrameUiLaw.DetailProduct.Size * s);
             }
             Vector2 productHit = origin + ProfessionFrameUiLaw.DetailProduct.Min * s;
             ImGui.SetCursorScreenPos(productHit);
             ImGui.InvisibleButton("##profession-product", ProfessionFrameUiLaw.DetailProduct.Size * s);
-            if (ImGui.IsItemHovered() && product is not null)
-                OfferPreparedItemTooltip(new("item:profession-product",
-                        ((ulong)recipe.SpellId << 32) | product.Entry),
-                    PrepareItemTooltipBodySnapshot(product, 1));
+            if (ImGui.IsItemHovered())
+            {
+                if (tradeSkill && product is not null)
+                {
+                    ProfessionFrameUiLaw.TooltipSeat tooltipSeat =
+                        ProfessionFrameUiLaw.RightTooltipSeat(productHit,
+                            productHit + ProfessionFrameUiLaw.DetailProduct.Size * s);
+                    OfferPreparedItemTooltip(new("item:profession-product",
+                            ((ulong)recipe.SpellId << 32) | product.Entry),
+                        PrepareItemTooltipBodySnapshot(product, 1),
+                        tooltipSeat.Anchor, nextWindowPivot: tooltipSeat.Pivot);
+                }
+                else if (!tradeSkill && hasDetailSpell)
+                {
+                    ProfessionFrameUiLaw.CraftTooltipTarget tooltip =
+                        ProfessionFrameUiLaw.CraftTooltip(detailSpell.Id, detailSpell.EffectIds,
+                            detailSpell.EffectItemTypes, detailSpell.EffectTriggerSpells);
+                    if (tooltip.Kind == ProfessionFrameUiLaw.CraftTooltipKind.Item &&
+                        _items?.TryGet(tooltip.Id, out ItemTemplate? tooltipItem) == true &&
+                        tooltipItem is not null)
+                    {
+                        ProfessionFrameUiLaw.TooltipSeat tooltipSeat =
+                            ProfessionFrameUiLaw.CraftDetailTooltipSeat(productHit,
+                                productHit + ProfessionFrameUiLaw.DetailProduct.Size * s);
+                        OfferPreparedItemTooltip(new("item:craft-detail",
+                                ((ulong)recipe.SpellId << 32) | tooltip.Id),
+                            PrepareItemTooltipBodySnapshot(tooltipItem, 1),
+                            tooltipSeat.Anchor, nextWindowPivot: tooltipSeat.Pivot);
+                    }
+                    else if (tooltip.Kind == ProfessionFrameUiLaw.CraftTooltipKind.Spell)
+                        hoveredCraftSpellTooltip = PrepareSharedSpellTooltip(
+                            new("spell:craft-detail", tooltip.Id), tooltip.Id, s,
+                            SpellTooltipPlacement.OwnerRight, productHit,
+                            productHit + ProfessionFrameUiLaw.DetailProduct.Size * s);
+                }
+            }
             GameText.Draw(dl, "GameFontNormal", recipe.Name,
                 origin + ProfessionFrameUiLaw.ProductName * s, s, VanillaGold);
 
             float descriptionHeight = 0;
-            if (!tradeSkill && !string.IsNullOrWhiteSpace(recipe.Description))
-                descriptionHeight = DrawWrappedText(dl, recipe.Description,
-                    origin + ProfessionFrameUiLaw.Description * s, 290, 9f * s,
-                    s, 0xffffffff, maxLines: 2) / s;
+            bool hasDescription = !tradeSkill && !string.IsNullOrWhiteSpace(recipe.Description);
+            if (!tradeSkill)
+            {
+                var requirements = new List<(string Name, bool Met)>();
+                foreach (uint tool in recipe.Tools)
+                    if (_items?.TryGet(tool, out ItemTemplate? item) == true && item is not null &&
+                        ProfessionFrameUiLaw.ResolvedRequirementName(item.Name) is { } toolName)
+                        requirements.Add((toolName, CarriedCount(tool) > 0));
+                if (recipe.RequiredFocus != 0)
+                {
+                    EnsureSpellFocusCatalog();
+                    if (ProfessionFrameUiLaw.ResolvedRequirementName(
+                            _spellFoci?.Name(recipe.RequiredFocus)) is { } focusName)
+                        requirements.Add((focusName, true));
+                }
+                string requirementMarkup =
+                    ProfessionFrameUiLaw.CraftRequirementsText(requirements);
+                if (requirementMarkup.Length > 0)
+                    DrawProfessionMarkupLine(dl, "GameFontHighlightSmall", requirementMarkup,
+                        origin + ProfessionFrameUiLaw.CraftRequirements * s, s);
+            }
+            else
+            {
+                var requirements = new List<(string Name, bool Met)>();
+                foreach (uint tool in recipe.Tools)
+                    if (_items?.TryGet(tool, out ItemTemplate? item) == true && item is not null &&
+                        ProfessionFrameUiLaw.ResolvedRequirementName(item.Name) is { } toolName)
+                        requirements.Add((toolName, CarriedCount(tool) > 0));
+                if (recipe.RequiredFocus != 0)
+                {
+                    EnsureSpellFocusCatalog();
+                    if (ProfessionFrameUiLaw.ResolvedRequirementName(
+                            _spellFoci?.Name(recipe.RequiredFocus)) is { } focusName)
+                        requirements.Add((focusName, true));
+                }
+                string requirementNames =
+                    ProfessionFrameUiLaw.RequirementNamesMarkup(requirements);
+                if (requirementNames.Length > 0)
+                {
+                    Vector2 labelAt = origin + ProfessionFrameUiLaw.TradeSkillRequirementLabel * s;
+                    GameText.Draw(dl, ProfessionFrameUiLaw.RequirementFont,
+                        ProfessionFrameUiLaw.RequiresLabel, labelAt, s);
+                    float labelWidth = GameText.MeasureWidth(
+                        ProfessionFrameUiLaw.RequirementFont,
+                        ProfessionFrameUiLaw.RequiresLabel, s);
+                    DrawProfessionMarkupLine(dl, ProfessionFrameUiLaw.RequirementFont,
+                        requirementNames,
+                        origin + ProfessionFrameUiLaw.TradeSkillRequirementTextAt(
+                            labelWidth, s) * s, s);
+                }
+            }
+            string description = hasDescription && hasDetailSpell && _spellCatalog is not null
+                ? SpellTooltipLaw.Substitute(recipe.Description, detailSpell, _spellCatalog)
+                : recipe.Description;
+            if (hasDescription)
+            {
+                IReadOnlyList<string> descriptionLines = ProfessionFrameUiLaw.WrapDescription(
+                    description, ProfessionFrameUiLaw.DescriptionWidth * s,
+                    line => GameText.MeasureWidth("GameFontHighlightSmall", line, s));
+                float descriptionPitch = GameText.LinePitch("GameFontHighlightSmall", s);
+                for (int descriptionLine = 0; descriptionLine < descriptionLines.Count;
+                     descriptionLine++)
+                {
+                    Vector2 descriptionAt = origin + ProfessionFrameUiLaw.Description * s;
+                    descriptionAt.Y += descriptionLine * descriptionPitch;
+                    GameText.Draw(dl, "GameFontHighlightSmall",
+                        descriptionLines[descriptionLine],
+                        descriptionAt, s);
+                }
+                descriptionHeight = descriptionLines.Count * descriptionPitch / s;
+            }
+            Vector2 reagentLabel = tradeSkill ? ProfessionFrameUiLaw.TradeSkillReagentLabel :
+                ProfessionFrameUiLaw.CraftReagentLabelAt(descriptionHeight, hasDescription);
             GameText.Draw(dl, "GameFontNormalSmall", "Reagents:",
-                origin + (ProfessionFrameUiLaw.ReagentLabel + new Vector2(0, descriptionHeight)) * s,
+                origin + reagentLabel * s,
                 s, VanillaGold);
+            bool resolvedCraftReagentsReady = true;
             for (int i = 0; i < recipe.Reagents.Count && i < 8; i++)
             {
                 SpellReagent reagent = recipe.Reagents[i];
                 ItemTemplate? item = null;
                 if (_items?.TryGet(reagent.ItemId, out ItemTemplate? found) == true) item = found;
-                string name = item?.Name ?? $"Item {reagent.ItemId}";
+                bool reagentVisible = ProfessionFrameUiLaw.ReagentTemplateVisible(
+                    item is not null, item?.IconPath);
                 uint have = BackpackCount(reagent.ItemId);
-                ProfessionFrameUiLaw.LogicalRect reagentRect = ProfessionFrameUiLaw.Reagent(i, descriptionHeight);
+                resolvedCraftReagentsReady &= ProfessionFrameUiLaw.ReagentAllowsCreate(
+                    reagentVisible, have, reagent.Count);
+                if (!reagentVisible || item is null) continue;
+                string name = item.Name;
+                ProfessionFrameUiLaw.LogicalRect reagentRect =
+                    ProfessionFrameUiLaw.Reagent(i, tradeSkill, reagentLabel.Y);
                 Vector2 row = origin + reagentRect.Min * s;
-                if (item is not null)
-                {
-                    uint icon = _gameplayArt.Handle(item.IconPath);
-                    if (icon != 0) dl.AddImage((nint)icon, row, row + new Vector2(28) * s);
-                }
-                uint reagentColor = have >= reagent.Count ? 0xffffffff : 0xff4040ff;
+                uint icon = _gameplayArt.Handle(item.IconPath);
+                if (icon != 0)
+                    dl.AddImage((nint)icon,
+                        row + ProfessionFrameUiLaw.ReagentIconOffset * s,
+                        row + (ProfessionFrameUiLaw.ReagentIconOffset +
+                            ProfessionFrameUiLaw.ReagentIconSize) * s,
+                        Vector2.Zero, Vector2.One,
+                        have >= reagent.Count ? 0xffffffff : 0xff808080);
+                uint reagentColor = have >= reagent.Count ? 0xffffffff : 0xff808080;
                 GameText.Draw(dl, "GameFontHighlightSmall", name,
-                    row + new Vector2(34, 1) * s, s, reagentColor);
-                GameText.Draw(dl, "GameFontHighlightSmall", $"{have} /{reagent.Count}",
-                    row + new Vector2(34, 15) * s, s, reagentColor);
+                    row + ProfessionFrameUiLaw.ReagentNameOffset * s, s, reagentColor);
+                GameText.Draw(dl, "GameFontNormalSmall",
+                    $"{ProfessionFrameUiLaw.ReagentHaveText(have)} /{reagent.Count}",
+                    row + ProfessionFrameUiLaw.ReagentCountOffset * s, s, VanillaGold);
                 ImGui.SetCursorScreenPos(row);
                 ImGui.InvisibleButton($"##profession-reagent-{i}", reagentRect.Size * s);
                 if (ImGui.IsItemHovered() && item is not null)
+                {
+                    ProfessionFrameUiLaw.TooltipSeat tooltipSeat =
+                        ProfessionFrameUiLaw.CraftReagentTooltipSeat(row);
                     OfferPreparedItemTooltip(new("item:profession-reagent",
                             ((ulong)recipe.SpellId << 32) | reagent.ItemId),
-                        PrepareItemTooltipBodySnapshot(item, reagent.Count));
+                        PrepareItemTooltipBodySnapshot(item, reagent.Count),
+                        tooltipSeat.Anchor, nextWindowPivot: tooltipSeat.Pivot);
+                }
             }
-            int requirementLine = (int)(ProfessionFrameUiLaw.ReagentGrid.Y + descriptionHeight +
-                ((Math.Min(recipe.Reagents.Count, 8) + 1) / 2) * 32);
-            foreach (uint tool in recipe.Tools)
-            {
-                bool have = CarriedCount(tool) > 0;
-                string name = _items?.TryGet(tool, out ItemTemplate? item) == true && item is not null
-                    ? item.Name : $"Item {tool}";
-                dl.AddText(ImGui.GetFont(), 9f * s, origin + new Vector2(32, requirementLine) * s,
-                    have ? 0xffffffff : 0xff4040ff, $"Tool: {name}");
-                requirementLine += 14;
-            }
-            if (recipe.RequiredFocus != 0)
-            {
-                bool haveFocus = HasNearbySpellFocus(recipe.RequiredFocus);
-                dl.AddText(ImGui.GetFont(), 9f * s, origin + new Vector2(32, requirementLine) * s,
-                    haveFocus ? 0xffffffff : 0xff4040ff, $"Requires: {SpellFocusName(recipe.RequiredFocus)}");
-            }
-            bool ready = recipe.Reagents.All(r => BackpackCount(r.ItemId) >= r.Count) &&
-                recipe.Tools.All(t => CarriedCount(t) > 0) && HasNearbySpellFocus(recipe.RequiredFocus);
+            bool ready = tradeSkill
+                ? recipe.Reagents.All(r => BackpackCount(r.ItemId) >= r.Count)
+                : resolvedCraftReagentsReady;
+            selectedRecipeReady = ready;
             if (tradeSkill)
             {
                 if (VanillaButton(dl, "##profession-create-all", "Create All",
@@ -611,30 +832,47 @@ public sealed partial class GameLoop
                     CraftAllProfessionRecipe(_professionSelected);
                 DrawProfessionCountSpinner(dl, origin, s, craftable);
             }
-            if (VanillaButton(dl, "##profession-create", "Create",
+            if (tradeSkill && VanillaButton(dl, "##profession-create", "Create",
                     origin + ProfessionFrameUiLaw.Create.Min * s,
                     ProfessionFrameUiLaw.Create.Size, s, ready))
             {
-                if (tradeSkill) CraftProfessionRecipeCount(_professionSelected, _professionCreateCount);
-                else CraftProfessionRecipe(_professionSelected);
+                CraftProfessionRecipeCount(_professionSelected, _professionCreateCount);
             }
         }
+        else if (!tradeSkill)
+        {
+            // CraftReagentLabel is a static layer region in current Benilla. HideDetails clears
+            // recipe-owned content but intentionally leaves this caption painted.
+            GameText.Draw(dl, "GameFontNormalSmall", "Reagents:",
+                origin + ProfessionFrameUiLaw.CraftReagentLabelAt(0, false) * s,
+                s, VanillaGold);
+        }
+        // CraftCreateButton also remains present in an empty book; HideDetails disables it. Keep
+        // that stable action-row geometry instead of making the button appear with the first row.
+        if (!tradeSkill && VanillaButton(dl, "##profession-create", "Create",
+                origin + ProfessionFrameUiLaw.Create.Min * s,
+                ProfessionFrameUiLaw.Create.Size, s, selectedRecipeReady))
+            CraftProfessionRecipe(_professionSelected);
         if (VanillaButton(dl, "##profession-exit", _professionBatchRemaining > 0 ? "Cancel" : "Exit",
                 origin + ProfessionFrameUiLaw.Exit.Min * s,
                 ProfessionFrameUiLaw.Exit.Size, s))
         {
             if (_professionBatchRemaining > 0) { _professionBatchRemaining = 0; _net?.CancelCast(_professionCraftSpell); }
-            else _professionOpen = false;
+            else CloseProfessionFrame();
         }
-        DrawImageButton(dl, "##profession-close", origin + ProfessionFrameUiLaw.Close * s, new Vector2(32) * s,
+        DrawImageButton(dl, "##profession-close", origin + ProfessionFrameUiLaw.Close * s,
+            ProfessionFrameUiLaw.CloseSize * s,
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
-        if (ImGui.IsItemClicked()) _professionOpen = false;
+        if (ImGui.IsItemClicked()) CloseProfessionFrame();
         ImGui.End();
+        if (hoveredCraftSpellTooltip is { } preparedCraftTooltip)
+            OfferPreservedSharedGameTooltipRenderer(preparedCraftTooltip.Owner,
+                () => DrawSpellTooltip(preparedCraftTooltip.Snapshot));
     }
 
-    private IReadOnlyList<ProfessionFrameUiLaw.TradeSkillNode> ProfessionTradeSkillNodes(ushort rank)
+    private IReadOnlyList<ProfessionFrameUiLaw.TradeSkillNode> ProfessionTradeSkillNodes(uint rank)
     {
         var nodes = new List<ProfessionFrameUiLaw.TradeSkillNode>(_professionRecipes.Count);
         for (int i = 0; i < _professionRecipes.Count; i++)
@@ -658,11 +896,24 @@ public sealed partial class GameLoop
         return nodes;
     }
 
-    private IReadOnlyList<ProfessionDisplayRow> ProfessionDisplayRows(bool tradeSkill, ushort rank)
+    private IReadOnlyList<ProfessionDisplayRow> ProfessionDisplayRows(bool tradeSkill, uint rank)
     {
         if (!tradeSkill)
-            return _professionRecipes.Select((recipe, index) =>
-                new ProfessionDisplayRow(false, 0, recipe.Name, index, false)).ToArray();
+        {
+            var rows = _professionRecipes.Select((recipe, index) =>
+                new { Recipe = recipe, Index = index }).ToList();
+            rows.Sort((a, b) => ProfessionFrameUiLaw.CompareCraftRecipes(
+                ProfessionFrameUiLaw.DifficultyTier(rank, a.Recipe.Skill.TrivialLow,
+                    a.Recipe.Skill.TrivialHigh), a.Recipe.Name,
+                _spellCatalog?.TryGet(a.Recipe.SpellId, out SpellInfo aSpell) == true
+                    ? aSpell.SpellLevel : 0, a.Recipe.SpellId,
+                ProfessionFrameUiLaw.DifficultyTier(rank, b.Recipe.Skill.TrivialLow,
+                    b.Recipe.Skill.TrivialHigh), b.Recipe.Name,
+                _spellCatalog?.TryGet(b.Recipe.SpellId, out SpellInfo bSpell) == true
+                    ? bSpell.SpellLevel : 0, b.Recipe.SpellId, _professionCraftType));
+            return rows.Select(row => new ProfessionDisplayRow(false, 0,
+                row.Recipe.Name, row.Index, false)).ToArray();
+        }
         return ProfessionFrameUiLaw.BuildTradeSkillTree(ProfessionTradeSkillNodes(rank),
                 _professionCollapsedGroups, _professionSubclassFilter,
                 _professionInventorySlotFilter)
@@ -674,19 +925,31 @@ public sealed partial class GameLoop
         IReadOnlyList<ProfessionDisplayRow> rows)
     {
         ulong[] groupKeys = rows.Where(row => row.Header).Select(row => row.GroupKey).ToArray();
-        if (groupKeys.Length > 0)
+        foreach (ProfessionFrameUiLaw.ArtPiece piece in ProfessionFrameUiLaw.CollapseAllTabArt)
         {
-            bool anyCollapsed = groupKeys.Any(_professionCollapsedGroups.Contains);
-            if (VanillaButton(dl, "##profession-collapse-all", anyCollapsed ? "+ All" : "− All",
-                    origin + ProfessionFrameUiLaw.CollapseAll.Min * scale,
-                    ProfessionFrameUiLaw.CollapseAll.Size, scale))
-            {
-                if (anyCollapsed)
-                    foreach (ulong key in groupKeys) _professionCollapsedGroups.Remove(key);
-                else
-                    foreach (ulong key in groupKeys) _professionCollapsedGroups.Add(key);
-                _professionScroll = 0;
-            }
+            Vector2 artMin = origin + piece.Rect.Min * scale;
+            DrawArt(dl, piece.Path, artMin, piece.Rect.Size, scale);
+        }
+        bool allCollapsed = groupKeys.Length > 0 &&
+            groupKeys.All(_professionCollapsedGroups.Contains);
+        if (VanillaCollapseAllButton(dl, "##profession-collapse-all",
+                origin + ProfessionFrameUiLaw.CollapseAll.Min * scale,
+                ProfessionFrameUiLaw.CollapseAll.Size,
+                origin + ProfessionFrameUiLaw.CollapseAllIcon.Min * scale,
+                ProfessionFrameUiLaw.CollapseAllIcon.Size,
+                origin + ProfessionFrameUiLaw.CollapseAllLabelCenter * scale, scale,
+                allCollapsed, groupKeys.Length > 0, ProfessionFrameUiLaw.CollapseAllLabel,
+                ProfessionFrameUiLaw.CollapseAllFont,
+                ProfessionFrameUiLaw.CollapseAllDisabledFont,
+                ProfessionFrameUiLaw.CollapseAllMinusPath,
+                ProfessionFrameUiLaw.CollapseAllPlusPath,
+                ProfessionFrameUiLaw.CollapseAllHighlightPath))
+        {
+            if (allCollapsed)
+                foreach (ulong key in groupKeys) _professionCollapsedGroups.Remove(key);
+            else
+                foreach (ulong key in groupKeys) _professionCollapsedGroups.Add(key);
+            _professionScroll = 0;
         }
 
         IReadOnlyList<ProfessionFrameUiLaw.TradeSkillNode> nodes =
@@ -719,7 +982,6 @@ public sealed partial class GameLoop
     private void DrawProfessionFilterMenu(ImDrawListPtr dl, Vector2 origin, float scale,
         IReadOnlyList<ProfessionFrameUiLaw.TradeSkillNode> nodes)
     {
-        const float rowHeight = 18;
         bool subclass = _professionFilterMenu == 1;
         var choices = new List<(string Text, ulong? Subclass, int? Slot)>
         {
@@ -750,7 +1012,7 @@ public sealed partial class GameLoop
         float width = subclass ? ProfessionFrameUiLaw.SubClassFilter.Width :
             ProfessionFrameUiLaw.InvSlotFilter.Width;
         Vector2 min = origin + logicalMin * scale;
-        Vector2 size = new(width, choices.Count * rowHeight + 4);
+        Vector2 size = ProfessionFrameUiLaw.FilterMenuSize(width, choices.Count);
         dl.AddRectFilled(min, min + size * scale, 0xf0100804);
         dl.AddRect(min, min + size * scale, VanillaGold, 0, ImDrawFlags.None, scale);
         for (int i = 0; i < choices.Count; i++)
@@ -758,9 +1020,10 @@ public sealed partial class GameLoop
             (string text, ulong? subclassKey, int? slot) = choices[i];
             bool selected = subclass ? _professionSubclassFilter == subclassKey :
                 _professionInventorySlotFilter == slot;
+            ProfessionFrameUiLaw.LogicalRect row =
+                ProfessionFrameUiLaw.FilterMenuRow(i, width);
             if (VanillaListRow(dl, $"##profession-filter-{_professionFilterMenu}-{i}",
-                    min + new Vector2(2, 2 + i * rowHeight) * scale,
-                    new Vector2(width - 4, rowHeight), scale,
+                    min + row.Min * scale, row.Size, scale,
                     (selected ? "✓ " : "  ") + text, selected, VanillaGold))
             {
                 if (subclass) _professionSubclassFilter = subclassKey;
@@ -789,12 +1052,14 @@ public sealed partial class GameLoop
         ProfessionFrameUiLaw.LogicalRect logical = ProfessionFrameUiLaw.Rank;
         Vector2 min = origin + logical.Min * scale;
         Vector2 size = logical.Size * scale;
-        dl.AddRectFilled(min, min + size, 0x33ffffff);
+        dl.AddRectFilled(min, min + size, ProfessionFrameUiLaw.RankBackgroundColor);
         float fraction = ProfessionFrameUiLaw.RankFraction(value, maximum);
         uint fill = _gameplayArt?.Handle(ProfessionFrameUiLaw.RankFillPath) ?? 0;
         if (fill != 0 && fraction > 0)
-            dl.AddImage((nint)fill, min, min + new Vector2(size.X * fraction, size.Y),
-                Vector2.Zero, new Vector2(fraction, 1), 0xffbf4040);
+            dl.AddImage((nint)fill, min,
+                min + ProfessionFrameUiLaw.RankFillSize(size, fraction),
+                Vector2.Zero, ProfessionFrameUiLaw.RankFillUvMax(fraction),
+                ProfessionFrameUiLaw.RankFillColor);
         ProfessionFrameUiLaw.LogicalRect borderLogical = ProfessionFrameUiLaw.RankBorder;
         uint border = _gameplayArt?.Handle(ProfessionFrameUiLaw.RankBorderPath) ?? 0;
         if (border != 0)
@@ -802,11 +1067,27 @@ public sealed partial class GameLoop
             Vector2 borderMin = origin + borderLogical.Min * scale;
             dl.AddImage((nint)border, borderMin, borderMin + borderLogical.Size * scale);
         }
-        Vector2 text = min + new Vector2(6, 1) * scale;
+        Vector2 text = min + ProfessionFrameUiLaw.RankTextOffset * scale;
         GameText.Draw(dl, "GameFontNormalSmall", name, text, scale, VanillaGold);
         float nameWidth = GameText.MeasureWidth("GameFontNormalSmall", name, scale);
-        GameText.Draw(dl, "GameFontHighlightSmall", $"{value} / {maximum}",
-            text + new Vector2(nameWidth + 13 * scale, 0), scale, 0xffffffff);
+        GameText.Draw(dl, "GameFontHighlightSmall",
+            ProfessionFrameUiLaw.RankValueText(value, maximum),
+            ProfessionFrameUiLaw.RankValueTextAt(min, nameWidth, scale), scale, 0xffffffff);
+    }
+
+    private static void DrawProfessionMarkupLine(ImDrawListPtr dl, string font,
+        string markup, Vector2 position, float scale)
+    {
+        Vector2 cursor = position;
+        foreach (UiTextMarkupLine line in UiTextMarkupLaw.Parse(markup, Vector4.One))
+        {
+            foreach (UiTextColorRun run in line.Runs)
+            {
+                GameText.Draw(dl, font, run.Text, cursor, scale,
+                    ImGui.ColorConvertFloat4ToU32(run.Color));
+                cursor.X += GameText.MeasureWidth(font, run.Text, scale);
+            }
+        }
     }
 
     private void DrawProfessionScrollBar(ImDrawListPtr dl, Vector2 origin, float scale, int maximum)
@@ -828,14 +1109,16 @@ public sealed partial class GameLoop
                 $@"Interface\Buttons\UI-ScrollBar-Scroll{direction}Button-{state}") ?? 0;
             if (texture != 0)
                 dl.AddImage((nint)texture, min, min + logical.Size * scale,
-                    new Vector2(.25f), new Vector2(.75f));
+                    ProfessionFrameUiLaw.ScrollButtonUvMin,
+                    ProfessionFrameUiLaw.ScrollButtonUvMax);
             if (hovered)
             {
                 uint highlight = _gameplayArt?.AdditiveHandle(
                     $@"Interface\Buttons\UI-ScrollBar-Scroll{direction}Button-Highlight") ?? 0;
                 if (highlight != 0)
                     dl.AddImage((nint)highlight, min, min + logical.Size * scale,
-                        new Vector2(.25f), new Vector2(.75f));
+                        ProfessionFrameUiLaw.ScrollButtonUvMin,
+                        ProfessionFrameUiLaw.ScrollButtonUvMax);
             }
             if (clicked) _professionScroll += upward ? -1 : 1;
         }
@@ -843,12 +1126,13 @@ public sealed partial class GameLoop
         Arrow("##profession-scroll-up", ProfessionFrameUiLaw.ScrollUp, upward: true);
         Arrow("##profession-scroll-down", ProfessionFrameUiLaw.ScrollDown, upward: false);
         float thumbY = ProfessionFrameUiLaw.ScrollThumbY(_professionScroll, maximum);
-        Vector2 thumbMin = origin + new Vector2(ProfessionFrameUiLaw.ScrollSlider.X, thumbY) * scale;
+        Vector2 thumbMin = ProfessionFrameUiLaw.ScrollThumbMin(origin, thumbY, scale);
         Vector2 thumbSize = ProfessionFrameUiLaw.ScrollUp.Size * scale;
         uint knob = _gameplayArt?.Handle(ProfessionFrameUiLaw.ScrollKnobPath) ?? 0;
         if (knob != 0)
             dl.AddImage((nint)knob, thumbMin, thumbMin + thumbSize,
-                new Vector2(.25f), new Vector2(.75f));
+                ProfessionFrameUiLaw.ScrollButtonUvMin,
+                ProfessionFrameUiLaw.ScrollButtonUvMax);
         Vector2 sliderMin = origin + ProfessionFrameUiLaw.ScrollSlider.Min * scale;
         ImGui.SetCursorScreenPos(sliderMin);
         ImGui.InvisibleButton("##profession-scroll-track",
@@ -880,11 +1164,4 @@ public sealed partial class GameLoop
             _professionCreateCount++;
     }
 
-    private static Vector4 ProfessionColor(string color) => color switch
-    {
-        "orange" => new(1f, .5f, 0f, 1f),
-        "yellow" => new(1f, 1f, 0f, 1f),
-        "green" => new(.2f, 1f, .2f, 1f),
-        _ => new(.55f, .55f, .55f, 1f),
-    };
 }

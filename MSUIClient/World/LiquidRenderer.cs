@@ -76,7 +76,15 @@ public sealed class LiquidRenderer : IDisposable
         public required float[] Heights;   // 81, absolute WoW Z, row-major r*9+c
         public required bool[] Render;     // 64, r*8+c
         public byte Type;
+        public byte SoundNibble;
+        public Vector2 SoundBoundsMin;
+        public Vector2 SoundBoundsMax;
+        public float SoundFallbackHeight;
     }
+
+    /// <summary>Nearest point on one retained liquid sound surface.</summary>
+    public readonly record struct LiquidSoundCandidate(
+        Vector3 Point, byte Nibble, float DistanceSquared);
 
     private sealed class TileMesh : IDisposable
     {
@@ -118,12 +126,12 @@ public sealed class LiquidRenderer : IDisposable
     // WmoRenderer.LiquidVersion moves (groups are adopted asynchronously, so a
     // tile-crossing trigger would fire before Model.Liquids is populated).
     //
-    // DRAW-ONLY, on purpose: these meshes are NOT added to TryGetSurface, so
-    // WMO liquid contributes nothing to submersion, the underwater tint or the
-    // walking wake. That is the SYSTEM_WATER.md §7 warning — the first PLAN_15
-    // build rewrote the shared surface query and broke open-world water; this
-    // one cannot, because the shared path never sees these meshes.
+    // The GPU meshes remain separate from ADT water. A retained CPU grid list
+    // feeds only the explicitly claim-scoped point query below; the legacy ADT
+    // TryGetSurface path therefore cannot accidentally see a pool through a
+    // floor or from another placed building.
     private readonly List<TileMesh> _wmoMeshes = [];
+    private readonly List<WmoLiquidSurface> _wmoSurfaces = [];
     private int _wmoLiquidVersionSeen = int.MinValue;
 
     public bool Enabled { get; set; } = true;
@@ -650,6 +658,7 @@ public sealed class LiquidRenderer : IDisposable
         // repeat the last value seen on the previous map.
         foreach (var mesh in _wmoMeshes) mesh.Dispose();
         _wmoMeshes.Clear();
+        _wmoSurfaces.Clear();
         _wmoLiquidVersionSeen = int.MinValue;
         ClearWake();   // a trail must not survive a map change
     }
@@ -739,6 +748,10 @@ public sealed class LiquidRenderer : IDisposable
 
                 if (any)
                 {
+                    ResolveAdtSoundBounds(originX, originY, cell,
+                        chunk.IndexY * 8, chunk.IndexX * 8,
+                        layer.VertexHeights, layer.TileRender,
+                        out Vector2 soundMin, out Vector2 soundMax, out float soundFallback);
                     surfaces.Add(new SurfaceLayer
                     {
                         OriginX = originX,
@@ -749,6 +762,10 @@ public sealed class LiquidRenderer : IDisposable
                         Heights = (float[])layer.VertexHeights.Clone(),
                         Render = (bool[])layer.TileRender.Clone(),
                         Type = layer.LiquidType,
+                        SoundNibble = layer.SoundNibble,
+                        SoundBoundsMin = soundMin,
+                        SoundBoundsMax = soundMax,
+                        SoundFallbackHeight = soundFallback,
                     });
                 }
             }
@@ -813,10 +830,12 @@ public sealed class LiquidRenderer : IDisposable
 
         foreach (var mesh in _wmoMeshes) mesh.Dispose();
         _wmoMeshes.Clear();
+        _wmoSurfaces.Clear();
 
         int hiddenOnly = 0;
         foreach (var surface in surfaces)
         {
+            _wmoSurfaces.Add(surface);
             var mesh = BuildWmoSurface(surface);
             if (mesh is not null) _wmoMeshes.Add(mesh);
             else hiddenOnly++;
@@ -922,9 +941,7 @@ public sealed class LiquidRenderer : IDisposable
         if (WmoLiquidTrace) TraceWmoSurface(surface);
 
         var ia = indices.ToArray();
-        var mesh = new TileMesh { IndexCount = ia.Length };   // Surfaces stays
-        // empty ON PURPOSE: TryGetSurface iterates _tiles only, and WMO liquid
-        // is deliberately excluded from submersion (SYSTEM_WATER.md §7).
+        var mesh = new TileMesh { IndexCount = ia.Length };   // ADT Surfaces stays empty.
 
         for (int f = 0; f < verts.Length; f += WmoFloatsPerVertex)
         {
@@ -1215,6 +1232,140 @@ public sealed class LiquidRenderer : IDisposable
     }
 
     /// <summary>
+    /// Scan every retained ADT and WMO sound surface and return the nearest wet
+    /// point per liquid class within <paramref name="radius"/>. Unlike body and
+    /// eye interaction, this is deliberately not room-owner filtered: the
+    /// reference's shoreline ambience walk hears nearby canals and pools across
+    /// their render ownership boundary.
+    /// </summary>
+    public LiquidSoundCandidate?[] NearestSoundSources(Vector3 point, float radius)
+    {
+        var best = new LiquidSoundCandidate?[4];
+        float radiusSquared = radius * radius;
+
+        foreach (TileMesh mesh in _tiles.Values)
+        foreach (SurfaceLayer surface in mesh.Surfaces)
+        {
+            Vector3 nearest = NearestAdtSoundPoint(surface, point);
+            ConsiderSoundCandidate(best, point, nearest, surface.SoundNibble, radiusSquared);
+        }
+
+        foreach (WmoLiquidSurface surface in _wmoSurfaces)
+        {
+            if (surface.SoundNibble == 0x0f) continue;
+            float x = Math.Clamp(point.X, surface.SoundBoundsMin.X, surface.SoundBoundsMax.X);
+            float y = Math.Clamp(point.Y, surface.SoundBoundsMin.Y, surface.SoundBoundsMax.Y);
+            float z = WmoLiquidPointLaw.TrySample(surface, x, y, out float sampled, out _)
+                ? sampled : surface.SoundFallbackHeight;
+            ConsiderSoundCandidate(best, point, new Vector3(x, y, z),
+                surface.SoundNibble, radiusSquared);
+        }
+        return best;
+    }
+
+    private static void ConsiderSoundCandidate(LiquidSoundCandidate?[] best,
+        Vector3 subject, Vector3 candidate, byte nibble, float radiusSquared)
+    {
+        if (nibble == 0x0f || !float.IsFinite(candidate.Z)) return;
+        float distanceSquared = Vector3.DistanceSquared(subject, candidate);
+        int liquidClass = nibble & 3;
+        if (distanceSquared > radiusSquared ||
+            best[liquidClass] is { } prior && prior.DistanceSquared <= distanceSquared)
+            return;
+        best[liquidClass] = new LiquidSoundCandidate(candidate, nibble, distanceSquared);
+    }
+
+    private static Vector3 NearestAdtSoundPoint(SurfaceLayer surface, Vector3 point)
+    {
+        float x = Math.Clamp(point.X, surface.SoundBoundsMin.X, surface.SoundBoundsMax.X);
+        float y = Math.Clamp(point.Y, surface.SoundBoundsMin.Y, surface.SoundBoundsMax.Y);
+        float z = TrySampleAdt(surface, x, y, out float sampled)
+            ? sampled : surface.SoundFallbackHeight;
+        return new Vector3(x, y, z);
+    }
+
+    private static bool TrySampleAdt(SurfaceLayer surface, float worldX, float worldY,
+        out float height)
+    {
+        double gr = (surface.OriginX - worldX) / surface.Cell - surface.GridRowBase;
+        double gc = (surface.OriginY - worldY) / surface.Cell - surface.GridColBase;
+        if (gr < 0 || gr > 8 || gc < 0 || gc > 8)
+        {
+            height = 0f;
+            return false;
+        }
+        int cr = Math.Clamp((int)Math.Floor(gr), 0, 7);
+        int cc = Math.Clamp((int)Math.Floor(gc), 0, 7);
+        if (!surface.Render[cr * 8 + cc])
+        {
+            height = 0f;
+            return false;
+        }
+        float fr = (float)(gr - cr);
+        float fc = (float)(gc - cc);
+        float h00 = surface.Heights[cr * 9 + cc];
+        float h01 = surface.Heights[cr * 9 + cc + 1];
+        float h10 = surface.Heights[(cr + 1) * 9 + cc];
+        float h11 = surface.Heights[(cr + 1) * 9 + cc + 1];
+        float top = h00 + (h01 - h00) * fc;
+        float bottom = h10 + (h11 - h10) * fc;
+        height = top + (bottom - top) * fr;
+        return true;
+    }
+
+    private static void ResolveAdtSoundBounds(double originX, double originY, float cell,
+        int rowBase, int colBase, float[] heights, bool[] wet,
+        out Vector2 min, out Vector2 max, out float fallback)
+    {
+        min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+        max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+        fallback = float.NegativeInfinity;
+        for (int row = 0; row < 8; row++)
+        for (int col = 0; col < 8; col++)
+        {
+            if (!wet[row * 8 + col]) continue;
+            for (int dr = 0; dr <= 1; dr++)
+            for (int dc = 0; dc <= 1; dc++)
+            {
+                float x = (float)(originX - (rowBase + row + dr) * cell);
+                float y = (float)(originY - (colBase + col + dc) * cell);
+                min = Vector2.Min(min, new Vector2(x, y));
+                max = Vector2.Max(max, new Vector2(x, y));
+                fallback = MathF.Max(fallback, heights[(row + dr) * 9 + col + dc]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Sample only MLIQ surfaces owned by one placed WMO. The caller must first
+    /// establish that the subject is inside that instance; this API never unions
+    /// WMO and ADT liquid. A pool cannot answer below its owning group's floor,
+    /// and the lowest matching surface wins when storeys overlap.
+    /// </summary>
+    public bool TryGetWmoSurface(Vector3 worldPoint, int instanceId,
+        out float height, out byte type, bool waterOnly = false)
+    {
+        height = 0f;
+        type = 0;
+        bool found = false;
+        float lowest = float.PositiveInfinity;
+        foreach (WmoLiquidSurface surface in _wmoSurfaces)
+        {
+            if (surface.InstanceId != instanceId || worldPoint.Z < surface.GroupFloor ||
+                !WmoLiquidPointLaw.TrySample(surface, worldPoint.X, worldPoint.Y,
+                    out float candidate, out byte candidateType) ||
+                waterOnly && !WmoLiquidPointLaw.IsWater(candidateType) ||
+                candidate >= lowest)
+                continue;
+            found = true;
+            lowest = candidate;
+            height = candidate;
+            type = candidateType;
+        }
+        return found;
+    }
+
+    /// <summary>
     /// Draw the full-screen underwater tint. Call only when the camera eye is
     /// below a water surface. <paramref name="submersion"/> is how far below, in
     /// yards; deeper means a denser tint.
@@ -1261,6 +1412,7 @@ public sealed class LiquidRenderer : IDisposable
         _tiles.Clear();
         foreach (var m in _wmoMeshes) m.Dispose();
         _wmoMeshes.Clear();
+        _wmoSurfaces.Clear();
         _texWater?.Dispose(); _texOcean?.Dispose(); _texSlime?.Dispose(); _texMagma?.Dispose();
         _dummyTex?.Dispose();
         _texWakeMask?.Dispose(); _dummy2D?.Dispose();

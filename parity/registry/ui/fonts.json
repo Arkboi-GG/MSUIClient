@@ -7,8 +7,8 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/Fonts.xml",
-      "fileSha256": "b958f0008a634565d487b480b174a6fee83aebc8a3cb06fe53adcd0bf6c7f586",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "cfffd39effdb258eaa3022868c16a620757633f73250dfbcd54f94c347865a23",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [
@@ -66,7 +66,8 @@
       "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). The object, face, size, color, and THICK outline are preserved, but MSUI intentionally retains anti-aliased rather than frozen monochrome glyph rasterization.",
       "source": "claim-fonts-number-small-monochrome-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Nico's 2026-08-23 no-touch ruling preserves MSUI anti-aliased glyph rasterization under decision 0005 while keeping font identity, measurement, alignment and routing must-match."
     },
     {
       "id": "item-claim-gametooltip-money-row-001-verify",
@@ -93,7 +94,9 @@
     "trace-fonts-number-small-monochrome-001",
     "trace-gametooltip-money-row-001"
   ],
-  "decisions": [],
+  "decisions": [
+    "0005-font-raster-presentation"
+  ],
   "lastReviewedUtc": "2026-08-08T12:17:10.5800205+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -47,7 +47,8 @@ internal static class UiTextMarkupClinicalChecks
             "|cff1eff00|Hitem:2000:0:0:0|h[Another Helm]|h|r ok", white);
         Check(link.Count == 1 && link[0].VisibleText == "[Another Helm] ok" &&
               link[0].Runs[0].Link is { Payload: "item:2000:0:0:0",
-                  Markup: "|Hitem:2000:0:0:0|h[Another Helm]|h" } &&
+                  Markup: "|Hitem:2000:0:0:0|h[Another Helm]|h",
+                  FullMarkup: "|cff1eff00|Hitem:2000:0:0:0|h[Another Helm]|h|r" } &&
               link[0].Runs[^1].Link is null,
             "ui-text hyperlink parsing/reconstruction drift");
 
@@ -68,8 +69,27 @@ internal static class UiTextMarkupClinicalChecks
         Check(size == new Vector2(148, 64) &&
               ItemRefTooltipUiLaw.Origin(new Vector2(1024, 768), size) ==
                   new Vector2(438, 624) &&
-              ItemRefTooltipUiLaw.CloseOrigin(size) == new Vector2(117, 0),
+              ItemRefTooltipUiLaw.CloseOrigin(size) == new Vector2(117, 0) &&
+              ItemRefTooltipUiLaw.LinePosition(new Vector2(438, 624), 30, 1.5f) ==
+                  new Vector2(462, 669),
             "item-ref bottom-center dynamic window law drift");
+        Check(ItemRefTooltipUiLaw.ItemAction(true, true, true, true) ==
+                  ItemRefClickAction.DressUp &&
+              ItemRefTooltipUiLaw.ItemAction(false, true, true, true) ==
+                  ItemRefClickAction.InsertItemLink &&
+              ItemRefTooltipUiLaw.ItemAction(false, true, false, true) ==
+                  ItemRefClickAction.None &&
+              ItemRefTooltipUiLaw.ItemAction(false, false, true, true) ==
+                  ItemRefClickAction.OpenItemTooltip &&
+              ItemRefTooltipUiLaw.PlayerAction(true, true, true) ==
+                  ItemRefClickAction.InsertPlayerName &&
+              ItemRefTooltipUiLaw.PlayerAction(true, false, true) ==
+                  ItemRefClickAction.None &&
+              ItemRefTooltipUiLaw.PlayerAction(false, true, true) ==
+                  ItemRefClickAction.OpenFriendMenu &&
+              ItemRefTooltipUiLaw.PlayerAction(false, true, false) ==
+                  ItemRefClickAction.Whisper,
+            "item-ref player/item modifier precedence drift");
 
         string formatted = ChatFrameLaw.FormatLine(ChatFrameLaw.MsgType.Say,
             "Nico", "", "hello");
@@ -89,10 +109,16 @@ internal static class UiTextMarkupClinicalChecks
               chat.Contains("ActivateChatLink", StringComparison.Ordinal) &&
               !chat.Contains("text.Replace('|', ' ')", StringComparison.Ordinal) &&
               itemRef.Contains("ItemRefTooltipUiLaw.Origin", StringComparison.Ordinal) &&
+              itemRef.Contains("ItemRefTooltipUiLaw.LinePosition", StringComparison.Ordinal) &&
+              itemRef.Contains("ItemRefTooltipUiLaw.ItemAction", StringComparison.Ordinal) &&
+              itemRef.Contains("ItemRefTooltipUiLaw.PlayerAction", StringComparison.Ordinal) &&
               itemRef.Contains("OpenFriendPopup", StringComparison.Ordinal) &&
-              itemRef.Contains("_chatInput += link.Markup", StringComparison.Ordinal) &&
+              itemRef.Contains("InsertChatText(itemMarkup)", StringComparison.Ordinal) &&
+              itemRef.Contains("InsertChatText(name)", StringComparison.Ordinal) &&
+              !itemRef.Contains("_chatInput +=", StringComparison.Ordinal) &&
               !itemRef.Contains("BeginVanillaWindow(\"##item-ref-tooltip\", new Vector2",
-                  StringComparison.Ordinal),
+                  StringComparison.Ordinal) &&
+              !itemRef.Contains("new Vector2", StringComparison.Ordinal),
             "chat/item-ref runtime bypasses markup or positioning law");
         Check(social.Contains("GameText.EllipsizeToBox", StringComparison.Ordinal) &&
               guild.Contains("GameText.EllipsizeToBox", StringComparison.Ordinal),

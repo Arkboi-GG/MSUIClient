@@ -85,11 +85,11 @@ public sealed partial class GameLoop
         float alpha = ScreenshotStatusUiLaw.Alpha(elapsed);
         string text = _screenshotStatusSucceeded
             ? ScreenshotStatusUiLaw.SuccessText : ScreenshotStatusUiLaw.FailureText;
-        Vector2 center = ScreenshotStatusUiLaw.TextCenter(ImGui.GetIO().DisplaySize);
         float width = GameText.MeasureWidth("SystemFont", text, 1f);
         float height = GameText.EmPixels("SystemFont", 1f);
         uint color = ImGui.ColorConvertFloat4ToU32(new Vector4(1, 1, 1, alpha));
         GameText.Draw(ImGui.GetForegroundDrawList(), "SystemFont", text,
-            center - new Vector2(width, height) * .5f, 1f, color);
+            ScreenshotStatusUiLaw.TextMinimum(ImGui.GetIO().DisplaySize, width, height),
+            1f, color);
     }
 }

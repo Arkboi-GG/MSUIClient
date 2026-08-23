@@ -1,9 +1,9 @@
 using System.Buffers.Binary;
-using System.IO.Compression;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Numerics;
+using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
 
 namespace MSUIClient.Net;
@@ -378,6 +378,8 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_LOGOUT_CANCEL, ReadOnlySpan<byte>.Empty);
 
     public void SetSelection(ulong guid) => SendFullGuid(Op.CMSG_SET_SELECTION, guid);
+    public void FarSight(bool engage) =>
+        SendPacket((ushort)Op.CMSG_FAR_SIGHT, ViewSubjectLaw.VoteBody(engage));
     public void Inspect(ulong guid) => SendFullGuid(Op.CMSG_INSPECT, guid);
     public void PetAction(ulong petGuid, uint packedAction, ulong targetGuid)
         => SendPacket((ushort)Op.CMSG_PET_ACTION,
@@ -441,6 +443,12 @@ public sealed class WorldSession : IDisposable
     /// <summary>CMSG_TOGGLE_PVP is a toggle verb with a deliberately empty body.</summary>
     public void TogglePvp() => SendPacket((ushort)Op.CMSG_TOGGLE_PVP, BuildTogglePvpBody());
     public static byte[] BuildTogglePvpBody() => [];
+
+    /// <summary>The equipment-display preferences are also empty-bodied server-side flips.</summary>
+    public void ToggleHelm() => SendPacket((ushort)Op.CMSG_TOGGLE_HELM, BuildToggleHelmBody());
+    public void ToggleCloak() => SendPacket((ushort)Op.CMSG_TOGGLE_CLOAK, BuildToggleCloakBody());
+    public static byte[] BuildToggleHelmBody() => [];
+    public static byte[] BuildToggleCloakBody() => [];
 
     /// <summary>
     /// Report an AreaTrigger.dbc volume to the server. The trigger id is the
@@ -1023,20 +1031,17 @@ public sealed class WorldSession : IDisposable
     public void SpiritHealerActivate(ulong healerGuid) => SendPacket((ushort)Op.CMSG_SPIRIT_HEALER_ACTIVATE, BuildGuidBody(healerGuid));
     public void ResurrectResponse(ulong casterGuid, bool accept)
         => SendPacket((ushort)Op.CMSG_RESURRECT_RESPONSE, BuildResurrectResponseBody(casterGuid, accept));
-    public void PageTextQuery(uint pageId)
-    {
-        var w = new PacketWriter(4); w.WriteU32(pageId);
-        SendPacket((ushort)Op.CMSG_PAGE_TEXT_QUERY, w.AsSpan());
-    }
+    public void PageTextQuery(uint pageId, ulong guid)
+        => SendPacket((ushort)Op.CMSG_PAGE_TEXT_QUERY, BuildPageTextQueryBody(pageId, guid));
 
     public static byte[] BuildGameObjectUseBody(ulong guid) => BuildGuidBody(guid);
     public static byte[] BuildReclaimCorpseBody(ulong guid) => BuildGuidBody(guid);
     public static byte[] BuildSpiritHealerBody(ulong guid) => BuildGuidBody(guid);
     public static byte[] BuildResurrectResponseBody(ulong guid, bool accept)
     { var w = new PacketWriter(9); w.WriteU64(guid); w.WriteU8(accept ? (byte)1 : (byte)0); return w.ToArray(); }
-    public static byte[] BuildPageTextQueryBody(uint pageId)
+    public static byte[] BuildPageTextQueryBody(uint pageId, ulong guid)
     {
-        var w = new PacketWriter(4); w.WriteU32(pageId); return w.ToArray();
+        var w = new PacketWriter(12); w.WriteU32(pageId); w.WriteU64(guid); return w.ToArray();
     }
 
     public void GossipSelect(ulong guid, uint listId, string? code = null)
@@ -1403,6 +1408,7 @@ public sealed class WorldSession : IDisposable
     public void GuildMotd(string text) => SendPacket((ushort)Op.CMSG_GUILD_MOTD, BuildCStringBody(text));
     public void GuildPromote(string name) => SendPacket((ushort)Op.CMSG_GUILD_PROMOTE, BuildCStringBody(name));
     public void GuildDemote(string name) => SendPacket((ushort)Op.CMSG_GUILD_DEMOTE, BuildCStringBody(name));
+    public void GuildLeader(string name) => SendPacket((ushort)Op.CMSG_GUILD_LEADER, BuildCStringBody(name));
     public void GuildLeave() => SendPacket((ushort)Op.CMSG_GUILD_LEAVE, ReadOnlySpan<byte>.Empty);
     public void GuildDisband() => SendPacket((ushort)Op.CMSG_GUILD_DISBAND, ReadOnlySpan<byte>.Empty);
     public void SaveGuildEmblem(ulong vendorGuid, uint emblemStyle, uint emblemColor,
@@ -1459,25 +1465,19 @@ public sealed class WorldSession : IDisposable
 
     // --- CMSG_AUTH_SESSION body -----------------------------------------------------------------
 
-    private static byte[] BuildAuthSession(ushort build, string accountUpper, uint clientSeed, byte[] proof)
+    public static byte[] BuildAuthSession(ushort build, string accountUpper, uint clientSeed, byte[] proof)
     {
-        var w = new PacketWriter(48 + accountUpper.Length);
+        if (proof.Length != 20) throw new ArgumentException("AUTH_SESSION proof must be 20 bytes", nameof(proof));
+        byte[] addonTail = AuthSessionAddonLaw.StockTail();
+        var w = new PacketWriter(33 + accountUpper.Length + addonTail.Length);
         w.WriteU32(build);
         w.WriteU32(0);                    // server id
         w.WriteBytes(Encoding.ASCII.GetBytes(accountUpper));
         w.WriteU8(0);                     // NUL
         w.WriteU32(clientSeed);
         w.WriteBytes(proof);              // 20-byte SHA1 digest
-        w.WriteU32(0);                    // addon decompressed size = 0
-        w.WriteBytes(EmptyAddonZlib());   // empty zlib block (what the client sends, vmangos accepts)
+        w.WriteBytes(addonTail);           // stock secure-addon block: size + RFC1950 zlib
         return w.ToArray();
-    }
-
-    private static byte[] EmptyAddonZlib()
-    {
-        using var ms = new MemoryStream();
-        using (var _ = new ZLibStream(ms, CompressionLevel.Optimal, leaveOpen: true)) { /* zero bytes in */ }
-        return ms.ToArray();
     }
 
     public void Dispose()

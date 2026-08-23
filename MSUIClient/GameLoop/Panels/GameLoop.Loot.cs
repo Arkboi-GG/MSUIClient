@@ -30,6 +30,7 @@ public sealed partial class GameLoop
         _pendingGroupLootLines.Clear();
         _groupLootConfirm = null;
         _lootPendingGuid = 0;
+        RefreshLootKneel();
         _lootPage = 1;
         _pendingReceives.Clear();
         _lootMoneyPending = false;
@@ -59,9 +60,35 @@ public sealed partial class GameLoop
         bool sent = _net.Loot(guid);
         EmitInterface("loot", "request", sent ? "SENT" : "SEND_FAILED", guid,
             $"dead={source.IsDead};lootable={source.Fields.Lootable};body={Convert.ToHexString(WorldSession.BuildLootGuidBody(guid))}");
-        if (!sent) { _lootPendingGuid = 0; return false; }
-        _character?.TriggerOneShot(50); // EmoteLoot: the kneel dip
+        if (!sent) { _lootPendingGuid = 0; RefreshLootKneel(); return false; }
+        RefreshLootKneel();
         return true;
+    }
+
+    private void RefreshLootKneel()
+    {
+        if (_character is null) return;
+        LootLatchLaw.TargetKind kind = LootLatchLaw.TargetKind.Unresolved;
+        uint gameObjectType = 0;
+        uint unitHealth = 0;
+        if (_lootPendingGuid != 0 && _entities.TryGet(_lootPendingGuid, out WorldEntity target))
+        {
+            if (target.IsGameObject)
+            {
+                kind = LootLatchLaw.TargetKind.GameObject;
+                gameObjectType = target.GameObjectType;
+            }
+            else if (target.IsUnit)
+            {
+                kind = LootLatchLaw.TargetKind.Unit;
+                unitHealth = target.Fields.Health;
+            }
+            else if (target.Type is ObjectTypeId.Item or ObjectTypeId.Container)
+                kind = LootLatchLaw.TargetKind.Item;
+            else kind = LootLatchLaw.TargetKind.Other;
+        }
+        _character.LootKneel = LootLatchLaw.ShouldKneel(
+            _lootPendingGuid, kind, gameObjectType, unitHealth);
     }
 
     private void ApplyLootResponse(byte[] body)
@@ -75,16 +102,29 @@ public sealed partial class GameLoop
             // The error shape. Refusals surface as the red error text the 1.12 client shows.
             ShowUiError(LootPackets.ErrorText(error));
             if (_lootPendingGuid == guid) _lootPendingGuid = 0;
+            RefreshLootKneel();
             EmitInterface("loot", "response", "REFUSED", guid, $"error={error};text={SanitizeEvidence(LootPackets.ErrorText(error))}");
             return;
         }
+        LootLatchLaw.ResponsePlan admission = LootLatchLaw.AdmitResponse(
+            _lootPendingGuid, guid, lootType);
+        if (!admission.Accept)
+        {
+            bool releaseSent = !admission.SendRelease || _net?.LootRelease(guid) == true;
+            _lootPendingGuid = admission.NextLatch;
+            RefreshLootKneel();
+            EmitInterface("loot", "response", "REFUSED", guid,
+                $"reason=latch-admission;lootType={lootType};releaseSent={releaseSent}");
+            return;
+        }
+        _lootPendingGuid = admission.NextLatch;
+        RefreshLootKneel();
         _loot.Open(guid, lootType, gold, items);
         LootFrameUiLaw.OpenPresentation openPresentation =
             LootFrameUiLaw.OnShow(lootType, items.Count, gold);
         if (openPresentation.SoundCue is { } cue)
             PlayUiSound(cue, LootFrameUiLaw.SoundCategory);
         _lootPage = 1;
-        _lootPendingGuid = 0;
         if (_controller is not null) _lootOpenedAt = _controller.Position;
         if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
             _lootMoneyBefore = player.Fields.Coinage;
@@ -117,8 +157,13 @@ public sealed partial class GameLoop
         // fresh session on corpse B (benilla ui_loot.rs:209-214).
         if (body.Length < 8) return;
         ulong guid = BitConverter.ToUInt64(body, 0);
-        if (_loot.Source == guid) _loot.Clear();
-        if (_lootPendingGuid == guid) _lootPendingGuid = 0;
+        if (_loot.Source == guid)
+        {
+            PredictGameObjectAnimationState(guid, GameObjectAnimationLaw.StateReady);
+            _loot.Clear();
+        }
+        _lootPendingGuid = LootLatchLaw.ClearFor(_lootPendingGuid, guid);
+        RefreshLootKneel();
         EmitInterface("loot", "release", "RELEASED", guid, "guidMatched=true");
     }
 
@@ -166,7 +211,10 @@ public sealed partial class GameLoop
         bool sent = _net?.LootRelease(source) == true;
         EmitInterface("loot", "release", sent ? "SENT" : "SEND_FAILED", source,
             $"body={Convert.ToHexString(WorldSession.BuildLootGuidBody(source))}");
+        PredictGameObjectAnimationState(source, GameObjectAnimationLaw.StateReady);
         _loot.Clear(); // optimistic; SMSG_LOOT_RELEASE_RESPONSE clears again idempotently
+        _lootPendingGuid = LootLatchLaw.ClearFor(_lootPendingGuid, source);
+        RefreshLootKneel();
     }
 
     private bool TakeLootMoney()
@@ -265,6 +313,16 @@ public sealed partial class GameLoop
     private void ShowUiError(string text) => _uiErrors.Push(text, UiMessageKind.Error, NowSeconds());
     private void ShowUiInfo(string text) => _uiErrors.Push(text, UiMessageKind.Info, NowSeconds());
 
+    private void ApplyFishingVerdict(byte[] body, bool escaped)
+    {
+        string key = LootPackets.ParseFishingVerdict(body, escaped);
+        string text = InventoryGlobalString(key,
+            escaped ? "Your fish got away!" : "No fish are hooked.");
+        ShowUiInfo(text);
+        EmitInterface("loot", "fishing-verdict", escaped ? "ESCAPED" : "NOT_HOOKED", 0,
+            $"key={key};body=<empty>");
+    }
+
     private void PushCenterText(string text, CenterCombatTextStyle style)
     {
         if (_centerCombatText.Count == 20) _centerCombatText.RemoveAt(0);
@@ -288,8 +346,8 @@ public sealed partial class GameLoop
 
         float s = GameplayUiScale();
         Vector2 p = UiPanelFrameOrigin(UiPanelOwnershipRegistry[9], s) +
-            new Vector2(16f, 12f) * s;
-        Vector2 size = new Vector2(256f, 256f) * s;
+            LootFrameUiLaw.FrameOffset * s;
+        Vector2 size = LootFrameUiLaw.Frame.ScaledSize(s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
@@ -298,17 +356,18 @@ public sealed partial class GameLoop
                                  ImGuiWindowFlags.NoNav;
         if (!ImGui.Begin("##loot-frame", flags)) { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
-        if(_uiParityArmed&&_uiParityPanel=="loot"){BeginUiParityFrame(p,s);CollectUiParityDraw("LootFrame","Frame",p,size,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",16,116));}
+        if(_uiParityArmed&&_uiParityPanel=="loot"){BeginUiParityFrame(p,s);CollectUiParityDraw("LootFrame","Frame",p,size,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",LootFrameUiLaw.TraceAbsoluteOffset.X,LootFrameUiLaw.TraceAbsoluteOffset.Y));}
 
         // Panel slab, the skull showing through its ring cut-out, and the title.
-        DrawArt(dl, @"Interface\LootFrame\UI-LootPanel", p, new Vector2(256f, 256f), s);
-        if(_uiParityArmed&&_uiParityPanel=="loot")CollectUiParityDraw("LootFrame/Texture","Texture",p,size,"LootFrame",new(@"Interface\LootFrame\UI-LootPanel",0xffffffff,"IMGUI_IMAGE","TOPLEFT","LootFrame","TOPLEFT",0,0));
+        DrawArt(dl, LootFrameUiLaw.PanelPath, p, LootFrameUiLaw.Frame.Size, s);
+        if(_uiParityArmed&&_uiParityPanel=="loot")CollectUiParityDraw("LootFrame/Texture","Texture",p,size,"LootFrame",new(LootFrameUiLaw.PanelPath,0xffffffff,"IMGUI_IMAGE","TOPLEFT","LootFrame","TOPLEFT",0,0));
         string overlayPath = LootFrameUiLaw.OnShow(
             _loot.LootType, _loot.Items.Count, _loot.Gold).OverlayPath;
-        DrawArt(dl, overlayPath, p + new Vector2(10f, 8f) * s,
-            new Vector2(58f, 58f), s);
-        if(_uiParityArmed&&_uiParityPanel=="loot")CollectUiParityDraw("LootFramePortraitOverlay","Texture",p+new Vector2(10,8)*s,new Vector2(58)*s,"LootFrame",new(overlayPath,0xffffffff,"IMGUI_IMAGE","TOPLEFT","LootFrame","TOPLEFT",10,-8));
-        DrawCenteredText(dl, p + new Vector2(116f, 26f) * s, "Items", 12f * s, VanillaGold);
+        Vector2 portraitMin = LootFrameUiLaw.PortraitOverlay.ScaledMin(p, s);
+        DrawArt(dl, overlayPath, portraitMin, LootFrameUiLaw.PortraitOverlay.Size, s);
+        if(_uiParityArmed&&_uiParityPanel=="loot")CollectUiParityDraw("LootFramePortraitOverlay","Texture",portraitMin,LootFrameUiLaw.PortraitOverlay.ScaledSize(s),"LootFrame",new(overlayPath,0xffffffff,"IMGUI_IMAGE","TOPLEFT","LootFrame","TOPLEFT",LootFrameUiLaw.PortraitOverlay.X,-LootFrameUiLaw.PortraitOverlay.Y));
+        GameText.DrawCentered(dl, LootFrameUiLaw.TitleFont, "Items",
+            p + LootFrameUiLaw.TitleCenter * s, s);
 
         List<LootRow> rows = BuildLootRows();
 
@@ -321,27 +380,27 @@ public sealed partial class GameLoop
         for (int visual = 0; visual < perPage && first + visual < rows.Count; visual++)
         {
             LootRow row = rows[first + visual];
-            Vector2 rowMin = p + new Vector2(24f, 80f + visual * 41f) * s;
+            Vector2 rowMin = LootFrameUiLaw.Row(visual).ScaledMin(p, s);
             DrawLootRow(dl, row, rowMin, s, visual);
         }
 
         if (maxPage > 1)
         {
-            DrawLootPagerButton(dl, p + new Vector2(25f, 208f) * s, s, up: true,
+            DrawLootPagerButton(dl, LootFrameUiLaw.PagerUp.ScaledMin(p, s), s, up: true,
                 enabled: _lootPage > 1);
-            DrawLootPagerButton(dl, p + new Vector2(111f, 208f) * s, s, up: false,
+            DrawLootPagerButton(dl, LootFrameUiLaw.PagerDown.ScaledMin(p, s), s, up: false,
                 enabled: _lootPage < maxPage);
         }
 
         // Close button (UI-Panel-MinimizeButton, centered on TOPRIGHT (-81,-26)).
-        Vector2 closeMin = p + new Vector2(175f - 16f, 26f - 16f) * s;
-        DrawArt(dl, @"Interface\Buttons\UI-Panel-MinimizeButton-Up", closeMin, new Vector2(32f), s);
-        if(_uiParityArmed&&_uiParityPanel=="loot")CollectUiParityDraw("LootCloseButton","Button",closeMin,new Vector2(32)*s,"LootFrame",new(@"Interface\Buttons\UI-Panel-MinimizeButton-Up",0xffffffff,"IMGUI_IMAGE","TOPLEFT","LootFrame","TOPLEFT",159,-10));
-        ImGui.SetCursorScreenPos(closeMin + new Vector2(6f) * s);
-        if (ImGui.InvisibleButton("##loot-close", new Vector2(20f) * s)) ReleaseLoot();
+        Vector2 closeMin = LootFrameUiLaw.CloseArt.ScaledMin(p, s);
+        DrawArt(dl, LootFrameUiLaw.CloseUpPath, closeMin, LootFrameUiLaw.CloseArt.Size, s);
+        if(_uiParityArmed&&_uiParityPanel=="loot")CollectUiParityDraw("LootCloseButton","Button",closeMin,LootFrameUiLaw.CloseArt.ScaledSize(s),"LootFrame",new(LootFrameUiLaw.CloseUpPath,0xffffffff,"IMGUI_IMAGE","TOPLEFT","LootFrame","TOPLEFT",LootFrameUiLaw.CloseArt.X,-LootFrameUiLaw.CloseArt.Y));
+        ImGui.SetCursorScreenPos(LootFrameUiLaw.CloseHit.ScaledMin(p, s));
+        if (ImGui.InvisibleButton("##loot-close", LootFrameUiLaw.CloseHit.ScaledSize(s))) ReleaseLoot();
         else if (ImGui.IsItemHovered())
-            DrawArt(dl, @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight", closeMin,
-                new Vector2(32f), s);
+            DrawArt(dl, LootFrameUiLaw.CloseHighlightPath, closeMin,
+                LootFrameUiLaw.CloseArt.Size, s);
 
         if(_uiParityArmed&&_uiParityPanel=="loot")MarkUiParityFrameComplete();ImGui.End();
     }
@@ -377,48 +436,75 @@ public sealed partial class GameLoop
     private void DrawLootRow(ImDrawListPtr dl, in LootRow row, Vector2 rowMin, float s, int visual)
     {
         Vector2 iconMin = rowMin;
-        Vector2 iconMax = rowMin + new Vector2(37f) * s;
+        Vector2 iconMax = rowMin + LootFrameUiLaw.RowIconSize * s;
 
         // Parchment name plate behind the text (UI-QuestItemNameFrame, 130x62 at LEFT+30).
-        DrawArt(dl, @"Interface\QuestFrame\UI-QuestItemNameFrame",
-            rowMin + new Vector2(30f, -12.5f) * s, new Vector2(130f, 62f), s);
+        DrawArt(dl, LootFrameUiLaw.NamePlatePath,
+            LootFrameUiLaw.RowNamePlate.ScaledMin(rowMin, s),
+            LootFrameUiLaw.RowNamePlate.Size, s);
 
         uint icon = _gameplayArt!.Handle(row.IconPath);
         if (icon != 0) dl.AddImage((nint)icon, iconMin, iconMax);
         if (row.Count > 1)
         {
             string label = row.Count.ToString();
-            Vector2 extent = ImGui.CalcTextSize(label);
-            dl.AddText(iconMax - extent - new Vector2(3f, 2f) * s + Vector2.One * s, 0xff000000, label);
-            dl.AddText(iconMax - extent - new Vector2(3f, 2f) * s, 0xffffffff, label);
+            GameText.DrawRightAligned(dl, LootFrameUiLaw.CountFont, label,
+                LootFrameUiLaw.CountRightTop(rowMin, s), s);
         }
 
-        float nameSize = 11f * s;
-        Vector2 namePos = new(rowMin.X + 45f * s, rowMin.Y + (37f * s - nameSize) * 0.5f);
-        dl.AddText(ImGui.GetFont(), nameSize, namePos + Vector2.One * s, 0xff000000, row.Name);
-        dl.AddText(ImGui.GetFont(), nameSize, namePos,
-            ImGui.ColorConvertFloat4ToU32(row.NameColor), row.Name);
+        float namePitch = GameText.LinePitch(LootFrameUiLaw.NameFont, s);
+        int maximumNameLines = Math.Max(1,
+            (int)MathF.Floor(LootFrameUiLaw.RowNameBox.Height * s / namePitch));
+        IReadOnlyList<string> nameLines = LootFrameUiLaw.WrapName(row.Name,
+            LootFrameUiLaw.RowNameBox.Width * s, maximumNameLines,
+            candidate => GameText.MeasureWidth(LootFrameUiLaw.NameFont, candidate, s));
+        Vector2 nameBoxMin = LootFrameUiLaw.RowNameBox.ScaledMin(rowMin, s);
+        dl.PushClipRect(nameBoxMin,
+            nameBoxMin + LootFrameUiLaw.RowNameBox.ScaledSize(s), true);
+        uint nameColor = ImGui.ColorConvertFloat4ToU32(row.NameColor);
+        for (int line = 0; line < nameLines.Count; line++)
+            GameText.Draw(dl, LootFrameUiLaw.NameFont, nameLines[line],
+                LootFrameUiLaw.NameLineMin(rowMin, s, line, nameLines.Count, namePitch),
+                s, nameColor);
+        dl.PopClipRect();
 
         ImGui.SetCursorScreenPos(rowMin);
-        bool clicked = ImGui.InvisibleButton($"##loot-row-{visual}", new Vector2(160f, 37f) * s);
+        ImGui.InvisibleButton($"##loot-row-{visual}", LootFrameUiLaw.RowHitSize * s);
+        bool clicked = ImGui.IsItemClicked(ImGuiMouseButton.Left) ||
+            ImGui.IsItemClicked(ImGuiMouseButton.Right);
+        ItemTemplate? rowTemplate = null;
+        if (!row.IsCoin && row.ItemId != 0)
+            _items?.TryGet(row.ItemId, out rowTemplate);
         if (ImGui.IsItemHovered())
         {
             uint highlight = _gameplayArt.AdditiveHandle(@"Interface\Buttons\ButtonHilight-Square");
             if (highlight != 0) dl.AddImage((nint)highlight, iconMin, iconMax);
-            if (!row.IsCoin && row.ItemId != 0 &&
-                _items?.TryGet(row.ItemId, out ItemTemplate? template) == true && template is not null)
+            if (rowTemplate is not null)
             {
                 ItemTooltipBodySnapshot tooltipBody =
-                    PrepareItemTooltipBodySnapshot(template, row.Count);
-                OfferPreparedItemTooltip(new("item:loot-row", (ulong)visual), tooltipBody);
+                    PrepareItemTooltipBodySnapshot(rowTemplate, row.Count);
+                LootFrameUiLaw.TooltipSeat tooltipSeat =
+                    LootFrameUiLaw.ItemTooltipSeat(rowMin, s);
+                OfferPreparedItemTooltip(new("item:loot-row", (ulong)visual), tooltipBody,
+                    tooltipSeat.Anchor, nextWindowPivot: tooltipSeat.Pivot);
             }
         }
-        if (!clicked || _net is null) return;
-        if (!row.IsCoin && row.ItemId != 0 && ImGui.GetIO().KeyCtrl)
+        string itemLink = rowTemplate is null ? "" :
+            LootFrameUiLaw.ItemLink(row.ItemId, rowTemplate.Name, rowTemplate.Quality);
+        switch (LootFrameUiLaw.ClickAction(clicked, ImGui.GetIO().KeyCtrl,
+                    ImGui.GetIO().KeyShift, ImGui.GetIO().KeyAlt, _chatEditOpen,
+                    !row.IsCoin, itemLink.Length > 0))
         {
-            TryOnDressUp(row.ItemId);
-            return;
+            case LootFrameUiLaw.RowClickAction.None:
+                return;
+            case LootFrameUiLaw.RowClickAction.DressUp:
+                TryOnDressUp(row.ItemId);
+                return;
+            case LootFrameUiLaw.RowClickAction.InsertChat:
+                InsertChatText(itemLink);
+                return;
         }
+        if (_net is null) return;
         if (row.IsCoin) TakeLootMoney();
         else
         {
@@ -434,12 +520,12 @@ public sealed partial class GameLoop
 
     private void DrawLootPagerButton(ImDrawListPtr dl, Vector2 min, float s, bool up, bool enabled)
     {
-        string direction = up ? "ScrollUp" : "ScrollDown";
-        string state = enabled ? "Up" : "Disabled";
-        DrawArt(dl, $@"Interface\ChatFrame\UI-ChatIcon-{direction}-{state}", min, new Vector2(32f), s);
+        DrawArt(dl, LootFrameUiLaw.PagerPath(up, enabled), min,
+            LootFrameUiLaw.PagerUp.Size, s);
         if (!enabled) return;
         ImGui.SetCursorScreenPos(min);
-        if (ImGui.InvisibleButton(up ? "##loot-page-up" : "##loot-page-down", new Vector2(32f) * s))
+        if (ImGui.InvisibleButton(up ? "##loot-page-up" : "##loot-page-down",
+                LootFrameUiLaw.PagerUp.ScaledSize(s)))
             _lootPage += up ? -1 : 1;
     }
 

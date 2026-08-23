@@ -243,14 +243,8 @@ public sealed partial class GameLoop
 
     private void DrawPetPaperDollBackground(ImDrawListPtr dl, Vector2 p, float s)
     {
-        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-General-TopLeft",
-            p + new Vector2(2, 1) * s, new(256), s);
-        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-General-TopRight",
-            p + new Vector2(258, 1) * s, new(128, 256), s);
-        DrawArt(dl, @"Interface\PetPaperDollFrame\UI-PetPaperDollFrame-BotLeft",
-            p + new Vector2(2, 257) * s, new(256), s);
-        DrawArt(dl, @"Interface\PetPaperDollFrame\UI-PetPaperDollFrame-BotRight",
-            p + new Vector2(258, 257) * s, new(128, 256), s);
+        foreach (PetPaperDollUiLaw.ArtSeat seat in PetPaperDollUiLaw.BackgroundArt)
+            DrawArt(dl, seat.Path, p + seat.Rect.Min * s, seat.Rect.Size, s);
     }
 
     private void DrawCharacterPortrait(ImDrawListPtr dl, Vector2 p, float s, WorldEntity player,
@@ -289,15 +283,27 @@ public sealed partial class GameLoop
         string name = petPage ? ResolveCreatureOrPetName(pet!, "Pet") :
             ControlledGuid == LocalPlayerGuid ? _net?.PlayerName ?? "" :
             ResolveUnitName(ControlledGuid);
-        // CharacterNameText inherits GameFontNormal but CharacterFrame.xml overrides its
-        // <Color> to white (1,1,1) - the name is white, not GameFontNormal's default gold.
-        GameText.DrawCentered(dl, "GameFontNormal", name, p + new Vector2(198, 24) * s, s, 0xffffffff);
+        if (petPage)
+            GameText.DrawCentered(dl, PetPaperDollUiLaw.PetNameFont, name,
+                PetPaperDollUiLaw.PetNameCenter(p, s), s);
+        else
+        {
+            // CharacterNameText inherits GameFontNormal but CharacterFrame.xml overrides its
+            // <Color> to white (1,1,1) - the name is white, not GameFontNormal's default gold.
+            GameText.DrawCentered(dl, "GameFontNormal", name,
+                p + new Vector2(198, 24) * s, s, 0xffffffff);
+        }
         var bytes = player.Fields.Bytes0;
         string level = petPage
             ? $"Level {pet!.Level}{PetFamilySuffix(pet)}"
             : $"Level {player.Level} {RaceName(bytes.Race)} {ClassName(bytes.Class)}";
-        // CharacterLevelText inherits GameFontNormalSmall; TOP of CharacterNameText BOTTOM -6.
-        GameText.DrawCentered(dl, "GameFontNormalSmall", level, p + new Vector2(198, 41) * s, s);
+        if (petPage)
+            GameText.DrawCentered(dl, PetPaperDollUiLaw.PetLevelFont, level,
+                PetPaperDollUiLaw.PetLevelCenter(p, s), s);
+        else
+            // CharacterLevelText inherits GameFontNormalSmall; TOP of CharacterNameText BOTTOM -6.
+            GameText.DrawCentered(dl, "GameFontNormalSmall", level,
+                p + new Vector2(198, 41) * s, s);
 
         Vector2 close = p + new Vector2(324, 9) * s;
         DrawImageButton(dl, "##char-close", close, new Vector2(32) * s,
@@ -366,26 +372,26 @@ public sealed partial class GameLoop
         Vector2 modelSize = model.Size * s;
         if (_petPaperDollUsable && _petPaperDoll is not null)
             dl.AddImage((nint)_petPaperDoll.TextureHandle, modelMin, modelMin + modelSize,
-                new Vector2(0, 1), new Vector2(1, 0));
+                PetPaperDollUiLaw.ModelUvMin, PetPaperDollUiLaw.ModelUvMax);
 
         DrawPetPaperDollRotation(dl, p, s, true);
         DrawPetPaperDollRotation(dl, p, s, false);
 
-        uint stat = _gameplayArt?.Handle(
-            @"Interface\PaperDollInfoFrame\UI-Character-StatBackground") ?? 0;
-        Vector2 attr = p + PetPaperDollUiLaw.Attributes.Min * s;
+        uint stat = _gameplayArt?.Handle(PetPaperDollUiLaw.StatBackgroundPath) ?? 0;
         if (stat != 0)
         {
-            dl.AddImage((nint)stat, attr, attr + new Vector2(114, 78) * s,
-                Vector2.Zero, new Vector2(.89f, .61f));
-            dl.AddImage((nint)stat, attr + new Vector2(115, 0) * s,
-                attr + new Vector2(229, 78) * s,
-                Vector2.Zero, new Vector2(.89f, .61f));
+            foreach (bool right in new[] { false, true })
+            {
+                PetPaperDollUiLaw.LogicalRect plate =
+                    PetPaperDollUiLaw.AttributePlate(right);
+                Vector2 plateMin = p + plate.Min * s;
+                dl.AddImage((nint)stat, plateMin, plateMin + plate.Size * s,
+                    Vector2.Zero, PetPaperDollUiLaw.StatBackgroundUvMax);
+            }
         }
 
         string[] leftLabels = ["Strength:", "Agility:", "Stamina:", "Intellect:", "Spirit:"];
-        Vector4 petPanelClip = new(p.X, p.Y, p.X + PaperDollUiLaw.FrameWidth * s,
-            p.Y + PaperDollUiLaw.FrameHeight * s);
+        Vector4 petPanelClip = PetPaperDollUiLaw.PanelClip(p, s);
         for (int i = 0; i < PetPaperDollUiLaw.StatRows; i++)
         {
             DrawPetPaperDollStat(dl, p, s, false, i, leftLabels[i],
@@ -402,8 +408,10 @@ public sealed partial class GameLoop
         string[] rightLabels = ["Attack:", "Power:", "Damage:", "Defense:", "Armor:"];
         string[] rightValues =
         [
-            (pet.Level * 5).ToString(), pet.Fields.AttackPower.ToString(), damage,
-            (pet.Level * 5).ToString(), pet.Fields.Resistance(0).ToString()
+            PetPaperDollUiLaw.CreatureSkill(pet.Level).ToString(),
+            pet.Fields.AttackPower.ToString(), damage,
+            PetPaperDollUiLaw.CreatureSkill(pet.Level).ToString(),
+            pet.Fields.Resistance(0).ToString()
         ];
         for (int i = 0; i < PetPaperDollUiLaw.StatRows; i++)
         {
@@ -450,18 +458,22 @@ public sealed partial class GameLoop
         byte loyalty = pet.Fields.PetLoyaltyLevel;
         string loyaltyName = PetPaperDollUiLaw.LoyaltyName(loyalty);
         if (loyaltyName.Length > 0)
-            GameText.DrawCentered(dl, "GameFontNormalSmall", loyaltyName,
-                p + new Vector2(198, 54) * s, s);
+            GameText.DrawCentered(dl, PetPaperDollUiLaw.PetLoyaltyFont, loyaltyName,
+                PetPaperDollUiLaw.PetLoyaltyCenter(p, s), s);
 
         bool hunterPet = player.Fields.Bytes0.Class == 3 && pet.Fields.PetNumber != 0;
         if (hunterPet)
         {
             (ushort total, ushort spent) =
                 PetPaperDollUiLaw.TrainingPoints(pet.Fields.PetTrainingPoints);
-            GameText.DrawRightAligned(dl, "GameFontNormalSmall", "Training Points:",
-                p + new Vector2(244, 426) * s, s);
-            GameText.Draw(dl, "GameFontHighlightSmall", ((int)total - spent).ToString(),
-                p + new Vector2(249, 420) * s, s);
+            string trainingValue = ((int)total - spent).ToString();
+            float trainingValueWidth = GameText.MeasureWidth(
+                PetPaperDollUiLaw.TrainingValueFont, trainingValue, s);
+            GameText.DrawRightAligned(dl, PetPaperDollUiLaw.TrainingLabelFont,
+                "Training Points:", PetPaperDollUiLaw.TrainingLabelRightTop(
+                    p, s, trainingValueWidth), s);
+            GameText.DrawRightAligned(dl, PetPaperDollUiLaw.TrainingValueFont, trainingValue,
+                PetPaperDollUiLaw.TrainingValueTopRight(p, s), s);
             DrawPetDietAffordance(dl, p, s, pet);
         }
 
@@ -505,40 +517,35 @@ public sealed partial class GameLoop
     {
         PetPaperDollUiLaw.LogicalRect logical = PetPaperDollUiLaw.StatRow(right, row);
         Vector2 min = p + logical.Min * s;
-        GameText.Draw(dl, "GameFontNormalSmall", label, min, s);
-        GameText.DrawRightAligned(dl, "GameFontHighlightSmall", value,
-            min + new Vector2(logical.Width, 6) * s, s);
+        GameText.Draw(dl, PetPaperDollUiLaw.StatLabelFont, label,
+            PetPaperDollUiLaw.StatLabelMin(min, s), s);
+        GameText.DrawRightAligned(dl, PetPaperDollUiLaw.StatValueFont, value,
+            PetPaperDollUiLaw.StatValueRightTop(min, s), s);
     }
 
     private void DrawPetPaperDollResistances(ImDrawListPtr dl, Vector2 p, float s,
         ObjectFields fields)
     {
-        int[] schools = [6, 2, 3, 4, 5];
-        (float Top, float Bottom)[] uv =
-        [
-            (.2265625f, .33984375f), (0, .11328125f), (.11328125f, .2265625f),
-            (.33984375f, .453125f), (.453125f, .56640625f)
-        ];
-        uint icons = _gameplayArt?.Handle(
-            @"Interface\PaperDollInfoFrame\UI-Character-ResistanceIcons") ?? 0;
+        uint icons = _gameplayArt?.Handle(PetPaperDollUiLaw.ResistanceIconsPath) ?? 0;
         for (int i = 0; i < 5; i++)
         {
             PetPaperDollUiLaw.LogicalRect logical = PetPaperDollUiLaw.ResistanceRow(i);
             Vector2 min = p + logical.Min * s;
             if (icons != 0)
                 dl.AddImage((nint)icons, min, min + logical.Size * s,
-                    new Vector2(0, uv[i].Top), new Vector2(1, uv[i].Bottom));
-            int value = fields.Resistance(schools[i]);
+                    PetPaperDollUiLaw.ResistanceUvMin(i),
+                    PetPaperDollUiLaw.ResistanceUvMax(i));
+            int school = PetPaperDollUiLaw.ResistanceSchoolIds[i];
+            int value = fields.Resistance(school);
             uint color = value < 0 ? 0xff3333ff : value > 0 ? 0xff33ff33 : 0xffffffff;
-            GameText.DrawCentered(dl, "GameFontHighlightSmall", value.ToString(),
-                min + new Vector2(16, 22) * s, s, color);
+            GameText.DrawCentered(dl, PetPaperDollUiLaw.ResistanceFont, value.ToString(),
+                PetPaperDollUiLaw.ResistanceTextCenter(min, s), s, color);
             DrawCharacterTooltipHit($"PetMagicResFrame{i + 1}", min, logical.Size * s,
-                new Vector4(p.X, p.Y, p.X + PaperDollUiLaw.FrameWidth * s,
-                    p.Y + PaperDollUiLaw.FrameHeight * s), "PetResistanceFrame",
+                PetPaperDollUiLaw.PanelClip(p, s), "PetResistanceFrame",
                 PetPaperDollUiLaw.ResistanceTooltip(
                     PetPaperDollUiLaw.ResistanceNames[i], value,
-                    fields.ResistancePositive(schools[i]),
-                    fields.ResistanceNegative(schools[i])));
+                    fields.ResistancePositive(school),
+                    fields.ResistanceNegative(school)));
         }
     }
 
@@ -549,15 +556,19 @@ public sealed partial class GameLoop
         Vector2 min = p + logical.Min * s;
         DrawVanillaStatusBar(dl, min, logical.Size * s,
             PetPaperDollUiLaw.ExperienceFraction(fields.PetExperience,
-                fields.PetNextLevelExperience), new Vector4(.58f, 0, .55f, 1));
-        uint dwarf = _gameplayArt?.Handle(@"Interface\MainMenuBar\UI-MainMenuBar-Dwarf") ?? 0;
+                fields.PetNextLevelExperience), PetPaperDollUiLaw.ExperienceColor);
+        uint dwarf = _gameplayArt?.Handle(PetPaperDollUiLaw.ExperienceDwarfPath) ?? 0;
         if (dwarf != 0)
         {
-            Vector2 uv0 = new(.203125f, .2890625f);
-            Vector2 uv1 = new(.8046875f, .33984375f);
-            dl.AddImage((nint)dwarf, min, min + new Vector2(160, 13) * s, uv0, uv1);
-            dl.AddImage((nint)dwarf, min + new Vector2(160, 0) * s,
-                min + new Vector2(319, 13) * s, uv0, uv1);
+            foreach (bool right in new[] { false, true })
+            {
+                PetPaperDollUiLaw.LogicalRect piece =
+                    PetPaperDollUiLaw.ExperienceDwarfPiece(right);
+                Vector2 pieceMin = min + piece.Min * s;
+                dl.AddImage((nint)dwarf, pieceMin, pieceMin + piece.Size * s,
+                    PetPaperDollUiLaw.ExperienceDwarfUvMin,
+                    PetPaperDollUiLaw.ExperienceDwarfUvMax);
+            }
         }
     }
 
@@ -565,11 +576,10 @@ public sealed partial class GameLoop
     {
         PetPaperDollUiLaw.LogicalRect logical = PetPaperDollUiLaw.Diet;
         Vector2 min = p + logical.Min * s;
-        uint icon = _gameplayArt?.Handle(
-            @"Interface\PetPaperDollFrame\UI-PetHappiness") ?? 0;
+        uint icon = _gameplayArt?.Handle(PetPaperDollUiLaw.DietPath) ?? 0;
         if (icon != 0)
             dl.AddImage((nint)icon, min, min + logical.Size * s,
-                Vector2.Zero, new Vector2(.1875f, .359375f));
+                Vector2.Zero, PetPaperDollUiLaw.DietUvMax);
         ImGui.SetCursorScreenPos(min);
         ImGui.InvisibleButton("##pet-diet", logical.Size * s);
         if (!ImGui.IsItemHovered()) return;
@@ -578,9 +588,16 @@ public sealed partial class GameLoop
             query is not null)
             diet = _creatureFamilies?.Diet(query.PetFamily) ?? "";
         string text = diet.Length > 0 ? $"Diet: {diet}" : "Diet";
+        PetPaperDollUiLaw.TooltipSeat tooltipSeat =
+            PetPaperDollUiLaw.RightTooltipSeat(min, logical.Size * s);
         OfferPreservedSharedGameTooltipRenderer(
             new GameTooltipOwnerKey("pet-paper-doll-diet", pet.Guid),
-            () => DrawPetTokenTooltip(text));
+            () =>
+            {
+                ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
+                    tooltipSeat.Pivot);
+                DrawPetTokenTooltip(text);
+            });
     }
 
     private void DrawPaperDollPage(ImDrawListPtr dl, Vector2 p, float s, WorldEntity player)
@@ -778,8 +795,8 @@ public sealed partial class GameLoop
             PickupOrPlaceItem(InventoryUiLaw.EquipmentContainer, slot, guid);
             _paperDollDirty = true;
         }
-        else if (action == PaperDollUiLaw.SlotClickAction.Use && guid != 0)
-            _net?.UseItem(InventoryUiLaw.PlayerInventoryBag, (byte)slot, item?.UseSpellIndex ?? 0);
+        else if (action == PaperDollUiLaw.SlotClickAction.Use && instance is not null && item is not null)
+            SendItemUse(InventoryUiLaw.PlayerInventoryBag, (byte)slot, instance, item);
         if (!dressUpClick && !_vendorRepairMode && _itemCastSpell == 0 && _enchantConfirmation is null)
             HandleInventoryDrag(InventoryUiLaw.EquipmentContainer, slot, guid, item);
 
@@ -1252,8 +1269,15 @@ public sealed partial class GameLoop
             .ToImmutableArray();
         float wrapWidth = PaperDollUiLaw.TooltipWrapWidth;
         var tooltipOwner = new GameTooltipOwnerKey($"paperdoll-stat:{element}", 0);
+        PetPaperDollUiLaw.TooltipSeat? petTooltipSeat =
+            parent.StartsWith("Pet", StringComparison.Ordinal)
+                ? PetPaperDollUiLaw.RightTooltipSeat(min, size)
+                : null;
         OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
         {
+            if (petTooltipSeat is { } tooltipSeat)
+                ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
+                    tooltipSeat.Pivot);
             ImGui.BeginTooltip();
             ImGui.TextUnformatted(preparedTitle);
             ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + wrapWidth);
@@ -1547,10 +1571,10 @@ public sealed partial class GameLoop
             return;
         }
 
-        Vector2 origin = characterOrigin + ReputationFrameUiLaw.DetailOffset * s;
-        Vector2 size = ReputationFrameUiLaw.DetailSize * s;
-        ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
-        ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+        ReputationFrameUiLaw.ScreenRect frame =
+            ReputationFrameUiLaw.DetailScreenRect(characterOrigin, s);
+        ImGui.SetNextWindowPos(frame.Min, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(frame.Size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
         ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav;
@@ -1561,24 +1585,25 @@ public sealed partial class GameLoop
         }
 
         ImDrawListPtr draw = ImGui.GetWindowDrawList();
-        _skin.DrawBackdrop(draw, origin, origin + size, WowSkin.Dialog);
+        _skin.DrawBackdrop(draw, frame.Min, frame.Max, WowSkin.Dialog);
         DrawArt(draw, @"Interface\PaperDollInfoFrame\UI-Character-Reputation-DetailBackground",
-            origin + ReputationFrameUiLaw.DetailArt.Min * s,
+            frame.Min + ReputationFrameUiLaw.DetailArt.Min * s,
             ReputationFrameUiLaw.DetailArt.Size, s);
         DrawArt(draw, @"Interface\DialogFrame\UI-DialogBox-Corner",
-            origin + new Vector2(174, 7) * s, new Vector2(32), s);
+            frame.Min + ReputationFrameUiLaw.Corner.Min * s,
+            ReputationFrameUiLaw.Corner.Size, s);
         DrawArt(draw, @"Interface\DialogFrame\UI-DialogBox-Divider",
-            origin + ReputationFrameUiLaw.Divider.Min * s,
+            frame.Min + ReputationFrameUiLaw.Divider.Min * s,
             ReputationFrameUiLaw.Divider.Size, s);
 
         GameText.Draw(draw, "GameFontNormal", info.Name,
-            origin + ReputationFrameUiLaw.Name.Min * s, s);
+            frame.Min + ReputationFrameUiLaw.Name.Min * s, s);
         DrawWrappedText(draw, info.Description,
-            origin + ReputationFrameUiLaw.Description.Min * s,
+            frame.Min + ReputationFrameUiLaw.Description.Min * s,
             ReputationFrameUiLaw.Description.Width, 10 * s, s, 0xffffffff, 8);
 
         ReputationFrameUiLaw.LogicalRect close = ReputationFrameUiLaw.Close;
-        DrawImageButton(draw, "##reputation-detail-close", origin + close.Min * s,
+        DrawImageButton(draw, "##reputation-detail-close", frame.Min + close.Min * s,
             close.Size * s, @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
@@ -1588,7 +1613,7 @@ public sealed partial class GameLoop
             player.Fields.Bytes0.Class) + state.Standing;
         bool atWar = ReputationFrameUiLaw.IsAtWar(state.Flags);
         bool canToggle = ReputationFrameUiLaw.CanToggleAtWar(state.Flags, totalStanding);
-        if (DrawReputationCheck(draw, origin, ReputationFrameUiLaw.AtWarCheck,
+        if (DrawReputationCheck(draw, frame.Min, ReputationFrameUiLaw.AtWarCheck,
                 "##reputation-at-war", "At War", atWar, canToggle, true, s))
         {
             SetSelectedFactionAtWar(!atWar, totalStanding);
@@ -1597,7 +1622,7 @@ public sealed partial class GameLoop
         }
 
         bool inactive = ReputationFrameUiLaw.IsInactive(state.Flags);
-        if (DrawReputationCheck(draw, origin, ReputationFrameUiLaw.InactiveCheck,
+        if (DrawReputationCheck(draw, frame.Min, ReputationFrameUiLaw.InactiveCheck,
                 "##reputation-inactive", "Move to Inactive", inactive, true, false, s))
         {
             SetSelectedFactionInactive(!inactive);
@@ -1606,7 +1631,7 @@ public sealed partial class GameLoop
         }
 
         bool watched = player.Fields.WatchedFactionIndex == _selectedReputationSlot;
-        if (DrawReputationCheck(draw, origin, ReputationFrameUiLaw.MainScreenCheck,
+        if (DrawReputationCheck(draw, frame.Min, ReputationFrameUiLaw.MainScreenCheck,
                 "##reputation-watched", "Show as Experience Bar", watched, true, false, s))
         {
             SetSelectedFactionWatched(!watched);
@@ -1620,16 +1645,16 @@ public sealed partial class GameLoop
         ReputationFrameUiLaw.LogicalRect logical, string id, string label, bool value,
         bool enabled, bool sword, float s)
     {
-        Vector2 min = origin + logical.Min * s;
-        Vector2 size = logical.Size * s;
-        ImGui.SetCursorScreenPos(min);
-        ImGui.InvisibleButton(id, size);
+        ReputationFrameUiLaw.CheckGeometry geometry =
+            ReputationFrameUiLaw.Check(origin, logical, s, sword);
+        ImGui.SetCursorScreenPos(geometry.Hit.Min);
+        ImGui.InvisibleButton(id, geometry.Hit.Size);
         bool active = enabled && ImGui.IsItemActive();
         bool hovered = enabled && ImGui.IsItemHovered();
         uint box = _gameplayArt?.Handle(active
             ? @"Interface\Buttons\UI-CheckBox-Down"
             : @"Interface\Buttons\UI-CheckBox-Up") ?? 0;
-        if (box != 0) draw.AddImage((nint)box, min, min + size);
+        if (box != 0) draw.AddImage((nint)box, geometry.Hit.Min, geometry.Hit.Max);
         if (value)
         {
             string markPath = enabled
@@ -1639,20 +1664,20 @@ public sealed partial class GameLoop
             uint mark = _gameplayArt?.Handle(markPath) ?? 0;
             if (mark != 0)
             {
-                Vector2 markMin = sword ? min + new Vector2(3, -5) * s : min;
-                Vector2 markSize = sword ? new Vector2(32) * s : size;
-                draw.AddImage((nint)mark, markMin, markMin + markSize);
+                draw.AddImage((nint)mark, geometry.MarkMin,
+                    geometry.MarkMin + geometry.MarkSize);
             }
         }
         if (hovered)
         {
             uint highlight = _gameplayArt?.AdditiveHandle(
                 @"Interface\Buttons\UI-CheckBox-Highlight") ?? 0;
-            if (highlight != 0) draw.AddImage((nint)highlight, min, min + size);
+            if (highlight != 0)
+                draw.AddImage((nint)highlight, geometry.Hit.Min, geometry.Hit.Max);
         }
         uint labelColor = enabled ? sword ? 0xff3333ff : 0xffffffff : 0xff777777;
         GameText.Draw(draw, "GameFontNormalSmall", label,
-            min + new Vector2(24, 7) * s, s, labelColor);
+            geometry.LabelPosition, s, labelColor);
         return enabled && ImGui.IsItemClicked();
     }
 
@@ -1991,27 +2016,30 @@ public sealed partial class GameLoop
         }
         DrawSkillScrollBar(dl, p, s, rows.Count);
 
-        // SkillFrame ARTWORK layer: the divider above the detail pane. Two runs of
-        // UI-ClassTrainer-HorizontalBar. Frozen Benilla moved the pair to y=305 specifically so
-        // the authored 12th 32px border no longer crosses it; the selected-detail art draws later.
+        // SkillFrame ARTWORK layer: the law-owned divider above the detail pane. Current Benilla
+        // keeps it at y=305 so the authored 12th 32px border no longer crosses it.
         uint hbar = _gameplayArt?.Handle(@"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar") ?? 0;
+        SkillFrameUiLaw.LogicalRect dividerLeft = SkillFrameUiLaw.DividerLeftRect;
+        SkillFrameUiLaw.LogicalRect dividerRight = SkillFrameUiLaw.DividerRightRect;
         if (hbar != 0)
         {
-            dl.AddImage((nint)hbar, p + new Vector2(15, 305) * s, p + new Vector2(271, 321) * s,
+            Vector2 leftMin = p + dividerLeft.Min * s;
+            Vector2 rightMin = p + dividerRight.Min * s;
+            dl.AddImage((nint)hbar, leftMin, leftMin + dividerLeft.Size * s,
                 new Vector2(0, 0), new Vector2(1f, 0.25f));
-            dl.AddImage((nint)hbar, p + new Vector2(271, 305) * s, p + new Vector2(346, 321) * s,
+            dl.AddImage((nint)hbar, rightMin, rightMin + dividerRight.Size * s,
                 new Vector2(0, 0.25f), new Vector2(0.29296875f, 0.5f));
         }
         if (SkillFrameUiParityCaptureActive)
         {
             CollectUiParityDraw("BenillaSkillHorizontalBarLeft", "TextureUv",
-                p + new Vector2(15, 305) * s, new Vector2(256, 16) * s,
+                p + dividerLeft.Min * s, dividerLeft.Size * s,
                 "BenillaSkillFrame", new(@"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar",
                     0xffffffff, "ARTWORK", "TOPLEFT", "BenillaSkillFrame", "TOPLEFT", 15,
                     -305, TexCoords: "0|0|1|0.25", ClipRect: skillClip,
                     BlendMode: "BLEND", Visible: hbar != 0, Strata: "MEDIUM+1"));
             CollectUiParityDraw("BenillaSkillHorizontalBarRight", "TextureUv",
-                p + new Vector2(271, 305) * s, new Vector2(75, 16) * s,
+                p + dividerRight.Min * s, dividerRight.Size * s,
                 "BenillaSkillFrame", new(@"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar",
                     0xffffffff, "ARTWORK", "LEFT", "BenillaSkillHorizontalBarLeft", "RIGHT", 0,
                     0, TexCoords: "0|0.25|0.29296875|0.5", ClipRect: skillClip,
@@ -2058,18 +2086,15 @@ public sealed partial class GameLoop
         SkillLineInfo info, ushort value, ushort max, int bonus,
         SkillFrameUiLaw.BarPresentation presentation)
     {
-        // SkillDetailStatusBar (SkillFrame.xml): 211x15, CENTER to SkillDetailScrollChildFrame.TOP
-        // offset (-10,-20). Resolving the anchor chain (list scroll TOPRIGHT (317,75) -> detail
-        // scroll TOPLEFT (21,303) -> child TOP (181,303)) puts the bar centre at frame-local
-        // (171,323), so its top-left is (65.5,315.5).
-        Vector2 boxMin = p + new Vector2(65.5f, 315.5f) * s;
-        Vector2 boxSize = new Vector2(211, 15) * s;
+        // Current SkillFrame.xml reuses the full 271x15 rank template for the selected-skill row.
+        // Its bar, border, description and unlearn seats are resolved in SkillFrameUiLaw.
+        SkillFrameUiLaw.LogicalRect detail = SkillFrameUiLaw.DetailBarRect;
+        SkillFrameUiLaw.LogicalRect detailBorder = SkillFrameUiLaw.DetailBorderRect;
+        Vector2 boxMin = p + detail.Min * s;
+        Vector2 boxSize = detail.Size * s;
         Vector2 boxMax = boxMin + boxSize;
-        // $parentBorder texture: 220x32, LEFT offset (-5,0) -> top-left (60.5,307). The same rounded
-        // frame as the list rows: its transparent channel reveals the fill, its border masks the
-        // overflow, so the fill is drawn across the full 15px bar and the frame clips it.
-        Vector2 borderMin = p + new Vector2(60.5f, 307f) * s;
-        Vector2 borderMax = borderMin + new Vector2(220, 32) * s;
+        Vector2 borderMin = p + detailBorder.Min * s;
+        Vector2 borderMax = borderMin + detailBorder.Size * s;
 
         // SkillDetailFrame_SetStatusBar colours (ABGR). Normal skill: bar SetStatusBarColor(0,0,1,
         // 0.5), background SetVertexColor(0,0,0.75,0.5). Proficiency (skillMaxRank==1): bar
@@ -2090,13 +2115,13 @@ public sealed partial class GameLoop
             dl.AddImage((nint)bar, boxMin, new Vector2(boxMin.X + boxSize.X * fraction, boxMax.Y),
                 Vector2.Zero, new Vector2(fraction, 1), fillColor);
         if (border != 0) dl.AddImage((nint)border, borderMin, borderMax);
-        DrawSkillUnlearnButton(dl, borderMin, borderMax, s, player, info);
+        DrawSkillUnlearnButton(dl, p, s, player, info);
 
         if (SkillFrameUiParityCaptureActive)
         {
             CollectUiParityDraw("BenillaSkillDetailBar", "StatusBar", boxMin, boxSize,
                 "BenillaSkillFrame", new("", 0, "FRAMES", "TOPLEFT",
-                    "BenillaSkillFrame", "TOPLEFT", 65.5f, -315.5f,
+                    "BenillaSkillFrame", "TOPLEFT", detail.X, -detail.Y,
                     ClipRect: skillClip, Visible: true,
                     InteractionState: presentation.ToString().ToLowerInvariant(),
                     Strata: "MEDIUM+1"));
@@ -2176,12 +2201,13 @@ public sealed partial class GameLoop
                 "BenillaSkillDetailBar", "NOT-DRAWN",
                 barless ? "max-zero-rank-blank" : "proficiency-rank-blank");
 
-        // SkillDetailDescriptionText GameFontHighlightSmall (white), width 275, LEFT/TOP. For a
-        // normal skill (no cost text) SkillFrame.lua anchors its TOP to SkillDetailCostText's TOP =
-        // child TOP + (-10,-40) -> top-centre frame-local (171,343); left edge 171-137.5=33.5.
+        // SkillDetailDescriptionText is TOPLEFT to detail-bar BOTTOMLEFT at (-2,-10).
         if (!string.IsNullOrWhiteSpace(info.Description))
         {
-            float descLeft = p.X + 33.5f * s, descTop = p.Y + 343f * s, wrapPx = 275f * s;
+            SkillFrameUiLaw.LogicalRect description = SkillFrameUiLaw.DetailDescriptionRect;
+            float descLeft = p.X + description.X * s;
+            float descTop = p.Y + description.Y * s;
+            float wrapPx = description.Width * s;
             float pitch = GameText.LinePitch("GameFontHighlightSmall", s);
             List<string> lines = WrapSkillDescription(info.Description, "GameFontHighlightSmall", s, wrapPx);
             for (int i = 0; i < lines.Count; i++)
@@ -2194,7 +2220,7 @@ public sealed partial class GameLoop
                     new Vector2(descLeft, descTop),
                     new Vector2(measuredWidth, Math.Max(1, lines.Count) * pitch),
                     "BenillaSkillFrame", new("", 0xffffffff, "ARTWORK", "TOPLEFT",
-                        "BenillaSkillDetailBar", "BOTTOMLEFT", -32, -12.5f,
+                        "BenillaSkillDetailBar", "BOTTOMLEFT", -2, -10,
                         @"Fonts\FRIZQT__.TTF", 10, ClipRect: skillClip, Visible: true,
                         InteractionState: $"lines={lines.Count};wrap=275", Strata: "MEDIUM+2"));
             }

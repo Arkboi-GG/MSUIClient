@@ -19,20 +19,31 @@
       "path": "crates/benilla-app/src/ui_pet_stats.rs",
       "fileSha256": "781e68913da63f393fc2f8e856aade45d3020a4dd86e9a8ac9d1725282e9d506",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/portrait/mod.rs",
+      "fileSha256": "3d6619764b526f54c1f13795fb208f27b67b310830ac8a05f1a005e20c242fe3",
+      "snapshotId": "benilla-current-2026-08-23"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/char_stats.rs",
+      "fileSha256": "54aade7465e17e2f10fd17b72e700567681ad894de1d04615a76cd226416c09d",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/GameLoop/Panels/GameLoop.CharacterPage.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Pet.cs",
     "MSUIClient/GameLoop/Hud/GameLoop.Portraits.cs",
+    "MSUIClient/World/Units/CreatureRenderer.cs",
     "MSUIClient/Engine/UI/PetPaperDollUiLaw.cs",
     "MSUIClient/Formats/CreatureFamilyCatalog.cs",
     "MSUIClient/Net/CreatureQuery.cs",
     "MSUIClient/Net/ObjectFields.cs",
     "tools/interface-wire-check/PetPaperDollClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "MSUI's already conditional Pet tab is no longer an empty generic page. PetPaperDollUiLaw seats the current 384x512 child page's pet-specific bottom quadrants, 318x224 model pane, 35px rotation controls, 319x11 purple XP bar and dwarf-notch overlay, paired 114x78 attribute plates, five primary and five combat rows, five resistance icons, hunter-only diet/training affordances, and 80x22 Close button. A dedicated appearance-keyed full-body creature render target supplies the model; pet name, level/family, loyalty, XP, training points, stats and resistances come from live descriptors plus CreatureQuery/CreatureFamily/ItemPetFood data. All fifteen stat/resistance rows now expose their exact rule-owned hit rectangles and reference-shaped primary, attack, power, damage, defense, armor, and bare pet-resistance tooltip content through shared tooltip arbitration. Pet loss while this page is selected closes the character window as the reference does. A separate dedicated circular pet portrait also resolves the older pet-unit-frame booth gap. Focused and complete interface clinical checks pass; live verification remains.",
+  "status": "complete",
+  "summary": "MSUI's already conditional Pet tab is no longer an empty generic page. PetPaperDollUiLaw seats the current 384x512 child page's pet-specific bottom quadrants, 318x224 model pane, 35px rotation controls, 319x11 purple XP bar and dwarf-notch overlay, paired 114x78 attribute plates, five primary and five combat rows, five resistance icons, hunter-only diet/training affordances, and 80x22 Close button. A dedicated appearance-keyed full-body creature render target supplies a live looping Stand model; PetPaperDollUiLaw owns its resume/stall-safe animation step as well as the pane geometry. Pet name, level/family, loyalty, XP, training points, stats and resistances come from live descriptors plus CreatureQuery/CreatureFamily/ItemPetFood data. Attack and Defense both use the reference CGUnit branch's level-times-five calculation with zero modifier; a pet has no player skill block to stream. Diet and all fifteen stat/resistance rows expose their exact rule-owned hit rectangles, reference-shaped content, and authored ANCHOR_RIGHT tooltip seats through shared tooltip arbitration. The protected player Character page tooltip placement remains unchanged. Pet loss while this page is selected closes the character window as the reference does. Focused and complete interface clinical checks pass; live verification remains.",
   "openItems": [
     {
       "id": "item-msui-pet-paper-doll-tooltip-calculation-001",
@@ -49,20 +60,49 @@
       "text": "Attack and Defense currently use the level-derived base when MSUI has no separate streamed pet weapon-skill/defense-skill modifier surface. Tooltip presence and all other visible descriptor rows are implemented; this remains a data-source calculation gap rather than a window-layout gap.",
       "source": "benilla-b57ee0e9e2c8822b/ui_pet_stats.rs",
       "added": "2026-08-22",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23: Current Benilla's reverse-engineered UnitAttackBothHands/UnitDefense bindings confirm that pets take the non-player CGUnit branch: both values are UNIT_FIELD_LEVEL * 5 with modifier 0 because creatures have no PLAYER_SKILL_INFO block. MSUI already displayed that exact result. The formula now lives explicitly in PetPaperDollUiLaw and is pinned at level 60 -> 300 by the focused PetPaperDoll check; no new network field or window change is warranted. Focused and full interface-wire suites pass."
+    },
+    {
+      "id": "item-petpaperdoll-tooltip-seat-gap-20260823",
+      "kind": "gap",
+      "text": "Pet diet, stat, combat-stat, and resistance tooltips used implicit cursor placement instead of their authored ANCHOR_RIGHT owner seats.",
+      "source": "benilla-ac3264a0296ae90e/PetPaperDollFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "PetPaperDollUiLaw now owns the common right tooltip seat. Diet and every pet-owned stat/resistance hover apply it; the protected player Character page branch is deliberately unchanged."
+    },
+    {
+      "id": "item-petpaperdoll-law-font-anchor-visual-gap-20260823",
+      "kind": "gap",
+      "text": "PetPaperDoll still authored background quadrants, stat plates, resistance UVs, XP notches, diet UV, training anchors, and several text seats inside the renderer; the shared character header also painted the pet level above its authored anchor chain and used the player-name font path.",
+      "source": "benilla-b57ee0e9e2c8822b/PetPaperDollFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: PetPaperDollUiLaw now owns every pet-page art/UV rectangle and fixed text anchor. Pet name uses GameFontHighlight; level/loyalty follow their exact TOP chains; stat labels/values center in the 104x13 rows; resistance, training, XP and diet composition consume law seats. The protected player Character page presentation is unchanged. Focused PetPaperDoll and full interface-wire checks pass."
     },
     {
       "id": "item-msui-pet-paper-doll-live-verify-001",
       "kind": "verify",
-      "text": "Live-verify hunter pet and warlock minion paths at representative gameplay scales: conditional tab reflow, name/level/family/loyalty, full-body crop and rotation, XP bar, stat plates and resistance UVs, training-point arithmetic, diet tooltip, both Close controls, painterly rebake, and pet-dismissal closure.",
+      "text": "Live-verify hunter pet and warlock minion paths at representative gameplay scales: conditional tab reflow, name/level/family/loyalty, full-body crop, continuously looping Stand animation and rotation, XP bar, stat plates and resistance UVs, training-point arithmetic, diet tooltip, both Close controls, painterly rebake, and pet-dismissal closure.",
       "source": "benilla-b57ee0e9e2c8822b/PetPaperDollFrame.xml",
       "added": "2026-08-22",
       "resolved": false
+    },
+    {
+      "id": "item-petpaperdoll-live-stand-pane-20260823",
+      "kind": "gap",
+      "text": "Current Benilla routes the Pet Paper Doll through the shared live body-booth Stand loop; MSUI cached a creature render frozen at Stand time zero until appearance or rotation changed.",
+      "source": "benilla-current-2026-08-23/portrait/mod.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: only the distinct Pet tab now drives a live model-pane clock. PetPaperDollUiLaw owns the 50 ms resume/stall clamp, the pane rebakes while visible, pet identity changes reset its Stand phase, and CreatureRenderer's optional portrait time leaves all cached round portraits and protected player/Inspect presentation at their prior time-zero behavior. Focused and full clinical suites pass.",
+      "resolvedUtc": "2026-08-23T17:24:00Z"
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T21:20:00Z",
+  "lastReviewedUtc": "2026-08-23T17:24:00Z",
   "seededUtc": "2026-08-22T22:10:00Z"
 }

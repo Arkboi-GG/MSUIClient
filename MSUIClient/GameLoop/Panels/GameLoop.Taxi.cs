@@ -322,19 +322,30 @@ public sealed partial class GameLoop
             DrawUnitPortraitImage(dl, portraitMaster,
                 origin + TaxiFrameUiLaw.PortraitOffset * s,
                 TaxiFrameUiLaw.PortraitSize * s, 0, false);
-        (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[
-            ("TaxiFrame/Texture",@"Interface\TaxiFrame\UI-TaxiFrame-TopLeft",Vector2.Zero,new(256,256)),
-            ("TaxiFrame/Texture#2",@"Interface\TaxiFrame\UI-TaxiFrame-TopRight",new(256,0),new(128,256)),
-            ("TaxiFrame/Texture#3",@"Interface\TaxiFrame\UI-TaxiFrame-BotLeft",new(0,256),new(256,256)),
-            ("TaxiFrame/Texture#4",@"Interface\TaxiFrame\UI-TaxiFrame-BotRight",new(256,256),new(128,256))];
-        foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="taxi")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"TaxiFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","TaxiFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        string[] elements = ["TaxiFrame/Texture", "TaxiFrame/Texture#2",
+            "TaxiFrame/Texture#3", "TaxiFrame/Texture#4"];
+        string[] paths = [@"Interface\TaxiFrame\UI-TaxiFrame-TopLeft",
+            @"Interface\TaxiFrame\UI-TaxiFrame-TopRight",
+            @"Interface\TaxiFrame\UI-TaxiFrame-BotLeft",
+            @"Interface\TaxiFrame\UI-TaxiFrame-BotRight"];
+        for (int index = 0; index < TaxiFrameUiLaw.ShellPieces.Length; index++)
+        {
+            TaxiFrameUiLaw.LogicalRect piece = TaxiFrameUiLaw.ShellPieces[index];
+            Vector2 minimum = piece.ScaledMin(origin, s);
+            DrawArt(dl, paths[index], minimum, piece.Size, s);
+            if (_uiParityArmed && _uiParityPanel == "taxi")
+                CollectUiParityDraw(elements[index], "Texture", minimum, piece.ScaledSize(s),
+                    "TaxiFrame", new(paths[index], 0xffffffff, "IMGUI_IMAGE", "TOPLEFT",
+                        "TaxiFrame", "TOPLEFT", piece.X, -piece.Y));
+        }
         if(_gameplayArt is not null)
         {
             DrawVanillaTaxiMap(dl,origin,s);
             if(_uiParityArmed&&_uiParityPanel=="taxi")MarkUiParityFrameComplete();
             ImGui.End();return;
         }
-        ImGui.SetCursorScreenPos(origin+new Vector2(50,82)*s);ImGui.BeginChild("##taxi-content",new Vector2(270,300)*s,false);
+        ImGui.SetCursorScreenPos(TaxiFrameUiLaw.FallbackContent.ScaledMin(origin, s));
+        ImGui.BeginChild("##taxi-content", TaxiFrameUiLaw.FallbackContent.ScaledSize(s), false);
         ImGui.TextColored(new Vector4(1f,.82f,0f,1f), $"Current node: {_taxiCurrentNode}");
         ImGui.TextDisabled(_taxiLocked ? "In flight — movement controls locked" : "Choose a discovered destination");
         ImGui.Separator();
@@ -345,7 +356,13 @@ public sealed partial class GameLoop
             else if (ImGui.Button($"Fly to node {node}##taxi-{node}")) ActivateTaxi(node);
         }
         if (_taxiKnownNodes.Count == 0) ImGui.TextDisabled("No discovered flight nodes received.");
-        ImGui.EndChild();Vector2 close=origin+TaxiFrameUiLaw.CloseButton*s;DrawImageButton(dl,"##taxi-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())CloseTaxiMap();
+        ImGui.EndChild();
+        Vector2 close = TaxiFrameUiLaw.Close.ScaledMin(origin, s);
+        DrawImageButton(dl, "##taxi-close", close, TaxiFrameUiLaw.Close.ScaledSize(s),
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
+        if(ImGui.IsItemClicked())CloseTaxiMap();
         if(_uiParityArmed&&_uiParityPanel=="taxi")MarkUiParityFrameComplete();
         ImGui.End();
     }
@@ -362,8 +379,7 @@ public sealed partial class GameLoop
             merchant=_creatureNames.GetValueOrDefault(master.Entry,"Flight Master");
         }
         float titleEm=GameText.EmPixels("GameFontNormal",s);
-        DrawNpcModalTitle(dl,merchant,
-            origin+new Vector2(192,17+titleEm/(2f*s))*s,s);
+        DrawNpcModalTitle(dl, merchant, TaxiFrameUiLaw.TitleCenter(origin, s, titleEm), s);
         EnsureTaxiCatalogs();
         RebuildTaxiRoutes();
         Vector2 mapMin=origin+TaxiFrameUiLaw.MapOffset*s,mapSize=TaxiFrameUiLaw.MapSize*s;
@@ -392,14 +408,15 @@ public sealed partial class GameLoop
             Vector2 center=TaxiFrameUiLaw.NodeCenter(route.Position,mapMin,s);
             uint icon=_gameplayArt.Handle(route.Current
                 ? TaxiFrameUiLaw.CurrentIcon : TaxiFrameUiLaw.ReachableIcon);
-            Vector2 half=new(TaxiFrameUiLaw.NodeSize*s*.5f);
+            Vector2 half = TaxiFrameUiLaw.NodeHalf(TaxiFrameUiLaw.NodeSize, s);
             if(icon!=0)dl.AddImage((nint)icon,center-half,center+half);
             ImGui.SetCursorScreenPos(center-half);ImGui.InvisibleButton($"##taxi-{route.Node.Id}",half*2);
             bool isHovered=ImGui.IsItemHovered();
             if(isHovered)
             {
                 uint highlight=_gameplayArt.Handle(TaxiFrameUiLaw.HighlightIcon);
-                Vector2 highlightHalf=new(TaxiFrameUiLaw.NodeHighlightSize*s*.5f);
+                Vector2 highlightHalf = TaxiFrameUiLaw.NodeHalf(
+                    TaxiFrameUiLaw.NodeHighlightSize, s);
                 if(highlight!=0)dl.AddImage((nint)highlight,center-highlightHalf,center+highlightHalf);
                 OfferTaxiNodeTooltip(route,center+half);
             }
@@ -407,8 +424,8 @@ public sealed partial class GameLoop
         }
         if(!_taxiRoutes.Any(route=>!route.Current&&route.Segments.Length==1))
             DrawCenteredText(dl,mapMin+mapSize*.5f,TaxiFrameUiLaw.NoConnectedFlightPaths,11*s,0xffffffff);
-        Vector2 close=origin+TaxiFrameUiLaw.CloseButton*s;
-        DrawImageButton(dl,"##taxi-close-shipping",close,new Vector2(32)*s,
+        Vector2 close = TaxiFrameUiLaw.Close.ScaledMin(origin, s);
+        DrawImageButton(dl,"##taxi-close-shipping",close,TaxiFrameUiLaw.Close.ScaledSize(s),
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         if(ImGui.IsItemClicked()&&!_taxiLocked)CloseTaxiMap();
@@ -418,15 +435,15 @@ public sealed partial class GameLoop
         ImDrawListPtr draw, Vector2 mapMinimum, Vector4 normalized, float scale)
     {
         Vector2 source = TaxiFrameUiLaw.NodeCenter(
-            new Vector2(normalized.X, normalized.Y), mapMinimum, scale);
+            TaxiFrameUiLaw.SegmentSource(normalized), mapMinimum, scale);
         Vector2 destination = TaxiFrameUiLaw.NodeCenter(
-            new Vector2(normalized.Z, normalized.W), mapMinimum, scale);
+            TaxiFrameUiLaw.SegmentDestination(normalized), mapMinimum, scale);
         TaxiFrameUiLaw.RouteQuad quad = TaxiFrameUiLaw.RouteLine(source, destination, scale);
         uint texture = _gameplayArt?.Handle(TaxiFrameUiLaw.RouteTexture) ?? 0;
         if (texture != 0)
             draw.AddImageQuad((nint)texture, quad.A, quad.B, quad.C, quad.D,
-                new Vector2(0, 0), new Vector2(0, 1),
-                new Vector2(1, 1), new Vector2(1, 0));
+                TaxiFrameUiLaw.RouteUvA, TaxiFrameUiLaw.RouteUvB,
+                TaxiFrameUiLaw.RouteUvC, TaxiFrameUiLaw.RouteUvD);
         else
             draw.AddLine(source, destination, 0xffc0c0c0,
                 TaxiFrameUiLaw.RouteWidth * scale);

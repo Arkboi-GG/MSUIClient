@@ -7,25 +7,54 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/TalentFrame.xml",
-      "fileSha256": "7c79334d844675d47f7c32fdee1d9b32c77186cde8777d38662fed837d63493b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "1c55b3b820d8c7f1b4fca0161866c435806557b22b1fa05f2777eaab305dcd63",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_talent.rs",
-      "fileSha256": "84975deb2358eb8f5fc8946e89d48680069fc5aa96c2765c86f89cba493bd861",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "27d404616b09fa8686ec4d51bdd511d2633fc440f10cb611b94485c5f825d7f3",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Program.Talents.cs",
-    "MSUIClient/Formats/TalentCatalog.cs"
+    "MSUIClient/GameLoop/Panels/GameLoop.Talents.cs",
+    "MSUIClient/Engine/UI/TalentFrameUiLaw.cs",
+    "MSUIClient/Formats/TalentCatalog.cs",
+    "tools/interface-wire-check/TalentFrameClinicalChecks.cs"
   ],
-  "status": "implemented-unverified",
-  "summary": "Program.Talents.cs is a full talent window: 384x512 chassis with the four-piece shell art, per-tab class background tiles (MageFire etc.), 3 tree tabs (VanillaTab), scrolled 296x332 grid with wheel + real scrollbar (arrows/knob/track drag), talent buttons with EmptySlot backdrop / icon grey-out / RankBorder + rank text with maxed-gold coloring, prerequisite link lines colored by met/unmet, points-remaining display, eligibility law (tier 5-per-row gating, prerequisite rank, required spell, free points), CMSG_LEARN_TALENT send with server confirm observation, talent-wipe cost display + Unlearn Talents confirm, Close + minimize close button, player portrait. TalentCatalog decodes Talent/TalentTab DBC.",
-  "openItems": [],
+  "status": "partial",
+  "summary": "TalentFrameUiLaw now owns the current 384x512 shell, portrait, class-background quadrants, 264x20 points border, 296x332 ScrollFrame with fixed 504px child, exact 172px range and 20px step, 8x4/63px talent grid, tabs and close controls. It also owns portrait and scrollbar UVs, scroll offset/knob projection, measured points-spent placement, tab positioning, and each talent tooltip's authored ANCHOR_RIGHT seat; GameLoop.Talents contains no local Vector2 geometry. The renderer uses the exact TalentBranches/TalentArrows atlas cells for prerequisite routing instead of generic lines, restores the Quickslot2 talent-button layer, hides locked zero-rank badges, shows the reference rank number rather than an invented rank/max fraction, and uses the exact enabled/locked/maxed tints. Existing talent eligibility, CMSG_LEARN_TALENT, server confirmation observation, wipe confirmation, portrait and class tree backgrounds remain. Focused and full desktop clinical suites pass; live visual/input acceptance remains.",
+  "openItems": [
+    {
+      "id": "item-talentframe-scroll-connector-presentation-gap-20260822",
+      "kind": "gap",
+      "text": "TalentFrame used a 103px scroll cap and 150px arrow jumps instead of the current fixed 172px/20px law, omitted the points border and Quickslot2 layer, drew invented rank/max badges on locked talents, and represented prerequisites as generic straight lines rather than the authored branch/arrow atlas.",
+      "source": "benilla-b57ee0e9e2c8822b/TalentFrame.xml",
+      "added": "2026-08-22",
+      "resolved": true,
+      "resolution": "TalentFrameUiLaw owns the corrected geometry, fixed range/step, button layers/rank visibility and deterministic port of TalentFrame_DrawLines plus atlas paint. The renderer consumes those rules and focused/full desktop clinical suites pass."
+    },
+    {
+      "id": "item-talentframe-current-live-verify-20260822",
+      "kind": "verify",
+      "text": "Live-verify every class tree at top/bottom scroll limits: points border/text, three fitted tabs, all eight tiers reachable in 20px steps, lit/gray prerequisite atlas routes and arrows, locked/spent/maxed button layers and rank badges, click eligibility, tooltip placement, both close controls, and the conditional talent-wipe action.",
+      "source": "benilla-b57ee0e9e2c8822b/TalentFrame.xml",
+      "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "item-talentframe-tooltip-seat-gap-20260823",
+      "kind": "gap",
+      "text": "Talent tooltips used ImGui's implicit cursor placement instead of TalentButtonTemplate's ANCHOR_RIGHT owner seat.",
+      "source": "benilla-ac3264a0296ae90e/TalentFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "TalentFrameUiLaw maps each talent button TOPRIGHT to the tooltip BOTTOMLEFT, and the renderer applies that seat before opening the tooltip."
+    }
+  ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T04:41:52.4700828Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

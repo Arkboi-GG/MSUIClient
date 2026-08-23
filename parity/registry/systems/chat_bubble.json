@@ -23,7 +23,7 @@
     "tools/interface-wire-check/ChatBubbleClinicalChecks.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI now routes SAY/YELL/PARTY and monster say/yell from the resolved SMSG_MESSAGECHAT display path into one replace-never-queue bubble per live speaker. ChatBubbleUiLaw owns the separate all/party settings, plain-text pipe/color/link sanitization, exact space/tab word count, self-vs-other duration asymmetry, 250 ms recoverable range fade and permanent lifetime fade, 20 yd spawn/per-frame gate, damped diagonal sizing, and 16/1024-screen-width border. The world overlay uses Blizzard's ChatBubble Background/Backdrop/Tail art; the eight-piece backdrop uses repeat addressing and atlas-bleed inset, cards sort farthest-to-nearest so the nearest speaker stacks on top, and the seat grows upward from a projected world point. M2Reader now retains the Stand sequence CAaBox and the per-line anchor latches its model-scaled Z extent plus 0.7 yd, distinct from the posed name height. A qualifying live nameplate refuses a fresh bubble; a live bubble suppresses that unit's plate until recycled. Settings expose both CVars and default party bubbles on like Benilla. Build and focused clinical checks pass; live authenticated visual verification remains.",
+  "summary": "MSUI now routes SAY/YELL/PARTY and monster say/yell from the resolved SMSG_MESSAGECHAT display path into one replace-never-queue bubble per live speaker. ChatBubbleUiLaw owns the separate all/party settings, plain-text pipe/color/link sanitization, exact space/tab word count, self-vs-other duration asymmetry, 250 ms recoverable range fade and permanent lifetime fade, 20 yd spawn/per-frame gate, damped diagonal sizing, 16/1024-screen-width border, frame snapping, interior and tail rectangles, centered line seats, and all eight backdrop quads/UVs. The world overlay uses Blizzard's ChatBubble Background/Backdrop/Tail art; the renderer contains no local Vector2 geometry, cards sort farthest-to-nearest so the nearest speaker stacks on top, and the seat grows upward from a projected world point. M2Reader now retains the Stand sequence CAaBox and the per-line anchor latches its model-scaled Z extent plus 0.7 yd, distinct from the posed name height. A qualifying live nameplate refuses a fresh bubble; a live bubble suppresses that unit's plate until recycled. Settings expose both CVars and default party bubbles on like Benilla. Focused and full deterministic checks pass; live authenticated visual verification remains.",
   "openItems": [
     {
       "id": "item-triage-23f511b4",
@@ -46,6 +46,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T06:00:00Z",
+  "lastReviewedUtc": "2026-08-23T05:05:28.7840573Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -1,22 +1,26 @@
+using System.Numerics;
 using MSUIClient.Net;
 
 namespace MSUIClient.Engine.UI;
 
 public readonly record struct GossipLogicalRect(float X, float Y, float Width, float Height)
 {
-    public System.Numerics.Vector2 Min => new(X, Y);
-    public System.Numerics.Vector2 Size => new(Width, Height);
+    public Vector2 Min => new(X, Y);
+    public Vector2 Size => new(Width, Height);
 }
 
 /// <summary>Current Benilla gossip option/quest row icon selection.</summary>
 public static class GossipUiLaw
 {
+    public readonly record struct ArtPiece(string Element, string Path, GossipLogicalRect Rect);
+
     public const float Width = 384f;
     public const float Height = 512f;
     public const float WindowY = 104f;
     public const float ScrollStep = 20f;
     public const float ScrollPad = 20f;
     public const int MaximumRows = 32;
+    public const string TitleFont = "GameFontHighlight";
     public static readonly GossipLogicalRect Portrait = new(7, 6, 60, 60);
     public static readonly GossipLogicalRect Scroll = new(23, 81, 300, 334);
     public static readonly GossipLogicalRect Greeting = new(33, 91, 270, 0);
@@ -25,6 +29,38 @@ public static class GossipUiLaw
     public static readonly GossipLogicalRect ScrollDown = new(329, 399, 16, 16);
     public static readonly GossipLogicalRect Goodbye = new(267, 417, 78, 22);
     public static readonly GossipLogicalRect Close = new(326, 15, 32, 32);
+    public static readonly Vector2 TitleCenter = new(192, 30);
+    public const float RowTextWidth = 275f;
+    public static readonly Vector2 RowIconSize = new(16);
+    public static readonly Vector2 RowTextOffset = new(20, 0);
+    public static readonly Vector2 RowIconUvMin = Vector2.Zero;
+    public static readonly Vector2 RowIconUvMax = Vector2.One;
+    public static readonly Vector2 ScrollButtonUvMin = new(.25f);
+    public static readonly Vector2 ScrollButtonUvMax = new(.75f);
+    public static readonly Vector2 ScrollKnobSize = new(16);
+    public static readonly ArtPiece[] ShellArt =
+    [
+        new("GossipFrameGreetingPanel/Texture",
+            @"Interface\QuestFrame\UI-QuestGreeting-TopLeft", new(0, 0, 256, 256)),
+        new("GossipFrameGreetingPanel/Texture#2",
+            @"Interface\QuestFrame\UI-QuestGreeting-TopRight", new(256, 0, 128, 256)),
+        new("GossipFrameGreetingPanel/Texture#3",
+            @"Interface\QuestFrame\UI-QuestGreeting-BotLeft", new(0, 256, 256, 256)),
+        new("GossipFrameGreetingPanel/Texture#4",
+            @"Interface\QuestFrame\UI-QuestGreeting-BotRight", new(256, 256, 128, 256)),
+        new("GossipFrameGreetingPanel/Texture#5",
+            @"Interface\QuestFrame\UI-Quest-BotLeftPatch", new(22, 380, 128, 64)),
+    ];
+
+    public static Vector2 FrameSize(float scale) => new(Width * scale, Height * scale);
+    public static Vector2 GreetingMin(float scroll) =>
+        new(Greeting.X, Greeting.Y - Math.Max(0, scroll));
+    public static Vector2 RowMin(float rowY, float scroll) =>
+        new(Scroll.X, rowY - Math.Max(0, scroll));
+    public static Vector2 RowHitSize(float logicalAdvance) =>
+        new(Scroll.Width, Math.Max(0, logicalAdvance));
+    public static Vector2 ScrollKnobMin(float value, float contentHeight) =>
+        new(ScrollTrack.X, ThumbY(value, contentHeight));
 
     public static float RowTop(float greetingHeight) => 111f + Math.Max(0, greetingHeight);
     public static float RowHeight(float measuredTextHeight) =>

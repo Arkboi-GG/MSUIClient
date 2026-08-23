@@ -23,6 +23,7 @@
   ],
   "msuiAnchors": [
     "MSUIClient/Engine/UI/DressUpFrameUiLaw.cs",
+    "MSUIClient/Engine/UI/EquipmentDisplayPreferenceLaw.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.DressUp.cs",
     "MSUIClient/GameLoop/Hud/GameLoop.Portraits.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.ItemRef.cs",
@@ -33,10 +34,11 @@
     "MSUIClient/GameLoop/Panels/GameLoop.Quest.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Loot.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.GroupLoot.cs",
-    "tools/interface-wire-check/DressUpFrameClinicalChecks.cs"
+    "tools/interface-wire-check/DressUpFrameClinicalChecks.cs",
+    "tools/interface-wire-check/EquipmentDisplayPreferenceClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI now has a real isolated dressing room rather than a shell-only window. DressUpFrameUiLaw owns the reference 384x512 shell, portrait, four race-backdrop quadrants, 316x351 model pane, rotation controls, Reset/Close buttons, slot mapping, held-lane eviction, ranged-hand split, and Gnome/Troll backdrop substitutions. A dedicated CharacterRenderer and 632x702 transparent render target clone the current player's body and visible melee look without mutating live equipment; resolved try-ons replace only their visual slot, linked items wait for the item-template cache, Reset reclones the player look, and Close empties the room. Ctrl-click entry points cover chat item links, bags, the paper doll, inspect, merchant rows, quest and quest-log items, loot rows and group-loot icons. Focused and full clinical verification cover geometry, slot/lane laws, isolation, pending resolution, and the complete current item-entry surface set.",
+  "summary": "MSUI has a real isolated dressing room whose complete 384x512 geometry and behavior remain rule-owned. DressUpFrameUiLaw owns the portrait, backdrop, model pane, controls, slot mapping, held-lane eviction, ranged-hand split, substitutions, rotation and clamped live animation step. A dedicated CharacterRenderer clones the current player's body and visible melee look without mutating live equipment; its Stand loop and isolated item/enchant effects now advance while the pane is open. Resolved try-ons replace only their visual slot, Reset reclones and Close empties the room. Current equipment-display parity suppresses a hidden worn helm/cloak from the base clone while an explicitly tried-on helm/cloak always previews, matching Benilla's upstream preference application without changing the window layout.",
   "openItems": [
     {
       "id": "item-msui-dress-up-secondary-entry-points-001",
@@ -50,15 +52,33 @@
     {
       "id": "item-msui-dress-up-live-verify-001",
       "kind": "verify",
-      "text": "Live-verify representative race/gender backdrops and model crops, base gear cloning, body armor/helm/shoulder/weapon substitutions, bow versus gun hand routing, two-hand eviction, linked-item pending resolution, repeat Ctrl-click accumulation, Reset, both Close controls, tap-and-hold rotation, painterly rebake, and gameplay-scale seating.",
+      "text": "Live-verify representative race/gender backdrops and model crops, the continuously looping Stand pose, initial 0.61 yaw, two-edge 0.06-radian taps, opposite-sign held rotation, base gear cloning, body armor/helm/shoulder/weapon substitutions, bow versus gun hand routing, two-hand eviction, linked-item pending resolution, repeat Ctrl-click accumulation, Reset, both Close controls, painterly rebake, and gameplay-scale seating.",
       "source": "benilla-b57ee0e9e2c8822b/DressUpFrame.xml",
       "added": "2026-08-22",
+      "resolved": false
+    },
+    {
+      "id": "item-dressup-live-stand-pane-20260823",
+      "kind": "gap",
+      "text": "Benilla's DressUpModel is a live PlayerModel widget whose Stand animation loops while the dressing room is open; MSUI froze the renderer and only rebuilt its framebuffer on content or rotation changes.",
+      "source": "benilla-b57ee0e9e2c8822b/portrait/dressup.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: the isolated DressUp CharacterRenderer now runs its ordinary Stand clip and the open pane rebakes each frame. DressUpFrameUiLaw owns the resume/stall-safe 50 ms animation-step clamp, Reset/Close clear the wall-clock latch, painterly and item-glow passes remain inside the same model target, and no frame geometry or gameplay-scale behavior changed. Focused and full clinical suites pass.",
+      "resolvedUtc": "2026-08-23T17:22:00Z"
+    },
+    {
+      "id": "verify-dressup-hidden-equipment-live-20260823",
+      "kind": "verify",
+      "text": "With Show Helm and Show Cloak disabled, open/reset Dressing Room and confirm the worn base pieces remain hidden; then Ctrl-click a helm and cloak and confirm each explicit substitution previews despite the live preference. Re-enable each preference and confirm Reset reclones the shown worn item.",
+      "source": "benilla-current-2026-08-23/ui_dressup.rs",
+      "added": "2026-08-23",
       "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T23:05:00Z",
+  "lastReviewedUtc": "2026-08-23T17:22:00Z",
   "seededUtc": "2026-08-22T23:05:00Z"
 }

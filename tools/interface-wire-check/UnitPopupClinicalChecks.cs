@@ -23,6 +23,10 @@ internal static class UnitPopupClinicalChecks
         UnitPopupRow[] playerRows = UnitPopupUiLaw.VisibleRows(UnitPopupWhich.Player,
             inParty: false, isLeader: false, isRaid: false, canCooperate: true,
             unitInParty: false);
+        UnitPopupRow[] guildLeaderOtherRows = UnitPopupUiLaw.VisibleGuildRows(
+            unitInParty: false, guildLeader: true, self: false);
+        UnitPopupRow[] guildSelfRows = UnitPopupUiLaw.VisibleGuildRows(
+            unitInParty: false, guildLeader: true, self: true);
         Check(partyLeaderSelfRows.SequenceEqual(new[]
               { UnitPopupRow.LootMethod, UnitPopupRow.LootThreshold, UnitPopupRow.Leave,
                 UnitPopupRow.RaidTargetIcon, UnitPopupRow.Cancel }) &&
@@ -42,6 +46,15 @@ internal static class UnitPopupClinicalChecks
                   { UnitPopupRow.Whisper, UnitPopupRow.Inspect, UnitPopupRow.Invite,
                     UnitPopupRow.Trade, UnitPopupRow.Follow, UnitPopupRow.Duel,
                     UnitPopupRow.Cancel }) &&
+              guildLeaderOtherRows.SequenceEqual(new[]
+                  { UnitPopupRow.Whisper, UnitPopupRow.Invite,
+                    UnitPopupRow.GuildPromote, UnitPopupRow.Cancel }) &&
+              guildSelfRows.SequenceEqual(new[]
+                  { UnitPopupRow.Whisper, UnitPopupRow.Invite,
+                    UnitPopupRow.GuildLeave, UnitPopupRow.Cancel }) &&
+              UnitPopupUiLaw.RowText(UnitPopupRow.GuildPromote) ==
+                  "Promote to Guild Master" &&
+              UnitPopupUiLaw.RowText(UnitPopupRow.GuildLeave) == "Leave Guild" &&
               UnitPopupUiLaw.RowText(UnitPopupRow.Follow) == "Follow" &&
               UnitPopupUiLaw.RowText(UnitPopupRow.LootMethod, 4) == "Need Before Greed" &&
               UnitPopupUiLaw.RowText(UnitPopupRow.LootThreshold, 0, 3) == "Rare" &&
@@ -65,7 +78,10 @@ internal static class UnitPopupClinicalChecks
               UnitPopupUiLaw.CardWidth([new(100f, false, true, true)]) == 195f,
             "UnitPopup UIDropDownMenu MENU-mode geometry drift");
         Check(UnitPopupUiLaw.MenuBackdropFillTint == new Vector4(.09f, .09f, .19f, 1f) &&
-              UnitPopupUiLaw.MenuBackdropEdgeTint == Vector4.One,
+              UnitPopupUiLaw.MenuBackdropEdgeTint == Vector4.One &&
+              UnitPopupUiLaw.CheckSize == new Vector2(24) &&
+              UnitPopupUiLaw.RaidIconSize == new Vector2(15) &&
+              UnitPopupUiLaw.ArrowSize == new Vector2(16),
             "UnitPopup MENU backdrop globals/tint drift");
 
         Check(UnitPopupUiLaw.ClampOrigin(new Vector2(790f, 590f),
@@ -266,6 +282,7 @@ internal static class UnitPopupClinicalChecks
                   StringComparison.Ordinal) &&
               runtime.Contains("UnitPopupUiLaw.MenuBackdropEdgeTint",
                   StringComparison.Ordinal) &&
+              !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               runtime.Contains("PlayUiSound(\"igMainMenuOpen\")", StringComparison.Ordinal) &&
               runtime.Contains("PlayUiSound(\"UChatScrollButton\")", StringComparison.Ordinal) &&
               !runtime.Contains("dl.AddRectFilled(origin, origin + size * s, 0xee080808",

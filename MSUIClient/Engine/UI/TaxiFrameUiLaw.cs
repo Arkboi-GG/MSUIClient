@@ -28,8 +28,42 @@ public static class TaxiFrameUiLaw
     public const string NoConnectedFlightPaths =
         "You don’t know any flight locations connected to this one.";
 
+    public readonly record struct LogicalRect(float X, float Y, float Width, float Height)
+    {
+        public Vector2 Min => new(X, Y);
+        public Vector2 Size => new(Width, Height);
+        public Vector2 ScaledMin(Vector2 origin, float scale) => origin + Min * scale;
+        public Vector2 ScaledSize(float scale) => Size * scale;
+    }
+
+    public static readonly LogicalRect Frame = new(0, 0, Width, Height);
+    public static readonly LogicalRect Portrait = new(
+        PortraitOffset.X, PortraitOffset.Y, PortraitSize, PortraitSize);
+    public static readonly LogicalRect Map = new(MapOffset.X, MapOffset.Y, MapSize.X, MapSize.Y);
+    public static readonly LogicalRect Close = new(CloseButton.X, CloseButton.Y, 32, 32);
+    public static readonly LogicalRect FallbackContent = new(50, 82, 270, 300);
+    public static readonly LogicalRect[] ShellPieces =
+    [
+        new(0, 0, 256, 256),
+        new(256, 0, 128, 256),
+        new(0, 256, 256, 256),
+        new(256, 256, 128, 256)
+    ];
+    public static readonly Vector2 RouteUvA = new(0, 0);
+    public static readonly Vector2 RouteUvB = new(0, 1);
+    public static readonly Vector2 RouteUvC = new(1, 1);
+    public static readonly Vector2 RouteUvD = new(1, 0);
+
     public static Vector2 FrameOrigin(float scale) => new(0, Top * scale);
     public static Vector2 FrameSize(float scale) => new(Width * scale, Height * scale);
+
+    public static Vector2 TitleCenter(Vector2 origin, float scale, float titleEm) =>
+        new(origin.X + Width * .5f * scale, origin.Y + 17f * scale + titleEm * .5f);
+
+    public static Vector2 NodeHalf(float size, float scale) => Vector2.One * (size * scale * .5f);
+
+    public static Vector2 SegmentSource(Vector4 normalized) => new(normalized.X, normalized.Y);
+    public static Vector2 SegmentDestination(Vector4 normalized) => new(normalized.Z, normalized.W);
 
     public static string? ActivateErrorText(uint code) => code switch
     {

@@ -7,8 +7,8 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/UIParent.xml",
-      "fileSha256": "b814f250ac377ae69f0f8c9e3d51d44843f02db3c52ce29556d401b972630c45",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "9ddea8a5fc51aaa1e73c8cbca5e14eb531745a1e6081126945c69f45ac4f9de1",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [

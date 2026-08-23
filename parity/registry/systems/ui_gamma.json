@@ -7,8 +7,8 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/ui_gamma.rs",
-      "fileSha256": "4b648f0b76f4a3212197e462917ccb4279f48af8519826285d6ca025b821528b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "067720b7dd66d26bfd237d61db8027b3dc38f54e81c4a6fa4fbcc7d01e2e7595",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [

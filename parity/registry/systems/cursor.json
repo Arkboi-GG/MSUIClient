@@ -6,8 +6,13 @@
   "deviationPolicy": "ui-allowed",
   "benillaSources": [
     {
-      "path": "crates/benilla-app/src/target/cursor_mode.rs",
-      "fileSha256": "c95710114f4805c0dc9db0d720568968bc2bbde7d8ecdab193929fac030c9568",
+      "path": "crates/benilla-app/src/cursor.rs",
+      "fileSha256": "2c419c5db1d0c7d16bd04bdde19cc73945ffd125b6c50d8d60f456fd4284c8c9",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/targeting/cursor.rs",
+      "fileSha256": "85b6f0fd66159d3cdc0d90711ec28f184521aab87d207aff25872ee5cf1019ce",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
@@ -18,6 +23,7 @@
     "MSUIClient/Engine/UI/HardwareCursorLaw.cs",
     "MSUIClient/Engine/ClientWindow.cs",
     "MSUIClient/GameLoop/Hud/GameLoop.WorldCursor.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.ActionBars.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.GameObjects.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.GameObjectRender.cs",
     "MSUIClient/GameLoop/Combat/GameLoop.Targeting.cs",
@@ -26,10 +32,11 @@
     "MSUIClient/GameLoop/Panels/GameLoop.Vendor.Render.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.CharacterPage.cs",
     "tools/interface-wire-check/HardwareCursorClinicalChecks.cs",
+    "tools/interface-wire-check/ItemEnchantClinicalChecks.cs",
     "tools/interface-wire-check/UnitPopupClinicalChecks.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI installs the shipped Point art as a true top-left-hotspot OS cursor and applies Benilla's unit and GameObject classifiers: Attack, Speak, Pickup/LootAll, Interact, Buy, Inspect, Trainer, Taxi, Skin, Repair, Mail, Mine, GatherHerbs and PickLock with Unable twins and reference range gates. GameObject mouseover, +64 brighten, cursor and right-click USE are separate exact strategy gates, including GO-to-player faction reaction, hostile-trap inversion, marker/generic/capture/transport behavior and meeting-stone/fishing overrides. Lock.dbc retains Action and the ordered key/skill resolver uses known opener spells, current skill plus bonuses, key possession, GO state/level and GO_FLAG_LOCKED. Foreground drawing survives only as a custom-cursor backend fallback; live verification remains.",
+  "summary": "MSUI installs the shipped cursor art as true top-left-hotspot OS cursors and applies Benilla's unit and GameObject classifiers: Attack, Speak, Pickup/LootAll, Interact, Buy, Inspect, Trainer, Taxi, Skin, Repair, Mail, Mine, GatherHerbs and PickLock with Unable twins and reference range gates. An armed item-target spell, including Enchanting, now uses the same authored Cast pair: blue Cast while the pointer is over UI and gray UnableCast over the world, replacing MSUI's former green text prompt. GameObject mouseover, +64 brighten, cursor and right-click USE are separate exact strategy gates, including GO-to-player faction reaction, hostile-trap inversion, marker/generic/capture/transport behavior and meeting-stone/fishing overrides. Lock.dbc retains Action and the ordered key/skill resolver uses known opener spells, current skill plus bonuses, key possession, GO state/level and GO_FLAG_LOCKED. Foreground drawing survives only as a custom-cursor backend fallback; live verification remains.",
   "openItems": [
     {
       "id": "item-triage-87f1f8db",
@@ -68,17 +75,34 @@
       "resolution": "2026-08-22: Split mouseover eligibility, brighten, cursor and USE gates by the current per-type strategy table; added GO-to-player reaction with hostile TRAP inversion, marker/generic/capture/transport exceptions, fishing/meeting overrides, and the ordered Lock.dbc Action/key/skill resolver with actual Scholomance row verification."
     },
     {
+      "id": "item-enchanting-item-target-cast-cursor-20260823",
+      "kind": "gap",
+      "text": "Enchanting's armed item target displays a custom green 'Select item' text prompt instead of Benilla's Cast hardware cursor, whose base is blue over UI and whose item-only world verdict is UnableCast.",
+      "source": "benilla-b57ee0e9e2c8822b/cursor.rs+ui_action/targeting/cursor.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: WorldCursorUiLaw owns the item-target Cast/UnableCast fork. The late cursor pass installs Cast over UI and UnableCast over the world through the existing hardware-cursor pipeline while an item spell is armed; the non-reference text prompt is removed without changing action-bar geometry or scaling."
+    },
+    {
       "id": "item-msui-gameobject-cursor-live-verify",
       "kind": "verify",
       "text": "Focused laws, source fences and actual Lock.dbc rows pass. Needs owner-run live hover/use checks on a sign, anvil, transport, hostile trap, quest-gated chest, fishing bobber, herb/vein, keyed door and meeting stone, plus confirmation that Point/service mode swaps are hardware-composited with no duplicate foreground cursor or render-frame lag.",
       "source": "review-2026-08-22/current-benilla-cursor_mode.rs",
       "added": "2026-08-22",
       "resolved": false
+    },
+    {
+      "id": "verify-enchanting-item-target-cursor-live-20260823",
+      "kind": "verify",
+      "text": "Owner-run desktop visual acceptance: press Create on an Enchanting recipe, confirm the authored blue Cast hardware cursor over the CraftFrame and bag/paper-doll UI, gray UnableCast over the world, no green text prompt, and correct persistence through Cancel/No followed by Escape or a successful item click.",
+      "source": "review-2026-08-23/current-benilla-item-target-cursor",
+      "added": "2026-08-23",
+      "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T17:00:00Z",
+  "lastReviewedUtc": "2026-08-23T08:38:35.3833980Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

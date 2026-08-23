@@ -7,13 +7,13 @@
   "benillaSources": [
     {
       "path": "crates/benilla-protocol/src/messages/pet.rs",
-      "fileSha256": "1f28cfabf369a1857751a5ed223110526d63547590b31b3e0891ee1345d89a9b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "587e668a46149140a6544ad9d26759548d32c579a117922e6069339bbbb6fb8c",
+      "snapshotId": "benilla-current-2026-08-23"
     },
     {
       "path": "crates/benilla-protocol/src/world/writer/pet.rs",
-      "fileSha256": "0e89331b38b0fd5e72d7cc14b814a16463464d0c48b9c8d7a56cec921930e0d5",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "1710cf4f68a29eca2df630e0fc684ceaaa5f943e25c9d00b13b0a9bec786d5f2",
+      "snapshotId": "benilla-current-2026-08-23"
     }
   ],
   "msuiAnchors": [
@@ -23,7 +23,7 @@
     "MSUIClient/Engine/UI/PetActionBarUiLaw.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "Benilla's realized pet contract is four client verbs (CMSG_PET_ACTION, CMSG_PET_STOP_ATTACK, CMSG_PET_CANCEL_AURA, CMSG_PET_SET_ACTION) and four server packets (SMSG_PET_SPELLS including the zero-guid teardown and both cooldown tail shapes, SMSG_PET_MODE, SMSG_PET_ACTION_FEEDBACK, SMSG_PET_CAST_FAILED). MSUI implements all eight.",
+  "summary": "Current Benilla's realized pet contract is seven client verbs (CMSG_PET_ACTION, CMSG_PET_STOP_ATTACK, CMSG_PET_CANCEL_AURA, CMSG_PET_SET_ACTION, CMSG_PET_SPELL_AUTOCAST, CMSG_PET_ABANDON and CMSG_PET_RENAME) plus four server packets (SMSG_PET_SPELLS including the zero-guid teardown and both cooldown tail shapes, SMSG_PET_MODE, SMSG_PET_ACTION_FEEDBACK and SMSG_PET_CAST_FAILED). MSUI implements the whole reachable desktop set: the action bar, pet spellbook autocast, and the rule-owned pet menu/abandon/two-step rename popup chain all use the exact packet bodies.",
   "openItems": [],
   "claims": [],
   "traces": [],

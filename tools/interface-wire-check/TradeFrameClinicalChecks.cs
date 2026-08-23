@@ -23,6 +23,12 @@ internal static class TradeFrameClinicalChecks
               TradeFrameUiLaw.EmptySlot(player: true, 0) ==
                   new TradeFrameUiLaw.LogicalRect(13, 91, 64, 64) &&
               TradeFrameUiLaw.NameFrame(player: false, 6).X == 226 &&
+              TradeFrameUiLaw.PlayerGoldInput ==
+                  new TradeFrameUiLaw.LogicalRect(26, 72, 55, 20) &&
+              TradeFrameUiLaw.PlayerSilverInput ==
+                  new TradeFrameUiLaw.LogicalRect(107, 72, 30, 20) &&
+              TradeFrameUiLaw.PlayerCopperCoin == new Vector2(170, 76) &&
+              TradeFrameUiLaw.RecipientMoneyRightTop == new Vector2(344, 80) &&
               TradeFrameUiLaw.EnchantLabel == "Will Be Enchanted" &&
               TradeFrameUiLaw.NonTradedLabel == "Will Not Be Traded",
             "trade six-row/separated-enchant-slot geometry drift");
@@ -31,6 +37,22 @@ internal static class TradeFrameClinicalChecks
                   new TradeFrameUiLaw.LogicalRect(19, 100, 161, 266) &&
               TradeFrameUiLaw.PlayerEnchantHighlight ==
                   new TradeFrameUiLaw.LogicalRect(19, 370, 161, 61) &&
+              TradeFrameUiLaw.HighlightSlices(TradeFrameUiLaw.PlayerHighlight) is
+                  { Length: 3 } playerSlices &&
+              playerSlices[0].Rect ==
+                  new TradeFrameUiLaw.LogicalRect(19, 100, 161, 16) &&
+              playerSlices[1].Rect ==
+                  new TradeFrameUiLaw.LogicalRect(19, 116, 161, 234) &&
+              playerSlices[2].Rect ==
+                  new TradeFrameUiLaw.LogicalRect(19, 350, 161, 16) &&
+              playerSlices[0].UvMax == new Vector2(.62890625f, .0625f) &&
+              TradeFrameUiLaw.CountPosition(new Vector2(100, 100), 12, 1.5f) ==
+                  new Vector2(97, 85) &&
+              TradeFrameUiLaw.ComposeMoney(12, 34, 56) == 123456 &&
+              TradeFrameUiLaw.SplitMoney(123456) == (12, 34, 56) &&
+              TradeFrameUiLaw.CoinUvMin(2) == new Vector2(.5f, 0) &&
+              TradeFrameUiLaw.CoinUvMax(2) == new Vector2(.75f, 1) &&
+              TradeFrameUiLaw.CoinSize(1.5f) == new Vector2(19.5f) &&
               TradeFrameUiLaw.CancelClick(accepted: true) ==
                   TradeFrameUiLaw.CancelAction.Unaccept &&
               TradeFrameUiLaw.CancelClick(accepted: false) ==
@@ -40,32 +62,29 @@ internal static class TradeFrameClinicalChecks
               !TradeFrameUiLaw.StatusCloses(13),
             "trade accept/status state law drift");
 
-        TradeInvitationUiLaw.ScreenRect invitation = TradeInvitationUiLaw.PopupRect(
-            new Vector2(1024, 768), 1);
-        TradeInvitationUiLaw.ScreenRect scaledInvitation = TradeInvitationUiLaw.PopupRect(
-            new Vector2(2048, 1536), 2);
-        Check(invitation.Min == new Vector2(374, 270) &&
-              invitation.Size == new Vector2(276, 120) &&
-              scaledInvitation == invitation &&
-              TradeInvitationUiLaw.Accept == new Vector2(48, 72) &&
-              TradeInvitationUiLaw.Decline == new Vector2(148, 72),
-            "incoming-trade modal law drift");
-
         string root = ClientConfig.FindRepoRoot();
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Trade.cs"));
         Check(runtime.Contains("UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[3])",
                   StringComparison.Ordinal) &&
-              runtime.Contains("TradeInvitationUiLaw.PopupRect", StringComparison.Ordinal) &&
+              runtime.Contains("_tradePartnerGuid = wire.Partner", StringComparison.Ordinal) &&
+              runtime.Contains("_net?.BeginTrade();", StringComparison.Ordinal) &&
               runtime.Contains("DrawUnitPortraitImage", StringComparison.Ordinal) &&
               runtime.Contains("DrawTradeAcceptHighlight", StringComparison.Ordinal) &&
+              runtime.Contains("TradeFrameUiLaw.HighlightSlices", StringComparison.Ordinal) &&
+              runtime.Contains("TradeFrameUiLaw.CountPosition", StringComparison.Ordinal) &&
+              runtime.Contains("DrawTradeMoneyInputs", StringComparison.Ordinal) &&
+              runtime.Contains("TradeFrameUiLaw.PlayerGoldInput", StringComparison.Ordinal) &&
+              runtime.Contains("TradeFrameUiLaw.RecipientMoneyRightTop", StringComparison.Ordinal) &&
+              runtime.Contains("TradeFrameUiLaw.MoneyIconPath", StringComparison.Ordinal) &&
               runtime.Contains("row.Count.ToString()", StringComparison.Ordinal) &&
               runtime.Contains("OfferPreparedItemTooltip", StringComparison.Ordinal) &&
               runtime.Contains("_net?.UnacceptTrade()", StringComparison.Ordinal) &&
               !runtime.Contains("BeginVanillaWindow(\"##trade\", new Vector2",
                   StringComparison.Ordinal) &&
-              !runtime.Contains("BeginVanillaWindow(\"##trade-invite\", origin",
-                  StringComparison.Ordinal),
+              !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
+              !runtime.Contains("_tradeInviteGuid", StringComparison.Ordinal) &&
+              !runtime.Contains("DrawTradeInvitation", StringComparison.Ordinal),
             "trade production renderer bypasses geometry/protocol law");
     }
 

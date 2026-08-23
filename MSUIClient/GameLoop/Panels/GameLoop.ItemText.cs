@@ -132,10 +132,11 @@ public sealed partial class GameLoop
 
     private void QueryItemTextPageIfMissing(uint pageId, ulong guid)
     {
-        if (pageId == 0 || ItemTextPage(pageId) is not null) return;
-        bool sent = _net?.PageTextQuery(pageId) == true;
+        if (pageId == 0 || ItemTextPage(pageId) is not null || !_pageTextPending.Add(pageId)) return;
+        bool sent = _net?.PageTextQuery(pageId, guid) == true;
+        if (!sent) _pageTextPending.Remove(pageId);
         EmitInterface("item-text", "page-query", sent ? "SENT" : "SEND_FAILED", guid,
-            $"page={pageId};body={Convert.ToHexString(WorldSession.BuildPageTextQueryBody(pageId))}");
+            $"page={pageId};body={Convert.ToHexString(WorldSession.BuildPageTextQueryBody(pageId, guid))}");
     }
 
     private void TurnItemTextPage(bool next)
@@ -208,11 +209,19 @@ public sealed partial class GameLoop
             GameText.DrawCentered(draw, "GameFontNormal", pageNumber.ToString(),
                 origin + ItemTextFrameUiLaw.PageCenter * scale, scale, titleColor);
 
-        string body = ItemTextFrameUiLaw.ComposeBody(ItemTextFrameUiLaw.VisibleText(source), creator);
-        string[] lines = WrapTooltipText(body, "ItemTextFontNormal", scale,
-            ItemTextFrameUiLaw.Body.Width * scale).ToArray();
+        var lines = new List<ItemTextFrameUiLaw.TextBlock>();
+        foreach (ItemTextFrameUiLaw.TextBlock block in
+                 ItemTextFrameUiLaw.ComposeBlocks(source, creator))
+        {
+            string[] wrapped = WrapTooltipText(block.Text, "ItemTextFontNormal", scale,
+                ItemTextFrameUiLaw.Body.Width * scale).ToArray();
+            if (wrapped.Length == 0)
+                lines.Add(new("", block.Alignment));
+            else
+                foreach (string line in wrapped) lines.Add(new(line, block.Alignment));
+        }
         float pitch = GameText.LinePitch("ItemTextFontNormal", scale);
-        float contentHeightLogical = lines.Length * GameText.LinePitch("ItemTextFontNormal", 1f);
+        float contentHeightLogical = lines.Count * GameText.LinePitch("ItemTextFontNormal", 1f);
         float maximum = ItemTextFrameUiLaw.MaximumScroll(contentHeightLogical);
         _itemTextScroll = Math.Clamp(_itemTextScroll, 0, maximum);
         Vector2 bodyMin = origin + ItemTextFrameUiLaw.Body.Min * scale;
@@ -224,9 +233,16 @@ public sealed partial class GameLoop
                 GameText.LinePitch("ItemTextFontNormal", 1f), 0, maximum);
         draw.PushClipRect(bodyMin, bodyMax, true);
         uint textColor = ImGui.ColorConvertFloat4ToU32(ItemTextFrameUiLaw.TextColor(material));
-        for (int i = 0; i < lines.Length; i++)
-            GameText.Draw(draw, "ItemTextFontNormal", lines[i],
-                bodyMin + new Vector2(0, i * pitch - _itemTextScroll * scale), scale, textColor);
+        for (int i = 0; i < lines.Count; i++)
+        {
+            ItemTextFrameUiLaw.TextBlock line = lines[i];
+            Vector2 lineMin = ItemTextFrameUiLaw.BodyLineMin(
+                bodyMin, i, pitch, _itemTextScroll, scale);
+            float lineWidth = GameText.MeasureWidth("ItemTextFontNormal", line.Text, scale);
+            lineMin.X = ItemTextFrameUiLaw.BodyLineX(bodyMin.X,
+                ItemTextFrameUiLaw.Body.Width * scale, lineWidth, line.Alignment);
+            GameText.Draw(draw, "ItemTextFontNormal", line.Text, lineMin, scale, textColor);
+        }
         draw.PopClipRect();
 
         if (maximum > 0)

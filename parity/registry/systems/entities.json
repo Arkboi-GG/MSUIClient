@@ -7,38 +7,38 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/entities.rs",
-      "fileSha256": "1c26b07b06cd1622a012af32122c5abc1b936fbb1ec75fbbb5b361328f735233",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "90dfe07b3946d84374830246693eb8c86a60850e27e753bb8682cc70498fa3a3",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/attach/char_skin.rs",
-      "fileSha256": "8e77a3b096cb90d432e6951b9dffc4eddd20b6499360df037f5374a08a511ccf",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "f0481d6cf0b4eca72034dca3ed2f6ebf51b4671cdb6b4bb555cf22a3c13e6f07",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/attach/dress.rs",
-      "fileSha256": "31f7c5be8886fe058b6ed6757dd5b8276f2aae724ce7cd5bbdc0a58f120ceab2",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "979126288fa84e2453e81ae11866d9f76a46c3c394cf1ee196ecae8b716ef319",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
-      "path": "crates/benilla-app/src/entities/attach/glue_preview.rs",
-      "fileSha256": "8d22342c6c1a35aad26dc3fdf181b07e0c962bbaa49c30cb931108a1649619dd",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "path": "crates/benilla-app/src/entities/attach/preview.rs",
+      "fileSha256": "b921da9212d852ef92c2bd1113549833c0c2834f858f8a37bcbe24ccb624a3dc",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/attach/mod.rs",
-      "fileSha256": "fbf76bda1090a1d60c12d52f9bdbb1dec59022828d108062e9b97f4d888eef7b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "ebf76670f9fbc3f9c37c1d4f4b8f0c984e9481159f7737e8cc43872b581fd29f",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/attach/redress.rs",
-      "fileSha256": "b9152bacbf7abf2121ba8526916c45c2268a17210b29c30dbd26b65f97330d51",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "45742c1dbf7cc08d94b193ab4e91317cca6bc1732531e60e4084611b254b8883",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/carried_light.rs",
-      "fileSha256": "9789126490e9243f7600e2c61de649c0223c4790bb40658e1592b43512663d3a",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "13fb11253c59fbd11370342d12628ba6d82a95b9804efda12ad3c3704aa08ffa",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/chain_beam.rs",
@@ -57,75 +57,80 @@
     },
     {
       "path": "crates/benilla-app/src/entities/conform.rs",
-      "fileSha256": "d9168b6a5887936517df82dbfc68edbcd46957afca8c9268b7a3fc8ce6bb89b6",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "3eaa2f4c4af27c4368c85633ffe33af3c8129f65bab5f42399f9e18f4321a957",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/dest_fx.rs",
-      "fileSha256": "09d2a483a46210d43a109e730562b5325bbab2176ebd7d335be6a8ec313315ca",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "81905af81a888d9d5a8603772691fea59ddd86d7951979c440a17e17e9d43393",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/display.rs",
-      "fileSha256": "21b68c3ff1e79ef170341fe43f22cbd14d0cb00f94bb8d78fb2fd911cfb78f25",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "0c72d5b7b96161ccaa7677d53d07a8034534de9b2641b00c7067ee720ce2638c",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/equipment/mod.rs",
-      "fileSha256": "c57683372943e9981bfab779d21761385561864c6ad3e760e190343cb8b71879",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "8d5f2aafc3d4363352b3272f5c5212a2b4dd8ca970085adda4bd476e224e6793",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/equipment/resolve.rs",
-      "fileSha256": "b3ab8642ea5dde14fea92c50f3ddadffe332cc9c07c0ccba070296f4db5cfb2c",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "b018f3c531fcc3940f959f93b191067c2ee535773aa803c76ca06866f396d19c",
+      "snapshotId": "benilla-current-2026-08-23"
     },
     {
       "path": "crates/benilla-app/src/entities/equipment/spawn.rs",
-      "fileSha256": "205823328fabc271a25404d7dcb38cc42fc3b3eb5fa10d5b3ed0c9bb6e8915fa",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "f9c634b2614460edf7d8d51ef482db8b687ec5151d425871d6989c38d0ba99f0",
+      "snapshotId": "benilla-current-2026-08-23"
     },
     {
       "path": "crates/benilla-app/src/entities/item_glow.rs",
-      "fileSha256": "0b254625653a7586a4f0919dd33a2620f06b4242c762dec4fc29345983525529",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "8f0406d5c1eb9af3944613acfbae07f6e28ea67572cd3169c9a009139c006d15",
+      "snapshotId": "benilla-current-2026-08-23"
     },
     {
       "path": "crates/benilla-app/src/entities/live_display.rs",
-      "fileSha256": "c067bf23e09a723f2dc7f9e353bf4012016692b4de85effc77f6b3d4be866218",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "15cd20609541896e4ab884be2f9b8834a93f197ef976408d460e02af75b773ab",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/missile.rs",
-      "fileSha256": "d1af271926e4db95284e88ce3002f49f73e0dcc75b0f2415b8829da333c947e1",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "6e6bf11371ca435c88b7c9f81eea8fc989d28e46f80fbc4a90301283ea827f93",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/mount.rs",
-      "fileSha256": "5e268bedc5f39bf738d56829adb3166d4335a18fead85a3b5de6bc21edeafa80",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "1d5aa6b196bd1de92383cfae501b85f91e64a785853254cf2659c7ba26cba7c1",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/spell_fx/lifecycle.rs",
-      "fileSha256": "5a71265e1bdb16294a8d69d419d8a16efaebb5906f2ffffeaa44a34ead6bfbc3",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "f3faa6ad0490f8c7aa26faa84c7b5ceae88e2497e187affd47c2777a520c3662",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/spell_fx/mod.rs",
-      "fileSha256": "842d1f56f49c899edc7bfc5d9664d584266a78a70b485c11f26fdb0df13b7d17",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "0ffc0b3f840476a5e6ff19a9f86a4c535cef4325523065a107d33748fba9f991",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/entities/wmo_props.rs",
-      "fileSha256": "3ae3a19e4b4dd9d7f0291084642fb1de309db95fe832efa6f7e99351fb9ff12a",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "76220d16c7dd22f29987c983db3bd6a53179a2f892d2a3894427c1048cbafc31",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/World/Units/CreatureRenderer.cs",
     "MSUIClient/World/Units/CharacterRenderer.cs",
     "MSUIClient/World/Units/CharacterEquipment.cs",
+    "MSUIClient/World/Units/PlayerRenderer.cs",
+    "MSUIClient/Engine/UI/EquipmentDisplayPreferenceLaw.cs",
     "MSUIClient/World/Units/AttachedItemRenderer.cs",
+    "MSUIClient/World/Units/AttachedItemBillboardLaw.cs",
+    "MSUIClient/World/Units/AttachedItemMaterialLaw.cs",
+    "MSUIClient/Shaders/attached.vert",
     "MSUIClient/Formats/ItemVisualCatalog.cs",
     "MSUIClient/Formats/EnchantCatalog.cs",
     "MSUIClient/World/Units/CarriedLightFrame.cs",
@@ -134,12 +139,14 @@
     "MSUIClient/World/Units/SpellMissileLaw.cs",
     "MSUIClient/World/Units/SpellChainBeamSource.cs",
     "MSUIClient/World/Units/SpellChainBeamRenderer.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.Portraits.cs",
     "tools/interface-wire-check/MountRenderingClinicalChecks.cs",
     "tools/interface-wire-check/ItemGlowClinicalChecks.cs",
-    "tools/interface-wire-check/CarriedLightClinicalChecks.cs"
+    "tools/interface-wire-check/CarriedLightClinicalChecks.cs",
+    "tools/interface-wire-check/EquipmentDisplayPreferenceClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI's World/Units stack realizes the bulk of the entity-visual layer: display-id resolution, character dress/redress and attached gear, item/enchant glows, carried M2 point lights, spell missiles and per-unit spell-FX lifecycle, scale and collision. UNIT_MOUNTDISPLAYID drives the full steed pipeline. Chain beams use the exact build-5875 DBC, target ownership, hop timing, live endpoints, jitter/advection, spindle ribbon, additive depth-tested render state and cast/channel lifetime laws. ItemDisplayInfo intrinsic visuals and the first visual-bearing live enchant join through ItemVisuals/ItemVisualEffects, attach by slots 0..4 to the held item's own lookup points, and retain mesh/particle/ribbon age through movement and sheath swaps. Casting type-1 M2 lights now ride attached item transforms and illuminate the three nearest candidates per fragment on terrain, units/gear, doodads, and WMOs with the reference 0/.7/.03 falloff.",
+  "summary": "MSUI's World/Units stack realizes the bulk of the entity-visual layer: display-id resolution, character dress/redress and attached gear, item/enchant glows, carried M2 point lights, spell missiles and per-unit spell-FX lifecycle, scale and collision. UNIT_MOUNTDISPLAYID drives the full steed pipeline. Chain beams use the exact build-5875 DBC, target ownership, hop timing, live endpoints, jitter/advection, spindle ribbon, additive depth-tested render state and cast/channel lifetime laws. ItemDisplayInfo intrinsic visuals and the first visual-bearing live enchant join through ItemVisuals/ItemVisualEffects, attach by slots 0..4 to the held item's own lookup points, and retain mesh/particle/ribbon age through movement and sheath swaps. Particle and ribbon effects authored directly by equipped item M2s now share that stable attachment feed without duplicating the already-drawn item mesh. Attached item vertices retain their authored weights, and only models whose visible geometry depends on a billboard/ignore-parent-rotation bone upload the camera-facing bind-pose palette; torch halos, wand gems, welded shoulder effects and their model-pane copies therefore face the active camera while ordinary gear keeps the rigid path. Attached batches also sample their resting-sequence colour-alpha, transparency-weight and texture-translation tracks on the shared model clock, multiply tint/alpha beneath the wearer's aura state, scroll authored UVs, skip authored-zero helper geometry, and route dim batches through the transparent pass. Their exact unlit, no-depth-test and blend-aware fog policies now reach the attachment fragment/depth state as well. Both effect families render through isolated live Character/Inspect/DressUp model-pane lanes without changing window geometry. Casting type-1 M2 lights now ride attached item transforms and illuminate the three nearest candidates per fragment on terrain, units/gear, doodads, and WMOs with the reference 0/.7/.03 falloff. Current PLAYER_FLAGS HIDE_HELM/HIDE_CLOAK bits now suppress head/back display resolution for every streamed player and the controlled local body; appearance signatures include the two public bits while hidden item templates remain queried and warm.",
   "openItems": [
     {
       "id": "item-triage-e0a2c68a",
@@ -184,10 +191,94 @@
       "resolution": "2026-08-23: loaded the exact 34-row ItemVisuals/ItemVisualEffects join and SpellItemEnchantment visual column. Held items use the reference intrinsic-wins-or-first-visual-enchant fork, attach each authored effect to lookup-only item attachment ids 0..4, and publish absolute world roots into the shared effect mesh/particle/ribbon pipeline. Public remote enchants and local live item-instance enchants participate in appearance signatures; stable keys preserve live particles across movement/sheathing and retire on gear changes. Actual build-5875 census/row anchors and focused/full clinical suites pass."
     },
     {
+      "id": "item-item-enchant-glow-model-panes-20260823",
+      "kind": "gap",
+      "text": "Current Benilla mirrors equipped item and enchant glow models into the live Character, Inspect and DressUp model panes; MSUI published those effects only to the world pass, so pane renders showed the weapon but dropped its glow.",
+      "source": "benilla-current-2026-08-23/entities/item_glow.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: Character, Inspect and DressUp model-pane bakes now consume their renderer's exact held-item glow placements through isolated per-pane effect/particle/ribbon lanes with booth lighting and fog disabled. Active effects keep only those live model panes rebaking; removal gets one clearing bake, cached round unit portraits remain one-shot, remote enchant fields invalidate Inspect appearance, and no window geometry or MSUI scale behavior changed. Focused and full clinical suites pass.",
+      "resolvedUtc": "2026-08-23T17:20:00Z"
+    },
+    {
+      "id": "item-equipped-item-authored-effects-20260823",
+      "kind": "gap",
+      "text": "Current Benilla spawns particle and ribbon effects authored by equipped item M2s (for example torch flames and sparkling shoulders) and mirrors them into live body panes; MSUI drew the attached item mesh but ignored its own emitter/ribbon blocks.",
+      "source": "benilla-current-2026-08-23/entities/equipment/spawn.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: every visible attached item with authored particle emitters or ribbons now publishes its stable absolute item root into the shared effect source. A RenderMesh=false contract prevents the effect path from drawing the equipment geometry twice while retaining emitter/ribbon animation, sheath-motion continuity, gear retirement, world rendering and the isolated live model-pane feeds. Focused and full clinical suites pass.",
+      "resolvedUtc": "2026-08-23T17:26:00Z"
+    },
+    {
+      "id": "item-equipped-item-camera-facing-batches-20260823",
+      "kind": "gap",
+      "text": "Current Benilla preserves equipped-item vertex weights and camera-replaces billboard joints for torch halos, wand gems, welded shoulder effects and the corresponding model-pane riders; MSUI discarded every item bone weight and drew those batches rigidly in item space.",
+      "source": "benilla-current-2026-08-23/entities/equipment/spawn.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: Attached item VBOs now retain normalized weights and bone indices. AttachedItemBillboardLaw admits only geometry influenced by a billboard/ignore-parent-rotation bone or descendant, prepares an otherwise-identity bind-pose palette through the shared exact billboard law, and the attachment shader blends it per vertex. The same renderer serves world and Character/Inspect/DressUp panes, while ordinary equipment remains on uBoneCount=0. Synthetic parent-chain checks, the actual build-5875 torch billboard fixture and the full interface clinical suite pass.",
+      "resolvedUtc": "2026-08-23T17:45:00Z"
+    },
+    {
+      "id": "verify-equipped-item-camera-facing-batches-live-20260823",
+      "kind": "verify",
+      "text": "Owner-run visual acceptance with a torch, a billboard-gem wand/weapon and an affected shoulder model: orbit the world and Character/Inspect/DressUp cameras, confirm cards face each active camera around their authored pivots, welded geometry blends without tearing, ordinary gear remains rigid, and hand/sheath/body motion preserves attachment placement.",
+      "source": "benilla-current-2026-08-23/entities/equipment/spawn.rs",
+      "added": "2026-08-23",
+      "resolved": false
+    },
+    {
+      "id": "item-equipped-item-authored-material-alpha-20260823",
+      "kind": "gap",
+      "text": "Current Benilla multiplies every equipped-item batch's authored M2 color alpha and transparency weight on the resting-sequence model clock (321 shipped item models dim at least one batch; Hungering Cold glow cards author 0.30), while MSUI drew all surviving item batches at full white/1.0 alpha.",
+      "source": "benilla-current-2026-08-23/entities/equipment/spawn.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: AttachedItemMaterialLaw samples color RGB/alpha and transparency weight from sequence zero on the renderer's live model clock, clamps malformed values, and composes tint/alpha beneath BodyTint/BodyAlpha. Material-dim batches join the transparent pass, authored-zero constant helper geometry is excluded during model construction, and the same path serves world and live model panes. A synthetic exact 0.50x0.60=0.30 fixture and the full interface clinical suite pass.",
+      "resolvedUtc": "2026-08-23T17:55:00Z"
+    },
+    {
+      "id": "verify-equipped-item-authored-material-alpha-live-20260823",
+      "kind": "verify",
+      "text": "Owner-run visual acceptance with Hungering Cold or another dim-card weapon plus color/UV-animated equipment: confirm authored glow strength/tint and scrolling texture in world and Character/Inspect/DressUp panes, no helper meshes, correct composition during stealth/fade, and no opaque pop when gear appears or is sheathed.",
+      "source": "benilla-current-2026-08-23/entities/equipment/spawn.rs",
+      "added": "2026-08-23",
+      "resolved": false
+    },
+    {
+      "id": "item-equipped-item-authored-uv-animation-20260823",
+      "kind": "gap",
+      "text": "Current Benilla retains equipped-item M2 texture-transform translation loops on the resting-sequence material clock, while MSUI's attachment shader always used the static authored UVs.",
+      "source": "benilla-current-2026-08-23/benilla-assets/m2.rs+doodad_anim/mat_anim.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: AttachedItemMaterialLaw now resolves each batch's texture-transform lookup, samples the sequence-zero translation track on the same per-renderer model clock as color/alpha, ignores the authoring-only Z component, and feeds the XY offset to the attachment vertex shader. Synthetic keyed UV checks and the full interface clinical suite pass.",
+      "resolvedUtc": "2026-08-23T18:02:00Z"
+    },
+    {
+      "id": "item-equipped-item-render-flags-20260823",
+      "kind": "gap",
+      "text": "MSUI attached items retained two-sided/blend/no-depth-write but discarded the remaining current Benilla M2 batch policy: unlit shading, no-depth-test and blend-specific black/white/neutral or explicit-unfogged fog targets.",
+      "source": "benilla-current-2026-08-23/benilla-assets/m2.rs+entities/equipment/spawn.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: Attached item batches now retain Unlit, NoZTest and the exact blend-derived fog policy. The shared character fragment has explicit body-safe defaults, bypasses lighting for authored-unlit batches, and uses scene/black/white/neutral/unfogged targets; the attachment pass toggles and restores depth test per batch. Focused policy/source checks and the full interface clinical suite pass.",
+      "resolvedUtc": "2026-08-23T18:10:00Z"
+    },
+    {
+      "id": "verify-equipped-item-authored-effects-live-20260823",
+      "kind": "verify",
+      "text": "Owner-run visual acceptance with a torch/flame item and an emitter-bearing shoulder or helm: confirm the authored particles/ribbons follow hand, sheath and body animation in the world and Character/Inspect/DressUp panes, render no duplicate item mesh, retain continuity across sheath swaps, and retire with the item or wearer.",
+      "source": "benilla-current-2026-08-23/entities/equipment/spawn.rs",
+      "added": "2026-08-23",
+      "resolved": false
+    },
+    {
       "id": "verify-item-enchant-glow-live-20260823",
       "kind": "verify",
-      "text": "Owner-run authenticated visual acceptance: inspect intrinsic-glow and enchanted main/off-hand weapons on self and remote players, draw and sheath them, move/turn/fade/stealth and swap gear. Confirm authored slots follow the blade/haft, missing item attachment slots emit nothing, intrinsic visuals suppress enchant visuals, particles retain continuity across sheath motion, and retired weapons leave no orphan glow.",
-      "source": "benilla-5089066fea6adbc3/entities/item_glow.rs",
+      "text": "Owner-run authenticated visual acceptance: inspect intrinsic-glow and enchanted main/off-hand weapons on self and remote players, draw and sheath them, move/turn/fade/stealth and swap gear, then open Character, Inspect and DressUp model panes. Confirm authored slots follow the blade/haft, missing item attachment slots emit nothing, intrinsic visuals suppress enchant visuals, particles retain continuity across sheath motion and within each live pane, cached round portraits remain still, and retired weapons leave no orphan glow.",
+      "source": "benilla-current-2026-08-23/entities/item_glow.rs",
       "added": "2026-08-23",
       "resolved": false
     },
@@ -207,11 +298,29 @@
       "source": "benilla-5089066fea6adbc3/entities/carried_light.rs",
       "added": "2026-08-23",
       "resolved": false
+    },
+    {
+      "id": "item-entities-equipment-display-preferences-20260823",
+      "kind": "gap",
+      "text": "Current Benilla resolves every player body's helm and cloak visibility from public PLAYER_FLAGS HIDE_HELM/HIDE_CLOAK bits, but MSUI rendered both slots unconditionally after character select.",
+      "source": "benilla-current-2026-08-23/entities/equipment/resolve.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: remote-player appearance construction, content signatures, the roster-backed local body and possessed streamed bodies now apply the independent server flags. Hidden slots remain template-queried so showing them again converges without a cold query. Focused and full clinical checks pass.",
+      "resolvedUtc": "2026-08-23T14:04:56Z"
+    },
+    {
+      "id": "verify-equipment-display-world-live-20260823",
+      "kind": "verify",
+      "text": "Owner-run authenticated visual acceptance: toggle Show Helm and Show Cloak independently and confirm the local body, a second observing client, hair/ears under the helm, cloak geoset/texture, reconnect persistence, rapid double clicks and possession transitions all follow the next authoritative PLAYER_FLAGS edge without stale appearance-cache reuse.",
+      "source": "benilla-current-2026-08-23/entities/equipment/resolve.rs",
+      "added": "2026-08-23",
+      "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T03:20:00Z",
+  "lastReviewedUtc": "2026-08-23T18:10:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

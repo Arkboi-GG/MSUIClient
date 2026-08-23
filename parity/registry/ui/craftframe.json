@@ -8,12 +8,22 @@
     {
       "path": "crates/benilla-app/assets/ui/CraftFrame.xml",
       "fileSha256": "fcb8cb351718175c4037d1d884f9e8f92f04b10c7c836b2a93e738a263e56517",
-      "snapshotId": "benilla-b57ee0e9e2c8822b"
+      "snapshotId": "benilla-current-2026-08-23"
     },
     {
       "path": "crates/benilla-app/src/ui_craft.rs",
       "fileSha256": "26f0394100ccdc974d9794c5ee647cbd625d4b6e9ca5692b6c10a0e4d888cbf1",
-      "snapshotId": "benilla-b57ee0e9e2c8822b"
+      "snapshotId": "benilla-current-2026-08-23"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/craft.rs",
+      "fileSha256": "2565ecbcb70d8f154829e9a9e88ab1e44402eb74306774ea71892fd2efeee1e1",
+      "snapshotId": "benilla-current-2026-08-23"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_items/mod.rs",
+      "fileSha256": "be57da4cac57820481f458a9b3575a5f60d50b20304cc169620c05c2bef105e4",
+      "snapshotId": "benilla-current-2026-08-23"
     }
   ],
   "msuiAnchors": [
@@ -23,8 +33,8 @@
     "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/ProfessionPanelOpenerLaw.cs",
     "MSUIClient/GameLoop/Hud/GameLoop.UiPanelOwnership.cs"
   ],
-  "status": "implemented-unverified",
-  "summary": "MSUI implements current CraftFrame through the shared law-positioned profession panel: exact effect-47 Craft routing, player portrait, 384x512 shell, 268x15 rank StatusBar, flat eight-row Craft list with rank subtext and faux-scroll controls, spell description, product/reagent hover tooltips, dynamic reagent grid, tool/focus requirements, and the Craft-specific Create/Exit action row (no TradeSkill Create All/count controls). Current Benilla's shipped Craft collapse tab remains observably hidden because its engine emits no header rows, so MSUI's absent visible tab is equivalent.",
+  "status": "implemented-verified",
+  "summary": "MSUI implements current CraftFrame, including Enchanting, through the shared law-positioned profession panel. Effect-47 opener provenance retains the exact nonzero craft type; recipes admit directly from known spells by matching Spell.castUI with the tradeskill attribute clear, sort by effective-skill difficulty then localized name, and use the Craft-specific spell icon and SetCraftSpell/CREATE_ITEM tooltip fork. The detail item tooltip uses Benilla's owner-relative ANCHOR_RIGHT seat, while reagent item tooltips use their exact ANCHOR_TOPLEFT seats; both placements are owned by ProfessionFrameUiLaw rather than ImGui's mouse-following tooltip position. An explicit Craft snapshot opens even with zero admitted recipes, preserving the stock empty shell, static Reagents caption, disabled Create button and Exit row while hiding the recipe-owned icon/empty-slot layers. The 384x512 shell includes the cropped stock skill border, stock detail-header, exact 37x37 populated icon seat with fallback, the exact optimal/medium/easy/trivial CraftTypeColor palette, Craft requirement line, token-substituted dynamic description, gray unavailable reagent state, and 100+ count marker. Its exact centered title uses GameFontNormal through ProfessionFrameUiLaw. Craft recipe names and rank subtext use their exact 4px/190px seats with GameFontNormal/GameFontNormalSmall, while descriptions wrap and advance through GameFontHighlightSmall instead of raw ImGui font sizing. Craft rows preserve only the selection-owned full-row glow and do not invent a hover highlight absent from the Craft row template. The shell forks its bottom-left quadrant exactly: CraftFrame uses UI-ClassTrainer-BotLeft while TradeSkillFrame uses UI-TradeSkill-BotLeft. Reagent placement preserves Benilla's source-exact anchor chain, including the original slot-7-from-slot-6 and slot-8-to-its-right quirk, rather than normalizing the final row; zero-reagent recipes also omit the availability suffix. Ask-once reagent templates that have not resolved yet are hidden instead of rendering synthetic Item-id placeholders, and Craft's transient local Create gate consults only the resolved visible slots just like Benilla. Reagent availability now counts only backpack and equipped-bag contents like Benilla's CARRIED scope, while the separate tool check can still see equipped tools. The rank bar uses Benilla's translucent-blue background/fill and compact value/max copy. Craft requirements preserve per-entry inline red coloring, while the current Benilla spell-focus interim remains visibly met; the cast ladder still enforces actual tools/focus. Create enablement follows the reference reagent-only gate. The flat eight-row list, rank StatusBar, faux-scroll controls, and Craft-only Create/Exit row remain distinct from TradeSkill's group/filter/repeat controls; Benilla's inert Craft collapse tab remains observably hidden. An open book refreshes immediately when a recipe is learned and preserves the selected recipe by spell ID across the rebuilt/sorted list, matching Benilla's snapshot replacement law. ProfessionFrameUiLaw owns the character-info open/close sounds, and every Exit, close-X, Escape and UIPanel-displacement path shares the same once-only close lifecycle. All production geometry, art forks, palette, copy, sound policy, and bounded presentation choices are owned by ProfessionFrameUiLaw; focused profession checks and the full interface-wire suite are the verification gate.",
   "openItems": [
     {
       "id": "item-triage-7d0ca691",
@@ -61,11 +71,101 @@
       "added": "2026-08-09",
       "resolved": true,
       "resolution": "ProfessionRecipe retains Spell.dbc Rank and Description; Craft rows render the parenthesized rank subtext and the selected recipe renders its wrapped description before the dynamically displaced reagent label/grid."
+    },
+    {
+      "id": "item-craftframe-learned-recipe-refresh-20260823",
+      "kind": "gap",
+      "text": "An Enchanting book already open during SMSG_LEARNED_SPELL logs the new recipe but keeps a stale recipe snapshot until the player closes and reopens the book; current Benilla rebuilds the open CraftState and preserves selection by spell ID.",
+      "source": "benilla-b57ee0e9e2c8822b/ui_craft.rs+craft.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: Same-line learned recipes now rebuild the open profession snapshot immediately. ProfessionFrameUiLaw preserves the selected recipe by spell ID in the newly sorted rows and falls back to the first row only when that identity disappears. Focused ProfessionFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-enchanting-current-desktop-reaudit-20260823",
+      "kind": "verify",
+      "text": "Re-audit current desktop Enchanting after clarifying that the CraftFrame surface is eligible for parity work.",
+      "source": "benilla-b57ee0e9e2c8822b/CraftFrame.xml+ui_craft.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: Desktop CraftFrame was confirmed in scope. The source audit retained the existing recipe, selection, reagent, tooltip, targeting, confirmation and learned-refresh behavior, then continued into the exact palette and lifecycle comparison recorded by item-enchanting-craftframe-palette-sound-20260823."
+    },
+    {
+      "id": "item-enchanting-craftframe-palette-sound-20260823",
+      "kind": "gap",
+      "text": "MSUI approximates CraftTypeColor for optimal/easy/trivial rows and omits CraftFrame's igCharacterInfoOpen/igCharacterInfoClose lifecycle sounds, including Escape and UIPanel displacement closes.",
+      "source": "benilla-b57ee0e9e2c8822b/CraftFrame.xml+craft.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: ProfessionFrameUiLaw now owns the exact four CraftTypeColor vectors and the current open/close sound tokens. The renderer consumes the law palette, and all profession closure paths converge on CloseProfessionFrame so the close sound fires once for Exit, X, Escape, quest displacement and UIPanel ownership eviction."
+    },
+    {
+      "id": "item-enchanting-reagent-inventory-scope-20260823",
+      "kind": "gap",
+      "text": "Profession reagent availability uses the tool-oriented carried count and therefore includes equipped items, while current Benilla's CARRIED recipe count includes only backpack and equipped-bag contents; equipment is consulted separately for tools.",
+      "source": "benilla-b57ee0e9e2c8822b/ui_craft.rs+ui_items/mod.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: BackpackCount now walks only backpack and equipped-bag contents. CarriedCount layers equipment on top solely for tool checks, keeping recipe availability, gray reagent state, craftable suffix and Create enablement on Benilla's narrower scope."
+    },
+    {
+      "id": "item-enchanting-empty-book-castui-membership-20260823",
+      "kind": "gap",
+      "text": "MSUI suppresses an explicitly opened CraftFrame when its filtered list is empty and begins Enchanting membership from the skill-line recipe list, while current Benilla owns an empty CraftState and admits known spells directly by exact castUI craft type.",
+      "source": "benilla-ac3264a0296ae90e/ui_craft.rs+CraftFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: Explicit profession snapshots now stay open at zero recipes; the empty Enchanting book paints the static Reagents caption, disabled law-positioned Create button and Exit row. Craft candidates now originate from known spells and use exact castUI/attribute admission. Focused ProfessionFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-enchanting-craft-row-hover-empty-icon-20260823",
+      "kind": "gap",
+      "text": "MSUI gives every Craft recipe row a full-row hover glow even though BenillaCraftSkillButtonTemplate has no HighlightTexture/OnEnter highlight, paints row/description copy with raw ImGui font sizing instead of the XML font objects and exact column seats, and an empty Craft book paints UI-EmptySlot although that texture belongs to the hidden recipe icon button.",
+      "source": "benilla-current-2026-08-23/CraftFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: ProfessionFrameUiLaw now owns the Craft-vs-TradeSkill row-hover fork, recipe-icon visibility, exact recipe-name columns and description wrapping. Craft rows keep their selection glow without an invented hover glow; names/subtext/descriptions use GameFontNormal, GameFontNormalSmall and GameFontHighlightSmall at the XML seats; and the recipe icon plus its empty-slot layer stay hidden at zero recipes. Focused ProfessionFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-craftframe-title-font-visual-gap-20260823",
+      "kind": "gap",
+      "text": "The Enchanting/CraftFrame title used a hand-picked generic 14px ImGui font instead of the authored centered GameFontNormal FontString.",
+      "source": "benilla-current-2026-08-23/CraftFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: ProfessionFrameUiLaw now owns the GameFontNormal title identity and the renderer consumes it at the existing exact title center. Focused ProfessionFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-enchanting-tooltip-anchor-parity-20260823",
+      "kind": "gap",
+      "text": "Craft's CREATE_ITEM detail tooltip and reagent item tooltips fall back to ImGui's mouse-following placement instead of the owner-relative GameTooltip anchors authored by CraftFrame.",
+      "source": "benilla-current-2026-08-23/CraftFrame.xml:445-472",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: ProfessionFrameUiLaw now owns the exact Craft detail ANCHOR_RIGHT and reagent ANCHOR_TOPLEFT seats. The prepared item-tooltip renderer consumes those screen anchors and bottom-left pivots, matching Benilla instead of following the mouse. Focused ProfessionFrame and full interface-wire checks are the verification gate."
+    },
+    {
+      "id": "item-enchanting-unresolved-reagent-presentation-20260823",
+      "kind": "gap",
+      "text": "While an ask-once reagent item template is unresolved or missing, MSUI paints a synthetic Item-id row and hover target; current Benilla hides that reagent slot and does not let the unresolved slot disable its local Create button.",
+      "source": "benilla-current-2026-08-23/CraftFrame.xml:252-289+craft.rs:77-93",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: ProfessionFrameUiLaw now owns reagent-template visibility and the resolved-slot Create gate. The renderer omits unresolved name/icon/count/hit regions without normalizing the remaining source-anchored grid; resolved short reagents still gray and disable Create exactly. Focused ProfessionFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-enchanting-unresolved-requirement-labels-20260823",
+      "kind": "gap",
+      "text": "Pending tool and spell-focus catalogs leaked synthetic Item <id> and Spell Focus <id> labels into CraftFrame's visible Requires line; Benilla omits unresolved names.",
+      "source": "benilla-current-2026-08-23/ui_craft.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "ProfessionFrameUiLaw now owns resolved requirement-name admission. CraftFrame omits pending tool/focus names and paints them when resolved, without changing carried-tool, focus-proximity, or cast-readiness gates. Focused and full interface-wire checks pass."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T01:54:53.6009770+00:00",
+  "lastReviewedUtc": "2026-08-23T18:15:00.0000000Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

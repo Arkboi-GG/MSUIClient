@@ -22,6 +22,7 @@ public static class BinderConfirmUiLaw
     public const string AcceptText = "Accept";
     public const string CancelText = "Cancel";
     public const string FallbackAreaName = "your inn";
+    public static readonly Vector2 ButtonUvMax = new(1f, .625f);
 
     public readonly record struct ScreenRect(Vector2 Min, Vector2 Size);
 
@@ -56,6 +57,9 @@ public static class BinderConfirmUiLaw
         2 => new(ButtonTwoX, ButtonTop(textHeight)),
         _ => throw new ArgumentOutOfRangeException(nameof(buttonIndex)),
     };
+
+    public static Vector2 ButtonSize(float scale) =>
+        new(ButtonWidth * scale, ButtonHeight * scale);
 
     public static bool ShouldRemainOpen(
         bool playerAvailable,

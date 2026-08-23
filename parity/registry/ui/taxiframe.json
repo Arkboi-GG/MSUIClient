@@ -30,7 +30,7 @@
     "tools/interface-wire-check/TaxiFrameClinicalChecks.cs"
   ],
   "status": "complete",
-  "summary": "The taxi window now follows the current 384x512 law, exact 58x58 flight-master portrait seat, authored continent art/projection, green current and white reachable node states, one-hop default route lines and full hovered chains, shared-tooltip fares, geographic-distance routing over TaxiPath.dbc, and direct-versus-express activation by the byte-verified direct-edge discriminator. It also covers range expiry, discovery message/sound, stock rejection text, MainMenu cues, no-path self-close, and flight spline lockout without reopening the NPC map.",
+  "summary": "The taxi window now follows the current 384x512 law, exact 58x58 flight-master portrait seat, authored continent art/projection, green current and white reachable node states, one-hop default route lines and full hovered chains, shared-tooltip fares, geographic-distance routing over TaxiPath.dbc, and direct-versus-express activation by the byte-verified direct-edge discriminator. TaxiFrameUiLaw owns the full shell-piece table, portrait/map/close/fallback rectangles, title seat, node extents, route endpoint projection, and quad UVs; GameLoop.Taxi contains no local Vector2 geometry. It also covers range expiry, discovery message/sound, stock rejection text, MainMenu cues, no-path self-close, and flight spline lockout without reopening the NPC map. Focused and full interface-wire checks pass.",
   "openItems": [
     {
       "id": "item-triage-7909e5b6",
@@ -99,6 +99,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-21T23:15:00.9824400Z",
+  "lastReviewedUtc": "2026-08-23T04:33:15.1931732Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

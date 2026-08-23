@@ -17,36 +17,41 @@ public sealed partial class GameLoop
 
     private EnchantConfirmation? _enchantConfirmation;
 
-    private void PlayEnchantPopupTransition(bool wasOpen, bool willOpen, bool chainedPopup = false)
-    {
-        foreach (string cue in EnchantConfirmUiLaw.PopupSoundCues(wasOpen, willOpen, chainedPopup))
-            PlayUiSound(cue, "ui.enchant-confirm");
-    }
+    private static string EnchantPopupType(EnchantConfirmation confirmation) =>
+        confirmation.Kind == EnchantConfirmationKind.Bind
+            ? EnchantConfirmUiLaw.BindPopupType
+            : EnchantConfirmUiLaw.ReplacePopupType;
 
-    private void ShowEnchantConfirmation(EnchantConfirmation confirmation,
-        bool acceptedBindChain = false)
+    private static StaticPopupCoordinatorLaw.Definition EnchantPopupDefinition(
+        EnchantConfirmation confirmation) =>
+        confirmation.Kind == EnchantConfirmationKind.Bind
+            ? EnchantConfirmUiLaw.BindDefinition
+            : EnchantConfirmUiLaw.ReplaceDefinition;
+
+    private void ShowEnchantConfirmation(EnchantConfirmation confirmation)
     {
-        bool wasOpen = _enchantConfirmation is not null;
-        _enchantConfirmation = confirmation;
-        // BindEnchant can synchronously raise REPLACE_ENCHANT on a second StaticPopup instance;
-        // its OnShow runs before the accepted bind popup's OnHide. Other replacements of an
-        // already-visible question use the ordinary Hide-then-Show order instead.
-        PlayEnchantPopupTransition(wasOpen, willOpen: true,
-            chainedPopup: wasOpen && acceptedBindChain);
+        bool dead = _entities.TryGet(ControlledGuid, out WorldEntity player) && player.IsDead;
+        StaticPopupCoordinatorLaw.Plan plan = StaticPopupCoordinatorLaw.Show(
+            _staticPopupSlots, EnchantPopupDefinition(confirmation), dead);
+        ExecuteStaticPopupPlan(plan);
+        _enchantConfirmation = plan.Outcome == StaticPopupCoordinatorLaw.Outcome.Shown
+            ? confirmation : null;
     }
 
     private void ClearEnchantConfirmation()
     {
-        bool wasOpen = _enchantConfirmation is not null;
+        string type = _enchantConfirmation is { } open ? EnchantPopupType(open) : "";
         _enchantConfirmation = null;
-        PlayEnchantPopupTransition(wasOpen, willOpen: false);
+        if (type.Length > 0)
+            ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.HideByType(
+                _staticPopupSlots, type));
     }
 
     private bool TryDismissEnchantConfirmationOnEscape()
     {
         if (_enchantConfirmation is null) return false;
-        // StaticPopup hideOnEscape has no OnCancel: the question disappears, no packet is sent,
-        // and the item-targeting word remains armed for the next click.
+        // The normal path is consumed by the shared StaticPopup escape rung immediately before
+        // this fallback. Retain a state-only cleanup for a staged/incomplete popup owner.
         ClearEnchantConfirmation();
         return true;
     }
@@ -98,13 +103,10 @@ public sealed partial class GameLoop
                     EnchantConfirmationKind.Bind, spellId, instance.Guid));
                 return;
             case EnchantBindKind.ConfirmReplace:
-                bool acceptedBindChain = bindConfirmed &&
-                    _enchantConfirmation is { Kind: EnchantConfirmationKind.Bind } openBind &&
-                    openBind.SpellId == spellId && openBind.ItemGuid == instance.Guid;
                 ShowEnchantConfirmation(new(
                     EnchantConfirmationKind.Replace, spellId, instance.Guid,
                     _enchantCatalog?.Name(verdict.ExistingEnchant) ?? "",
-                    _enchantCatalog?.Name(verdict.NewEnchant) ?? ""), acceptedBindChain);
+                    _enchantCatalog?.Name(verdict.NewEnchant) ?? ""));
                 return;
             default:
                 CommitItemCast(spellId, instance.Guid);
@@ -177,7 +179,7 @@ public sealed partial class GameLoop
                $"state={EnchantConfirmationState(rendered)};" +
                $"stateSource={(_uiParityFixtureStaged ? "ui-parity-stage" : "item-target-runtime")};" +
                $"fixtureStaged={_uiParityFixtureStaged.ToString().ToLowerInvariant()};" +
-               "layout=msui-preserved-alert-360x96;captureMutation=false";
+               "layout=benilla-staticpopup-alert-420;captureMutation=false";
     }
 
     private void AddEnchantConfirmUiParityScenario(Dictionary<string, object?> scenario)
@@ -205,10 +207,11 @@ public sealed partial class GameLoop
         scenario["frameWidth"] = EnchantConfirmUiLaw.FrameWidth;
         scenario["frameHeight"] = EnchantConfirmUiLaw.FrameHeight;
         scenario["frameTop"] = EnchantConfirmUiLaw.FrameTop;
-        scenario["layoutProfile"] = "msui-preserved-alert-360x96";
+        scenario["layoutProfile"] = "benilla-staticpopup-alert-420";
         scenario["alertIconVisible"] = true;
-        scenario["benillaShowAlertFieldInert"] = true;
+        scenario["benillaShowAlertFieldInert"] = false;
         scenario["benillaExclusiveFieldInert"] = true;
+        scenario["staticPopupType"] = rendered is null ? "" : EnchantPopupType(rendered);
         scenario["buttonsInteractive"] = !_uiParityFixtureStaged;
         scenario["captureStateMutation"] = false;
         scenario["captureNetworkMutation"] = false;
@@ -219,6 +222,9 @@ public sealed partial class GameLoop
         EnchantConfirmation? selected = EnchantConfirmationForDraw();
         if (selected is not { } confirmation || _skin is null) return;
         bool stagedFixture = EnchantUiParityCaptureActive && _uiParityFixtureStaged;
+        (int Slot, StaticPopupCoordinatorLaw.Instance Instance)? popup =
+            EnchantConfirmUiLaw.Visible(_staticPopupSlots);
+        if (!stagedFixture && popup is null) return;
         if (!stagedFixture && _itemCastSpell != confirmation.SpellId)
         {
             ClearEnchantConfirmation();
@@ -226,10 +232,18 @@ public sealed partial class GameLoop
         }
 
         float s = GameplayUiScale();
-        Vector2 display = ImGui.GetIO().DisplaySize;
-        Vector2 size = new(EnchantConfirmUiLaw.FrameWidth * s,
-            EnchantConfirmUiLaw.FrameHeight * s);
-        Vector2 origin = new((display.X - size.X) * .5f, EnchantConfirmUiLaw.FrameTop * s);
+        string message = EnchantConfirmationMessage(confirmation);
+        string[] lines = WrapTooltipText(message, "GameFontHighlight", s,
+            EnchantConfirmUiLaw.MessageWrapWidth * s).ToArray();
+        float logicalTextHeight = lines.Length *
+            GameText.LinePitch("GameFontHighlight", 1);
+        EnchantConfirmUiLaw.PopupLayout layout =
+            EnchantConfirmUiLaw.Layout(logicalTextHeight);
+        int slot = popup?.Slot ?? 1;
+        Vector2 origin = StaticPopupOrigin(slot, layout.Width, s);
+        EnchantConfirmUiLaw.ScreenRect frame =
+            EnchantConfirmUiLaw.ScaledFrame(origin, layout, s);
+        Vector2 size = frame.Size;
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
@@ -239,7 +253,7 @@ public sealed partial class GameLoop
         if (!ImGui.Begin("##enchant-confirm", flags)) { ImGui.End(); return; }
 
         bool parityProof = EnchantUiParityCaptureActive;
-        Vector4 frameClip = new(origin.X, origin.Y, origin.X + size.X, origin.Y + size.Y);
+        Vector4 frameClip = EnchantConfirmUiLaw.ClipRect(frame);
         if (parityProof)
         {
             BeginUiParityFrame(origin, s);
@@ -252,9 +266,11 @@ public sealed partial class GameLoop
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
         dl.PushClipRectFullScreen();
         _skin.DrawBackdrop(dl, origin, origin + size, WowSkin.Dialog);
-        EnchantConfirmUiLaw.LogicalRect alert = EnchantConfirmUiLaw.AlertRect;
-        Vector2 alertMin = origin + new Vector2(alert.X, alert.Y) * s;
-        Vector2 alertSize = new Vector2(alert.Width, alert.Height) * s;
+        EnchantConfirmUiLaw.LogicalRect alert = layout.Alert;
+        EnchantConfirmUiLaw.ScreenRect alertScreen =
+            EnchantConfirmUiLaw.ScaledRect(origin, alert, s);
+        Vector2 alertMin = alertScreen.Min;
+        Vector2 alertSize = alertScreen.Size;
         _skin.GlueImage(dl, "dialog.alert", alertMin, alertMin + alertSize);
         dl.PopClipRect();
 
@@ -263,9 +279,10 @@ public sealed partial class GameLoop
             // WowSkin's backdrop implementation uses its own current scale for insets/tile UVs;
             // report those draw variables, not the popup's logical layout scale by assumption.
             float backdropScale = _skin.Scale;
-            Vector2 fillMin = origin + new Vector2(11f, 12f) * backdropScale;
-            Vector2 fillMax = origin + size - new Vector2(12f, 11f) * backdropScale;
-            Vector2 fillSize = Vector2.Max(Vector2.Zero, fillMax - fillMin);
+            EnchantConfirmUiLaw.ScreenRect fill =
+                EnchantConfirmUiLaw.BackdropFillRect(frame, backdropScale);
+            Vector2 fillMin = fill.Min;
+            Vector2 fillSize = fill.Size;
             static string Number(float value) =>
                 value.ToString("0.#####", CultureInfo.InvariantCulture);
             string fillTexCoords = $"0|0|{Number(fillSize.X / (32f * backdropScale))}|" +
@@ -294,21 +311,17 @@ public sealed partial class GameLoop
                     ClipMask: "StaticPopup1", BlendMode: "BLEND", Strata: "DIALOG"));
         }
 
-        string message = EnchantConfirmationMessage(confirmation);
-        IReadOnlyList<string> lines = WrapEnchantMessage(message,
-            EnchantConfirmUiLaw.MessageWrapWidth * s, s);
-        float pitch = GameText.LinePitch("GameFontNormal", s);
-        float textTop = origin.Y + EnchantConfirmUiLaw.MessageTop * s;
-        FontObjectSpec messageFont = FontObjectLaw.Get("GameFontNormal");
-        for (int i = 0; i < lines.Count; i++)
+        float pitch = GameText.LinePitch("GameFontHighlight", s);
+        FontObjectSpec messageFont = FontObjectLaw.Get("GameFontHighlight");
+        for (int i = 0; i < lines.Length; i++)
         {
-            Vector2 center = new(origin.X + EnchantConfirmUiLaw.MessageCenterX * s,
-                textTop + pitch * (i + .5f));
-            GameText.DrawCentered(dl, "GameFontNormal", lines[i], center, s);
+            Vector2 center = EnchantConfirmUiLaw.MessageLineCenter(origin, s, pitch, i);
+            GameText.DrawCentered(dl, "GameFontHighlight", lines[i], center, s);
             if (parityProof)
             {
-                Vector2 textSize = new(GameText.MeasureWidth("GameFontNormal", lines[i], s),
-                    GameText.EmPixels("GameFontNormal", s));
+                Vector2 textSize = EnchantConfirmUiLaw.MeasuredSize(
+                    GameText.MeasureWidth("GameFontHighlight", lines[i], s),
+                    GameText.EmPixels("GameFontHighlight", s));
                 Vector2 textMin = center - textSize * .5f;
                 CollectUiParityDraw($"StaticPopup1Text{i + 1}", "FontString", textMin,
                     textSize, "StaticPopup1", new("", messageFont.Color, "ARTWORK",
@@ -324,9 +337,9 @@ public sealed partial class GameLoop
         string accept = confirmation.Kind == EnchantConfirmationKind.Bind ? "Okay" : "Yes";
         string decline = confirmation.Kind == EnchantConfirmationKind.Bind ? "Cancel" : "No";
         bool accepted = DrawInstrumentedEnchantPopupButton(dl, "StaticPopup1Button1", accept,
-            EnchantConfirmUiLaw.AcceptButtonRect, origin, s, !stagedFixture, frameClip);
+            layout.AcceptButton, origin, s, !stagedFixture, frameClip);
         bool declined = DrawInstrumentedEnchantPopupButton(dl, "StaticPopup1Button2", decline,
-            EnchantConfirmUiLaw.DeclineButtonRect, origin, s, !stagedFixture, frameClip);
+            layout.DeclineButton, origin, s, !stagedFixture, frameClip);
         if (parityProof)
         {
             SnapshotUiParityScenario();
@@ -334,31 +347,23 @@ public sealed partial class GameLoop
         }
         ImGui.End();
 
-        if (accepted) AcceptEnchantConfirmation();
-        else if (declined) ClearEnchantConfirmation();
-    }
-
-    private static IReadOnlyList<string> WrapEnchantMessage(string message, float width, float scale)
-    {
-        var lines = new List<string>();
-        string current = "";
-        foreach (string word in message.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-        {
-            string candidate = current.Length == 0 ? word : current + " " + word;
-            if (current.Length > 0 && GameText.MeasureWidth("GameFontNormal", candidate, scale) > width)
-            { lines.Add(current); current = word; }
-            else current = candidate;
-        }
-        if (current.Length > 0) lines.Add(current);
-        return lines;
+        if (stagedFixture) return;
+        if (accepted)
+            ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Click(
+                _staticPopupSlots, slot, buttonIndex: 1));
+        else if (declined)
+            ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Click(
+                _staticPopupSlots, slot, buttonIndex: 2));
     }
 
     private bool DrawInstrumentedEnchantPopupButton(ImDrawListPtr dl, string element, string caption,
         EnchantConfirmUiLaw.LogicalRect rect, Vector2 origin, float s, bool interactive,
         Vector4 frameClip)
     {
-        Vector2 at = origin + new Vector2(rect.X, rect.Y) * s;
-        Vector2 size = new Vector2(rect.Width, rect.Height) * s;
+        EnchantConfirmUiLaw.ScreenRect button =
+            EnchantConfirmUiLaw.ScaledRect(origin, rect, s);
+        Vector2 at = button.Min;
+        Vector2 size = button.Size;
         bool clicked = false, held = false, hovered = false;
         if (interactive)
         {
@@ -368,11 +373,15 @@ public sealed partial class GameLoop
             hovered = ImGui.IsItemHovered();
         }
         uint art = _skin!.TextureHandle(held ? "dialog.button.down" : "dialog.button.up");
-        if (art != 0) dl.AddImage((nint)art, at, at + size, Vector2.Zero, new Vector2(1f, .625f));
+        if (art != 0)
+            dl.AddImage((nint)art, at, at + size,
+                EnchantConfirmUiLaw.ButtonUvMin, EnchantConfirmUiLaw.ButtonUvMax);
         if (hovered)
         {
             uint hi = _skin.TextureHandle("dialog.button.hi");
-            if (hi != 0) dl.AddImage((nint)hi, at, at + size, Vector2.Zero, new Vector2(1f, .625f));
+            if (hi != 0)
+                dl.AddImage((nint)hi, at, at + size,
+                    EnchantConfirmUiLaw.ButtonUvMin, EnchantConfirmUiLaw.ButtonUvMax);
         }
         string fontObject = hovered ? "DialogButtonHighlightText" : "DialogButtonNormalText";
         GameText.DrawCentered(dl, fontObject, caption, at + size * .5f, s);
@@ -412,7 +421,8 @@ public sealed partial class GameLoop
                     "NOT-DRAWN", interactive ? "button-is-not-hovered" : "fixture-input-disabled");
 
             FontObjectSpec buttonFont = FontObjectLaw.Get(fontObject);
-            Vector2 textSize = new(GameText.MeasureWidth(fontObject, caption, s),
+            Vector2 textSize = EnchantConfirmUiLaw.MeasuredSize(
+                GameText.MeasureWidth(fontObject, caption, s),
                 GameText.EmPixels(fontObject, s));
             Vector2 textMin = at + (size - textSize) * .5f;
             CollectUiParityDraw(element + "/Text", "FontString", textMin, textSize, element,
@@ -427,17 +437,21 @@ public sealed partial class GameLoop
     // separate from EnchantConfirm's capture-aware wrapper so their behavior is untouched.
     private bool DrawEnchantPopupButton(ImDrawListPtr dl, string caption, Vector2 at, float s)
     {
-        Vector2 size = new Vector2(128f, 20f) * s;
+        Vector2 size = EnchantConfirmUiLaw.PlainButtonSize * s;
         ImGui.SetCursorScreenPos(at);
         bool clicked = ImGui.InvisibleButton($"##enchant-{caption}", size);
         bool held = ImGui.IsItemActive();
         bool hovered = ImGui.IsItemHovered();
         uint art = _skin!.TextureHandle(held ? "dialog.button.down" : "dialog.button.up");
-        if (art != 0) dl.AddImage((nint)art, at, at + size, Vector2.Zero, new Vector2(1f, .625f));
+        if (art != 0)
+            dl.AddImage((nint)art, at, at + size,
+                EnchantConfirmUiLaw.ButtonUvMin, EnchantConfirmUiLaw.ButtonUvMax);
         if (hovered)
         {
             uint hi = _skin.TextureHandle("dialog.button.hi");
-            if (hi != 0) dl.AddImage((nint)hi, at, at + size, Vector2.Zero, new Vector2(1f, .625f));
+            if (hi != 0)
+                dl.AddImage((nint)hi, at, at + size,
+                    EnchantConfirmUiLaw.ButtonUvMin, EnchantConfirmUiLaw.ButtonUvMax);
         }
         GameText.DrawCentered(dl, hovered ? "DialogButtonHighlightText" : "DialogButtonNormalText",
             caption, at + size * .5f, s);

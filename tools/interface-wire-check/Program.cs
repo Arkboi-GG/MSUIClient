@@ -79,7 +79,7 @@ static void CheckGameMenuLayout()
             "\"FontScale\":1.35}," +
             "\"MenuLayout\":{}},\"Presets\":[]}");
         SettingsStore migrated = SettingsStore.Load(root, migrationPath);
-        Check(migrated.Settings.Version == 9 &&
+        Check(migrated.Settings.Version == 10 &&
               MathF.Abs(migrated.Settings.MenuLayout.Scale - 1.125f) < .0001f &&
               MathF.Abs(migrated.Settings.MenuLayout.TextScale - 1.35f) < .0001f,
             "menu layout migration did not preserve its existing chrome and text sizes");
@@ -165,6 +165,13 @@ if (args.Contains("--char-create-only", StringComparer.Ordinal))
 {
     CharCreateClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: CharCreate PASS");
+    return;
+}
+
+if (args.Contains("--login-current-only", StringComparer.Ordinal))
+{
+    LoginClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: LoginCurrent PASS");
     return;
 }
 
@@ -301,6 +308,13 @@ if (args.Contains("--realm-logon-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--network-telemetry-only", StringComparer.Ordinal))
+{
+    NetworkTelemetryClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: NetworkTelemetry PASS");
+    return;
+}
+
 if (args.Contains("--aura-visual-only", StringComparer.Ordinal))
 {
     AuraVisualClinicalChecks.Run();
@@ -427,6 +441,34 @@ if (args.Contains("--item-text-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--auction-frame-only", StringComparer.Ordinal))
+{
+    AuctionFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: AuctionFrame PASS");
+    return;
+}
+
+if (args.Contains("--char-select-current-only", StringComparer.Ordinal))
+{
+    CharSelectCurrentClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: CharSelectCurrent PASS");
+    return;
+}
+
+if (args.Contains("--help-frame-only", StringComparer.Ordinal))
+{
+    HelpFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: HelpFrame PASS");
+    return;
+}
+
+if (args.Contains("--tabard-frame-only", StringComparer.Ordinal))
+{
+    TabardFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: TabardFrame PASS");
+    return;
+}
+
 if (args.Contains("--ui-text-markup-only", StringComparer.Ordinal))
 {
     UiTextMarkupClinicalChecks.Run();
@@ -441,10 +483,157 @@ if (args.Contains("--friends-frame-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--gameobject-animation-only", StringComparer.Ordinal))
+{
+    GameObjectAnimationClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: GameObjectAnimation PASS");
+    return;
+}
+
+if (args.Contains("--glue-audio-only", StringComparer.Ordinal))
+{
+    GlueAudioClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: GlueAudio PASS");
+    return;
+}
+
+if (args.Contains("--fishing-line-only", StringComparer.Ordinal))
+{
+    FishingLineClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: FishingLine PASS");
+    return;
+}
+
+if (args.Contains("--opcode-inventory-only", StringComparer.Ordinal))
+{
+    OpcodeInventoryClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: OpcodeInventory PASS");
+    return;
+}
+
+if (args.Contains("--target-bindings-only", StringComparer.Ordinal))
+{
+    TargetBindingClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: TargetBindings PASS");
+    return;
+}
+
+if (args.Contains("--actionbar-binding-tail-only", StringComparer.Ordinal))
+{
+    ActionBarBindingTailClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ActionBarBindingTail PASS");
+    return;
+}
+
+if (args.Contains("--selection-ring-only", StringComparer.Ordinal))
+{
+    SelectionRingClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: SelectionRing PASS");
+    return;
+}
+
+if (args.Contains("--target-press-pick-only", StringComparer.Ordinal))
+{
+    TargetPressPickClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: TargetPressPick PASS");
+    return;
+}
+
+if (args.Contains("--target-click-only", StringComparer.Ordinal))
+{
+    TargetClickClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: TargetClick PASS");
+    return;
+}
+
+if (args.Contains("--feed-pet-only", StringComparer.Ordinal))
+{
+    FeedPetClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: FeedPet PASS");
+    return;
+}
+
+if (args.Contains("--target-mesh-pick-only", StringComparer.Ordinal))
+{
+    TargetMeshPickClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: TargetMeshPick PASS");
+    return;
+}
+
+if (args.Contains("--spatial-audio-only", StringComparer.Ordinal))
+{
+    SpatialAudioClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: SpatialAudio PASS");
+    return;
+}
+
+if (args.Contains("--water-splash-only", StringComparer.Ordinal))
+{
+    WaterSplashClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: WaterSplash PASS");
+    return;
+}
+
+if (args.Contains("--wmo-liquid-point-only", StringComparer.Ordinal))
+{
+    WmoLiquidPointClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: WmoLiquidPoint PASS");
+    return;
+}
+
+if (args.Contains("--liquid-ambient-loop-only", StringComparer.Ordinal))
+{
+    LiquidAmbientLoopClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: LiquidAmbientLoop PASS");
+    return;
+}
+
+if (args.Contains("--elevator-transport-only", StringComparer.Ordinal))
+{
+    ElevatorTransportClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ElevatorTransport PASS");
+    return;
+}
+
+if (args.Contains("--mo-transport-only", StringComparer.Ordinal))
+{
+    MoTransportClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MoTransport PASS");
+    return;
+}
+
+if (args.Contains("--wmo-gameobject-only", StringComparer.Ordinal))
+{
+    WmoGameObjectClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: WmoGameObject PASS");
+    return;
+}
+
+if (args.Contains("--controlled-transport-only", StringComparer.Ordinal))
+{
+    ControlledTransportClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ControlledTransport PASS");
+    return;
+}
+
+if (args.Contains("--talent-frame-only", StringComparer.Ordinal))
+{
+    TalentFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: TalentFrame PASS");
+    return;
+}
+
 if (args.Contains("--guild-frame-only", StringComparer.Ordinal))
 {
     GuildFrameClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: GuildFrame PASS");
+    return;
+}
+
+if (args.Contains("--mail-frame-only", StringComparer.Ordinal))
+{
+    MailFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MailFrame PASS");
     return;
 }
 
@@ -515,6 +704,34 @@ if (args.Contains("--player-name-only", StringComparer.Ordinal))
 {
     PlayerNameClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: PlayerName PASS");
+    return;
+}
+
+if (args.Contains("--camera-pose-only", StringComparer.Ordinal))
+{
+    CameraPoseClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: CameraPose PASS");
+    return;
+}
+
+if (args.Contains("--camera-follow-only", StringComparer.Ordinal))
+{
+    CameraFollowClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: CameraFollow PASS");
+    return;
+}
+
+if (args.Contains("--equipment-display-only", StringComparer.Ordinal))
+{
+    EquipmentDisplayPreferenceClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: EquipmentDisplayPreference PASS");
+    return;
+}
+
+if (args.Contains("--chat-language-only", StringComparer.Ordinal))
+{
+    ChatLanguageClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ChatLanguage PASS");
     return;
 }
 
@@ -847,10 +1064,66 @@ if (args.Contains("--binding-chord-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--target-cycle-only", StringComparer.Ordinal))
+{
+    TargetCycleClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: TargetCycle PASS");
+    return;
+}
+
+if (args.Contains("--social-tab-bindings-only", StringComparer.Ordinal))
+{
+    SocialTabBindingClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: SocialTabBindings PASS");
+    return;
+}
+
+if (args.Contains("--audio-bindings-only", StringComparer.Ordinal))
+{
+    AudioBindingClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: AudioBindings PASS");
+    return;
+}
+
+if (args.Contains("--minimap-binding-only", StringComparer.Ordinal))
+{
+    MinimapBindingClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MinimapBinding PASS");
+    return;
+}
+
+if (args.Contains("--keybinding-registry-only", StringComparer.Ordinal))
+{
+    KeyBindingRegistryClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: KeyBindingRegistry PASS");
+    return;
+}
+
 if (args.Contains("--character-bindings-only", StringComparer.Ordinal))
 {
     CharacterBindingsClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: CharacterBindings PASS");
+    return;
+}
+
+if (args.Contains("--scoped-view-only", StringComparer.Ordinal))
+{
+    ScopedViewClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ScopedView PASS");
+    return;
+}
+
+if (args.Contains("--view-subject-only", StringComparer.Ordinal))
+{
+    ViewSubjectClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ViewSubject PASS");
+    return;
+}
+
+if (args.Contains("--client-control-only", StringComparer.Ordinal))
+{
+    ClientControlUpdateClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ClientControlUpdate PASS");
     return;
 }
 
@@ -959,9 +1232,17 @@ if (args.Contains("--item-template-only", StringComparer.Ordinal))
 }
 
 CharCreateClinicalChecks.Run();
+CharSelectCurrentClinicalChecks.Run();
+LoginClinicalChecks.Run();
+AuctionFrameClinicalChecks.Run();
+HelpFrameClinicalChecks.Run();
+TabardFrameClinicalChecks.Run();
 UiFoundationClinicalChecks.Run();
+TalentFrameClinicalChecks.Run();
 GuildFrameClinicalChecks.Run();
+MailFrameClinicalChecks.Run();
 ReputationFrameClinicalChecks.Run();
+FeedPetClinicalChecks.Run();
 PetPaperDollClinicalChecks.Run();
 DressUpFrameClinicalChecks.Run();
 ScreenshotStatusClinicalChecks.Run();
@@ -979,6 +1260,8 @@ SocialProtocolClinicalChecks.Run();
 ChatClinicalChecks.Run();
 AuraVisualClinicalChecks.Run();
 RealmLogonClinicalChecks.Run();
+AuthSessionAddonClinicalChecks.Run();
+NetworkTelemetryClinicalChecks.Run();
 RemoteMovementClinicalChecks.Run();
 SwimmingClinicalChecks.Run();
 DrunkMovementClinicalChecks.Run();
@@ -988,6 +1271,24 @@ ObserverSpeedClinicalChecks.Run();
 CompressedMovementClinicalChecks.Run();
 SelfSplineClinicalChecks.Run();
 SpellChainBeamClinicalChecks.Run();
+GameObjectAnimationClinicalChecks.Run();
+GlueAudioClinicalChecks.Run();
+FishingLineClinicalChecks.Run();
+OpcodeInventoryClinicalChecks.Run();
+TargetBindingClinicalChecks.Run();
+ActionBarBindingTailClinicalChecks.Run();
+SelectionRingClinicalChecks.Run();
+TargetPressPickClinicalChecks.Run();
+TargetClickClinicalChecks.Run();
+TargetMeshPickClinicalChecks.Run();
+SpatialAudioClinicalChecks.Run();
+WaterSplashClinicalChecks.Run();
+WmoLiquidPointClinicalChecks.Run();
+LiquidAmbientLoopClinicalChecks.Run();
+ElevatorTransportClinicalChecks.Run();
+MoTransportClinicalChecks.Run();
+WmoGameObjectClinicalChecks.Run();
+ControlledTransportClinicalChecks.Run();
 
 static byte[] BuildMultiActionItemTemplateFixture()
 {
@@ -1395,7 +1696,16 @@ Check(LogoutResponse.Parse(Convert.FromHexString("0000000000")) == new LogoutRes
       LogoutUiLaw.Decide(new LogoutResponse(0, false), quitting: true) ==
           LogoutResponseAction.ShowQuitCountdown &&
       LogoutUiLaw.CountdownText(false, 20f) == "20 seconds until logout" &&
-      LogoutUiLaw.CountdownText(true, .1f) == "1 second until exit",
+      LogoutUiLaw.CountdownText(true, .1f) == "1 second until exit" &&
+      LogoutUiLaw.Frame == new LogoutUiLaw.LogicalRect(0, 128, 360, 96) &&
+      LogoutUiLaw.FrameSize(2f) == new Vector2(720, 192) &&
+      LogoutUiLaw.FrameOrigin(new Vector2(1920, 1080), 2f) == new Vector2(600, 256) &&
+      LogoutUiLaw.CountdownTextCenter(new Vector2(600, 256), 2f) ==
+          new Vector2(960, 324) &&
+      LogoutUiLaw.PrimaryButton(false) == new LogoutUiLaw.LogicalRect(116, 66, 128, 20) &&
+      LogoutUiLaw.PrimaryButton(true) == new LogoutUiLaw.LogicalRect(42, 66, 128, 20) &&
+      LogoutUiLaw.QuitCancel == new LogoutUiLaw.LogicalRect(190, 66, 128, 20) &&
+      LogoutUiLaw.ButtonUvMax == new Vector2(1f, .625f),
     "GameMenuFrame logout response/countdown law drift");
 
 string gameMenuSettingsSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
@@ -1422,7 +1732,13 @@ Check(gameMenuActionSource.Contains("_mainMenuMicroPressedThroughModal", StringC
       gameMenuActionSource.Contains("GameMenuUiLaw.PlayerPanelMayOpen(_settingsOpen)", StringComparison.Ordinal),
     "GameMenuFrame micro toggle/center-panel click gate wiring drift");
 Check(gameMenuLogoutSource.Contains("GameMenuUiLaw.PopupVisibilitySound", StringComparison.Ordinal) &&
-      gameMenuLogoutSource.Contains("new Vector2(360f, 96f)", StringComparison.Ordinal) &&
+      gameMenuLogoutSource.Contains("LogoutUiLaw.FrameSize", StringComparison.Ordinal) &&
+      gameMenuLogoutSource.Contains("LogoutUiLaw.FrameOrigin", StringComparison.Ordinal) &&
+      gameMenuLogoutSource.Contains("LogoutUiLaw.CountdownTextCenter", StringComparison.Ordinal) &&
+      gameMenuLogoutSource.Contains("LogoutUiLaw.PrimaryButton", StringComparison.Ordinal) &&
+      gameMenuLogoutSource.Contains("LogoutUiLaw.QuitCancel", StringComparison.Ordinal) &&
+      gameMenuLogoutSource.Contains("LogoutUiLaw.ButtonUvMax", StringComparison.Ordinal) &&
+      !gameMenuLogoutSource.Contains("new Vector2", StringComparison.Ordinal) &&
       gameMenuLogoutSource.Contains("SetLogoutDialog(LogoutDialogKind.None)", StringComparison.Ordinal),
     "GameMenuFrame preserved logout popup geometry or sound teardown wiring drift");
 Check(gameMenuSkinSource.Contains("out PanelButtonDrawState drawState", StringComparison.Ordinal) &&
@@ -1504,7 +1820,7 @@ Check(spellbookMpq.ReadFile(@"Interface\DialogFrame\UI-DialogBox-Background.blp"
       spellbookMpq.ReadFile(@"Interface\Buttons\UI-DialogBox-Button-Up.blp") is not null &&
       spellbookMpq.ReadFile(@"Interface\Buttons\UI-DialogBox-Button-Down.blp") is not null &&
       spellbookMpq.ReadFile(@"Interface\Buttons\UI-DialogBox-Button-Highlight.blp") is not null,
-    "EnchantConfirm preserved backdrop/alert/button asset closure missing");
+    "EnchantConfirm StaticPopup backdrop/alert/button asset closure missing");
 SpellCatalog spellbookSpells = SpellCatalog.Load(spellbookMpq) ??
     throw new InvalidDataException("Spell DBC unavailable");
 EnchantCatalog enchantRows = EnchantCatalog.Load(spellbookMpq) ??
@@ -1513,26 +1829,32 @@ Check(enchantRows.Name(2564) == "Agility +15" && enchantRows.Name(1900) == "Crus
     "SpellItemEnchantment name-column/locale drift");
 Check(!Enum.TryParse("CMSG_REPLACE_ENCHANT", out Op _),
     "build 5875 must not invent a CMSG_REPLACE_ENCHANT opcode");
-Check(EnchantConfirmUiLaw.PopupSoundCues(false, true).SequenceEqual(["igMainMenuOpen"]) &&
-      EnchantConfirmUiLaw.PopupSoundCues(true, false).SequenceEqual(["igMainMenuClose"]) &&
-      EnchantConfirmUiLaw.PopupSoundCues(true, true, chainedPopup: true)
-          .SequenceEqual(["igMainMenuOpen", "igMainMenuClose"]) &&
-      EnchantConfirmUiLaw.PopupSoundCues(true, true, chainedPopup: false)
-          .SequenceEqual(["igMainMenuClose", "igMainMenuOpen"]) &&
-      EnchantConfirmUiLaw.PopupSoundCues(false, false).Count == 0,
-    "enchant StaticPopup open/close or chained-popup sound cardinality drift");
-Check(EnchantConfirmUiLaw.FrameWidth == 360f && EnchantConfirmUiLaw.FrameHeight == 96f &&
+StaticPopupCoordinatorLaw.Plan enchantShown = StaticPopupCoordinatorLaw.Show(
+    StaticPopupCoordinatorLaw.Slots.Empty, EnchantConfirmUiLaw.BindDefinition,
+    playerDeadOrGhost: false);
+EnchantConfirmUiLaw.PopupLayout enchantLayout = EnchantConfirmUiLaw.Layout(12);
+Check(enchantShown.Outcome == StaticPopupCoordinatorLaw.Outcome.Shown &&
+      enchantShown.Effects.Any(effect => effect.Kind ==
+          StaticPopupCoordinatorLaw.EffectKind.MainMenuOpenSound) &&
+      EnchantConfirmUiLaw.BindDefinition.ShowAlert &&
+      EnchantConfirmUiLaw.BindDefinition.HideOnEscape &&
+      EnchantConfirmUiLaw.ReplaceDefinition.ShowAlert &&
+      EnchantConfirmUiLaw.Visible(enchantShown.Slots) is { Slot: 1 },
+    "enchant shared StaticPopup definition/lifecycle drift");
+Check(EnchantConfirmUiLaw.FrameWidth == 420f && EnchantConfirmUiLaw.FrameHeight == 72f &&
       EnchantConfirmUiLaw.FrameTop == 128f &&
-      EnchantConfirmUiLaw.AlertRect == new EnchantConfirmUiLaw.LogicalRect(12, 8, 64, 64) &&
-      EnchantConfirmUiLaw.AcceptButtonRect ==
-          new EnchantConfirmUiLaw.LogicalRect(62, 68, 128, 20) &&
-      EnchantConfirmUiLaw.DeclineButtonRect ==
-          new EnchantConfirmUiLaw.LogicalRect(198, 68, 128, 20) &&
+      enchantLayout.Width == 420 && enchantLayout.Height == 72 &&
+      enchantLayout.Text == new EnchantConfirmUiLaw.LogicalRect(65, 16, 290, 12) &&
+      enchantLayout.Alert == new EnchantConfirmUiLaw.LogicalRect(12, 4, 64, 64) &&
+      enchantLayout.AcceptButton ==
+          new EnchantConfirmUiLaw.LogicalRect(76, 36, 128, 20) &&
+      enchantLayout.DeclineButton ==
+          new EnchantConfirmUiLaw.LogicalRect(217, 36, 128, 20) &&
       EnchantConfirmUiLaw.BindMessage == "Enchanting this item will bind it to you." &&
       string.Format(System.Globalization.CultureInfo.InvariantCulture,
           EnchantConfirmUiLaw.ReplaceMessageFormat, "Agility +15", "Crusader") ==
           "Do you want to replace \"Agility +15\" with \"Crusader\"?",
-    "EnchantConfirm preserved alert layout or exact bind/replace copy drift");
+    "EnchantConfirm Benilla alert layout or exact bind/replace copy drift");
 SkillLineCatalog spellbookSkills = SkillLineCatalog.Load(spellbookMpq) ??
     throw new InvalidDataException("Skill-line DBCs unavailable");
 SpellInfo BookSpell(uint id) => spellbookSpells.TryGet(id, out SpellInfo value) ? value
@@ -1900,7 +2222,8 @@ Check(MailUiLaw.CanSend("Jaina", "Hi", codMode: false, amount: 1,
           hasAttachment: false, pending: false) &&
       !MailUiLaw.CanSend("Jaina", "Hi", codMode: true, amount: MailUiLaw.MaxCodCopper + 1,
           hasAttachment: true, pending: false), "mail compose enablement law");
-Check(MailUiLaw.HasNewMail(0) && !MailUiLaw.HasNewMail(-86400) &&
+Check(MailUiLaw.NoMailQueryStamp == -1f &&
+      MailUiLaw.HasNewMail(0) && !MailUiLaw.HasNewMail(-86400) &&
       !MailUiLaw.HasNewMail(5), "mail pending countdown law");
 Check(MailUiLaw.OpenMailOrigin(new Vector2(384, 104), 1f) == new Vector2(758, 104) &&
       MailUiLaw.ConfirmationSize(1.5f) == new Vector2(540, 144) &&
@@ -2403,7 +2726,7 @@ Check(questSource.Contains("RequestQuestReward();", StringComparison.Ordinal) &&
           StringComparison.Ordinal),
       "quest production routing/item-giver/lifecycle/bottom-patch wiring drift");
 int questPortraitDraw = questSource.IndexOf("DrawUnitPortraitImage(dl, giver", StringComparison.Ordinal);
-int questPanelArt = questSource.IndexOf("foreach(var r in art)", StringComparison.Ordinal);
+int questPanelArt = questSource.IndexOf("QuestFrameUiLaw.PanelArt(", StringComparison.Ordinal);
 Check(questPortraitDraw >= 0 && questPanelArt > questPortraitDraw &&
       questSource.Contains("BenillaQuestFramePortraitAperture", StringComparison.Ordinal),
       "quest portrait must draw beneath panel chrome and retain round-aperture containment telemetry");
@@ -2492,6 +2815,11 @@ Check(WorldSession.BuildTalentWipeBody(trainerGuid).SequenceEqual(Convert.FromHe
 Check((ushort)Op.CMSG_GAMEOBJ_USE == 177 && (ushort)Op.SMSG_GAMEOBJECT_CUSTOM_ANIM == 179 &&
       (ushort)Op.CMSG_PAGE_TEXT_QUERY == 90 && (ushort)Op.SMSG_PAGE_TEXT_QUERY_RESPONSE == 91,
       "game object/page opcodes");
+Check((ushort)Op.SMSG_FISH_NOT_HOOKED == 456 && (ushort)Op.SMSG_FISH_ESCAPED == 457 &&
+      (ushort)Op.SMSG_GAMEOBJECT_DESPAWN_ANIM == 533 &&
+      LootPackets.ParseFishingVerdict([], escaped: false) == "ERR_FISH_NOT_HOOKED" &&
+      LootPackets.ParseFishingVerdict([], escaped: true) == "ERR_FISH_ESCAPED",
+      "game object fishing/despawn opcodes and empty fishing verdicts");
 Check((ushort)Op.CMSG_GAMEOBJECT_QUERY == 94 && (ushort)Op.SMSG_GAMEOBJECT_QUERY_RESPONSE == 95,
       "game object template query opcodes");
 ulong objectGuid = 0xF110000003000001ul;
@@ -2500,8 +2828,9 @@ Check(WorldSession.BuildGameObjectQueryBody(1731, objectGuid)
       "game object query entry/full-guid body");
 Check(WorldSession.BuildGameObjectUseBody(objectGuid).SequenceEqual(Convert.FromHexString("01000003000010F1")),
       "game object use full guid body");
-Check(WorldSession.BuildPageTextQueryBody(77).SequenceEqual(Convert.FromHexString("4D000000")),
-      "page text query body");
+Check(WorldSession.BuildPageTextQueryBody(77, objectGuid)
+      .SequenceEqual(Convert.FromHexString("4D00000001000003000010F1")),
+      "page text query page/full-guid body");
 using (var professionMpq = new MpqMount(clientData))
 {
     LockCatalog locks = LockCatalog.Load(professionMpq) ?? throw new InvalidDataException("Lock.dbc missing");
@@ -2835,9 +3164,13 @@ Check(SkillFrameUiLaw.ListRect == new SkillFrameUiLaw.LogicalRect(22, 79, 296, 2
       SkillFrameUiLaw.CollapseRightRect ==
           new SkillFrameUiLaw.LogicalRect(116, 43, 8, 32) &&
       SkillFrameUiLaw.CollapseButtonRect ==
-          new SkillFrameUiLaw.LogicalRect(78, 45, 40, 22) &&
+          new SkillFrameUiLaw.LogicalRect(75, 51, 40, 22) &&
       SkillFrameUiLaw.CollapseIconRect ==
-          new SkillFrameUiLaw.LogicalRect(78, 48, 16, 16),
+          new SkillFrameUiLaw.LogicalRect(78, 54, 16, 16) &&
+      SkillFrameUiLaw.CollapseLabelFont == "GameFontHighlight" &&
+      SkillFrameUiLaw.CollapseLabelOffsetX == 25 &&
+      SkillFrameUiLaw.CollapseTextMin(new Vector2(75, 51), new Vector2(40, 22), 12, 1) ==
+          new Vector2(100, 56),
     "SkillFrame list/wheel/collapse-all frozen geometry drift");
 Check(SkillFrameUiLaw.ScrollSliderRect ==
           new SkillFrameUiLaw.LogicalRect(324, 95, 16, 184) &&
@@ -2854,7 +3187,11 @@ Check(SkillFrameUiLaw.ScrollSliderRect ==
       SkillFrameUiLaw.ArrowScroll(0, 30, upward: false) == 6 &&
       SkillFrameUiLaw.ArrowScroll(6, 30, upward: true) == 0 &&
       SkillFrameUiLaw.ScrollThumbY(0, 6) == 95 &&
-      SkillFrameUiLaw.ScrollThumbY(6, 6) == 263,
+      SkillFrameUiLaw.ScrollThumbY(6, 6) == 263 &&
+      SkillFrameUiLaw.ScrollThumbRect(6, 6) ==
+          new SkillFrameUiLaw.LogicalRect(324, 263, 16, 16) &&
+      SkillFrameUiLaw.ScrollControlUvMin == new Vector2(.25f, .25f) &&
+      SkillFrameUiLaw.ScrollControlUvMax == new Vector2(.75f, .75f),
     "SkillFrame inherited scrollbar geometry/step/clamp/thumb law drift");
 SkillFrameUiLaw.LogicalRect firstSkillHit = SkillFrameUiLaw.SkillRowHitRect(0);
 SkillFrameUiLaw.LogicalRect lastSkillHit = SkillFrameUiLaw.SkillRowHitRect(11);
@@ -2868,11 +3205,33 @@ Check(SkillFrameUiLaw.DividerLeftRect ==
           new SkillFrameUiLaw.LogicalRect(15, 305, 256, 16) &&
       SkillFrameUiLaw.DividerRightRect ==
           new SkillFrameUiLaw.LogicalRect(271, 305, 75, 16) &&
+      SkillFrameUiLaw.DetailBarRect ==
+          new SkillFrameUiLaw.LogicalRect(38, 325, 271, 15) &&
+      SkillFrameUiLaw.DetailBorderRect ==
+          new SkillFrameUiLaw.LogicalRect(33, 316.5f, 281, 32) &&
+      SkillFrameUiLaw.DetailDescriptionRect ==
+          new SkillFrameUiLaw.LogicalRect(36, 350, 275, 0) &&
+      SkillFrameUiLaw.DetailUnlearnRect ==
+          new SkillFrameUiLaw.LogicalRect(312, 317.5f, 32, 32) &&
+      SkillFrameUiLaw.UnlearnTooltipSeat(new Vector2(100, 200), new Vector2(32, 32)) ==
+          new SkillFrameUiLaw.TooltipSeat(new Vector2(132, 200), Vector2.UnitY) &&
       SkillFrameUiLaw.BarFor(0, true) == SkillFrameUiLaw.BarPresentation.Barless &&
       SkillFrameUiLaw.BarFor(1, false) ==
           SkillFrameUiLaw.BarPresentation.Proficiency &&
       SkillFrameUiLaw.BarFor(75, false) == SkillFrameUiLaw.BarPresentation.Progress,
-    "SkillFrame divider or max-zero/proficiency/progress presentation drift");
+    "SkillFrame divider/detail or max-zero/proficiency/progress presentation drift");
+SkillFrameUiLaw.ScreenRect skillPopup = SkillFrameUiLaw.PopupLayout(new Vector2(1024, 768), 1);
+Check(skillPopup.Min == new Vector2(352, 128) &&
+      skillPopup.Size == new Vector2(320, 72) &&
+      SkillFrameUiLaw.PopupMessageCenter(new Vector2(352, 128), 1, 12) ==
+          new Vector2(512, 150) &&
+      SkillFrameUiLaw.PopupMessageMin(new Vector2(352, 128), 1, 100) ==
+          new Vector2(462, 144) &&
+      SkillFrameUiLaw.Clip(new Vector2(10, 20), 384, 512, 2) ==
+          new Vector4(10, 20, 778, 1044) &&
+      SkillFrameUiLaw.PopupClip(new Vector2(352, 128), 1) ==
+          new Vector4(352, 128, 672, 200),
+    "SkillFrame rule-owned StaticPopup screen placement drift");
 Check(SkillFrameUiLaw.PopupRect ==
           new SkillFrameUiLaw.LogicalRect(0, 128, 320, 72) &&
       SkillFrameUiLaw.PopupTextRect ==
@@ -2957,7 +3316,11 @@ Check(skillOverlapSearch >= 0 &&
           skillOverlapSearch, StringComparison.Ordinal) >= 0 &&
       skillCharacterSource.Contains("SkillFrameUiLaw.WheelCatcherRect", StringComparison.Ordinal) &&
       skillCharacterSource.Contains("new Vector2(5, 8.5f)", StringComparison.Ordinal) &&
-      skillCharacterSource.Contains("new Vector2(15, 305)", StringComparison.Ordinal) &&
+      skillCharacterSource.Contains("SkillFrameUiLaw.DividerLeftRect", StringComparison.Ordinal) &&
+      skillCharacterSource.Contains("SkillFrameUiLaw.DetailBarRect", StringComparison.Ordinal) &&
+      skillCharacterSource.Contains("SkillFrameUiLaw.DetailDescriptionRect", StringComparison.Ordinal) &&
+      !skillCharacterSource.Contains("new Vector2(65.5f, 315.5f)", StringComparison.Ordinal) &&
+      !skillCharacterSource.Contains("new Vector2(211, 15)", StringComparison.Ordinal) &&
       skillCharacterSource.Contains("BarPresentation.Barless", StringComparison.Ordinal),
     "SkillFrame overlap precedence/wheel catcher/border/divider/max-zero production drift");
 Check(skillRuntimeSource.Contains("SkillIsCurrentlyAbandonable", StringComparison.Ordinal) &&
@@ -2968,6 +3331,22 @@ Check(skillRuntimeSource.Contains("SkillIsCurrentlyAbandonable", StringCompariso
       skillRuntimeSource.Contains("PLAYER_SKILL_INFO", StringComparison.Ordinal) &&
       skillRuntimeSource.Contains("PlayUiSound(SkillFrameUiLaw.ScrollButtonSound",
           StringComparison.Ordinal) &&
+      skillRuntimeSource.Contains("SkillFrameUiLaw.DetailUnlearnRect", StringComparison.Ordinal) &&
+      skillRuntimeSource.Contains("SkillFrameUiLaw.UnlearnTooltipSeat", StringComparison.Ordinal) &&
+      skillRuntimeSource.Contains("SkillFrameUiLaw.PopupLayout(display, s)",
+          StringComparison.Ordinal) &&
+      skillRuntimeSource.Contains("SkillFrameUiLaw.ScrollThumbRect",
+          StringComparison.Ordinal) &&
+      skillRuntimeSource.Contains("SkillFrameUiLaw.PopupMessageCenter",
+          StringComparison.Ordinal) &&
+      skillRuntimeSource.Contains("GameText.EmPixels(SkillFrameUiLaw.CollapseLabelFont",
+          StringComparison.Ordinal) &&
+      skillRuntimeSource.Contains("SkillFrameUiLaw.CollapseLabelOffsetX",
+          StringComparison.Ordinal) &&
+      !skillRuntimeSource.Contains("new Vector2", StringComparison.Ordinal) &&
+      !skillRuntimeSource.Contains("Vector4 panelClip = new(", StringComparison.Ordinal) &&
+      !skillRuntimeSource.Contains("Vector4 popupClip = new(", StringComparison.Ordinal) &&
+      skillRuntimeSource.Contains("SkillFrameUiLaw.PopupClip", StringComparison.Ordinal) &&
       skillSettingsSource.Contains("TryDismissSkillUnlearnConfirmationOnEscape()",
           StringComparison.Ordinal),
     "SkillFrame authoritative unlearn revalidation/no-optimistic-state/escape/sound seam drift");
@@ -3675,5 +4054,30 @@ foreach (string panelFile in Directory.GetFiles(panelSourceDir, "Program.*.cs"))
         Console.WriteLine($"[text-fence] {name} is below baseline ({raw}/{allowed}) - " +
                           "lower its entry in interface-wire-check to lock in the migration");
 }
+
+TargetCycleClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: TargetCycle PASS");
+SocialTabBindingClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: SocialTabBindings PASS");
+AudioBindingClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: AudioBindings PASS");
+MinimapBindingClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: MinimapBinding PASS");
+KeyBindingRegistryClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: KeyBindingRegistry PASS");
+CameraPoseClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: CameraPose PASS");
+CameraFollowClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: CameraFollow PASS");
+EquipmentDisplayPreferenceClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: EquipmentDisplayPreference PASS");
+ChatLanguageClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: ChatLanguage PASS");
+ScopedViewClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: ScopedView PASS");
+ViewSubjectClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: ViewSubject PASS");
+ClientControlUpdateClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: ClientControlUpdate PASS");
 
 Console.WriteLine("interface wire checks passed: minimap projection/area/zone + action icons + gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + social + trade + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding + gameplay-text fence");

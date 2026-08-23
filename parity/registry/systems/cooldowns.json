@@ -7,21 +7,24 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/cooldowns.rs",
-      "fileSha256": "88af2e7b02889ce5d9b9a20790fbc6dac4de61907c1706de5d64441a98cfac40",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "bb600c257b2e9d621a82654fc68eb97fe67c7d0d42b4e63ba4f242dcac37e5cf",
+      "snapshotId": "benilla-current-2026-08-23"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/PlayerActions.cs",
     "MSUIClient/Net/CooldownPackets.cs",
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/Formats/SpellCatalog.cs",
     "MSUIClient/GameLoop/Hud/GameLoop.ActionBars.cs",
     "MSUIClient/GameLoop/Combat/GameLoop.Casting.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Inventory.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Pet.cs",
     "tools/interface-wire-check/CooldownProtocolClinicalChecks.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI implements the complete current Benilla cooldown family: local GCD/recovery/category clocks, addressed player/pet SMSG_SPELL_COOLDOWN, SPELL_ATTR_COOLDOWN_ON_EVENT parking and event release, item cooldowns, per-spell/category clears, full cheat clears, longest-remaining resolution, and the CooldownFrame finish-flash display law. Focused protocol/state checks pass; live server verification remains.",
+  "summary": "MSUI implements the complete current Benilla cooldown family without changing protected action-bar presentation: append-only spell-history nodes keep cast-send GCD and later GO recovery independent; queries resolve spell/item pairs, category and wildcard-category clocks, and GCD-category equality by longest remaining. The current ranged-weapon-speed pad, Attack/trade-skill head exclusion, item-authored local recovery, login/pet seeds, addressed server overrides, on-event parking/release, per-spell/GCD clears, cheat wipe, and existing CooldownFrame finish flash are all wired. Focused and full interface checks pass; live server verification remains.",
   "openItems": [
     {
       "id": "item-triage-d25012d1",
@@ -64,6 +67,16 @@
       "resolvedUtc": "2026-08-22T15:26:03.6287134Z"
     },
     {
+      "id": "item-current-cooldown-history-law",
+      "kind": "gap",
+      "text": "Current Benilla's append-only SpellHistory law, item/spell pair identity, GCD-category getter, wildcard category, ranged-weapon pad, and cooldown-query head exclusion were absent from the older MSUI cooldown registry snapshot.",
+      "source": "benilla-current-audit-2026-08-23",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: replaced overwrite dictionaries and blanket GCD gating with append-only independent recovery/category/GCD records; wired current cast, item, packet, pet, display, and refusal consumers; focused and full interface suites pass.",
+      "resolvedUtc": "2026-08-23T13:37:31.8905425Z"
+    },
+    {
       "id": "item-msui-cooldowns-live-verify",
       "kind": "verify",
       "text": "Live verification: exercise an on-event spell, item cooldown, server clear, and cooldown-cheat clear on player and pet stores; confirm action buttons start/park/clear at the server-authored moments and finish flashes occur once.",
@@ -75,6 +88,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T15:26:03.6287134Z",
+  "lastReviewedUtc": "2026-08-23T13:37:31.8905425Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

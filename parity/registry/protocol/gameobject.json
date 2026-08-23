@@ -7,26 +7,85 @@
   "benillaSources": [
     {
       "path": "crates/benilla-protocol/src/messages/gameobject.rs",
-      "fileSha256": "6802677700e3a7f5895ebb8f2d872715b0ca2f67e45e0a8a959705d3d9deae19",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "59086a0a51f3756e7763a81d645f71fb470b526e876944e14b0d3ce2add782ee",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-protocol/src/world/writer/gameobject.rs",
-      "fileSha256": "dcb8cbc321cb1bf2ffcb7e10b3a632c503d2f829e16abea926e3dd907a5e6ce9",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "0bc4f22f9b0c5ae528bc42b9e916869e39f77bb1a536e5785829962944ba2400",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/loot.rs",
+      "fileSha256": "f4520ac869fd58c95c66cc0c1845ba4e57ca2bc47893dac5999048057ae6e889",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/objects.rs",
+      "fileSha256": "3553a43e36baf7b54ec91ca014a9e2be9feb908fcc7ef46ffd80fc25531fa39a",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/spells.rs",
+      "fileSha256": "2442bd45a590708354e34b6b1d88d5814982dc6e516e638cc09853b646452957",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/go_anim.rs",
+      "fileSha256": "e0b26366b2227a6c5fe093d92cec396bda486b5f20c7163c6853456f05e58440",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/WorldSession.cs",
-    "MSUIClient/Program.GameObjects.cs",
-    "MSUIClient/Program.Net.cs"
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Net/LootState.cs",
+    "MSUIClient/Net/ObjectFields.cs",
+    "MSUIClient/Net/GameObjectAnimationLaw.cs",
+    "MSUIClient/Player/CharacterController.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Casting.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.GameObjects.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.GameObjectRender.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.GameObjectSounds.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Loot.cs",
+    "MSUIClient/World/Doodads/DoodadRenderer.cs",
+    "tools/interface-wire-check/GameObjectAnimationClinicalChecks.cs"
   ],
-  "status": "implemented-unverified",
-  "summary": "Benilla defines CMSG_GAMEOBJ_USE (bare full guid), CMSG_GAMEOBJECT_QUERY (entry + guid), and the SMSG_GAMEOBJECT_QUERY_RESPONSE parse (miss = entry|0x80000000; hit = type, display, name, 3 empty names + icon cstring, data[24], no trailing size float). MSUI matches all three byte-for-byte: WorldSession.GameObjectUse/GameObjectQuery and Program.GameObjects.ApplyGameObjectQuery.",
-  "openItems": [],
+  "status": "complete",
+  "summary": "MSUI matches current Benilla's CMSG_GAMEOBJ_USE, CMSG_GAMEOBJECT_QUERY and SMSG_GAMEOBJECT_QUERY_RESPONSE byte shapes. It strictly handles the two empty fishing verdict packets and routes their exact GlobalStrings-backed copy through the yellow UI info-message channel. The full family-A GAMEOBJECT_STATE machine now gives each dynamic M2 a held Opened/Closed/Destroyed pose, one-window Open/Close/Destroy/Rebuild transitions, the reference missing-sequence remap, open-lock chest prediction and loot-release close. Omitted field 14 correctly means ACTIVE/open. Door/button hulls bypass the static BVH and are queried live only while wire READY/closed. Family-A Custom wire indices 0..3 arm exact per-placement AnimationData 153..156 clips, and SMSG_GAMEOBJECT_DESPAWN_ANIM retains AnimationData 157 through its authored window before visual removal. GameObject display-event sounds scan the exact currently armed sequence on its owner-local playback clock. Focused and full interface-wire suites and the client build pass.",
+  "openItems": [
+    {
+      "id": "item-gameobject-fishing-verdict-info-20260823",
+      "kind": "gap",
+      "text": "SMSG_FISH_NOT_HOOKED and SMSG_FISH_ESCAPED were absent, so unsuccessful bobber clicks/expiry produced no reference yellow player feedback.",
+      "source": "benilla-b57ee0e9e2c8822b/gameobject.rs+net/apply/loot.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: Added the exact 456/457 opcodes, strict empty-body parser, ERR_FISH_NOT_HOOKED/ERR_FISH_ESCAPED GlobalStrings lookup with exact fallbacks, and yellow ShowUiInfo routing. Focused UIErrorsFrame and full interface-wire suites pass."
+    },
+    {
+      "id": "item-gameobject-custom-despawn-animation-bridge-20260823",
+      "kind": "gap",
+      "text": "SMSG_GAMEOBJECT_CUSTOM_ANIM is recorded only as diagnostic metadata and never drives visible AnimationData 153..156 playback; SMSG_GAMEOBJECT_DESPAWN_ANIM is not dispatched into a retained AnimationData 157 despawn handoff before SMSG_DESTROY_OBJECT removes the entity.",
+      "source": "benilla-b57ee0e9e2c8822b/gameobject.rs+net/apply/objects.rs+go_anim.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: Added a strict GameObjectAnimationLaw mapping Custom0..3 to AnimationData 153..156 and despawn to 157. DoodadRenderer now arms exact per-GUID one-shots, temporarily uses its per-instance CPU-skin path while a one-shot is active, and rejects missing clips. The despawn/destroy handoff removes entity authority immediately, retains only an announced placement that owns clip 157, and expires it at the exact authored duration. Map resets clear pending lifecycle state. The focused GameObjectAnimation and full interface-wire suites pass."
+    },
+    {
+      "id": "item-gameobject-state-animation-collision-20260823",
+      "kind": "gap",
+      "text": "GAMEOBJECT_STATE did not drive held poses or transitions, chest open-lock/loot-release prediction was absent, omitted state fields defaulted closed instead of ACTIVE/open, and door/button collision remained permanently baked regardless of state.",
+      "source": "benilla-b57ee0e9e2c8822b/go_anim.rs+net/apply/spells.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: GameObjectAnimationLaw now pins the family-A type census, state/rest/transition tables, omitted-field polarity, collision gate, and missing-sequence remap. Per-GUID renderer state silently seeds rest poses, runs transition clips for one window, settles onto the destination, and returns family-gated Custom plays to that state. Genuine wire changes, open-lock SPELL_GO targets, and loot release feed one client state without unrelated VALUES deltas undoing prediction. Door/button M2 hulls stay out of the immutable BVH and merge into controller rays only while wire READY. Display-event sounds consume the currently armed sequence and its owner-local playback clock. Focused GameObjectAnimation and full interface-wire suites plus the client build pass."
+    }
+  ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T12:16:29.3527749Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -399,7 +399,7 @@ public sealed partial class GameLoop
         if (alert)
             DrawArt(draw, DeathFrameUiLaw.AlertIconPath,
                 frame.Min + DeathFrameUiLaw.AlertIconMin(frame.Size.Y / scale) * scale,
-                new Vector2(DeathFrameUiLaw.AlertIconSize), scale);
+                DeathFrameUiLaw.AlertIconDimensions, scale);
 
         bool accept = false;
         bool cancel = false;
@@ -489,22 +489,23 @@ public sealed partial class GameLoop
     private bool DrawDeathDialogButton(ImDrawListPtr draw, int index, int buttonCount,
         string caption, Vector2 min, float scale, bool enabled)
     {
-        Vector2 size = new(DeathFrameUiLaw.ButtonWidth * scale,
-            DeathFrameUiLaw.ButtonHeight * scale);
+        Vector2 size = DeathFrameUiLaw.ButtonSize(scale);
         ImGui.SetCursorScreenPos(min);
         bool clicked = ImGui.InvisibleButton($"##death-dialog-{index}-{buttonCount}", size) && enabled;
         bool active = enabled && ImGui.IsItemActive();
         bool hovered = enabled && ImGui.IsItemHovered();
         uint art = _skin!.TextureHandle(active ? "dialog.button.down" : "dialog.button.up");
         if (art != 0)
-            draw.AddImage((nint)art, min, min + size, Vector2.Zero, new Vector2(1, .625f),
+            draw.AddImage((nint)art, min, min + size, Vector2.Zero,
+                DeathFrameUiLaw.DialogButtonUvMax,
                 enabled ? 0xffffffff : 0xff777777);
         if (hovered)
         {
             uint highlight = _gameplayArt?.BrightHighlightHandle(
                 @"Interface\Buttons\UI-DialogBox-Button-Highlight") ?? 0;
             if (highlight != 0)
-                draw.AddImage((nint)highlight, min, min + size, Vector2.Zero, new Vector2(1, .625f));
+                draw.AddImage((nint)highlight, min, min + size, Vector2.Zero,
+                    DeathFrameUiLaw.DialogButtonUvMax);
         }
         GameText.DrawCentered(draw,
             enabled ? hovered ? "GameFontHighlight" : "GameFontNormal" : "GameFontDisable",

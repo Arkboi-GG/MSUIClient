@@ -16,9 +16,10 @@ public sealed partial class GameLoop
         string[] lines = WrapTooltipText(CharacterBindingsUiLaw.ConfirmText,
             "GameFontHighlight", scale, CharacterBindingsUiLaw.TextWidth * scale).ToArray();
         float logicalTextHeight = lines.Length * GameText.LinePitch("GameFontHighlight", 1);
-        float logicalHeight = CharacterBindingsUiLaw.Height(logicalTextHeight);
+        CharacterBindingsUiLaw.PopupLayout layout =
+            CharacterBindingsUiLaw.Layout(logicalTextHeight);
         Vector2 origin = StaticPopupOrigin(visible.Slot, CharacterBindingsUiLaw.Width, scale);
-        Vector2 size = new(CharacterBindingsUiLaw.Width * scale, logicalHeight * scale);
+        Vector2 size = layout.Size * scale;
 
         // ImGui supplies only the fixed host and hit regions. Every modal and child rectangle is
         // resolved by CharacterBindingsUiLaw / StaticPopupCoordinatorLaw.
@@ -38,18 +39,16 @@ public sealed partial class GameLoop
         _skin.DrawBackdrop(draw, origin, origin + size, WowSkin.Dialog);
         for (int i = 0; i < lines.Length; i++)
             GameText.DrawCentered(draw, "GameFontHighlight", lines[i],
-                origin + new Vector2(CharacterBindingsUiLaw.Width * .5f,
-                    CharacterBindingsUiLaw.TextTop +
-                    (i + .5f) * GameText.LinePitch("GameFontHighlight", 1)) * scale, scale);
+                origin + CharacterBindingsUiLaw.TextLineCenter(layout,
+                    GameText.LinePitch("GameFontHighlight", 1), i) * scale, scale);
 
-        float buttonTop = CharacterBindingsUiLaw.ButtonTop(logicalTextHeight);
         bool accept = DrawPartyInviteButton(draw, "StaticPopup1Button1",
             CharacterBindingsUiLaw.AcceptText,
-            origin + new Vector2(CharacterBindingsUiLaw.ButtonOneX, buttonTop) * scale,
+            origin + layout.Button1.Min * scale,
             scale, capture: false, default);
         bool cancel = DrawPartyInviteButton(draw, "StaticPopup1Button2",
             CharacterBindingsUiLaw.CancelText,
-            origin + new Vector2(CharacterBindingsUiLaw.ButtonTwoX, buttonTop) * scale,
+            origin + layout.Button2.Min * scale,
             scale, capture: false, default);
         draw.PopClipRect();
         ImGui.End();

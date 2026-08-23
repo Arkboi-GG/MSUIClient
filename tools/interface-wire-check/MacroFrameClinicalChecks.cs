@@ -22,6 +22,12 @@ internal static class MacroFrameClinicalChecks
               MacroFrameUiLaw.NameCapacity == 16,
             "MacroPopup frozen size/grid/name constants drifted");
         Check(MacroFrameUiLaw.FrameWidth == 384 && MacroFrameUiLaw.FrameHeight == 512 &&
+              MacroFrameUiLaw.FrameSize == new Vector2(384, 512) &&
+              MacroFrameUiLaw.TitleFont == "GameFontNormal" &&
+              MacroFrameUiLaw.TitleCenter == new Vector2(192, 23) &&
+              MacroFrameUiLaw.FrameArt.Count == 4 &&
+              MacroFrameUiLaw.FrameArt[1].Rect ==
+                  new MacroFrameUiLaw.Rect(256, 0, 128, 256) &&
               MacroFrameUiLaw.TotalMacros == 36 && MacroFrameUiLaw.MacrosPerSet == 18 &&
               MacroFrameUiLaw.MacroButton(0) == new MacroFrameUiLaw.Rect(42, 83, 36, 36) &&
               MacroFrameUiLaw.MacroButton(5) == new MacroFrameUiLaw.Rect(287, 83, 36, 36) &&
@@ -50,6 +56,12 @@ internal static class MacroFrameClinicalChecks
               MacroFrameUiLaw.WheelBodyScroll(0, overflowBody, -1) == 13 &&
               MacroFrameUiLaw.BodyThumbY(13, overflowBody) == 363,
             "MacroFrame body child sizing/scroll/knob law drifted");
+        Check(MacroFrameUiLaw.BodyScrollKnob(13, overflowBody) ==
+                  new MacroFrameUiLaw.Rect(319, 363, 16, 16) &&
+              MacroFrameUiLaw.DragPreviewOffset == new Vector2(10) &&
+              MacroFrameUiLaw.DragPreviewSize == new Vector2(32) &&
+              MacroFrameUiLaw.CharacterTabOffset(85) == new Vector2(85, 0),
+            "MacroFrame dynamic child geometry drifted");
         Check(MacroFrameUiLaw.PopupMinimum(new Vector2(0, 104), 1f) ==
               new Vector2(344, 144),
             "MacroPopup TOPLEFT-on-MacroFrame-TOPRIGHT (-40,-40) seat drifted");
@@ -59,8 +71,17 @@ internal static class MacroFrameClinicalChecks
               MacroFrameUiLaw.IconButton(19) == new MacroFrameUiLaw.Rect(208, 217, 36, 36),
             "MacroPopup 5x4 icon geometry drifted");
         Check(MacroFrameUiLaw.NameEdit == new MacroFrameUiLaw.Rect(29, 35, 200, 20) &&
+              MacroFrameUiLaw.NameInput == new MacroFrameUiLaw.Rect(32, 35, 194, 20) &&
               MacroFrameUiLaw.OkayButton == new MacroFrameUiLaw.Rect(128, 263, 78, 22) &&
-              MacroFrameUiLaw.CancelButton == new MacroFrameUiLaw.Rect(208, 263, 78, 22),
+              MacroFrameUiLaw.CancelButton == new MacroFrameUiLaw.Rect(208, 263, 78, 22) &&
+              MacroFrameUiLaw.PopupSize == new Vector2(297, 298) &&
+              MacroFrameUiLaw.PopupArt.Count == 4 &&
+              MacroFrameUiLaw.PopupArt[3].Rect ==
+                  new MacroFrameUiLaw.Rect(256, 256, 64, 64) &&
+              MacroFrameUiLaw.NameBorderSlices[1].Rect ==
+                  new MacroFrameUiLaw.Rect(30, 35, 175, 29) &&
+              MacroFrameUiLaw.PopupScrollKnob(2, 4) ==
+                  new MacroFrameUiLaw.Rect(264, 152.5f, 16, 24),
             "MacroPopup name or Okay/Cancel seats drifted");
         Check(MacroFrameUiLaw.MaximumRowOffset(0) == 0 &&
               MacroFrameUiLaw.MaximumRowOffset(20) == 0 &&
@@ -80,6 +101,22 @@ internal static class MacroFrameClinicalChecks
               SpellCatalog.SplitCastName("Fireball (Rank 2)") == ("Fireball", "Rank 2") &&
               SpellCatalog.SplitCastName("Fireball") == ("Fireball", null),
             "macro EXECUTE_CHAT_LINE tokenization or cast-name/subtext law drifted");
+        const string vanillaStore = "MACRO 3 \"ns\" Ability_BackStab\n/say three\nEND\n" +
+            "MACRO 1 \"say \"hi\"\" Ability_Ambush\n/say one\nEND\n" +
+            "MACRO bad \"skip\" Ability_Ambush\nEND\n" +
+            "MACRO 2 \"bare\" \nEND\n";
+        IReadOnlyList<MacroFrameUiLaw.StoredMacro> stored =
+            MacroFrameUiLaw.ParseStore(vanillaStore);
+        Check(stored.Count == 3 && stored[0].Name == "say \"hi\"" &&
+              stored[0].IconPath == @"Interface\Icons\Ability_Ambush" &&
+              stored[1].Name == "bare" && stored[1].IconPath == "" &&
+              stored[2].Name == "ns" && stored[2].Body == "/say three" &&
+              MacroFrameUiLaw.ParseStore(MacroFrameUiLaw.WriteStore(stored))
+                  .SequenceEqual(stored) &&
+              MacroFrameUiLaw.StoreFileToken("Hydraxian Waterlords/a") ==
+                  "Hydraxian_Waterlords_a" &&
+              MacroFrameUiLaw.StoreFileToken("") == "unknown",
+            "vanilla-compatible macro store parse/write/scope-token law drifted");
     }
 
     private static void CheckArchiveCatalogLaw()
@@ -120,11 +157,13 @@ internal static class MacroFrameClinicalChecks
               macro.Contains("MacroFrameUiLaw.OkayButton", StringComparison.Ordinal) &&
               macro.Contains("MacroFrameUiLaw.CancelButton", StringComparison.Ordinal) &&
               macro.Contains("MacroIconCatalog.Load(_mpq)", StringComparison.Ordinal) &&
-              macro.Contains("MacroPopup-TopLeft", StringComparison.Ordinal) &&
+              macro.Contains("MacroFrameUiLaw.PopupArt", StringComparison.Ordinal) &&
               macro.Contains("UI-ClassTrainer-FilterBorder", StringComparison.Ordinal) &&
               macro.Contains("OpenMacroPopup(MacroPopupMode.New)", StringComparison.Ordinal) &&
               macro.Contains("OpenMacroPopup(MacroPopupMode.Edit)", StringComparison.Ordinal) &&
               macro.Contains("MacroFrameUiLaw.MacroButton(i)", StringComparison.Ordinal) &&
+              macro.Contains("MacroFrameUiLaw.Portrait.LogicalSize", StringComparison.Ordinal) &&
+              macro.Contains("MacroFrameUiLaw.TitleFont", StringComparison.Ordinal) &&
               macro.Contains("MacroFrameUiLaw.BodyEditor", StringComparison.Ordinal) &&
               macro.Contains("MacroFrameUiLaw.BodyScrollTrack", StringComparison.Ordinal) &&
               macro.Contains("MacroFrameUiLaw.BodyContentHeight(_macroBody)",
@@ -137,10 +176,17 @@ internal static class MacroFrameClinicalChecks
               macro.Contains("MacroFrameUiLaw.TotalMacros", StringComparison.Ordinal) &&
               macro.Contains("MacroFrameUiLaw.RunnableLines", StringComparison.Ordinal) &&
               macro.Contains("SubmitChatLine(line)", StringComparison.Ordinal) &&
+              macro.Contains("MacroFrameUiLaw.ParseStore", StringComparison.Ordinal) &&
+              macro.Contains("MacroFrameUiLaw.WriteStore", StringComparison.Ordinal) &&
+              macro.Contains("\"account.txt\"", StringComparison.Ordinal) &&
+              macro.Contains("FileOptions.WriteThrough", StringComparison.Ordinal) &&
+              macro.Contains("File.Move(temporary, path, overwrite: true)",
+                  StringComparison.Ordinal) &&
               !macro.Contains("Unsupported macro command", StringComparison.Ordinal) &&
               !macro.Contains("Run##macro", StringComparison.Ordinal) &&
               macro.Contains("PlayUiSound(MacroFrameUiLaw.AcceptSound",
                   StringComparison.Ordinal) &&
+              !macro.Contains("new Vector2", StringComparison.Ordinal) &&
               !macro.Contains("BeginPopupModal", StringComparison.Ordinal) &&
               !macro.Contains("ImGui.OpenPopup", StringComparison.Ordinal) &&
               mount.Contains("archive.ReadFile(\"(listfile)\")", StringComparison.Ordinal),

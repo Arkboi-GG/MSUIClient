@@ -7,8 +7,8 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/SkillFrame.xml",
-      "fileSha256": "57d482e74a22c2c129906545c93cc3a67a4d6dd9155f9073aa47cf4bb319717c",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "47aec4704b2aeb5b2f04435fb83782041259452f5713673cec11a0c3df82c3f6",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
@@ -17,13 +17,13 @@
     "MSUIClient/Net/Opcodes.cs",
     "MSUIClient/Net/WorldSession.cs",
     "MSUIClient/Net/NetworkClient.cs",
-    "MSUIClient/Program.Bindings.cs",
-    "MSUIClient/Program.CharacterPage.cs",
-    "MSUIClient/Program.SkillFrame.cs",
-    "MSUIClient/Program.Settings.cs",
-    "MSUIClient/Program.CombatFeedback.cs",
-    "MSUIClient/Program.DevTools.UiParity.cs",
-    "MSUIClient/Program.LiveRun.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Bindings.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.CharacterPage.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.SkillFrame.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Settings.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.CombatFeedback.cs",
+    "MSUIClient/GameLoop/Dev/GameLoop.DevTools.UiParity.cs",
+    "MSUIClient/GameLoop/Dev/GameLoop.LiveRun.cs",
     "tools/interface-wire-check/Program.cs",
     "parity/packets/pair-de1462d2f83d2f33/skillframe-part-01-packet-f1bdcf7c64cbc4be/README.md",
     "parity/packets/pair-de1462d2f83d2f33/skillframe-part-01-packet-f1bdcf7c64cbc4be/audit.json",
@@ -37,11 +37,39 @@
     "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Net/WorldSession.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI now implements the missing/reproduced SkillFrame contracts while retaining its existing functional presentation and authoritative data ownership. Staged SkillFrame capture is rejected; ordinary capture observes the authenticated player's fields and records a complete drawn/NOT-DRAWN component census. Connected input, visual, sound and destructive unlearn wire proof remain outstanding.",
-  "openItems": [],
+  "summary": "MSUI implements the current SkillFrame with law-owned list, collapse, scroll, divider, selected-detail and unlearn geometry while retaining the established character-page shell. The current 271x15 selected-skill bar, 281x32 border, description anchor and unlearn hit/visual seats replace the obsolete narrow detail layout. SkillFrameUiLaw now also owns the collapse-all button/icon anchor closure and exact GameFontHighlight label, scroll control UVs/thumb projection, measured collapse-label placement, popup backdrop insets, message placement, button geometry/UVs, main-panel/popup clip rectangles, and the unlearn tooltip's authored ANCHOR_RIGHT seat; GameLoop.SkillFrame contains no local Vector2 geometry or locally constructed clip Vector4. Staged capture remains rejected, ordinary capture observes authenticated player fields, and focused plus full clinical suites pass. Owner-run connected visual/sound/destructive-unlearn verification remains outstanding.",
+  "openItems": [
+    {
+      "id": "item-skillframe-current-detail-geometry-20260823",
+      "kind": "gap",
+      "text": "MSUI retained the older 211x15 selected-skill detail bar at (65.5,315.5), while current Benilla reuses the full 271x15 rank template at (38,325), with a 281x32 border, description at bar.BOTTOMLEFT (-2,-10), and unlearn button at border.RIGHT (-2,-1).",
+      "source": "benilla-b57ee0e9e2c8822b/SkillFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: SkillFrameUiLaw owns the current detail bar, border, description, unlearn visual/hit seats, divider seats and centered StaticPopup layout. Both focused --skill-frame-only and the complete interface clinical suite pass."
+    },
+    {
+      "id": "item-skillframe-collapse-all-font-seat-visual-gap-20260823",
+      "kind": "gap",
+      "text": "The collapse-all control used GameFontNormalSmall and locally displaced hit/icon/text seats; current SkillFrame.xml inherits GameFontHighlight and anchors the button to the left cap RIGHT(-3,-3), its icon LEFT(+3,0), and text LEFT(+25,0).",
+      "source": "benilla-b57ee0e9e2c8822b/SkillFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "SkillFrameUiLaw owns the exact button, icon, label font and measured label offset; the renderer and parity trace consume those values. Focused --skill-frame-only and the full desktop clinical suite pass without changing the protected Character shell."
+    },
+    {
+      "id": "item-skillframe-unlearn-tooltip-seat-gap-20260823",
+      "kind": "gap",
+      "text": "The unlearn button tooltip used ImGui's implicit mouse placement instead of BenillaSkillUnlearnButton_OnEnter's ANCHOR_RIGHT owner seat.",
+      "source": "benilla-ac3264a0296ae90e/SkillFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "SkillFrameUiLaw now maps the visual button's TOPRIGHT to the tooltip's BOTTOMLEFT, and the renderer applies that seat before opening the shared tooltip."
+    }
+  ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T16:33:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

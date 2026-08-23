@@ -13,6 +13,7 @@ Require(MailUiLaw.InboxItemsPerPage == 7 && MailUiLaw.PageCount(0) == 1 &&
         MailUiLaw.FirstIndex(2, 8) == 7,
     "seven-row inbox/page boundary drift");
 Require(BitConverter.SingleToUInt32Bits(MailUiLaw.NewMailEpsilon) == 0x3480_0000 &&
+        MailUiLaw.NoMailQueryStamp == -1f &&
         MailUiLaw.HasNewMail(0) && MailUiLaw.HasNewMail(MailUiLaw.NewMailEpsilon / 2) &&
         MailUiLaw.HasNewMail(-MailUiLaw.NewMailEpsilon / 2) &&
         !MailUiLaw.HasNewMail(MailUiLaw.NewMailEpsilon) &&
@@ -66,7 +67,8 @@ using (var mpq = new MpqMount(Path.Combine(repo, "GameData", "Data")))
         "Stationery.dbc id-to-texture lookup drift");
 }
 
-string source = File.ReadAllText(Path.Combine(repo, "MSUIClient", "Program.Mail.cs"));
+string source = File.ReadAllText(Path.Combine(
+    repo, "MSUIClient", "GameLoop", "Panels", "GameLoop.Mail.cs"));
 Require(!source.Contains("ImGui.IsItemClicked", StringComparison.Ordinal),
     "Mail click actions regressed from ButtonUp ownership to press-edge ownership");
 Require(source.Contains("TexCoords: \"0|0|1|0.25\"", StringComparison.Ordinal) &&

@@ -19,7 +19,7 @@
     "tools/interface-wire-check/StackSplitClinicalChecks.cs"
   ],
   "status": "complete",
-  "summary": "MSUI matches the current Benilla StackSplitFrame: 172x96 cropped UI-MoneyFrame plate, authored arrows and panel-button faces, BOTTOMRIGHT-to-owner-TOPRIGHT positioning, initial count 1, full-stack maximum, live owner/count tracking, disabled arrow states, typed digits/backspace/arrows/Enter, and Cancel/Escape closure. Geometry and transitions are centralized in StackSplitUiLaw; ImGui is only the transparent render/hit-test host.",
+  "summary": "MSUI matches the current Benilla StackSplitFrame: 172x96 cropped UI-MoneyFrame plate, authored arrows and panel-button faces, BOTTOMRIGHT-to-owner-TOPRIGHT positioning, initial count 1, full-stack maximum, live owner/count tracking, disabled arrow states, typed digits/backspace/arrows/Enter, and Cancel/Escape closure. StackSplitUiLaw owns the host screen rectangle, plate bounds, count/button points, and arrow rectangles as well as transitions; the modal renderer contains no local Vector2 geometry and ImGui is only the transparent render/hit-test host. Focused and full deterministic checks pass.",
   "openItems": [
     {
       "id": "item-triage-e659200a",
@@ -52,6 +52,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T00:00:00+00:00",
+  "lastReviewedUtc": "2026-08-23T05:07:14.8505897Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

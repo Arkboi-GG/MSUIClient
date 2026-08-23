@@ -7,18 +7,18 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/ActionBar.xml",
-      "fileSha256": "90962d131906e2431e3a22ea701ebc96d904ab9f70e378b72332c41ffb13ecff",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "eb958859e133f7883c4aca9de9cae57e1467156dacc7d307b9a5ccd7c6ed1646",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_action/cast_fail.rs",
-      "fileSha256": "b9228b437412f83219c274555f9cdd560ee01e34964e0928a44c248199c3104c",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "2b8a40b2c27c71801708a42eb658afae9f3dd3cc5d13a190519b79f0c3972a0b",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_action/cast_send.rs",
-      "fileSha256": "2b10bd33e0473c579ce25a1203dad979563cc323559e247b4f52378417b62769",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "acd9b08f4e029e71b13ddf900dc0d20b2d624274276eef6888d929b71cfad2fa",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_action/cast_target.rs",
@@ -27,53 +27,53 @@
     },
     {
       "path": "crates/benilla-app/src/ui_action/drain.rs",
-      "fileSha256": "d1f911a29c77276171b9b6210a3417b88b2fe6471ede77b38ebaa3ae7502f169",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "ded6039bccb4d575df9ba8ff51f7109715c43382e3bbfde59830562554ed075e",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_action/errors.rs",
-      "fileSha256": "258a77fc4f85692c915dce47dc61a6432f45491d0aa2b0671f3aa5a6083fecbf",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "544fb542401166d8553c2c150c163ac341d9bef40637a7f3916fad7a741dd250",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_action/feed.rs",
-      "fileSha256": "32e02c36bd6aa765061c5a516e6fd2a6f474d38986842f610e9168aba8d4520c",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "4ec50dbe4a5906f7e84362aea9e1028cfb429ca30bbac3658479ba91dd627668",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_action/mod.rs",
-      "fileSha256": "dcc0d94a737e52c45ebbba8aec2e20fac10f9a4786be252a998d289832b3e646",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "0d8cf9f521d8b85ce54b022ccaa4f5d21bb24807f870f390080370a37a0824c3",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_action/ranks.rs",
-      "fileSha256": "06feafb1816d9233083ff8be24a63d825788b0dff6998a088f45449a01d38f1b",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "9f942170de1e0f9976c33a7e5baeff14f5ef9145f33c3626d2b658ea9720a591",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_action/state.rs",
-      "fileSha256": "7f1f25b6611b7d5d244a2b8ace11a680cec90dff8f1ba0aa1bbb0faafee32bf8",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "a0bf85266ee38c45f81004ca99d51c3a07af7db5c9f45540603c6b6380a1c530",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_action/targeting/cursor.rs",
-      "fileSha256": "efd2d37600fb94231cef8c948d076b779ca37313352f1043a5be9bfc0cbe3c91",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "85b6f0fd66159d3cdc0d90711ec28f184521aab87d207aff25872ee5cf1019ce",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_action/targeting/item.rs",
-      "fileSha256": "b810c18783398e42495c13438732199aafe8d01568d448d7c33a02f21b019eca",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "60480650cf9fad86f6a83f944bacbcf0f8a81264c7f9ab263f902def5a90f63f",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_action/targeting/mod.rs",
-      "fileSha256": "71de08c61a6d38cfc96265e88f2d933af39c9037b2df060ba639df871c4e3707",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "9b031a69f1febaac4af427384ed2f423615b71078995f857bb91d48621bc1a8e",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_action/targeting/world.rs",
-      "fileSha256": "c4d01a34abc1f0a11968a3959d18b4fc39f79cb895f13584ddfb6866b102cec5",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "715a0fee3c92d74948f89750dc4441843e7398310294b976812c01eb1b8c9ea5",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_action/toggle.rs",
@@ -82,8 +82,8 @@
     },
     {
       "path": "crates/benilla-app/src/ui_action/usable.rs",
-      "fileSha256": "bf0a4f9c114fd98a9bd6a66f49eafa15f9fd17370454f4345ca26e72f5d92cb9",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "04efd925f2c6c3a497c332d79540657cba8db18654eb41e31504d8e184e82d36",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_action/weapon_icon.rs",
@@ -100,11 +100,13 @@
     "C:/Users/nico/source/repos/MSUIClient/tools/interface-wire-check/AutoRepeatClinicalChecks.cs",
     "C:/Users/nico/source/repos/MSUIClient/tools/interface-wire-check/MountResultClinicalChecks.cs",
     "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/ActionIconLaw.cs",
+    "MSUIClient/Engine/UI/ActionBarLockLaw.cs",
     "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/MultiActionBarUiLaw.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/CooldownVisualLaw.cs"
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/CooldownVisualLaw.cs",
+    "tools/interface-wire-check/ActionBarBindingTailClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI has the full main action bar: 12 buttons with icon/cooldown swipe+flash/stack count/hotkey, usability tint, six pages, spell/item/macro/auto-attack kinds, action-button persistence, XP/rested state, and latency. Ranged auto-repeat re-press and Escape now send the empty CMSG_CANCEL_AUTO_REPEAT_SPELL and strict SMSG cancellation clears the local flash/visual state. Inventory and mount/dismount refusals now reach UIErrorsFrame through build-5875 GlobalStrings mappings.",
+  "summary": "MSUI has the full main action bar: 12 buttons with icon/cooldown swipe+flash/stack count/hotkey, usability tint, six pages, spell/item/macro/auto-attack kinds, action-button persistence, XP/rested state, and latency. Ranged auto-repeat re-press and Escape send the empty CMSG_CANCEL_AUTO_REPEAT_SPELL and strict SMSG cancellation clears the local flash/visual state. Inventory and mount/dismount refusals reach UIErrorsFrame through build-5875 GlobalStrings mappings. The persisted Lock ActionBars option and unbound toggle command now suppress drag-start and receive-drag on the main and pet bars while deliberately retaining the reference's Shift-click pickup path; existing bar geometry and presentation remain untouched.",
   "openItems": [
     {
       "id": "item-triage-e0d8fdd3",
@@ -132,6 +134,14 @@
       "added": "2026-08-09",
       "resolved": true,
       "resolution": "2026-08-21: strict u32 result parsing, complete build-5875 mount/dismount GlobalStrings mapping, silent success/off-table handling, and UIErrorsFrame delivery implemented and clinically checked."
+    },
+    {
+      "id": "item-actionbar-lock-live-verify-20260823",
+      "kind": "verify",
+      "text": "Focused ActionBarBindingTail and full interface suites pass. Live-verify Lock ActionBars from Interface Options and the unbound key command: mouse drag-start and receive-drag refuse without losing the cursor payload on main/multibars, Shift-click still picks up, and Cancel/Okay/Defaults/presets persist correctly.",
+      "source": "benilla-b57ee0e9e2c8822b/ActionBar.xml+OptionsFrame.xml",
+      "added": "2026-08-23",
+      "resolved": false
     }
   ],
   "claims": [],

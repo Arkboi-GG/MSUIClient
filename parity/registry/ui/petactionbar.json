@@ -11,33 +11,66 @@
       "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
-      "path": "crates/benilla-app/src/ui_pet.rs",
-      "fileSha256": "031f02a7db7d664d9c2990cb5525858130c3bad64fdf99bc304cc31ed1b28151",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "path": "crates/benilla-app/src/ui_pet/mod.rs",
+      "fileSha256": "21db2c06fd4fdbd82057471fa3eb75dafa264be7fcabf1212ba339cf0ea3941a",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_pet/bar.rs",
+      "fileSha256": "019c1685f734491d26fee897141dacb6ccd72977c2898ef2694638085cbf4b75",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_pet/drain.rs",
+      "fileSha256": "ece75635cf7c057d9ff649724f68b7a61018cc3af772d73d6af16249d2bac956",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_pet/unit.rs",
+      "fileSha256": "73e73aafcfc8274c558f0bade7886aa42e1bf948b401c4b5346edd7d644ce2c7",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/ui_pet_stats.rs",
-      "fileSha256": "b2badc3067b439c6f7d043281daf85641e85c843a23063ec61b3c74362fac51a",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "781e68913da63f393fc2f8e856aade45d3020a4dd86e9a8ac9d1725282e9d506",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/mod.rs",
+      "fileSha256": "0d8cf9f521d8b85ce54b022ccaa4f5d21bb24807f870f390080370a37a0824c3",
+      "snapshotId": "benilla-ac3264a0296ae90e"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/drop_item.rs",
+      "fileSha256": "8f3f67d0006bc1799277a69db57ced3fff5972fbdf2b2fe4f788ba3b6405c7ce",
+      "snapshotId": "benilla-ac3264a0296ae90e"
+    },
+    {
+      "path": "crates/benilla-app/assets/ui/UnitFrames.xml",
+      "fileSha256": "df69a7500e7374cc064b622232d6f41bada07ce9943082058540d666de858fd5",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Engine/UI/PetActionBarUiLaw.cs",
+    "MSUIClient/Engine/UI/FeedPetLaw.cs",
+    "MSUIClient/Engine/UI/ActionBarLockLaw.cs",
     "MSUIClient/Engine/UI/PetMenuUiLaw.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Pet.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.PetMenu.cs",
     "MSUIClient/Net/Opcodes.cs",
     "MSUIClient/Net/WorldSession.cs",
-    "MSUIClient/Program.Pet.cs",
+    "MSUIClient/Net/ObjectFields.cs",
     "MSUIClient/Formats/SpellCatalog.cs",
     "MSUIClient/Net/NetworkClient.cs",
-    "MSUIClient/Program.Targeting.cs",
-    "MSUIClient/Program.Casting.cs",
-    "MSUIClient/Program.Net.cs",
-    "MSUIClient/Program.Logout.cs",
-    "MSUIClient/Program.DevTools.UiParity.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Targeting.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Casting.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Logout.cs",
+    "MSUIClient/GameLoop/Dev/GameLoop.DevTools.UiParity.cs",
     "tools/interface-wire-check/Program.cs",
     "tools/interface-wire-check/PetMenuClinicalChecks.cs",
+    "tools/interface-wire-check/FeedPetClinicalChecks.cs",
     "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/README.md",
     "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/audit.json",
     "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/evidence/evidence-index.json",
@@ -50,7 +83,7 @@
     "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/evidence/verification/deterministic-2026-08-08.md"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI implements the bounded production repairs and strong draw/state/input telemetry while retaining the existing packed core, horizontal seats, assignment model, token art, high-resolution portrait, and always-on bottom multibars. The preserved MSUI pet portrait is now physically interactive: left click targets and right click opens current Benilla's PET menu. Its dialogs use the shared rule-owned StaticPopup coordinator, including the two-slot rename chain and exact abandon/dismiss/rename wire contracts. Connected live-session render/diff and user-visible proof remain open.",
+  "summary": "MSUI implements the bounded production repairs and strong draw/state/input telemetry while retaining the existing packed core, horizontal seats, assignment model, token art, high-resolution portrait, and always-on bottom multibars. The preserved MSUI pet portrait is physically interactive: an empty-cursor left click targets, a right click opens current Benilla's PET menu, and dropping a held item takes the exact Feed Pet path. PetFrame and the pet's press-latched world model share the reference three-gate validator (summoned by a spell, created by the local player, learned Effect[0] 0x65), send bare CMSG_CAST_SPELL with TARGET_FLAG_ITEM and the food guid, impose no client range gate, preserve the cursor on every refusal, and clear it only after a successful send. Pet dialogs use the shared rule-owned StaticPopup coordinator, including the two-slot rename chain and exact abandon/dismiss/rename wire contracts. Ctrl-1..Ctrl-0 drive the ten pet buttons with the reference down/up latch, and Lock ActionBars gates drag-start/drop while Shift-click remains available. Protected MSUI presentation remains untouched. Connected live-session render/diff and user-visible proof remain open.",
   "openItems": [
     {
       "id": "item-claim-petactionbar-runtime-contract-001-verify",
@@ -87,10 +120,19 @@
     {
       "id": "item-petactionbar-pet-menu-live-verify-20260822",
       "kind": "verify",
-      "text": "Implemented but needs live-session verification. The preserved pet portrait now targets on left click and opens the backed PET UnitPopup on right click; shared StaticPopup dialogs own abandon and the two-step one-shot rename chain.",
+      "text": "Implemented but needs live-session verification. The preserved pet portrait targets on an empty-cursor left click, feeds an owned hunter pet from a held item without retargeting, and opens the backed PET UnitPopup on right click; the same held-item feed succeeds from the pet's world model while refusals retain the cursor. Shared StaticPopup dialogs own abandon and the two-step one-shot rename chain.",
       "source": "benilla-b57ee0e9e2c8822b/PetActionBar.xml",
       "added": "2026-08-22",
       "resolved": false
+    },
+    {
+      "id": "item-pet-feed-drop-parity-20260823",
+      "kind": "gap",
+      "text": "Dropping held food on PetFrame or the owned pet's world model did not run DropItemOnUnit's Feed Pet validator/cast path.",
+      "source": "benilla-ac3264a0296ae90e/ui_action/drop_item.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "FeedPetLaw owns the exact Effect[0] 0x65 latch and summoned-by-spell/created-by-self gates. PetFrame and the existing press-latched world pick send CMSG_CAST_SPELL with TARGET_FLAG_ITEM and the held food guid, add no range check, keep the cursor on refusal, and clear it only after a successful send. The focused real-DBC/wire/source gate and full interface suite pass."
     }
   ],
   "claims": [
@@ -106,6 +148,6 @@
     "trace-petactionbar-driver-001"
   ],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T22:15:00Z",
+  "lastReviewedUtc": "2026-08-23T12:42:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

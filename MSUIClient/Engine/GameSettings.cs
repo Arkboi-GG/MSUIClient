@@ -85,14 +85,22 @@ public sealed class GameSettings
     ///     and the WMO doorway-spill multiplier became persisted (InteriorSpill).
     /// v7: Lighting.CycleTimeOfDay became Lighting.TimeSource, defaulting to tracking
     ///     the server's game clock instead of a world pinned at noon.
-    /// v8: Escape/Options menu scale became independent from gameplay Interface scale.</summary>
-    public int Version { get; set; } = 9;
+    /// v8: Escape/Options menu scale became independent from gameplay Interface scale.
+    /// v9: Escape/Options text scale moved beside its independent chrome scale.
+    /// v10: vanilla Camera Following Style became a persisted Smart/Always/Never control.</summary>
+    public int Version { get; set; } = 10;
 
     /// <summary>Name of the preset last selected, or "Custom". Cosmetic; the values below are the truth.</summary>
     public string ActivePreset { get; set; } = "Custom";
 
     /// <summary>The last character highlighted on the character-select screen.</summary>
     public ulong LastCharacterGuid { get; set; }
+
+    /// <summary>
+    /// Account name saved by the login screen's Remember Account Name checkbox. Passwords are
+    /// deliberately never stored here.
+    /// </summary>
+    public string SavedAccountName { get; set; } = "";
 
     /// <summary>
     /// What the client launches into: "Client" (the networked SuperUI client) or
@@ -784,7 +792,21 @@ public sealed class GameSettings
         public float MouseSensitivity { get; set; } = 1f;   // multiplier on config.Camera.MouseSensitivity
         public bool InvertPitch { get; set; }
         public bool RawCursor { get; set; } = true;
+        /// <summary>
+        /// Vanilla's inverted deselectOnClick option. False is the reference default:
+        /// an empty world left-click clears the current target.
+        /// </summary>
+        public bool StickyTargeting { get; set; }
+        /// <summary>
+        /// Vanilla LOCK_ACTIONBAR. It blocks drag-start/drop while preserving Shift-click pickup.
+        /// </summary>
+        public bool LockActionBars { get; set; }
         public bool CameraCollision { get; set; } = true;
+        public CameraFollowStyle CameraFollowStyle { get; set; } = CameraFollowStyle.Smart;
+        /// <summary>Vanilla's hidden cameraSmoothTrackingStyle; no 1.12 options row owns it.</summary>
+        public CameraFollowStyle CameraFollowTrackingStyle { get; set; } = CameraFollowStyle.Smart;
+        /// <summary>Vanilla cameraYawSmoothSpeed in degrees per second (90..270).</summary>
+        public float CameraFollowYawSpeed { get; set; } = CameraFollowLaw.DefaultYawSpeedDegrees;
         public float CameraClearance { get; set; } = 0.35f;
         public float CameraRestoreSpeed { get; set; } = 8f;
         public float MaxCameraDistance { get; set; } = 40f;
@@ -1356,6 +1378,19 @@ public sealed class SettingsStore
             s.MenuLayout.TextScale = Math.Clamp(s.Display.FontScale, 0.5f, 3f);
             s.Version = 9;
         }
+
+        // v9 -> v10: replace MSUI's unconditional per-moving-frame exponential recenter with
+        // vanilla's edge-armed cameraSmoothStyle. Smart is both the 1.12 registrar default and
+        // current Benilla's shipped selection. The tracking selector and speed are real engine
+        // CVars but have no visible 1.12 row, so only the style is exposed by the Options page.
+        if (s.Version < 10)
+        {
+            s.Controls.CameraFollowStyle = CameraFollowStyle.Smart;
+            s.Controls.CameraFollowTrackingStyle = CameraFollowStyle.Smart;
+            s.Controls.CameraFollowYawSpeed = CameraFollowLaw.DefaultYawSpeedDegrees;
+            s.Version = 10;
+        }
+
     }
 
     /// <summary>Replace the live settings object (used by Cancel and by preset load).</summary>

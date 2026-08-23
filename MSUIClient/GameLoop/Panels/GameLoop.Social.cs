@@ -8,36 +8,115 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    private sealed record WhoRow(string Name, string Guild, uint Level, uint Class, uint Race, uint Area);
     private readonly List<SocialPackets.FriendEntry> _friends = [];
     private readonly List<ulong> _ignored = [];
     private readonly List<SocialPackets.FriendStatus> _pendingFriendStatusLines = [];
-    private readonly List<WhoRow> _who = [];
+    private readonly List<FriendsFrameUiLaw.WhoEntry> _who = [];
     // Twelve visible letters plus the terminating zero: the frozen ADD_FRIEND/ADD_IGNORE cap.
     private readonly byte[] _friendNameInput = new byte[FriendsFrameUiLaw.NameMaxLetters + 1];
     private readonly byte[] _whoInput = new byte[64];
     private bool _socialOpen;
-    private int _socialSelected;
+    private int _friendSelected;
+    private int _ignoreSelected;
+    private int _whoSelected = -1;
     private int _socialPage;
     private int _friendScroll;
     private int _ignoreScroll;
     private int _whoScroll;
-    private FriendsWhoVariable _whoVariable = FriendsWhoVariable.Zone;
+    private FriendsWhoVariable _whoVariable = FriendsFrameUiLaw.DefaultWhoVariable;
     private bool _whoVariableMenuOpen;
     private bool _showIgnore;
     private uint _whoTotal;
     private bool _socialPopupFocusRequested;
     private bool _socialPopupEditFocused;
+    private readonly bool[] _socialTabBindingWasDown = new bool[3];
 
     private void OpenSocial()
     {
+        bool wasClosed = !_socialOpen && !_guildOpen;
         _socialOpen = true;
+        _guildOpen = false;
         _socialPage = 0; _showIgnore = false;   // always reopen on the Friends tab, never a stuck page
         _net?.FriendList();
+        if (wasClosed)
+            PlayUiSound(FriendsFrameUiLaw.OpenSound, FriendsFrameUiLaw.SoundCategory);
+    }
+
+    private bool CloseFriendsFrame()
+    {
+        if (!_socialOpen && !_guildOpen) return false;
+        _socialOpen = false;
+        _guildOpen = false;
+        _guildInfoOpen = false;
+        _guildMemberDetailOpen = false;
+        _guildControlOpen = false;
+        _guildControlDropDownOpen = false;
+        _whoVariableMenuOpen = false;
+        PlayUiSound(FriendsFrameUiLaw.CloseSound, FriendsFrameUiLaw.SoundCategory);
+        return true;
+    }
+
+    private void UpdateSocialTabBindings(bool typing)
+    {
+        GameBinding[] bindings =
+        [
+            GameBinding.OpenSocialFriends,
+            GameBinding.OpenSocialWho,
+            GameBinding.OpenSocialGuild,
+        ];
+        for (int index = 0; index < bindings.Length; index++)
+        {
+            bool down = BindingDown(bindings[index]);
+            if (down && !_socialTabBindingWasDown[index] && !typing &&
+                _net is { IsInWorld: true })
+                ToggleSocialTab(index);
+            _socialTabBindingWasDown[index] = down;
+        }
+    }
+
+    private void ToggleSocialTab(int index)
+    {
+        if (index == 2)
+        {
+            if (CurrentGuildId() == 0) return;
+            if (_guildOpen)
+            {
+                CloseFriendsFrame();
+                return;
+            }
+            _socialOpen = false;
+            _socialPage = 0;
+            _guildOpen = true;
+            RequestGuildRoster();
+            PlayUiSound(FriendsFrameUiLaw.OpenSound, FriendsFrameUiLaw.SoundCategory);
+            return;
+        }
+
+        if (_socialOpen && _socialPage == index)
+        {
+            CloseFriendsFrame();
+            return;
+        }
+        _guildOpen = false;
+        _guildInfoOpen = false;
+        _guildMemberDetailOpen = false;
+        _socialOpen = true;
+        _socialPage = index;
+        _showIgnore = false;
+        if (index == 1)
+        {
+            _whoSelected = -1;
+            _whoVariable = FriendsFrameUiLaw.DefaultWhoVariable;
+        }
+        _whoVariableMenuOpen = false;
+        if (index == 0) _net?.FriendList();
+        else SendWhoFilter(ReadBuffer(_whoInput));
+        PlayUiSound(FriendsFrameUiLaw.OpenSound, FriendsFrameUiLaw.SoundCategory);
     }
 
     private void ApplyFriendList(byte[] body)
     {
+        ulong selectedGuid = SelectedFriendGuid();
         var r = new PacketReader(body); byte count = r.ReadU8();
         _friends.Clear();
         for (int i = 0; i < count; i++)
@@ -48,17 +127,19 @@ public sealed partial class GameLoop
             _friends.Add(new(guid, status, area, level, cls));
             if (!_playerNames.ContainsKey(guid)) _net?.NameQuery(guid);
         }
-        _socialSelected = Math.Clamp(_socialSelected, 0, Math.Max(0, _friends.Count - 1));
+        ReorderFriendContacts(selectedGuid);
         _friendScroll = FriendsFrameUiLaw.ClampOffset(_friendScroll, _friends.Count,
             FriendsFrameUiLaw.FriendsVisibleRows);
     }
 
     private void ApplyFriendStatus(byte[] body)
     {
+        ulong selectedFriend = SelectedFriendGuid();
+        ulong selectedIgnore = SelectedIgnoreGuid();
         SocialPackets.FriendStatus update = SocialPackets.ParseFriendStatus(body);
         SocialPackets.ApplyStatus(_friends, _ignored, update);
-        _socialSelected = Math.Clamp(_socialSelected, 0,
-            Math.Max(0, (_showIgnore ? _ignored.Count : _friends.Count) - 1));
+        ReorderFriendContacts(selectedFriend);
+        ReorderIgnoreContacts(selectedIgnore);
         _friendScroll = FriendsFrameUiLaw.ClampOffset(_friendScroll, _friends.Count,
             FriendsFrameUiLaw.FriendsVisibleRows);
         _ignoreScroll = FriendsFrameUiLaw.ClampOffset(_ignoreScroll, _ignored.Count,
@@ -102,6 +183,7 @@ public sealed partial class GameLoop
 
     private void ApplyIgnoreList(byte[] body)
     {
+        ulong selectedGuid = SelectedIgnoreGuid();
         var r = new PacketReader(body); int count = r.ReadU8();
         _ignored.Clear();
         for (int i = 0; i < count; i++)
@@ -109,8 +191,42 @@ public sealed partial class GameLoop
             ulong guid = r.ReadU64(); _ignored.Add(guid);
             if (!_playerNames.ContainsKey(guid)) _net?.NameQuery(guid);
         }
-        _socialSelected = 0;
+        ReorderIgnoreContacts(selectedGuid);
         _ignoreScroll = 0;
+    }
+
+    private ulong SelectedFriendGuid() => _friends.Count == 0 ? 0 :
+        _friends[Math.Clamp(_friendSelected, 0, _friends.Count - 1)].Guid;
+
+    private ulong SelectedIgnoreGuid() => _ignored.Count == 0 ? 0 :
+        _ignored[Math.Clamp(_ignoreSelected, 0, _ignored.Count - 1)];
+
+    private void ReorderFriendContacts(ulong selectedGuid)
+    {
+        IReadOnlyList<ulong> order = FriendsFrameUiLaw.ContactOrder(
+            _friends.Select(row => row.Guid), guid => _playerNames.GetValueOrDefault(guid));
+        Dictionary<ulong, SocialPackets.FriendEntry> byGuid =
+            _friends.ToDictionary(row => row.Guid);
+        _friends.Clear();
+        foreach (ulong guid in order) _friends.Add(byGuid[guid]);
+        _friendSelected = FriendsFrameUiLaw.SelectionForGuid(selectedGuid, order);
+    }
+
+    private void ReorderIgnoreContacts(ulong selectedGuid)
+    {
+        IReadOnlyList<ulong> order = FriendsFrameUiLaw.ContactOrder(
+            _ignored, guid => _playerNames.GetValueOrDefault(guid));
+        _ignored.Clear();
+        _ignored.AddRange(order);
+        _ignoreSelected = FriendsFrameUiLaw.SelectionForGuid(selectedGuid, order);
+    }
+
+    private void ReorderSocialContactsAfterNameResolution()
+    {
+        ulong selectedFriend = SelectedFriendGuid();
+        ulong selectedIgnore = SelectedIgnoreGuid();
+        ReorderFriendContacts(selectedFriend);
+        ReorderIgnoreContacts(selectedIgnore);
     }
 
     private void ApplyWhoList(byte[] body)
@@ -121,7 +237,7 @@ public sealed partial class GameLoop
         for (uint i = 0; i < listed; i++)
             _who.Add(new(r.ReadCString(), r.ReadCString(), r.ReadU32(), r.ReadU32(),
                 r.ReadU32(), r.ReadU32()));
-        _socialSelected = 0;
+        _whoSelected = -1;
         _whoScroll = 0;
     }
 
@@ -137,15 +253,14 @@ public sealed partial class GameLoop
         if (!BeginVanillaWindow("##social", UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[14]),
                 FriendsFrameUiLaw.FrameSize(1f),
                 out ImDrawListPtr dl, out Vector2 origin, out float s)) { ImGui.End(); return; }
-        // FriendsFrame's top half is the plain paperdoll top (UI-Character-General-Top*); only
-        // the BOTTOM half carries the list inset + button recesses (UI-FriendsFrame-Bot*).
-        // Using FriendsFrame-Top* for the top drew a second inset/scrollbar - the "two halves"
-        // seam (FriendsFrame.xml:536-585).
+        // FriendsFrame_Update swaps the complete page shell. Friends and Ignore share the
+        // paperdoll top but have different bottoms; Who uses the trainer top and its own bottom.
+        // The matrix belongs to FriendsFrameUiLaw so no functional subframe can retain the
+        // wrong list recesses just because its controls happen to fit.
+        FriendsFrameUiLaw.ShellArt shell = FriendsFrameUiLaw.ShellFor(
+            _socialPage, _showIgnore);
         DrawFourPieceShell(dl, origin, s,
-            @"Interface\PaperDollInfoFrame\UI-Character-General-TopLeft",
-            @"Interface\PaperDollInfoFrame\UI-Character-General-TopRight",
-            @"Interface\FriendsFrame\UI-FriendsFrame-BotLeft",
-            @"Interface\FriendsFrame\UI-FriendsFrame-BotRight");
+            shell.TopLeft, shell.TopRight, shell.BottomLeft, shell.BottomRight);
         DrawArt(dl, @"Interface\FriendsFrame\FriendsFrameScrollIcon",
             origin + FriendsFrameUiLaw.ScrollIcon.Min * s,
             FriendsFrameUiLaw.ScrollIcon.Size, s);
@@ -153,7 +268,8 @@ public sealed partial class GameLoop
         // IGNORE_LIST on the ignore subtab (FriendsFrame.xml:586-593, .lua:97).
         string title = _socialPage switch { 1 => "Who List", 2 => "Guild",
             _ => _showIgnore ? "Ignore List" : "Friends List" };
-        DrawCenteredText(dl, origin + new Vector2(192, 18) * s, title, 12f * s, VanillaGold);
+        GameText.DrawCentered(dl, "GameFontNormal", title,
+            origin + FriendsFrameUiLaw.TitleCenter * s, s);
 
         // Guild (page 2) is a separate frame reached via the tab click below; it never renders
         // here, so the dispatch must not close the window from the render path (doing so every
@@ -163,14 +279,21 @@ public sealed partial class GameLoop
 
         string[] outerTabs = FriendsFrameUiLaw.OuterTabs;
         float[] tabW = outerTabs.Select(text => VanillaCharacterTabWidth(text, s, 0)).ToArray();
-        float tabX = 11;
+        float tabX = FriendsFrameUiLaw.OuterTabFirst.X;
         for (int i = 0; i < outerTabs.Length; i++)
         {
-            if (VanillaTab(dl, $"##social-tab-{i}", origin + new Vector2(tabX, 433) * s,
+            if (VanillaTab(dl, $"##social-tab-{i}",
+                    origin + FriendsFrameUiLaw.OuterTabMinimum(tabX) * s,
                     outerTabs[i], tabW[i], s, _socialPage == i))
             {
-                _socialSelected = 0;
+                if (i == 1)
+                {
+                    _whoSelected = -1;
+                    _whoVariable = FriendsFrameUiLaw.DefaultWhoVariable;
+                }
                 _whoVariableMenuOpen = false;
+                PlayUiSound(FriendsFrameUiLaw.OpenSound, FriendsFrameUiLaw.SoundCategory);
+                PlayUiSound(FriendsFrameUiLaw.TabSound, FriendsFrameUiLaw.SoundCategory);
                 if (i == 2)
                 {
                     // Guild opens its own frame; keep the social page on Friends so reopening
@@ -185,27 +308,39 @@ public sealed partial class GameLoop
                     if (i == 1) SendWhoFilter(ReadBuffer(_whoInput));
                 }
             }
-            tabX += tabW[i] - 14;
+            tabX += tabW[i] - FriendsFrameUiLaw.OuterTabOverlap;
         }
-        DrawImageButton(dl, "##social-close", origin + new Vector2(322, 8) * s, new Vector2(32) * s,
+        DrawImageButton(dl, "##social-close",
+            origin + FriendsFrameUiLaw.Close.Min * s, FriendsFrameUiLaw.Close.Size * s,
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up", @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
-        if (ImGui.IsItemClicked()) _socialOpen = false;
+        if (ImGui.IsItemClicked()) CloseFriendsFrame();
         ImGui.End();
     }
 
     private void DrawFriendsOrIgnore(ImDrawListPtr dl, Vector2 origin, float s)
     {
         float friendsWidth=VanillaInsetTabWidth("Friends",s),ignoreWidth=VanillaInsetTabWidth("Ignore",s);
-        if (VanillaInsetTab(dl, "##social-friends-list", origin + new Vector2(70, 39) * s,
-                "Friends", friendsWidth, s, !_showIgnore)) { _showIgnore = false; _socialSelected = 0; }
-        if (VanillaInsetTab(dl, "##social-ignore-list", origin + new Vector2(70+friendsWidth, 39) * s,
-                "Ignore", ignoreWidth, s, _showIgnore)) { _showIgnore = true; _socialSelected = 0; }
+        if (VanillaInsetTab(dl, "##social-friends-list",
+                origin + FriendsFrameUiLaw.InsetTabFirst * s,
+                "Friends", friendsWidth, s, !_showIgnore))
+        {
+            _showIgnore = false;
+            PlayUiSound(FriendsFrameUiLaw.TabSound, FriendsFrameUiLaw.SoundCategory);
+        }
+        if (VanillaInsetTab(dl, "##social-ignore-list",
+                origin + FriendsFrameUiLaw.InsetTabMinimum(
+                    FriendsFrameUiLaw.InsetTabFirst.X + friendsWidth) * s,
+                "Ignore", ignoreWidth, s, _showIgnore))
+        {
+            _showIgnore = true;
+            PlayUiSound(FriendsFrameUiLaw.TabSound, FriendsFrameUiLaw.SoundCategory);
+        }
         if (!_showIgnore)
         {
             _friendScroll = FriendsFrameUiLaw.ClampOffset(_friendScroll, _friends.Count,
                 FriendsFrameUiLaw.FriendsVisibleRows);
-            HandleSocialListWheel(origin, s, FriendsFrameUiLaw.FriendsRows,
+            HandleSocialListWheel(origin, s,
                 ref _friendScroll, _friends.Count, FriendsFrameUiLaw.FriendsVisibleRows);
             int count = Math.Min(FriendsFrameUiLaw.FriendsVisibleRows,
                 _friends.Count - _friendScroll);
@@ -213,21 +348,56 @@ public sealed partial class GameLoop
             {
                 int index = _friendScroll + i;
                 SocialPackets.FriendEntry row = _friends[index];
-                string name = _playerNames.GetValueOrDefault(row.Guid, $"Player {row.Guid & 0xffff:X4}");
+                string name = _playerNames.GetValueOrDefault(row.Guid,
+                    FriendsFrameUiLaw.UnknownName);
                 bool online = row.Status != 0;
-                string zone = online ? _areas?.ZoneName(row.Area) ?? $"Area {row.Area}" : "";
+                string zone = online
+                    ? FriendsFrameUiLaw.ResolvedDisplayLabel(_areas?.ZoneName(row.Area))
+                    : "";
                 FriendsFrameUiLaw.LogicalRect rowRect = FriendsFrameUiLaw.Row(
                     FriendsFrameUiLaw.FriendsRows, FriendsFrameUiLaw.FriendRowStep, i, 31);
                 Vector2 rowMin = origin + rowRect.Min * s;
-                if (VanillaListRow(dl, $"##friend-{row.Guid}", rowMin,
-                        rowRect.Size, s, "", _socialSelected == index)) _socialSelected = index;
-                // FriendsFrameButtonTemplate: gold GameFontNormal name/location at (10,-3),
-                // white GameFontHighlightSmall info line below (FriendsFrame.xml:4-44, .lua:185-186).
-                string nameLine = online ? $"{name}  ({zone})" : name;
-                string infoLine = online ? $"Level {row.Level} {ClassName((byte)row.Class)}" : "Offline";
-                GameText.Draw(dl, "GameFontNormal", nameLine, rowMin + new Vector2(10, 4) * s, s,
-                    online ? VanillaGold : 0xff808080);
-                GameText.Draw(dl, "GameFontHighlightSmall", infoLine, rowMin + new Vector2(10, 17) * s, s);
+                bool rowClicked = VanillaListRow(dl, $"##friend-{row.Guid}", rowMin,
+                    rowRect.Size, s, "", _friendSelected == index,
+                    highlightPath: FriendsFrameUiLaw.RowHighlightPath,
+                    additiveHighlight: true);
+                bool rowRightClicked = ImGui.IsItemClicked(ImGuiMouseButton.Right);
+                if (rowClicked) _friendSelected = index;
+                // FRIENDS_LIST_TEMPLATE: gold name, then an inline-white "- zone", then the
+                // inherited-gold AFK/DND tag. Offline is one gray "name - Offline" line and
+                // UNKNOWN below; putting "Offline" on line two is visibly a different row.
+                Vector2 namePos = rowMin + FriendsFrameUiLaw.FriendNameOffset * s;
+                if (online)
+                {
+                    GameText.Draw(dl, "GameFontNormal", name, namePos, s);
+                    float nameWidth = GameText.MeasureWidth("GameFontNormal", name, s);
+                    string location = $" - {zone}";
+                    GameText.Draw(dl, "GameFontNormal", location,
+                        namePos + FriendsFrameUiLaw.InlineOffset(nameWidth), s, 0xffffffff);
+                    string status = FriendsFrameUiLaw.StatusTag(row.Status);
+                    if (status.Length > 0)
+                    {
+                        float locationWidth = GameText.MeasureWidth(
+                            "GameFontNormal", location, s);
+                        GameText.Draw(dl, "GameFontNormal", " " + status,
+                            namePos + FriendsFrameUiLaw.InlineOffset(
+                                nameWidth + locationWidth), s);
+                    }
+                }
+                else
+                {
+                    GameText.Draw(dl, "GameFontNormal",
+                        FriendsFrameUiLaw.OfflineNameLine(name), namePos, s, 0xff999999);
+                }
+                bool nameKnown = name != FriendsFrameUiLaw.UnknownName;
+                if (FriendsFrameUiLaw.CanOpenFriendMenu(online, nameKnown) && rowRightClicked)
+                    OpenFriendPopup(name, ImGui.GetIO().MousePos);
+                if (rowClicked || rowRightClicked)
+                    PlayUiSound(FriendsFrameUiLaw.RowSound, FriendsFrameUiLaw.SoundCategory);
+                string infoLine = FriendsFrameUiLaw.FriendInfoLine(online, row.Level,
+                    FriendsFrameUiLaw.ResolvedDisplayLabel(ClassName((byte)row.Class)));
+                GameText.Draw(dl, "GameFontHighlightSmall", infoLine,
+                    rowMin + FriendsFrameUiLaw.FriendInfoOffset * s, s);
             }
             DrawSocialFauxScrollBar(dl, "##friends-scroll", origin, s,
                 FriendsFrameUiLaw.FriendsScrollFrame, _friendScroll,
@@ -239,7 +409,7 @@ public sealed partial class GameLoop
         {
             _ignoreScroll = FriendsFrameUiLaw.ClampOffset(_ignoreScroll, _ignored.Count,
                 FriendsFrameUiLaw.IgnoreVisibleRows);
-            HandleSocialListWheel(origin, s, FriendsFrameUiLaw.IgnoreRows,
+            HandleSocialListWheel(origin, s,
                 ref _ignoreScroll, _ignored.Count, FriendsFrameUiLaw.IgnoreVisibleRows);
             int count = Math.Min(FriendsFrameUiLaw.IgnoreVisibleRows,
                 _ignored.Count - _ignoreScroll);
@@ -247,13 +417,23 @@ public sealed partial class GameLoop
             {
                 int index = _ignoreScroll + i;
                 ulong guid = _ignored[index];
-                string name = _playerNames.GetValueOrDefault(guid, $"Player {guid & 0xffff:X4}");
+                string name = FriendsFrameUiLaw.IgnoreNameLine(
+                    _playerNames.GetValueOrDefault(guid));
                 FriendsFrameUiLaw.LogicalRect rowRect = FriendsFrameUiLaw.Row(
                     FriendsFrameUiLaw.IgnoreRows, FriendsFrameUiLaw.IgnoreRowStep, i, 16);
                 // FriendsFrameIgnoreButtonTemplate name inherits GameFontNormal (gold), not white.
-                if (VanillaListRow(dl, $"##ignore-{guid}", origin + rowRect.Min * s,
-                        rowRect.Size, s, name, _socialSelected == index, VanillaGold))
-                    _socialSelected = index;
+                Vector2 rowMin = origin + rowRect.Min * s;
+                if (VanillaListRow(dl, $"##ignore-{guid}", rowMin,
+                        rowRect.Size, s, "", _ignoreSelected == index,
+                        highlightPath: FriendsFrameUiLaw.RowHighlightPath,
+                        additiveHighlight: true))
+                {
+                    _ignoreSelected = index;
+                    PlayUiSound(FriendsFrameUiLaw.RowSound,
+                        FriendsFrameUiLaw.SoundCategory);
+                }
+                GameText.Draw(dl, "GameFontNormal", name,
+                    rowMin + FriendsFrameUiLaw.IgnoreNameOffset * s, s);
             }
             DrawSocialFauxScrollBar(dl, "##ignore-scroll", origin, s,
                 FriendsFrameUiLaw.IgnoreScrollFrame, _ignoreScroll,
@@ -267,7 +447,7 @@ public sealed partial class GameLoop
         {
             bool haveSel = _friends.Count > 0;
             SocialPackets.FriendEntry? selectedFriend = haveSel
-                ? _friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)] : null;
+                ? _friends[Math.Clamp(_friendSelected, 0, _friends.Count - 1)] : null;
             bool nameKnown = selectedFriend is { } selected &&
                 _playerNames.TryGetValue(selected.Guid, out string? selectedName) &&
                 selectedName.Length > 0;
@@ -277,25 +457,33 @@ public sealed partial class GameLoop
                     origin + FriendsFrameUiLaw.AddFriend.Min * s,
                     FriendsFrameUiLaw.AddFriend.Size, s))
                 ShowSocialNamePopup(ignore: false);
+            OfferVanillaNewbieTooltip(new("social-action", 1), "Add Friend",
+                FriendsFrameUiLaw.AddFriendTooltip);
             if (VanillaButton(dl, "##social-send", "Send Message",
                     origin + FriendsFrameUiLaw.SendMessage.Min * s,
                     FriendsFrameUiLaw.SendMessage.Size, s, selectedOnline))
             {
-                SocialPackets.FriendEntry sel = _friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)];
+                SocialPackets.FriendEntry sel = _friends[Math.Clamp(_friendSelected, 0, _friends.Count - 1)];
                 OpenChatEditWith($"/w {_playerNames.GetValueOrDefault(sel.Guid, "")} ");
             }
+            OfferVanillaNewbieTooltip(new("social-action", 2), "Send Message",
+                FriendsFrameUiLaw.SendMessageTooltip);
             if (VanillaButton(dl, "##social-remove", "Remove Friend",
                     origin + FriendsFrameUiLaw.RemoveFriend.Min * s,
                     FriendsFrameUiLaw.RemoveFriend.Size, s,
                     FriendsFrameUiLaw.CanRemove(haveSel)))
-                _net?.DeleteFriend(_friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)].Guid);
+                _net?.DeleteFriend(_friends[Math.Clamp(_friendSelected, 0, _friends.Count - 1)].Guid);
+            OfferVanillaNewbieTooltip(new("social-action", 3), "Remove Friend",
+                FriendsFrameUiLaw.RemoveFriendTooltip);
             if (VanillaButton(dl, "##social-invite", "Group Invite",
                     origin + FriendsFrameUiLaw.GroupInvite.Min * s,
                     FriendsFrameUiLaw.GroupInvite.Size, s, selectedOnline))
             {
-                SocialPackets.FriendEntry sel = _friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)];
+                SocialPackets.FriendEntry sel = _friends[Math.Clamp(_friendSelected, 0, _friends.Count - 1)];
                 _net?.GroupInvite(_playerNames.GetValueOrDefault(sel.Guid, ""));
             }
+            OfferVanillaNewbieTooltip(new("social-action", 4), "Group Invite",
+                FriendsFrameUiLaw.GroupInviteTooltip);
         }
         else
         {
@@ -306,7 +494,7 @@ public sealed partial class GameLoop
             if (VanillaButton(dl, "##social-ignore-remove", "Remove Player",
                     origin + FriendsFrameUiLaw.StopIgnore.Min * s,
                     FriendsFrameUiLaw.StopIgnore.Size, s, _ignored.Count > 0))
-                _net?.DeleteIgnore(_ignored[Math.Clamp(_socialSelected, 0, _ignored.Count - 1)]);
+                _net?.DeleteIgnore(_ignored[Math.Clamp(_ignoreSelected, 0, _ignored.Count - 1)]);
         }
     }
 
@@ -343,7 +531,7 @@ public sealed partial class GameLoop
         StaticPopupCoordinatorLaw.NarrowEditBoxLayout layout =
             StaticPopupCoordinatorLaw.NarrowEditLayout(textHeight);
         Vector2 origin = StaticPopupOrigin(visible.Slot, layout.Width, s);
-        Vector2 size = new(layout.Width * s, layout.Height * s);
+        Vector2 size = layout.Size * s;
 
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
@@ -361,12 +549,11 @@ public sealed partial class GameLoop
         dl.PushClipRectFullScreen();
         _skin.DrawBackdrop(dl, origin, origin + size, WowSkin.Dialog);
         GameText.DrawCentered(dl, "GameFontHighlight", text,
-            origin + new Vector2(layout.Width * .5f,
-                layout.Text.Y + layout.Text.Height * .5f) * s, s);
+            origin + layout.Text.Center * s, s);
 
-        Vector2 editMin = origin + new Vector2(layout.EditBox.X, layout.EditBox.Y) * s;
+        Vector2 editMin = origin + layout.EditBox.Min * s;
         DrawStaticPopupEditBoxBorder(dl, editMin, s);
-        ImGui.SetCursorScreenPos(editMin + new Vector2(0, 7) * s);
+        ImGui.SetCursorScreenPos(editMin + StaticPopupCoordinatorLaw.EditTextOffset * s);
         ImGui.SetNextItemWidth(layout.EditBox.Width * s);
         ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
@@ -385,10 +572,10 @@ public sealed partial class GameLoop
         ImGui.PopStyleColor(4);
 
         bool accepted = DrawPartyInviteButton(dl, "StaticPopup1Button1", "Accept",
-            origin + new Vector2(layout.Button1.X, layout.Button1.Y) * s,
+            origin + layout.Button1.Min * s,
             s, capture: false, default);
         bool cancelled = DrawPartyInviteButton(dl, "StaticPopup1Button2", "Cancel",
-            origin + new Vector2(layout.Button2.X, layout.Button2.Y) * s,
+            origin + layout.Button2.Min * s,
             s, capture: false, default);
         dl.PopClipRect();
         ImGui.End();
@@ -412,18 +599,17 @@ public sealed partial class GameLoop
     {
         uint left = _gameplayArt?.Handle(@"Interface\ChatFrame\UI-ChatInputBorder-Left") ?? 0;
         uint right = _gameplayArt?.Handle(@"Interface\ChatFrame\UI-ChatInputBorder-Right") ?? 0;
-        float cap = StaticPopupCoordinatorLaw.EditBoxBorderCapWidth;
-        float outer = StaticPopupCoordinatorLaw.EditBoxBorderOuterOffset;
-        float width = StaticPopupCoordinatorLaw.NarrowEditBoxWidth;
-        float height = StaticPopupCoordinatorLaw.NarrowEditBoxHeight;
-        if (left != 0)
-            dl.AddImage((nint)left, editMin + new Vector2(-outer, 0) * s,
-                editMin + new Vector2(cap - outer, height) * s,
-                Vector2.Zero, new Vector2(.29296875f, 1));
-        if (right != 0)
-            dl.AddImage((nint)right, editMin + new Vector2(width + outer - cap, 0) * s,
-                editMin + new Vector2(width + outer, height) * s,
-                new Vector2(.70703125f, 0), Vector2.One);
+        uint[] textures = [left, right];
+        IReadOnlyList<StaticPopupCoordinatorLaw.TextureSlice> slices =
+            StaticPopupCoordinatorLaw.NarrowEditBorderSlices;
+        for (int i = 0; i < textures.Length; i++)
+        {
+            if (textures[i] == 0) continue;
+            StaticPopupCoordinatorLaw.TextureSlice slice = slices[i];
+            Vector2 min = editMin + slice.Rect.Min * s;
+            dl.AddImage((nint)textures[i], min, min + slice.Rect.Size * s,
+                slice.UvMin, slice.UvMax);
+        }
     }
 
     // WhoFrameColumnHeaderTemplate: 3-slice WhoFrame-ColumnTabs (Left 5px, Middle stretched,
@@ -432,85 +618,126 @@ public sealed partial class GameLoop
     {
         uint tex = _gameplayArt?.Handle(@"Interface\FriendsFrame\WhoFrame-ColumnTabs") ?? 0;
         if (tex != 0)
-        {
-            const float leftW = 5f, rightW = 4f, h = 24f;
-            float midW = MathF.Max(0f, width - leftW - rightW);
-            Vector2 p = min;
-            dl.AddImage((nint)tex, p, p + new Vector2(leftW, h) * s, new Vector2(0f, 0f), new Vector2(0.078125f, 0.75f));
-            p += new Vector2(leftW, 0f) * s;
-            dl.AddImage((nint)tex, p, p + new Vector2(midW, h) * s, new Vector2(0.078125f, 0f), new Vector2(0.90625f, 0.75f));
-            p += new Vector2(midW, 0f) * s;
-            dl.AddImage((nint)tex, p, p + new Vector2(rightW, h) * s, new Vector2(0.90625f, 0f), new Vector2(0.96875f, 0.75f));
-        }
-        GameText.Draw(dl, "GameFontHighlightSmall", label, min + new Vector2(8, 7) * s, s);
+            foreach (FriendsFrameUiLaw.TextureSlice slice in
+                     FriendsFrameUiLaw.WhoColumnHeaderSlices(width))
+            {
+                Vector2 at = min + slice.Rect.Min * s;
+                dl.AddImage((nint)tex, at, at + slice.Rect.Size * s,
+                    slice.UvMin, slice.UvMax);
+            }
+        GameText.Draw(dl, "GameFontHighlightSmall", label,
+            min + FriendsFrameUiLaw.WhoHeaderTextOffset * s, s);
     }
 
     private void DrawWhoPage(ImDrawListPtr dl, Vector2 origin, float s)
     {
         // WhoFrame column headers (FriendsFrame.xml:1302-1398): Name x20 w83, then the sort
-        // dropdown (default ZONE) x101 w105, Lvl x204 w32, Class x234 w92. The 3-slice
-        // WhoFrame-ColumnTabs art and the Zone/Guild/Race sort dropdown are still TODO —
-        // headers render as flat labels for now, but with the correct identity/positions.
-        (string Label, FriendsFrameUiLaw.LogicalRect Rect)[] cols =
-            [("Name", FriendsFrameUiLaw.WhoHeaderName),
-             ("", FriendsFrameUiLaw.WhoVariableHeader(_who.Count)),
-             ("Lvl", FriendsFrameUiLaw.WhoLevelHeader(_who.Count)),
-             ("Class", FriendsFrameUiLaw.WhoClassHeader(_who.Count))];
-        foreach (var c in cols)
+        // dropdown (default ZONE) x101 w105, Lvl x204 w32, Class x234 w92.
+        (string Label, FriendsFrameUiLaw.LogicalRect Rect, FriendsWhoSort? Sort)[] cols =
+            [("Name", FriendsFrameUiLaw.WhoHeaderName, FriendsWhoSort.Name),
+             ("", FriendsFrameUiLaw.WhoVariableHeader(_who.Count), null),
+             ("Lvl", FriendsFrameUiLaw.WhoLevelHeader(_who.Count), FriendsWhoSort.Level),
+             ("Class", FriendsFrameUiLaw.WhoClassHeader(_who.Count), FriendsWhoSort.Class)];
+        for (int column = 0; column < cols.Length; column++)
+        {
+            var c = cols[column];
             DrawWhoColumnHeader(dl, origin + c.Rect.Min * s, c.Rect.Width, s, c.Label);
+            if (c.Sort is not { } sort) continue;
+            Vector2 headerMin = origin + c.Rect.Min * s;
+            ImGui.SetCursorScreenPos(headerMin);
+            bool clicked = ImGui.InvisibleButton($"##who-header-{column}",
+                FriendsFrameUiLaw.WhoHeaderHit(c.Rect.Width).Size * s);
+            if (ImGui.IsItemHovered())
+            {
+                uint highlight = _gameplayArt?.AdditiveHandle(
+                    FriendsFrameUiLaw.WhoHeaderHighlightPath) ?? 0;
+                FriendsFrameUiLaw.LogicalRect highlightRect =
+                    FriendsFrameUiLaw.WhoHeaderHighlight(c.Rect.Width);
+                Vector2 highlightMin = headerMin + highlightRect.Min * s;
+                if (highlight != 0)
+                    dl.AddImage((nint)highlight, highlightMin,
+                        highlightMin + highlightRect.Size * s);
+            }
+            if (clicked)
+            {
+                SortWhoResults(sort);
+                PlayUiSound("igMainMenuOptionCheckBoxOn", "ui.social");
+            }
+        }
 
         _whoScroll = FriendsFrameUiLaw.ClampOffset(_whoScroll, _who.Count,
             FriendsFrameUiLaw.WhoVisibleRows);
-        HandleSocialListWheel(origin, s, FriendsFrameUiLaw.WhoRows,
+        HandleSocialListWheel(origin, s,
             ref _whoScroll, _who.Count, FriendsFrameUiLaw.WhoVisibleRows);
         int count = Math.Min(FriendsFrameUiLaw.WhoVisibleRows, _who.Count - _whoScroll);
         for (int i = 0; i < count; i++)
         {
             int index = _whoScroll + i;
-            WhoRow row = _who[index];
+            FriendsFrameUiLaw.WhoEntry row = _who[index];
             FriendsFrameUiLaw.LogicalRect rowRect = FriendsFrameUiLaw.Row(
                 FriendsFrameUiLaw.WhoRows, FriendsFrameUiLaw.WhoRowStep, i, 16);
             Vector2 rowMin = origin + rowRect.Min * s;
-            if (VanillaListRow(dl, $"##who-{index}", rowMin, rowRect.Size, s, "",
-                    _socialSelected == index)) _socialSelected = index;
+            bool rowClicked = VanillaListRow(dl, $"##who-{index}", rowMin,
+                rowRect.Size, s, "", _whoSelected == index,
+                highlightPath: FriendsFrameUiLaw.RowHighlightPath,
+                additiveHighlight: true);
+            bool rowRightClicked = ImGui.IsItemClicked(ImGuiMouseButton.Right);
+            if (rowClicked) _whoSelected = index;
+            if (rowRightClicked)
+                OpenFriendPopup(row.Name, ImGui.GetIO().MousePos);
+            if (rowClicked || rowRightClicked)
+                PlayUiSound(FriendsFrameUiLaw.RowSound, FriendsFrameUiLaw.SoundCategory);
             // BenillaFriendsFrameWhoButtonTemplate: name x10/w88; variable immediately after it;
             // level +2 and class +12. The variable widens from 95 to 110 when no bar is present.
             float variableWidth = FriendsFrameUiLaw.WhoVariableTextWidth(_who.Count);
             string variable = _whoVariable switch
             {
                 FriendsWhoVariable.Guild => row.Guild,
-                FriendsWhoVariable.Race => RaceName((byte)row.Race),
-                _ => _areas?.ZoneName(row.Area) ?? "",
+                FriendsWhoVariable.Race => FriendsFrameUiLaw.ResolvedDisplayLabel(
+                    RaceName((byte)row.Race)),
+                _ => FriendsFrameUiLaw.ResolvedDisplayLabel(_areas?.ZoneName(row.Area)),
             };
             GameText.Draw(dl, "GameFontNormalSmall",
                 GameText.EllipsizeToBox("GameFontNormalSmall", row.Name, 88, 14, s),
-                rowMin + new Vector2(10, 3) * s, s, VanillaGold);
+                rowMin + FriendsFrameUiLaw.WhoNameTextOffset * s, s, VanillaGold);
             GameText.Draw(dl, "GameFontHighlightSmall",
                 GameText.EllipsizeToBox("GameFontHighlightSmall", variable,
                     variableWidth, 14, s),
-                rowMin + new Vector2(98, 3) * s, s);
+                rowMin + FriendsFrameUiLaw.WhoVariableTextOffset * s, s);
             GameText.DrawCentered(dl, "GameFontHighlightSmall", row.Level.ToString(),
-                rowMin + new Vector2(98 + variableWidth + 12, 8) * s, s);
+                rowMin + FriendsFrameUiLaw.WhoLevelCenter(variableWidth) * s, s);
             GameText.Draw(dl, "GameFontHighlightSmall",
                 GameText.EllipsizeToBox("GameFontHighlightSmall",
-                    ClassName((byte)row.Class), 100, 8, s),
-                rowMin + new Vector2(132 + variableWidth, 3) * s, s);
+                    FriendsFrameUiLaw.ResolvedDisplayLabel(
+                        ClassName((byte)row.Class)), 100, 8, s),
+                rowMin + FriendsFrameUiLaw.WhoClassTextOffset(variableWidth) * s, s);
         }
         DrawSocialFauxScrollBar(dl, "##who-scroll", origin, s,
             FriendsFrameUiLaw.WhoScrollFrame, _whoScroll,
             FriendsFrameUiLaw.MaximumOffset(_who.Count, FriendsFrameUiLaw.WhoVisibleRows),
             value => _whoScroll = value);
-        dl.AddText(ImGui.GetFont(), 10f * s, origin + new Vector2(25, 371) * s, VanillaGold,
-            $"Players: {_who.Count} of {_whoTotal}");
-        // WhoFrameEditBox is 296x32 at top-origin (24,380) (FriendsFrame.xml:1635-1645).
-        VanillaInputText(dl, "##who-search", _whoInput,
-            origin + FriendsFrameUiLaw.WhoSearch.Min * s, FriendsFrameUiLaw.WhoSearch.Size, s);
+        GameText.DrawCentered(dl, "GameFontNormalSmall",
+            FriendsFrameUiLaw.WhoTotals(_whoTotal),
+            origin + FriendsFrameUiLaw.WhoTotalsBox.Center * s, s);
+        // WhoFrameEditBox is a bare 296x32 ChatFontNormal field: no backdrop, zero text insets.
+        VanillaBareInputText("##who-search", _whoInput,
+            origin + FriendsFrameUiLaw.WhoSearch.Min * s, FriendsFrameUiLaw.WhoSearch.Size,
+            FriendsFrameUiLaw.WhoSearchTextInset, s);
+        bool whoInputActive = ImGui.IsItemActive();
+        if (FriendsFrameUiLaw.ShouldSubmitWhoFilter(whoInputActive,
+                ImGui.IsKeyPressed(ImGuiKey.Enter, false),
+                ImGui.IsKeyPressed(ImGuiKey.KeypadEnter, false)))
+            SendWhoFilter(ReadBuffer(_whoInput));
         // Refresh | Add Friend | Group Invite row at y=408 (FriendsFrame.xml:1583-1634).
         if (VanillaButton(dl, "##who-refresh", "Refresh",
                 origin + FriendsFrameUiLaw.WhoRefresh.Min * s,
-                FriendsFrameUiLaw.WhoRefresh.Size, s)) SendWhoFilter(ReadBuffer(_whoInput));
-        bool selected = _who.Count > 0;
-        int selectedIndex = Math.Clamp(_socialSelected, 0, Math.Max(0, _who.Count - 1));
+                FriendsFrameUiLaw.WhoRefresh.Size, s))
+        {
+            SendWhoFilter(ReadBuffer(_whoInput));
+            _whoSelected = -1;
+        }
+        bool selected = FriendsFrameUiLaw.WhoSelectionValid(_whoSelected, _who.Count);
+        int selectedIndex = Math.Clamp(_whoSelected, 0, Math.Max(0, _who.Count - 1));
         if (VanillaButton(dl, "##who-friend", "Add Friend",
                 origin + FriendsFrameUiLaw.WhoAddFriend.Min * s,
                 FriendsFrameUiLaw.WhoAddFriend.Size, s, selected))
@@ -526,41 +753,40 @@ public sealed partial class GameLoop
     {
         if (_gameplayArt is null) return;
         FriendsFrameUiLaw.LogicalRect frame = FriendsFrameUiLaw.WhoDropdownFrame(_who.Count);
-        float dropWidth = FriendsFrameUiLaw.WhoDropdownWidth(_who.Count);
         Vector2 frameMin = origin + frame.Min * scale;
-        Vector2 artMin = frameMin + new Vector2(0, -17) * scale;
         uint art = _gameplayArt.Handle(
             @"Interface\Glues\CharacterCreate\CharacterCreate-LabelFrame");
         if (art != 0)
-        {
-            draw.AddImage((nint)art, artMin, artMin + new Vector2(25, 64) * scale,
-                Vector2.Zero, new Vector2(.1953125f, 1));
-            draw.AddImage((nint)art, artMin + new Vector2(25, 0) * scale,
-                artMin + new Vector2(25 + dropWidth, 64) * scale,
-                new Vector2(.1953125f, 0), new Vector2(.8046875f, 1));
-            draw.AddImage((nint)art, artMin + new Vector2(25 + dropWidth, 0) * scale,
-                artMin + new Vector2(50 + dropWidth, 64) * scale,
-                new Vector2(.8046875f, 0), Vector2.One);
-        }
+            foreach (FriendsFrameUiLaw.TextureSlice slice in
+                     FriendsFrameUiLaw.WhoDropdownArtSlices(_who.Count))
+            {
+                Vector2 at = frameMin + slice.Rect.Min * scale;
+                draw.AddImage((nint)art, at, at + slice.Rect.Size * scale,
+                    slice.UvMin, slice.UvMax);
+            }
         GameText.Draw(draw, "GameFontHighlightSmall",
             FriendsFrameUiLaw.WhoVariableLabels[(int)_whoVariable],
-            frameMin + new Vector2(27, 11) * scale, scale);
+            frameMin + FriendsFrameUiLaw.WhoDropdownLabelOffset * scale, scale);
 
-        Vector2 buttonMin = frameMin + new Vector2(frame.Width - 40, 18) * scale;
+        FriendsFrameUiLaw.LogicalRect buttonRect =
+            FriendsFrameUiLaw.WhoDropdownButton(_who.Count);
+        Vector2 buttonMin = frameMin + buttonRect.Min * scale;
         ImGui.SetCursorScreenPos(buttonMin);
-        bool toggled = ImGui.InvisibleButton("##who-variable-dropdown", new Vector2(24) * scale);
+        bool toggled = ImGui.InvisibleButton("##who-variable-dropdown",
+            buttonRect.Size * scale);
         bool held = ImGui.IsItemActive();
         bool hovered = ImGui.IsItemHovered();
         string state = held ? "Down" : "Up";
         uint button = _gameplayArt.Handle($@"Interface\ChatFrame\UI-ChatIcon-ScrollDown-{state}");
         if (button != 0)
-            draw.AddImage((nint)button, buttonMin, buttonMin + new Vector2(24) * scale);
+            draw.AddImage((nint)button, buttonMin, buttonMin + buttonRect.Size * scale);
         if (hovered)
         {
             uint highlight = _gameplayArt.AdditiveHandle(
                 @"Interface\Buttons\UI-Common-MouseHilight");
             if (highlight != 0)
-                draw.AddImage((nint)highlight, buttonMin, buttonMin + new Vector2(24) * scale);
+                draw.AddImage((nint)highlight, buttonMin,
+                    buttonMin + buttonRect.Size * scale);
         }
         if (toggled)
         {
@@ -592,11 +818,15 @@ public sealed partial class GameLoop
             {
                 uint check = _gameplayArt.Handle(@"Interface\Buttons\UI-CheckBox-Check");
                 if (check != 0)
-                    draw.AddImage((nint)check, rowMin + new Vector2(0, -4) * scale,
-                        rowMin + new Vector2(24, 20) * scale);
+                {
+                    Vector2 checkMin = rowMin + FriendsFrameUiLaw.WhoDropdownCheck.Min * scale;
+                    draw.AddImage((nint)check, checkMin,
+                        checkMin + FriendsFrameUiLaw.WhoDropdownCheck.Size * scale);
+                }
             }
             GameText.Draw(draw, "GameFontHighlightSmall",
-                FriendsFrameUiLaw.WhoVariableLabels[i], rowMin + new Vector2(27, 2) * scale,
+                FriendsFrameUiLaw.WhoVariableLabels[i],
+                rowMin + FriendsFrameUiLaw.WhoDropdownRowTextOffset * scale,
                 scale);
             if (clicked) SelectWhoVariable((FriendsWhoVariable)i);
         }
@@ -617,22 +847,24 @@ public sealed partial class GameLoop
     {
         _whoVariable = variable;
         _whoVariableMenuOpen = false;
-        string Value(WhoRow row) => variable switch
-        {
-            FriendsWhoVariable.Guild => row.Guild,
-            FriendsWhoVariable.Race => RaceName((byte)row.Race),
-            _ => _areas?.ZoneName(row.Area) ?? "",
-        };
-        _who.Sort((left, right) => StringComparer.OrdinalIgnoreCase.Compare(
-            Value(left), Value(right)));
-        _socialSelected = _who.Count == 0 ? 0 : Math.Clamp(_socialSelected, 0, _who.Count - 1);
+        SortWhoResults(FriendsFrameUiLaw.SortForVariable(variable));
+        if (!FriendsFrameUiLaw.WhoSelectionValid(_whoSelected, _who.Count))
+            _whoSelected = -1;
+    }
+
+    private void SortWhoResults(FriendsWhoSort sort)
+    {
+        IReadOnlyList<FriendsFrameUiLaw.WhoEntry> sorted =
+            FriendsFrameUiLaw.SortWho(_who, sort);
+        _who.Clear();
+        _who.AddRange(sorted);
     }
 
     private static void HandleSocialListWheel(Vector2 origin, float scale,
-        FriendsFrameUiLaw.LogicalRect rows, ref int offset, int itemCount, int visibleRows)
+        ref int offset, int itemCount, int visibleRows)
     {
-        Vector2 min = origin + rows.Min * scale;
-        Vector2 max = min + rows.Size * scale;
+        Vector2 min = origin + FriendsFrameUiLaw.ListWheelRegion.Min * scale;
+        Vector2 max = min + FriendsFrameUiLaw.ListWheelRegion.Size * scale;
         float wheel = ImGui.GetIO().MouseWheel;
         if (wheel != 0 && ImGui.IsMouseHoveringRect(min, max, false))
             offset = FriendsFrameUiLaw.WheelOffset(offset, itemCount, visibleRows, wheel);
@@ -644,12 +876,11 @@ public sealed partial class GameLoop
     {
         if (maximum <= 0 || _gameplayArt is null) return;
 
-        FriendsFrameUiLaw.LogicalRect furniture =
-            FriendsFrameUiLaw.ScrollFurniture(scrollFrame);
-        Vector2 upMin = origin + furniture.Min * scale;
-        Vector2 buttonSize = new Vector2(16) * scale;
-        Vector2 downMin = origin + new Vector2(furniture.X,
-            furniture.Y + furniture.Height - 16) * scale;
+        FriendsFrameUiLaw.ScrollBarLayout layout =
+            FriendsFrameUiLaw.ScrollBar(scrollFrame, value, maximum);
+        Vector2 upMin = origin + layout.UpButton.Min * scale;
+        Vector2 buttonSize = layout.UpButton.Size * scale;
+        Vector2 downMin = origin + layout.DownButton.Min * scale;
 
         void Arrow(string suffix, Vector2 min, bool enabled, int next)
         {
@@ -675,14 +906,14 @@ public sealed partial class GameLoop
             uint texture = _gameplayArt.Handle($@"Interface\Buttons\{stem}-{state}");
             if (texture != 0)
                 draw.AddImage((nint)texture, min, min + buttonSize,
-                    new Vector2(.25f), new Vector2(.75f));
+                    FriendsFrameUiLaw.ScrollUvMin, FriendsFrameUiLaw.ScrollUvMax);
             if (visual.HighlightVisible)
             {
                 uint highlight = _gameplayArt.AdditiveHandle(
                     $@"Interface\Buttons\{stem}-Highlight");
                 if (highlight != 0)
                     draw.AddImage((nint)highlight, min, min + buttonSize,
-                        new Vector2(.25f), new Vector2(.75f));
+                        FriendsFrameUiLaw.ScrollUvMin, FriendsFrameUiLaw.ScrollUvMax);
             }
             if (enabled && releasedInside)
             {
@@ -694,24 +925,22 @@ public sealed partial class GameLoop
         Arrow("-up", upMin, value > 0, value - 1);
         Arrow("-down", downMin, value < maximum, value + 1);
 
-        Vector2 sliderMin = upMin + new Vector2(0, 16) * scale;
-        float sliderHeight = MathF.Max(16, furniture.Height - 32) * scale;
-        float fraction = Math.Clamp((float)value / maximum, 0, 1);
-        Vector2 knobSize = new Vector2(16) * scale;
-        Vector2 knobMin = sliderMin + new Vector2(0,
-            fraction * MathF.Max(0, sliderHeight - knobSize.Y));
+        Vector2 sliderMin = origin + layout.Track.Min * scale;
+        Vector2 sliderSize = layout.Track.Size * scale;
+        Vector2 knobSize = layout.Knob.Size * scale;
+        Vector2 knobMin = origin + layout.Knob.Min * scale;
         uint knob = _gameplayArt.Handle(@"Interface\Buttons\UI-ScrollBar-Knob");
         if (knob != 0)
             draw.AddImage((nint)knob, knobMin, knobMin + knobSize,
-                new Vector2(.25f), new Vector2(.75f));
+                FriendsFrameUiLaw.ScrollUvMin, FriendsFrameUiLaw.ScrollUvMax);
 
         ImGui.SetCursorScreenPos(sliderMin);
-        ImGui.InvisibleButton(id + "-track", new Vector2(16 * scale, sliderHeight));
+        ImGui.InvisibleButton(id + "-track", sliderSize);
         if (ImGui.IsItemActive())
         {
             float y = ImGui.GetIO().MousePos.Y - sliderMin.Y - knobSize.Y * .5f;
             int next = (int)MathF.Round(Math.Clamp(y /
-                MathF.Max(1, sliderHeight - knobSize.Y), 0, 1) * maximum);
+                MathF.Max(1, sliderSize.Y - knobSize.Y), 0, 1) * maximum);
             if (next != value) changed(next);
         }
     }

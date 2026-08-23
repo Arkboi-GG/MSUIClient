@@ -14,11 +14,19 @@ public static class DressUpFrameUiLaw
     public const float Width = 384;
     public const float Height = 512;
     public const float Top = 104;
-    public const float ClickRadians = .06f;
+    public const float InitialFacing = .61f;
+    public const float ClickEdgeRadians = .03f;
     public const float HeldRadiansPerSecond = MathF.Tau * .5f;
+    public const float LiveAnimationMaxStep = .05f;
 
+    public static readonly Vector2 FrameSize = new(Width, Height);
+    public static readonly Vector2 PortraitUvMin = new(0, 1);
+    public static readonly Vector2 PortraitUvMax = new(1, 0);
     public static readonly LogicalRect Portrait = new(7, 6, 60, 60);
     public static readonly LogicalRect Description = new(62, 37, 260, 36);
+    public static readonly Vector2 TitleCenter = new(192, 17);
+    public static readonly Vector2 DescriptionLineOneCenter = new(192, 43);
+    public static readonly Vector2 DescriptionLineTwoCenter = new(192, 57);
     public static readonly LogicalRect BackdropTopLeft = new(22, 76, 256, 255);
     public static readonly LogicalRect BackdropTopRight = new(278, 76, 62, 255);
     public static readonly LogicalRect BackdropBottomLeft = new(22, 331, 256, 128);
@@ -63,10 +71,29 @@ public static class DressUpFrameUiLaw
     public static bool RangedUsesOffLane(uint inventoryType) => inventoryType == 15;
 
     public static float ClickFacing(float facing, bool left) =>
-        facing + (left ? -ClickRadians : ClickRadians);
+        facing + (left ? -ClickEdgeRadians : ClickEdgeRadians);
 
-    public static float HeldFacing(float facing, bool left, float elapsed) =>
-        facing + (left ? -1f : 1f) * HeldRadiansPerSecond * MathF.Max(0, elapsed);
+    /// <summary>
+    /// Reference Model_OnUpdate sign quirk: the held direction is opposite the click direction.
+    /// Its one-sided wrap conditions are retained exactly rather than normalized symmetrically.
+    /// </summary>
+    public static float HeldFacing(float facing, bool left, float elapsed)
+    {
+        float next = facing + (left ? 1f : -1f) *
+            HeldRadiansPerSecond * MathF.Max(0, elapsed);
+        if (left && next < 0f) next += MathF.Tau;
+        else if (!left && next > MathF.Tau) next -= MathF.Tau;
+        return next;
+    }
+
+    /// <summary>
+    /// The DressUpModel is a live PlayerModel widget. Clamp a resumed/stalled frame rather than
+    /// advancing its Stand loop by wall time accumulated while the window was not drawing.
+    /// </summary>
+    public static float LiveAnimationStep(double now, double previous) =>
+        previous > 0 && double.IsFinite(now) && double.IsFinite(previous)
+            ? (float)Math.Clamp(now - previous, 0, LiveAnimationMaxStep)
+            : 0f;
 
     public static string BackgroundRace(string race) => race.ToUpperInvariant() switch
     {

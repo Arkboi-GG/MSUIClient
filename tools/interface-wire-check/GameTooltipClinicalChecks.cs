@@ -1309,10 +1309,11 @@ internal static class GameTooltipClinicalChecks
               spellRenderer.Contains("view.Rank", StringComparison.Ordinal) &&
               spellRenderer.Contains("GameTooltipHeaderText", StringComparison.Ordinal) &&
               spellRenderer.Contains("GameTooltipText", StringComparison.Ordinal) &&
-              spellRenderer.Contains("display.X - 13f * s - size.X", StringComparison.Ordinal) &&
-              spellRenderer.Contains("display.Y - 70f * s - size.Y", StringComparison.Ordinal) &&
-              spellRenderer.Contains("ownerMax.X + 4f * s", StringComparison.Ordinal) &&
-              spellRenderer.Contains("ownerMin.X - size.X - 4f * s", StringComparison.Ordinal) &&
+              spellRenderer.Contains("SpellTooltipLaw.FrameSize", StringComparison.Ordinal) &&
+              spellRenderer.Contains("SpellTooltipLaw.DefaultBottomRightOrigin",
+                  StringComparison.Ordinal) &&
+              spellRenderer.Contains("SpellTooltipLaw.ClampOrigin", StringComparison.Ordinal) &&
+              spellRenderer.Contains("SpellTooltipLaw.OwnerRightOrigin", StringComparison.Ordinal) &&
               spellRenderer.Contains("##spell-tooltip", StringComparison.Ordinal) &&
               spellRenderer.Contains("skin.DrawBackdrop", StringComparison.Ordinal) &&
               spellRenderer.Contains("new Vector4(.09f, .09f, .19f, 1f)",
@@ -1604,6 +1605,8 @@ internal static class GameTooltipClinicalChecks
                   StringComparison.Ordinal) &&
               quest.Contains("GameTooltipOwnerKey tooltipOwner = QuestItemGameTooltipOwner(",
                   StringComparison.Ordinal) &&
+              quest.Contains("QuestFrameUiLaw.ItemTooltipSeat", StringComparison.Ordinal) &&
+              quest.Contains("tooltipPanel == QuestNpcPanel.None", StringComparison.Ordinal) &&
               actions.Contains("GameTooltipOwnerKey tooltipOwner = " +
                   "ActionBarGameTooltipOwner(name, i);", StringComparison.Ordinal) &&
               !bank.Contains("item:bank-item\", (ulong)instance", StringComparison.Ordinal) &&
@@ -1643,7 +1646,8 @@ internal static class GameTooltipClinicalChecks
             StringComparison.Ordinal);
         int amountCod = mail.IndexOf("PreparedItemTooltipPlain(codAmount)", labelCod,
             StringComparison.Ordinal);
-        int offerCod = mail.IndexOf("OfferPreparedItemTooltip(tooltipOwner, tooltipBody);",
+        int offerCod = mail.IndexOf(
+            "OfferPreparedItemTooltip(tooltipOwner, tooltipBody, tooltipSeat.Anchor,",
             amountCod, StringComparison.Ordinal);
         Check(formatCod >= 0 && formatCod < appendCod && appendCod < separatorCod &&
               separatorCod < labelCod && labelCod < amountCod && amountCod < offerCod,
@@ -2412,7 +2416,7 @@ internal static class GameTooltipClinicalChecks
         string actions = SourceText.Read(Path.Combine(client, "Program.ActionBars.cs"));
         string bindings = SourceText.Read(Path.Combine(client, "Program.Bindings.cs"));
         string settings = SourceText.Read(Path.Combine(client, "Program.Settings.cs"));
-        Check(Count(allPrograms, "TryShowNewbieGameTooltip(") == 1 &&
+        Check(Count(allPrograms, "TryShowNewbieGameTooltip(") == 2 &&
               Count(allPrograms, "SetSharedGameTooltipMoney(") == 3 &&
               !settings.Contains("SHOW_NEWBIE_TIPS", StringComparison.Ordinal) &&
               !mail.Contains("SetSharedGameTooltipMoney", StringComparison.Ordinal) &&

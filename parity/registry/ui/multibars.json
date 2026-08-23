@@ -7,8 +7,8 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/MultiBars.xml",
-      "fileSha256": "b75ee64324302989d218b6e931a94e0e4c4b0fbbdc80ac1d4d0dab006f51e9a7",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "738e21b2553fd9ec88484521d36387734df24c44da18c807ce8684d1617f45b4",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [

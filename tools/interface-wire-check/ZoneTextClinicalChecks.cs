@@ -25,7 +25,13 @@ internal static class ZoneTextClinicalChecks
               ZoneTextUiLaw.Alpha(.5) == 1 && ZoneTextUiLaw.Alpha(1.5) == 1 &&
               ZoneTextUiLaw.Alpha(2.5) == .5f && ZoneTextUiLaw.Alpha(3.5) == 0 &&
               ZoneTextUiLaw.FrameCenter(new Vector2(1920, 1080), 1f) ==
-                  new Vector2(960, 504),
+                  new Vector2(960, 504) &&
+              ZoneTextUiLaw.ZoneExtraCenter(new Vector2(960, 504), 24, 12) ==
+                  new Vector2(960, 522) &&
+              ZoneTextUiLaw.SubZoneCenter(new Vector2(960, 504), 24, 12, true) ==
+                  new Vector2(960, 534) &&
+              ZoneTextUiLaw.SubZoneExtraCenter(new Vector2(960, 534), 12) ==
+                  new Vector2(960, 546),
             "zone-text fade/seat law drift");
         MinimapZonePvpInfo arena = MinimapUiLaw.ZonePvp(0x80, 0, 2, 4);
         Check(ZoneTextUiLaw.SubZoneTint(arena) == ZoneTextUiLaw.ArenaTint &&
@@ -43,6 +49,8 @@ internal static class ZoneTextClinicalChecks
             "GameLoop.CombatFeedback.cs"));
         Check(runtime.Contains("ZoneTextFont", StringComparison.Ordinal) &&
               runtime.Contains("SubZoneTextFont", StringComparison.Ordinal) &&
+              runtime.Contains("ZoneTextUiLaw.SubZoneCenter", StringComparison.Ordinal) &&
+              !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               areaWire.Contains("UpdateZoneTextIdentity", StringComparison.Ordinal) &&
               areaWire.Contains("DefaultRow", StringComparison.Ordinal) &&
               areaWire.Contains("GroupRow", StringComparison.Ordinal) &&

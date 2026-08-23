@@ -29,7 +29,8 @@ internal static class RealmLogonClinicalChecks
         string dialBody = realm[dialMethod..challengeSection];
         Check(logonBody.IndexOf("Srp6Client.Normalize(password)", StringComparison.Ordinal) <
               logonBody.IndexOf("DialEncodingUnambiguousChallenge", StringComparison.Ordinal) &&
-              logonBody.Contains("WriteLogonProof(s, srp.A, srp.M1);", StringComparison.Ordinal),
+              logonBody.Contains("WriteLogonProof(s, srp.A, srp.M1, challenge.CrcSalt);",
+                  StringComparison.Ordinal),
             "credentials must normalize before dialing and proof must remain on the kept socket");
         Check(dialBody.Contains("RealmLogonLaw.MaximumChallengeDials", StringComparison.Ordinal) &&
               dialBody.Contains("RealmLogonLaw.KeepChallenge(dial, challenge.ServerPublicKey)",
@@ -43,6 +44,27 @@ internal static class RealmLogonClinicalChecks
               srp.Contains("IsWidthStable(sessionKey) && !last", StringComparison.Ordinal) &&
               srp.Contains("IsWidthStable(m1) && !last", StringComparison.Ordinal),
             "client-generated A/S/K/M1 encoding-stability redraw guards drift");
+
+        byte[] publicKey = Enumerable.Range(0, 32)
+            .Select(i => (byte)(i * 7 + 9)).ToArray();
+        byte[] mangosSalt = Convert.FromHexString("BAA31E99A00B2157FC373FB369CDD2F1");
+        Check(Convert.ToHexString(RealmClient.VersionProof(mangosSalt, publicKey)) ==
+              "9B95CD41EDD719FDDF237294B8ACA17010E71703",
+            "build-5875 Windows integrity proof drift");
+        byte[] unknownSalt = (byte[])mangosSalt.Clone();
+        unknownSalt[0] ^= 0xff;
+        Check(RealmClient.VersionProof(unknownSalt, publicKey).All(b => b == 0),
+            "unknown version challenge reused the fixed mangos digest");
+
+        byte[] m1 = Enumerable.Range(0, 20).Select(i => (byte)(i * 13 + 4)).ToArray();
+        byte[] proofPacket = RealmClient.BuildLogonProof(publicKey, m1, mangosSalt);
+        Check(proofPacket.Length == 75 && proofPacket[0] == 0x01 &&
+              proofPacket.AsSpan(1, 32).SequenceEqual(publicKey) &&
+              proofPacket.AsSpan(33, 20).SequenceEqual(m1) &&
+              proofPacket.AsSpan(53, 20).SequenceEqual(
+                  RealmClient.VersionProof(mangosSalt, publicKey)) &&
+              proofPacket.AsSpan(73, 2).SequenceEqual(new byte[] { 0, 0 }),
+            "CMD_AUTH_LOGON_PROOF version field or packet shape drift");
 
         byte[] serverPublicKey = Enumerable.Range(1, 32).Select(i => (byte)i).ToArray();
         byte[] salt = Enumerable.Range(0, 32).Select(i => (byte)(i * 7 + 3)).ToArray();

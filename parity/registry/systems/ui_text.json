@@ -6,6 +6,36 @@
   "deviationPolicy": "must-match",
   "benillaSources": [
     {
+      "path": "crates/benilla-app/src/ui_text/engine/faces.rs",
+      "fileSha256": "577544abb8e3757ff7070684b9848316433f5bae49b0bd89b284d78944f207b5",
+      "snapshotId": "benilla-ac3264a0296ae90e"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_text/engine/gpu.rs",
+      "fileSha256": "ac1bd26d09b9ffa6356ba0059ceb684765660c62c2899678ca84e4996be119f4",
+      "snapshotId": "benilla-ac3264a0296ae90e"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_text/engine/mod.rs",
+      "fileSha256": "0a7efc5d5228f08832377f0fdbbb4adf9743cb1c35f9db765d40722f7b4f4724",
+      "snapshotId": "benilla-ac3264a0296ae90e"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_text/layout/measure.rs",
+      "fileSha256": "7a10ce5464ffd733f2bb9afd9e7b5e3786925261336ffad1bcdab31619676623",
+      "snapshotId": "benilla-ac3264a0296ae90e"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_text/measurer.rs",
+      "fileSha256": "4e8cccb545fc59852d8b7ba57b1a6c99ac7db7208b9010f13da5ba63d44d3508",
+      "snapshotId": "benilla-ac3264a0296ae90e"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_text/outline.rs",
+      "fileSha256": "0dec42b8788a64e68ac02930d594d0950932c6c1631ddd5d176b63e5f7541dc1",
+      "snapshotId": "benilla-ac3264a0296ae90e"
+    },
+    {
       "path": "crates/benilla-app/src/ui_text/pack.rs",
       "fileSha256": "9f6e37ae452d7ca276c6da3a5a95154a9d91329bf225317252af66e32ca68251",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
@@ -53,7 +83,7 @@
     "tools/interface-wire-check/UiTextMarkupClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI's GameTextLaw/GameText/FontObjectLaw retain the byte-derived 1.12 text metrics and named FrameXML font objects. UiTextMarkupLaw adds current build-5875 color/reset, escaped-pipe, line-break, and hyperlink parsing, carries shared link identity across metric wrapping, and feeds interactive chat color runs. Current Benilla's lower-level grammar proves that later-expansion |T...|t is not a token in 1.12.1 and therefore renders literally. FontStringOverflowLaw now owns the shared fixed-box greedy whitespace wrap, force break, render-ceil versus fit-floor line laws, min-one-line height clamp, scalar-safe backoff, and ASCII-three-dot marker; GameText exposes that law in logical FrameXML box units, and the authored fixed-size Who/Guild roster cells consume it without altering auto-height Friends strings or non-FontString text systems.",
+  "summary": "MSUI's GameTextLaw/GameText/FontObjectLaw retain the byte-derived 1.12 text metrics and named FrameXML font objects. UiTextMarkupLaw adds current build-5875 color/reset, escaped-pipe, line-break, and hyperlink parsing, carries shared link identity across metric wrapping, and feeds interactive chat color runs. Current Benilla's newly split on-demand font engine, face metrics, GPU cache, measurer, outline bake and measure module reinforce the same measure/render identity and exact-size contract; they do not authorize changing the protected MSUI font presentation. Current Benilla's lower-level grammar proves that later-expansion |T...|t is not a token in 1.12.1 and therefore renders literally. FontStringOverflowLaw owns the shared fixed-box greedy whitespace wrap, force break, render-ceil versus fit-floor line laws, min-one-line height clamp, scalar-safe backoff, and ASCII-three-dot marker; GameText exposes that law in logical FrameXML box units, and the authored fixed-size Who/Guild roster cells consume it without altering auto-height Friends strings or non-FontString text systems.",
   "openItems": [
     {
       "id": "item-triage-e4ef5e41",

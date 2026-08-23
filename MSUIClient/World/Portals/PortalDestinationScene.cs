@@ -698,8 +698,22 @@ public sealed class PortalDestinationScene : IDisposable
                     // disabled, and End separately restores the caller's state.
                     _gl.Disable(EnableCap.ClipDistance0);
                 }
-                if (_liquid.TryGetSurface(_camera.Position.X, _camera.Position.Y,
-                        out float surfaceZ, out byte liquidType) && _camera.Position.Z < surfaceZ)
+                float surfaceZ;
+                byte liquidType;
+                bool hasSurface;
+                if (_wmo.CameraGroup is not { IsExterior: false } room)
+                    hasSurface = _liquid.TryGetSurface(_camera.Position.X, _camera.Position.Y,
+                        out surfaceZ, out liquidType);
+                else if (_wmo.TryGetGroupLiquidOverride(
+                             room.InstanceId, room.GroupIndex, out liquidType))
+                {
+                    surfaceZ = float.MaxValue;
+                    hasSurface = true;
+                }
+                else
+                    hasSurface = _liquid.TryGetWmoSurface(_camera.Position, room.InstanceId,
+                        out surfaceZ, out liquidType);
+                if (hasSurface && _camera.Position.Z < surfaceZ)
                     _liquid.RenderUnderwater(surfaceZ - _camera.Position.Z, liquidType);
                 publish = true;
                 return true;

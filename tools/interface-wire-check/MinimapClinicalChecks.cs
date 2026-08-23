@@ -44,6 +44,8 @@ internal static class MinimapClinicalChecks
               MinimapUiLaw.QuestDotUvMax == new Vector2(1f, .25f) &&
               MinimapUiLaw.TrackedCreatureDotUvMin == new Vector2(.25f, 0f) &&
               MinimapUiLaw.TrackedCreatureDotUvMax == new Vector2(.5f, .25f) &&
+              MinimapUiLaw.PartyDotUvMin == new Vector2(0f, .25f) &&
+              MinimapUiLaw.PartyDotUvMax == new Vector2(.25f, .5f) &&
               MinimapUiLaw.ShowTrackedCreatureDot(1u << 6, 7, 0) &&
               !MinimapUiLaw.ShowTrackedCreatureDot(1u << 5, 7, 0) &&
               MinimapUiLaw.ShowTrackedCreatureDot(0, 0, 0x2) &&
@@ -57,6 +59,35 @@ internal static class MinimapClinicalChecks
                   Vector3.Zero, Vector3.Zero), new Vector3(.28125f)) < .0001f &&
               MinimapUiLaw.OutdoorDayTint(Vector3.One, Vector3.One) == Vector3.One,
             "minimap zoom/sound/tooltip law drift");
+
+        MinimapPartyBlip partyDot = MinimapUiLaw.PartyBlip(
+            Vector2.Zero, new Vector2(30, 0), new Vector2(70.4f), 140.8f, 100f);
+        MinimapPartyBlip boundaryDot = MinimapUiLaw.PartyBlip(
+            Vector2.Zero, new Vector2(0, 80), new Vector2(70.4f), 140.8f, 100f);
+        MinimapPartyBlip partyArrow = MinimapUiLaw.PartyBlip(
+            Vector2.Zero, new Vector2(-300, 0), new Vector2(70.4f), 140.8f, 100f);
+        Check(!partyDot.IsArrow && partyDot.Center == new Vector2(70.4f, 49.28f) &&
+              MathF.Abs(partyDot.Size - 10.4f) < .001f &&
+              !boundaryDot.IsArrow && boundaryDot.Center == new Vector2(14.08f, 70.4f) &&
+              partyArrow.IsArrow &&
+              Vector2.Distance(partyArrow.Center, new Vector2(70.4f, 126.72f)) < .001f &&
+              MathF.Abs(partyArrow.Size - 38.4f) < .001f &&
+              MathF.Abs(partyArrow.Rotation - MathF.PI) < .001f,
+            "minimap party dot/0.8 split/rim-arrow projection drift");
+
+        Check(WmoMinimapProjection.CompositeSize == 256 &&
+              WmoMinimapProjection.CompositeHalfExtentScale == 1.5f &&
+              MathF.Abs(WmoMinimapProjection.CompositeBlitFraction - 2f / 3f) < .0001f &&
+              MathF.Abs(WmoMinimapProjection.InteriorAlphaReference - 224f / 255f) < .0001f &&
+              WmoMinimapProjection.ToCompositeClip(
+                  new Vector2(70), new Vector2(70), 140f) == Vector2.Zero &&
+              Vector2.Distance(WmoMinimapProjection.ToCompositeClip(
+                  new Vector2(0, 70), new Vector2(70), 140f),
+                  new Vector2(-2f / 3f, 0f)) < .0001f &&
+              Vector2.Distance(WmoMinimapProjection.ToCompositeClip(
+                  new Vector2(140, 70), new Vector2(70), 140f),
+                  new Vector2(2f / 3f, 0f)) < .0001f,
+            "interior minimap fixed-target/minify/crop law drift");
 
         AreaPoiInfo[] pois =
         [
@@ -86,6 +117,8 @@ internal static class MinimapClinicalChecks
         string bindings = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Bindings.cs"));
         string program = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.cs"));
+        string composite = SourceText.Read(Path.Combine(root, "MSUIClient", "Engine", "UI",
+            "InteriorMinimapComposite.cs"));
         Check(runtime.Contains("MinimapUiLaw.ZonePvp", StringComparison.Ordinal) &&
               runtime.Contains("DrawMinimapZoomButton", StringComparison.Ordinal) &&
               runtime.Contains("SetMinimapVisible", StringComparison.Ordinal) &&
@@ -95,10 +128,23 @@ internal static class MinimapClinicalChecks
               runtime.Contains("MinimapTrackedCreatureType", StringComparison.Ordinal) &&
               runtime.Contains("MinimapBlipTint", StringComparison.Ordinal) &&
               runtime.Contains("DrawMinimapLandmarks", StringComparison.Ordinal) &&
+              runtime.Contains("DrawMinimapPartyArrows", StringComparison.Ordinal) &&
+              runtime.Contains("DrawMinimapCorpseArrow", StringComparison.Ordinal) &&
+              runtime.Contains("PartyMinimapPositions", StringComparison.Ordinal) &&
+              runtime.Contains("ControlledGuid == LocalPlayerGuid\n            ? PartyFrameMembers()",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("MinimapUiLaw.PartyBlip", StringComparison.Ordinal) &&
               runtime.Contains("ROTATING-MINIMAPARROW", StringComparison.Ordinal) &&
               runtime.Contains("AddRotatedMinimapImage", StringComparison.Ordinal) &&
               runtime.Contains("MinimapUiLaw.OutdoorDayTint", StringComparison.Ordinal) &&
               runtime.Contains("tint: packedTint", StringComparison.Ordinal) &&
+              runtime.Contains("_minimapInteriorComposite.Render", StringComparison.Ordinal) &&
+              runtime.Contains("WmoMinimapProjection.CompositeBlitFraction", StringComparison.Ordinal) &&
+              runtime.Contains("uvMin: uvMin, uvMax: uvMax", StringComparison.Ordinal) &&
+              composite.Contains("InternalFormat.Rgba8", StringComparison.Ordinal) &&
+              composite.Contains("_gl.Disable(EnableCap.Blend)", StringComparison.Ordinal) &&
+              composite.Contains("uAlphaReference", StringComparison.Ordinal) &&
+              composite.Contains("if(t.a<uAlphaReference) discard", StringComparison.Ordinal) &&
               runtime.Contains("minimap-tracking", StringComparison.Ordinal) &&
               runtime.Contains("StepMinimapZoom(bool zoomIn, bool insideWmo",
                   StringComparison.Ordinal) &&

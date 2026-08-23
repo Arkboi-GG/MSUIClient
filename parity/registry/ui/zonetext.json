@@ -22,7 +22,7 @@
     "tools/interface-wire-check/AutoFollowClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI now implements current Benilla's full ZoneText surface: NEW_AREA/INDOORS/ordinary event election, cached-text gates, exact 0.5/1.0/2.0 fade, authored BOTTOM+512 seat, exact font objects, PvP tint/territory line, lower subzone seat, and red PvP Area line. The independent AutoFollowStatus is also live at full-screen center on BACKGROUND, with a latched subject, full-alpha Begin and four-second linear End fade.",
+  "summary": "MSUI now implements current Benilla's full ZoneText surface: NEW_AREA/INDOORS/ordinary event election, cached-text gates, exact 0.5/1.0/2.0 fade, authored BOTTOM+512 seat, exact font objects, PvP tint/territory line, lower subzone seat, and red PvP Area line. The independent AutoFollowStatus is also live at full-screen center on BACKGROUND, with a latched subject, full-alpha Begin and four-second linear End fade. ZoneTextUiLaw owns the stacked text centers; the renderer contains no local Vector2 geometry. Focused and full deterministic checks pass.",
   "openItems": [
     {
       "id": "item-triage-9f2a884e",
@@ -72,6 +72,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-21T22:37:24.3864032+00:00",
+  "lastReviewedUtc": "2026-08-23T04:49:32.6361394Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

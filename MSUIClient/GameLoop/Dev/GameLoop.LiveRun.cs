@@ -1920,8 +1920,8 @@ public sealed partial class GameLoop
                 scenario.GetProperty("frameWidth").GetDouble() != EnchantConfirmUiLaw.FrameWidth ||
                 scenario.GetProperty("frameHeight").GetDouble() != EnchantConfirmUiLaw.FrameHeight ||
                 !scenario.GetProperty("layoutProfile").GetString()!.Equals(
-                    "msui-preserved-alert-360x96", StringComparison.Ordinal))
-                failures.Add("preserved-layout-contract");
+                    "benilla-staticpopup-alert-420", StringComparison.Ordinal))
+                failures.Add("benilla-layout-contract");
 
             string manifestDirectory = Path.GetDirectoryName(_uiParityCompletedManifest)!;
             foreach (JsonElement file in root.GetProperty("files").EnumerateArray())

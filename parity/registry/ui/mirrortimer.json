@@ -24,7 +24,7 @@
     "tools/interface-wire-check/MirrorTimerClinicalChecks.cs"
   ],
   "status": "complete",
-  "summary": "MSUI implements the three authored top-center MirrorTimer bars for fatigue, breath, and feign death: first-idle/stable re-state slot ownership, exact colors and captions (including owning-spell names), server-rate client integration, pause/stop handling, world-enter reset, and law-owned 206x26 stacking/status/border geometry.",
+  "summary": "MSUI implements the three authored top-center MirrorTimer bars for fatigue, breath, and feign death: first-idle/stable re-state slot ownership, exact colors and captions (including owning-spell names), server-rate client integration, pause/stop handling, world-enter reset, and law-owned 206x26 stacking, fill, border, and UV projection. The renderer contains no local Vector2 geometry; focused and full deterministic checks pass.",
   "openItems": [
     {
       "id": "item-triage-592d97ff",
@@ -57,6 +57,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-21T16:00:00+00:00",
+  "lastReviewedUtc": "2026-08-23T04:49:32.6361394Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -18,42 +18,37 @@ public sealed partial class GameLoop
             string name = rawName.Split(' ', StringSplitOptions.RemoveEmptyEntries)
                 .LastOrDefault() ?? "";
             if (name.Length == 0) return;
-            if (ImGui.GetIO().KeyShift)
+            switch (ItemRefTooltipUiLaw.PlayerAction(ImGui.GetIO().KeyShift,
+                        _chatEditOpen, button == ImGuiMouseButton.Right))
             {
-                if (_chatEditOpen)
-                {
-                    _chatInput += name;
-                    _chatEditCursorToEnd = true;
-                }
-            }
-            else if (button == ImGuiMouseButton.Right)
-            {
-                OpenFriendPopup(name, ImGui.GetIO().MousePos);
-            }
-            else
-            {
-                OpenChatEditWith($"/w {name} ");
+                case ItemRefClickAction.InsertPlayerName:
+                    InsertChatText(name);
+                    break;
+                case ItemRefClickAction.OpenFriendMenu:
+                    OpenFriendPopup(name, ImGui.GetIO().MousePos);
+                    break;
+                case ItemRefClickAction.Whisper:
+                    OpenChatEditWith($"/w {name} ");
+                    break;
             }
             return;
         }
 
         if (!link.Payload.StartsWith("item:", StringComparison.OrdinalIgnoreCase)) return;
-        if (ImGui.GetIO().KeyShift)
-        {
-            if (_chatEditOpen)
-            {
-                _chatInput += link.Markup;
-                _chatEditCursorToEnd = true;
-            }
-            return;
-        }
-
         string entryText = link.Payload[5..].Split(':', 2)[0];
         if (!uint.TryParse(entryText, out uint entry) || entry == 0) return;
-        if (ImGui.GetIO().KeyCtrl)
+        string itemMarkup = link.FullMarkup.Length > 0 ? link.FullMarkup : link.Markup;
+        switch (ItemRefTooltipUiLaw.ItemAction(ImGui.GetIO().KeyCtrl,
+                    ImGui.GetIO().KeyShift, _chatEditOpen, itemMarkup.Length > 0))
         {
-            TryOnDressUp(entry);
-            return;
+            case ItemRefClickAction.DressUp:
+                TryOnDressUp(entry);
+                return;
+            case ItemRefClickAction.InsertItemLink:
+                InsertChatText(itemMarkup);
+                return;
+            case ItemRefClickAction.None:
+                return;
         }
         _itemRefEntry = entry;
         _itemRefPayload = link.Payload;
@@ -93,14 +88,14 @@ public sealed partial class GameLoop
                 uint? color = operation.Kind == PreparedItemTooltipPaintKind.Colored
                     ? ImGui.ColorConvertFloat4ToU32(operation.Color) : null;
                 GameText.Draw(draw, font, operation.Text,
-                    origin + new Vector2(ItemRefTooltipUiLaw.Padding, y) * s, s, color);
+                    ItemRefTooltipUiLaw.LinePosition(origin, y, s), s, color);
                 y += ItemRefTooltipUiLaw.LinePitch;
             }
         }
         else
         {
             GameText.Draw(draw, "GameTooltipText", loading,
-                origin + new Vector2(ItemRefTooltipUiLaw.Padding, y) * s, s);
+                ItemRefTooltipUiLaw.LinePosition(origin, y, s), s);
         }
 
         DrawImageButton(draw, "##item-ref-close",

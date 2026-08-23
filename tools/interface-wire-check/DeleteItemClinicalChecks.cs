@@ -23,6 +23,22 @@ internal static class DeleteItemClinicalChecks
               DeleteItemUiLaw.Definition.HideOnEscape &&
               DeleteItemUiLaw.Definition.ShowAlert,
             "DELETE_ITEM StaticPopup law drift");
+        DeleteItemUiLaw.PopupLayout layout = DeleteItemUiLaw.Layout(12);
+        Check(layout.Size == new System.Numerics.Vector2(420, 72) &&
+              layout.Text == new StaticPopupCoordinatorLaw.Rect(65, 16, 290, 12) &&
+              layout.Alert == new StaticPopupCoordinatorLaw.Rect(12, 4, 64, 64) &&
+              layout.Button1 == new StaticPopupCoordinatorLaw.Rect(76, 36, 128, 20) &&
+              layout.Button2 == new StaticPopupCoordinatorLaw.Rect(217, 36, 128, 20) &&
+              DeleteItemUiLaw.TextLineCenter(layout, 12, 0) ==
+                  new System.Numerics.Vector2(210, 22),
+            "DELETE_ITEM showAlert child layout drift");
+        Check(StaticPopupCoordinatorLaw.ScreenOrigin(
+                  new System.Numerics.Vector2(1920, 1080), 420, 1.5f, 1, 72) ==
+                  new System.Numerics.Vector2(645, 192) &&
+              StaticPopupCoordinatorLaw.ScreenOrigin(
+                  new System.Numerics.Vector2(1920, 1080), 420, 1.5f, 2, 72) ==
+                  new System.Numerics.Vector2(645, 312),
+            "StaticPopup centered first/second slot screen geometry drift");
 
         StaticPopupCoordinatorLaw.Plan shown = StaticPopupCoordinatorLaw.Show(
             StaticPopupCoordinatorLaw.Slots.Empty, DeleteItemUiLaw.Definition,
@@ -48,7 +64,10 @@ internal static class DeleteItemClinicalChecks
               flow.Contains("AddPendingBagLock(pending.Container, pending.Slot",
                   StringComparison.Ordinal) &&
               flow.Contains("StaticPopupOrigin", StringComparison.Ordinal) &&
-              flow.Contains("DeleteItemUiLaw.ButtonOneX", StringComparison.Ordinal) &&
+              flow.Contains("StaticPopupCoordinatorLaw.ScreenOrigin", StringComparison.Ordinal) &&
+              flow.Contains("DeleteItemUiLaw.Layout", StringComparison.Ordinal) &&
+              !flow.Contains("new Vector2", StringComparison.Ordinal) &&
+              !flow.Contains("return new(", StringComparison.Ordinal) &&
               !flow.Contains("BeginVanillaWindow", StringComparison.Ordinal) &&
               inventory.Contains("TryOpenDeleteItemConfirmation()", StringComparison.Ordinal),
             "world-drop confirm, pending lock, or law-positioned modal is unwired");

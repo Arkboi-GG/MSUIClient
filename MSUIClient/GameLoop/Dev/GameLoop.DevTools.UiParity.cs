@@ -159,7 +159,6 @@ public sealed partial class GameLoop
             return;
         }
 
-        _hearthOpen = false;
         if (panel == "game-menu") OpenSettings();
         if (panel == "options") { OpenSettings(); _menuPage=MenuPage.Video; }
         if (panel == "backpack") _backpackOpen = true;

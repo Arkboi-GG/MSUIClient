@@ -5,13 +5,14 @@ using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Units;
 
 namespace MSUIClient;
 
 /// <summary>
 /// Local target acquisition and the small server command state machine shared by
-/// selection and auto-attack. GPU-skinned creatures use conservative vertical
-/// cylinders; static world collision still wins when it is strictly nearer.
+/// selection and auto-attack. Units pick against the renderer's last completed posed
+/// triangles; static world collision still wins when it is strictly nearer.
 /// </summary>
 public sealed partial class GameLoop
 {
@@ -24,6 +25,13 @@ public sealed partial class GameLoop
     private ulong _selectionGuid;
     private ulong _attackTargetGuid;
     private long _targetCombatSeen;
+    private ulong _selectionVitalsGuid;
+    private bool _selectionWasDead;
+    private TargetPressPick _leftTargetPressPick;
+    private TargetPressPick _rightTargetPressPick;
+    private bool _targetLeftWasDown;
+    private bool _targetRightWasDown;
+    private readonly List<UnitPickCandidate> _unitPickCandidates = [];
     private readonly Dictionary<ulong, string> _playerNames = [];
     private readonly Dictionary<ulong, PlayerTraits> _playerTraits = [];
     private readonly Dictionary<uint, string> _creatureNames = [];
@@ -32,6 +40,8 @@ public sealed partial class GameLoop
     private readonly HashSet<ulong> _queriedPlayerNames = [];
     private readonly HashSet<uint> _queriedCreatureNames = [];
     private readonly HashSet<uint> _queriedPetNames = [];
+    private readonly record struct UnitPickCandidate(
+        ulong Guid, bool Dead, SpellUnitPose Pose);
 
     private void ResetTargeting()
     {
@@ -44,6 +54,13 @@ public sealed partial class GameLoop
         _hoveredGameObjectGuid = 0;
         _selectionGuid = 0;
         _attackTargetGuid = 0;
+        _selectionVitalsGuid = 0;
+        _selectionWasDead = false;
+        _leftTargetPressPick = default;
+        _rightTargetPressPick = default;
+        _targetLeftWasDown = false;
+        _targetRightWasDown = false;
+        _targetCycleHistory.Clear();
         // Resolved hit and negative records are template identities and survive zoning/session
         // teardown. Only an unanswered writer ask must become re-askable.
         _queriedCreatureNames.Clear();
@@ -96,6 +113,22 @@ public sealed partial class GameLoop
         UpdateQuestGiverStatusQueries();
         UpdateTaxiNodeStatusQueries();
 
+        // Freeze the exact previous-frame hover on the first primary-button down edge,
+        // before this frame's camera-look gate clears hover. Release consumes this subject;
+        // it never re-picks whatever later moved beneath the stored press pixel.
+        bool leftDown = _window.MouseLeftDown;
+        bool rightDown = _window.MouseRightDown;
+        _leftTargetPressPick = TargetPressPickLaw.Update(
+            _leftTargetPressPick, leftDown, _targetLeftWasDown, rightDown,
+            _hoveredGuid, _hoveredGameObjectGuid, _groundCursorPoint);
+        _rightTargetPressPick = TargetPressPickLaw.Update(
+            _rightTargetPressPick, rightDown, _targetRightWasDown, leftDown,
+            _hoveredGuid, _hoveredGameObjectGuid, _groundCursorPoint);
+        (_leftTargetPressPick, _rightTargetPressPick) = TargetPressPickLaw.CancelChord(
+            leftDown, rightDown, _leftTargetPressPick, _rightTargetPressPick);
+        _targetLeftWasDown = leftDown;
+        _targetRightWasDown = rightDown;
+
         // Reconcile the speculative local attack latch with the authoritative echo.
         if (_net is not null && _combat.AttackRevision != _targetCombatSeen)
         {
@@ -113,8 +146,31 @@ public sealed partial class GameLoop
         // A dead target STAYS selected (the 1.12 client keeps the corpse in the target frame,
         // which is what the frame's "DEAD" line and corpse looting both rely on). Only a
         // despawn clears the selection.
-        if (_selectionGuid != 0 && !_entities.TryGet(_selectionGuid, out _))
+        if (_selectionGuid == 0)
+        {
+            _selectionVitalsGuid = 0;
+            _selectionWasDead = false;
+        }
+        else if (!_entities.TryGet(_selectionGuid, out WorldEntity? selectedVitals))
+        {
             CommitSelection(0, beginAttack: false);
+            _selectionVitalsGuid = 0;
+            _selectionWasDead = false;
+        }
+        else
+        {
+            bool dead = selectedVitals.IsDead;
+            bool died = SelectionRingLaw.DiedWhileSelected(
+                _selectionVitalsGuid, _selectionWasDead, _selectionGuid, dead);
+            _selectionVitalsGuid = _selectionGuid;
+            _selectionWasDead = dead;
+            if (died)
+            {
+                CommitSelection(0, beginAttack: false);
+                _selectionVitalsGuid = 0;
+                _selectionWasDead = false;
+            }
+        }
 
         if (!_window.MouseCaptured && !ImGui.GetIO().WantCaptureMouse && !_settingsOpen)
         {
@@ -145,6 +201,10 @@ public sealed partial class GameLoop
         // this method runs in the update phase, where touching ImGui draw lists crashes.)
         while (_window.TryDequeueWorldClick(out WorldMouseClick click))
         {
+            TargetPressPick pressPick = click.Button == MouseButton.Left
+                ? _leftTargetPressPick : _rightTargetPressPick;
+            if (click.Button == MouseButton.Left) _leftTargetPressPick = default;
+            else _rightTargetPressPick = default;
             if (_settingsOpen || ImGui.GetIO().WantCaptureMouse) continue;
             // NPC dev window: an armed edit mode (waypoint drawing / spawn move) owns
             // every world click, ahead of the free-view router - no stray RTS orders
@@ -166,17 +226,34 @@ public sealed partial class GameLoop
             {
                 uint armed = _groundCastSpell;
                 _groundCastSpell = 0;
-                if (click.Button == MouseButton.Left && TryPickGround(click.Position, out Vector3 spot))
-                    CommitGroundCast(armed, spot);
+                if (click.Button == MouseButton.Left)
+                {
+                    if (pressPick.Armed && pressPick.GroundPoint is Vector3 latchedGround)
+                        CommitGroundCast(armed, latchedGround);
+                    else if (!pressPick.Armed && TryPickGround(click.Position, out Vector3 spot))
+                        CommitGroundCast(armed, spot);
+                }
                 continue;
             }
-            ulong picked = PickUnit(click.Position, out float pickedUnitHit);
+            ulong picked;
+            float pickedUnitHit;
+            if (pressPick.Armed)
+            {
+                picked = pressPick.UnitGuid;
+                pickedUnitHit = picked == 0 ? float.PositiveInfinity : 0f;
+            }
+            else
+            {
+                picked = PickUnit(click.Position, out pickedUnitHit);
+            }
             // A gameobject strictly in front of any unit owns a right-click:
             // vanilla routes it to the object's interaction (mailbox opens
             // mail, chest sends CMSG_GAMEOBJ_USE), never to selection.
             // UseGameObject already gates range, type and world-state.
             ulong goClicked = click.Button == MouseButton.Right
-                ? PickGameObject(click.Position, pickedUnitHit, out _)
+                ? pressPick.Armed
+                    ? pressPick.GameObjectGuid
+                    : PickGameObject(click.Position, pickedUnitHit, out _)
                 : 0;
             if (goClicked != 0)
             {
@@ -190,8 +267,15 @@ public sealed partial class GameLoop
                 // NPC dev window focus set: Ctrl+LeftClick multi-selects for the
                 // "Selected only" overlay scope and consumes the click.
                 if (HandleDevFocusClick(picked)) continue;
+                // The world-model twin of PetFrame's DropItemOnUnit("pet"). Selection still
+                // proceeds from this same press-latched pick whether feeding succeeds or refuses.
+                if (HasCarriedItem && picked == _petGuid &&
+                    _entities.TryGet(picked, out WorldEntity pickedPet) && pickedPet.IsUnit)
+                    TryFeedCarriedItemToPet(pickedPet);
                 RequestNpcSelectionGreeting(picked);
-                CommitSelection(picked, beginAttack: false); // empty left clears
+                CommitSelection(TargetClickLaw.LeftClickSelection(
+                    _selectionGuid, picked, Settings.Controls.StickyTargeting),
+                    beginAttack: false);
             }
             else if (click.Button == MouseButton.Right && picked != 0)
             {
@@ -258,14 +342,43 @@ public sealed partial class GameLoop
 
     private void DrawSelectionRing()
     {
-        if (_selectionRing is null || _selectionGuid == 0 ||
+        if (_spellEffectMeshes is null || _selectionGuid == 0 ||
             !_entities.TryGet(_selectionGuid, out WorldEntity target)) return;
         FactionReaction reaction = ReactionTargetTowardPlayer(target);
         uint uptime = MovementInfo.ClientUptimeMs();
         Vector3 color = NameplateUiLaw.SelectionRgb(reaction, target.IsPlayer, target.IsDead,
             _attackTargetGuid == target.Guid, uptime);
         float radius = _creatures?.SelectionRadius(target) ?? .7f * MathF.Max(.01f, target.Scale);
-        _selectionRing.Render(_window.Camera, target.Position, radius, color);
+        _spellEffectMeshes.RenderUnitSelectionRing(
+            _window.Camera, target.Position, radius, color);
+    }
+
+    private void DrawFishingLines()
+    {
+        if (_fishingLineRenderer is null || _doodads is null) return;
+
+        IEnumerable<FishingPoleTipPlacement> tips =
+            _character?.FishingPoleTips ?? Array.Empty<FishingPoleTipPlacement>();
+        if (_creatures is not null) tips = tips.Concat(_creatures.FishingPoleTips);
+
+        var spans = new List<FishingLineSpan>();
+        foreach (FishingPoleTipPlacement tip in tips)
+        {
+            if (!_entities.TryGet(tip.OwnerGuid, out WorldEntity owner)) continue;
+            ulong? targetGuid = owner.Fields.ChannelObject;
+            if (targetGuid is not > 0 ||
+                !_entities.TryGet(targetGuid.Value, out WorldEntity bobber) ||
+                !FishingLineLaw.Eligible(owner.Fields.ChannelSpell, targetGuid,
+                    bobber.IsGameObject, bobber.GameObjectType) ||
+                !_doodads.TryGetDynamicFishingLineEnd(targetGuid.Value, out Vector3 far))
+                continue;
+            spans.Add(new FishingLineSpan(tip.WorldPosition, far));
+        }
+
+        Vector3 ambient = Vector3.Clamp(
+            _atmosphere.AmbientColor * _atmosphere.AmbientIntensity,
+            Vector3.Zero, Vector3.One);
+        _fishingLineRenderer.Render(_window.Camera, spans, ambient);
     }
 
     private void CommitSelection(ulong guid, bool beginAttack)
@@ -431,8 +544,10 @@ public sealed partial class GameLoop
         if (ray is null) return 0;
 
         (Vector3 origin, Vector3 direction) = ray.Value;
-        float nearest = TargetPickDistance;
+        float nearest = float.PositiveInfinity;
         ulong picked = 0;
+        ulong previousPick = _hoveredGuid;
+        _unitPickCandidates.Clear();
 
         foreach (WorldEntity entity in _entities.Units)
         {
@@ -445,67 +560,49 @@ public sealed partial class GameLoop
                 (entity.Fields.UnitFlags & NotSelectable) != 0)
                 continue;
 
-            float scale = _creatures?.PickScale(entity) ?? MathF.Max(0.01f, entity.Scale);
-            float radius = MathF.Max(0.35f, 0.70f * scale);
-            float height = MathF.Max(1.4f, 2.2f * scale);
-            if (RayVerticalCylinder(origin, direction, entity.Position, radius, height, out float hit) &&
-                hit < nearest)
+            // A pose is published only after the model actually drew. This makes the pick set
+            // obey the same scene election as rendering: an unloaded, culled, or skipped body
+            // cannot be targeted through a wall simply because its network row still exists.
+            if (_creatures?.TryGetSpellPose(entity.Guid, out SpellUnitPose pose) != true)
+                continue;
+            _unitPickCandidates.Add(new UnitPickCandidate(entity.Guid, entity.IsDead, pose));
+            if (_creatures.TryGetMountSpellPose(entity.Guid, out SpellUnitPose mountPose))
+                _unitPickCandidates.Add(new UnitPickCandidate(entity.Guid, entity.IsDead, mountPose));
+        }
+
+        // Pass one: exact posed render triangles, pure nearest-wins across every unit and mount.
+        foreach (UnitPickCandidate candidate in _unitPickCandidates)
+            if (TargetMeshPickLaw.TryPick(candidate.Pose, origin, direction,
+                    inflated: false, out float hit) && hit < nearest)
             {
                 nearest = hit;
-                picked = entity.Guid;
+                picked = candidate.Guid;
+            }
+
+        // Pass two runs only when nothing hit exactly anywhere. Its priority ladder is sticky
+        // previous hover, then alive over dead, with distance breaking equal-priority ties.
+        if (picked == 0)
+        {
+            uint bestPriority = 0;
+            foreach (UnitPickCandidate candidate in _unitPickCandidates)
+            {
+                if (!TargetMeshPickLaw.TryPick(candidate.Pose, origin, direction,
+                        inflated: true, out float hit))
+                    continue;
+                uint priority = TargetMeshPickLaw.HaloPriority(
+                    candidate.Guid == previousPick, candidate.Dead);
+                if (!TargetMeshPickLaw.HaloWins(hit, priority, nearest, bestPriority)) continue;
+                nearest = hit;
+                bestPriority = priority;
+                picked = candidate.Guid;
             }
         }
 
         if (picked != 0 && _collision?.Raycast(origin, direction, nearest) is { } worldHit &&
-            worldHit.Distance < nearest - 0.01f)
+            worldHit.Distance < nearest)
             return 0;
         if (picked != 0) hitDistance = nearest;
         return picked;
-    }
-
-    private static bool RayVerticalCylinder(
-        Vector3 origin, Vector3 direction, Vector3 feet, float radius, float height, out float hit)
-    {
-        float nearest = float.PositiveInfinity;
-        float ox = origin.X - feet.X, oy = origin.Y - feet.Y;
-        float a = direction.X * direction.X + direction.Y * direction.Y;
-        float b = 2f * (ox * direction.X + oy * direction.Y);
-        float c = ox * ox + oy * oy - radius * radius;
-
-        if (a > 1e-7f)
-        {
-            float discriminant = b * b - 4f * a * c;
-            if (discriminant >= 0f)
-            {
-                float root = MathF.Sqrt(discriminant);
-                float t0 = (-b - root) / (2f * a);
-                float t1 = (-b + root) / (2f * a);
-                TestSide(t0);
-                TestSide(t1);
-            }
-        }
-
-        if (MathF.Abs(direction.Z) > 1e-7f)
-        {
-            TestCap((feet.Z - origin.Z) / direction.Z);
-            TestCap((feet.Z + height - origin.Z) / direction.Z);
-        }
-        hit = nearest;
-        return float.IsFinite(nearest);
-
-        void TestSide(float t)
-        {
-            if (t < 0f || t >= nearest) return;
-            float z = origin.Z + direction.Z * t;
-            if (z >= feet.Z && z <= feet.Z + height) nearest = t;
-        }
-
-        void TestCap(float t)
-        {
-            if (t < 0f || t >= nearest) return;
-            float x = ox + direction.X * t, y = oy + direction.Y * t;
-            if (x * x + y * y <= radius * radius) nearest = t;
-        }
     }
 
     private void DrawTargetFrame()

@@ -54,6 +54,13 @@ internal static class MirrorTimerClinicalChecks
               third.Min == new Vector2(857, 148) &&
               MirrorTimerUiLaw.BarMin == new Vector2(5.5f, 2) &&
               MirrorTimerUiLaw.BorderMin == new Vector2(-25, -25) &&
+              MirrorTimerUiLaw.BarRect(first, 1) ==
+                  new MirrorTimerUiLaw.ScreenRect(new Vector2(862.5f, 98),
+                      new Vector2(195, 13)) &&
+              MirrorTimerUiLaw.BorderRect(first, 1) ==
+                  new MirrorTimerUiLaw.ScreenRect(new Vector2(832, 71),
+                      new Vector2(256, 64)) &&
+              MirrorTimerUiLaw.FillUvMax(.75f) == new Vector2(.75f, 1) &&
               MirrorTimerUiLaw.ScriptName(MirrorTimerKind.Fatigue) == "EXHAUSTION" &&
               MirrorTimerUiLaw.FallbackCaption(MirrorTimerKind.Fatigue) == "Fatigue" &&
               MirrorTimerUiLaw.FallbackCaption(MirrorTimerKind.Breath) == "Breath" &&
@@ -70,6 +77,9 @@ internal static class MirrorTimerClinicalChecks
             "GameLoop.CombatFeedback.cs"));
         Check(runtime.Contains("MirrorTimerPackets.ParseStart", StringComparison.Ordinal) &&
               runtime.Contains("MirrorTimerUiLaw.FrameRect", StringComparison.Ordinal) &&
+              runtime.Contains("MirrorTimerUiLaw.BarRect", StringComparison.Ordinal) &&
+              runtime.Contains("MirrorTimerUiLaw.BorderRect", StringComparison.Ordinal) &&
+              !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               runtime.Contains("MirrorTimerState.FractionAt", StringComparison.Ordinal) &&
               runtime.Contains("spell.Name", StringComparison.Ordinal) &&
               !runtime.Contains("SetNextWindowPos", StringComparison.Ordinal) &&

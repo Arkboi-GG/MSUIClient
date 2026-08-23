@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 using MSUIClient.Net;
 using MSUIClient.World.Units;
 
@@ -92,7 +93,8 @@ public sealed partial class GameLoop
     private void DrawTabardFrame()
     {
         if (!_tabardOpen || _gameplayArt is null) return;
-        if (!BeginVanillaWindow("##tabard", new Vector2(0, 104), new Vector2(384, 512),
+        if (!BeginVanillaWindow("##tabard", TabardFrameUiLaw.Frame.Min,
+                TabardFrameUiLaw.Frame.Size,
                 out ImDrawListPtr dl, out Vector2 origin, out float s)) { ImGui.End(); return; }
         DrawFourPieceShell(dl, origin, s,
             @"Interface\PaperDollInfoFrame\UI-Character-General-TopLeft",
@@ -100,9 +102,11 @@ public sealed partial class GameLoop
             @"Interface\ClassTrainerFrame\UI-ClassTrainer-BotLeft",
             @"Interface\ClassTrainerFrame\UI-ClassTrainer-BotRight");
         DrawArt(dl, @"Interface\TabardFrame\TabardFrameBackground",
-            origin + new Vector2(23, 76) * s, new Vector2(316, 325), s);
-        DrawCenteredText(dl, origin + new Vector2(192, 18) * s, "Guild Tabard", 14f * s, VanillaGold);
-        DrawCenteredText(dl, origin + new Vector2(192, 44) * s,
+            origin + TabardFrameUiLaw.Background.Min * s,
+            TabardFrameUiLaw.Background.Size, s);
+        DrawCenteredText(dl, origin + TabardFrameUiLaw.TitleCenter * s,
+            "Guild Tabard", 14f * s, VanillaGold);
+        DrawCenteredText(dl, origin + TabardFrameUiLaw.SubtitleCenter * s,
             "Choose your guild emblem", 11f * s, 0xffffffff);
 
         string[] labels = ["Emblem Symbol", "Emblem Color", "Border", "Border Color", "Background"];
@@ -110,25 +114,33 @@ public sealed partial class GameLoop
         uint[] maxima = [99, 16, 5, 16, 50];
         for (int i = 0; i < labels.Length; i++)
         {
-            float y = 172 + i * 43;
-            DrawCenteredText(dl, origin + new Vector2(274, y) * s, labels[i], 9f * s, 0xffffffff);
-            if (TabardArrow(dl, $"##tabard-prev-{i}", origin + new Vector2(218, y + 8) * s, false, s))
+            TabardFrameUiLaw.SelectorLayout selector = TabardFrameUiLaw.Selector(i);
+            DrawCenteredText(dl, origin + selector.LabelCenter * s,
+                labels[i], 9f * s, 0xffffffff);
+            if (TabardArrow(dl, $"##tabard-prev-{i}", origin,
+                    selector.Previous, false, s))
                 values[i] = values[i] == 0 ? maxima[i] : values[i] - 1;
-            if (TabardArrow(dl, $"##tabard-next-{i}", origin + new Vector2(306, y + 8) * s, true, s))
+            if (TabardArrow(dl, $"##tabard-next-{i}", origin,
+                    selector.Next, true, s))
                 values[i] = values[i] >= maxima[i] ? 0 : values[i] + 1;
-            DrawCenteredText(dl, origin + new Vector2(278, y + 24) * s, values[i].ToString(), 10f * s, VanillaGold);
+            DrawCenteredText(dl, origin + selector.ValueCenter * s,
+                values[i].ToString(), 10f * s, VanillaGold);
         }
         (_tabardStyle, _tabardColor, _tabardBorderStyle, _tabardBorderColor, _tabardBackgroundColor) =
             (values[0], values[1], values[2], values[3], values[4]);
 
-        dl.AddText(ImGui.GetFont(), 10f * s, origin + new Vector2(55, 399) * s, 0xffffffff, "Cost: 10 gold");
+        dl.AddText(ImGui.GetFont(), 10f * s, origin + TabardFrameUiLaw.Cost * s,
+            0xffffffff, "Cost: 10 gold");
         if (VanillaButton(dl, "##tabard-accept", "Accept",
-                origin + new Vector2(184, 409) * s, new Vector2(80, 22), s))
+                origin + TabardFrameUiLaw.Accept.Min * s,
+                TabardFrameUiLaw.Accept.Size, s))
             SaveTabardDesign(_tabardStyle, _tabardColor, _tabardBorderStyle,
                 _tabardBorderColor, _tabardBackgroundColor);
         if (VanillaButton(dl, "##tabard-cancel", "Cancel",
-                origin + new Vector2(265, 409) * s, new Vector2(80, 22), s)) _tabardOpen = false;
-        DrawImageButton(dl, "##tabard-close", origin + new Vector2(323, 8) * s, new Vector2(32) * s,
+                origin + TabardFrameUiLaw.Cancel.Min * s,
+                TabardFrameUiLaw.Cancel.Size, s)) _tabardOpen = false;
+        DrawImageButton(dl, "##tabard-close", origin + TabardFrameUiLaw.Close.Min * s,
+            TabardFrameUiLaw.Close.Size * s,
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
@@ -136,10 +148,11 @@ public sealed partial class GameLoop
         ImGui.End();
     }
 
-    private bool TabardArrow(ImDrawListPtr dl, string id, Vector2 min, bool next, float s)
+    private bool TabardArrow(ImDrawListPtr dl, string id, Vector2 origin,
+        TabardFrameUiLaw.LogicalRect rect, bool next, float s)
     {
         string stem = next ? "Next" : "Prev";
-        return DrawImageButtonClicked(dl, id, min, new Vector2(32) * s,
+        return DrawImageButtonClicked(dl, id, origin + rect.Min * s, rect.Size * s,
             $@"Interface\Buttons\UI-SpellbookIcon-{stem}Page-Up",
             $@"Interface\Buttons\UI-SpellbookIcon-{stem}Page-Down",
             @"Interface\Buttons\UI-Common-MouseHilight");

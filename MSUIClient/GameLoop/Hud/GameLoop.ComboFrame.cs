@@ -50,7 +50,7 @@ public sealed partial class GameLoop
             Vector2 pointMin = targetFrameMinimum + ComboFrameUiLaw.PointMinimum(i) * scale;
             draw.AddImage((nint)sheet, pointMin,
                 pointMin + ComboFrameUiLaw.SocketSize * scale,
-                Vector2.Zero, new Vector2(0.375f, 1), White(frameAlpha));
+                ComboFrameUiLaw.SocketUvMin, ComboFrameUiLaw.SocketUvMax, White(frameAlpha));
             if (i >= points) continue;
 
             float highlightAlpha = frameAlpha * ComboFrameUiLaw.HighlightAlpha(
@@ -58,14 +58,15 @@ public sealed partial class GameLoop
             Vector2 highlightMin = pointMin + ComboFrameUiLaw.HighlightOffset * scale;
             draw.AddImage((nint)sheet, highlightMin,
                 highlightMin + ComboFrameUiLaw.HighlightSize * scale,
-                new Vector2(0.375f, 0), new Vector2(0.5625f, 1), White(highlightAlpha));
+                ComboFrameUiLaw.HighlightUvMin, ComboFrameUiLaw.HighlightUvMax,
+                White(highlightAlpha));
 
             float shineAlpha = frameAlpha * ComboFrameUiLaw.ShineAlpha(now, _comboPointEarnedAt[i]);
             if (additiveSheet == 0 || shineAlpha <= 0) continue;
             Vector2 shineMin = pointMin + ComboFrameUiLaw.ShineOffset * scale;
             draw.AddImage((nint)additiveSheet, shineMin,
                 shineMin + ComboFrameUiLaw.ShineSize * scale,
-                new Vector2(0.5625f, 0), Vector2.One, White(shineAlpha));
+                ComboFrameUiLaw.ShineUvMin, ComboFrameUiLaw.ShineUvMax, White(shineAlpha));
         }
     }
 }

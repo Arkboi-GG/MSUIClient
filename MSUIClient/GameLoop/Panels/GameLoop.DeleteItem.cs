@@ -88,11 +88,9 @@ public sealed partial class GameLoop
 
     private Vector2 StaticPopupOrigin(int slot, float logicalWidth, float scale)
     {
-        Vector2 display = ImGui.GetIO().DisplaySize;
-        float top = DeleteItemUiLaw.ScreenTop;
-        if (slot == 2)
-            top += StaticPopupFirstHeight(scale) + DeleteItemUiLaw.SlotGap;
-        return new((display.X - logicalWidth * scale) * .5f, top * scale);
+        float firstHeight = slot == 2 ? StaticPopupFirstHeight(scale) : 0;
+        return StaticPopupCoordinatorLaw.ScreenOrigin(
+            ImGui.GetIO().DisplaySize, logicalWidth, scale, slot, firstHeight);
     }
 
     private void DrawDeleteItemConfirmation()
@@ -106,9 +104,9 @@ public sealed partial class GameLoop
         string[] lines = WrapTooltipText(text, "GameFontHighlight", scale,
             DeleteItemUiLaw.TextWidth * scale).ToArray();
         float logicalTextHeight = lines.Length * GameText.LinePitch("GameFontHighlight", 1);
-        float logicalHeight = DeleteItemUiLaw.Height(logicalTextHeight);
+        DeleteItemUiLaw.PopupLayout layout = DeleteItemUiLaw.Layout(logicalTextHeight);
         Vector2 origin = StaticPopupOrigin(visible.Slot, DeleteItemUiLaw.Width, scale);
-        Vector2 size = new(DeleteItemUiLaw.Width * scale, logicalHeight * scale);
+        Vector2 size = layout.Size * scale;
 
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
@@ -124,23 +122,19 @@ public sealed partial class GameLoop
         ImDrawListPtr draw = ImGui.GetWindowDrawList();
         draw.PushClipRectFullScreen();
         _skin.DrawBackdrop(draw, origin, origin + size, WowSkin.Dialog);
-        _skin.GlueImage(draw, "dialog.alert",
-            origin + new Vector2(DeleteItemUiLaw.AlertLeft,
-                (logicalHeight - DeleteItemUiLaw.AlertSize) * .5f) * scale,
-            origin + new Vector2(DeleteItemUiLaw.AlertLeft + DeleteItemUiLaw.AlertSize,
-                (logicalHeight + DeleteItemUiLaw.AlertSize) * .5f) * scale);
+        Vector2 alertMin = origin + layout.Alert.Min * scale;
+        _skin.GlueImage(draw, "dialog.alert", alertMin,
+            alertMin + layout.Alert.Size * scale);
         for (int i = 0; i < lines.Length; i++)
             GameText.DrawCentered(draw, "GameFontHighlight", lines[i],
-                origin + new Vector2(DeleteItemUiLaw.Width * .5f,
-                    DeleteItemUiLaw.TextTop +
-                    (i + .5f) * GameText.LinePitch("GameFontHighlight", 1)) * scale, scale);
+                origin + DeleteItemUiLaw.TextLineCenter(layout,
+                    GameText.LinePitch("GameFontHighlight", 1), i) * scale, scale);
 
-        float buttonTop = DeleteItemUiLaw.ButtonTop(logicalTextHeight);
         bool yes = DrawPartyInviteButton(draw, "StaticPopup1Button1", "Yes",
-            origin + new Vector2(DeleteItemUiLaw.ButtonOneX(DeleteItemUiLaw.Width), buttonTop) * scale,
+            origin + layout.Button1.Min * scale,
             scale, capture: false, default);
         bool no = DrawPartyInviteButton(draw, "StaticPopup1Button2", "No",
-            origin + new Vector2(DeleteItemUiLaw.ButtonTwoX(DeleteItemUiLaw.Width), buttonTop) * scale,
+            origin + layout.Button2.Min * scale,
             scale, capture: false, default);
         draw.PopClipRect();
         ImGui.End();

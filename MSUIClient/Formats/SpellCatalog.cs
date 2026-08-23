@@ -25,7 +25,8 @@ public readonly record struct SpellInfo(
     uint EquippedItemInventoryTypeMask = 0,
     uint ActiveIconId = 0, string ActiveIconPath = "",
     uint[]? EffectTriggerSpells = null,
-    int StanceBarOrder = 0)
+    int StanceBarOrder = 0,
+    bool CategoryWildcard = false)
 {
     public bool Passive => (Attributes & 0x40) != 0;
     public bool HiddenClientSide => (Attributes & 0x80) != 0;
@@ -40,6 +41,11 @@ public readonly record struct SpellInfo(
     public bool MeleeWhiteDamage => (AttributesEx3 & 0x8000) != 0;
     public bool OnNextSwing => (Attributes & 0x404) != 0;
     public bool CooldownOnEvent => (Attributes & 0x0200_0000) != 0;
+    /// <summary>Build-5875 ranged shots add the live ranged-weapon speed to category recovery.</summary>
+    public bool RangedSpeedCooldown =>
+        (Attributes & 0x2) != 0 && (AttributesEx2 & 0x0002_0000) == 0;
+    /// <summary>Attack and trade-skill openers are excluded at the cooldown getter head.</summary>
+    public bool CooldownQueryExcluded => EffectIds?.FirstOrDefault() is 47 or 78;
     // SpellRec InterruptFlags: bit 0 is SPELL_INTERRUPT_FLAG_MOVEMENT. Bit 3 belongs
     // to a different interrupt reason; treating it as movement made instant, movement-
     // castable spells such as Blink send CMSG_CANCEL_CAST on the next move edge.
@@ -61,6 +67,7 @@ public sealed class SpellCatalog
     public const string IconPath = @"DBFilesClient\SpellIcon.dbc";
     public const string RangePath = @"DBFilesClient\SpellRange.dbc";
     public const string RadiusPath = @"DBFilesClient\SpellRadius.dbc";
+    public const string CategoryPath = @"DBFilesClient\SpellCategory.dbc";
     /// <summary>
     /// A location-targeted spell with no positive authored effect radius still needs a usable
     /// placement cursor. Eight yards preserves the pre-radius implementation for that data-hole;
@@ -75,6 +82,7 @@ public sealed class SpellCatalog
     private readonly Dictionary<uint, SpellReagent[]> _reagents = new();
     private readonly Dictionary<uint, uint> _createdItems = new();
     private readonly Dictionary<uint, uint[]> _tools = new();
+    private readonly Dictionary<uint, uint> _declaredLanguages = new();
 
     public int Count => _spells.Count;
     public IEnumerable<SpellInfo> Spells => _spells.Values;
@@ -133,6 +141,7 @@ public sealed class SpellCatalog
     public uint CreatedItem(uint spellId) => _createdItems.GetValueOrDefault(spellId);
     public IReadOnlyList<uint> Tools(uint spellId) =>
         _tools.TryGetValue(spellId, out uint[]? tools) ? tools : [];
+    public uint DeclaredLanguage(uint spellId) => _declaredLanguages.GetValueOrDefault(spellId);
 
     public static SpellCatalog? Load(MpqMount mpq)
     {
@@ -153,6 +162,16 @@ public sealed class SpellCatalog
         }
 
         var result = new SpellCatalog();
+
+        // SpellCategory flags bit 0x2 makes that category match every cooldown query. In the
+        // shipped 5875 data this is category 351 (wand Shoot), but read the authored table
+        // instead of baking the row id into behavior.
+        var wildcardCategories = new HashSet<uint>();
+        DbcFile? categories = Parse(mpq, CategoryPath);
+        if (categories is not null && categories.FieldCount >= 2)
+            for (int row = 0; row < categories.RecordCount; row++)
+                if ((categories.GetUInt(row, 1) & 0x2) != 0)
+                    wildcardCategories.Add(categories.GetUInt(row, 0));
 
         DbcFile? castTimes = Parse(mpq, @"DBFilesClient\SpellCastTimes.dbc");
         if (castTimes is not null && castTimes.FieldCount >= 4)
@@ -192,6 +211,8 @@ public sealed class SpellCatalog
         {
             uint id = spells.GetUInt(row, 0);
             if (id == 0) continue;
+            if (spells.GetUInt(row, 61) == 39 && spells.GetInt(row, 106) > 0)
+                result._declaredLanguages[id] = (uint)spells.GetInt(row, 106);
             iconMap.TryGetValue(spells.GetUInt(row, 117), out string? icon);
             uint activeIconId = spells.GetUInt(row, 118);
             iconMap.TryGetValue(activeIconId, out string? activeIcon);
@@ -239,7 +260,8 @@ public sealed class SpellCatalog
                 ActiveIconId: activeIconId, ActiveIconPath: activeIcon ?? "",
                 EffectTriggerSpells: Enumerable.Range(0, 3)
                     .Select(i => spells.GetUInt(row, 109 + i)).ToArray(),
-                StanceBarOrder: spells.GetInt(row, 166));
+                StanceBarOrder: spells.GetInt(row, 166),
+                CategoryWildcard: wildcardCategories.Contains(spells.GetUInt(row, 15)));
             uint[] tools = Enumerable.Range(0, 2).Select(i => spells.GetUInt(row, 39 + i))
                 .Where(x => x != 0).ToArray();
             if (tools.Length > 0) result._tools[id] = tools;

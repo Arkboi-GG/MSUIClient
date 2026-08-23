@@ -1,6 +1,7 @@
 ﻿using System.Numerics;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
+using MSUIClient.Engine.UI;
 using Silk.NET.OpenGL;
 using Shader = MSUIClient.Engine.Shader;
 using Texture = MSUIClient.Engine.Texture;
@@ -775,6 +776,25 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         // GxRs blend-mode 2: the texture's authored alpha preserves the fine rings and glyphs.
         // Additive blending blooms those details into the broad neon arcs seen in the old marker.
         RenderGroundQuads(camera, [(vertices, rune, 2, Vector3.One, 1f, 0)]);
+    }
+
+    /// <summary>
+    /// The stock 1.12 selected-unit ring. UnitSelectTexture's authored fade rotates with the
+    /// camera, while the square itself is projected onto the accepted ADT/WMO/doodad ground
+    /// triangles. No receiving surface means no ring, matching the reference's mid-air gate.
+    /// </summary>
+    public bool RenderUnitSelectionRing(Camera camera, Vector3 centre, float radius, Vector3 tint)
+    {
+        if (_groundShader is null || radius <= 0f) return false;
+        Texture? ring = ResolveTexture(@"Textures\UnitSelectTexture.blp");
+        if (ring is null) return false;
+        (float sin, float cos) = SelectionRingLaw.ProjectorRotation(camera.ViewYaw);
+        var frame = new DecalFrame(centre, sin, cos, radius, radius, 2f * radius);
+        Span<Vector2> uv = [new(0, 0), new(1, 0), new(0, 1), new(1, 1)];
+        float[]? vertices = ProjectDecal(frame, uv, camera.Position);
+        if (vertices is null) return false;
+        RenderGroundQuads(camera, [(vertices, ring, 3, tint, 1f, 0)], UnitAwareDepthBias);
+        return true;
     }
 
     // ── RTS ground FX (CRPG free view): selection rings + move markers ────────────────────────

@@ -12,6 +12,8 @@ internal static class ItemTextFrameClinicalChecks
               ItemTextFrameUiLaw.Title == new ItemTextFrameUiLaw.LogicalRect(86, 19, 224, 14) &&
               ItemTextFrameUiLaw.Scroll == new ItemTextFrameUiLaw.LogicalRect(38, 76, 280, 355) &&
               ItemTextFrameUiLaw.Body == new ItemTextFrameUiLaw.LogicalRect(38, 91, 270, 304) &&
+              ItemTextFrameUiLaw.BodyLineMin(new Vector2(38, 91), 3, 14, 7, 2) ==
+                  new Vector2(38, 119) &&
               ItemTextFrameUiLaw.Close == new ItemTextFrameUiLaw.LogicalRect(323, 10, 32, 32),
             "item-text frame/scroll/body geometry drift");
 
@@ -42,6 +44,24 @@ internal static class ItemTextFrameClinicalChecks
                   "Hello & bye",
             "item-text paging/creator/SimpleHTML law drift");
 
+        IReadOnlyList<ItemTextFrameUiLaw.TextBlock> blocks =
+            ItemTextFrameUiLaw.ComposeBlocks(
+                "<HTML><BODY><H1 align=\"center\">Ranks</H1><BR/>" +
+                "<P align=\"right\">Private</P></BODY></HTML>", null);
+        Check(blocks.SequenceEqual(new[]
+              {
+                  new ItemTextFrameUiLaw.TextBlock("", ItemTextFrameUiLaw.TextAlignment.Left),
+                  new ItemTextFrameUiLaw.TextBlock("Ranks", ItemTextFrameUiLaw.TextAlignment.Center),
+                  new ItemTextFrameUiLaw.TextBlock("", ItemTextFrameUiLaw.TextAlignment.Left),
+                  new ItemTextFrameUiLaw.TextBlock("Private", ItemTextFrameUiLaw.TextAlignment.Right),
+                  new ItemTextFrameUiLaw.TextBlock("", ItemTextFrameUiLaw.TextAlignment.Left),
+              }) &&
+              ItemTextFrameUiLaw.BodyLineX(38, 270, 100,
+                  ItemTextFrameUiLaw.TextAlignment.Center) == 123 &&
+              ItemTextFrameUiLaw.BodyLineX(38, 270, 100,
+                  ItemTextFrameUiLaw.TextAlignment.Right) == 208,
+            "item-text SimpleHTML block alignment drift");
+
         string root = ClientConfig.FindRepoRoot();
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.ItemText.cs"));
@@ -55,9 +75,16 @@ internal static class ItemTextFrameClinicalChecks
         Check(runtime.Contains("ItemTextFrameUiLaw.FrameOrigin", StringComparison.Ordinal) &&
               runtime.Contains("ItemTextFontNormal", StringComparison.Ordinal) &&
               runtime.Contains("ItemTextQuery(textId, 0)", StringComparison.Ordinal) &&
+              runtime.Contains("PageTextQuery(pageId, guid)", StringComparison.Ordinal) &&
+              runtime.Contains("_pageTextPending.Add(pageId)", StringComparison.Ordinal) &&
+              runtime.Contains("BuildPageTextQueryBody(pageId, guid)", StringComparison.Ordinal) &&
               runtime.Contains("read.Visited.Add", StringComparison.Ordinal) &&
               runtime.Contains("read.Visited.RemoveAt", StringComparison.Ordinal) &&
               runtime.Contains("ItemTextFrameUiLaw.MaterialArt", StringComparison.Ordinal) &&
+              runtime.Contains("ItemTextFrameUiLaw.BodyLineMin", StringComparison.Ordinal) &&
+              runtime.Contains("ItemTextFrameUiLaw.ComposeBlocks", StringComparison.Ordinal) &&
+              runtime.Contains("ItemTextFrameUiLaw.BodyLineX", StringComparison.Ordinal) &&
+              !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               !runtime.Contains("BeginVanillaWindow(\"##item-text\", new Vector2",
                   StringComparison.Ordinal) &&
               !runtime.Contains("CMSG_READ_ITEM", StringComparison.Ordinal),
@@ -69,6 +96,8 @@ internal static class ItemTextFrameClinicalChecks
               objects.Contains("go.GameObjectType == 9", StringComparison.Ordinal) &&
               objects.Contains("LOCAL_ITEM_TEXT_OPEN", StringComparison.Ordinal) &&
               objects.Contains("OpenGameObjectText(go)", StringComparison.Ordinal) &&
+              objects.Contains("_pageTextPending.Remove(id)", StringComparison.Ordinal) &&
+              !objects.Contains("PageTextQuery(next)", StringComparison.Ordinal) &&
               !objects.Contains("_gameObjectPages.Clear()", StringComparison.Ordinal) &&
               items.Contains("item.PageMaterial = r.ReadU32()", StringComparison.Ordinal) &&
               fields.Contains("ITEM_FIELD_CREATOR = 10", StringComparison.Ordinal) &&

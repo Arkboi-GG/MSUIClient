@@ -87,6 +87,7 @@ public sealed class SpellEffectSource
         public Matrix4x4 Transform;
         public double Started;
         public SpellEffectPlayback Playback;
+        public bool RenderMesh;
         public bool Seen;
     }
 
@@ -132,6 +133,7 @@ public sealed class SpellEffectSource
                 _itemGlows[placement.Key] = glow;
             }
             glow.Transform = placement.Transform;
+            glow.RenderMesh = placement.RenderMesh;
             glow.Seen = true;
         }
         foreach (string key in _itemGlows.Where(pair => !pair.Value.Seen)
@@ -648,7 +650,7 @@ public sealed class SpellEffectSource
         foreach (ItemGlowInstance glow in _itemGlows.Values)
         {
             Asset asset = glow.Asset;
-            if (!asset.Model.IsValid) continue;
+            if (!glow.RenderMesh || !asset.Model.IsValid) continue;
             yield return new SpellMeshDraw(glow.Id, asset.Path, asset.Model, glow.Transform,
                 (float)Math.Max(0, now - glow.Started), glow.Playback.SequenceIndex,
                 false, null, Vector3.One, 1f);

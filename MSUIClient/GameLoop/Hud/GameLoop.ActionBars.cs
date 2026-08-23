@@ -20,6 +20,10 @@ public sealed partial class GameLoop
     private readonly bool[] _actionKeyWasDown = new bool[12];
     private readonly bool[] _multiActionKeyWasDown = new bool[24];
     private readonly bool[] _multiActionKeyArmed = new bool[24];
+    private readonly bool[] _shapeshiftKeyWasDown = new bool[10];
+    private readonly bool[] _bonusActionKeyWasDown = new bool[10];
+    private readonly bool[] _bonusActionKeyArmed = new bool[10];
+    private bool _toggleActionBarLockWasDown;
     private long _actionUses;
     private int _pressedActionSlot = -1;
     private ImGuiMouseButton _actionPressMouseButton = ImGuiMouseButton.Left;
@@ -100,6 +104,46 @@ public sealed partial class GameLoop
             }
         }
         UpdateMicroMenuBindingInput(typing);
+        UpdateSocialTabBindings(typing);
+        UpdateActionBarTailBindings(typing);
+    }
+
+    private void UpdateActionBarTailBindings(bool typing)
+    {
+        IReadOnlyList<SpellInfo> forms = CurrentStanceForms();
+        WorldEntity? player = _entities.TryGet(ControlledGuid, out WorldEntity self) ? self : null;
+        for (int i = 0; i < _shapeshiftKeyWasDown.Length; i++)
+        {
+            bool down = BindingDown(ShapeshiftBinding(i));
+            if (down && !_shapeshiftKeyWasDown[i] && !typing && i < forms.Count)
+            {
+                SpellInfo spell = forms[i];
+                ActivateStanceSpell(spell, StanceSpellActive(spell, player));
+            }
+            _shapeshiftKeyWasDown[i] = down;
+        }
+
+        bool inWorld = _net is { IsInWorld: true };
+        for (int i = 0; i < _bonusActionKeyWasDown.Length; i++)
+        {
+            bool down = BindingDown(BonusActionBinding(i));
+            MultiActionKeyTransition transition = MultiActionBarUiLaw.AdvanceKey(
+                _bonusActionKeyArmed[i], _bonusActionKeyWasDown[i], down, typing, inWorld);
+            _bonusActionKeyArmed[i] = transition.Armed;
+            _bonusActionKeyWasDown[i] = down;
+            if (transition.Fire)
+            {
+                WorldEntity? pet = _entities.TryGet(_petGuid, out WorldEntity entity) &&
+                    entity.IsUnit ? entity : null;
+                UsePetAction(i, _petGuid, pet);
+            }
+        }
+
+        bool lockDown = BindingDown(GameBinding.ToggleActionBarLock);
+        if (lockDown && !_toggleActionBarLockWasDown && !typing)
+            Settings.Controls.LockActionBars =
+                ActionBarLockLaw.Toggle(Settings.Controls.LockActionBars);
+        _toggleActionBarLockWasDown = lockDown;
     }
 
     private void UpdateMicroMenuBindingInput(bool typing)
@@ -179,7 +223,7 @@ public sealed partial class GameLoop
             EmitCastVerdict(spellId, CastTargetReason.AlreadyQueued, 0, sent: false);
             return;
         }
-        if (_actions.IsOnCooldown(spellId, now, spell.Category) || now < _globalCooldownUntil)
+        if (_actions.IsOnCooldown(spellId, 0, spell, now))
         {
             EmitCastVerdict(spellId, CastTargetReason.CooldownOrGlobalCooldown, 0, sent: false);
             RefuseCast(spellId, "LOCAL_COOLDOWN", "Spell is not ready yet.");
@@ -301,8 +345,7 @@ public sealed partial class GameLoop
         {
             double now = NowSeconds();
             _globalCooldownUntil = now + spell.StartRecoveryMs / 1000.0;
-            _actions.StartCooldown(spellId, spell.StartRecoveryCategory, 0,
-                spell.StartRecoveryMs, now);
+            _actions.StartGlobalCooldown(spellId, spell, now);
         }
     }
 
@@ -336,8 +379,7 @@ public sealed partial class GameLoop
         {
             double now = NowSeconds();
             _globalCooldownUntil = now + spell.StartRecoveryMs / 1000.0;
-            _actions.StartCooldown(spellId, spell.StartRecoveryCategory, 0,
-                spell.StartRecoveryMs, now);
+            _actions.StartGlobalCooldown(spellId, spell, now);
         }
     }
 
@@ -506,11 +548,9 @@ public sealed partial class GameLoop
             ImGui.GetForegroundDrawList().AddText(
                 ImGui.GetIO().MousePos + new Vector2(18f, 14f) * scale, 0xFF00E060,
                 "Select target area");
-        else if (_itemCastSpell != 0 && !_window.MouseCaptured)
-            ImGui.GetForegroundDrawList().AddText(
-                ImGui.GetIO().MousePos + new Vector2(18f, 14f) * scale, 0xFF00E060,
-                "Select item");
-        if (_pressedActionSlot >= 0 && ImGui.IsMouseDown(_actionPressMouseButton) &&
+        if (_pressedActionSlot >= 0 &&
+            ActionBarLockLaw.DragGestureAllowed(Settings.Controls.LockActionBars) &&
+            ImGui.IsMouseDown(_actionPressMouseButton) &&
             Vector2.Distance(ImGui.GetIO().MousePos, _actionPressPosition) > 6f * scale)
         {
             // ActionButton_OnDragStart always calls PickupAction, for either mouse button and
@@ -570,6 +610,7 @@ public sealed partial class GameLoop
                 string iconPath = @"Interface\Icons\INV_Misc_QuestionMark.blp";
                 string title = $"Action {action.ActionId}";
                 SpellInfo? spellInfo = null;
+                ItemTemplate? itemInfo = null;
                 if (action.Kind == ActionSlot.Spell && _spellCatalog?.TryGet(action.ActionId, out SpellInfo spell) == true)
                 {
                     spellInfo = spell;
@@ -578,6 +619,7 @@ public sealed partial class GameLoop
                 }
                 else if (action.Kind == ActionSlot.Item && _items?.TryGet(action.ActionId, out ItemTemplate? item) == true && item is not null)
                 {
+                    itemInfo = item;
                     iconPath = item.IconPath;
                     title = item.Name;
                 }
@@ -610,10 +652,14 @@ public sealed partial class GameLoop
                     if (flash != 0) dl.AddImage((nint)flash, buttonMin, buttonMax);
                 }
 
-                uint cooldownCategory = !verdict.IsItem && _spellCatalog?.TryGet(verdict.ActionId,
-                    out SpellInfo cooldownSpell) == true ? cooldownSpell.Category : 0;
-                if (!verdict.IsItem && _actions.TryCooldownDisplay(verdict.ActionId, now,
-                        cooldownCategory, out CooldownDisplay cooldown))
+                CooldownDisplay cooldown = default;
+                bool hasCooldown = verdict.IsItem && itemInfo is { UseSpellId: not 0 }
+                    ? _actions.TryCooldownDisplay(itemInfo.UseSpellId, itemInfo.Entry,
+                        itemInfo.UseSpellCategory, now, out cooldown)
+                    : spellInfo is { } cooldownSpell &&
+                      _actions.TryCooldownDisplay(verdict.ActionId, 0, cooldownSpell, now,
+                          out cooldown);
+                if (hasCooldown)
                 {
                     if (cooldown.SweepFraction is { } sweep)
                         DrawCooldownSwipe(dl, buttonMin, buttonMax, sweep);
@@ -927,13 +973,15 @@ public sealed partial class GameLoop
                 else if (proofBar)
                     ClassifyUiParity(button + "Flash", "Texture", button, "NOT-DRAWN",
                         "action-not-flashing-or-off-phase");
-                uint cooldownAction = verdict.IsItem ? itemInfo?.UseSpellId ?? 0 : verdict.ActionId;
-                uint cooldownCategory = verdict.IsItem ? itemInfo?.UseSpellCategory ?? 0 :
-                    _spellCatalog?.TryGet(verdict.ActionId, out SpellInfo cooldownSpell) == true
-                        ? cooldownSpell.Category : 0;
                 bool cooldownVisible = false;
-                if (cooldownAction != 0 && _actions.TryCooldownDisplay(cooldownAction, now,
-                        cooldownCategory, out CooldownDisplay cooldown))
+                CooldownDisplay cooldown = default;
+                bool hasCooldown = verdict.IsItem && itemInfo is { UseSpellId: not 0 }
+                    ? _actions.TryCooldownDisplay(itemInfo.UseSpellId, itemInfo.Entry,
+                        itemInfo.UseSpellCategory, now, out cooldown)
+                    : spellInfo is { } cooldownSpell &&
+                      _actions.TryCooldownDisplay(verdict.ActionId, 0, cooldownSpell, now,
+                          out cooldown);
+                if (hasCooldown)
                 {
                     if (cooldown.SweepFraction is { } sweep)
                     {
@@ -1284,19 +1332,21 @@ public sealed partial class GameLoop
     {
         if (!ImGui.IsMouseReleased(ImGuiMouseButton.Left) &&
             !ImGui.IsMouseReleased(ImGuiMouseButton.Right)) return;
+        int receiveSlot = ActionBarLockLaw.ReceiveDragAllowed(Settings.Controls.LockActionBars)
+            ? _hoveredActionSlot : -1;
         if (_draggingMacroId != 0)
         {
-            if (_hoveredActionSlot >= 0)
+            if (receiveSlot >= 0)
             {
                 var macroAction = new ActionSlot(ActionSlot.Macro, _draggingMacroId);
-                PlaceActionPayload(_hoveredActionSlot, macroAction);
+                PlaceActionPayload(receiveSlot, macroAction);
                 _draggingMacroId = 0;
             }
             _pressedMacroId = 0;
         }
         else if (_draggingSpellId != 0)
         {
-            if (_hoveredActionSlot >= 0)
+            if (receiveSlot >= 0)
             {
                 if (_spellCatalog?.TryGet(_draggingSpellId, out SpellInfo spell) != true)
                 {
@@ -1311,15 +1361,15 @@ public sealed partial class GameLoop
                 else
                 {
                     var spellAction = new ActionSlot(ActionSlot.Spell, _draggingSpellId);
-                    PlaceActionPayload(_hoveredActionSlot, spellAction);
+                    PlaceActionPayload(receiveSlot, spellAction);
                     _draggingSpellId = 0;
                 }
             }
         }
         else if (_actionCursor is { } held && !_actionCursorChangedThisFrame &&
-                 _hoveredActionSlot >= 0)
+                 receiveSlot >= 0)
         {
-            PlaceActionPayload(_hoveredActionSlot, held);
+            PlaceActionPayload(receiveSlot, held);
         }
         _pressedActionSlot = -1;
     }

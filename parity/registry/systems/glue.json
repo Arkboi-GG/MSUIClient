@@ -7,41 +7,55 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/glue/add_material.rs",
-      "fileSha256": "3a7bf00fd7049fc9a0ecdcea2c4d81b02c359bcf25232c9987bd7b5711b048b3",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "af46f6262c2839b9be078f760ff590d9826f242d6ef2e50d29c41587a079d49c",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/glue/art.rs",
-      "fileSha256": "5007c4f3d3d1fb6cfac1c4789c063dbeb4a1ef98a9004385f12715fa79a52aa2",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "9636439c0dfb2ccb5b486e380cfb2167bf8f52d0fe57307255314eb1f9a8c57b",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/glue/backdrop.rs",
-      "fileSha256": "e817a4481a9b863a971fbd2fe2a26b802b18b5dcb0aabb46b26ec7ae68535ea1",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "77d44b590f1d0c20f43bdf93e1b407cd66764aaa88d239a15038ddae01de1917",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/glue/mod.rs",
-      "fileSha256": "38f5927292b8eb4952e07c8436db460505d4375f635e26bba17a01316bed2932",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "523690e45c2f83ea3f481c31f0d4a17ab283015ffbfde8098d5dab74d7890a47",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     },
     {
       "path": "crates/benilla-app/src/glue/widgets.rs",
-      "fileSha256": "f86da92b5f827f70fa00790d4a7bb97f70205148c18674719759c6df62bad381",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "8c415d51d031c061d9f2243ad693f4664598d366863c9e986693a39514ae2698",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Engine/GlueScene.cs",
     "MSUIClient/Engine/GlueBooth.cs",
-    "MSUIClient/Engine/UI/WowSkin.cs"
+    "MSUIClient/Engine/UI/WowSkin.cs",
+    "MSUIClient/Engine/UI/GlueAdditive.cs",
+    "MSUIClient/Engine/UI/CharCreateUiLaw.cs",
+    "MSUIClient/Engine/UI/CharSelectUiLaw.cs",
+    "MSUIClient/Engine/UI/LoginUiLaw.cs"
   ],
   "status": "support-only",
-  "summary": "Benilla's glue module is the shared pre-world screen vocabulary - the GlueArt asset set, ADD-mode UI material, backdrop fitting, widget/outline builders - i.e. rendering scaffolding for char-select/create. MSUI draws the same screens through its own scaffolding: GlueScene renders the UI_MainMenu / UI_<Race> M2 scenes, GlueBooth poses the geared preview character, and WowSkin + GlueImageUv provide the skinned chrome/art. The observable screens themselves are judged under systems/char_select and systems/char_create.",
-  "openItems": [],
+  "summary": "Current Benilla's glue module is the shared pre-world vocabulary: client-data art, byte-derived backdrop splitting/fitting, true SrcAlpha/One ADD overlays, outlined text, fields/caret/selection, button states, arrows, checkbox and scrollbars. MSUI supplies the connected desktop equivalents through GlueScene, GlueBooth, WowSkin and its dedicated GlueAdditive GL pass, with rule-owned create/select/login geometry. The current AddOns-only art inventory is intentionally not imported without an addon/Lua consumer; that conditional product gap is tracked under systems/char_select. Observable screens remain judged under systems/login, systems/char_select and systems/char_create.",
+  "openItems": [
+    {
+      "id": "item-glue-current-support-audit-20260823",
+      "kind": "gap",
+      "text": "Reconcile the evolved shared glue module, including true additive highlights, backdrop fitting, field/button vocabulary and AddOns-only art, against MSUI's desktop consumers.",
+      "source": "benilla-b57ee0e9e2c8822b/glue",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: Confirmed connected desktop support is present: true SrcAlpha/One GL overlays, backdrop laws, outlined text, field/button states, arrows, checkbox, scrollbars and current delete-dialog art. AddOns-only inventory remains gated with its absent consumer under systems/char_select."
+    }
+  ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T08:32:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

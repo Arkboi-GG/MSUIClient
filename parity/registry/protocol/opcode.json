@@ -9,13 +9,22 @@
       "path": "crates/benilla-protocol/src/messages/opcode.rs",
       "fileSha256": "83a2cd2d8479533423263b0fec532a25e31a451324815b2b3e0a0c90c891729d",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/player_flags.rs",
+      "fileSha256": "e3a4a58aaf054fd8b26ece265d77ca0e29627793fc0b120c3c930eb3c50c1835",
+      "snapshotId": "benilla-current-2026-08-23"
     }
   ],
   "msuiAnchors": [
-    "MSUIClient/Net/Opcodes.cs"
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Net/NetworkClient.cs",
+    "tools/interface-wire-check/OpcodeInventoryClinicalChecks.cs",
+    "tools/interface-wire-check/EquipmentDisplayPreferenceClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "Benilla's opcode.rs is the numeric opcode table for everything it sends and receives. MSUI's counterpart now includes every opcode exercised by implemented systems, including the contiguous channel administration block, auto-store-bag, pet autocast, compressed movement batches, the complete force-speed, base movement relay, observer MOVE_SET/SPLINE_SET speed, granted move-mode, server-scripted sound, weather, cooldown-extra, and implemented raid/group families. Absent constants continue to track whole unimplemented families rather than scattered omissions.",
+  "status": "complete",
+  "summary": "Benilla's opcode.rs is the numeric opcode table for everything it sends and receives. The 2026-08-23 mechanical recount finds 424 current Benilla names, all 424 present in MSUI with zero numeric mismatches. MSUI additionally retains 62 implemented auction/ticket/login-feedback and SuperUI-specific constants not currently named by Benilla. CMSG_TOGGLE_HELM 0x02B9 and CMSG_TOGGLE_CLOAK 0x02BA now also have their exact empty-bodied WorldSession sends and guarded NetworkClient surface, with focused wire-shape checks.",
   "openItems": [
     {
       "id": "item-triage-1655719c",
@@ -23,12 +32,13 @@
       "text": "Composite opcode-table inventory remains open and needs a fresh recount after this parity pass. Channel moderation, AUTOSTORE_BAG_ITEM and PET_SPELL_AUTOCAST are now present alongside the complete force-speed, base movement relay, observer MOVE_SET/SPLINE_SET speed, granted move-mode, server-scripted sound, weather, cooldown-extra, and implemented raid/group opcodes; several miscellaneous server-event families remain to inventory.",
       "source": "triage-2026-08-09/batch-protocol-2.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23: Fresh name/value recount against current benilla-protocol opcode.rs reports Benilla 424, MSUI shared 424, missing 0, numeric mismatches 0, and 62 intentional MSUI extras. Added the seven absent reference names (including the worldport MSG_/CMSG_ value alias) and a focused clinical fence."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T00:25:00Z",
+  "lastReviewedUtc": "2026-08-23T14:04:56Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

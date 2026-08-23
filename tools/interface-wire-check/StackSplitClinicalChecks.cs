@@ -12,7 +12,11 @@ internal static class StackSplitClinicalChecks
               StackSplitUiLaw.RightArrow == new Vector2(150, 22) &&
               StackSplitUiLaw.OkayButton == new Vector2(19, 52) &&
               StackSplitUiLaw.CancelButton == new Vector2(91, 52) &&
-              StackSplitUiLaw.Origin(new Vector2(300, 400), 2) == new Vector2(-44, 208),
+              StackSplitUiLaw.Origin(new Vector2(300, 400), 2) == new Vector2(-44, 208) &&
+              StackSplitUiLaw.Frame(new Vector2(300, 400), 2) ==
+                  new StackSplitUiLaw.ScreenRect(new Vector2(-44, 208), new Vector2(344, 192)) &&
+              StackSplitUiLaw.Arrow(new Vector2(-44, 208), true, 2) ==
+                  new StackSplitUiLaw.ScreenRect(new Vector2(-22, 252), new Vector2(32)),
             "StackSplitFrame authored geometry/owner anchor drift");
 
         Check(StackSplitUiLaw.AppendDigit(1, false, 2, 20) == (2, true) &&
@@ -28,7 +32,7 @@ internal static class StackSplitClinicalChecks
         Check(inventory.Contains("_splitMaximum = stackCount", StringComparison.Ordinal) &&
               inventory.Contains("_splitCount = 1", StringComparison.Ordinal) &&
               inventory.Contains("new(max.X, min.Y)", StringComparison.Ordinal) &&
-              inventory.Contains("StackSplitUiLaw.Origin(_splitOwnerTopRight, scale)",
+              inventory.Contains("StackSplitUiLaw.Frame(_splitOwnerTopRight, scale)",
                   StringComparison.Ordinal) &&
               inventory.Contains("StackSplitUiLaw.PlatePath", StringComparison.Ordinal) &&
               inventory.Contains("StackSplitUiLaw.LeftArrowStem", StringComparison.Ordinal) &&
@@ -37,6 +41,18 @@ internal static class StackSplitClinicalChecks
               !inventory.Contains("ImGui.SliderInt(\"##split-count\"", StringComparison.Ordinal) &&
               !inventory.Contains("mouse + new Vector2(16f)", StringComparison.Ordinal),
             "StackSplitFrame law-positioned/art-backed renderer is unwired");
+
+        int splitStart = inventory.IndexOf("private void DrawStackSplit()", StringComparison.Ordinal);
+        int splitEnd = inventory.IndexOf("private string BindingText", splitStart,
+            StringComparison.Ordinal);
+        string splitRenderer = inventory[splitStart..splitEnd];
+        Check(splitStart >= 0 && splitEnd > splitStart &&
+              splitRenderer.Contains("StackSplitUiLaw.Frame", StringComparison.Ordinal) &&
+              splitRenderer.Contains("StackSplitUiLaw.Arrow", StringComparison.Ordinal) &&
+              splitRenderer.Contains("StackSplitUiLaw.Point", StringComparison.Ordinal) &&
+              !splitRenderer.Contains("new Vector2", StringComparison.Ordinal) &&
+              !splitRenderer.Contains("Vector2 size = new(", StringComparison.Ordinal),
+            "StackSplitFrame renderer owns modal geometry");
     }
 
     private static void Check(bool condition, string message)

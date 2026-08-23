@@ -59,4 +59,14 @@ public static class ZoneTextUiLaw
     public static Vector2 FrameCenter(Vector2 displayPixels, float scale) =>
         new(displayPixels.X * .5f,
             displayPixels.Y - (FrameBottomOffset + FrameSize * .5f) * scale);
+
+    public static Vector2 ZoneExtraCenter(Vector2 center, float zoneEm, float subZoneEm) =>
+        new(center.X, center.Y + (zoneEm + subZoneEm) * .5f);
+
+    public static Vector2 SubZoneCenter(Vector2 center, float zoneEm, float subZoneEm,
+        bool territorySeat) => new(center.X,
+            center.Y + zoneEm * .5f + subZoneEm * (territorySeat ? 1.5f : .5f));
+
+    public static Vector2 SubZoneExtraCenter(Vector2 subZoneCenter, float subZoneEm) =>
+        new(subZoneCenter.X, subZoneCenter.Y + subZoneEm);
 }

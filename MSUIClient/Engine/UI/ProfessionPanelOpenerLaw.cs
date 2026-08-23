@@ -12,7 +12,8 @@ public enum ProfessionPanelKind
 /// </summary>
 public readonly record struct ProfessionPanelOpenerProvenance(
     bool IsProfessionOpener,
-    ProfessionPanelKind? PanelKind);
+    ProfessionPanelKind? PanelKind,
+    uint CraftType = 0);
 
 /// <summary>
 /// Pure profession-panel fork. Only the opener's first effect lane participates: effect 47 marks
@@ -32,9 +33,10 @@ public static class ProfessionPanelOpenerLaw
         if (effectMiscValues is not { Count: > 0 })
             return new(true, null);
 
-        ProfessionPanelKind kind = effectMiscValues[0] == 0
+        int misc = effectMiscValues[0];
+        ProfessionPanelKind kind = misc == 0
             ? ProfessionPanelKind.TradeSkill
             : ProfessionPanelKind.Craft;
-        return new(true, kind);
+        return new(true, kind, misc > 0 ? (uint)misc : 0);
     }
 }

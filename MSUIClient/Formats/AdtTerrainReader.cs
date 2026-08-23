@@ -1668,8 +1668,8 @@ public static class AdtTerrainReader
     ///   +724 mclq_flowvs flowvs[2]                  (76 = 2 × 38, always present)
     ///   =800
     ///
-    /// We pull min/max height, the 81 vertex heights, the 64 tile-render flags,
-    /// and the dominant liquid_type code. Flow data is ignored.
+    /// We pull min/max height, the 81 vertex heights, the 64 low nibbles and
+    /// their wet mask, and the majority wet-cell liquid type. Flow data is ignored.
     /// </summary>
     private static List<MclqLayer> ParseMclqLayers(byte[] data, int payloadStart, int layerCount)
     {
@@ -1695,28 +1695,45 @@ public static class AdtTerrainReader
             // 8×8 tile flag bytes start after the 81-vertex block.
             int tbase = vbase + 81 * 8;
             var tileRender = new bool[64];
-            byte dominantType = 0;
+            var tileNibbles = new byte[64];
+            var nibbleCounts = new int[16];
             for (int i = 0; i < 64; i++)
             {
                 byte b = data[tbase + i];
-                bool dontRender = (b & 0x08) != 0;
-                tileRender[i] = !dontRender;
-                if (!dontRender)
-                {
-                    // bits 0..2 are the liquid_type code.
-                    // case 1 → ocean, 3 → slime, 4 → river/water, 6 → magma.
-                    byte t = (byte)(b & 0x07);
-                    if (t != 0) dominantType = t;
-                }
+                byte nibble = (byte)(b & 0x0f);
+                tileNibbles[i] = nibble;
+                tileRender[i] = nibble != 0x0f;
+                if (nibble != 0x0f) nibbleCounts[nibble]++;
             }
+
+            // Benilla/reference surface identity is the majority genuinely-wet
+            // low nibble. A >= tie-break deliberately selects the larger nibble,
+            // matching Iterator::max_by_key in the reference implementation.
+            byte soundNibble = 0;
+            int bestCount = 0;
+            for (byte nibble = 0; nibble < 15; nibble++)
+                if (nibbleCounts[nibble] > 0 && nibbleCounts[nibble] >= bestCount)
+                {
+                    soundNibble = nibble;
+                    bestCount = nibbleCounts[nibble];
+                }
+            byte shaderType = (soundNibble & 3) switch
+            {
+                1 => (byte)1,
+                2 => (byte)6,
+                3 => (byte)3,
+                _ => (byte)4,
+            };
 
             result.Add(new MclqLayer
             {
-                LiquidType = dominantType,
+                LiquidType = shaderType,
+                SoundNibble = soundNibble,
                 MinHeight = minH,
                 MaxHeight = maxH,
                 VertexHeights = heights,
                 TileRender = tileRender,
+                TileNibbles = tileNibbles,
             });
 
             pos += MCLQ_LAYER_SIZE;
@@ -2057,6 +2074,12 @@ public static class AdtTerrainReader
         /// </summary>
         public byte LiquidType { get; set; }
 
+        /// <summary>
+        /// Majority low nibble across wet cells. Low two bits are class and bits
+        /// 2-3 are fluid speed; this is the SoundWaterType.dbc lookup key.
+        /// </summary>
+        public byte SoundNibble { get; set; }
+
         public float MinHeight { get; set; }
         public float MaxHeight { get; set; }
 
@@ -2068,6 +2091,9 @@ public static class AdtTerrainReader
         /// false = dont_render bit was set (hole in the water surface).
         /// </summary>
         public bool[] TileRender { get; set; } = Array.Empty<bool>();
+
+        /// <summary>Raw low nibble per 8x8 cell; 0x0f is the dry sentinel.</summary>
+        public byte[] TileNibbles { get; set; } = Array.Empty<byte>();
     }
 
     /// <summary>Texture layer definition from MCLY (16 bytes).</summary>

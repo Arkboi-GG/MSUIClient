@@ -8,7 +8,8 @@ public sealed partial class GameLoop
 {
     private GameObjectSoundCatalog? _gameObjectSounds;
     private readonly Dictionary<ulong, uint> _knownGameObjectSoundStates = [];
-    private readonly Dictionary<ulong, double> _gameObjectEventClocks = [];
+    private readonly Dictionary<ulong, (int Sequence, double Clock)>
+        _gameObjectEventClocks = [];
 
     /// <summary>
     /// Observe GO_STATE edges and the event timelines of the dynamic M2s the
@@ -17,7 +18,6 @@ public sealed partial class GameLoop
     private void UpdateGameObjectSounds()
     {
         if (_gameObjectSounds is null) return;
-        double currentClock = NowSeconds();
         HashSet<ulong> seen = [];
         Vector3 listener = _controller?.Position ?? Vector3.Zero;
         foreach (WorldEntity go in _entities.Entities.Values.Where(entity => entity.IsGameObject))
@@ -33,19 +33,22 @@ public sealed partial class GameLoop
             _knownGameObjectSoundStates[go.Guid] = state;
 
             if (_doodads?.TryGetDynamicEventTimeline(go.Guid, out M2Model model,
-                    out int sequence) != true)
+                    out int sequence, out double currentAnimationClock) != true)
             {
                 _gameObjectEventClocks.Remove(go.Guid);
                 continue;
             }
-            if (!_gameObjectEventClocks.TryGetValue(go.Guid, out double previousClock))
+            if (!_gameObjectEventClocks.TryGetValue(go.Guid, out var previous) ||
+                previous.Sequence != sequence || currentAnimationClock < previous.Clock)
             {
-                _gameObjectEventClocks[go.Guid] = currentClock;
+                // Arm frames are silent. Start just before zero so the next
+                // frame crosses an authored t=0 marker exactly once.
+                _gameObjectEventClocks[go.Guid] = (sequence, -1e-9);
                 continue;
             }
-            _gameObjectEventClocks[go.Guid] = currentClock;
+            _gameObjectEventClocks[go.Guid] = (sequence, currentAnimationClock);
             foreach (GameObjectSlotEvent sound in GameObjectSoundLaw.CrossedEvents(
-                         model, sequence, previousClock, currentClock))
+                         model, sequence, previous.Clock, currentAnimationClock))
                 PlayGameObjectSlot(go, sound.Slot, listener);
         }
 

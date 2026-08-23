@@ -44,6 +44,7 @@ public static class DeathFrameUiLaw
     public const float MinimapCorpseAperture = .8f;
     public static readonly Vector2 CorpseUvMin = new(.875f, 0f);
     public static readonly Vector2 CorpseUvMax = new(1f, .125f);
+    public static readonly Vector2 DialogButtonUvMax = new(1, .625f);
     public const string ReleaseButton = "Release Spirit";
     public const string AcceptButton = "Accept";
     public const string DeclineButton = "Decline";
@@ -116,6 +117,11 @@ public static class DeathFrameUiLaw
 
     public static Vector2 AlertIconMin(float popupHeight) =>
         new(AlertIconLeft, (popupHeight - AlertIconSize) * .5f);
+
+    public static Vector2 AlertIconDimensions => Vector2.One * AlertIconSize;
+
+    public static Vector2 ButtonSize(float scale) =>
+        new(ButtonWidth * scale, ButtonHeight * scale);
 
     public static Vector2 ButtonMin(int index, int buttonCount, float logicalWidth,
         float textHeight) => (index, buttonCount) switch

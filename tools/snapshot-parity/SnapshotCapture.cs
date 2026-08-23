@@ -101,8 +101,25 @@ internal static class SnapshotCapture
         .Where(path => !HasExcludedSegment(path))
         .ToArray();
 
-    private static bool HasExcludedSegment(string relative) =>
-        relative.Split('/', StringSplitOptions.RemoveEmptyEntries).Any(ExcludedDirectories.Contains);
+    private static bool HasExcludedSegment(string relative)
+    {
+        string[] segments = relative.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i < segments.Length; i++)
+        {
+            if (!ExcludedDirectories.Contains(segments[i])) continue;
+
+            // Rust workspaces conventionally build into target/, but Benilla also has a real
+            // source module at crates/benilla-app/src/target/. Treating every segment named
+            // "target" as generated output silently removed that module from snapshots and
+            // made the drift gate report its live files as REMOVED. A target directly below
+            // src is source; every other target directory remains excluded.
+            if (segments[i].Equals("target", StringComparison.OrdinalIgnoreCase) &&
+                i > 0 && segments[i - 1].Equals("src", StringComparison.OrdinalIgnoreCase))
+                continue;
+            return true;
+        }
+        return false;
+    }
 
     private static bool ExcludedForKind(string kind, string relative) =>
         kind == "msui" && (relative.StartsWith("tools/snapshot-parity/", StringComparison.OrdinalIgnoreCase) ||

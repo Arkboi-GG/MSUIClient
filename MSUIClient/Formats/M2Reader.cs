@@ -481,6 +481,7 @@ public class M2Sequence
     /// <summary>The authored CAaBox in the MD20 header image, before model scale.</summary>
     public Vector3 BoundsMinimum { get; set; }
     public Vector3 BoundsMaximum { get; set; }
+    public float BoundsRadius { get; set; }
     public float BoundsZExtent
     {
         get
@@ -1913,6 +1914,10 @@ public class M2Reader
         for (uint i = 0; i < count; i++)
         {
             int off = (int)(offset + i * SEQUENCE_STRIDE_VANILLA);
+            Vector3 rawMinimum = new(ReadFloat(data, off + 36),
+                ReadFloat(data, off + 40), ReadFloat(data, off + 44));
+            Vector3 rawMaximum = new(ReadFloat(data, off + 48),
+                ReadFloat(data, off + 52), ReadFloat(data, off + 56));
             model.Sequences.Add(new M2Sequence
             {
                 AnimationId = ReadUInt16(data, off + 0),
@@ -1922,10 +1927,11 @@ public class M2Reader
                 MoveSpeed = ReadFloat(data, off + 12),
                 Flags = ReadUInt32(data, off + 16),
                 BlendTimeMs = ReadUInt32(data, off + 32),
-                BoundsMinimum = new Vector3(ReadFloat(data, off + 36),
-                    ReadFloat(data, off + 40), ReadFloat(data, off + 44)),
-                BoundsMaximum = new Vector3(ReadFloat(data, off + 48),
-                    ReadFloat(data, off + 52), ReadFloat(data, off + 56)),
+                // Same WoW Z-up -> renderer Y-up conversion as the vertex stream. Swapping
+                // and negating an axis also swaps that axis' min/max endpoints.
+                BoundsMinimum = new Vector3(rawMinimum.X, rawMinimum.Z, -rawMaximum.Y),
+                BoundsMaximum = new Vector3(rawMaximum.X, rawMaximum.Z, -rawMinimum.Y),
+                BoundsRadius = ReadFloat(data, off + 60),
             });
         }
     }

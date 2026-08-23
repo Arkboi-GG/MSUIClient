@@ -7,33 +7,33 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/portrait/booth.rs",
-      "fileSha256": "2ac947bf46a9de5ad3dc524b33f26e7a0c369cee302ba423a9e0400fdec9db3e",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "61ad3408154276a27941089e3602f8e505accf89f0a47c31de06bb7df814bfe3",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/portrait/framing.rs",
-      "fileSha256": "f98b9187295e89cc819f9392bce0b5d59d24d2c76abebd119249135a9160aad3",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "ca5b9fe6384b1a02b06576ed92ea3035e1ce73b3198223ad057efc38726ac491",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/portrait/glue_booth.rs",
-      "fileSha256": "4ec154608bfcd306b54487dc73736e1594a6648ff142f045cd29914ecbf0d021",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "543a690ec5ee58d09f52827ba2a810e1f9d000dc73f5feb68825d2f2337fa9b3",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/portrait/light.rs",
-      "fileSha256": "0f6fe5e5d9863a616868051530469e7f1296abd7c160426511a741076683fef8",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "c873410b28338cededaa9ed5f277d069b3e5b299f85cd2a7bc2e2014e692cc53",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/portrait/mod.rs",
-      "fileSha256": "7e7bf8fb9a189771a81615e71453f72d01c19e650c27f951b0ebb22d44ae1d16",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "3d6619764b526f54c1f13795fb208f27b67b310830ac8a05f1a005e20c242fe3",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/portrait/test_bake.rs",
-      "fileSha256": "7147f517033f89714352828dc5d01eeda377a5f66cff68ba77af5afd89707295",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "60859f036d2ddb02a043b22224cf765a53884ce22074bfb04f4e0c4bde00c248",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [

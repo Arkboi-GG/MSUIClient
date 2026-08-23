@@ -259,14 +259,12 @@ public sealed partial class GameLoop
             case "BenillaTalentFrame":
                 if (!_talentOpen) return false; _talentOpen = false; return true;
             case "BenillaFriendsFrame":
-                if (!_socialOpen && !_guildOpen) return false;
-                _socialOpen = false; _guildOpen = false; _guildInfoOpen = false;
-                _guildMemberDetailOpen = false; _guildControlOpen = false; return true;
+                return CloseFriendsFrame();
             case "BenillaMacroFrame":
                 if (!_macroOpen) return false; CloseMacros(); return true;
             case "BenillaTradeSkillFrame":
             case "BenillaCraftFrame":
-                if (!_professionOpen) return false; _professionOpen = false; return true;
+                return CloseProfessionFrame();
             case "DressUpFrame":
                 if (!_dressUpOpen) return false; CloseDressUp(); return true;
             case "GameMenuFrame":

@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace MSUIClient.Engine.UI;
 
 /// <summary>
@@ -12,6 +14,22 @@ namespace MSUIClient.Engine.UI;
 /// </summary>
 public static class ChatFrameLaw
 {
+    public readonly record struct LogicalRect(float X, float Y, float Width, float Height)
+    {
+        public Vector2 Min => new(X, Y);
+        public Vector2 Size => new(Width, Height);
+        public Vector2 ScaledSize(float scale) => Size * scale;
+    }
+
+    public readonly record struct ScreenRect(Vector2 Min, Vector2 Max);
+    public readonly record struct ScreenLine(Vector2 Start, Vector2 End);
+    public readonly record struct TabLayout(LogicalRect Left, LogicalRect Middle,
+        LogicalRect Right, LogicalRect Hit, LogicalRect Highlight, Vector2 LabelPosition,
+        float Width);
+    public readonly record struct EditLayout(LogicalRect Left, LogicalRect Middle,
+        LogicalRect Right, Vector2 HeaderPosition, Vector2 FramePadding,
+        Vector2 InputPosition, Vector2 InputSize);
+
     public enum IgnoredSenderAction
     {
         Continue,
@@ -105,8 +123,8 @@ public static class ChatFrameLaw
     /// </summary>
     public static IgnoredSenderAction IgnoredSender(bool ignored, MsgType type, uint language)
     {
-        if (!ignored) return IgnoredSenderAction.Continue;
         if (language == uint.MaxValue) return IgnoredSenderAction.Drop;
+        if (!ignored) return IgnoredSenderAction.Continue;
         return type == MsgType.Whisper
             ? IgnoredSenderAction.DropAndNotify
             : IgnoredSenderAction.Drop;
@@ -115,7 +133,7 @@ public static class ChatFrameLaw
     /// <summary>FrameXML's CHAT_*_GET composition, with player hyperlinks represented by their
     /// visible bracketed text because MSUI's scrolling-message renderer is not a hyperlink VM.</summary>
     public static string FormatLine(MsgType type, string sender, string channel, string message,
-        byte chatTag = 0)
+        byte chatTag = 0, uint effectiveLanguage = 0, uint defaultLanguage = 0)
     {
         if (type is MsgType.System or MsgType.TextEmote or MsgType.Skill or MsgType.Loot or
             MsgType.Money or MsgType.CombatXpGain or MsgType.BgSystemNeutral or
@@ -129,28 +147,31 @@ public static class ChatFrameLaw
         string named = sender.Length == 0 ? "" : monster || type == MsgType.Emote
             ? flag + sender
             : $"{flag}|Hplayer:{sender}|h[{sender}]|h";
+        string language = ChatLanguageLaw.Header(effectiveLanguage, defaultLanguage);
 
         string body = type switch
         {
-            MsgType.Say or MsgType.MonsterSay => $"{named} says: {message}",
-            MsgType.Yell or MsgType.MonsterYell => $"{named} yells: {message}",
+            MsgType.Say or MsgType.MonsterSay => $"{named} says: {language}{message}",
+            MsgType.Yell or MsgType.MonsterYell => $"{named} yells: {language}{message}",
             MsgType.Whisper or MsgType.MonsterWhisper or MsgType.RaidBossWhisper =>
-                $"{named} whispers: {message}",
-            MsgType.WhisperInform => $"To {named}: {message}",
-            MsgType.Emote => $"{named} {message}",
-            MsgType.MonsterEmote or MsgType.RaidBossEmote => message.Replace("%s", named),
-            MsgType.Afk => $"{named} is Away From Keyboard: {message}",
-            MsgType.Dnd => $"{named} does not wish to be disturbed: {message}",
-            MsgType.Party => $"[Party] {named}: {message}",
-            MsgType.Guild => $"[Guild] {named}: {message}",
-            MsgType.Officer => $"[Officer] {named}: {message}",
-            MsgType.Raid => $"[Raid] {named}: {message}",
-            MsgType.RaidLeader => $"[Raid Leader] {named}: {message}",
-            MsgType.RaidWarning => $"[Raid Warning] {named}: {message}",
-            MsgType.Battleground => $"[Battleground] {named}: {message}",
-            MsgType.BattlegroundLeader => $"[Battleground Leader] {named}: {message}",
-            MsgType.Channel => $"{named}: {message}",
-            _ => message,
+                $"{named} whispers: {language}{message}",
+            MsgType.WhisperInform => $"To {named}: {language}{message}",
+            MsgType.Emote => $"{named} {language}{message}",
+            MsgType.MonsterEmote or MsgType.RaidBossEmote =>
+                language + message.Replace("%s", named),
+            MsgType.Afk => $"{named} is Away From Keyboard: {language}{message}",
+            MsgType.Dnd => $"{named} does not wish to be disturbed: {language}{message}",
+            MsgType.Party => $"[Party] {named}: {language}{message}",
+            MsgType.Guild => $"[Guild] {named}: {language}{message}",
+            MsgType.Officer => $"[Officer] {named}: {language}{message}",
+            MsgType.Raid => $"[Raid] {named}: {language}{message}",
+            MsgType.RaidLeader => $"[Raid Leader] {named}: {language}{message}",
+            MsgType.RaidWarning => $"[Raid Warning] {named}: {language}{message}",
+            MsgType.Battleground => $"[Battleground] {named}: {language}{message}",
+            MsgType.BattlegroundLeader =>
+                $"[Battleground Leader] {named}: {language}{message}",
+            MsgType.Channel => $"{named}: {language}{message}",
+            _ => language + message,
         };
         return channel.Length == 0 ? body : $"[{StripChannelZone(channel)}] {body}";
     }
@@ -221,8 +242,14 @@ public static class ChatFrameLaw
     // ── geometry (1.12 logical pixels, laid out on the 1024x768 canvas) ───────
     public const float FrameWidth = 430f, FrameHeight = 120f;
     public const float AnchorX = 32f, AnchorBottomY = 85f;   // BOTTOMLEFT (32, 85)
+    public static readonly LogicalRect FrameRect = new(0, 0, FrameWidth, FrameHeight);
     public const int MaxLines = 128;
     public const float LinePitch = 14f;                       // ChatFontNormal em
+
+    public static Vector2 FrameOrigin(Vector2 logicalDisplay) =>
+        new(AnchorX, logicalDisplay.Y - AnchorBottomY - FrameHeight);
+
+    public static Vector2 FrameScaledSize(float scale) => FrameRect.ScaledSize(scale);
 
     public static int PageUpOffset(int current, int visibleLines) =>
         Math.Max(0, current) + Math.Max(1, visibleLines);
@@ -233,6 +260,17 @@ public static class ChatFrameLaw
     // Background stretches past the frame rect: TOPLEFT (-2,+3), BOTTOMRIGHT (+2,-6).
     public const float BgLeft = -2f, BgTop = -3f, BgRight = 2f, BgBottom = 6f;
     public const float BorderCorner = 16f;                    // 16x16 corner slices
+    public static readonly LogicalRect BackgroundRect = new(BgLeft, BgTop,
+        FrameWidth - BgLeft + BgRight, FrameHeight - BgTop + BgBottom);
+
+    // The left control chain resolves from the authored anchors, in top-left screen coordinates:
+    // BottomButton BOTTOMLEFT(-32,-4), Down BOTTOM to Bottom TOP at -2, Up BOTTOM to Down TOP,
+    // then Menu BOTTOM to Up TOP. Each button is 32x32.
+    public const float ControlButtonSize = 32f;
+    public static readonly LogicalRect MenuButtonRect = new(-32, -2, 32, 32);
+    public static readonly LogicalRect ScrollUpButtonRect = new(-32, 30, 32, 32);
+    public static readonly LogicalRect ScrollDownButtonRect = new(-32, 62, 32, 32);
+    public static readonly LogicalRect ScrollEndButtonRect = new(-32, 92, 32, 32);
 
     // Tab: 70x32 default, resized to (labelWidth + 37); 3-slice caps are 16 wide.
     // Label and hover-highlight both sit BELOW the tab centre (FrameXML y=-5 / -7,
@@ -240,10 +278,13 @@ public static class ChatFrameLaw
     public const float TabHeight = 32f, TabCap = 16f, TabLabelInset = 20f;
     public const float TabLabelDrop = 5f, TabHighlightDrop = 7f;
     public const float TabGap = 2f;                           // tab BOTTOMLEFT x offset over background TOPLEFT
+    public const float TabTop = -35f;
 
     // Edit box: below the frame, x -5/+5, y -2, 32 tall; opaque border; header +13.
     public const float EditHeight = 32f, EditOutset = 5f, EditDrop = 2f;
     public const float EditHeaderInset = 13f, EditLeftCap = 256f, EditRightCap = 16f;
+    public static readonly LogicalRect EditBoxRect = new(-EditOutset, FrameHeight + EditDrop,
+        FrameWidth + EditOutset * 2f, EditHeight);
 
     // ── fade / reveal (FloatingChatFrame.lua) ─────────────────────────────────
     public const float FadeTime = 0.15f;              // CHAT_FRAME_FADE_TIME
@@ -266,6 +307,68 @@ public static class ChatFrameLaw
     public const string ChatFont = "ChatFontNormal";        // ARIALN 14 white, (1,-1) black shadow
     public const string TabFont = "GameFontNormalSmall";     // FRIZQT 10 gold
 
+    public static readonly Vector2 TabLeftUvMin = Vector2.Zero;
+    public static readonly Vector2 TabLeftUvMax = new(.25f, 1f);
+    public static readonly Vector2 TabMiddleUvMin = new(.25f, 0f);
+    public static readonly Vector2 TabMiddleUvMax = new(.75f, 1f);
+    public static readonly Vector2 TabRightUvMin = new(.75f, 0f);
+    public static readonly Vector2 EditMiddleUvMax = new(.9375f, 1f);
+    public static readonly Vector2 EditRightUvMin = new(.9375f, 0f);
+
+    public static ScreenRect HoverScreenRect(Vector2 root, float scale) => new(
+        (root + new Vector2(-HoverSide, -HoverUp)) * scale,
+        (root + new Vector2(FrameWidth + HoverSide, FrameHeight + HoverDown)) * scale);
+
+    public static Vector2 MessagePosition(Vector2 root, int row, float pitch, float scale) => new(
+        (root.X + 4f) * scale,
+        (root.Y + FrameHeight) * scale - pitch - Math.Max(0, row) * pitch);
+
+    public static Vector2 LinkHitSize(float width, float pitch) => new(width, pitch);
+
+    public static ScreenLine LinkUnderline(Vector2 position, float width, float pitch) => new(
+        new Vector2(position.X, position.Y + pitch - 1f),
+        new Vector2(position.X + width, position.Y + pitch - 1f));
+
+    public static Vector2 ControlButtonScaledSize(float scale) =>
+        new(ControlButtonSize * scale);
+
+    public static TabLayout TabGeometry(Vector2 root, float x, float middleWidth,
+        float scale, float em)
+    {
+        float width = TabCap * 2f + middleWidth;
+        Vector2 min = root + new Vector2(x, TabTop);
+        return new(
+            new LogicalRect(min.X, min.Y, TabCap, TabHeight),
+            new LogicalRect(min.X + TabCap, min.Y, middleWidth, TabHeight),
+            new LogicalRect(min.X + TabCap + middleWidth, min.Y, TabCap, TabHeight),
+            new LogicalRect(min.X, min.Y, width, TabHeight),
+            new LogicalRect(min.X, min.Y + TabHighlightDrop, width, TabHeight),
+            new Vector2((min.X + TabCap + 3f) * scale,
+                min.Y * scale + (TabHeight * scale - em) * .5f + TabLabelDrop * scale),
+            width);
+    }
+
+    public static EditLayout EditGeometry(Vector2 root, float scale, float em,
+        float headerWidth, float inputFontSize)
+    {
+        Vector2 min = root + EditBoxRect.Min;
+        float width = EditBoxRect.Width;
+        float middleWidth = width - EditLeftCap - EditRightCap;
+        float textTop = min.Y * scale + (EditHeight * scale - em) * .5f;
+        float inputX = (min.X + EditHeaderInset) * scale + headerWidth + 2f * scale;
+        float inputRight = (min.X + width - EditRightCap) * scale;
+        float inputWidth = MathF.Max(16f, inputRight - inputX);
+        float padding = MathF.Max(0f, (EditHeight * scale - inputFontSize) * .5f);
+        return new(
+            new LogicalRect(min.X, min.Y, EditLeftCap, EditHeight),
+            new LogicalRect(min.X + EditLeftCap, min.Y, middleWidth, EditHeight),
+            new LogicalRect(min.X + width - EditRightCap, min.Y, EditRightCap, EditHeight),
+            new Vector2((min.X + EditHeaderInset) * scale, textTop),
+            new Vector2(0f, padding),
+            new Vector2(inputX, min.Y * scale),
+            new Vector2(inputWidth, EditHeight * scale));
+    }
+
     /// <summary>One border slice's UV rect (ChatFrameBorder is a 4x8 atlas).</summary>
     public readonly record struct Slice(float U0, float V0, float U1, float V1,
         float OffX, float OffY, float W, float H);
@@ -285,6 +388,43 @@ public static class ChatFrameLaw
         6 => (0f,    0.125f,    0.25f, 0.7265625f),  // Left
         _ => (0.75f, 0.125f,    1.0f,  0.7265625f),  // Right
     };
+
+    public static Vector2 BorderUvMin(int slice)
+    {
+        var (u0, v0, _, _) = BorderUv(slice);
+        return new(u0, v0);
+    }
+
+    public static Vector2 BorderUvMax(int slice)
+    {
+        var (_, _, u1, v1) = BorderUv(slice);
+        return new(u1, v1);
+    }
+
+    /// <summary>One exact ChatFrameBorder atlas seat relative to ChatFrame1's top-left.</summary>
+    public static LogicalRect BorderRect(int slice)
+    {
+        float x = BackgroundRect.X;
+        float y = BackgroundRect.Y;
+        float width = BackgroundRect.Width;
+        float height = BackgroundRect.Height;
+        float corner = BorderCorner;
+        float left = x - 2f;
+        float right = x + width + 2f - corner;
+        float top = y - 2f;
+        float bottom = y + height + 3f - corner;
+        return slice switch
+        {
+            0 => new(left, top, corner, corner),
+            1 => new(right, top, corner, corner),
+            2 => new(left, bottom, corner, corner),
+            3 => new(right, bottom, corner, corner),
+            4 => new(left + corner, top, right - (left + corner), corner),
+            5 => new(left + corner, bottom, right - (left + corner), corner),
+            6 => new(left, top + corner, corner, bottom - (top + corner)),
+            _ => new(right, top + corner, corner, bottom - (top + corner)),
+        };
+    }
 
     private static uint Rgb(int r, int g, int b) =>
         0xFF000000u | ((uint)b << 16) | ((uint)g << 8) | (uint)r;

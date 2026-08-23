@@ -1,3 +1,4 @@
+using System.Numerics;
 using MSUIClient;
 using MSUIClient.Engine.UI;
 
@@ -30,6 +31,21 @@ internal static class CombatTextStateClinicalChecks
                   showFades: true)?.Text == "<Arcane Intellect> fades",
             "aura gain/default-off fade law drift");
 
+        Check(Near(CombatTextStateUiLaw.WorldTextPosition(
+                  new Vector2(500, 400), 100, 20, 0, .5f), new Vector2(444.9f, 380)) &&
+              Near(CombatTextStateUiLaw.WorldTextPosition(
+                  new Vector2(500, 400), 100, 20, 3, .5f), new Vector2(461.05f, 380)) &&
+              Near(CombatTextStateUiLaw.WorldShadow(new Vector2(1000, 500)),
+                  new Vector2(2, 1)) &&
+              Near(CombatTextStateUiLaw.CenterTextPosition(
+                  new Vector2(1920, 1080), 2, 200, 2, .95f, false),
+                  new Vector2(860, 535)) &&
+              Near(CombatTextStateUiLaw.CenterTextPosition(
+                  new Vector2(1920, 1080), 2, 200, 3, .95f, true),
+                  new Vector2(896, 760)) &&
+              CombatTextStateUiLaw.CenterShadow(2) == new Vector2(4),
+            "combat-text world/center placement law drift");
+
         string root = ClientConfig.FindRepoRoot();
         string feedback = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Combat",
             "GameLoop.CombatFeedback.cs"));
@@ -45,10 +61,25 @@ internal static class CombatTextStateClinicalChecks
               aura.Contains("CompletePlayerAuraCombatTextBaseline()", StringComparison.Ordinal) &&
               net.Contains("ObservePlayerCombatTextState(player)", StringComparison.Ordinal),
             "player aura/combat/resource center-text feeds are unwired");
+
+        int rendererStart = feedback.IndexOf("private void DrawFloatingCombatText",
+            StringComparison.Ordinal);
+        string renderer = feedback[rendererStart..];
+        Check(rendererStart >= 0 &&
+              renderer.Contains("CombatTextStateUiLaw.WorldTextPosition", StringComparison.Ordinal) &&
+              renderer.Contains("CombatTextStateUiLaw.WorldShadow", StringComparison.Ordinal) &&
+              renderer.Contains("CombatTextStateUiLaw.CenterTextPosition", StringComparison.Ordinal) &&
+              renderer.Contains("CombatTextStateUiLaw.CenterShadow", StringComparison.Ordinal) &&
+              !renderer.Contains("new Vector2", StringComparison.Ordinal) &&
+              !renderer.Contains("Vector2 pos = new(", StringComparison.Ordinal),
+            "combat-text renderer owns placement geometry");
     }
 
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidDataException(message);
     }
+
+    private static bool Near(Vector2 actual, Vector2 expected) =>
+        Vector2.Distance(actual, expected) < .001f;
 }

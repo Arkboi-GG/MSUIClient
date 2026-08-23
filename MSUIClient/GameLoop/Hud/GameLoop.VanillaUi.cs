@@ -32,7 +32,9 @@ public sealed partial class GameLoop
     }
 
     private bool VanillaButton(ImDrawListPtr draw, string id, string caption,
-        Vector2 min, Vector2 logicalSize, float scale, bool enabled = true)
+        Vector2 min, Vector2 logicalSize, float scale, bool enabled = true,
+        string? normalFont = null, string? highlightFont = null,
+        string? disabledFont = null)
     {
         Vector2 size = logicalSize * scale;
         ImGui.SetCursorScreenPos(min);
@@ -67,29 +69,85 @@ public sealed partial class GameLoop
         }
         string fontObject = visual.LabelState switch
         {
-            ButtonInteractionLaw.LabelState.Highlight => "GameFontHighlight",
-            ButtonInteractionLaw.LabelState.Disabled => "GameFontDisable",
-            _ => "GameFontNormal",
+            ButtonInteractionLaw.LabelState.Highlight => highlightFont ?? "GameFontHighlight",
+            ButtonInteractionLaw.LabelState.Disabled => disabledFont ?? "GameFontDisable",
+            _ => normalFont ?? "GameFontNormal",
         };
         GameText.DrawCentered(draw, fontObject, caption,
             min + size * .5f + new Vector2(0, visual.Pushed ? scale : 0), scale);
         return clicked;
     }
 
+    private bool VanillaCollapseAllButton(ImDrawListPtr draw, string id,
+        Vector2 buttonMin, Vector2 logicalButtonSize, Vector2 iconMin,
+        Vector2 logicalIconSize, Vector2 labelCenter, float scale, bool collapsed,
+        bool enabled, string label, string normalFont, string disabledFont,
+        string minusPath, string plusPath, string highlightPath)
+    {
+        Vector2 buttonSize = logicalButtonSize * scale;
+        Vector2 iconSize = logicalIconSize * scale;
+        ImGui.SetCursorScreenPos(buttonMin);
+        if (!enabled) ImGui.BeginDisabled();
+        bool releasedInside = ImGui.InvisibleButton(id, buttonSize);
+        bool held = enabled && ImGui.IsItemActive();
+        bool hovered = enabled && ImGui.IsItemHovered();
+        if (!enabled) ImGui.EndDisabled();
+
+        ButtonInteractionLaw.Visual visual = ButtonInteractionLaw.ResolveVisual(
+            enabled, hovered, held, scriptedPushed: false, isChecked: false,
+            lockedHighlight: false);
+        uint normal = _gameplayArt?.Handle(collapsed ? plusPath : minusPath) ?? 0;
+        if (normal != 0)
+            draw.AddImage((nint)normal, iconMin, iconMin + iconSize);
+        if (visual.HighlightVisible)
+        {
+            uint highlight = _gameplayArt?.AdditiveHandle(highlightPath) ?? 0;
+            if (highlight != 0)
+                draw.AddImage((nint)highlight, iconMin, iconMin + iconSize);
+        }
+        GameText.DrawCentered(draw, enabled ? normalFont : disabledFont, label,
+            labelCenter, scale);
+        return enabled && releasedInside;
+    }
+
+    /// <summary>
+    /// FrameXML's GameTooltip_AddNewbieTip contract. The 1.12 default is detailed tips on,
+    /// so the shared tooltip law owns the default-corner seat and two-line wrapped content.
+    /// Call immediately after the authored owner item so ImGui's current-item hover is intact.
+    /// </summary>
+    private void OfferVanillaNewbieTooltip(in GameTooltipOwnerKey owner,
+        string normalText, string newbieText)
+    {
+        if (!ImGui.IsItemHovered()) return;
+        _ = TryShowNewbieGameTooltip(owner, showDetailedTips: true, normalText,
+            newbieText, noNormalText: true, out _);
+    }
+
     private bool VanillaListRow(ImDrawListPtr draw, string id, Vector2 min,
         Vector2 logicalSize, float scale, string text, bool selected, uint color = 0xffffffff,
-        string? iconPath = null)
+        string? iconPath = null, uint? selectedColor = null, bool hoverHighlight = true,
+        string? highlightPath = null, bool additiveHighlight = false,
+        Vector2? highlightOffset = null, Vector2? highlightLogicalSize = null)
     {
         Vector2 size = logicalSize * scale;
         ImGui.SetCursorScreenPos(min);
         bool releasedInside = ImGui.InvisibleButton(id, size);
         bool hovered = ImGui.IsItemHovered();
-        if (selected || hovered)
+        if (selected || (hovered && hoverHighlight))
         {
-            uint highlight = _gameplayArt?.Handle(@"Interface\Buttons\UI-Listbox-Highlight2") ?? 0;
+            string path = highlightPath ?? @"Interface\Buttons\UI-Listbox-Highlight2";
+            uint highlight = additiveHighlight
+                ? _gameplayArt?.AdditiveHandle(path) ?? 0
+                : _gameplayArt?.Handle(path) ?? 0;
             if (highlight != 0)
-                draw.AddImage((nint)highlight, min, min + size, Vector2.Zero, Vector2.One,
-                    selected ? 0xffffffff : 0x99ffffff);
+            {
+                Vector2 highlightMin = min + (highlightOffset ?? Vector2.Zero) * scale;
+                Vector2 highlightSize = (highlightLogicalSize ?? logicalSize) * scale;
+                uint tint = additiveHighlight ? 0xffffffff
+                    : selected ? selectedColor ?? 0xffffffff : 0x99ffffff;
+                draw.AddImage((nint)highlight, highlightMin, highlightMin + highlightSize,
+                    Vector2.Zero, Vector2.One, tint);
+            }
         }
         float textX = 5f;
         if (!string.IsNullOrWhiteSpace(iconPath))
@@ -377,6 +435,26 @@ public sealed partial class GameLoop
         ImGui.PushStyleColor(ImGuiCol.Border, Vector4.Zero);
         bool changed = ImGui.InputText(id, buffer, (uint)buffer.Length);
         ImGui.PopStyleColor(4);
+        return changed;
+    }
+
+    /// <summary>FrameXML EditBox with no authored backdrop and zero text insets.</summary>
+    private static bool VanillaBareInputText(string id, byte[] buffer, Vector2 min,
+        Vector2 logicalSize, Vector2 logicalTextInset, float scale)
+    {
+        Vector2 inset = logicalTextInset * scale;
+        Vector2 inputSize = (logicalSize - logicalTextInset * 2) * scale;
+        ImGui.SetCursorScreenPos(min + inset);
+        ImGui.SetNextItemWidth(inputSize.X);
+        float verticalPadding = MathF.Max(0, (inputSize.Y - ImGui.GetFontSize()) * .5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(0, verticalPadding));
+        ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgActive, Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.Border, Vector4.Zero);
+        bool changed = ImGui.InputText(id, buffer, (uint)buffer.Length);
+        ImGui.PopStyleColor(4);
+        ImGui.PopStyleVar();
         return changed;
     }
 

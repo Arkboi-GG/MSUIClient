@@ -9,6 +9,11 @@
       "path": "crates/benilla-app/assets/ui/UiPanels.xml",
       "fileSha256": "649441e1335c0d23e0e15ad71ff2fb7543d11dbe92958443cdb90aad25974da1",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/assets/ui/UIPanelTemplates.xml",
+      "fileSha256": "8c0e35d4198389590276ae7e5ea613208ef57d01bd49fdc71f43bf06c7e92b0c",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
@@ -65,7 +70,7 @@
     "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/evidence/live/live-visual-gate.md"
   ],
   "status": "partial",
-  "summary": "MSUI now runs all 22 represented build-5875 UIPanelWindows owners through one law-owned host reconciliation before rendering. Single incoming host edges are admitted or refused through the frozen left/center/fullscreen law; displacement, priority moves, native-center/fullscreen eviction, ordinary-bag versus Escape-container closure, and final seat confirmation are coordinator-owned while every surface retains its native callback, wire, sound, and payload behavior. DressUpFrame's omitted pushable=2 row is registered and its window origin consumes the resolved seat. Escape uses the frozen captured left/fullscreen/center closure order, closes the keyring only on CloseAllWindows, and closes ItemRefTooltip afterward; native-center opening preserves the keyring. Focused and full clinical checks pass; authenticated combination testing remains nonterminal.",
+  "summary": "MSUI now runs all 22 represented build-5875 UIPanelWindows owners through one law-owned host reconciliation before rendering. Single incoming host edges are admitted or refused through the frozen left/center/fullscreen law; displacement, priority moves, native-center/fullscreen eviction, ordinary-bag versus Escape-container closure, and final seat confirmation are coordinator-owned while every surface retains its native callback, wire, sound, and payload behavior. StaticPopupCoordinatorLaw also owns the centered first/second screen seats and stacking offset used by DELETE_ITEM, Party, Duel, Friends, Guild, Enchant, Character Bindings and Pet dialogs; the shared renderer no longer computes that coordinate. DressUpFrame's omitted pushable=2 row is registered and its window origin consumes the resolved seat. Escape uses the frozen captured left/fullscreen/center closure order, closes the keyring only on CloseAllWindows, and closes ItemRefTooltip afterward; native-center opening preserves the keyring. Current UIPanelTemplates.xml supplies addon-facing shared button, scrollbar, edit, check, and radio templates and does not create a separate window or authorize presentation changes. Focused and full clinical checks pass; authenticated combination testing remains nonterminal.",
   "openItems": [
     {
       "id": "item-claim-partyframe-invite-contract-001-verify",
@@ -149,6 +154,15 @@
       "added": "2026-08-09",
       "resolved": true,
       "resolution": "2026-08-21: world-drop release now opens the shared DELETE_ITEM StaticPopup, with law-authored alert geometry, while-dead visibility, Yes/No/Escape routing, exact CMSG_DESTROYITEM send, pending lock, cursor cleanup, and focused clinical coverage."
+    },
+    {
+      "id": "item-uipanels-static-popup-screen-origin-20260823",
+      "kind": "gap",
+      "text": "The shared StaticPopup renderer still centered the dialog and stacked slot two with a renderer-authored Vector2 calculation instead of consuming coordinator-owned screen geometry.",
+      "source": "rule-owned-window-geometry-audit-2026-08-23",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: StaticPopupCoordinatorLaw now owns the 128-unit top seat, centered width conversion and second-slot first-height-plus-8 stacking. DeleteItem's shared adapter delegates to it; focused DeleteItem and full interface clinical suites pass."
     },
     {
       "id": "item-claim-uipanels-tab-state-resize-001-verify",
@@ -238,6 +252,6 @@
     "trace-uipanels-popup-editbox-gap-001"
   ],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T23:30:17Z",
+  "lastReviewedUtc": "2026-08-23T07:02:07.9199924Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

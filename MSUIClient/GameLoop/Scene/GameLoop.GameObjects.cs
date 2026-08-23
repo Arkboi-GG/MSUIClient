@@ -13,6 +13,7 @@ public sealed partial class GameLoop
     private ulong _gameObjectGuid;
     private uint _gameObjectAnimation;
     private readonly List<(uint Id, string Text, uint Next)> _gameObjectPages = [];
+    private readonly HashSet<uint> _pageTextPending = [];
     private sealed record GameObjectTemplate(uint Entry, uint Type, uint DisplayId, string Name,
         string Icon, int[] Data)
     {
@@ -96,6 +97,7 @@ public sealed partial class GameLoop
 
     private void ResetGameObjects()
     {
+        ResetGameObjectTransportState();
         CloseItemText(playSound: false);
         _gameObjectGuid = 0;
         _gameObjectAnimation = 0;
@@ -328,25 +330,64 @@ public sealed partial class GameLoop
 
     private void ApplyGameObjectCustomAnim(byte[] body)
     {
-        if (body.Length < 12) throw new InvalidDataException($"custom animation bytes={body.Length}");
+        if (body.Length != 12)
+            throw new InvalidDataException($"custom animation bytes={body.Length}");
         var r = new PacketReader(body); ulong guid = r.ReadU64(); uint animation = r.ReadU32();
         _gameObjectGuid = guid; _gameObjectAnimation = animation;
-        EmitInterface("gameobject", "animation", "RECEIVED", guid, $"animation={animation};bytes={body.Length}");
+        int? animationId = GameObjectAnimationLaw.CustomAnimationId(animation);
+        bool familyA = _entities.TryGet(guid, out WorldEntity go) && go.IsGameObject &&
+            GameObjectAnimationLaw.Animates(go.GameObjectType);
+        bool armed = familyA && animationId is { } id &&
+            _doodads?.TryPlayDynamicAnimation(guid, id, out _) == true;
+        EmitInterface("gameobject", "animation", armed ? "ARMED" : "DROPPED", guid,
+            $"wireAnimation={animation};animationData={animationId?.ToString() ?? "REJECTED"};bytes={body.Length}");
+    }
+
+    private void ApplyGameObjectDespawnAnim(byte[] body)
+    {
+        if (body.Length != 8)
+            throw new InvalidDataException($"despawn animation bytes={body.Length}");
+        ulong guid = new PacketReader(body).ReadU64();
+        _gameObjectDespawnAnimations.Add(guid);
+        EmitInterface("gameobject", "despawn-animation", "ANNOUNCED", guid,
+            $"animationData={GameObjectAnimationLaw.DespawnAnimationId};bytes={body.Length}");
+    }
+
+    private void ApplyDestroyObject(byte[] body)
+    {
+        if (body.Length != 8)
+            throw new InvalidDataException($"destroy object bytes={body.Length}");
+        ulong guid = new PacketReader(body).ReadU64();
+        bool familyA = _entities.TryGet(guid, out WorldEntity go) && go.IsGameObject &&
+            GameObjectAnimationLaw.Animates(go.GameObjectType);
+        bool announced = _gameObjectDespawnAnimations.Remove(guid);
+        bool placementPresent = _gameObjectPlacements.ContainsKey(guid) &&
+            _doodads?.HasDynamic(guid) == true;
+        float duration = 0;
+        bool clipOwned = familyA && announced && placementPresent &&
+            _doodads?.TryPlayDynamicAnimation(guid,
+            GameObjectAnimationLaw.DespawnAnimationId, out duration) == true;
+        bool retained = GameObjectAnimationLaw.ShouldRetainDestroy(
+            announced, placementPresent, clipOwned);
+        if (retained)
+            _gameObjectRetainedDestroys[guid] = GameObjectAnimationLaw.RetainedUntil(
+                _doodads?.NowSeconds ?? 0, duration);
+        else if (placementPresent)
+            RemoveGameObjectPlacement(guid);
+        _entities.Remove(guid);
+        _spellChainBeams?.ClearUnit(guid);
+        EmitInterface("gameobject", "destroy", retained ? "RETAINED_ANIMATION" : "REMOVED",
+            guid, $"announced={announced};placement={placementPresent};clip={clipOwned};duration={duration:R}");
     }
 
     private void ApplyPageText(byte[] body)
     {
         var r = new PacketReader(body); uint id = r.ReadU32(); string text = r.ReadCString(); uint next = r.ReadU32();
         if (r.Remaining != 0) throw new InvalidDataException($"page trailing={r.Remaining}");
+        _pageTextPending.Remove(id);
         _gameObjectPages.RemoveAll(x => x.Id == id); _gameObjectPages.Add((id, text, next));
         EmitInterface("gameobject", "page", "DECODED", _gameObjectGuid,
             $"page={id};next={next};chars={text.Length};text={SanitizeEvidence(text)}");
-        if (next != 0)
-        {
-            bool sent = _net?.PageTextQuery(next) == true;
-            EmitInterface("gameobject", "page-query", sent ? "SENT" : "SEND_FAILED", _gameObjectGuid,
-                $"page={next};body={Convert.ToHexString(WorldSession.BuildPageTextQueryBody(next))}");
-        }
     }
 
     private void SimulateGameObjectFlow()

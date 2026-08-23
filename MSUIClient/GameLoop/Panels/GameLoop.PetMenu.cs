@@ -132,7 +132,7 @@ public sealed partial class GameLoop
         PetMenuUiLaw.PlainPopupLayout layout =
             PetMenuUiLaw.PlainLayout(lines.Length * linePitch);
         Vector2 origin = StaticPopupOrigin(visible.Slot, layout.Width, s);
-        Vector2 size = new Vector2(layout.Width, layout.Height) * s;
+        Vector2 size = layout.Size * s;
 
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
@@ -151,15 +151,14 @@ public sealed partial class GameLoop
         _skin.DrawBackdrop(dl, origin, origin + size, WowSkin.Dialog);
         for (int i = 0; i < lines.Length; i++)
             GameText.DrawCentered(dl, "GameFontHighlight", lines[i],
-                origin + new Vector2(layout.Width * .5f,
-                    layout.Text.Y + (i + .5f) * linePitch) * s, s);
+                origin + PetMenuUiLaw.TextLineCenter(layout, linePitch, i) * s, s);
         bool accepted = DrawPartyInviteButton(dl,
             $"StaticPopup{visible.Slot}Button1", buttonOne,
-            origin + new Vector2(layout.Button1.X, layout.Button1.Y) * s,
+            origin + layout.Button1.Min * s,
             s, capture: false, default);
         bool cancelled = DrawPartyInviteButton(dl,
             $"StaticPopup{visible.Slot}Button2", buttonTwo,
-            origin + new Vector2(layout.Button2.X, layout.Button2.Y) * s,
+            origin + layout.Button2.Min * s,
             s, capture: false, default);
         dl.PopClipRect();
         ImGui.End();
@@ -182,7 +181,7 @@ public sealed partial class GameLoop
         StaticPopupCoordinatorLaw.NarrowEditBoxLayout layout =
             StaticPopupCoordinatorLaw.NarrowEditLayout(textHeight);
         Vector2 origin = StaticPopupOrigin(visible.Slot, layout.Width, s);
-        Vector2 size = new Vector2(layout.Width, layout.Height) * s;
+        Vector2 size = layout.Size * s;
 
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
@@ -200,12 +199,11 @@ public sealed partial class GameLoop
         dl.PushClipRectFullScreen();
         _skin.DrawBackdrop(dl, origin, origin + size, WowSkin.Dialog);
         GameText.DrawCentered(dl, "GameFontHighlight", PetMenuUiLaw.RenameLabel,
-            origin + new Vector2(layout.Width * .5f,
-                layout.Text.Y + layout.Text.Height * .5f) * s, s);
+            origin + layout.Text.Center * s, s);
 
-        Vector2 editMin = origin + new Vector2(layout.EditBox.X, layout.EditBox.Y) * s;
+        Vector2 editMin = origin + layout.EditBox.Min * s;
         DrawStaticPopupEditBoxBorder(dl, editMin, s);
-        ImGui.SetCursorScreenPos(editMin + new Vector2(0, 7) * s);
+        ImGui.SetCursorScreenPos(editMin + StaticPopupCoordinatorLaw.EditTextOffset * s);
         ImGui.SetNextItemWidth(layout.EditBox.Width * s);
         ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
@@ -225,11 +223,11 @@ public sealed partial class GameLoop
 
         bool accepted = DrawPartyInviteButton(dl,
             $"StaticPopup{visible.Slot}Button1", PetMenuUiLaw.AcceptText,
-            origin + new Vector2(layout.Button1.X, layout.Button1.Y) * s,
+            origin + layout.Button1.Min * s,
             s, capture: false, default);
         bool cancelled = DrawPartyInviteButton(dl,
             $"StaticPopup{visible.Slot}Button2", PetMenuUiLaw.CancelText,
-            origin + new Vector2(layout.Button2.X, layout.Button2.Y) * s,
+            origin + layout.Button2.Min * s,
             s, capture: false, default);
         dl.PopClipRect();
         ImGui.End();

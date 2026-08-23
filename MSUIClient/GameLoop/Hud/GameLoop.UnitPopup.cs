@@ -58,6 +58,22 @@ public sealed partial class GameLoop
         PlayUiSound("igMainMenuOpen");
     }
 
+    private void OpenGuildPopup(ulong guid, string name, Vector2 physicalPosition)
+    {
+        if (guid == 0 || string.IsNullOrWhiteSpace(name)) return;
+        _unitPopupGuid = guid;
+        _unitPopupWhich = UnitPopupWhich.Guild;
+        _unitPopupNameOverride = name;
+        _unitPopupPosition = physicalPosition;
+        _unitPopupInspectBinding = InspectBinding.Target;
+        _unitPopupAutoCloseAt = NowSeconds() + UnitPopupUiLaw.AutoCloseSeconds;
+        _unitPopupFocusRequested = true;
+        _unitPopupJustOpened = true;
+        _unitPopupSubmenu = UnitPopupSubmenu.None;
+        _unitPopupSubmenuParentRow = -1;
+        PlayUiSound("igMainMenuOpen");
+    }
+
     private UnitPopupRow[] UnitPopupVisibleRows(ulong guid, UnitPopupWhich which)
     {
         if (which == UnitPopupWhich.Pet)
@@ -69,6 +85,12 @@ public sealed partial class GameLoop
                     pet.Fields.UnitFlags)
                 : (false, false);
             return UnitPopupUiLaw.VisiblePetRows(ownedSummon, canAbandon, canRename);
+        }
+        if (which == UnitPopupWhich.Guild)
+        {
+            bool unitInPartyNow = _partyMembers.Any(member => member.Guid == guid);
+            return UnitPopupUiLaw.VisibleGuildRows(unitInPartyNow,
+                CurrentGuildRank() == 0, guid == LocalPlayerGuid);
         }
         bool inParty = _partyInGroup;
         bool isLeader = inParty && _net is not null && _partyLeaderGuid == _net.PlayerGuid;
@@ -258,7 +280,8 @@ public sealed partial class GameLoop
                 uint check = _gameplayArt!.Handle(@"Interface\Buttons\UI-CheckBox-Check");
                 Vector2 checkMin = origin + UnitPopupUiLaw.CheckOrigin(i) * scale;
                 if (check != 0)
-                    dl.AddImage((nint)check, checkMin, checkMin + new Vector2(24) * scale);
+                    dl.AddImage((nint)check, checkMin,
+                        checkMin + UnitPopupUiLaw.CheckSize * scale);
             }
 
             if (UnitPopupUiLaw.HasRaidIcon(row))
@@ -269,7 +292,8 @@ public sealed partial class GameLoop
                     logicalSize.X, 15f, hasTitle, 5f) * scale;
                 (Vector2 uv0, Vector2 uv1) = UnitPopupUiLaw.RaidIconUv(row);
                 if (icon != 0)
-                    dl.AddImage((nint)icon, iconMin, iconMin + new Vector2(15) * scale,
+                    dl.AddImage((nint)icon, iconMin,
+                        iconMin + UnitPopupUiLaw.RaidIconSize * scale,
                         uv0, uv1);
             }
             else if (UnitPopupUiLaw.HasArrow(row, isLeader))
@@ -278,7 +302,8 @@ public sealed partial class GameLoop
                 Vector2 arrowMin = origin + UnitPopupUiLaw.RightDecorationOrigin(i,
                     logicalSize.X, 16f, hasTitle) * scale;
                 if (arrow != 0)
-                    dl.AddImage((nint)arrow, arrowMin, arrowMin + new Vector2(16) * scale);
+                    dl.AddImage((nint)arrow, arrowMin,
+                        arrowMin + UnitPopupUiLaw.ArrowSize * scale);
             }
 
             uint? textColor = enabled
@@ -361,14 +386,20 @@ public sealed partial class GameLoop
                 if (name.Length > 0) _net?.GroupInvite(name);
                 break;
             case UnitPopupRow.Uninvite:
-                _net?.GroupUninviteGuid(guid);
+                if (!TryPartyTestUninvite(guid)) _net?.GroupUninviteGuid(guid);
                 break;
             case UnitPopupRow.Promote:
-                _net?.GroupSetLeader(guid);
+                if (!TryPartyTestPromote(guid)) _net?.GroupSetLeader(guid);
                 break;
             case UnitPopupRow.Leave:
                 // LeaveParty(): the 1.12 client leaves a group with CMSG_GROUP_DISBAND.
-                _net?.GroupDisband();
+                if (!TryPartyTestLeave()) _net?.GroupDisband();
+                break;
+            case UnitPopupRow.GuildPromote:
+                ShowGuildActionPopup(GuildFrameUiLaw.ConfirmPromoteDefinition, name);
+                break;
+            case UnitPopupRow.GuildLeave:
+                ShowGuildActionPopup(GuildFrameUiLaw.ConfirmLeaveDefinition, _guildName);
                 break;
             case UnitPopupRow.Trade:
                 _tradePartnerGuid = guid;
@@ -384,7 +415,8 @@ public sealed partial class GameLoop
                 RequestInspect(guid, _unitPopupInspectBinding);
                 break;
             case UnitPopupRow.LootPromote:
-                _net?.GroupLootMethod(2, guid, _partyLootThreshold);
+                if (!TryPartyTestLoot(2, guid, _partyLootThreshold))
+                    _net?.GroupLootMethod(2, guid, _partyLootThreshold);
                 break;
         }
         PlayUiSound("UChatScrollButton");
@@ -399,12 +431,14 @@ public sealed partial class GameLoop
         {
             byte method = UnitPopupUiLaw.LootMethodValue(row);
             ulong master = method == 2 ? _unitPopupGuid : 0;
-            _net?.GroupLootMethod(method, master, _partyLootThreshold);
+            if (!TryPartyTestLoot(method, master, _partyLootThreshold))
+                _net?.GroupLootMethod(method, master, _partyLootThreshold);
         }
         else if (row is >= UnitPopupRow.Quality2 and <= UnitPopupRow.Quality4)
         {
             byte threshold = UnitPopupUiLaw.QualityValue(row);
-            _net?.GroupLootMethod(_partyLootMethod, _partyMasterLooterGuid, threshold);
+            if (!TryPartyTestLoot(_partyLootMethod, _partyMasterLooterGuid, threshold))
+                _net?.GroupLootMethod(_partyLootMethod, _partyMasterLooterGuid, threshold);
         }
         else if (row is >= UnitPopupRow.RaidTarget1 and <= UnitPopupRow.RaidTargetNone)
         {
@@ -412,11 +446,13 @@ public sealed partial class GameLoop
             byte current = GroupUiLaw.RaidTargetIndex(_partyRaidTargets, _unitPopupGuid);
             if (requested == 0)
             {
-                if (current > 0) _net?.SetRaidTarget(checked((byte)(current - 1)), 0);
+                if (current > 0 && !TryPartyTestRaidTarget(_unitPopupGuid, 0))
+                    _net?.SetRaidTarget(checked((byte)(current - 1)), 0);
             }
             else
             {
-                _net?.SetRaidTarget(checked((byte)(requested - 1)), _unitPopupGuid);
+                if (!TryPartyTestRaidTarget(_unitPopupGuid, requested))
+                    _net?.SetRaidTarget(checked((byte)(requested - 1)), _unitPopupGuid);
             }
         }
         PlayUiSound("UChatScrollButton");

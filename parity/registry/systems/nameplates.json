@@ -26,7 +26,7 @@
     "tools/interface-wire-check/NameplateClinicalChecks.cs"
   ],
   "status": "complete",
-  "summary": "MSUI's overhead identity stack now consumes one law for the selection-circle palette and its first-priority 1 Hz red-to-orange auto-attack pulse, player <AFK><DND><GM> flag decorations, creature <Subname> lines, 1:1 line pitch, selection rescue, and current Benilla's close-fixed/far-proportional world pitch. Ordinary overhead names are camera-facing ImGui-atlas glyph meshes in a late depth-tested, depth-write-off world batch, so terrain and walls occlude them; live V-key plates and chat bubbles suppress that batch and remain separate UI overlays. Enemy/neutral, friendly and all-nameplate modes are independent binding-table commands on V, Shift-V and Ctrl-V, with the same V-plate gate shared by plate drawing, bubble exclusion, quest-marker lift and raid-mark placement. The same palette law paints the ground selection ring.",
+  "summary": "MSUI's overhead identity stack now consumes one law for the selection-circle palette and its first-priority 1 Hz red-to-orange auto-attack pulse, player <AFK><DND><GM> flag decorations, creature <Subname> lines, 1:1 line pitch, selection rescue, and current Benilla's close-fixed/far-proportional world pitch. NameplateUiLaw also owns viewport-dependent V-plate sizing/sort seat, plate bounds, health fill crop/UV, name/subname anchors, level/skull seats, and text/shadow placement; the live renderer contains no local new Vector2 geometry. Ordinary overhead names are camera-facing ImGui-atlas glyph meshes in a late depth-tested, depth-write-off world batch, so terrain and walls occlude them; live V-key plates and chat bubbles suppress that batch and remain separate UI overlays. Enemy/neutral, friendly and all-nameplate modes are independent binding-table commands on V, Shift-V and Ctrl-V, with the same V-plate gate shared by plate drawing, bubble exclusion, quest-marker lift and raid-mark placement. The same palette law paints the ground selection ring. Focused and full deterministic checks pass.",
   "openItems": [
     {
       "id": "item-triage-1c763f6a",
@@ -84,6 +84,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T00:45:00Z",
+  "lastReviewedUtc": "2026-08-23T05:15:07.4022085Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

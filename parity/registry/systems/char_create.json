@@ -39,7 +39,7 @@
     "tools/interface-wire-check/CharCreateClinicalChecks.cs"
   ],
   "status": "complete",
-  "summary": "MSUI's create screen is a deliberate port of current Benilla's char_create: per-race class lists from CharBaseInfo, dial ranges from CharSections/CharHairGeosets/CharacterFacialHairStyles, byte-exact CMSG_CHAR_CREATE, GlueStrings faction/race/class paragraphs, starting outfit on the 3D preview, drag-to-rotate, success re-enum with the new row armed, and the exact class/look/cancel/create glue sound gestures. ChrRaces fields 26/27/28 drive sex-specific facial and hair customization tokens, and CharCreateUiLaw resolves every localized dial caption without changing MSUI's established glue layout. The wire is fully covered (3/3 opcodes).",
+  "summary": "MSUI's create screen is a deliberate port of current Benilla's char_create: per-race class lists from CharBaseInfo, dial ranges from CharSections/CharHairGeosets/CharacterFacialHairStyles, byte-exact CMSG_CHAR_CREATE, GlueStrings faction/race/class paragraphs, starting outfit on the 3D preview, drag-to-rotate, success re-enum with the new row armed, and the exact class/look/cancel/create glue sound gestures. ChrRaces fields 26/27/28 drive sex-specific facial and hair customization tokens, and CharCreateUiLaw resolves every localized dial caption and owns the signed-off 1024x768 glue geometry without changing the established presentation. The wire is fully covered (3/3 opcodes).",
   "openItems": [
     {
       "id": "item-triage-2b6b1336",
@@ -58,6 +58,15 @@
       "added": "2026-08-09",
       "resolved": true,
       "resolution": "2026-08-23: CharCreateUiLaw owns the exact gsCharacterCreationClass/Look/Cancel/CreateChar cues. Every race/sex/class click, appearance arrow, randomize, accepted Back/Escape and accepted Create route through the pre-world shared SoundEntries player. Focused and full clinical suites pass."
+    },
+    {
+      "id": "item-char-create-geometry-law-20260823",
+      "kind": "gap",
+      "text": "The signed-off character-create tower, panels, controls and tuning defaults were owned by the renderer file instead of the UI-law layer.",
+      "source": "local-geometry-ownership-audit-2026-08-23",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: Moved the complete CreateTune geometry/default set unchanged into CharCreateUiLaw, then moved the full-screen host, bottom-right Accept/Back stack and tuning-window placement there too. The renderer only consumes the law, and clinical value/source fences prevent geometry ownership from returning to GameLoop.CharCreate.cs. Focused and full suites pass."
     },
     {
       "id": "item-msui-char-create-labels-live-verify-20260822",
@@ -79,6 +88,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T00:28:00Z",
+  "lastReviewedUtc": "2026-08-23T08:14:06.9329777Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

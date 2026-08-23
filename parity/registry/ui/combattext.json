@@ -33,7 +33,7 @@
     "tools/combat-wire-check/Program.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "The scrolling combat text covers player and owned pet/guardian/totem damage, including Benilla's white player melee, gold player/pet spell and orange pet melee branches, plus category-specific lifetime/rise/fade/scale presentation, heals, periodic ticks, power, environmental damage, miss words, aura changes, combat-state lines, latched 20-percent resource warnings, and positive SMSG_PVP_CREDIT honor gains. Live honor-award verification remains outstanding.",
+  "summary": "The scrolling combat text covers player and owned pet/guardian/totem damage, including Benilla's white player melee, gold player/pet spell and orange pet melee branches, plus category-specific lifetime/rise/fade/scale presentation, heals, periodic ticks, power, environmental damage, miss words, aura changes, combat-state lines, latched 20-percent resource warnings, and positive SMSG_PVP_CREDIT honor gains. CombatTextStateUiLaw owns world-text lanes/shadows and center-text lanes/rise/shadows; those renderer sections contain no local Vector2 geometry. Focused and full deterministic checks pass. Live honor-award verification remains outstanding.",
   "openItems": [
     {
       "id": "item-current-combattext-pet-damage",
@@ -92,6 +92,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T16:00:00+00:00",
+  "lastReviewedUtc": "2026-08-23T05:02:04.2639241Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

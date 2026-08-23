@@ -11,15 +11,28 @@ public sealed partial class GameLoop
     private enum GameBinding
     {
         MoveForward, MoveBackward, TurnLeft, TurnRight, StrafeLeft, StrafeRight,
-        Jump, SitOrStand, ToggleRun, ToggleAutorun, FollowTarget, TargetNearestEnemy, ToggleEnemyNameplates,
+        Jump, SitOrStand, ToggleRun, ToggleAutorun, FollowTarget, TargetNearestEnemy,
+        TargetPreviousEnemy, TargetSelf, TargetPartyMember1, TargetPartyMember2,
+        TargetPartyMember3, TargetPartyMember4, TargetPet, TargetPartyPet1,
+        TargetPartyPet2, TargetPartyPet3, TargetPartyPet4, PetAttack,
+        ToggleEnemyNameplates,
         ToggleFriendlyNameplates, ToggleAllNameplates, AttackTarget, OpenChat, OpenChatSlash,
         ChatPageUp, ChatPageDown, ChatBottom, Reply,
         CameraZoomIn, CameraZoomOut, MinimapZoomIn, MinimapZoomOut,
+        ToggleMusic, ToggleSound, MasterVolumeUp, MasterVolumeDown,
         OpenBackpack, OpenCharacter, OpenSkills,
-        OpenSpellbook, OpenPetSpellbook, OpenTalents, OpenQuestLog, OpenSocial, OpenWorldMap, Sheath, ToggleUi,
+        OpenSpellbook, OpenPetSpellbook, OpenTalents, OpenQuestLog, OpenSocial,
+        OpenSocialFriends, OpenSocialWho, OpenSocialGuild, OpenWorldMap, ToggleMinimap,
+        Sheath, ToggleUi,
         Screenshot,
         Action1, Action2, Action3, Action4,
         Action5, Action6, Action7, Action8, Action9, Action10, Action11, Action12,
+        ShapeshiftButton1, ShapeshiftButton2, ShapeshiftButton3, ShapeshiftButton4,
+        ShapeshiftButton5, ShapeshiftButton6, ShapeshiftButton7, ShapeshiftButton8,
+        ShapeshiftButton9, ShapeshiftButton10,
+        BonusActionButton1, BonusActionButton2, BonusActionButton3, BonusActionButton4,
+        BonusActionButton5, BonusActionButton6, BonusActionButton7, BonusActionButton8,
+        BonusActionButton9, BonusActionButton10, ToggleActionBarLock,
         MultiActionBar1Button1, MultiActionBar1Button2, MultiActionBar1Button3,
         MultiActionBar1Button4, MultiActionBar1Button5, MultiActionBar1Button6,
         MultiActionBar1Button7, MultiActionBar1Button8, MultiActionBar1Button9,
@@ -28,6 +41,8 @@ public sealed partial class GameLoop
         MultiActionBar2Button4, MultiActionBar2Button5, MultiActionBar2Button6,
         MultiActionBar2Button7, MultiActionBar2Button8, MultiActionBar2Button9,
         MultiActionBar2Button10, MultiActionBar2Button11, MultiActionBar2Button12,
+        RaidTarget1, RaidTarget2, RaidTarget3, RaidTarget4, RaidTarget5,
+        RaidTarget6, RaidTarget7, RaidTarget8, RaidTargetNone,
     }
 
     private static readonly (string Category, GameBinding Binding, string Label, Key Default)[] BindingRows =
@@ -41,6 +56,7 @@ public sealed partial class GameLoop
         ("Movement", GameBinding.Jump, "Jump", Key.Space),
         ("Movement", GameBinding.SitOrStand, "Sit/Stand", Key.X),
         ("Movement", GameBinding.ToggleRun, "Run/Walk", Key.KeypadDivide),
+        ("Movement", GameBinding.Sheath, "Sheath/Unsheath", Key.Z),
         ("Movement", GameBinding.ToggleAutorun, "Auto Run", Key.NumLock),
         ("Movement", GameBinding.FollowTarget, "Follow Target", Key.Unknown),
         ("Chat", GameBinding.OpenChat, "Open Chat", Key.Enter),
@@ -49,27 +65,6 @@ public sealed partial class GameLoop
         ("Chat", GameBinding.ChatPageDown, "Chat Page Down", Key.PageDown),
         ("Chat", GameBinding.ChatBottom, "Chat Bottom", Key.PageDown),
         ("Chat", GameBinding.Reply, "Reply", Key.R),
-        ("Camera", GameBinding.CameraZoomIn, "Zoom In", Key.Unknown),
-        ("Camera", GameBinding.CameraZoomOut, "Zoom Out", Key.Unknown),
-        ("Miscellaneous", GameBinding.MinimapZoomIn, "Minimap Zoom In", Key.KeypadAdd),
-        ("Miscellaneous", GameBinding.MinimapZoomOut, "Minimap Zoom Out", Key.KeypadSubtract),
-        ("Targeting", GameBinding.TargetNearestEnemy, "Target Nearest Enemy", Key.Tab),
-        ("Targeting", GameBinding.AttackTarget, "Attack Target", Key.T),
-        ("Targeting", GameBinding.ToggleEnemyNameplates, "Show Enemy Name Plates", Key.V),
-        ("Targeting", GameBinding.ToggleFriendlyNameplates, "Show Friendly Name Plates", Key.V),
-        ("Targeting", GameBinding.ToggleAllNameplates, "Show All Name Plates", Key.V),
-        ("Interface", GameBinding.OpenBackpack, "Open Backpack", Key.B),
-        ("Interface", GameBinding.OpenCharacter, "Character Info", Key.C),
-        ("Interface", GameBinding.OpenSkills, SkillFrameUiLaw.BindingLabel, Key.K),
-        ("Interface", GameBinding.OpenSpellbook, "Spellbook", Key.P),
-        ("Interface", GameBinding.OpenPetSpellbook, "Pet Spellbook", Key.P),
-        ("Interface", GameBinding.OpenTalents, "Talents", Key.N),
-        ("Interface", GameBinding.OpenQuestLog, "Quest Log", Key.L),
-        ("Interface", GameBinding.OpenSocial, "Social", Key.O),
-        ("Interface", GameBinding.OpenWorldMap, "World Map", Key.M),
-        ("Interface", GameBinding.Sheath, "Sheath/Unsheath", Key.Z),
-        ("Interface", GameBinding.ToggleUi, "Toggle User Interface", Key.Z),
-        ("Interface", GameBinding.Screenshot, "Screen Shot", Key.PrintScreen),
         ("Action Bar", GameBinding.Action1, "Action Button 1", Key.Number1),
         ("Action Bar", GameBinding.Action2, "Action Button 2", Key.Number2),
         ("Action Bar", GameBinding.Action3, "Action Button 3", Key.Number3),
@@ -82,30 +77,100 @@ public sealed partial class GameLoop
         ("Action Bar", GameBinding.Action10, "Action Button 10", Key.Number0),
         ("Action Bar", GameBinding.Action11, "Action Button 11", Key.Minus),
         ("Action Bar", GameBinding.Action12, "Action Button 12", Key.Equal),
-        ("MultiActionBar 1", GameBinding.MultiActionBar1Button1, "Action Button 1", Key.Unknown),
-        ("MultiActionBar 1", GameBinding.MultiActionBar1Button2, "Action Button 2", Key.Unknown),
-        ("MultiActionBar 1", GameBinding.MultiActionBar1Button3, "Action Button 3", Key.Unknown),
-        ("MultiActionBar 1", GameBinding.MultiActionBar1Button4, "Action Button 4", Key.Unknown),
-        ("MultiActionBar 1", GameBinding.MultiActionBar1Button5, "Action Button 5", Key.Unknown),
-        ("MultiActionBar 1", GameBinding.MultiActionBar1Button6, "Action Button 6", Key.Unknown),
-        ("MultiActionBar 1", GameBinding.MultiActionBar1Button7, "Action Button 7", Key.Unknown),
-        ("MultiActionBar 1", GameBinding.MultiActionBar1Button8, "Action Button 8", Key.Unknown),
-        ("MultiActionBar 1", GameBinding.MultiActionBar1Button9, "Action Button 9", Key.Unknown),
-        ("MultiActionBar 1", GameBinding.MultiActionBar1Button10, "Action Button 10", Key.Unknown),
-        ("MultiActionBar 1", GameBinding.MultiActionBar1Button11, "Action Button 11", Key.Unknown),
-        ("MultiActionBar 1", GameBinding.MultiActionBar1Button12, "Action Button 12", Key.Unknown),
-        ("MultiActionBar 2", GameBinding.MultiActionBar2Button1, "Action Button 1", Key.Unknown),
-        ("MultiActionBar 2", GameBinding.MultiActionBar2Button2, "Action Button 2", Key.Unknown),
-        ("MultiActionBar 2", GameBinding.MultiActionBar2Button3, "Action Button 3", Key.Unknown),
-        ("MultiActionBar 2", GameBinding.MultiActionBar2Button4, "Action Button 4", Key.Unknown),
-        ("MultiActionBar 2", GameBinding.MultiActionBar2Button5, "Action Button 5", Key.Unknown),
-        ("MultiActionBar 2", GameBinding.MultiActionBar2Button6, "Action Button 6", Key.Unknown),
-        ("MultiActionBar 2", GameBinding.MultiActionBar2Button7, "Action Button 7", Key.Unknown),
-        ("MultiActionBar 2", GameBinding.MultiActionBar2Button8, "Action Button 8", Key.Unknown),
-        ("MultiActionBar 2", GameBinding.MultiActionBar2Button9, "Action Button 9", Key.Unknown),
-        ("MultiActionBar 2", GameBinding.MultiActionBar2Button10, "Action Button 10", Key.Unknown),
-        ("MultiActionBar 2", GameBinding.MultiActionBar2Button11, "Action Button 11", Key.Unknown),
-        ("MultiActionBar 2", GameBinding.MultiActionBar2Button12, "Action Button 12", Key.Unknown),
+        ("Action Bar", GameBinding.ShapeshiftButton1, "Shapeshift Button 1", Key.F1),
+        ("Action Bar", GameBinding.ShapeshiftButton2, "Shapeshift Button 2", Key.F2),
+        ("Action Bar", GameBinding.ShapeshiftButton3, "Shapeshift Button 3", Key.F3),
+        ("Action Bar", GameBinding.ShapeshiftButton4, "Shapeshift Button 4", Key.F4),
+        ("Action Bar", GameBinding.ShapeshiftButton5, "Shapeshift Button 5", Key.F5),
+        ("Action Bar", GameBinding.ShapeshiftButton6, "Shapeshift Button 6", Key.F6),
+        ("Action Bar", GameBinding.ShapeshiftButton7, "Shapeshift Button 7", Key.F7),
+        ("Action Bar", GameBinding.ShapeshiftButton8, "Shapeshift Button 8", Key.F8),
+        ("Action Bar", GameBinding.ShapeshiftButton9, "Shapeshift Button 9", Key.F9),
+        ("Action Bar", GameBinding.ShapeshiftButton10, "Shapeshift Button 10", Key.F10),
+        ("Action Bar", GameBinding.BonusActionButton1, "Secondary Action Button 1", Key.Number1),
+        ("Action Bar", GameBinding.BonusActionButton2, "Secondary Action Button 2", Key.Number2),
+        ("Action Bar", GameBinding.BonusActionButton3, "Secondary Action Button 3", Key.Number3),
+        ("Action Bar", GameBinding.BonusActionButton4, "Secondary Action Button 4", Key.Number4),
+        ("Action Bar", GameBinding.BonusActionButton5, "Secondary Action Button 5", Key.Number5),
+        ("Action Bar", GameBinding.BonusActionButton6, "Secondary Action Button 6", Key.Number6),
+        ("Action Bar", GameBinding.BonusActionButton7, "Secondary Action Button 7", Key.Number7),
+        ("Action Bar", GameBinding.BonusActionButton8, "Secondary Action Button 8", Key.Number8),
+        ("Action Bar", GameBinding.BonusActionButton9, "Secondary Action Button 9", Key.Number9),
+        ("Action Bar", GameBinding.BonusActionButton10, "Secondary Action Button 10", Key.Number0),
+        ("Action Bar", GameBinding.ToggleActionBarLock, "Toggle Action Bar Lock", Key.Unknown),
+        ("Targeting", GameBinding.TargetNearestEnemy, "Target Nearest Enemy", Key.Tab),
+        ("Targeting", GameBinding.TargetPreviousEnemy, "Target Previous Enemy", Key.Tab),
+        ("Targeting", GameBinding.TargetSelf, "Target Self", Key.F1),
+        ("Targeting", GameBinding.TargetPartyMember1, "Target Party Member 1", Key.F2),
+        ("Targeting", GameBinding.TargetPartyMember2, "Target Party Member 2", Key.F3),
+        ("Targeting", GameBinding.TargetPartyMember3, "Target Party Member 3", Key.F4),
+        ("Targeting", GameBinding.TargetPartyMember4, "Target Party Member 4", Key.F5),
+        ("Targeting", GameBinding.TargetPet, "Target Pet", Key.F1),
+        ("Targeting", GameBinding.TargetPartyPet1, "Target Party Pet 1", Key.F2),
+        ("Targeting", GameBinding.TargetPartyPet2, "Target Party Pet 2", Key.F3),
+        ("Targeting", GameBinding.TargetPartyPet3, "Target Party Pet 3", Key.F4),
+        ("Targeting", GameBinding.TargetPartyPet4, "Target Party Pet 4", Key.F5),
+        ("Targeting", GameBinding.ToggleEnemyNameplates, "Show Enemy Name Plates", Key.V),
+        ("Targeting", GameBinding.ToggleFriendlyNameplates, "Show Friendly Name Plates", Key.V),
+        ("Targeting", GameBinding.ToggleAllNameplates, "Show All Name Plates", Key.V),
+        ("Targeting", GameBinding.AttackTarget, "Attack Target", Key.T),
+        ("Targeting", GameBinding.PetAttack, "Pet Attack", Key.T),
+        ("Interface", GameBinding.OpenCharacter, "Character Info", Key.C),
+        ("Interface", GameBinding.OpenBackpack, "Open Backpack", Key.B),
+        ("Interface", GameBinding.OpenSkills, SkillFrameUiLaw.BindingLabel, Key.K),
+        ("Interface", GameBinding.OpenPetSpellbook, "Pet Spellbook", Key.P),
+        ("Interface", GameBinding.OpenSpellbook, "Spellbook", Key.P),
+        ("Interface", GameBinding.OpenTalents, "Talents", Key.N),
+        ("Interface", GameBinding.OpenQuestLog, "Quest Log", Key.L),
+        ("Interface", GameBinding.ToggleMinimap, "Toggle Minimap", Key.Unknown),
+        ("Interface", GameBinding.OpenWorldMap, "World Map", Key.M),
+        ("Interface", GameBinding.OpenSocial, "Social", Key.O),
+        ("Interface", GameBinding.OpenSocialFriends, "Toggle Friends Pane", Key.Unknown),
+        ("Interface", GameBinding.OpenSocialWho, "Toggle Who Pane", Key.Unknown),
+        ("Interface", GameBinding.OpenSocialGuild, "Toggle Guild Pane", Key.Unknown),
+        ("Miscellaneous", GameBinding.MinimapZoomIn, "Minimap Zoom In", Key.KeypadAdd),
+        ("Miscellaneous", GameBinding.MinimapZoomOut, "Minimap Zoom Out", Key.KeypadSubtract),
+        ("Miscellaneous", GameBinding.ToggleMusic, "Toggle Music", Key.M),
+        ("Miscellaneous", GameBinding.ToggleSound, "Toggle Sound", Key.S),
+        ("Miscellaneous", GameBinding.MasterVolumeUp, "Master Volume Up", Key.Equal),
+        ("Miscellaneous", GameBinding.MasterVolumeDown, "Master Volume Down", Key.Minus),
+        ("Miscellaneous", GameBinding.ToggleUi, "Toggle User Interface", Key.Z),
+        ("Miscellaneous", GameBinding.Screenshot, "Screen Shot", Key.PrintScreen),
+        ("Camera", GameBinding.CameraZoomIn, "Zoom In", Key.Unknown),
+        ("Camera", GameBinding.CameraZoomOut, "Zoom Out", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar1Button1, "Action Button 1", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar1Button2, "Action Button 2", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar1Button3, "Action Button 3", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar1Button4, "Action Button 4", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar1Button5, "Action Button 5", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar1Button6, "Action Button 6", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar1Button7, "Action Button 7", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar1Button8, "Action Button 8", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar1Button9, "Action Button 9", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar1Button10, "Action Button 10", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar1Button11, "Action Button 11", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar1Button12, "Action Button 12", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar2Button1, "Action Button 1", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar2Button2, "Action Button 2", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar2Button3, "Action Button 3", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar2Button4, "Action Button 4", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar2Button5, "Action Button 5", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar2Button6, "Action Button 6", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar2Button7, "Action Button 7", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar2Button8, "Action Button 8", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar2Button9, "Action Button 9", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar2Button10, "Action Button 10", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar2Button11, "Action Button 11", Key.Unknown),
+        ("MultiActionBar", GameBinding.MultiActionBar2Button12, "Action Button 12", Key.Unknown),
+        ("Raid Targeting", GameBinding.RaidTarget1, "Assign Star to Target", Key.Unknown),
+        ("Raid Targeting", GameBinding.RaidTarget2, "Assign Circle to Target", Key.Unknown),
+        ("Raid Targeting", GameBinding.RaidTarget3, "Assign Diamond to Target", Key.Unknown),
+        ("Raid Targeting", GameBinding.RaidTarget4, "Assign Triangle to Target", Key.Unknown),
+        ("Raid Targeting", GameBinding.RaidTarget5, "Assign Moon to Target", Key.Unknown),
+        ("Raid Targeting", GameBinding.RaidTarget6, "Assign Square to Target", Key.Unknown),
+        ("Raid Targeting", GameBinding.RaidTarget7, "Assign Cross to Target", Key.Unknown),
+        ("Raid Targeting", GameBinding.RaidTarget8, "Assign Skull to Target", Key.Unknown),
+        ("Raid Targeting", GameBinding.RaidTargetNone, "Clear Raid Target Icon", Key.Unknown),
     ];
 
     private readonly record struct BindingPair(BindingChord Primary, BindingChord Secondary)
@@ -126,7 +191,10 @@ public sealed partial class GameLoop
     private bool _bindingsLoaded;
     private ulong _bindingsCharacterGuid;
     private bool _targetNearestWasDown;
+    private bool _targetPreviousWasDown;
+    private readonly TargetCycleHistory _targetCycleHistory = new();
     private bool _attackTargetBindingWasDown;
+    private readonly HashSet<GameBinding> _directTargetBindingsDown = [];
     private bool _toggleRunWasDown;
     private bool _sitOrStandWasDown;
     private bool _walkToggled;
@@ -146,6 +214,11 @@ public sealed partial class GameLoop
     private bool _cameraZoomOutWasDown;
     private bool _minimapZoomInWasDown;
     private bool _minimapZoomOutWasDown;
+    private bool _toggleMinimapWasDown;
+    private bool _toggleMusicWasDown;
+    private bool _toggleSoundWasDown;
+    private bool _masterVolumeUpWasDown;
+    private bool _masterVolumeDownWasDown;
     private bool _toggleUiWasDown;
     private bool _uiHidden;
     private readonly Dictionary<Key, HashSet<GameBinding>> _bindingLatches = [];
@@ -262,6 +335,8 @@ public sealed partial class GameLoop
         foreach (var row in BindingRows)
             _bindings[row.Binding] = new(new BindingChord(row.Default,
                 Alt: row.Binding == GameBinding.ToggleUi,
+                Control: row.Binding is >= GameBinding.ShapeshiftButton1 and
+                    <= GameBinding.BonusActionButton10,
                 Shift: row.Binding == GameBinding.OpenPetSpellbook), default);
         _bindings[GameBinding.ToggleAutorun] = new(
             new BindingChord(Key.NumLock),
@@ -286,6 +361,28 @@ public sealed partial class GameLoop
             new BindingChord(Key.V, Control: true), default);
         _bindings[GameBinding.ChatBottom] = new(
             new BindingChord(Key.PageDown, Shift: true), default);
+        _bindings[GameBinding.TargetPreviousEnemy] = new(
+            new BindingChord(Key.Tab, Shift: true), default);
+        _bindings[GameBinding.TargetPet] = new(
+            new BindingChord(Key.F1, Shift: true), default);
+        _bindings[GameBinding.TargetPartyPet1] = new(
+            new BindingChord(Key.F2, Shift: true), default);
+        _bindings[GameBinding.TargetPartyPet2] = new(
+            new BindingChord(Key.F3, Shift: true), default);
+        _bindings[GameBinding.TargetPartyPet3] = new(
+            new BindingChord(Key.F4, Shift: true), default);
+        _bindings[GameBinding.TargetPartyPet4] = new(
+            new BindingChord(Key.F5, Shift: true), default);
+        _bindings[GameBinding.PetAttack] = new(
+            new BindingChord(Key.T, Shift: true), default);
+        _bindings[GameBinding.ToggleMusic] = new(
+            new BindingChord(Key.M, Control: true), default);
+        _bindings[GameBinding.ToggleSound] = new(
+            new BindingChord(Key.S, Control: true), default);
+        _bindings[GameBinding.MasterVolumeUp] = new(
+            new BindingChord(Key.Equal, Control: true), default);
+        _bindings[GameBinding.MasterVolumeDown] = new(
+            new BindingChord(Key.Minus, Control: true), default);
     }
 
     private Key BoundKey(GameBinding binding)
@@ -416,6 +513,12 @@ public sealed partial class GameLoop
 
     private GameBinding ActionBinding(int index) => (GameBinding)((int)GameBinding.Action1 + index);
 
+    private static GameBinding ShapeshiftBinding(int index) =>
+        (GameBinding)((int)GameBinding.ShapeshiftButton1 + Math.Clamp(index, 0, 9));
+
+    private static GameBinding BonusActionBinding(int index) =>
+        (GameBinding)((int)GameBinding.BonusActionButton1 + Math.Clamp(index, 0, 9));
+
     private static GameBinding MultiActionBinding(BottomMultiActionBar bar, int index) =>
         (GameBinding)((bar == BottomMultiActionBar.Left
             ? (int)GameBinding.MultiActionBar1Button1
@@ -427,12 +530,14 @@ public sealed partial class GameLoop
         // target binding must not also fire.
         bool ctrlHeld = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
         bool down = BindingDown(GameBinding.TargetNearestEnemy) && !ctrlHeld;
-        if (down && !_targetNearestWasDown && !typing && _net is { IsInWorld: true } && _controller is not null)
+        bool previous = BindingDown(GameBinding.TargetPreviousEnemy) && !ctrlHeld;
+        if (!typing && _net is { IsInWorld: true } && _controller is not null)
         {
-            WorldEntity? nearest = NearestAttackableUnit();
-            if (nearest is not null) CommitSelection(nearest.Guid, beginAttack: false);
+            if (previous && !_targetPreviousWasDown) CycleEnemyTarget(reverse: true);
+            else if (down && !_targetNearestWasDown) CycleEnemyTarget(reverse: false);
         }
         _targetNearestWasDown = down;
+        _targetPreviousWasDown = previous;
 
         bool attack = BindingDown(GameBinding.AttackTarget);
         if (attack && !_attackTargetBindingWasDown && !typing &&
@@ -450,11 +555,139 @@ public sealed partial class GameLoop
         _attackTargetBindingWasDown = attack;
     }
 
+    private void UpdateDirectTargetBindings(bool typing)
+    {
+        GameBinding[] commands =
+        [
+            GameBinding.TargetSelf,
+            GameBinding.TargetPartyMember1, GameBinding.TargetPartyMember2,
+            GameBinding.TargetPartyMember3, GameBinding.TargetPartyMember4,
+            GameBinding.TargetPet,
+            GameBinding.TargetPartyPet1, GameBinding.TargetPartyPet2,
+            GameBinding.TargetPartyPet3, GameBinding.TargetPartyPet4,
+            GameBinding.PetAttack,
+            GameBinding.RaidTarget1, GameBinding.RaidTarget2,
+            GameBinding.RaidTarget3, GameBinding.RaidTarget4,
+            GameBinding.RaidTarget5, GameBinding.RaidTarget6,
+            GameBinding.RaidTarget7, GameBinding.RaidTarget8,
+            GameBinding.RaidTargetNone,
+        ];
+
+        foreach (GameBinding command in commands)
+        {
+            bool down = BindingDown(command);
+            if (down && !_directTargetBindingsDown.Contains(command) && !typing)
+                FireDirectTargetBinding(command);
+            if (down) _directTargetBindingsDown.Add(command);
+            else _directTargetBindingsDown.Remove(command);
+        }
+    }
+
+    private void FireDirectTargetBinding(GameBinding command)
+    {
+        if (_net is not { IsInWorld: true }) return;
+
+        if (command == GameBinding.PetAttack)
+        {
+            int attackSlot = Array.FindIndex(_petActions, packed =>
+                PetActionBarUiLaw.Kind(packed) == 7 &&
+                PetActionBarUiLaw.Action(packed) == 2);
+            if (attackSlot >= 0)
+            {
+                WorldEntity? pet = _entities.TryGet(_petGuid, out WorldEntity entity) &&
+                    entity.IsUnit ? entity : null;
+                UsePetAction(attackSlot, _petGuid, pet);
+            }
+            return;
+        }
+
+        if (command is >= GameBinding.RaidTarget1 and <= GameBinding.RaidTargetNone)
+        {
+            byte requested = command == GameBinding.RaidTargetNone ? (byte)0 :
+                checked((byte)((int)command - (int)GameBinding.RaidTarget1 + 1));
+            RaidMarkerIntent intent = TargetBindingLaw.ResolveRaidMarker(
+                _partyRaidTargets, _selectionGuid, requested);
+            if (intent.Send && !TryPartyTestRaidTarget(_selectionGuid, requested))
+                _net.SetRaidTarget(intent.WireIcon, intent.Guid);
+            return;
+        }
+
+        ulong self = ControlledGuid;
+        ulong selfPet = _petGuid;
+        ulong member = 0;
+        ulong memberPet = 0;
+        int partyIndex = command switch
+        {
+            GameBinding.TargetPartyMember1 or GameBinding.TargetPartyPet1 => 0,
+            GameBinding.TargetPartyMember2 or GameBinding.TargetPartyPet2 => 1,
+            GameBinding.TargetPartyMember3 or GameBinding.TargetPartyPet3 => 2,
+            GameBinding.TargetPartyMember4 or GameBinding.TargetPartyPet4 => 3,
+            _ => -1,
+        };
+        if (partyIndex >= 0)
+        {
+            member = PartyFrameMemberGuid(partyIndex);
+            if (member != 0 && _entities.TryGet(member, out WorldEntity partyUnit))
+                memberPet = partyUnit.Fields.Summon ?? partyUnit.Fields.Charm ?? 0;
+        }
+
+        ulong? target = command switch
+        {
+            GameBinding.TargetSelf =>
+                TargetBindingLaw.ResolveToggle(_selectionGuid, self, selfPet),
+            >= GameBinding.TargetPartyMember1 and <= GameBinding.TargetPartyMember4 =>
+                TargetBindingLaw.ResolveToggle(_selectionGuid, member, memberPet),
+            GameBinding.TargetPet => TargetBindingLaw.ResolveDirect(selfPet),
+            >= GameBinding.TargetPartyPet1 and <= GameBinding.TargetPartyPet4 =>
+                TargetBindingLaw.ResolveDirect(memberPet),
+            _ => null,
+        };
+        if (target.HasValue) CommitSelection(target.Value, beginAttack: false);
+    }
+
     private WorldEntity? NearestAttackableUnit() => _controller is null ? null :
         _entities.Units
             .Where(x => x.Guid != ControlledGuid && !x.IsDead && CanAttack(x))
             .OrderBy(x => Vector3.DistanceSquared(x.Position, _controller.Position))
             .FirstOrDefault();
+
+    private void CycleEnemyTarget(bool reverse)
+    {
+        if (_controller is null) return;
+        Vector2 viewport = ImGuiNET.ImGui.GetIO().DisplaySize;
+        List<TargetCycleLaw.Candidate> candidates = [];
+        foreach (WorldEntity unit in _entities.Units)
+        {
+            if (unit.Guid == ControlledGuid || unit.Fields.ReadsDead || !CanAttack(unit)) continue;
+            float distance = Vector3.Distance(unit.Position, _controller.Position);
+            if (distance > TargetCycleLaw.Range) continue;
+            if (unit.IsCreature &&
+                _creatureQueryRecords.TryGetValue(unit.Entry, out CreatureQueryInfo? query) &&
+                query?.CreatureType == 8)
+                continue;
+
+            float? offCenter = null;
+            if (_window.Camera.TryProjectToScreen(unit.Position + new Vector3(0f, 0f, 1f),
+                    viewport, out Vector2 pixel, out _))
+                offCenter = TargetCycleLaw.ScreenOffCenter(pixel, viewport);
+            bool combatWithMe = unit.Fields.Target == ControlledGuid && unit.Fields.InCombat;
+            candidates.Add(new TargetCycleLaw.Candidate(unit.Guid, offCenter.HasValue,
+                TargetCycleLaw.PriorityScore(offCenter, distance, combatWithMe)));
+        }
+
+        List<TargetCycleLaw.Candidate> pool = TargetCycleLaw.SortedPool(candidates);
+        double now = NowSeconds();
+        _targetCycleHistory.Prune(now);
+        TargetCycleLaw.Pick? pick = TargetCycleLaw.Select(
+            pool, _targetCycleHistory.Guids, _selectionGuid, reverse);
+        if (pick is null) return;
+        if (pick.Value.Wrapped) _targetCycleHistory.Clear();
+        ulong outgoing = _selectionGuid;
+        if (outgoing != 0) _targetCycleHistory.Push(outgoing, now);
+        CommitSelection(pick.Value.Guid, beginAttack: false);
+        if (_selectionGuid == pick.Value.Guid && pick.Value.Guid != outgoing)
+            _targetCycleHistory.Push(pick.Value.Guid, now);
+    }
 
     private void UpdateRunBinding(bool typing)
     {
@@ -543,7 +776,7 @@ public sealed partial class GameLoop
     {
         bool zoomIn = BindingDown(GameBinding.CameraZoomIn);
         bool zoomOut = BindingDown(GameBinding.CameraZoomOut);
-        if (!typing && !_window.FreeSelectMode)
+        if (!typing && !_window.FreeSelectMode && !_scopedViewActive)
         {
             float zoomInAmount = _bindingPointerPulse.Contains(GameBinding.CameraZoomIn)
                 ? MathF.Max(1f, MathF.Abs(_window.BindingWheelDelta)) : 1f;
@@ -572,6 +805,56 @@ public sealed partial class GameLoop
         }
         _minimapZoomInWasDown = zoomIn;
         _minimapZoomOutWasDown = zoomOut;
+    }
+
+    private void UpdateMinimapVisibilityBinding(bool typing)
+    {
+        bool down = BindingDown(GameBinding.ToggleMinimap);
+        if (down && !_toggleMinimapWasDown && !typing)
+            SetMinimapVisible(!_minimapVisible);
+        _toggleMinimapWasDown = down;
+    }
+
+    private void UpdateAudioBindings(bool typing)
+    {
+        bool music = BindingDown(GameBinding.ToggleMusic);
+        bool sound = BindingDown(GameBinding.ToggleSound);
+        bool volumeUp = BindingDown(GameBinding.MasterVolumeUp);
+        bool volumeDown = BindingDown(GameBinding.MasterVolumeDown);
+        bool changed = false;
+        if (!typing)
+        {
+            if (music && !_toggleMusicWasDown)
+            {
+                Settings.Audio.EnableMusic = !Settings.Audio.EnableMusic;
+                changed = true;
+            }
+            if (sound && !_toggleSoundWasDown)
+            {
+                Settings.Audio.EnableAll = !Settings.Audio.EnableAll;
+                changed = true;
+            }
+            if (volumeUp && !_masterVolumeUpWasDown)
+            {
+                Settings.Audio.MasterVolume = BindingCommandLaw.StepMasterVolume(
+                    Settings.Audio.MasterVolume, 1);
+                changed = true;
+            }
+            if (volumeDown && !_masterVolumeDownWasDown)
+            {
+                Settings.Audio.MasterVolume = BindingCommandLaw.StepMasterVolume(
+                    Settings.Audio.MasterVolume, -1);
+                changed = true;
+            }
+        }
+        _toggleMusicWasDown = music;
+        _toggleSoundWasDown = sound;
+        _masterVolumeUpWasDown = volumeUp;
+        _masterVolumeDownWasDown = volumeDown;
+        if (!changed) return;
+        Settings.ActivePreset = "Custom";
+        ApplyAudioSettings(Settings);
+        SettingsFile?.Save();
     }
 
     private void UpdateUiHideBinding(bool typing)

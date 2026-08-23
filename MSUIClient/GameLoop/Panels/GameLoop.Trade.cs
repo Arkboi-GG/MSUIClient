@@ -13,7 +13,6 @@ public sealed partial class GameLoop
     private bool _tradeAccepted;
     private bool _tradePartnerAccepted;
     private ulong _tradePartnerGuid;
-    private ulong _tradeInviteGuid;
     private int _tradeMoney;
     private uint _tradePartnerMoney;
     private uint _tradeMineEnchantSpell;
@@ -37,30 +36,19 @@ public sealed partial class GameLoop
         else switch (status)
         {
             case 1:
-                ulong initiator = wire.Partner;
-                TradeFrameUiLaw.IncomingRequestAction action = TradeFrameUiLaw.IncomingRequest(
-                    _ignored.Contains(initiator), _tradeOpen || _tradeInviteGuid != 0);
-                if (action == TradeFrameUiLaw.IncomingRequestAction.Ignore)
-                {
-                    _net?.IgnoreTrade();
-                    break;
-                }
-                if (action == TradeFrameUiLaw.IncomingRequestAction.Busy)
-                {
-                    _net?.BusyTrade();
-                    break;
-                }
-                _tradeInviteGuid = initiator;
-                if (!_playerNames.ContainsKey(_tradeInviteGuid)) _net?.NameQuery(_tradeInviteGuid);
+                _tradePartnerGuid = wire.Partner;
+                if (!_playerNames.ContainsKey(_tradePartnerGuid))
+                    _net?.NameQuery(_tradePartnerGuid);
+                _net?.BeginTrade();
                 break;
             case 2:
-                _tradeInviteGuid = 0; _tradeOpen = true; _tradeAccepted = _tradePartnerAccepted = false;
+                _tradeOpen = true; _tradeAccepted = _tradePartnerAccepted = false;
                 break;
             case 4: _tradePartnerAccepted = true; break;
             case 7: _tradeAccepted = _tradePartnerAccepted = false; break;
         }
         EmitInterface("trade", "status", "DECODED", _tradePartnerGuid,
-            $"status={status};open={_tradeOpen};invite=0x{_tradeInviteGuid:X16};bytes={body.Length}");
+            $"status={status};open={_tradeOpen};bytes={body.Length}");
     }
 
     private void ApplyTradeExtended(byte[] body)
@@ -92,7 +80,7 @@ public sealed partial class GameLoop
 
     private void ResetTrade()
     {
-        _tradeOpen = false; _tradeInviteGuid = 0; _tradePartnerGuid = 0;
+        _tradeOpen = false; _tradePartnerGuid = 0;
         _tradeMoney = 0; _tradePartnerMoney = 0; _tradePlaceSlot = -1;
         _tradeMineEnchantSpell = _tradePartnerEnchantSpell = 0;
         _tradeAccepted = _tradePartnerAccepted = false; Array.Clear(_tradeMine); Array.Clear(_tradeTheirs);
@@ -108,7 +96,6 @@ public sealed partial class GameLoop
 
     private void DrawTradeFrame()
     {
-        if (_tradeInviteGuid != 0) DrawTradeInvitation();
         if (!_tradeOpen || _gameplayArt is null) return;
         if (!BeginVanillaWindow("##trade", UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[3]),
                 TradeFrameUiLaw.FrameSize(1f),
@@ -140,12 +127,9 @@ public sealed partial class GameLoop
             DrawTradeSlot(dl, origin, s, _tradeMine[i], i, true);
             DrawTradeSlot(dl, origin, s, _tradeTheirs[i], i, false);
         }
-        GameText.Draw(dl, "GameFontHighlightSmall", FormatMoney(_tradePartnerMoney),
-            origin + TradeFrameUiLaw.RecipientMoney * s, s);
-        if (VanillaInputInt(dl,"##trade-money",ref _tradeMoney,
-                origin + TradeFrameUiLaw.PlayerMoneyInput.Min * s,
-                TradeFrameUiLaw.PlayerMoneyInput.Size, s))
-        { _tradeMoney = Math.Max(0, _tradeMoney); _net?.SetTradeGold((uint)_tradeMoney); }
+        DrawTradeMoneyInputs(dl, origin, s);
+        DrawTradeMoney(dl, _tradePartnerMoney,
+            origin + TradeFrameUiLaw.RecipientMoneyRightTop * s, s);
         if (VanillaButton(dl, "##trade-accept", _tradeAccepted ? "Accepted" : "Trade",
                 origin + TradeFrameUiLaw.TradeButton.Min * s,
                 TradeFrameUiLaw.TradeButton.Size, s, !_tradeAccepted))
@@ -183,21 +167,67 @@ public sealed partial class GameLoop
             ? TradeFrameUiLaw.PlayerEnchantHighlight : TradeFrameUiLaw.RecipientEnchantHighlight);
     }
 
+    private void DrawTradeMoneyInputs(ImDrawListPtr dl, Vector2 origin, float s)
+    {
+        (int gold, int silver, int copper) = TradeFrameUiLaw.SplitMoney(_tradeMoney);
+        bool changed = VanillaInputInt(dl, "##trade-money-gold", ref gold,
+            origin + TradeFrameUiLaw.PlayerGoldInput.Min * s,
+            TradeFrameUiLaw.PlayerGoldInput.Size, s);
+        DrawTradeCoin(dl, 0, origin + TradeFrameUiLaw.PlayerGoldCoin * s, s);
+        changed |= VanillaInputInt(dl, "##trade-money-silver", ref silver,
+            origin + TradeFrameUiLaw.PlayerSilverInput.Min * s,
+            TradeFrameUiLaw.PlayerSilverInput.Size, s);
+        DrawTradeCoin(dl, 1, origin + TradeFrameUiLaw.PlayerSilverCoin * s, s);
+        changed |= VanillaInputInt(dl, "##trade-money-copper", ref copper,
+            origin + TradeFrameUiLaw.PlayerCopperInput.Min * s,
+            TradeFrameUiLaw.PlayerCopperInput.Size, s);
+        DrawTradeCoin(dl, 2, origin + TradeFrameUiLaw.PlayerCopperCoin * s, s);
+        if (!changed) return;
+        _tradeMoney = TradeFrameUiLaw.ComposeMoney(gold, silver, copper);
+        _net?.SetTradeGold((uint)_tradeMoney);
+    }
+
+    private void DrawTradeMoney(ImDrawListPtr dl, uint copper, Vector2 rightTop, float s)
+    {
+        IReadOnlyList<MailUiLaw.MoneyDenomination> denominations = MailUiLaw.Money(copper);
+        float width = denominations.Sum(denomination =>
+            GameText.MeasureWidth(TradeFrameUiLaw.MoneyFont,
+                denomination.Value.ToString(), s) + TradeFrameUiLaw.MoneyIconSize * s) +
+            Math.Max(0, denominations.Count - 1) * TradeFrameUiLaw.MoneyGap * s;
+        float x = rightTop.X - width;
+        float textTop = GameText.BoxCenteredTop(TradeFrameUiLaw.MoneyFont, rightTop.Y,
+            TradeFrameUiLaw.MoneyIconSize, s);
+        foreach (MailUiLaw.MoneyDenomination denomination in denominations)
+        {
+            string text = denomination.Value.ToString();
+            GameText.Draw(dl, TradeFrameUiLaw.MoneyFont, text, new(x, textTop), s);
+            x += GameText.MeasureWidth(TradeFrameUiLaw.MoneyFont, text, s);
+            DrawTradeCoin(dl, denomination.Icon, new(x, rightTop.Y), s);
+            x += (TradeFrameUiLaw.MoneyIconSize + TradeFrameUiLaw.MoneyGap) * s;
+        }
+    }
+
+    private void DrawTradeCoin(ImDrawListPtr dl, int denomination, Vector2 min, float s)
+    {
+        uint art = _gameplayArt?.Handle(TradeFrameUiLaw.MoneyIconPath) ?? 0;
+        if (art == 0) return;
+        dl.AddImage((nint)art, min, min + TradeFrameUiLaw.CoinSize(s),
+            TradeFrameUiLaw.CoinUvMin(denomination),
+            TradeFrameUiLaw.CoinUvMax(denomination));
+    }
+
     private void DrawTradeHighlightSlices(ImDrawListPtr dl, Vector2 origin, float s,
         TradeFrameUiLaw.LogicalRect logical)
     {
         uint art = _gameplayArt?.AdditiveHandle(TradeFrameUiLaw.HighlightPath) ?? 0;
         if (art == 0) return;
-        Vector2 min = origin + logical.Min * s;
-        Vector2 max = min + logical.Size * s;
-        float cap = 16 * s;
-        dl.AddImage((nint)art, min, new Vector2(max.X, min.Y + cap),
-            Vector2.Zero, new Vector2(.62890625f, .0625f));
-        dl.AddImage((nint)art, new Vector2(min.X, min.Y + cap),
-            new Vector2(max.X, max.Y - cap), new Vector2(0, .0625f),
-            new Vector2(.62890625f, .9375f));
-        dl.AddImage((nint)art, new Vector2(min.X, max.Y - cap), max,
-            new Vector2(0, .9375f), new Vector2(.62890625f, 1));
+        foreach (TradeFrameUiLaw.TextureSlice slice in
+                 TradeFrameUiLaw.HighlightSlices(logical))
+        {
+            Vector2 min = origin + slice.Rect.Min * s;
+            Vector2 max = min + slice.Rect.Size * s;
+            dl.AddImage((nint)art, min, max, slice.UvMin, slice.UvMax);
+        }
     }
 
     private void DrawTradeSlot(ImDrawListPtr dl, Vector2 origin, float s, TradeItem? row,
@@ -230,7 +260,8 @@ public sealed partial class GameLoop
                 slotText.Color);
             if (row.Count > 1)
                 GameText.DrawRightAligned(dl, "NumberFontNormal", row.Count.ToString(),
-                    max - new Vector2(2, GameText.EmPixels("NumberFontNormal", s) + 2 * s), s);
+                    TradeFrameUiLaw.CountPosition(max,
+                        GameText.EmPixels("NumberFontNormal", s), s), s);
         }
         if (slot == TradeFrameUiLaw.SlotCount - 1)
         {
@@ -258,24 +289,4 @@ public sealed partial class GameLoop
         }
     }
 
-    private void DrawTradeInvitation()
-    {
-        float s = GameplayUiScale();
-        TradeInvitationUiLaw.ScreenRect frame = TradeInvitationUiLaw.PopupRect(
-            ImGui.GetIO().DisplaySize, s);
-        if (!BeginVanillaWindow("##trade-invite", frame.Min, frame.Size,
-                out ImDrawListPtr dl, out Vector2 p, out s)) { ImGui.End(); return; }
-        dl.AddRectFilled(p, p + new Vector2(TradeInvitationUiLaw.Width,
-            TradeInvitationUiLaw.Height) * s, 0xee101010, 8f * s);
-        string name = _playerNames.GetValueOrDefault(_tradeInviteGuid, "Another player");
-        DrawCenteredText(dl, p + TradeInvitationUiLaw.MessageCenter * s,
-            $"{name} wants to trade with you.", 11f * s, 0xffffffff);
-        if (VanillaButton(dl, "##trade-invite-accept", "Accept",
-                p + TradeInvitationUiLaw.Accept * s, TradeInvitationUiLaw.ButtonSize, s))
-        { _tradePartnerGuid = _tradeInviteGuid; _net?.BeginTrade(); _tradeInviteGuid = 0; }
-        if (VanillaButton(dl, "##trade-invite-decline", "Cancel",
-                p + TradeInvitationUiLaw.Decline * s, TradeInvitationUiLaw.ButtonSize, s))
-        { _net?.BusyTrade(); _tradeInviteGuid = 0; }
-        ImGui.End();
-    }
 }

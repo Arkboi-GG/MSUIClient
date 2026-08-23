@@ -2,7 +2,9 @@ using System.Numerics;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Collision;
 using MSUIClient.World.Doodads;
+using MSUIClient.World.Wmo;
 
 namespace MSUIClient;
 
@@ -11,12 +13,14 @@ namespace MSUIClient;
 // invisible without this: those models sit in GameObjectDisplayInfo.dbc, not in
 // any ADT/WMO placement list, and CreatureRenderer only draws units.
 //
-// Static placement only this pass: each visible gameobject entity gets one
-// DoodadRenderer dynamic placement keyed by GUID, resynced every frame against
-// the entity store (create/despawn/out-of-range, GAMEOBJECT_DISPLAYID changes,
-// position moves, DoodadRenderer.ResetPlacements on a tile crossing). Doors,
-// GO state/animation, traps and transports are explicitly out of scope — see
-// docs/systems/SYSTEM_GAMEOBJECT_RENDERING.md.
+// Each visible gameobject entity gets an owner-keyed dynamic placement,
+// resynced every frame against the entity store (create/despawn/out-of-range,
+// GAMEOBJECT_DISPLAYID changes, transport motion, and renderer residency
+// resets). M2 displays use DoodadRenderer. WMO displays use WmoRenderer and
+// publish their set-0 MODD props through DoodadRenderer so vessel hulls, sails,
+// rotors, furniture, cull/pick bounds, and animation identities move together.
+// GAMEOBJECT_STATE poses/transitions and controlled-player transport physics
+// are owner-local additions to that placement path; see the system document.
 public sealed partial class GameLoop
 {
     private GameObjectDisplayTable? _gameObjectDisplays;
@@ -32,6 +36,25 @@ public sealed partial class GameLoop
     private readonly HashSet<uint> _gameObjectDisplaysUnrenderable = [];
 
     private readonly List<ulong> _gameObjectPlacementScratch = [];
+    private readonly HashSet<int> _gameObjectWmoPropScratch = [];
+    private readonly HashSet<ulong> _gameObjectDespawnAnimations = [];
+    private readonly Dictionary<ulong, double> _gameObjectRetainedDestroys = [];
+
+    private sealed class GameObjectAnimationState
+    {
+        public uint DisplayId;
+        public uint? LastWire;
+        public uint ClientState;
+        public uint? Shown;
+    }
+
+    /// <summary>
+    /// One client-side state per family-A GameObject. LastWire prevents an
+    /// unrelated VALUES update from undoing a locally predicted chest lid;
+    /// Shown remains null until its asynchronously loaded M2 accepts the pose.
+    /// </summary>
+    private readonly Dictionary<ulong, GameObjectAnimationState>
+        _gameObjectAnimationStates = [];
 
     /// <summary>The gameobject under the mouse this frame (0 = none). Set by
     /// UpdateTargeting alongside the unit hover; nonzero only when the GO hit is
@@ -49,6 +72,13 @@ public sealed partial class GameLoop
         0f, 0f, 1f, 0f,
         -1f, 0f, 0f, 0f,
         0f, 0f, 0f, 1f);
+
+    private static Matrix4x4 DynamicM2GameObjectTransform(
+        Vector3 position, float yaw, float scale) =>
+        Matrix4x4.CreateScale(scale)
+        * Matrix4x4.CreateRotationY(yaw + MathF.PI / 2f)
+        * GameObjectBasis
+        * Matrix4x4.CreateTranslation(position);
 
     private void EnsureGameObjectDisplays()
     {
@@ -70,6 +100,20 @@ public sealed partial class GameLoop
     private void UpdateGameObjectDoodads()
     {
         if (_doodads is null) return;
+
+        // SMSG_DESTROY_OBJECT removes gameplay authority immediately, but an authored
+        // AnimationData 157 placement remains until its exact one-shot window ends.
+        _gameObjectPlacementScratch.Clear();
+        foreach ((ulong guid, double retainedUntil) in _gameObjectRetainedDestroys)
+            if (GameObjectAnimationLaw.RetentionFinished(
+                    _doodads.NowSeconds, retainedUntil))
+                _gameObjectPlacementScratch.Add(guid);
+        foreach (ulong guid in _gameObjectPlacementScratch)
+        {
+            RemoveGameObjectPlacement(guid);
+            _gameObjectRetainedDestroys.Remove(guid);
+        }
+
         EnsureGameObjectDisplays();
         if (_gameObjectDisplays is null) return;
 
@@ -79,6 +123,15 @@ public sealed partial class GameLoop
 
             uint displayId = e.Fields.GameObjectDisplayId;
             bool tracked = _gameObjectPlacements.TryGetValue(e.Guid, out var placedSignature);
+
+            // A type-15 boat/zeppelin keeps one cross-map timetable. During a
+            // leg on another map the authoritative entity may remain streamed,
+            // but it must not leave its last local-map model parked in view.
+            if (_offMapTransports.Contains(e.Guid))
+            {
+                if (tracked) RemoveGameObjectPlacement(e.Guid);
+                continue;
+            }
 
             // REAL_PORTALS owns the complete presentation for the six stock
             // Mage portals. Their legacy display is InstancePortal.m2, a
@@ -109,7 +162,6 @@ public sealed partial class GameLoop
             float yaw = e.GameObjectFacing;
             float scale = e.Scale > 0.0001f ? e.Scale : 1f;
             var signature = (displayId, e.Position, yaw, scale);
-            if (tracked && placedSignature == signature && _doodads.HasDynamic(e.Guid)) continue;
 
             string? modelPath = _gameObjectDisplays.ModelPath(displayId);
             if (modelPath is null)
@@ -121,15 +173,68 @@ public sealed partial class GameLoop
                 continue;
             }
 
+            bool wmoModel = Path.GetExtension(modelPath).Equals(
+                ".wmo", StringComparison.OrdinalIgnoreCase);
+            if (tracked && placedSignature == signature &&
+                (wmoModel ? _wmo?.HasDynamic(e.Guid) == true : _doodads.HasDynamic(e.Guid)))
+            {
+                if (wmoModel) SyncDynamicWmoGameObjectProps(e.Guid);
+                continue;
+            }
+
+            if (wmoModel)
+            {
+                Matrix4x4 wmoTransform = WmoRenderer.DynamicGameObjectTransform(
+                    e.Position, yaw, scale);
+                if (tracked && placedSignature.DisplayId == displayId &&
+                    _wmo?.TryUpdateDynamicTransform(e.Guid, wmoTransform) == true)
+                {
+                    _gameObjectPlacements[e.Guid] = signature;
+                    SyncDynamicWmoGameObjectProps(e.Guid);
+                    continue;
+                }
+
+                // A display swap can cross the M2/WMO boundary. Remove both
+                // dynamic lanes before publishing the new owner.
+                _doodads.RemoveDynamic(e.Guid);
+                _doodads.RemoveDynamicWmoProps(e.Guid);
+                WmoRenderer.DynamicPlacement result = _wmo?.AddDynamic(
+                    e.Guid, modelPath, wmoTransform) ?? WmoRenderer.DynamicPlacement.Pending;
+                if (result == WmoRenderer.DynamicPlacement.Placed)
+                {
+                    _gameObjectPlacements[e.Guid] = signature;
+                    SyncDynamicWmoGameObjectProps(e.Guid);
+                }
+                else
+                {
+                    if (result == WmoRenderer.DynamicPlacement.Unavailable &&
+                        _gameObjectDisplaysUnrenderable.Add(displayId))
+                        Console.WriteLine($"[gameobject] WMO for displayId {displayId} " +
+                                          $"unavailable: {modelPath} - not rendered");
+                    _gameObjectPlacements.Remove(e.Guid);
+                    _doodads.RemoveDynamicWmoProps(e.Guid);
+                }
+                continue;
+            }
+
             // Same convention as CreatureRenderer's unit transform
             // (Scale * RotY(yaw + 90°) * Basis * Translate(pos)): a gameobject's
             // facing is a server yaw exactly like a creature's orientation.
-            Matrix4x4 transform = Matrix4x4.CreateScale(scale)
-                * Matrix4x4.CreateRotationY(yaw + MathF.PI / 2f)
-                * GameObjectBasis
-                * Matrix4x4.CreateTranslation(e.Position);
+            Matrix4x4 transform = DynamicM2GameObjectTransform(e.Position, yaw, scale);
 
-            switch (_doodads.AddDynamic(e.Guid, modelPath, transform))
+            _wmo?.RemoveDynamic(e.Guid);
+            _doodads.RemoveDynamicWmoProps(e.Guid);
+
+            if (tracked && placedSignature.DisplayId == displayId &&
+                _doodads.TryUpdateDynamicTransform(e.Guid, transform))
+            {
+                _gameObjectPlacements[e.Guid] = signature;
+                continue;
+            }
+
+            switch (_doodads.AddDynamic(e.Guid, modelPath, transform,
+                        liveCollision: _elevatorTransports.ContainsKey(e.Guid) ||
+                            GameObjectAnimationLaw.CollisionFollowsState(e.GameObjectType)))
             {
                 case DoodadRenderer.DynamicPlacement.Placed:
                     _gameObjectPlacements[e.Guid] = signature;
@@ -151,16 +256,122 @@ public sealed partial class GameLoop
         // removes them from the store) lose their placement.
         _gameObjectPlacementScratch.Clear();
         foreach (ulong guid in _gameObjectPlacements.Keys)
-            if (!_entities.TryGet(guid, out WorldEntity entity) || !entity.IsGameObject)
+            if ((!_entities.TryGet(guid, out WorldEntity entity) || !entity.IsGameObject) &&
+                !_gameObjectRetainedDestroys.ContainsKey(guid))
                 _gameObjectPlacementScratch.Add(guid);
         foreach (ulong guid in _gameObjectPlacementScratch)
             RemoveGameObjectPlacement(guid);
+
+        UpdateGameObjectStateAnimations();
+    }
+
+    private void UpdateGameObjectStateAnimations()
+    {
+        if (_doodads is null) return;
+        foreach (WorldEntity go in _entities.Entities.Values)
+        {
+            if (!go.IsGameObject || !GameObjectAnimationLaw.Animates(go.GameObjectType))
+                continue;
+
+            uint wire = go.Fields.GameObjectState;
+            if (!_gameObjectAnimationStates.TryGetValue(go.Guid, out var state))
+            {
+                state = new GameObjectAnimationState
+                {
+                    DisplayId = go.Fields.GameObjectDisplayId,
+                    LastWire = wire,
+                    ClientState = wire,
+                };
+                _gameObjectAnimationStates[go.Guid] = state;
+            }
+            else
+            {
+                if (state.DisplayId != go.Fields.GameObjectDisplayId)
+                {
+                    state.DisplayId = go.Fields.GameObjectDisplayId;
+                    state.Shown = null;
+                }
+                if (state.LastWire != wire)
+                {
+                    state.LastWire = wire;
+                    state.ClientState = wire;
+                }
+            }
+
+            if (state.Shown == state.ClientState) continue;
+            uint? previous = state.Shown;
+            if (!_doodads.TryApplyDynamicStateAnimation(go.Guid, previous,
+                    state.ClientState, out int animationId, out bool transition))
+                continue; // model is still streaming; seed it when placement arrives
+
+            state.Shown = state.ClientState;
+            EmitInterface("gameobject", "state-animation",
+                animationId >= 0 ? (transition ? "TRANSITION" : "REST") : "STATIC",
+                go.Guid,
+                $"previous={previous?.ToString() ?? "FIRST"};state={state.ClientState};" +
+                $"animationData={animationId};type={go.GameObjectType}");
+        }
+
+        foreach (ulong stale in _gameObjectAnimationStates.Keys.Where(guid =>
+                     !_entities.TryGet(guid, out WorldEntity entity) ||
+                     !entity.IsGameObject ||
+                     !GameObjectAnimationLaw.Animates(entity.GameObjectType)).ToArray())
+            _gameObjectAnimationStates.Remove(stale);
+    }
+
+    private void PredictGameObjectAnimationState(ulong guid, uint clientState)
+    {
+        if (!_entities.TryGet(guid, out WorldEntity go) || !go.IsGameObject ||
+            !GameObjectAnimationLaw.Animates(go.GameObjectType)) return;
+        uint wire = go.Fields.GameObjectState;
+        if (!_gameObjectAnimationStates.TryGetValue(guid, out var state))
+        {
+            state = new GameObjectAnimationState
+            {
+                DisplayId = go.Fields.GameObjectDisplayId,
+                LastWire = wire,
+                ClientState = wire,
+            };
+            _gameObjectAnimationStates[guid] = state;
+        }
+        state.ClientState = clientState;
+    }
+
+    private RayHit? ProbeStatefulGameObjectCollision(
+        Vector3 origin, Vector3 direction, float maxDistance)
+    {
+        if (_doodads?.TryRaycastDynamicCollision(origin, direction, maxDistance,
+                out _, out RayHit hit, guid =>
+                    _entities.TryGet(guid, out WorldEntity go) && go.IsGameObject &&
+                    GameObjectAnimationLaw.CollisionFollowsState(go.GameObjectType) &&
+                    GameObjectAnimationLaw.ColliderIsSolid(go.Fields.GameObjectState)) == true)
+            return hit;
+        return null;
     }
 
     private void RemoveGameObjectPlacement(ulong guid)
     {
         _doodads?.RemoveDynamic(guid);
+        _doodads?.RemoveDynamicWmoProps(guid);
+        _wmo?.RemoveDynamic(guid);
         _gameObjectPlacements.Remove(guid);
+    }
+
+    private void SyncDynamicWmoGameObjectProps(ulong guid)
+    {
+        if (_wmo is null || _doodads is null) return;
+        _gameObjectWmoPropScratch.Clear();
+        foreach ((int propIndex, string modelPath, Matrix4x4 transform,
+                     Vector4 light, int wmoInstanceId, int[] ownerGroups) in
+                 _wmo.EnumerateDynamicDoodads(guid))
+        {
+            _gameObjectWmoPropScratch.Add(propIndex);
+            if (_doodads.TryUpdateDynamicWmoPropTransform(guid, propIndex, transform))
+                continue;
+            _doodads.AddDynamicWmoProp(guid, propIndex, modelPath, transform,
+                light, wmoInstanceId, ownerGroups);
+        }
+        _doodads.RemoveDynamicWmoPropsExcept(guid, _gameObjectWmoPropScratch);
     }
 
     /// <summary>
@@ -187,6 +398,12 @@ public sealed partial class GameLoop
         {
             guid = doodadGuid;
             hit = doodadHit;
+        }
+        if (_wmo?.TryPickDynamic(origin, direction, hit,
+                out ulong wmoGuid, out float wmoHit) == true)
+        {
+            guid = wmoGuid;
+            hit = wmoHit;
         }
         if (TryPickRealPortalAperture(origin, direction, hit,
                 out ulong portalGuid, out float portalHit))

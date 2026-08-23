@@ -43,6 +43,10 @@ uniform float uFogEnd;
 uniform vec3  uFogColor;
 uniform float uBodyAlpha;
 uniform vec3  uBodyTint;
+uniform int   uUnlit;
+// 0 scene fog; 1 black (additive); 2 white (modulate); 3 neutral gray (2x);
+// 4 explicitly unfogged.
+uniform int   uFogPolicy;
 
 uniform int uPointLightCount;
 uniform vec3 uPointLightPos[8];
@@ -90,16 +94,25 @@ void main()
     // only - the in-world character sets 0 (uShadowWrap default), so its shading is unchanged.
     float ndl = dot(normal, uSunDirection);
     float lambert = clamp((ndl + uShadowWrap) / (1.0 + uShadowWrap), 0.0, 1.0);
-    vec3 light = uAmbientColor * uAmbientIntensity
-        + uSunColor * lambert * uSunIntensity;
-    light += carriedPointLight(normal, vWorldPos);
+    vec3 light = vec3(1.0);
+    if (uUnlit == 0)
+    {
+        light = uAmbientColor * uAmbientIntensity
+            + uSunColor * lambert * uSunIntensity;
+        light += carriedPointLight(normal, vWorldPos);
+    }
     vec3 lit = albedo.rgb * uBodyTint * light;
 
     float dist = distance(uCameraPos, vWorldPos);
-    float fog = clamp((dist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
+    float fog = uFogPolicy == 4 ? 0.0
+        : clamp((dist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
+    vec3 fogTarget = uFogColor;
+    if (uFogPolicy == 1) fogTarget = vec3(0.0);
+    else if (uFogPolicy == 2) fogTarget = vec3(1.0);
+    else if (uFogPolicy == 3) fogTarget = vec3(0.50196078);
 
     // The one divergence from wmo.frag. Opaque batches carry alpha 1 anyway, so
     // this costs the opaque pass nothing and gives the blended pass something
     // to composite with.
-    FragColor = vec4(mix(lit, uFogColor, fog), albedo.a * uBodyAlpha);
+    FragColor = vec4(mix(lit, fogTarget, fog), albedo.a * uBodyAlpha);
 }

@@ -26,6 +26,11 @@
       "snapshotId": "benilla-current-2026-08-22"
     },
     {
+      "path": "crates/benilla-app/src/minimap/composite.rs",
+      "fileSha256": "c8c6bf18d6f59a67d5ecbca36759a1748c53e5c517e679313bf5fb1ca9582643",
+      "snapshotId": "benilla-current-2026-08-22"
+    },
+    {
       "path": "crates/benilla-formats/src/area_poi.rs",
       "fileSha256": "7a346694b86dc24748fef44f113b6b666fa654545d9e72d6fe0a4ecc5f5af126",
       "snapshotId": "benilla-current-2026-08-22"
@@ -36,11 +41,12 @@
     "MSUIClient/Engine/UI/MinimapUiLaw.cs",
     "MSUIClient/Formats/AreaPoiCatalog.cs",
     "MSUIClient/Engine/UI/WmoMinimapProjection.cs",
+    "MSUIClient/Engine/UI/InteriorMinimapComposite.cs",
     "MSUIClient/Formats/WmoAreaCatalog.cs",
     "tools/interface-wire-check/MinimapClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI draws the md5translate-resolved outdoor tile plane and authored WMO interior tiles with separate exact six-level zoom laws, authored cluster controls, zone identity, tracking/mail icons, party/resource/quest/tracked-creature dots, cross-interior grey tint, and the corpse skull. AreaPOI landmarks use exact map/flag candidacy, 0.8 range split, signed-importance/distance nearest-three ranking, 8x8 POI cells and rotating real-art rim arrows. Outdoor tiles now receive the reference gamma-space diffuse/ambient day-night MODULATE with its +96 floor while WMO tiles stay white.",
+  "summary": "MSUI draws the md5translate-resolved outdoor tile plane and authored WMO interior tiles with separate exact six-level zoom laws, authored cluster controls, zone identity, tracking/mail icons, party/resource/quest/tracked-creature dots, cross-interior grey tint, and the corpse skull. Ordinary player party blips consume the exact party1..party4 compact roster (own subgroup, packet order, capped at four), while the protected SuperUI possession projection remains separate. Blip positions prefer live transforms and fall back to out-of-range PARTY_MEMBER_STATS X/Y snapshots; members within the exact 0.8 split use the 10.4-pixel blue ObjectIcons cell and farther members use the shared 38.4-pixel rotating rim arrow. The corpse follows the same fifth-slot split: an in-range skull above the player arrow or an out-of-range rotating rim arrow below it. AreaPOI landmarks use exact map/flag candidacy, 0.8 range split, signed-importance/distance nearest-three ranking, 8x8 POI cells and rotating real-art rim arrows. Outdoor tiles receive the reference gamma-space diffuse/ambient day-night MODULATE with its +96 floor while WMO tiles stay white. Interior WMO tiles now first pass through the fixed 256x256 opaque-black, blend-off, alpha-GEQUAL-224/255 composite under a 1.5x view radius, and the screen blit samples its middle two-thirds; this preserves the reference minification that removes filtered shared-wall seams and authored one-texel gaps.",
   "openItems": [
     {
       "id": "item-triage-533375b0",
@@ -90,7 +96,7 @@
     {
       "id": "item-msui-minimap-live-verify",
       "kind": "verify",
-      "text": "Focused laws and source wiring pass. Needs live traversal at all outdoor/interior zoom levels plus AreaPOI icon/rim-arrow art, ranking, rotation and tooltip checks alongside reward-ready quest NPC/resource/party layering.",
+      "text": "Focused laws and source wiring pass. Needs live traversal at all outdoor/interior zoom levels, including confirmation that the fixed 256x256 alpha-tested composite removes shared-wall and authored bake-gap lines without changing the visible radius, plus AreaPOI icon/rim-arrow art, ranking, rotation and tooltip checks alongside reward-ready quest NPC/resource/party layering.",
       "source": "implementation-2026-08-21",
       "added": "2026-08-21",
       "resolved": false
@@ -114,6 +120,33 @@
       "resolution": "2026-08-22: MinimapUiLaw.OutdoorDayTint implements the exact gamma-space Rec.601 ambient luma, +96/256 white lift, then 0.25 diffuse + 0.75 lifted-ambient blend. DrawMovingMinimap packs that tint into every outdoor tile vertex; the authored WMO interior path remains full white. Focused checks pass."
     },
     {
+      "id": "item-party-blip-stats-rim-arrow-20260823",
+      "kind": "gap",
+      "text": "MSUI retained PARTY_MEMBER_STATS X/Y snapshots but minimap party dots only accepted streamed entities, hard-culled at an approximate aperture, used a primitive circle, and had no out-of-range party rim-arrow path. Benilla prefers the live transform, falls back to the stats position, splits at 0.8 radius, uses ObjectIcons cell 4 for the in-range dot and the rotating minimap arrow on the rim.",
+      "source": "benilla-current-2026-08-23/minimap/blips+ui_party/feed.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: MinimapUiLaw owns the exact 0.8 split, screen projection, 10.4-pixel dot and 38.4-pixel arrow geometry. The renderer resolves live positions first and stats X/Y second, paints ObjectIcons cell 4 after the player arrow, and paints rotating out-of-range arrows before it. Partytest seats and boundary/rotation projections have deterministic checks; the full interface suite passes."
+    },
+    {
+      "id": "item-corpse-rim-arrow-layer-20260823",
+      "kind": "gap",
+      "text": "MSUI drew the corpse skull only inside the 0.8 minimap aperture and discarded it outside, while current Benilla treats the corpse as the fifth party/corpse slot: an out-of-range rotating rim arrow before the player arrow, or the skull afterward when in range.",
+      "source": "benilla-current-2026-08-23/minimap/mod.rs+blips/mod.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: DrawMinimapCorpseArrow reuses MinimapUiLaw's exact 0.8 projection and shared rotating-arrow art for same-map out-of-range corpses. The existing skull path now runs after the player arrow, while the arrow path runs before it; focused projection and source wiring checks pass."
+    },
+    {
+      "id": "item-party-blip-compact-roster-20260823",
+      "kind": "gap",
+      "text": "MSUI projected every retained raid member onto the minimap, while current Benilla's place_party_raid_blips iterates party_slots: only the recipient's own subgroup in packet order, capped at party1 through party4.",
+      "source": "benilla-current-2026-08-23/minimap/blips/mod.rs+ui_party/mod.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: The ordinary player minimap path now consumes PartyFrameMembers, the existing exact own-subgroup/four-slot projection. The protected SuperUI controlled-subject path retains its prior full custom roster behavior. Source wiring and existing compact-roster laws cover the boundary."
+    },
+    {
       "id": "item-triage-7a7a0761",
       "kind": "gap",
       "text": "No corpse blip after death",
@@ -126,6 +159,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T03:15:00Z",
+  "lastReviewedUtc": "2026-08-23T17:14:46Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

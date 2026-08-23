@@ -38,7 +38,7 @@
     "tools/interface-wire-check/PetMenuClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI carries current Benilla's backed SELF/PET/PARTY/PLAYER tables and actions. The MENU surface follows UIDropDownMenu for the exact dark-navy tooltip-background multiply and white border, gold title/white action colors, 16px pitch, 15px borders, notCheckable and check-column seats, the full width-settle allowances, highlight/check/arrow/icon decoration, two-level parent-row anchoring and edge flips, open/row-click cues, click-away dismissal and the 5-second hover-away timeout. The pet-frame right click now uses UNIT_FIELD_SUMMONEDBY plus the exact 0x20/0x10 flags to fork Pet Details/Rename/Abandon from Dismiss, refuses an unowned cancel-only menu, routes details to the Pet paper doll, and sends the distinct abandon, dismiss and two-step rename verbs through the shared rule-owned StaticPopup slots. Only the dedicated RAID-member menu remains deferred.",
+  "summary": "MSUI carries current Benilla's backed SELF/PET/PARTY/PLAYER/FRIEND tables and actions. The FRIEND table's guild-only fork is live from roster right-click: Guild Master handoff appears only to rank 0 and never on self, while Leave Guild appears only on self; ordinary Friends and Who menus remain unchanged. The MENU surface follows UIDropDownMenu for the exact dark-navy tooltip-background multiply and white border, gold title/white action colors, 16px pitch, 15px borders, notCheckable and check-column seats, the full width-settle allowances, highlight/check/arrow/icon decoration, two-level parent-row anchoring and edge flips, open/row-click cues, click-away dismissal and the 5-second hover-away timeout. Check, raid-mark and submenu-arrow dimensions now join every card/row/decorative seat in UnitPopupUiLaw, leaving the main renderer with no locally authored Vector2 geometry. The pet-frame right click uses UNIT_FIELD_SUMMONEDBY plus the exact 0x20/0x10 flags to fork Pet Details/Rename/Abandon from Dismiss, refuses an unowned cancel-only menu, routes details to the Pet paper doll, and sends the distinct abandon, dismiss and two-step rename verbs through shared rule-owned StaticPopup slots. The abandon, rename and synchronous rename-confirm renderers consume only coordinator/PetMenu law sizes, line centers, edit seats, border slices and button rectangles; their renderer likewise contains no locally authored Vector2 geometry. Current Benilla declares the dedicated RAID-member table but deliberately hides all four rank rows until its later raid-roster arc, making the resulting cancel-only card non-openable; MSUI's absence of that card is current parity, not a remaining desktop-window gap.",
   "openItems": [
     {
       "id": "item-triage-e18f3de0",
@@ -132,6 +132,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T22:15:00Z",
+  "lastReviewedUtc": "2026-08-23T07:50:48.6122761Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

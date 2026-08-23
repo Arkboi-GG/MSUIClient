@@ -7,13 +7,13 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/InspectFrame.xml",
-      "fileSha256": "779c11ee6164b891dea7772ef305f7246ab0ddb612a73af481569fa821693238",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "7a1d04a95da1cdb1c5b110de2ef6b0896b0efe66d283610acc454eeb6b1f442a",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_inspect.rs",
-      "fileSha256": "b334490e6eb23c3ce13aa68ac6294573e67a82073e09b69f50d64c1981b713f0",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "0c00d761ff1d05a620304845cb3ec824d25cd8f8f1422829a0c891bcb48f4f50",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [
@@ -81,7 +81,8 @@
       "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). The reference-visible InspectFrame composition is present while MSUI-native rendering and left-panel plumbing are deliberately preserved.",
       "source": "claim-inspect-frame-composition-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Nico's 2026-08-23 no-touch ruling preserves MSUI-native Inspect rendering and panel plumbing under decision 0003; content and behavior remain must-match."
     },
     {
       "id": "item-claim-inspect-slot-geometry-001-verify",
@@ -108,7 +109,9 @@
     "trace-inspect-frame-composition-001",
     "trace-inspect-slot-geometry-001"
   ],
-  "decisions": [],
+  "decisions": [
+    "0003-inspect-presentation"
+  ],
   "lastReviewedUtc": "2026-08-07T22:47:52.9768277+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

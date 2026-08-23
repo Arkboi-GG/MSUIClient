@@ -62,6 +62,33 @@ internal static class PartyFrameClinicalChecks
 
     public static void Run()
     {
+        PartyTestSandboxLaw.FixtureMember[] sandbox = PartyTestSandboxLaw.Roster(100, 200);
+        Check(sandbox.Length == 4 &&
+              sandbox.Select(member => member.Name)
+                  .SequenceEqual(["Alice", "Bob", "Carol", "Dave"]) &&
+              sandbox.Select(member => member.Guid).SequenceEqual(
+                  [0xF001UL, 0xF002UL, 0xF003UL, 0xF004UL]) &&
+              sandbox[0].Status == PartyFrameUiLaw.Online &&
+              sandbox[1].Status == (PartyFrameUiLaw.Online | PartyFrameUiLaw.Afk) &&
+              sandbox[2].Status == (PartyFrameUiLaw.Online | PartyFrameUiLaw.Dead) &&
+              sandbox[3].Status == 0 &&
+              sandbox[0].Stats == new PartyMemberStatsSnapshot(Health: 820, MaxHealth: 1240,
+                  PowerType: 0, Power: 300, MaxPower: 410, Level: 32,
+                  PositionX: 130, PositionY: 200) &&
+              sandbox[1].Stats.PositionX == 100 && sandbox[1].Stats.PositionY == 280 &&
+              sandbox[2].Stats.PositionX == -200 && sandbox[2].Stats.PositionY == 200 &&
+              sandbox[3].Stats.PositionX is null && sandbox[3].Stats.PositionY is null,
+            "/partytest four-member mixed-state/stats/seat fixture drift");
+        ulong[] sandboxMarks = new ulong[8];
+        PartyTestSandboxLaw.ApplyRaidTarget(sandboxMarks, PartyTestSandboxLaw.AliceGuid, 8);
+        PartyTestSandboxLaw.ApplyRaidTarget(sandboxMarks, PartyTestSandboxLaw.AliceGuid, 7);
+        Check(sandboxMarks[6] == PartyTestSandboxLaw.AliceGuid && sandboxMarks[7] == 0 &&
+              sandboxMarks.Count(guid => guid == PartyTestSandboxLaw.AliceGuid) == 1,
+            "/partytest one-mark-per-unit move drift");
+        PartyTestSandboxLaw.ApplyRaidTarget(sandboxMarks, PartyTestSandboxLaw.AliceGuid, 0);
+        Check(sandboxMarks.All(guid => guid == 0),
+            "/partytest raid-target clear drift");
+
         Check(PartyFrameUiLaw.MemberY(0) == 128f && PartyFrameUiLaw.MemberY(1) == 191f &&
               PartyFrameUiLaw.MemberY(3) == 317f && PartyFrameUiLaw.FrameWidth == 128f &&
               PartyFrameUiLaw.FrameHeight == 53f && PartyFrameUiLaw.MemberCount == 4,
@@ -376,6 +403,29 @@ internal static class PartyFrameClinicalChecks
         string session = SourceText.Read(Path.Combine(root, "MSUIClient", "Net", "WorldSession.cs"));
         string live = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.LiveRun.cs"));
         string capture = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.DevTools.UiParity.cs"));
+        string sandboxLaw = SourceText.Read(Path.Combine(root, "MSUIClient", "Engine", "UI",
+            "PartyTestSandboxLaw.cs"));
+        string chat = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Chat.cs"));
+        string popup = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
+            "GameLoop.UnitPopup.cs"));
+        string bindings = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Bindings.cs"));
+
+        Check(sandboxLaw.Contains("public static FixtureMember[] Roster", StringComparison.Ordinal) &&
+              runtime.Contains("PartyTestSandboxLaw.Roster(playerX, playerY)",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("if (_partyTestSandbox) ClearPartyTestNames();",
+                  StringComparison.Ordinal) &&
+              chat.Contains("if (command == \"/partytest\")", StringComparison.Ordinal) &&
+              chat.Contains("ShowPartyTestInvite();", StringComparison.Ordinal) &&
+              chat.Contains("ApplyPartyTestRoster(lead: mode == \"lead\")",
+                  StringComparison.Ordinal) &&
+              popup.Contains("TryPartyTestUninvite(guid)", StringComparison.Ordinal) &&
+              popup.Contains("TryPartyTestLoot", StringComparison.Ordinal) &&
+              bindings.Contains("TryPartyTestRaidTarget(_selectionGuid, requested)",
+                  StringComparison.Ordinal),
+            "/partytest fixture/provenance/local-intent production wiring drift");
 
         CheckFrozenStaticPopupSources(root);
 

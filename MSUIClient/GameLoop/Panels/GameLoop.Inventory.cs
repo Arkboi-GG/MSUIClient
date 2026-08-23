@@ -861,12 +861,39 @@ public sealed partial class GameLoop
                     _net.CancelAura(template.UseSpellId);
                     break;
                 case MultiActionItemUseDisposition.Use:
-                    _net.UseItem(at.Bag, at.Slot, template.UseSpellIndex);
+                    SendItemUse(at.Bag, at.Slot, at.Item, template);
                     break;
             }
         }
         else if (route == MultiActionItemRoute.Equip && any is { } at)
             _net.AutoEquipItem(at.Bag, at.Slot);
+    }
+
+    /// <summary>
+    /// The shared CMSG_USE_ITEM commit tail: query the item/spell pair before sending, then arm
+    /// the item-authored recovery and the selected spell's GCD as separate history nodes.
+    /// </summary>
+    private bool SendItemUse(byte bag, byte slot, WorldEntity instance, ItemTemplate template)
+    {
+        if (_net is null) return false;
+        ItemSpellTemplate useSpell = template.Spells[template.UseSpellIndex];
+        SpellInfo? spell = _spellCatalog?.TryGet(useSpell.SpellId, out SpellInfo resolved) == true
+            ? resolved : null;
+        double now = NowSeconds();
+        bool blocked = spell is { } info
+            ? _actions.IsOnCooldown(useSpell.SpellId, template.Entry, info, now)
+            : _actions.IsOnCooldown(useSpell.SpellId, template.Entry, useSpell.Category, now);
+        if (useSpell.SpellId != 0 && blocked)
+        {
+            ShowSpellError(useSpell.SpellId, "LOCAL_ITEM_COOLDOWN", "Item is not ready yet.",
+                "LOCAL_GATE");
+            return false;
+        }
+        if (!_net.UseItem(bag, slot, template.UseSpellIndex)) return false;
+        if (useSpell.SpellId == 0) return true;
+        _actions.StartItemUseCooldown(instance.Entry, useSpell, spell, now);
+        if (spell is { } committed) _actions.StartGlobalCooldown(useSpell.SpellId, committed, now);
+        return true;
     }
 
     /// <summary>
@@ -907,7 +934,8 @@ public sealed partial class GameLoop
     {
         if (_net is null) return;
         if (item.InventoryType != 0) _net.AutoEquipItem(255, (byte)(23 + slot));
-        else _net.UseItem(255, (byte)(23 + slot), item.UseSpellIndex);
+        else if (ResolveInventoryItem(0, slot) is { } instance)
+            SendItemUse(255, (byte)(23 + slot), instance, item);
     }
 
     private void DrawCarriedItem(WorldEntity player, float scale)
@@ -1184,7 +1212,8 @@ public sealed partial class GameLoop
                 if (!_enchantCatalog.TryGet(id, out EnchantInfo enchant) ||
                     enchant.HidesTooltipName || enchant.Name.Length == 0) continue;
                 ulong? remaining = _itemEnchantTimers.RemainingMilliseconds(
-                    liveInstance.Guid, (uint)slot, NowSeconds());
+                    liveInstance.Guid, (uint)slot,
+                    liveInstance.Fields.ItemEnchantmentDuration(slot), NowSeconds());
                 string text = ItemEnchantUiLaw.Text(enchant.Name, remaining,
                     liveInstance.Fields.ItemEnchantmentCharges(slot));
                 operations.Add(PreparedItemTooltipColored(text,
@@ -1871,7 +1900,7 @@ public sealed partial class GameLoop
                     _net.OpenItem(wire.Bag, wire.Slot);
                 }
                 else if (item.InventoryType != 0) _net.AutoEquipItem(wire.Bag, wire.Slot);
-                else _net.UseItem(wire.Bag, wire.Slot, item.UseSpellIndex);
+                else SendItemUse(wire.Bag, wire.Slot, instance, item);
             }
         }
         if (!dressUpClick && !_vendorRepairMode && _itemCastSpell == 0 && _enchantConfirmation is null)
@@ -1902,8 +1931,8 @@ public sealed partial class GameLoop
                         "OVERLAY", "CENTER", parityButton, "CENTER", 0, 0));
         }
         if (item?.UseSpellId > 0 &&
-            _actions.TryCooldownDisplay(item.UseSpellId, NowSeconds(), item.UseSpellCategory,
-                out CooldownDisplay cooldown))
+            _actions.TryCooldownDisplay(item.UseSpellId, item.Entry, item.UseSpellCategory,
+                NowSeconds(), out CooldownDisplay cooldown))
         {
             Vector2 cdMin = min + new Vector2(.5f, .5f) * scale;
             Vector2 cdMax = cdMin + new Vector2(36f) * scale;
@@ -2263,10 +2292,9 @@ public sealed partial class GameLoop
         }
 
         float scale = GameplayUiScale();
-        Vector2 origin = StackSplitUiLaw.Origin(_splitOwnerTopRight, scale);
-        Vector2 size = StackSplitUiLaw.FrameSize * scale;
-        ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
-        ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+        StackSplitUiLaw.ScreenRect frame = StackSplitUiLaw.Frame(_splitOwnerTopRight, scale);
+        ImGui.SetNextWindowPos(frame.Min, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(frame.Size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
@@ -2279,19 +2307,21 @@ public sealed partial class GameLoop
         ImDrawListPtr draw = ImGui.GetWindowDrawList();
         uint plate = _gameplayArt.Handle(StackSplitUiLaw.PlatePath);
         if (plate != 0)
-            draw.AddImage((nint)plate, origin, origin + size, Vector2.Zero,
+            draw.AddImage((nint)plate, frame.Min, frame.Max, Vector2.Zero,
                 StackSplitUiLaw.PlateUvMax);
         GameText.DrawRightAligned(draw, "GameFontHighlight", _splitCount.ToString(),
-            origin + StackSplitUiLaw.CountRightEdge * scale, scale);
+            StackSplitUiLaw.Point(frame.Min, StackSplitUiLaw.CountRightEdge, scale), scale);
 
-        bool left = DrawStackSplitArrow(draw, left: true, origin, scale,
+        bool left = DrawStackSplitArrow(draw, left: true, frame.Min, scale,
             enabled: _splitCount > 1);
-        bool right = DrawStackSplitArrow(draw, left: false, origin, scale,
+        bool right = DrawStackSplitArrow(draw, left: false, frame.Min, scale,
             enabled: _splitCount < _splitMaximum);
         bool okay = VanillaButton(draw, "##stack-split-okay", "OKAY",
-            origin + StackSplitUiLaw.OkayButton * scale, StackSplitUiLaw.ButtonSize, scale);
+            StackSplitUiLaw.Point(frame.Min, StackSplitUiLaw.OkayButton, scale),
+            StackSplitUiLaw.ButtonSize, scale);
         bool cancel = VanillaButton(draw, "##stack-split-cancel", "CANCEL",
-            origin + StackSplitUiLaw.CancelButton * scale, StackSplitUiLaw.ButtonSize, scale);
+            StackSplitUiLaw.Point(frame.Min, StackSplitUiLaw.CancelButton, scale),
+            StackSplitUiLaw.ButtonSize, scale);
 
         bool enter = ImGui.IsKeyPressed(ImGuiKey.Enter, false) ||
             ImGui.IsKeyPressed(ImGuiKey.KeypadEnter, false);
@@ -2320,18 +2350,17 @@ public sealed partial class GameLoop
     private bool DrawStackSplitArrow(ImDrawListPtr draw, bool left, Vector2 origin, float scale,
         bool enabled)
     {
-        Vector2 logical = left ? StackSplitUiLaw.LeftArrow : StackSplitUiLaw.RightArrow;
-        Vector2 min = origin + logical * scale;
-        Vector2 size = StackSplitUiLaw.ArrowSize * scale;
-        ImGui.SetCursorScreenPos(min);
+        StackSplitUiLaw.ScreenRect arrow = StackSplitUiLaw.Arrow(origin, left, scale);
+        ImGui.SetCursorScreenPos(arrow.Min);
         if (!enabled) ImGui.BeginDisabled();
-        bool clicked = ImGui.InvisibleButton(left ? "##stack-split-left" : "##stack-split-right", size);
+        bool clicked = ImGui.InvisibleButton(left ? "##stack-split-left" : "##stack-split-right",
+            arrow.Size);
         bool held = enabled && ImGui.IsItemActive();
         if (!enabled) ImGui.EndDisabled();
         string stem = left ? StackSplitUiLaw.LeftArrowStem : StackSplitUiLaw.RightArrowStem;
         string suffix = !enabled ? "-Disabled" : held ? "-Down" : "-Up";
         uint art = _gameplayArt?.Handle(stem + suffix) ?? 0;
-        if (art != 0) draw.AddImage((nint)art, min, min + size);
+        if (art != 0) draw.AddImage((nint)art, arrow.Min, arrow.Max);
         return enabled && clicked;
     }
 

@@ -7,13 +7,13 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/CastingBar.xml",
-      "fileSha256": "f8d4f9761ffd2203fd02177103d4a8d19e6aa6156f59e278529c9d7118eb7721",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "0d7d28cbc0e52284f510d2ea854cb42e4d1e805180f77dc710f930685bf27ddb",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_cast.rs",
-      "fileSha256": "e3c8255d2c18b43999af982e9d75b7e29d1a0d367fb5aeeda9da8d76971f3124",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "327ef5dd3754fd458a4a9050dc1dbacfad076a806b055c5bf7924fab8f653a07",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [
@@ -60,7 +60,8 @@
       "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI's existing centered custom cast-label typography is complete and intentionally preserved instead of being replaced by Benilla's GameFontHighlight declaration.",
       "source": "claim-castingbar-text-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Nico's 2026-08-23 no-touch ruling preserves MSUI's centered cast-label typography under decision 0006; cast lifecycle and state remain must-match."
     }
   ],
   "claims": [
@@ -73,7 +74,9 @@
     "trace-castingbar-art-001",
     "trace-castingbar-text-001"
   ],
-  "decisions": [],
+  "decisions": [
+    "0006-casting-label-presentation"
+  ],
   "lastReviewedUtc": "2026-08-09T03:59:55.573251+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

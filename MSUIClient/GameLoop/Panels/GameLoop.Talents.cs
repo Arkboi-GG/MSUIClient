@@ -177,7 +177,7 @@ public sealed partial class GameLoop
 
         float s = GameplayUiScale();
         Vector2 origin = UiPanelFrameOrigin(UiPanelOwnershipRegistry[13], s);
-        Vector2 logicalSize = new(384, 512);
+        Vector2 logicalSize = TalentFrameUiLaw.Frame.Size;
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(logicalSize * s, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
@@ -200,71 +200,96 @@ public sealed partial class GameLoop
         {
             // Round copy - the talent frame's aperture is authored art in both modes.
             uint portrait = RoundAperturePortrait(_playerPortrait, _playerPortraitUsable);
+            TalentFrameUiLaw.LogicalRect portraitRect = TalentFrameUiLaw.Portrait;
             if (portrait != 0)
-                dl.AddImage((nint)portrait, origin + new Vector2(7, 6) * s,
-                    origin + new Vector2(67, 66) * s, new Vector2(0, 1), new Vector2(1, 0));
-            else DrawUnitPortraitImage(dl, entity, origin + new Vector2(7, 6) * s, 60 * s, 0, true);
+                dl.AddImage((nint)portrait, origin + portraitRect.Min * s,
+                    origin + (portraitRect.Min + portraitRect.Size) * s,
+                    TalentFrameUiLaw.PortraitUvMin, TalentFrameUiLaw.PortraitUvMax);
+            else DrawUnitPortraitImage(dl, entity, origin + portraitRect.Min * s,
+                portraitRect.Width * s, 0, true);
         }
-        (string Element, string Suffix, Vector2 Offset, Vector2 Size)[] tree =
+        (string Element, string Suffix, TalentFrameUiLaw.LogicalRect Rect)[] tree =
         [
-            ("TalentFrameBackgroundTopLeft", "TopLeft", new(23, 77), new(256, 256)),
-            ("TalentFrameBackgroundTopRight", "TopRight", new(279, 77), new(64, 256)),
-            ("TalentFrameBackgroundBottomLeft", "BottomLeft", new(23, 333), new(256, 128)),
-            ("TalentFrameBackgroundBottomRight", "BottomRight", new(279, 333), new(64, 128))
+            ("TalentFrameBackgroundTopLeft", "TopLeft", TalentFrameUiLaw.TreeTopLeft),
+            ("TalentFrameBackgroundTopRight", "TopRight", TalentFrameUiLaw.TreeTopRight),
+            ("TalentFrameBackgroundBottomLeft", "BottomLeft", TalentFrameUiLaw.TreeBottomLeft),
+            ("TalentFrameBackgroundBottomRight", "BottomRight", TalentFrameUiLaw.TreeBottomRight)
         ];
         // The four-piece shell has an opaque black center in the shipped BLPs.
         // Benilla's dynamic tree textures are assigned after the shell is shown,
         // so render the shell first and the tree tiles over that center.
-        (string Element, string Path, Vector2 Offset, Vector2 Size)[] shell =
+        (string Element, string Path, TalentFrameUiLaw.LogicalRect Rect)[] shell =
         [
-            ("TalentFrame/Texture", @"Interface\PaperDollInfoFrame\UI-Character-General-TopLeft", new(2, 1), new(256, 256)),
-            ("TalentFrame/Texture#2", @"Interface\PaperDollInfoFrame\UI-Character-General-TopRight", new(258, 1), new(128, 256)),
-            ("TalentFrame/Texture#3", @"Interface\TalentFrame\UI-TalentFrame-BotLeft", new(2, 257), new(256, 256)),
-            ("TalentFrame/Texture#4", @"Interface\TalentFrame\UI-TalentFrame-BotRight", new(258, 257), new(128, 256))
+            ("TalentFrame/Texture", TalentFrameUiLaw.TopLeftArt, TalentFrameUiLaw.ShellTopLeft),
+            ("TalentFrame/Texture#2", TalentFrameUiLaw.TopRightArt, TalentFrameUiLaw.ShellTopRight),
+            ("TalentFrame/Texture#3", TalentFrameUiLaw.BottomLeftArt, TalentFrameUiLaw.ShellBottomLeft),
+            ("TalentFrame/Texture#4", TalentFrameUiLaw.BottomRightArt, TalentFrameUiLaw.ShellBottomRight)
         ];
         foreach (var region in shell)
         {
-            Vector2 min = origin + region.Offset * s;
-            DrawArt(dl, region.Path, min, region.Size, s);
+            Vector2 min = origin + region.Rect.Min * s;
+            DrawArt(dl, region.Path, min, region.Rect.Size, s);
             if (_uiParityArmed && _uiParityPanel == "talent-frame")
-                CollectUiParityDraw(region.Element, "Texture", min, region.Size * s, "TalentFrame",
+                CollectUiParityDraw(region.Element, "Texture", min, region.Rect.Size * s, "TalentFrame",
                     new(region.Path, 0xffffffff, "IMGUI_IMAGE", "TOPLEFT", "TalentFrame", "TOPLEFT",
-                        region.Offset.X, -region.Offset.Y));
+                        region.Rect.X, -region.Rect.Y));
         }
         foreach (var region in tree)
         {
             string path = $@"Interface\TalentFrame\{file}-{region.Suffix}";
-            Vector2 min = origin + region.Offset * s;
-            DrawArt(dl, path, min, region.Size, s);
+            Vector2 min = origin + region.Rect.Min * s;
+            DrawArt(dl, path, min, region.Rect.Size, s);
             if (_uiParityArmed && _uiParityPanel == "talent-frame")
-                CollectUiParityDraw(region.Element, "Texture", min, region.Size * s, "TalentFrame",
+                CollectUiParityDraw(region.Element, "Texture", min, region.Rect.Size * s, "TalentFrame",
                     new(path, 0xffffffff, "IMGUI_IMAGE", "TOPLEFT", "TalentFrame", "TOPLEFT",
-                        region.Offset.X, -region.Offset.Y));
+                        region.Rect.X, -region.Rect.Y));
         }
 
-        const float scrollMaximum = 103;
-        Vector2 clipMin = origin + new Vector2(23, 77) * s;
-        Vector2 clipMax = origin + new Vector2(319, 409) * s; // exact 296x332 ScrollFrame
+        DrawVanillaInputBorder(dl, origin + TalentFrameUiLaw.PointsBorder.Min * s,
+            TalentFrameUiLaw.PointsBorder.Size, s);
+
+        _talentScroll = TalentFrameUiLaw.ClampScroll(_talentScroll);
+        Vector2 clipMin = origin + TalentFrameUiLaw.ScrollFrame.Min * s;
+        Vector2 clipMax = clipMin + TalentFrameUiLaw.ScrollFrame.Size * s;
         ImGui.SetCursorScreenPos(clipMin);
         ImGui.InvisibleButton("##talent-scroll-wheel", clipMax - clipMin);
         if (ImGui.IsItemHovered() && ImGui.GetIO().MouseWheel != 0)
-            _talentScroll = Math.Clamp(_talentScroll - Math.Sign(ImGui.GetIO().MouseWheel) * 32, 0, scrollMaximum);
+            _talentScroll = TalentFrameUiLaw.WheelScroll(
+                _talentScroll, ImGui.GetIO().MouseWheel);
 
-        Vector2 scrollOffset = new(0, -_talentScroll * s);
+        Vector2 scrollOffset = TalentFrameUiLaw.ScrollOffset(_talentScroll, s);
         TalentInfo[] visibleTalents = _talents.TalentsForTab(_talentSelectedTab).ToArray();
+        int tabSpent = visibleTalents.Sum(TalentRank);
+        bool VisualRequirementsMet(TalentInfo talent)
+        {
+            int rank = TalentRank(talent);
+            if (TalentPoints() == 0 && rank == 0) return false;
+            if (tabSpent < talent.Row * 5) return false;
+            if (talent.DependsOn != 0 &&
+                visibleTalents.FirstOrDefault(x => x.Id == talent.DependsOn) is { Id: not 0 } prereq &&
+                TalentRank(prereq) <= talent.DependsOnRank) return false;
+            return talent.RequiredSpell == 0 || _actions.KnownSpells.Contains(talent.RequiredSpell);
+        }
+
         dl.PushClipRect(clipMin, clipMax, true);
+        var routes = new List<TalentFrameUiLaw.DependencyRoute>();
         foreach (TalentInfo talent in visibleTalents.Where(x => x.DependsOn != 0))
         {
             TalentInfo prerequisite = visibleTalents.FirstOrDefault(x => x.Id == talent.DependsOn);
             if (prerequisite.Id == 0) continue;
-            Vector2 from = origin + new Vector2(76.5f + prerequisite.Column * 63,
-                115.5f + prerequisite.Row * 63) * s + scrollOffset;
-            Vector2 to = origin + new Vector2(76.5f + talent.Column * 63,
-                115.5f + talent.Row * 63) * s + scrollOffset;
-            uint link = TalentRank(prerequisite) >= (int)Math.Max(1, talent.DependsOnRank)
-                ? 0xff00b000u : 0xff555555u;
-            dl.AddLine(from, to, link, 5 * s);
-            dl.AddLine(from, to, 0xff151515, s);
+            routes.Add(new((int)talent.Row, (int)talent.Column,
+                (int)prerequisite.Row, (int)prerequisite.Column,
+                VisualRequirementsMet(talent)));
+        }
+        uint branchArt = _gameplayArt.Handle(TalentFrameUiLaw.BranchArt);
+        uint arrowArt = _gameplayArt.Handle(TalentFrameUiLaw.ArrowArt);
+        foreach (TalentFrameUiLaw.ConnectorSprite sprite in TalentFrameUiLaw.BuildConnectors(
+                     visibleTalents.Select(x => ((int)x.Row, (int)x.Column)), routes))
+        {
+            uint art = sprite.Arrow ? arrowArt : branchArt;
+            if (art == 0) continue;
+            Vector2 min = origin + sprite.Rect.Min * s + scrollOffset;
+            dl.AddImage((nint)art, min, min + sprite.Rect.Size * s, sprite.Uv0, sprite.Uv1);
         }
         foreach (TalentInfo talent in visibleTalents)
         {
@@ -273,35 +298,66 @@ public sealed partial class GameLoop
             SpellInfo? spell = _spellCatalog?.TryGet(
                 talent.RankSpells[Math.Min(rank, talent.RankSpells.Length - 1)], out SpellInfo si) == true ? si : null;
             string name = spell?.Name ?? $"Talent {talent.Id}";
-            Vector2 min = origin + new Vector2(58 + talent.Column * 63,
-                97 + talent.Row * 63) * s + scrollOffset;
+            TalentFrameUiLaw.LogicalRect buttonRect = TalentFrameUiLaw.TalentButton(
+                (int)talent.Row, (int)talent.Column);
+            Vector2 min = origin + buttonRect.Min * s + scrollOffset;
             bool maxed = rank == talent.RankSpells.Length;
-            uint slotTint = !eligible && rank == 0 ? 0xff777777u : maxed ? VanillaGold : 0xff1aff1au;
+            bool visualRequirements = VisualRequirementsMet(talent);
+            uint slotTint = !visualRequirements ? 0xff808080u :
+                maxed ? VanillaGold : 0xff1aff1au;
             uint slot = _gameplayArt.Handle(@"Interface\Buttons\UI-EmptySlot-White");
-            if (slot != 0) dl.AddImage((nint)slot, min - new Vector2(13.5f) * s,
-                min + new Vector2(50.5f) * s, Vector2.Zero, Vector2.One, slotTint);
+            TalentFrameUiLaw.LogicalRect slotRect = TalentFrameUiLaw.TalentSlot(
+                (int)talent.Row, (int)talent.Column);
+            Vector2 slotMin = origin + slotRect.Min * s + scrollOffset;
+            if (slot != 0) dl.AddImage((nint)slot, slotMin,
+                slotMin + slotRect.Size * s, Vector2.Zero, Vector2.One, slotTint);
             uint icon = _gameplayArt.Handle(spell?.IconPath ?? @"Interface\Icons\INV_Misc_QuestionMark.blp");
-            if (icon != 0) dl.AddImage((nint)icon, min, min + new Vector2(37) * s,
-                Vector2.Zero, Vector2.One, eligible || rank > 0 ? 0xffffffff : 0xff777777);
+            if (icon != 0) dl.AddImage((nint)icon, min, min + buttonRect.Size * s,
+                Vector2.Zero, Vector2.One, visualRequirements || rank > 0
+                    ? 0xffffffff : 0xffa6a6a6);
+            TalentFrameUiLaw.LogicalRect normalRingRect = TalentFrameUiLaw.TalentNormalRing(
+                (int)talent.Row, (int)talent.Column);
+            Vector2 normalRingMin = origin + normalRingRect.Min * s + scrollOffset;
+            uint normalRing = _gameplayArt.Handle(@"Interface\Buttons\UI-Quickslot2");
+            if (normalRing != 0) dl.AddImage((nint)normalRing, normalRingMin,
+                normalRingMin + normalRingRect.Size * s);
             uint border = _gameplayArt.Handle(@"Interface\TalentFrame\TalentFrame-RankBorder");
-            Vector2 rankMin = min + new Vector2(21) * s;
-            if (border != 0) dl.AddImage((nint)border, rankMin, rankMin + new Vector2(32) * s);
-            uint rankColor = !eligible && rank == 0 ? 0xff888888u : maxed ? VanillaGold : 0xff00ff00u;
-            GameText.DrawCentered(dl, "GameFontNormalSmall",
-                $"{rank}/{talent.RankSpells.Length}", rankMin + new Vector2(16) * s,
-                s, rankColor);
+            TalentFrameUiLaw.LogicalRect rankRect = TalentFrameUiLaw.TalentRankBorder(
+                (int)talent.Row, (int)talent.Column);
+            Vector2 rankMin = origin + rankRect.Min * s + scrollOffset;
+            bool showRank = visualRequirements || rank > 0;
+            if (showRank)
+            {
+                if (border != 0) dl.AddImage((nint)border, rankMin,
+                    rankMin + rankRect.Size * s, Vector2.Zero, Vector2.One,
+                    visualRequirements ? 0xffffffff : 0xff808080);
+                uint rankColor = !visualRequirements ? 0xff888888u :
+                    maxed ? VanillaGold : 0xff00ff00u;
+                GameText.DrawCentered(dl, "GameFontNormalSmall", rank.ToString(),
+                    rankMin + rankRect.Size * .5f * s, s, rankColor);
+            }
             ImGui.SetCursorScreenPos(min);
-            ImGui.InvisibleButton($"##talent-{talent.Id}", new Vector2(37) * s);
+            ImGui.InvisibleButton($"##talent-{talent.Id}", buttonRect.Size * s);
+            if (ImGui.IsItemActive())
+                DrawArt(dl, @"Interface\Buttons\UI-Quickslot-Depress", min,
+                    buttonRect.Size, s);
+            if (ImGui.IsItemHovered())
+                DrawArt(dl, @"Interface\Buttons\ButtonHilight-Square", min,
+                    buttonRect.Size, s);
             if (ImGui.IsItemClicked() && eligible) SpendTalent(talent.Id);
             if (ImGui.IsItemHovered())
             {
+                TalentFrameUiLaw.TooltipSeat tooltipSeat =
+                    TalentFrameUiLaw.TalentTooltipSeat(min, buttonRect.Size * s);
+                ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
+                    tooltipSeat.Pivot);
                 ImGui.BeginTooltip(); ImGui.TextUnformatted(name);
                 ImGui.TextUnformatted($"Rank {rank}/{talent.RankSpells.Length}");
                 if (!eligible) ImGui.TextDisabled(reason); ImGui.EndTooltip();
             }
         }
         dl.PopClipRect();
-        DrawTalentScrollBar(dl, origin, s, scrollMaximum);
+        DrawTalentScrollBar(dl, origin, s);
 
         GameText.DrawCentered(dl, "GameFontNormal", "Talents",
             origin + TalentFrameUiLaw.TitleCenter * s, s);
@@ -310,13 +366,11 @@ public sealed partial class GameLoop
         string spentValue = visibleTalents.Sum(TalentRank).ToString();
         float spentPrefixWidth = GameText.MeasureWidth("GameFontNormalSmall", spentPrefix, s);
         float spentValueWidth = GameText.MeasureWidth("GameFontHighlightSmall", spentValue, s);
-        Vector2 spentTop = origin + new Vector2(
-            TalentFrameUiLaw.SpentPointsCenterX * s -
-                (spentPrefixWidth + spentValueWidth) * .5f,
-            TalentFrameUiLaw.SpentPointsTop * s);
+        Vector2 spentTop = TalentFrameUiLaw.SpentTextTop(origin, s,
+            spentPrefixWidth, spentValueWidth);
         GameText.Draw(dl, "GameFontNormalSmall", spentPrefix, spentTop, s);
         GameText.Draw(dl, "GameFontHighlightSmall", spentValue,
-            spentTop + new Vector2(spentPrefixWidth, 0f), s);
+            TalentFrameUiLaw.SpentValueTop(spentTop, spentPrefixWidth), s);
 
         string talentPoints = TalentPoints().ToString();
         float pointEm = GameText.EmPixels("GameFontHighlightSmall", s);
@@ -330,21 +384,24 @@ public sealed partial class GameLoop
         };
         GameText.DrawRightAligned(dl, "GameFontNormalSmall", "Talent Points:", labelRight, s);
 
-        float tabX = 15;
+        float tabX = TalentFrameUiLaw.FirstTab.X;
         foreach (TalentTabInfo tab in tabs)
         {
             float width = VanillaCharacterTabWidth(tab.Name, s, 10);
-            if (VanillaTab(dl, $"##talent-tab-{tab.Id}", origin + new Vector2(tabX, 434) * s,
+            if (VanillaTab(dl, $"##talent-tab-{tab.Id}",
+                    TalentFrameUiLaw.TabMinimum(origin, tabX, s),
                     tab.Name, width, s, tab.Id == _talentSelectedTab))
             { _talentSelectedTab = tab.Id; _talentScroll = 0; }
-            tabX += width - 15;
+            tabX += width - TalentFrameUiLaw.TabOverlap;
         }
         if (_talentWipeTrainer != 0 && VanillaButton(dl, "##talent-reset", "Unlearn Talents",
-                origin + new Vector2(95, 409) * s, new Vector2(120, 22), s)) ConfirmTalentWipe();
-        if (VanillaButton(dl, "##talent-cancel", "Close", origin + new Vector2(265, 409) * s,
-                new Vector2(80, 22), s)) _talentOpen = false;
-        Vector2 close = origin + new Vector2(324, 10) * s;
-        DrawImageButton(dl, "##talent-close", close, new Vector2(32) * s,
+                origin + TalentFrameUiLaw.ResetButton.Min * s,
+                TalentFrameUiLaw.ResetButton.Size, s)) ConfirmTalentWipe();
+        if (VanillaButton(dl, "##talent-cancel", "Close",
+                origin + TalentFrameUiLaw.CloseButton.Min * s,
+                TalentFrameUiLaw.CloseButton.Size, s)) _talentOpen = false;
+        Vector2 close = origin + TalentFrameUiLaw.CloseX.Min * s;
+        DrawImageButton(dl, "##talent-close", close, TalentFrameUiLaw.CloseX.Size * s,
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up", @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         if (ImGui.IsItemClicked()) _talentOpen = false;
@@ -352,45 +409,54 @@ public sealed partial class GameLoop
         ImGui.End();
     }
 
-    private void DrawTalentScrollBar(ImDrawListPtr dl, Vector2 origin, float s, float maximum)
+    private void DrawTalentScrollBar(ImDrawListPtr dl, Vector2 origin, float s)
     {
         // TalentFrameScrollFrame artwork from Blizzard_TalentUI.xml.
         uint background = _gameplayArt?.Handle(@"Interface\PaperDollInfoFrame\UI-Character-ScrollBar") ?? 0;
         if (background != 0)
         {
-            Vector2 top = origin + new Vector2(317, 72) * s;
-            dl.AddImage((nint)background, top, top + new Vector2(31, 256) * s,
-                Vector2.Zero, new Vector2(.484375f, 1));
-            Vector2 bottom = origin + new Vector2(317, 305) * s;
-            dl.AddImage((nint)background, bottom, bottom + new Vector2(31, 106) * s,
-                new Vector2(.515625f, 0), new Vector2(1, .4140625f));
+            TalentFrameUiLaw.TextureSlice topSlice =
+                TalentFrameUiLaw.ScrollBackgroundTopSlice;
+            Vector2 top = topSlice.Rect.ScaledMin(origin, s);
+            dl.AddImage((nint)background, top,
+                top + topSlice.Rect.ScaledSize(s), topSlice.UvMin, topSlice.UvMax);
+            TalentFrameUiLaw.TextureSlice bottomSlice =
+                TalentFrameUiLaw.ScrollBackgroundBottomSlice;
+            Vector2 bottom = bottomSlice.Rect.ScaledMin(origin, s);
+            dl.AddImage((nint)background, bottom,
+                bottom + bottomSlice.Rect.ScaledSize(s),
+                bottomSlice.UvMin, bottomSlice.UvMax);
         }
-        void Button(string id, Vector2 min, bool up, bool enabled)
+        void Button(string id, TalentFrameUiLaw.LogicalRect rect, bool up, bool enabled)
         {
-            ImGui.SetCursorScreenPos(min); ImGui.InvisibleButton(id, new Vector2(16) * s);
+            Vector2 min = origin + rect.Min * s;
+            ImGui.SetCursorScreenPos(min); ImGui.InvisibleButton(id, rect.Size * s);
             bool active = enabled && ImGui.IsItemActive();
             string stem = up ? "UI-ScrollBar-ScrollUpButton" : "UI-ScrollBar-ScrollDownButton";
             string state = !enabled ? "Disabled" : active ? "Down" : "Up";
             uint texture = _gameplayArt?.Handle($@"Interface\Buttons\{stem}-{state}") ?? 0;
-            if (texture != 0) dl.AddImage((nint)texture, min, min + new Vector2(16) * s,
-                new Vector2(.25f), new Vector2(.75f));
+            if (texture != 0) dl.AddImage((nint)texture, min, min + rect.Size * s,
+                TalentFrameUiLaw.ScrollControlUvMin,
+                TalentFrameUiLaw.ScrollControlUvMax);
             if (enabled && ImGui.IsItemClicked())
-                _talentScroll = Math.Clamp(_talentScroll + (up ? -150 : 150), 0, maximum);
+                _talentScroll = TalentFrameUiLaw.ArrowScroll(_talentScroll, up);
         }
-        Button("##talent-scroll-up", origin + new Vector2(325, 77) * s, true, _talentScroll > 0);
-        Button("##talent-scroll-down", origin + new Vector2(325, 393) * s, false, _talentScroll < maximum);
+        Button("##talent-scroll-up", TalentFrameUiLaw.ScrollUp, true, _talentScroll > 0);
+        Button("##talent-scroll-down", TalentFrameUiLaw.ScrollDown, false,
+            _talentScroll < TalentFrameUiLaw.ScrollMaximum);
 
-        float y = 93 + (maximum <= 0 ? 0 : _talentScroll / maximum * 284);
-        Vector2 knob = origin + new Vector2(325, y) * s;
+        TalentFrameUiLaw.LogicalRect knobRect = TalentFrameUiLaw.ScrollKnob(_talentScroll);
+        Vector2 knob = knobRect.ScaledMin(origin, s);
         uint art = _gameplayArt?.Handle(@"Interface\Buttons\UI-ScrollBar-Knob") ?? 0;
-        if (art != 0) dl.AddImage((nint)art, knob, knob + new Vector2(16) * s,
-            new Vector2(.25f), new Vector2(.75f));
-        ImGui.SetCursorScreenPos(origin + new Vector2(325, 93) * s);
-        ImGui.InvisibleButton("##talent-scroll-track", new Vector2(16, 300) * s);
+        if (art != 0) dl.AddImage((nint)art, knob,
+            knob + knobRect.ScaledSize(s), TalentFrameUiLaw.ScrollControlUvMin,
+            TalentFrameUiLaw.ScrollControlUvMax);
+        ImGui.SetCursorScreenPos(origin + TalentFrameUiLaw.ScrollTrack.Min * s);
+        ImGui.InvisibleButton("##talent-scroll-track", TalentFrameUiLaw.ScrollTrack.Size * s);
         if (ImGui.IsItemActive())
         {
-            float logicalY = (ImGui.GetIO().MousePos.Y - origin.Y) / s - 101;
-            _talentScroll = Math.Clamp(logicalY / 284 * maximum, 0, maximum);
+            float logicalY = (ImGui.GetIO().MousePos.Y - origin.Y) / s;
+            _talentScroll = TalentFrameUiLaw.ScrollFromKnob(logicalY);
         }
     }
 

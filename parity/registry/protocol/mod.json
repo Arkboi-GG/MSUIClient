@@ -7,8 +7,8 @@
   "benillaSources": [
     {
       "path": "crates/benilla-protocol/src/messages/mod.rs",
-      "fileSha256": "2068e2dc1c573e21883e827197b507bbe09406a449f2445ccad8e2bb79f8877d",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "ff52a292d0d4b95f30f5c02a6344ebbc1781474f4e57183c738d27ee508bccff",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-protocol/src/world/mod.rs",
@@ -17,8 +17,8 @@
     },
     {
       "path": "crates/benilla-protocol/src/world/writer/mod.rs",
-      "fileSha256": "8a1befdc7efab1b0c76847af79da897947fd692a8cfb8f933dfc9a2f4d017440",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "e9b94c4efd0763f973bb8cad8947801fa744903cd2df0f7912aa429daccdc80d",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [

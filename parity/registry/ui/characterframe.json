@@ -7,13 +7,13 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/CharacterFrame.xml",
-      "fileSha256": "317087c5ddb2602b01ba7b894abd96de428b78e8638c15c1e649da16014d97d0",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "abb2d391818043a6b0d066262dcc7254c9fc5b236d6d45378362de02493e0032",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_char.rs",
-      "fileSha256": "4adb62ea808ac37f3a81b6cc491f484dd74c2694d9fdc09131b7f473120f230a",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "235a6a59ceaeb8035d313c3c0722d81c8afacb257e4b83e6127f136faff53c4b",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [
@@ -55,7 +55,8 @@
       "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI already had complete character statistics, resistances, and tooltips; its broad panels, Attack/Ranged labels and values, damage format, and no-ranged semantics are preserved instead of adopting Benilla's different presentation.",
       "source": "claim-characterframe-stats-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Nico's 2026-08-23 no-touch ruling preserves the established MSUI Character statistics presentation under decision 0001; state, data, tooltip and wire behavior remain must-match."
     },
     {
       "id": "item-claim-characterframe-equipment-001-verify",
@@ -71,7 +72,8 @@
       "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). Held rotation, release sounds, and model-pane auto-equip are present; MSUI's established zero facing and 0.12-radian tap are deliberately preserved instead of Benilla's different constants.",
       "source": "claim-characterframe-model-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Nico's 2026-08-23 no-touch ruling preserves the established MSUI model facing and rotation-tap presentation under decision 0001; model lifecycle and behavior remain must-match."
     },
     {
       "id": "item-claim-characterframe-ammo-001-verify",
@@ -87,7 +89,8 @@
       "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI's complete native character-frame composition is preserved; no Benilla coordinate, tab, background-slice, or header difference is treated as authorization to replace it.",
       "source": "claim-characterframe-layout-001",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "Nico's 2026-08-23 no-touch ruling preserves the complete native Character page composition under decision 0001."
     }
   ],
   "claims": [
@@ -108,7 +111,9 @@
     "trace-characterframe-ammo-001",
     "trace-characterframe-layout-001"
   ],
-  "decisions": [],
+  "decisions": [
+    "0001-character-frame-presentation"
+  ],
   "lastReviewedUtc": "2026-08-07T22:47:52.7450709+00:00",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

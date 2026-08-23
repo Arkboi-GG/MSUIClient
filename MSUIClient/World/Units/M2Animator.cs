@@ -118,6 +118,8 @@ public sealed class M2Animator
         public float DurationSeconds;
         public float MoveSpeed;
         public bool Looping;
+        public Vector3 BoundsCenter;
+        public float BoundsRadius;
 
         /// <summary>
         /// Seconds to cross-fade INTO this clip, straight off the M2 sequence's
@@ -494,10 +496,10 @@ public sealed class M2Animator
     }
 
     /// <summary>Resolve an authored animation on first use and retain the baked clip.</summary>
-    public Clip? FindOrBake(int animationId)
+    public Clip? FindOrBake(int animationId, bool includeStaticSequences = false)
     {
         if (_clips.TryGetValue(animationId, out Clip? cached)) return cached;
-        Clip? clip = Bake(animationId);
+        Clip? clip = Bake(animationId, includeStaticSequences);
         if (clip is not null)
         {
             _clips[animationId] = clip;
@@ -585,6 +587,8 @@ public sealed class M2Animator
             DurationSeconds = seq.DurationMs / 1000f,
             MoveSpeed = seq.MoveSpeed,
             Looping = seq.IsLooping,
+            BoundsCenter = (seq.BoundsMinimum + seq.BoundsMaximum) * .5f,
+            BoundsRadius = seq.BoundsRadius,
             BlendSeconds = seq.BlendTimeMs / 1000f,
             SourceFlags = seq.Flags,
             Bones = new BoneChannels[_boneCount],

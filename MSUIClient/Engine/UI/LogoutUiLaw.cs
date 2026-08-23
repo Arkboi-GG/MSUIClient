@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace MSUIClient.Engine.UI;
 
 /// <summary>
@@ -28,6 +30,32 @@ public static class LogoutUiLaw
 {
     public const float CountdownSeconds = 20f;
     public const string RefusedText = "You can't logout now.";
+    public readonly record struct LogicalRect(float X, float Y, float Width, float Height)
+    {
+        public Vector2 Min => new(X, Y);
+        public Vector2 Size => new(Width, Height);
+        public Vector2 ScaledMin(Vector2 origin, float scale) => origin + Min * scale;
+        public Vector2 ScaledSize(float scale) => Size * scale;
+    }
+
+    public static readonly LogicalRect Frame = new(0, 128, 360, 96);
+    public static readonly Vector2 CountdownCenter = new(180, 34);
+    public static readonly LogicalRect CampCancel = new(116, 66, 128, 20);
+    public static readonly LogicalRect QuitNow = new(42, 66, 128, 20);
+    public static readonly LogicalRect QuitCancel = new(190, 66, 128, 20);
+    public static readonly Vector2 ButtonUvMin = Vector2.Zero;
+    public static readonly Vector2 ButtonUvMax = new(1f, .625f);
+
+    public static Vector2 FrameSize(float scale) =>
+        new Vector2(Frame.Width, Frame.Height) * scale;
+    public static Vector2 FrameOrigin(Vector2 display, float scale)
+    {
+        Vector2 size = FrameSize(scale);
+        return new((display.X - size.X) * .5f, Frame.Y * scale);
+    }
+    public static Vector2 CountdownTextCenter(Vector2 origin, float scale) =>
+        origin + CountdownCenter * scale;
+    public static LogicalRect PrimaryButton(bool quitting) => quitting ? QuitNow : CampCancel;
 
     public static LogoutResponseAction Decide(LogoutResponse response, bool quitting)
     {

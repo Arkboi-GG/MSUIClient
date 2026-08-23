@@ -90,18 +90,18 @@ public sealed partial class GameLoop
         ImDrawListPtr draw = ImGui.GetWindowDrawList();
         DrawGuildControlShell(draw, origin, scale);
         GameText.DrawCentered(draw, "GameFontNormal", "Select guild rank to modify:",
-            origin + new Vector2(148.5f, 23) * scale, scale);
+            origin + GuildFrameUiLaw.ControlSelectLabel.Center * scale, scale);
         GameText.DrawCentered(draw, "GameFontHighlightSmall", "Allow this rank to:",
-            origin + new Vector2(148.5f, 114) * scale, scale);
+            origin + GuildFrameUiLaw.ControlAllowLabel.Center * scale, scale);
 
         DrawGuildControlRankButtons(draw, origin, scale, rankCount);
 
         GameText.DrawRightAligned(draw, "GameFontNormal", "Rank Label:",
-            origin + new Vector2(106, 84) * scale, scale);
+            origin + GuildFrameUiLaw.ControlRankNameLabelRight * scale, scale);
         GuildFrameUiLaw.LogicalRect edit = GuildFrameUiLaw.ControlRankName;
         Vector2 editMin = origin + edit.Min * scale;
         DrawStaticPopupEditBoxBorder(draw, editMin, scale);
-        ImGui.SetCursorScreenPos(editMin + new Vector2(0, 7) * scale);
+        ImGui.SetCursorScreenPos(editMin + GuildFrameUiLaw.ControlRankNameTextOffset * scale);
         ImGui.SetNextItemWidth(edit.Width * scale);
         ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
@@ -139,14 +139,16 @@ public sealed partial class GameLoop
 
     private void DrawGuildControlShell(ImDrawListPtr draw, Vector2 origin, float scale)
     {
-        DrawArt(draw, @"Interface\MacroFrame\MacroPopup-TopLeft", origin,
-            new Vector2(256), scale);
-        DrawArt(draw, @"Interface\MacroFrame\MacroPopup-TopRight",
-            origin + new Vector2(256, 0) * scale, new Vector2(64, 256), scale);
-        DrawArt(draw, @"Interface\MacroFrame\MacroPopup-BotLeft",
-            origin + new Vector2(0, 256) * scale, new Vector2(256, 64), scale);
-        DrawArt(draw, @"Interface\MacroFrame\MacroPopup-BotRight",
-            origin + new Vector2(256, 256) * scale, new Vector2(64), scale);
+        void Slice(string texture, GuildFrameUiLaw.LogicalRect rect) =>
+            DrawArt(draw, texture, origin + rect.Min * scale, rect.Size, scale);
+        Slice(@"Interface\MacroFrame\MacroPopup-TopLeft",
+            GuildFrameUiLaw.ControlShellTopLeft);
+        Slice(@"Interface\MacroFrame\MacroPopup-TopRight",
+            GuildFrameUiLaw.ControlShellTopRight);
+        Slice(@"Interface\MacroFrame\MacroPopup-BotLeft",
+            GuildFrameUiLaw.ControlShellBottomLeft);
+        Slice(@"Interface\MacroFrame\MacroPopup-BotRight",
+            GuildFrameUiLaw.ControlShellBottomRight);
     }
 
     private void DrawGuildControlDropDown(ImDrawListPtr draw, Vector2 origin, float scale,
@@ -157,14 +159,15 @@ public sealed partial class GameLoop
         _skin?.DrawBackdrop(draw, min, min + box.Size * scale, WowSkin.Tooltip,
             UnitPopupUiLaw.MenuBackdropFillTint, UnitPopupUiLaw.MenuBackdropEdgeTint);
         GameText.Draw(draw, "GameFontHighlightSmall", _guildControlRankName,
-            min + new Vector2(9, 10) * scale, scale);
-        Vector2 arrowMin = min + new Vector2(101, 4) * scale;
+            min + GuildFrameUiLaw.ControlDropDownTextOffset * scale, scale);
+        GuildFrameUiLaw.LogicalRect arrowRect = GuildFrameUiLaw.ControlDropDownArrow;
+        Vector2 arrowMin = origin + arrowRect.Min * scale;
         ImGui.SetCursorScreenPos(min);
         if (ImGui.InvisibleButton("##guild-control-dropdown", box.Size * scale))
             _guildControlDropDownOpen = !_guildControlDropDownOpen;
         uint arrow = _gameplayArt?.Handle(@"Interface\ChatFrame\UI-ChatIcon-ScrollDown-Up") ?? 0;
         if (arrow != 0) draw.AddImage((nint)arrow, arrowMin,
-            arrowMin + new Vector2(24) * scale);
+            arrowMin + arrowRect.Size * scale);
         if (!_guildControlDropDownOpen) return;
 
         GuildFrameUiLaw.LogicalRect list = GuildFrameUiLaw.ControlDropDownList(rankCount);
@@ -184,7 +187,7 @@ public sealed partial class GameLoop
                 if (hi != 0) draw.AddImage((nint)hi, rowMin, rowMin + row.Size * scale);
             }
             GameText.Draw(draw, "GameFontHighlightSmall", _guildRankNames[i],
-                rowMin + new Vector2(5, 3) * scale, scale);
+                rowMin + GuildFrameUiLaw.ControlDropDownRowTextOffset * scale, scale);
             if (clicked) LoadGuildControlRank(i);
         }
     }
@@ -193,7 +196,7 @@ public sealed partial class GameLoop
         int rankCount)
     {
         if (DrawGuildControlMiniButton(draw, "##guild-control-add-rank",
-                origin + GuildFrameUiLaw.ControlAddRank.Min * scale, scale, plus: true,
+                origin, GuildFrameUiLaw.ControlAddRank, scale, plus: true,
                 enabled: rankCount < 10))
             ShowGuildAddRankPopup();
 
@@ -201,7 +204,7 @@ public sealed partial class GameLoop
         bool canRemove = GuildFrameUiLaw.CanRemoveRank(_guildControlRank, rankCount,
             GuildBottomRankMembers());
         if (showRemove && DrawGuildControlMiniButton(draw, "##guild-control-remove-rank",
-                origin + GuildFrameUiLaw.ControlRemoveRank.Min * scale, scale, plus: false,
+                origin, GuildFrameUiLaw.ControlRemoveRank, scale, plus: false,
                 enabled: canRemove))
         {
             _net?.GuildDeleteRank();
@@ -209,10 +212,11 @@ public sealed partial class GameLoop
         }
     }
 
-    private bool DrawGuildControlMiniButton(ImDrawListPtr draw, string id, Vector2 min,
-        float scale, bool plus, bool enabled)
+    private bool DrawGuildControlMiniButton(ImDrawListPtr draw, string id, Vector2 origin,
+        GuildFrameUiLaw.LogicalRect rect, float scale, bool plus, bool enabled)
     {
-        Vector2 size = new Vector2(16) * scale;
+        Vector2 min = origin + rect.Min * scale;
+        Vector2 size = rect.Size * scale;
         ImGui.SetCursorScreenPos(min);
         if (!enabled) ImGui.BeginDisabled();
         bool clicked = ImGui.InvisibleButton(id, size);
@@ -228,6 +232,20 @@ public sealed partial class GameLoop
             uint hi = _gameplayArt?.AdditiveHandle(
                 @"Interface\Buttons\UI-PlusButton-Hilight") ?? 0;
             if (hi != 0) draw.AddImage((nint)hi, min, min + size);
+            GuildFrameUiLaw.TooltipSeat tooltipSeat =
+                GuildFrameUiLaw.RightTooltipSeat(min, size);
+            string tooltip = plus ? GuildFrameUiLaw.ControlAddRankTooltip :
+                GuildFrameUiLaw.ControlRemoveRankTooltip;
+            OfferPreservedSharedGameTooltipRenderer(
+                new(plus ? "guild-control-add-rank" : "guild-control-remove-rank", 0),
+                () =>
+                {
+                    ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
+                        tooltipSeat.Pivot);
+                    ImGui.BeginTooltip();
+                    ImGui.TextUnformatted(tooltip);
+                    ImGui.EndTooltip();
+                });
         }
         return enabled && clicked;
     }
@@ -260,7 +278,7 @@ public sealed partial class GameLoop
         }
         GameText.Draw(draw, "GameFontNormalSmall",
             GuildFrameUiLaw.RankRightLabels[zeroBasedIndex],
-            min + new Vector2(21, 4) * scale, scale);
+            min + GuildFrameUiLaw.ControlCheckboxLabelOffset * scale, scale);
         if (!clicked) return;
         checkedNow = !checkedNow;
         if (checkedNow) _guildControlRights |= bit;

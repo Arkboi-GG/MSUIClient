@@ -5,6 +5,11 @@ namespace MSUIClient.Engine.UI;
 /// <summary>Build-5875 StackSplitFrame geometry and spinner state transitions.</summary>
 public static class StackSplitUiLaw
 {
+    public readonly record struct ScreenRect(Vector2 Min, Vector2 Size)
+    {
+        public Vector2 Max => Min + Size;
+    }
+
     public static readonly Vector2 FrameSize = new(172f, 96f);
     public static readonly Vector2 PlateUvMax = new(.671875f, .75f);
     public static readonly Vector2 ArrowSize = new(16f, 16f);
@@ -22,6 +27,15 @@ public static class StackSplitUiLaw
     /// <summary>BOTTOMRIGHT of the frame is attached to TOPRIGHT of its owner item button.</summary>
     public static Vector2 Origin(Vector2 ownerTopRight, float scale) =>
         ownerTopRight - FrameSize * scale;
+
+    public static ScreenRect Frame(Vector2 ownerTopRight, float scale) =>
+        new(Origin(ownerTopRight, scale), FrameSize * scale);
+
+    public static Vector2 Point(Vector2 frameMinimum, Vector2 logicalPoint, float scale) =>
+        frameMinimum + logicalPoint * scale;
+
+    public static ScreenRect Arrow(Vector2 frameMinimum, bool left, float scale) =>
+        new(Point(frameMinimum, left ? LeftArrow : RightArrow, scale), ArrowSize * scale);
 
     public static int Clamp(int count, int maximum) => Math.Clamp(count, 1, Math.Max(1, maximum));
 

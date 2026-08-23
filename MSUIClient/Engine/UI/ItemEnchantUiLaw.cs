@@ -8,15 +8,19 @@ public sealed class ItemEnchantTimerState
 
     public void Set(ulong guid, uint slot, uint seconds, double now)
     {
-        if (seconds == 0) _deadlines.Remove((guid, slot));
-        else _deadlines[(guid, slot)] = now + seconds;
+        // The wire carries seconds and the client parks an absolute deadline even at zero.
+        // An elapsed temporary enchant therefore remains the number 0, not a missing timer.
+        _deadlines[(guid, slot)] = now + seconds;
     }
 
-    public ulong? RemainingMilliseconds(ulong guid, uint slot, double now)
+    public ulong? RemainingMilliseconds(ulong guid, uint slot, uint duration, double now)
     {
-        if (!_deadlines.TryGetValue((guid, slot), out double deadline)) return null;
+        // The item field's duration is only a presence gate. During the short field-before-packet
+        // window the reference returns numeric zero; it never exposes the raw duration itself.
+        if (!_deadlines.TryGetValue((guid, slot), out double deadline))
+            return duration != 0 ? 0UL : null;
         double left = deadline - now;
-        return left > 0 ? (ulong)(left * 1000.0) : null;
+        return left > 0 ? (ulong)(left * 1000.0) : 0UL;
     }
 
     public void Clear() => _deadlines.Clear();

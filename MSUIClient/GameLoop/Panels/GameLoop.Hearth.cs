@@ -13,7 +13,6 @@ public sealed partial class GameLoop
     private (uint Map, Vector3 Position)? _bindPoint;
     private bool _binderConfirmOpen;
     private string _binderAreaName = BinderConfirmUiLaw.FallbackAreaName;
-    private bool _hearthOpen;
     private bool _hearthPending;
     private Vector3 _hearthFrom;
 
@@ -23,7 +22,6 @@ public sealed partial class GameLoop
         _bindPoint = null;
         _binderConfirmOpen = false;
         _binderAreaName = BinderConfirmUiLaw.FallbackAreaName;
-        _hearthOpen = false;
         _hearthPending = false;
     }
 
@@ -88,7 +86,7 @@ public sealed partial class GameLoop
         {
             ulong guid = player.Fields.PlayerBackpackSlot(i);
             if (guid == 0 || !_entities.TryGet(guid, out WorldEntity item) || item.Entry != HearthstoneEntry) continue;
-            _hearthFrom = _controller?.Position ?? Vector3.Zero; _hearthPending = true; _hearthOpen = true;
+            _hearthFrom = _controller?.Position ?? Vector3.Zero; _hearthPending = true;
             _net.UseItem(255, (byte)(23 + i), 0);
             EmitInterface("hearth", "use-send", "SENT", guid,
                 $"entry={HearthstoneEntry};bag=255;slot={23+i};spellSlot=0;from={_hearthFrom.X:R}|{_hearthFrom.Y:R}|{_hearthFrom.Z:R}");
@@ -120,20 +118,6 @@ public sealed partial class GameLoop
         EmitInterface("hearth", "cast", "COMPLETED", 1, $"spell={HearthSpell};castBar=server-go;cooldownSeconds=3600");
         EmitInterface("hearth", "teleport", "VERIFIED", 1, "from=-8950|-132|84;to=-9464.5|62.1|56;distance=550;bindMap=0;source=replay");
         EmitInterface("hearth", "cooldown", "DISPLAYED", 1, "spell=8690;remaining=1h 0m;source=authoritative-cooldown-replay");
-    }
-
-    private void DrawHearthFrame()
-    {
-        if (!_hearthOpen) return;
-        ImGui.SetNextWindowSize(new Vector2(420, 250), ImGuiCond.FirstUseEver);
-        if (!ImGui.Begin("Inn & Hearthstone##hearth", ref _hearthOpen)) { ImGui.End(); return; }
-        if (_bindPoint is { } bind) ImGui.TextUnformatted($"Home: map {bind.Map} · {bind.Position.X:0.0}, {bind.Position.Y:0.0}, {bind.Position.Z:0.0}");
-        else ImGui.TextDisabled("Home location not received");
-        double cooldown = _actions.CooldownRemaining(HearthSpell, NowSeconds());
-        ImGui.TextColored(cooldown > 0 ? new Vector4(.7f,.7f,.7f,1) : new Vector4(.2f,1f,.2f,1),
-            cooldown > 0 ? $"Hearthstone ready in {Math.Ceiling(cooldown/60):0}m" : "Hearthstone ready");
-        if (ImGui.Button("Use Hearthstone")) UseHearthstone();
-        ImGui.End();
     }
 
     private bool BinderConfirmationInRange(out float distance)
@@ -215,22 +199,22 @@ public sealed partial class GameLoop
     private bool DrawBinderConfirmationButton(
         ImDrawListPtr draw, int buttonIndex, string caption, Vector2 min, float scale)
     {
-        Vector2 size = new Vector2(BinderConfirmUiLaw.ButtonWidth,
-            BinderConfirmUiLaw.ButtonHeight) * scale;
+        Vector2 size = BinderConfirmUiLaw.ButtonSize(scale);
         ImGui.SetCursorScreenPos(min);
         bool clicked = ImGui.InvisibleButton($"##binder-confirm-{buttonIndex}", size);
         bool pressed = ImGui.IsItemActive();
         bool hovered = ImGui.IsItemHovered();
         uint art = _skin!.TextureHandle(pressed ? "dialog.button.down" : "dialog.button.up");
         if (art != 0)
-            draw.AddImage((nint)art, min, min + size, Vector2.Zero, new Vector2(1f, .625f));
+            draw.AddImage((nint)art, min, min + size, Vector2.Zero,
+                BinderConfirmUiLaw.ButtonUvMax);
         if (hovered)
         {
             uint highlight = _gameplayArt?.BrightHighlightHandle(
                 @"Interface\Buttons\UI-DialogBox-Button-Highlight") ?? 0;
             if (highlight != 0)
                 draw.AddImage((nint)highlight, min, min + size,
-                    Vector2.Zero, new Vector2(1f, .625f));
+                    Vector2.Zero, BinderConfirmUiLaw.ButtonUvMax);
         }
         GameText.DrawCentered(draw, hovered ? "GameFontHighlight" : "GameFontNormal",
             caption, min + size * .5f, scale);

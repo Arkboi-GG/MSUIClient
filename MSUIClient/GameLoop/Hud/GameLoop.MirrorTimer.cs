@@ -55,25 +55,23 @@ public sealed partial class GameLoop
             if (timer is null) continue;
             MirrorTimerUiLaw.ScreenRect frame = MirrorTimerUiLaw.FrameRect(
                 display, scale, index);
-            Vector2 barMin = frame.Min + MirrorTimerUiLaw.BarMin * scale;
-            Vector2 barSize = new(MirrorTimerUiLaw.BarWidth * scale,
-                MirrorTimerUiLaw.BarHeight * scale);
-            draw.AddRectFilled(barMin, barMin + barSize, 0x80000000);
+            MirrorTimerUiLaw.ScreenRect bar = MirrorTimerUiLaw.BarRect(frame, scale);
+            draw.AddRectFilled(bar.Min, bar.Min + bar.Size, 0x80000000);
 
             float fraction = MirrorTimerState.FractionAt(timer, now);
             if (status != 0 && fraction > 0)
             {
-                Vector2 fillSize = new(barSize.X * fraction, barSize.Y);
+                Vector2 fillSize = MirrorTimerUiLaw.FillSize(bar.Size, fraction);
                 uint color = ImGui.ColorConvertFloat4ToU32(MirrorTimerUiLaw.Color(timer.Kind));
-                draw.AddImage((nint)status, barMin, barMin + fillSize,
-                    Vector2.Zero, new Vector2(fraction, 1), color);
+                draw.AddImage((nint)status, bar.Min, bar.Min + fillSize,
+                    Vector2.Zero, MirrorTimerUiLaw.FillUvMax(fraction), color);
             }
             if (border != 0)
             {
-                Vector2 borderMin = frame.Min + MirrorTimerUiLaw.BorderMin * scale;
-                draw.AddImage((nint)border, borderMin,
-                    borderMin + new Vector2(MirrorTimerUiLaw.BorderWidth,
-                        MirrorTimerUiLaw.BorderHeight) * scale);
+                MirrorTimerUiLaw.ScreenRect borderRect =
+                    MirrorTimerUiLaw.BorderRect(frame, scale);
+                draw.AddImage((nint)border, borderRect.Min,
+                    borderRect.Min + borderRect.Size);
             }
             GameText.DrawCentered(draw, "GameFontHighlight", MirrorTimerCaption(timer),
                 frame.Min + MirrorTimerUiLaw.TextCenter * scale, scale);

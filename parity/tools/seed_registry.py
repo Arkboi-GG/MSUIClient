@@ -25,7 +25,8 @@ ENGINE_MODULES = {
     "vplates", "art_scope", "asset_churn", "pipe_warm", "perf", "thread_qos",
     "preflight", "dbg_trace", "hover_log", "debug_panel", "probe_shield", "capture",
     "smart_rect", "schedule", "bgwin", "build_id", "lib", "view", "assets",
-    "ui_script", "wmo", "exterior", "zone_light",
+    "ui_script", "wmo", "exterior", "zone_light", "addon_harness", "dev", "run_mode",
+    "shaders",
 }
 
 # systems whose look-and-feel may deviate per Nico's preference (UI/graphics only)

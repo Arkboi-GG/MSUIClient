@@ -7,20 +7,40 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/ui_net.rs",
-      "fileSha256": "a3a178df908fc54450fbbd0fc69803652a080bef13246e0d17aea6562ad035bf",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "be108787fa9d926f3ace86a58e23b862d569f13cef634d4a26147f7f0a0d631f",
+      "snapshotId": "benilla-current-2026-08-23"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/NetworkClient.cs",
-    "MSUIClient/Program.ActionBars.cs"
+    "MSUIClient/GameLoop/Hud/GameLoop.ActionBars.cs",
+    "tools/interface-wire-check/NetworkTelemetryClinicalChecks.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI runs the keepalive CMSG_PING loop, measures round-trip on SMSG_PONG into NetworkClient.LatencyMs, and draws the main-bar performance meter from the real UI-MainMenuBar-PerformanceBar art tinted by the FrameXML thresholds (green <=300 ms, yellow <=600, red above) with a 'Latency: Nms' tooltip.",
-  "openItems": [],
+  "summary": "MSUI now matches current Benilla's desktop connection telemetry: the first and subsequent CMSG_PING sends use the verified delayed 30-second cadence (never the vmangos-overspeed 10-second loop), the wire's lastRtt field reports the latest matched SMSG_PONG sample, and the UI-facing LatencyMs is the truncated mean of a reset-per-connection 16-sample ring. The protected performance-meter art, thresholds and tooltip presentation are unchanged. Focused and full interface checks pass; live long-session verification remains.",
+  "openItems": [
+    {
+      "id": "item-current-network-telemetry-law",
+      "kind": "gap",
+      "text": "MSUI sent pings every 10 seconds and fed an exponential latency estimate to both the next ping and the UI; current Benilla uses a 30-second keepalive, latest RTT on wire, and a 16-sample mean for GetNetStats.",
+      "source": "benilla-current-audit-2026-08-23",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: moved the timer to delayed 30-second cadence, separated latest RTT from the UI average, and added the bounded 16-sample ring with focused source/constant checks.",
+      "resolvedUtc": "2026-08-23T13:43:49.3388385Z"
+    },
+    {
+      "id": "item-network-telemetry-live-verify",
+      "kind": "verify",
+      "text": "Live verification: keep a desktop session connected for several minutes, confirm one ping per 30 seconds, no overspeed disconnect, latest-RTT echo on wire, and stable averaged performance-meter color/text.",
+      "source": "implementation-2026-08-23",
+      "added": "2026-08-23",
+      "resolved": false
+    }
+  ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T13:43:49.3388385Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

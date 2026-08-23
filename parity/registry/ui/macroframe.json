@@ -27,8 +27,8 @@
     },
     {
       "path": "crates/benilla-app/src/ui_macro/store.rs",
-      "fileSha256": "9e5edf8d17199d16ad1a51a469ab347047e2e249c0f5efa12056c74697c1d666",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "4d7dc9ebe671aee299a49dc02e4de0ce0c3f0d3855bd2754433448ef13f140f4",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
@@ -42,7 +42,7 @@
     "tools/interface-wire-check/MacroFrameClinicalChecks.cs"
   ],
   "status": "complete",
-  "summary": "MSUI now has current Benilla's rule-seated 384x512 macro editor and 297x298 name/icon popup. MacroFrameUiLaw owns the tabs, exact grid, selected-macro plate, body-editor/scroll furniture, action row, close X, popup slices, name field, archive-derived icon chooser and button rules. Existing slots 1-18 remain General and slots 19-36 form the character set. Execution now mirrors the reference division: each CR/LF-delimited body line enters the same ChatFrame submission path as typed input, so the complete implemented chat/slash surface is shared instead of a macro-only whitelist. Cast/spell/use and attack commands are available through that common path, and rank-qualified spell names resolve exactly. Focused and full clinical checks pass; live visual/input verification remains outstanding.",
+  "summary": "MSUI now has current Benilla's rule-seated 384x512 macro editor and 297x298 name/icon popup. MacroFrameUiLaw owns the complete main/popup art-slice tables, frame and popup sizes, tabs, exact grid, selected-macro plate, body editor and scrollbar furniture, action row, close X, name field, archive-derived icon chooser, drag preview, and button rules; GameLoop.Macro contains no local Vector2 geometry. Existing slots 1-18 remain General and slots 19-36 form the character set. Execution mirrors the reference division: each CR/LF-delimited body line enters the same ChatFrame submission path as typed input, so cast/spell/use, attack, and every existing chat route share one implementation. Persistence now mirrors current Benilla too: separate account and realm-character files use the vanilla MACRO/END text shape, ASCII-safe scope tokens, and write-through temporary-file replacement. A legacy repo-wide macros.json remains a non-destructive one-time migration input. Focused and full clinical checks pass; live visual/input verification remains outstanding.",
   "openItems": [
     {
       "id": "item-triage-97d800c2",
@@ -61,6 +61,15 @@
       "added": "2026-08-09",
       "resolved": true,
       "resolution": "2026-08-22: MacroFrameUiLaw owns the current two-tab seats/fit and the exact 18-button set projection. Existing slots 1-18 remain General macros; slots 19-36 are the character-specific set, selected/edit/new/delete/drag routes use absolute ids, and action-bar macro title/icon execution accepts both ranges."
+    },
+    {
+      "id": "item-macro-title-font-seat-visual-gap-20260823",
+      "kind": "gap",
+      "text": "The Create Macros title bypassed its authored auto-height GameFontNormal FontString and was drawn as raw 14px text at an approximate center one pixel low.",
+      "source": "benilla-current-2026-08-22/MacroFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "MacroFrameUiLaw owns the GameFontNormal title and its derived (192,23) visible center from the TOP -17 anchor. Macro renders it through GameText. Focused MacroFrame and full interface suites pass."
     },
     {
       "id": "item-msui-macro-popup-live-verify",
@@ -85,6 +94,24 @@
       "source": "msui-runtime-audit-2026-08-22",
       "added": "2026-08-22",
       "resolved": false
+    },
+    {
+      "id": "item-macro-portrait-size-law-20260823",
+      "kind": "gap",
+      "text": "The MacroFrame renderer reconstructed the portrait size from the law rectangle's width and height instead of consuming its rule-owned logical size.",
+      "source": "rule-owned-window-geometry-audit-2026-08-23",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: The portrait draw now consumes MacroFrameUiLaw.Portrait.LogicalSize directly, with a source fence. Focused MacroFrame and full interface clinical suites pass."
+    },
+    {
+      "id": "item-msui-macro-vanilla-store-gap-20260823",
+      "kind": "gap",
+      "text": "Current Benilla persists the General and character-specific sets separately using the vanilla 1.12 MACRO/END text format and atomic replacement. MSUI still reads and writes one repo-wide macros.json, so vanilla file import, account/character lifetime separation, and crash-safe replacement are not yet at parity.",
+      "source": "benilla-b57ee0e9e2c8822b/ui_macro/store.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: MacroFrameUiLaw now owns deterministic vanilla MACRO/END parsing, writing, icon token expansion, and ASCII-safe realm/character filename tokens. GameLoop.Macro loads and atomically replaces separate macros/account.txt and macros/<realm>-<character>.txt stores, and imports an existing macros.json only when the scoped stores do not yet exist. Macro-only and full interface clinical suites pass."
     },
     {
       "id": "item-triage-82b52425",
@@ -117,6 +144,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T00:45:00Z",
+  "lastReviewedUtc": "2026-08-23T16:29:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

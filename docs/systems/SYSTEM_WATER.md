@@ -6,12 +6,17 @@ plus the handbook's cross-cutting ground truth (§3.1 coordinates, §8.5 shader
 ASCII rule, §11 working agreements) before touching water. You should not need
 the rest of the handbook for a water change.
 
-Version: Draft 6 — 2026-08-12 (**WMO liquid is BUILT, as a DRAW-ONLY pass** — §7
-now describes code that exists. `LiquidRenderer` keeps a second, separate mesh
-set fed by `WmoRenderer.EnumerateLiquid()` and rebuilt on a per-frame
-`LiquidVersion` int-compare. WMO surfaces are **still NOT in `TryGetSurface`** —
-submersion, the underwater tint and the wake ignore WMO liquid, deliberately,
-because rewriting that shared path is what got the first build reverted.)
+Version: Draft 8 — 2026-08-23 (**above-water liquid ambience is live** — §9.
+The retained ADT/MLIQ surfaces now also expose the reference's deliberately
+unowned nearest-sound-point scan, with data-driven SoundWaterType kits, the
+two-class priority cap, movable 3D emitters, fades and water-only submerge stop.)
+Previous: Draft 7 — 2026-08-23 (**WMO liquid is rendered and has a retained,
+claim-scoped point query** — §7. `LiquidRenderer` keeps its second mesh set and
+also retains the exact placed grids. Movement/swimming, water walking, wake,
+splash, wading footsteps, underwater tint/ambience and portal-destination tint
+use it without unioning WMO and ADT water. Whole-room MOGP `groupLiquid`
+overrides are honored before MLIQ sampling.)
+Previous: Draft 6 — 2026-08-12 (WMO liquid rebuilt as a draw-only pass.)
 Previous: Draft 5 — 2026-07-26 (the body-colour fix landed — **new §8**, which is the
 section the shader and settings comments point at. Water colour is now declared
 **SUFFICIENT, not 1:1 with the 1.12 client**, and closed until a much later
@@ -29,6 +34,8 @@ Owner files: `World/LiquidRenderer.cs`, `Shaders/water.vert`, `Shaders/water.fra
 `Shaders/underwater.vert`, `Shaders/underwater.frag`, the MCLQ parse in
 `Formats/AdtTerrainReader.cs`, and the render/atmosphere/HUD wiring plus the
 `WaterTuningWindow` in `Program.cs` / `GameLoop/Dev/GameLoop.DevTools.cs`.
+Sound owners are `Formats/SoundWaterTypeCatalog.cs`,
+`World/Sound/LiquidAmbientLoopSystem.cs`, and `GameLoop/Scene/GameLoop.Sound.cs`.
 
 ---
 
@@ -249,11 +256,9 @@ to one cause (mis-routing, frame cross-fade, wave normal, lighting gain).
   tagged as ocean, the fix is in `ParseMclqLayers`' type detection (read the type
   from the MCNK header flags), not the texture.
 - **WMO liquid (MLIQ).** Stormwind canals, fountains, indoor pools — parsed from
-  MLIQ in local space, not ADT MCLQ. **RENDERED as of 2026-08-12, draw-only** —
-  see §7. (The first PLAN_15 build of 2026-07-26 was reverted the same day
-  because it also rewrote `TryGetSurface`; the rebuild leaves that path
-  untouched, so WMO liquid still contributes nothing to submersion or the
-  underwater tint. That half remains open debt.)
+  MLIQ in local space, not ADT MCLQ. **Rendered and claim-scoped as of
+  2026-08-23** — see §7. Movement, wake, splash, footsteps and eye submersion use
+  separate body/eye claims; the legacy ADT query remains isolated.
 - **`LiquidType.dbc` colours/materials.** Textures are now real, but the shader's
   colour/lighting constants are hand-tuned, not read from the DBC.
 - **THE AUTHORED OCEAN/RIVER COLOURS ARE WRONG. Default OFF as of 2026-07-26.**
@@ -337,20 +342,31 @@ the target, and record why here.
 
 ---
 
-## 7. WMO liquid — canals, fountains, indoor pools (PLAN_15) — BUILT, DRAW-ONLY
+## 7. WMO liquid — canals, fountains, indoor pools (PLAN_15) — BUILT, CLAIM-SCOPED
 
-> **Rebuilt 2026-08-12 as a draw-only pass.** The first build (2026-07-26) was
+> **Rebuilt 2026-08-12 as a draw-only pass, then safely queried 2026-08-23.**
+> The first build (2026-07-26) was
 > reverted the same day because it also rewrote `TryGetSurface`, which
-> open-world water depended on. The rebuild does not touch that path at all:
+> open-world water depended on. The rebuild still does not touch that path:
 > `LiquidRenderer` keeps a **second, fully separate mesh set** (`_wmoMeshes`)
 > fed by `EnumerateLiquid()`, rebuilt when `WmoRenderer.LiquidVersion` moves
 > (a per-frame int compare, NOT a tile-crossing event — see §7.6), and drawn
 > in the same pass with the same shader, uniforms and GL state.
 >
-> **Deliberately deferred: submersion.** WMO surfaces are NOT in
-> `TryGetSurface`, so swimming state, the underwater tint and the walking wake
-> ignore WMO liquid. Wiring that is a separate, careful change to the shared
-> query — the exact thing that broke last time.
+> **The retained query is separate and explicit.** `_wmoSurfaces` stores the
+> placed CPU grids. `TryGetWmoSurface` requires the owning WMO instance id from
+> the collision-floor claimant, honors the per-cell hole mask, bilinearly samples
+> rotated grids, rejects a subject below the owning group's transformed authored
+> floor, and chooses the lowest eligible overlapping surface. Splash and wading
+> footsteps use it. The outdoor leg still calls ADT-only `TryGetSurface`; the two
+> sources are never unioned.
+>
+> **Body and eye are separate claims.** Movement/swimming, water walking, wake,
+> splash and wading footsteps resolve the subject's collision-floor room. The
+> rendered camera resolves its own `CameraCell`, so an orbiting eye can be wet
+> while the body is dry or vice versa. MOGP `groupLiquid` is tested first and
+> returns `float.MaxValue`, matching the reference's surface-less flooded-room
+> override; only rooms without it sample MLIQ.
 >
 > **Default ON** (`Water.DrawWmoLiquid` in settings). The old "default OFF"
 > instruction below applied to a build that rewrote the shared path; a
@@ -549,11 +565,12 @@ exception and no log line. `WmoRenderer.LiquidVersion` bumps on placement, on
 adoption and on reset; `LoadWmoLiquid` is an int compare when nothing moved.
 `SYSTEM_INSTANCES.md` records the identical race on async doors.
 
-**`TryGetSurface` no longer returns the first hit.** It now takes the query Z and
-returns the **lowest surface above it**, across both open-world and WMO liquid.
-The old first-match behaviour was already latent-buggy with overlapping tile
-water — whichever tile came first out of a dictionary won — and a canal above a
-lake would have made it visible.
+**Never put WMO liquid into legacy `TryGetSurface`.** The owner-scoped API takes
+world XYZ plus a placed instance id. Within that instance it rejects pools below
+their owning group floor and returns the lowest eligible wet-cell sample. This is
+the current Benilla fix chain for canals over tunnels, unrelated placements with
+overlapping XY, and stacked Undercity storeys; it also preserves the ADT query's
+existing behavior for every old caller.
 
 ---
 
@@ -641,3 +658,61 @@ but the label is now about history, not mechanism. With the multiply gone,
 ticking it swaps the *body colour source* to the Light bands rather than crushing
 the texture. That is the A/B PLAN_12 intended and never actually delivered,
 because an A/B whose "on" state destroys the image compares nothing.
+
+---
+
+## 9. Above-water liquid ambience (2026-08-23)
+
+This is a separate layer from both liquid interaction and the submerged zone-bed
+swap. Shores, docks and shallow wading can play continuous spatial river, ocean,
+magma or slime audio over the ordinary zone/weather ambience.
+
+### 9.1 The sound query is deliberately not an interaction claim
+
+`LiquidRenderer.NearestSoundSources` scans every retained ADT and placed WMO
+liquid sound surface and returns the nearest wet point per class within 9 yards
+of the **player**. It does not use the body/eye room owner. That asymmetry is
+intentional and matches Benilla: a canal just across a WMO ownership boundary is
+still audible, while swimming, wake, tint and footsteps must never read it as the
+subject's liquid.
+
+The nearest-point approximation clamps player XY to each wet footprint's AABB,
+samples the surface at that XY, and falls back to the highest wet vertex when the
+clamp lands over a hole. As in Benilla, this can lead fade-in by a few yards on
+an L-shaped shore. Do not “fix” it by owner-filtering or by reusing
+`TryGetBodyLiquidSurface`.
+
+ADT MCLQ retains every cell's real low nibble and treats only `0x0f` as dry. The
+surface sound nibble is the majority wet-cell nibble, with the higher nibble
+winning a tie. WMO MLIQ uses the MOGP `groupLiquid` override when present and
+otherwise the first wet tile's nibble. Low two bits are class; bits 2–3 are fluid
+speed.
+
+### 9.2 Data and transport law
+
+`SoundWaterTypeCatalog` loads all 12 build-5875 rows from
+`DBFilesClient\SoundWaterType.dbc`; kit IDs are not hardcoded. The shipped map
+selects RiverStill/Slow/Fast (1111/1112/1113), Ocean (1114), LavaPool/Flow
+(3072/3052), and SlimeLoop (3880).
+
+`LiquidAmbientLoopSystem` owns four class slots with fixed priority River,
+Ocean, Magma, Slime and admits at most two desired classes. Each active class:
+
+- force-loops its SoundEntries kit in the ambience category;
+- positions one 3D emitter at least 5.892557 yards from the player;
+- slews that emitter at most 1/6 yard per update toward the nearest point;
+- fades in/out over five seconds and crossfades when the speed nibble changes;
+- hard-stops while the eye is below water/ocean, then restarts at full gain on
+  resurfacing. Magma/slime submersion does not take that hard-stop edge.
+
+The transport uses the shared factor-four positional rolloff, character-head
+listener and character-facing stereo pan. It owns no spell hold and no zone-bed
+slot.
+
+### 9.3 Verification
+
+`--liquid-ambient-loop-only` pins the constants, geometry helpers, WMO nibble
+selection, production wiring and all 12 real DBC rows. The full interface suite
+and solution build also pass. Live checks remain for shore trigger distance,
+class priority, river speed transitions, WMO lava/slime, fade/slew behavior,
+water-only hard stop and layering over zone/weather ambience.

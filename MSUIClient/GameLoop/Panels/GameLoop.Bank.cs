@@ -65,7 +65,10 @@ public sealed partial class GameLoop
         _bankSource = source;
         _bankOpen = true;
         if (freshSession)
+        {
+            SetBagWindowOpen(0, true);
             PlayUiSound(BankFrameUiLaw.OpenSound, BankFrameUiLaw.SoundCategory);
+        }
         int occupied = 0;
         if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
             occupied = Enumerable.Range(0, 24).Count(i => player.Fields.PlayerBankSlot(i) != 0);
@@ -207,12 +210,29 @@ public sealed partial class GameLoop
 
     private void DrawBankFrame()
     {
-        if (!_bankOpen || _net is null || _gameplayArt is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
-        float s=GameplayUiScale(); Vector2 origin=UiPanelFrameOrigin(UiPanelOwnershipRegistry[5], s), logicalSize=new(BankFrameUiLaw.Width,BankFrameUiLaw.Height);
-        ImGui.SetNextWindowPos(origin,ImGuiCond.Always); ImGui.SetNextWindowSize(BankFrameUiLaw.FrameSize(s),ImGuiCond.Always); ImGui.SetNextWindowBgAlpha(0);
-        if (!ImGui.Begin("##bank", ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
-        ImDrawListPtr dl=ImGui.GetWindowDrawList();
-        if(_uiParityArmed&&_uiParityPanel=="bank"){BeginUiParityFrame(origin,s);CollectUiParityDraw("BankFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
+        if (!_bankOpen || _net is null || _gameplayArt is null ||
+            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+        float s = GameplayUiScale();
+        Vector2 origin = UiPanelFrameOrigin(UiPanelOwnershipRegistry[5], s);
+        ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(BankFrameUiLaw.FrameSize(s), ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0);
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground |
+            ImGuiWindowFlags.NoNav;
+        if (!ImGui.Begin("##bank", flags))
+        {
+            ImGui.End();
+            return;
+        }
+        ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        if (_uiParityArmed && _uiParityPanel == "bank")
+        {
+            BeginUiParityFrame(origin, s);
+            CollectUiParityDraw("BankFrame", "Frame", origin,
+                BankFrameUiLaw.FrameLogicalSize * s, "",
+                new("", 0, "IMGUI_HOST", "ANCHOR:ABSOLUTE", "", "", 0, 8));
+        }
         WorldEntity? banker = _entities.TryGet(_bankSource, out WorldEntity foundBanker)
             ? foundBanker : null;
         if (banker is not null)
@@ -220,11 +240,12 @@ public sealed partial class GameLoop
                 origin + BankFrameUiLaw.PortraitOffset * s,
                 BankFrameUiLaw.PortraitSize * s, 0, false);
         DrawArt(dl, BankFrameUiLaw.Art, origin,
-            new Vector2(BankFrameUiLaw.ArtSize), s);
-        if(_uiParityArmed&&_uiParityPanel=="bank")
-            CollectUiParityDraw("BankFrame/Texture","Texture",origin,
-                new Vector2(BankFrameUiLaw.ArtSize)*s,"BankFrame",
-                new(BankFrameUiLaw.Art,0xffffffff,"IMGUI_IMAGE","TOPLEFT","BankFrame","TOPLEFT",0,0));
+            BankFrameUiLaw.ArtLogicalSize, s);
+        if (_uiParityArmed && _uiParityPanel == "bank")
+            CollectUiParityDraw("BankFrame/Texture", "Texture", origin,
+                BankFrameUiLaw.ArtLogicalSize * s, "BankFrame",
+                new(BankFrameUiLaw.Art, 0xffffffff, "IMGUI_IMAGE", "TOPLEFT", "BankFrame",
+                    "TOPLEFT", 0, 0));
         string bankerName = BankFrameUiLaw.FallbackTitle;
         if (banker is not null)
         {
@@ -233,42 +254,22 @@ public sealed partial class GameLoop
             bankerName = BankFrameUiLaw.Title(
                 _creatureNames.GetValueOrDefault(banker.Entry, ""));
         }
-        DrawNpcModalTitle(dl, bankerName, origin + BankFrameUiLaw.TitleCenter * s, s);
+        GameText.DrawCentered(dl, BankFrameUiLaw.TitleFont, bankerName,
+            origin + BankFrameUiLaw.TitleCenter * s, s);
+        GameText.DrawCentered(dl, "GameFontNormal", "Item Slots",
+            origin + BankFrameUiLaw.ItemSlotsLabelCenter * s, s);
+        GameText.DrawCentered(dl, "GameFontNormal", "Bag Slots",
+            origin + BankFrameUiLaw.BagSlotsLabelCenter * s, s);
         DrawTrainerMoney(dl, player.Fields.Coinage,
             origin + BankFrameUiLaw.PurseRightTop * s, s, 0xffffffff, rightAligned: true);
-        if (_gameplayArt is not null)
-        {
-            DrawVanillaBankSlots(dl, origin, s, player);
-            Vector2 bankClose=origin+BankFrameUiLaw.CloseButton*s;
-            DrawImageButton(dl,"##bank-close",bankClose,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
-            if(ImGui.IsItemClicked())CloseBankSession();
-            if(_uiParityArmed&&_uiParityPanel=="bank")MarkUiParityFrameComplete();
-            ImGui.End(); return;
-        }
-        ImGui.SetCursorScreenPos(origin+new Vector2(35,75)*s); ImGui.BeginChild("##bank-slots",new Vector2(295,245)*s,false);
-        for (int i = 0; i < 24; i++)
-        {
-            ulong guid = player.Fields.PlayerBankSlot(i);
-            string label = $"{39 + i}: Empty";
-            if (guid != 0 && _entities.TryGet(guid, out WorldEntity item))
-            {
-                _items?.Require(item.Entry, guid, _net!);
-                label = _items?.TryGet(item.Entry, out ItemTemplate? t) == true && t is not null
-                    ? $"{39 + i}: {t.Name} x{item.Fields.ItemStackCount}" : $"{39 + i}: Item {item.Entry}";
-            }
-            ImGui.Selectable(label + $"##bank-{i}");
-        }
-        ImGui.EndChild(); ImGui.SetCursorScreenPos(origin+new Vector2(36,333)*s);
-        byte count = player.Fields.BankBagSlotCount;
-        uint price = _bankPrices?.Price(count + 1) ?? 0;
-        ImGui.TextUnformatted($"Bag slots purchased: {count}/6 — next: {FormatMoney(price)}");
-        for (int i = 0; i < 6; i++) { if (i > 0) ImGui.SameLine(); ImGui.TextUnformatted(i < count ? "[Open]" : "[Locked]"); }
-        if (count < 6 && ImGui.Button("Purchase next bag slot")) BuyNextBankSlot();
-        if (_config.DevTools && ImGui.Button("Copy bank evidence"))
-            CopyVerdictText(string.Join(Environment.NewLine, _verdicts.Snapshot("interface").OfType<InterfaceVerdict>()
-                .Where(v => v.Family == "bank").Select(v => $"[verdict:interface] {v.ToLine()}")));
-        Vector2 close=origin+BankFrameUiLaw.CloseButton*s;DrawImageButton(dl,"##bank-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())CloseBankSession();
-        if(_uiParityArmed&&_uiParityPanel=="bank")MarkUiParityFrameComplete();
+        DrawVanillaBankSlots(dl, origin, s, player);
+        Vector2 close = origin + BankFrameUiLaw.CloseButton * s;
+        DrawImageButton(dl, "##bank-close", close, BankFrameUiLaw.CloseButtonSize * s,
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
+        if (ImGui.IsItemClicked()) CloseBankSession();
+        if (_uiParityArmed && _uiParityPanel == "bank") MarkUiParityFrameComplete();
         ImGui.End();
     }
 
@@ -280,13 +281,16 @@ public sealed partial class GameLoop
             WorldEntity? instance = guid != 0 && _entities.TryGet(guid, out WorldEntity found) ? found : null;
             ItemTemplate? item = null;
             if (instance is not null) { _items?.Require(instance.Entry, guid, _net!); _items?.TryGet(instance.Entry, out item); }
-            int row = i / 6, col = i % 6;
-            Vector2 min = origin + new Vector2(35 + col * 43, 78 + row * 43) * s;
+            Vector2 min = origin + BankFrameUiLaw.ItemSlotMin(i) * s;
             uint icon = item is null ? 0 : _gameplayArt?.Handle(item.IconPath) ?? 0;
-            if (icon != 0) dl.AddImage((nint)icon, min, min + new Vector2(37) * s);
+            if (icon != 0)
+                dl.AddImage((nint)icon, min, min + BankFrameUiLaw.ItemSlotSize * s);
             uint ring = _gameplayArt?.Handle(@"Interface\Buttons\UI-Quickslot2") ?? 0;
-            if (ring != 0) dl.AddImage((nint)ring, min - new Vector2(14) * s, min + new Vector2(50) * s);
-            ImGui.SetCursorScreenPos(min); ImGui.InvisibleButton($"##bank-item-{i}", new Vector2(37) * s);
+            if (ring != 0)
+                dl.AddImage((nint)ring, min + BankFrameUiLaw.SlotRingMinOffset * s,
+                    min + BankFrameUiLaw.SlotRingMaxOffset * s);
+            ImGui.SetCursorScreenPos(min);
+            ImGui.InvisibleButton($"##bank-item-{i}", BankFrameUiLaw.ItemSlotSize * s);
             bool leftClicked = ImGui.IsItemClicked(ImGuiMouseButton.Left);
             bool rightClicked = ImGui.IsItemClicked(ImGuiMouseButton.Right);
             bool locked = IsInventorySlotLocked(InventoryUiLaw.BankContainer, i);
@@ -298,7 +302,8 @@ public sealed partial class GameLoop
             {
                 case InventoryUiLaw.SlotClickAction.Split:
                     OpenStackSplit(InventoryUiLaw.BankContainer, i,
-                        (int)(instance?.Fields.ItemStackCount ?? 0), min + new Vector2(37) * s);
+                        (int)(instance?.Fields.ItemStackCount ?? 0),
+                        min + BankFrameUiLaw.ItemSlotSize * s);
                     break;
                 case InventoryUiLaw.SlotClickAction.PickupOrPlace:
                     CancelStackSplit();
@@ -327,15 +332,23 @@ public sealed partial class GameLoop
             DrawBankBagButton(dl, origin, s, player, i, count);
         if (count < 6)
         {
-            DrawWrappedText(dl, BankFrameUiLaw.PurchaseMessageText,
-                origin + BankFrameUiLaw.PurchaseMessage * s,
-                BankFrameUiLaw.PurchaseMessageWidth, 10 * s, s, 0xffffffff, 2);
+            IReadOnlyList<string> messageLines = BankFrameUiLaw.WrapPurchaseMessage(
+                BankFrameUiLaw.PurchaseMessageWidth * s,
+                line => GameText.MeasureWidth("GameFontHighlight", line, s));
+            float messagePitch = GameText.LinePitch("GameFontHighlight", s);
+            Vector2 messageAt = origin + BankFrameUiLaw.PurchaseMessageMinimum(
+                messageLines.Count, messagePitch / s) * s;
+            for (int line = 0; line < messageLines.Count; line++)
+                GameText.Draw(dl, "GameFontHighlight", messageLines[line],
+                    messageAt + BankFrameUiLaw.PurchaseMessageLine(line,
+                        messagePitch), s);
             GameText.Draw(dl, "GameFontNormal", BankFrameUiLaw.CostText,
                 origin + BankFrameUiLaw.CostLabel * s, s);
             float costLabelWidth = GameText.MeasureWidth(
                 "GameFontNormal", BankFrameUiLaw.CostText, s);
             DrawTrainerMoney(dl, price,
-                origin + BankFrameUiLaw.CostLabel * s + new Vector2(costLabelWidth + 4 * s, 0),
+                origin + BankFrameUiLaw.CostLabel * s +
+                    BankFrameUiLaw.CostMoneyOffset(costLabelWidth, s),
                 s, player.Fields.Coinage >= price ? 0xffffffff : 0xff1a1aff,
                 rightAligned: false);
             if (VanillaButton(dl,"##bank-buy-slot",BankFrameUiLaw.PurchaseText,
@@ -370,17 +383,17 @@ public sealed partial class GameLoop
         uint icon = _gameplayArt?.Handle(iconPath) ?? 0;
         uint tint = purchased ? 0xffffffff : 0xff1a1aff;
         if (icon != 0)
-            draw.AddImage((nint)icon, min, min + new Vector2(37) * scale,
+            draw.AddImage((nint)icon, min, min + BankFrameUiLaw.ItemSlotSize * scale,
                 Vector2.Zero, Vector2.One, tint);
         uint ring = _gameplayArt?.Handle(purchased
             ? @"Interface\Buttons\UI-Quickslot2"
             : @"Interface\BankFrame\UI-Bank-Slot-Locked") ?? 0;
         if (ring != 0)
-            draw.AddImage((nint)ring, min - new Vector2(14) * scale,
-                min + new Vector2(50) * scale);
+            draw.AddImage((nint)ring, min + BankFrameUiLaw.SlotRingMinOffset * scale,
+                min + BankFrameUiLaw.SlotRingMaxOffset * scale);
 
         ImGui.SetCursorScreenPos(min);
-        ImGui.InvisibleButton($"##bank-bag-{index}", new Vector2(37) * scale);
+        ImGui.InvisibleButton($"##bank-bag-{index}", BankFrameUiLaw.ItemSlotSize * scale);
         bool clicked = ImGui.IsItemClicked(ImGuiMouseButton.Left) ||
             ImGui.IsItemClicked(ImGuiMouseButton.Right);
         if (clicked)
@@ -398,13 +411,18 @@ public sealed partial class GameLoop
             uint checkedArt = _gameplayArt?.AdditiveHandle(
                 @"Interface\Buttons\CheckButtonHilight") ?? 0;
             if (checkedArt != 0)
-                draw.AddImage((nint)checkedArt, min, min + new Vector2(37) * scale);
+                draw.AddImage((nint)checkedArt, min,
+                    min + BankFrameUiLaw.ItemSlotSize * scale);
         }
         if (ImGui.IsItemHovered())
         {
             string text = template?.Name ?? (purchased ? "Bag Slot" : "Purchasable Bag Slot");
+            BankFrameUiLaw.TooltipSeat tooltipSeat =
+                BankFrameUiLaw.BankBagTooltipSeat(min, scale);
             OfferPreservedSharedGameTooltipRenderer(new("bank-bag-button", (ulong)index), () =>
             {
+                ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
+                    tooltipSeat.Pivot);
                 ImGui.BeginTooltip();
                 ImGui.TextUnformatted(text);
                 ImGui.EndTooltip();
@@ -467,22 +485,22 @@ public sealed partial class GameLoop
     private bool DrawBankPurchaseConfirmationButton(
         ImDrawListPtr draw, int buttonIndex, string caption, Vector2 min, float scale)
     {
-        Vector2 size = new(BankPurchaseConfirmUiLaw.ButtonWidth * scale,
-            BankPurchaseConfirmUiLaw.ButtonHeight * scale);
+        Vector2 size = BankPurchaseConfirmUiLaw.ButtonSize * scale;
         ImGui.SetCursorScreenPos(min);
         bool clicked = ImGui.InvisibleButton($"##bank-purchase-confirm-{buttonIndex}", size);
         bool pressed = ImGui.IsItemActive();
         bool hovered = ImGui.IsItemHovered();
         uint art = _skin!.TextureHandle(pressed ? "dialog.button.down" : "dialog.button.up");
         if (art != 0)
-            draw.AddImage((nint)art, min, min + size, Vector2.Zero, new Vector2(1f, .625f));
+            draw.AddImage((nint)art, min, min + size, Vector2.Zero,
+                BankPurchaseConfirmUiLaw.ButtonUvMax);
         if (hovered)
         {
             uint highlight = _gameplayArt?.BrightHighlightHandle(
                 @"Interface\Buttons\UI-DialogBox-Button-Highlight") ?? 0;
             if (highlight != 0)
                 draw.AddImage((nint)highlight, min, min + size,
-                    Vector2.Zero, new Vector2(1f, .625f));
+                    Vector2.Zero, BankPurchaseConfirmUiLaw.ButtonUvMax);
         }
         GameText.DrawCentered(draw, hovered ? "GameFontHighlight" : "GameFontNormal",
             caption, min + size * .5f, scale);

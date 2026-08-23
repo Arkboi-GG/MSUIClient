@@ -324,6 +324,7 @@ public static class PartyFrameUiLaw
     public const byte Dead = 0x04;
     public const byte Ghost = 0x08;
     public const byte PvpFfa = 0x10;
+    public const byte Afk = 0x40;
     public const uint UnitFlagPvp = 0x0000_1000;
 
     public static float MemberY(int zeroBasedIndex)

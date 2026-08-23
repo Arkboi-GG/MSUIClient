@@ -162,6 +162,7 @@ public sealed partial class GameLoop
     {
         if (_trainer is null||_gameplayArt is null) return;
         float scale=GameplayUiScale();Vector2 origin=UiPanelFrameOrigin(UiPanelOwnershipRegistry[4], scale),size=TrainerFrameUiLaw.FrameSize(scale);
+        PreparedSharedSpellTooltip? hoveredTrainerServiceTooltip = null;
         ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(size,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
         if(!ImGui.Begin("##trainer",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)){ImGui.End();return;}
         ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="trainer"){BeginUiParityFrame(origin,scale);CollectUiParityDraw("ClassTrainerFrame","Frame",origin,size,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
@@ -171,8 +172,15 @@ public sealed partial class GameLoop
             DrawUnitPortraitImage(dl, trainerNpc,
                 origin + TrainerFrameUiLaw.PortraitOffset * scale,
                 TrainerFrameUiLaw.PortraitSize * scale, 0, false);
-        (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[("ClassTrainerFrame/Texture",@"Interface\ClassTrainerFrame\UI-ClassTrainer-TopLeft",Vector2.Zero,new(256,256)),("ClassTrainerFrame/Texture#2",@"Interface\ClassTrainerFrame\UI-ClassTrainer-TopRight",new(256,0),new(128,256)),("ClassTrainerFrameBottomLeft",@"Interface\ClassTrainerFrame\UI-ClassTrainer-BotLeft",new(0,256),new(256,256)),("ClassTrainerFrameBottomRight",@"Interface\ClassTrainerFrame\UI-ClassTrainer-BotRight",new(256,256),new(128,256))];
-        foreach(var r in art){Vector2 m=origin+r.Offset*scale;DrawArt(dl,r.Path,m,r.Size,scale);if(_uiParityArmed&&_uiParityPanel=="trainer")CollectUiParityDraw(r.Element,"Texture",m,r.Size*scale,"ClassTrainerFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","ClassTrainerFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        foreach (TrainerFrameUiLaw.ArtPiece piece in TrainerFrameUiLaw.ShellArt)
+        {
+            Vector2 artMin = origin + piece.Rect.Min * scale;
+            DrawArt(dl, piece.Path, artMin, piece.Rect.Size, scale);
+            if (_uiParityArmed && _uiParityPanel == "trainer")
+                CollectUiParityDraw(piece.Element, "Texture", artMin, piece.Rect.Size * scale,
+                    "ClassTrainerFrame", new(piece.Path, 0xffffffff, "IMGUI_IMAGE", "TOPLEFT",
+                        "ClassTrainerFrame", "TOPLEFT", piece.Rect.X, -piece.Rect.Y));
+        }
         uint money = 0;
         if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player)) money = player.Fields.Coinage;
         string trainerName = TrainerFrameUiLaw.FallbackTitle;
@@ -188,7 +196,8 @@ public sealed partial class GameLoop
                 GameText.EmPixels("GameFontNormal", scale) / scale) * scale, scale);
         DrawTrainerMoney(dl, money, origin + TrainerFrameUiLaw.PurseRightTop * scale,
             scale, 0xffffffff, rightAligned: true);
-        DrawWrappedText(dl,_trainer.Greeting,origin+new Vector2(76,38)*scale,260,10*scale,scale,0xffffffff,2);
+        DrawTrainerWrappedText(dl, TrainerFrameUiLaw.GreetingFont, _trainer.Greeting,
+            origin, TrainerFrameUiLaw.Greeting, scale, TrainerFrameUiLaw.GreetingMaxLines);
         List<TrainerFrameUiLaw.ServiceNode> nodes = [];
         for (int serviceIndex = 0; serviceIndex < _trainer.Spells.Count; serviceIndex++)
         {
@@ -207,11 +216,28 @@ public sealed partial class GameLoop
         if (!visibleServices.Contains(_trainerSelected))
             _trainerSelected = visibleServices.FirstOrDefault(-1);
 
-        Vector2 collapseAt = origin + TrainerFrameUiLaw.CollapseAllOffset * scale;
-        bool allCollapsed = tree.Where(row => row.Header)
+        foreach (TrainerFrameUiLaw.ArtPiece piece in TrainerFrameUiLaw.CollapseAllTabArt)
+        {
+            Vector2 artMin = origin + piece.Rect.Min * scale;
+            DrawArt(dl, piece.Path, artMin, piece.Rect.Size, scale);
+            if (_uiParityArmed && _uiParityPanel == "trainer")
+                CollectUiParityDraw(piece.Element, "Texture", artMin, piece.Rect.Size * scale,
+                    "ClassTrainerExpandButtonFrame", new(piece.Path, 0xffffffff, "BACKGROUND",
+                        "TOPLEFT", "ClassTrainerFrame", "TOPLEFT", piece.Rect.X, -piece.Rect.Y));
+        }
+        bool collapseEnabled = tree.Any(row => row.Header);
+        bool allCollapsed = collapseEnabled && tree.Where(row => row.Header)
             .All(row => _trainerCollapsedGroups.Contains(row.GroupKey));
-        if (VanillaButton(dl, "##trainer-collapse-all", allCollapsed ? "+ All" : "− All",
-                collapseAt, new Vector2(44, 22), scale, tree.Any(row => row.Header)))
+        if (VanillaCollapseAllButton(dl, "##trainer-collapse-all",
+                origin + TrainerFrameUiLaw.CollapseAll.Min * scale,
+                TrainerFrameUiLaw.CollapseAll.Size,
+                origin + TrainerFrameUiLaw.CollapseAllIcon.Min * scale,
+                TrainerFrameUiLaw.CollapseAllIcon.Size,
+                origin + TrainerFrameUiLaw.CollapseAllLabelCenter * scale, scale,
+                allCollapsed, collapseEnabled, TrainerFrameUiLaw.CollapseAllLabel,
+                TrainerFrameUiLaw.CollapseAllFont, TrainerFrameUiLaw.CollapseAllDisabledFont,
+                TrainerFrameUiLaw.CollapseAllMinusPath, TrainerFrameUiLaw.CollapseAllPlusPath,
+                TrainerFrameUiLaw.CollapseAllHighlightPath))
         {
             uint[] groups = nodes.Select(node => node.GroupKey).Where(key => key != 0).Distinct().ToArray();
             if (groups.Length > 0 && groups.All(_trainerCollapsedGroups.Contains))
@@ -221,12 +247,14 @@ public sealed partial class GameLoop
             _trainerScroll = 0;
         }
         if (VanillaButton(dl, "##trainer-filter", "Filter",
-                origin + TrainerFrameUiLaw.FilterOffset * scale,
-                new Vector2(96, 22), scale))
+                origin + TrainerFrameUiLaw.Filter.Min * scale,
+                TrainerFrameUiLaw.Filter.Size, scale))
             _trainerFilterOpen = !_trainerFilterOpen;
 
         int maximum=Math.Max(0,tree.Count-TrainerFrameUiLaw.VisibleRows);
-        if(ImGui.IsMouseHoveringRect(origin+new Vector2(22,96)*scale,origin+new Vector2(315,280)*scale,false))
+        if (ImGui.IsMouseHoveringRect(
+                origin + TrainerFrameUiLaw.ListWheel.Min * scale,
+                origin + TrainerFrameUiLaw.ListWheel.Max * scale, false))
         {
             float wheel=ImGui.GetIO().MouseWheel;
             if(wheel!=0)_trainerScroll=Math.Clamp(_trainerScroll-(int)MathF.Sign(wheel),0,maximum);
@@ -235,38 +263,76 @@ public sealed partial class GameLoop
         {
             int index=_trainerScroll+visible;if(index>=tree.Count)break;
             TrainerFrameUiLaw.TreeRow displayRow=tree[index];
-            Vector2 min=origin+new Vector2(22,100+visible*16)*scale;
+            TrainerFrameUiLaw.LogicalRect logicalRow = TrainerFrameUiLaw.Row(visible);
+            Vector2 min = origin + logicalRow.Min * scale;
             if (displayRow.Header)
             {
                 ImGui.SetCursorScreenPos(min);
                 if (ImGui.InvisibleButton($"##trainer-header-{displayRow.GroupKey}",
-                        new Vector2(293,16)*scale))
+                        logicalRow.Size * scale))
                 {
                     if (!_trainerCollapsedGroups.Add(displayRow.GroupKey))
                         _trainerCollapsedGroups.Remove(displayRow.GroupKey);
                     _trainerScroll = Math.Min(_trainerScroll, Math.Max(0, tree.Count - 1));
                 }
-                string fold = displayRow.Expanded ? "−" : "+";
-                GameText.Draw(dl, "GameFontNormalSmall", fold,
-                    min + new Vector2(1, 1) * scale, scale, VanillaGold);
-                GameText.Draw(dl, "GameFontNormalSmall", displayRow.Text,
-                    min + new Vector2(18, 1) * scale, scale, VanillaGold);
+                bool headerHovered = ImGui.IsItemHovered();
+                TrainerFrameUiLaw.LogicalRect iconRect =
+                    TrainerFrameUiLaw.HeaderIcon(logicalRow);
+                Vector2 iconMin = origin + iconRect.Min * scale;
+                uint foldArt = _gameplayArt.Handle(displayRow.Expanded
+                    ? @"Interface\Buttons\UI-MinusButton-Up"
+                    : @"Interface\Buttons\UI-PlusButton-Up");
+                if (foldArt != 0)
+                    dl.AddImage((nint)foldArt, iconMin, iconMin + iconRect.Size * scale);
+                if (headerHovered)
+                {
+                    uint foldHighlight = _gameplayArt.AdditiveHandle(
+                        @"Interface\Buttons\UI-PlusButton-Hilight");
+                    if (foldHighlight != 0)
+                        dl.AddImage((nint)foldHighlight, iconMin,
+                            iconMin + iconRect.Size * scale);
+                }
+                GameText.Draw(dl, TrainerFrameUiLaw.RowNameFont, displayRow.Text,
+                    min + TrainerFrameUiLaw.HeaderTextOffset * scale, scale, VanillaGold);
                 continue;
             }
             TrainerSpell row=_trainer.Spells[displayRow.ServiceIndex];
-            bool enabled = row.State == 0 && money >= row.Cost;
-            uint color=row.State==2?0xff777777u:enabled?VanillaGold:0xff6666ffu;
-            if(VanillaListRow(dl,$"##trainer-{row.ServiceSpellId}",min,new Vector2(293,16),scale,
-                    "  " + displayRow.Text,displayRow.ServiceIndex==_trainerSelected,color))
+            bool selectedRow = displayRow.ServiceIndex == _trainerSelected;
+            if(VanillaListRow(dl,$"##trainer-{row.ServiceSpellId}",min,logicalRow.Size,scale,
+                    "", selectedRow))
                 _trainerSelected=displayRow.ServiceIndex;
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Requires level {row.RequiredLevel}; skill {row.RequiredSkill}:{row.RequiredSkillValue}");
+            bool serviceHovered = ImGui.IsItemHovered();
+            int rowEm = GameText.EmPixels(TrainerFrameUiLaw.RowNameFont, scale);
+            Vector2 rowNameAt = TrainerFrameUiLaw.RowNameMinimum(min,
+                logicalRow.Height * scale, rowEm);
+            uint nameColor = TrainerFrameUiLaw.RowNameColor(row.State, selectedRow);
+            GameText.Draw(dl, TrainerFrameUiLaw.RowNameFont, displayRow.Text,
+                rowNameAt, scale, nameColor);
+            if (_spellCatalog?.TryGet(row.ServiceSpellId, out SpellInfo serviceInfo) == true &&
+                !string.IsNullOrWhiteSpace(serviceInfo.Rank))
+            {
+                Vector2 subtextAt = TrainerFrameUiLaw.RowSubtextMinimum(rowNameAt,
+                    GameText.MeasureWidth(TrainerFrameUiLaw.RowNameFont,
+                        displayRow.Text, scale), scale);
+                GameText.Draw(dl, TrainerFrameUiLaw.RowSubtextFont, serviceInfo.Rank,
+                    subtextAt, scale, TrainerFrameUiLaw.RowSubtextColor(
+                        row.State, selectedRow, serviceHovered));
+            }
         }
-        DrawVanillaScrollBar(dl,"##trainer-scroll",origin+new Vector2(310,91)*scale,196,scale,
+        DrawVanillaScrollBar(dl,"##trainer-scroll",
+            origin + TrainerFrameUiLaw.ScrollOrigin * scale,
+            TrainerFrameUiLaw.ScrollHeight, scale,
             _trainerScroll,maximum,x=>_trainerScroll=x);
-        DrawArt(dl,@"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar",origin+new Vector2(15,275)*scale,new Vector2(256,16),scale);
+        DrawArt(dl, @"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar",
+            origin + TrainerFrameUiLaw.HorizontalBarLeft.Min * scale,
+            TrainerFrameUiLaw.HorizontalBarLeft.Size, scale);
         uint bar=_gameplayArt.Handle(@"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar");
-        if(bar!=0)dl.AddImage((nint)bar,origin+new Vector2(271,275)*scale,
-            origin+new Vector2(346,291)*scale,new Vector2(0,.25f),new Vector2(.29296875f,.5f));
+        if (bar != 0)
+            dl.AddImage((nint)bar,
+                origin + TrainerFrameUiLaw.HorizontalBarRight.Min * scale,
+                origin + TrainerFrameUiLaw.HorizontalBarRight.Max * scale,
+                TrainerFrameUiLaw.HorizontalBarRightUvMin,
+                TrainerFrameUiLaw.HorizontalBarRightUvMax);
         if (_trainerFilterOpen)
             DrawTrainerFilterMenu(dl, origin, scale);
         TrainerSpell selected=_trainerSelected<0||_trainerSelected>=_trainer.Spells.Count
@@ -275,33 +341,74 @@ public sealed partial class GameLoop
         {
             SpellInfo? info=_spellCatalog?.TryGet(selected.ServiceSpellId,out SpellInfo found)==true?found:null;
             uint icon=_gameplayArt.Handle(info?.IconPath??@"Interface\Icons\INV_Misc_QuestionMark.blp");
-            Vector2 iconMin=origin+new Vector2(27,294)*scale;
-            if(icon!=0)dl.AddImage((nint)icon,iconMin,iconMin+new Vector2(37)*scale);
-            DrawArt(dl,@"Interface\Buttons\UI-EmptySlot",iconMin-new Vector2(13,-13)*scale,new Vector2(64),scale);
-            dl.AddText(ImGui.GetFont(),11*scale,origin+new Vector2(68,292)*scale,VanillaGold,info?.Name??$"Service {selected.ServiceSpellId}");
-            dl.AddText(ImGui.GetFont(),9*scale,origin+new Vector2(68,312)*scale,0xffffffff,$"Requires level {selected.RequiredLevel}");
-            Vector2 costAt = origin + TrainerFrameUiLaw.DetailCostLabel * scale;
-            GameText.Draw(dl, "GameFontNormalSmall", "Cost:", costAt, scale);
-            float labelWidth = GameText.MeasureWidth("GameFontNormalSmall", "Cost:", scale);
-            DrawTrainerMoney(dl, selected.Cost,
-                costAt + new Vector2(labelWidth + TrainerFrameUiLaw.MoneyGap * scale, 0),
-                scale, money >= selected.Cost ? 0xffffffff : 0xff1a1aff,
-                rightAligned: false);
-            DrawWrappedText(dl,info?.Description??"",origin+new Vector2(27,365)*scale,295,9*scale,scale,0xffffffff,3);
+            Vector2 iconMin = origin + TrainerFrameUiLaw.DetailIcon.Min * scale;
+            if (icon != 0)
+                dl.AddImage((nint)icon, iconMin,
+                    iconMin + TrainerFrameUiLaw.DetailIcon.Size * scale);
+            DrawArt(dl, @"Interface\Buttons\UI-EmptySlot",
+                origin + TrainerFrameUiLaw.DetailIconRing.Min * scale,
+                TrainerFrameUiLaw.DetailIconRing.Size, scale);
+            (Vector2 tooltipMinimum, Vector2 tooltipMaximum) =
+                TrainerFrameUiLaw.DetailTooltipOwnerBounds(origin, scale);
+            ImGui.SetCursorScreenPos(tooltipMinimum);
+            ImGui.InvisibleButton("##trainer-detail-icon", tooltipMaximum - tooltipMinimum);
+            if (ImGui.IsItemHovered())
+                hoveredTrainerServiceTooltip = PrepareSharedSpellTooltip(
+                    new("spell:trainer-service", selected.ServiceSpellId),
+                    selected.ServiceSpellId, scale, SpellTooltipPlacement.OwnerRight,
+                    tooltipMinimum, tooltipMaximum);
+            DrawTrainerWrappedText(dl, TrainerFrameUiLaw.DetailNameFont,
+                info?.Name ?? $"Service {selected.ServiceSpellId}", origin,
+                TrainerFrameUiLaw.DetailNameBox, scale,
+                TrainerFrameUiLaw.DetailNameMaxLines);
+            if (selected.RequiredLevel > 0)
+                DrawTrainerWrappedText(dl, TrainerFrameUiLaw.DetailRequirementFont,
+                    $"Requires level {selected.RequiredLevel}", origin,
+                    TrainerFrameUiLaw.DetailRequirementBox, scale,
+                    TrainerFrameUiLaw.DetailRequirementMaxLines);
+            if (selected.Cost > 0)
+            {
+                Vector2 costAt = origin + TrainerFrameUiLaw.DetailCostLabel * scale;
+                GameText.Draw(dl, TrainerFrameUiLaw.DetailCostFont, "Cost:", costAt, scale);
+                float labelWidth = GameText.MeasureWidth(
+                    TrainerFrameUiLaw.DetailCostFont, "Cost:", scale);
+                DrawTrainerMoney(dl, selected.Cost,
+                    origin + TrainerFrameUiLaw.DetailMoneyAt(labelWidth, scale) * scale,
+                    scale, money >= selected.Cost ? 0xffffffff : 0xff1a1aff,
+                    rightAligned: false);
+            }
+            DrawTrainerWrappedText(dl, TrainerFrameUiLaw.DetailDescriptionFont,
+                info?.Description ?? "", origin, TrainerFrameUiLaw.DetailDescriptionBox,
+                scale, TrainerFrameUiLaw.DetailDescriptionMaxLines);
         }
         bool canTrain=selected.ServiceSpellId!=0&&selected.State==0&&money>=selected.Cost;
-        if(VanillaButton(dl,"##trainer-train","Train",origin+new Vector2(184,409)*scale,new Vector2(80,22),scale,canTrain))BuyTrainerSpell(selected.ServiceSpellId);
-        if(VanillaButton(dl,"##trainer-exit","Exit",origin+new Vector2(265,409)*scale,new Vector2(80,22),scale))CloseTrainerSession();
-        Vector2 close=origin+new Vector2(322,8)*scale;DrawImageButton(dl,"##trainer-close",close,new Vector2(32)*scale,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())CloseTrainerSession();
+        if (VanillaButton(dl, "##trainer-train", "Train",
+                origin + TrainerFrameUiLaw.Train.Min * scale,
+                TrainerFrameUiLaw.Train.Size, scale, canTrain))
+            BuyTrainerSpell(selected.ServiceSpellId);
+        if (VanillaButton(dl, "##trainer-exit", "Exit",
+                origin + TrainerFrameUiLaw.Exit.Min * scale,
+                TrainerFrameUiLaw.Exit.Size, scale))
+            CloseTrainerSession();
+        Vector2 close = origin + TrainerFrameUiLaw.Close.Min * scale;
+        DrawImageButton(dl, "##trainer-close", close,
+            TrainerFrameUiLaw.Close.Size * scale,
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
+        if (ImGui.IsItemClicked()) CloseTrainerSession();
         if(_uiParityArmed&&_uiParityPanel=="trainer")MarkUiParityFrameComplete();
         ImGui.End();
+        if (hoveredTrainerServiceTooltip is { } preparedTrainerTooltip)
+            OfferPreservedSharedGameTooltipRenderer(preparedTrainerTooltip.Owner,
+                () => DrawSpellTooltip(preparedTrainerTooltip.Snapshot));
     }
 
     private void DrawTrainerFilterMenu(ImDrawListPtr draw, Vector2 origin, float scale)
     {
-        Vector2 menu = origin + TrainerFrameUiLaw.FilterMenuOffset * scale;
-        draw.AddRectFilled(menu, menu + new Vector2(126, 58) * scale, 0xf0181818u);
-        draw.AddRect(menu, menu + new Vector2(126, 58) * scale, VanillaGold);
+        Vector2 menu = origin + TrainerFrameUiLaw.FilterMenu.Min * scale;
+        draw.AddRectFilled(menu, menu + TrainerFrameUiLaw.FilterMenu.Size * scale, 0xf0181818u);
+        draw.AddRect(menu, menu + TrainerFrameUiLaw.FilterMenu.Size * scale, VanillaGold);
         (string Label, bool Value, uint Color)[] rows =
         [
             ("Available", _trainerFilterAvailable, 0xff20ff20),
@@ -310,9 +417,10 @@ public sealed partial class GameLoop
         ];
         for (int i = 0; i < rows.Length; i++)
         {
-            Vector2 min = menu + new Vector2(3, 3 + i * 17) * scale;
+            TrainerFrameUiLaw.LogicalRect logicalRow = TrainerFrameUiLaw.FilterRow(i);
+            Vector2 min = menu + logicalRow.Min * scale;
             ImGui.SetCursorScreenPos(min);
-            if (ImGui.InvisibleButton($"##trainer-filter-{i}", new Vector2(120, 16) * scale))
+            if (ImGui.InvisibleButton($"##trainer-filter-{i}", logicalRow.Size * scale))
             {
                 if (i == 0) _trainerFilterAvailable = !_trainerFilterAvailable;
                 else if (i == 1) _trainerFilterUnavailable = !_trainerFilterUnavailable;
@@ -320,8 +428,20 @@ public sealed partial class GameLoop
                 _trainerScroll = 0;
             }
             GameText.Draw(draw, "GameFontNormalSmall", (rows[i].Value ? "✓ " : "  ") + rows[i].Label,
-                min + new Vector2(2, 1) * scale, scale, rows[i].Color);
+                min + TrainerFrameUiLaw.FilterRowTextOffset * scale, scale, rows[i].Color);
         }
+    }
+
+    private void DrawTrainerWrappedText(ImDrawListPtr draw, string font, string text,
+        Vector2 origin, TrainerFrameUiLaw.LogicalRect box, float scale, int maximumLines)
+    {
+        IReadOnlyList<string> lines = TrainerFrameUiLaw.WrapText(text,
+            box.Width * scale, maximumLines,
+            candidate => GameText.MeasureWidth(font, candidate, scale));
+        float pitch = GameText.LinePitch(font, scale);
+        for (int line = 0; line < lines.Count; line++)
+            GameText.Draw(draw, font, lines[line],
+                TrainerFrameUiLaw.TextLineMinimum(origin, box, scale, line, pitch), scale);
     }
 
     private void DrawTrainerMoney(ImDrawListPtr draw, uint copper, Vector2 anchor, float scale,
@@ -336,9 +456,11 @@ public sealed partial class GameLoop
         foreach (MailUiLaw.MoneyDenomination denomination in denominations)
         {
             string text = denomination.Value.ToString();
-            GameText.Draw(draw, "NumberFontNormal", text, new Vector2(x, anchor.Y), scale, color);
+            GameText.Draw(draw, "NumberFontNormal", text,
+                TrainerFrameUiLaw.MoneyPoint(x, anchor.Y), scale, color);
             x += GameText.MeasureWidth("NumberFontNormal", text, scale);
-            DrawMailCoin(draw, denomination.Icon, new Vector2(x, anchor.Y), scale, color);
+            DrawMailCoin(draw, denomination.Icon,
+                TrainerFrameUiLaw.MoneyPoint(x, anchor.Y), scale, color);
             x += (TrainerFrameUiLaw.MoneyIconSize + TrainerFrameUiLaw.MoneyGap) * scale;
         }
     }

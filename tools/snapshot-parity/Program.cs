@@ -484,14 +484,23 @@ static int SelfTest()
     string root = Path.Combine(Path.GetTempPath(), $"snapshot-parity-{Guid.NewGuid():N}");
     string referenceRoot = Path.Combine(root, "reference"), targetRoot = Path.Combine(root, "target");
     Directory.CreateDirectory(Path.Combine(referenceRoot, "crates", "demo", "src"));
+    Directory.CreateDirectory(Path.Combine(referenceRoot, "crates", "demo", "src", "target"));
+    Directory.CreateDirectory(Path.Combine(referenceRoot, "target", "debug"));
     Directory.CreateDirectory(Path.Combine(targetRoot, "Net"));
     File.WriteAllText(Path.Combine(referenceRoot, "Cargo.toml"), "[workspace]\nmembers=[\"crates/*\"]\n");
     File.WriteAllText(Path.Combine(referenceRoot, "crates", "demo", "src", "lib.rs"),
         "pub enum Opcode { SMSG_DEMO = 0x123 }\n#[test]\nfn packet_shape() { assert_eq!(1, 1); }\n");
+    File.WriteAllText(Path.Combine(referenceRoot, "crates", "demo", "src", "target", "scan.rs"),
+        "pub fn scan_target() {}\n");
+    File.WriteAllText(Path.Combine(referenceRoot, "target", "debug", "generated.rs"),
+        "generated build output\n");
     File.WriteAllText(Path.Combine(targetRoot, "Net", "Opcodes.cs"),
         "public enum Op { SMSG_DEMO = 0x123 }\n");
     SnapshotManifest reference = SnapshotCapture.Capture("benilla", referenceRoot, null);
     SnapshotManifest target = SnapshotCapture.Capture("msui", targetRoot, null);
+    if (!reference.Files.Any(file => file.Path == "crates/demo/src/target/scan.rs") ||
+        reference.Files.Any(file => file.Path == "target/debug/generated.rs"))
+        throw new InvalidDataException("snapshot target-directory exclusion swallowed source or kept build output");
     FactIndex referenceFacts = FactIndexer.Build(reference), targetFacts = FactIndexer.Build(target);
     SnapshotPair pair = ComparisonEngine.Compare(reference, referenceFacts, target, targetFacts);
     SourceFact opcode = referenceFacts.Facts.Single(f => f.Kind == "opcode" && f.Name == "SMSG_DEMO");

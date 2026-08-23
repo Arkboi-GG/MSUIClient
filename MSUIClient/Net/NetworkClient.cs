@@ -46,6 +46,8 @@ public sealed record NetSettings(
 public sealed class NetworkClient : IDisposable
 {
     private const int MaxInboundPackets = 4096;
+    public const int PingIntervalMs = 30_000;
+    public const int RttHistoryDepth = 16;
     private readonly NetSettings _cfg;
     private readonly WirePacketObserver? _wireObserver;
     private readonly SocketWriteObserver? _socketWriteObserver;
@@ -57,6 +59,9 @@ public sealed class NetworkClient : IDisposable
     private volatile bool _running;
     private uint _pingSeq;
     private readonly ConcurrentDictionary<uint, uint> _pingSentAt = new();
+    private readonly object _rttLock = new();
+    private readonly Queue<int> _rttHistory = new(RttHistoryDepth);
+    private int _lastRttMs;
     private int _latencyMs;
 
     // Game-loop-visible state (all reads are cheap snapshots).
@@ -203,7 +208,12 @@ public sealed class NetworkClient : IDisposable
         try { _session?.Dispose(); } catch { }
         _session = null;
         _pingSentAt.Clear();
-        Volatile.Write(ref _latencyMs, 0);
+        lock (_rttLock)
+        {
+            _rttHistory.Clear();
+            Volatile.Write(ref _lastRttMs, 0);
+            Volatile.Write(ref _latencyMs, 0);
+        }
 
         while (_inbound.TryDequeue(out _)) { }
         Characters = Array.Empty<Character>();
@@ -263,6 +273,7 @@ public sealed class NetworkClient : IDisposable
     }
 
     public void SetSelection(ulong guid) { try { _session?.SetSelection(guid); } catch { } }
+    public bool FarSight(bool engage) => InWorld(s => s.FarSight(engage));
     public bool SuiControlRequest(ulong guid) => InWorld(s => s.SuiControlRequest(guid));
     public bool SuiControlRelease(byte mode) => InWorld(s => s.SuiControlRelease(mode));
     public bool SuiOrder(byte orderType, IReadOnlyList<ulong> subjects, ulong targetGuid, float x, float y, float z) =>
@@ -301,6 +312,8 @@ public sealed class NetworkClient : IDisposable
     public bool PetRename(ulong petGuid, string name) => InWorld(s => s.PetRename(petGuid, name));
     public void ZoneUpdate(uint zoneId) { try { _session?.ZoneUpdate(zoneId); } catch { } }
     public bool TogglePvp() => InWorld(s => s.TogglePvp());
+    public bool ToggleHelm() => InWorld(s => s.ToggleHelm());
+    public bool ToggleCloak() => InWorld(s => s.ToggleCloak());
     public bool SetFactionAtWar(uint reputationSlot, bool atWar) =>
         InWorld(s => s.SetFactionAtWar(reputationSlot, atWar));
     public bool SetFactionInactive(uint reputationSlot, bool inactive) =>
@@ -483,7 +496,7 @@ public sealed class NetworkClient : IDisposable
     public bool ReclaimCorpse(ulong guid) => InWorld(s => s.ReclaimCorpse(guid));
     public bool SpiritHealerActivate(ulong guid) => InWorld(s => s.SpiritHealerActivate(guid));
     public bool ResurrectResponse(ulong guid, bool accept) => InWorld(s => s.ResurrectResponse(guid, accept));
-    public bool PageTextQuery(uint pageId) => InWorld(s => s.PageTextQuery(pageId));
+    public bool PageTextQuery(uint pageId, ulong guid) => InWorld(s => s.PageTextQuery(pageId, guid));
     public bool GossipSelect(ulong guid, uint listId, string? code = null)
     {
         if (State != NetState.InWorld || _session is null) return false;
@@ -542,6 +555,7 @@ public sealed class NetworkClient : IDisposable
     public bool GuildMotd(string text) => InWorld(s => s.GuildMotd(text));
     public bool GuildPromote(string name) => InWorld(s => s.GuildPromote(name));
     public bool GuildDemote(string name) => InWorld(s => s.GuildDemote(name));
+    public bool GuildLeader(string name) => InWorld(s => s.GuildLeader(name));
     public bool GuildLeave() => InWorld(s => s.GuildLeave());
     public bool GuildDisband() => InWorld(s => s.GuildDisband());
     public bool SaveGuildEmblem(ulong vendorGuid, uint emblemStyle, uint emblemColor,
@@ -575,7 +589,8 @@ public sealed class NetworkClient : IDisposable
     public bool SellItem(ulong vendor, ulong item, byte count) { if (State!=NetState.InWorld||_session is null) return false; try { _session.SellItem(vendor,item,count); return true; } catch { return false; } }
     public bool BuybackItem(ulong vendor, uint slot) { if (State!=NetState.InWorld||_session is null) return false; try { _session.BuybackItem(vendor,slot); return true; } catch { return false; } }
     public bool RepairItem(ulong vendor, ulong item) => InWorld(s => s.RepairItem(vendor, item));
-    public void UseItem(byte bag, byte slot, byte spellSlot) { try { _session?.UseItem(bag, slot, spellSlot); } catch { } }
+    public bool UseItem(byte bag, byte slot, byte spellSlot) =>
+        InWorld(s => s.UseItem(bag, slot, spellSlot));
     public bool AutoEquipItem(byte bag, byte slot) => InWorld(s => s.AutoEquipItem(bag, slot));
     public bool AutostoreBagItem(byte sourceBag, byte sourceSlot, byte destinationBag) =>
         InWorld(s => s.AutostoreBagItem(sourceBag, sourceSlot, destinationBag));
@@ -812,8 +827,17 @@ public sealed class NetworkClient : IDisposable
                             if (_pingSentAt.TryRemove(sequence, out uint sentAt))
                             {
                                 int sample = (int)Math.Min(unchecked(MovementInfo.ClientUptimeMs() - sentAt), 60_000u);
-                                int previous = Volatile.Read(ref _latencyMs);
-                                Volatile.Write(ref _latencyMs, previous <= 0 ? sample : (previous * 3 + sample) / 4);
+                                lock (_rttLock)
+                                {
+                                    if (_rttHistory.Count == RttHistoryDepth)
+                                        _rttHistory.Dequeue();
+                                    _rttHistory.Enqueue(sample);
+                                    long sum = 0;
+                                    foreach (int rtt in _rttHistory) sum += rtt;
+                                    Volatile.Write(ref _lastRttMs, sample);
+                                    Volatile.Write(ref _latencyMs,
+                                        (int)(sum / _rttHistory.Count));
+                                }
                             }
                         }
                         break;
@@ -846,10 +870,11 @@ public sealed class NetworkClient : IDisposable
             {
                 uint sequence = unchecked(_pingSeq++);
                 _pingSentAt[sequence] = MovementInfo.ClientUptimeMs();
-                _session?.Ping(sequence, (uint)Math.Max(0, LatencyMs));
+                _session?.Ping(sequence,
+                    (uint)Math.Max(0, Volatile.Read(ref _lastRttMs)));
             }
             catch { /* disconnect handled by read loop */ }
-        }, null, 0, 10_000);
+        }, null, PingIntervalMs, PingIntervalMs);
     }
 
     private void SetState(NetState s, string status)

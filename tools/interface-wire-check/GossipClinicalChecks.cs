@@ -61,6 +61,11 @@ internal static class GossipClinicalChecks
               GossipUiLaw.ScrollDown == new GossipLogicalRect(329, 399, 16, 16) &&
               GossipUiLaw.Goodbye == new GossipLogicalRect(267, 417, 78, 22) &&
               GossipUiLaw.Close == new GossipLogicalRect(326, 15, 32, 32) &&
+              GossipUiLaw.TitleFont == "GameFontHighlight" &&
+              GossipUiLaw.TitleCenter == new System.Numerics.Vector2(192, 30) &&
+              GossipUiLaw.RowHitSize(18) == new System.Numerics.Vector2(300, 18) &&
+              GossipUiLaw.ScrollKnobMin(116, 450) ==
+                  new System.Numerics.Vector2(329, 383) &&
               GossipUiLaw.RowTop(20) == 131 &&
               GossipUiLaw.RowHeight(10) == 18 &&
               GossipUiLaw.RowHeight(25) == 27 &&
@@ -79,12 +84,14 @@ internal static class GossipClinicalChecks
               runtime.Contains("GossipUiLaw.QuestIcon(quest.Icon)", StringComparison.Ordinal) &&
               runtime.Contains("_npcTextRecords.TryGetValue", StringComparison.Ordinal) &&
               runtime.Contains("GossipUiLaw.SelectGreeting", StringComparison.Ordinal) &&
+              runtime.Contains("GossipUiLaw.TitleFont", StringComparison.Ordinal) &&
               runtime.Contains("source.Fields.Bytes0.Gender", StringComparison.Ordinal) &&
               runtime.Contains("ImGui.PushClipRect(scrollMin, scrollMax, true)",
                   StringComparison.Ordinal) &&
               runtime.Contains("DrawGossipScrollBar(dl, p, s, contentHeight)",
                   StringComparison.Ordinal) &&
               runtime.Contains("!option.Coded", StringComparison.Ordinal) &&
+              !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               runtime.IndexOf("rows.Add((true", StringComparison.Ordinal) <
                   runtime.IndexOf("rows.Add((false", StringComparison.Ordinal),
             "gossip icon/greeting production wiring drift");

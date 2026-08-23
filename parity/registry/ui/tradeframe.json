@@ -23,7 +23,7 @@
     "MSUIClient/Net/WorldSession.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI implements the current two-sided TradeFrame and incoming question through dedicated laws: exact 384x512 two-portrait shell, six 44-pitch offer rows plus the separated seventh enchant/non-traded row, proposed-enchant green spell text, stock empty-slot/name/enchant art, names, stack counts, both-side item tooltips, editable own money/read-only partner money, two-piece accept glows, click-to-place/clear, accept/unaccept/cancel verbs, corrected terminal status handling, MPQ-authored refusal feedback, and law-positioned invitation controls. The renderer contains no authored window/modal position literals.",
+  "summary": "MSUI implements the current two-sided TradeFrame: exact 384x512 two-portrait shell, six 44-pitch offer rows plus the separated seventh enchant/non-traded row, proposed-enchant green spell text, stock empty-slot/name/enchant art, names, stack counts, both-side item tooltips, three-denomination editable own money, right-anchored coin-art partner money, two-piece accept glows, click-to-place/clear, accept/unaccept/cancel verbs, corrected terminal status handling, and MPQ-authored refusal feedback. TradeFrameUiLaw owns the money-input seats, denomination composition, coin geometry/UVs, accept-glow slice geometry/UVs and stack-count inset as well as all window seats; GameLoop.Trade contains no local Vector2 geometry. Current Benilla auto-answers BEGIN_TRADE with CMSG_BEGIN_TRADE and waits for OPEN_WINDOW; MSUI does the same, and the former custom incoming-trade ImGui prompt and its unused geometry law remain removed. Focused and full interface-wire checks pass.",
   "openItems": [
     {
       "id": "item-triage-dd65db98",
@@ -69,11 +69,20 @@
       "added": "2026-08-09",
       "resolved": true,
       "resolution": "Both player and partner live portraits are drawn below the shell apertures, and each accept flag paints the exact 161x266 column plus 161x61 enchant highlight slices."
+    },
+    {
+      "id": "item-tradeframe-money-controls-visual-gap-20260823",
+      "kind": "gap",
+      "text": "TradeFrame rendered the player's offer as one generic integer field and the recipient's offer as a plain formatted string in the wrong seat instead of the authored gold/silver/copper edit boxes and right-anchored NumberFontNormal coin frames.",
+      "source": "benilla-b57ee0e9e2c8822b/TradeFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "TradeFrameUiLaw now owns the exact three player denomination boxes and coin seats, recipient right anchor, denomination composition/splitting, coin size and atlas UVs. GameLoop.Trade consumes those laws while preserving the existing CMSG_SET_TRADE_GOLD path; focused and full desktop clinical suites pass."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T15:18:03.5365334Z",
+  "lastReviewedUtc": "2026-08-23T16:31:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

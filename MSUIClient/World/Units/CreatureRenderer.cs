@@ -511,6 +511,7 @@ public sealed partial class CreatureRenderer : IDisposable
             _shader.Set("uBodyTint", bodyTint);
 
             int boneCount = 0;
+            M2Animator.Clip? pickClip = null;
             if (Animate && model.Animator is not null && model.BoneCount > 0 &&
                 (e.IsDead || Vector3.Distance(e.Position, camPos) <= AnimateDistance))
             {
@@ -565,6 +566,7 @@ public sealed partial class CreatureRenderer : IDisposable
 
                 if (clip is not null)
                 {
+                    pickClip = clip;
                     if (!mounted)
                         EmitFootstepEvents(e.Guid, e.DisplayId, e.Position,
                             e.Scale, model.Source, clip, at, mount: false);
@@ -583,7 +585,10 @@ public sealed partial class CreatureRenderer : IDisposable
                 poseSkin[poseIndex] = poseIndex < sourceSkin.Count
                     ? sourceSkin[poseIndex] : Matrix4x4.Identity;
             _spellPoses[e.Guid] = new SpellUnitPose(true, e.Position, e.Orientation,
-                worldModel, model.Source, poseSkin);
+                worldModel, model.Source, poseSkin,
+                GeosetFilter ? appearance.VisibleGeosets : null,
+                pickClip?.BoundsCenter ?? Vector3.Zero,
+                pickClip?.BoundsRadius ?? 0f);
 
             bool filter = GeosetFilter && appearance.VisibleGeosets is not null;
             _gl.BindVertexArray(model.Vao);
@@ -768,6 +773,9 @@ public sealed partial class CreatureRenderer : IDisposable
     public void NoteKnownNotDrawn(EntityStore entities)
     {
         _shadowCasters.Clear();
+        // Targeting consumes the last completed render pose. If this pass is skipped, there is
+        // no visible body to click; never leave a stale prior-frame mesh in the pick set.
+        _spellPoses.Clear();
         PublishMountCount();
         if (_lifecycle is null) return;
         foreach (WorldEntity entity in entities.Units)
@@ -867,13 +875,15 @@ public sealed partial class CreatureRenderer : IDisposable
         _attachedItems.BodyTint = applyAuraVisual ? entity.AuraVisual.Tint : Vector3.One;
         _attachedItems.GlowOwnerKey = $"unit:{entity.Guid:X16}";
         _attachedItems.Render(camera, transform, model.Source, skin, state.Mounts,
-            entity.Fields.SheathState);
+            entity.Fields.SheathState, entity.Guid, _globalTime);
     }
 
     public IReadOnlyList<ItemGlowPlacement> ItemGlowPlacements =>
         _attachedItems?.GlowPlacements ?? Array.Empty<ItemGlowPlacement>();
     public IReadOnlyList<CarriedLightPlacement> CarriedLightPlacements =>
         _attachedItems?.CarriedLights ?? Array.Empty<CarriedLightPlacement>();
+    public IReadOnlyList<FishingPoleTipPlacement> FishingPoleTips =>
+        _attachedItems?.FishingPoleTips ?? Array.Empty<FishingPoleTipPlacement>();
     public void BeginItemGlowFrame() => _attachedItems?.BeginGlowFrame();
 
     private static void AddVirtualPiece(CharacterEquipment equipment, ObjectFields fields,
@@ -961,6 +971,21 @@ public sealed partial class CreatureRenderer : IDisposable
     }
 
     /// <summary>
+    /// Build-5875's third-person camera pivot: attachment 17 Z + 0.0972 for character models,
+    /// otherwise 90% of the vertex-box height, all in the unit's live render scale.
+    /// </summary>
+    public bool TryGetCameraPivotHeight(WorldEntity entity, out float height)
+    {
+        height = ViewSubjectLaw.PivotFallback;
+        if (!TryGetModel(entity, out LoadedModel? model) || model is null) return false;
+        float? attachment17Z = model.Source.Attachments
+            .FirstOrDefault(attachment => attachment.Id == 17)?.Position.Z;
+        height = ViewSubjectLaw.PivotHeight(attachment17Z, model.MinHeight, model.MaxHeight,
+            UnitRenderScale(entity.Scale, ScaleMultiplier));
+        return true;
+    }
+
+    /// <summary>
     /// Return the static Stand-sequence CAaBox height used by the reference chat
     /// bubble, not the broader model bounds used by posed overhead names.
     /// </summary>
@@ -980,7 +1005,7 @@ public sealed partial class CreatureRenderer : IDisposable
     /// Draw exactly one creature for an offscreen portrait. This deliberately
     /// does not advance, track, count, or prune world animation state.
     /// </summary>
-    public bool RenderPortrait(Camera camera, WorldEntity entity)
+    public bool RenderPortrait(Camera camera, WorldEntity entity, float standAnimationTime = 0f)
     {
         if (_shader is null || !TryGetModel(entity, out LoadedModel? model) || model is null ||
             !TryResolveRenderInfo(entity, out CreatureModelInfo info)) return false;
@@ -1025,10 +1050,12 @@ public sealed partial class CreatureRenderer : IDisposable
         int boneCount = 0;
         if (model.Animator is not null && model.BoneCount > 0)
         {
-            // benilla portrait/booth.rs:48-66,203-216: a fresh Stand instance frozen at t=0.
+            // Round portrait callers keep the default fresh Stand instance at t=0. Live
+            // PlayerModel-style body panes supply their own clamped Stand-loop time.
             M2Animator.Clip? clip = model.Animator.FindOrBake(0);
             boneCount = Math.Min(model.BoneCount, M2Animator.MaxBones);
-            model.Animator.Evaluate(clip, 0f, 0f, _skin);
+            float animationTime = MathF.Max(0f, standAnimationTime);
+            model.Animator.Evaluate(clip, animationTime, animationTime, _skin);
             M2Animator.Pack(_skin, boneCount, _packed);
             _shader.SetVec4Array("uBones", _packed, boneCount * 3);
         }

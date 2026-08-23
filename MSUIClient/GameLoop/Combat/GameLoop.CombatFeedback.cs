@@ -42,7 +42,7 @@ public sealed partial class GameLoop
         _tradeOpen || _bankOpen || _trainer is not null || _taxiOpen || _vendor is not null ||
         _gossipMenu is not null || _questList is not null || _questDetails is not null ||
         _questRequestItems is not null || _questOffer is not null || _backpackOpen ||
-        _deathRezOpen || _hearthOpen || _tabardOpen || _loot.IsOpen || _itemTextRead is not null ||
+        _deathRezOpen || _tabardOpen || _loot.IsOpen || _itemTextRead is not null ||
         _itemRefEntry != 0;
 
     private void ResetCombatFeedback()
@@ -215,7 +215,6 @@ public sealed partial class GameLoop
             DrawLootFrame();
             DrawGameObjectFrame();
             DrawRestXpFrame();
-            DrawHearthFrame();
             DrawTaxiFrame();
             DrawGossipFrame();
             DrawVendorFrame();
@@ -355,10 +354,9 @@ public sealed partial class GameLoop
                 alpha);
             Vector2 extent = ImGui.CalcTextSize(item.Text);
             float scaledWidth = extent.X * size / MathF.Max(ImGui.GetFontSize(), 1f);
-            Vector2 pos = new(screen.X - scaledWidth * 0.5f, screen.Y - size);
-            float laneDirection = item.Lane switch { 0 => -0.30f, 1 => 0.30f, 2 => -0.65f, _ => 0.65f };
-            pos.X += laneDirection * size * (0.35f + t);
-            Vector2 shadowOffset = new(display.X * 0.002f, display.Y * 0.002f);
+            Vector2 pos = CombatTextStateUiLaw.WorldTextPosition(
+                screen, scaledWidth, size, item.Lane, t);
+            Vector2 shadowOffset = CombatTextStateUiLaw.WorldShadow(display);
             uint shadow = ImGui.ColorConvertFloat4ToU32(new Vector4(0, 0, 0, shadowAlpha));
             uint color = ImGui.ColorConvertFloat4ToU32(baseColor);
             draw.AddText(font, size, pos + shadowOffset, shadow, item.Text);
@@ -386,12 +384,10 @@ public sealed partial class GameLoop
                 size = (30f + 30f * grow - 30f * shrink) * uiScale;
             }
 
-            float laneX = (item.Lane - 2) * 18f * uiScale;
-            float rise = item.Critical ? 0f : item.Age / 1.9f * 225f * uiScale;
             Vector2 extent = ImGui.CalcTextSize(item.Text);
             float width = extent.X * size / MathF.Max(ImGui.GetFontSize(), 1f);
-            Vector2 pos = new(display.X * 0.5f + laneX - width * 0.5f,
-                              display.Y * 0.5f + 110f * uiScale - rise);
+            Vector2 pos = CombatTextStateUiLaw.CenterTextPosition(
+                display, uiScale, width, item.Lane, item.Age, item.Critical);
             Vector4 baseColor = item.Style switch
             {
                 CenterCombatTextStyle.Heal => new Vector4(0.10f, 1f, 0.10f, alpha),
@@ -400,7 +396,8 @@ public sealed partial class GameLoop
                 _ => new Vector4(1f, 0.12f, 0.08f, alpha),
             };
             uint shadow = ImGui.ColorConvertFloat4ToU32(new Vector4(0, 0, 0, alpha * 0.6f));
-            draw.AddText(font, size, pos + new Vector2(2, 2) * uiScale, shadow, item.Text);
+            draw.AddText(font, size, pos + CombatTextStateUiLaw.CenterShadow(uiScale),
+                shadow, item.Text);
             draw.AddText(font, size, pos, ImGui.ColorConvertFloat4ToU32(baseColor), item.Text);
         }
     }

@@ -22,7 +22,9 @@ public readonly record struct AudioPlayRequest(
     bool StartWhenSilent = false,
     /// <summary>Log the start. The long-lived world beds are worth a line each;
     /// a combat cue firing ten times a second is not.</summary>
-    bool Announce = false);
+    bool Announce = false,
+    /// <summary>Stereo balance, -1 left through 0 center to +1 right.</summary>
+    float Pan = 0f);
 
 /// <summary>
 /// THE AUDIO DEVICE, and nothing else: one MCI/DirectShow backend, one worker
@@ -127,7 +129,8 @@ public sealed class AudioMixer : IDisposable
     /// open - measured, in a raid, with two voices live. Collapsed here, a fade of
     /// any length costs one setaudio per voice per worker drain.
     /// </summary>
-    private readonly ConcurrentDictionary<long, int> _pendingVolume = new();
+    private readonly record struct PendingMix(int Volume, int? Pan);
+    private readonly ConcurrentDictionary<long, PendingMix> _pendingVolume = new();
     private int _volumeDrainQueued;
 
     private double _lastPollSeconds;
@@ -240,8 +243,9 @@ public sealed class AudioMixer : IDisposable
         float gain = request.Gain;
         bool looping = request.Looping;
         bool announce = request.Announce;
+        float pan = request.Pan;
         Task<PreparedSource> fileTask = PrepareFile(voiceId, path);
-        Enqueue(() => PlayOnWorker(voiceId, path, fileTask, looping, gain, category, announce));
+        Enqueue(() => PlayOnWorker(voiceId, path, fileTask, looping, gain, pan, category, announce));
         return voiceId;
     }
 
@@ -257,15 +261,23 @@ public sealed class AudioMixer : IDisposable
     public void SetVoiceGain(long voiceId, float gain)
     {
         if (voiceId == 0) return;
-        QueueVolume(voiceId, (int)Math.Clamp(gain * 1000f, 0, 1000));
+        QueueVolume(voiceId, (int)Math.Clamp(gain * 1000f, 0, 1000), pan: null);
+    }
+
+    /// <summary>Set one positional voice's absolute gain and stereo balance atomically.</summary>
+    public void SetVoiceGainPan(long voiceId, float gain, float pan)
+    {
+        if (voiceId == 0) return;
+        QueueVolume(voiceId, (int)Math.Clamp(gain * 1000f, 0, 1000),
+            (int)Math.Clamp(pan * 1000f, -1000f, 1000f));
     }
 
     /// <summary>Record the wanted volume and make sure exactly one drain job is
     /// pending. Callable from the game thread at frame rate without growing the
     /// queue by a frame's worth of work each time.</summary>
-    private void QueueVolume(long voiceId, int volume)
+    private void QueueVolume(long voiceId, int volume, int? pan)
     {
-        _pendingVolume[voiceId] = volume;
+        _pendingVolume[voiceId] = new PendingMix(volume, pan);
         if (Interlocked.Exchange(ref _volumeDrainQueued, 1) == 0)
             Enqueue(ApplyPendingVolumes);
     }
@@ -280,8 +292,10 @@ public sealed class AudioMixer : IDisposable
         Interlocked.Exchange(ref _volumeDrainQueued, 0);
         foreach (long id in _pendingVolume.Keys.ToArray())
         {
-            if (!_pendingVolume.TryRemove(id, out int volume)) continue;
-            if (_voices.TryGetValue(id, out Voice? voice)) voice.Pcm.SetGain(volume / 1000f);
+            if (!_pendingVolume.TryRemove(id, out PendingMix mix)) continue;
+            if (!_voices.TryGetValue(id, out Voice? voice)) continue;
+            if (mix.Pan is int pan) voice.Pcm.SetMix(mix.Volume / 1000f, pan / 1000f);
+            else voice.Pcm.SetGain(mix.Volume / 1000f);
         }
     }
 
@@ -391,7 +405,7 @@ public sealed class AudioMixer : IDisposable
         });
 
     private void PlayOnWorker(long voiceId, string path, Task<PreparedSource> fileTask,
-        bool looping, float gain, string category, bool announce)
+        bool looping, float gain, float pan, string category, bool announce)
     {
         // Stopped before it ever started: do not open a device for a dead voice.
         if (!_live.ContainsKey(voiceId)) return;
@@ -416,7 +430,7 @@ public sealed class AudioMixer : IDisposable
             return;
         }
 
-        if (WaveOutVoice.Open(pcmBytes, looping, gain) is not { } voice)
+        if (WaveOutVoice.Open(pcmBytes, looping, gain, pan) is not { } voice)
         {
             Console.WriteLine($"[audio] waveOut refused '{path}' ({category})");
             _live.TryRemove(voiceId, out _);

@@ -9,6 +9,8 @@ namespace MSUIClient.Engine.UI;
 /// </summary>
 public static class GroupLootFrameUiLaw
 {
+    public enum IconClickAction { None, DressUp, InsertChat }
+
     public const float Width = 243f;
     public const float Height = 84f;
     public const float StackGap = 15f;
@@ -27,6 +29,7 @@ public static class GroupLootFrameUiLaw
     public const string ConfirmText = "Looting this item will bind it to you.";
     public const string AcceptText = "Okay";
     public const string CancelText = "Cancel";
+    public const string NameFont = "GameFontNormalSmall";
 
     public const string EmptySlotPath = @"Interface\Buttons\UI-EmptySlot";
     public const string NamePlatePath = @"Interface\MerchantFrame\UI-Merchant-LabelSlots";
@@ -45,7 +48,25 @@ public static class GroupLootFrameUiLaw
     public const string TimerFillPath = @"Interface\PaperDollInfoFrame\UI-Character-Skills-Bar";
     public const string TimerBorderPath = @"Interface\PaperDollInfoFrame\UI-Character-Skills-BarBorder";
 
+    public static readonly Vector2 FrameLogicalSize = new(Width, Height);
+    public static readonly Vector2 ItemPlateLogicalSize = new(ItemPlateSize, ItemPlateSize);
+    public static readonly Vector2 NamePlateSize = new(128, 64);
+    public static readonly Vector2 DragonSize = new(120, 120);
+    public static readonly Vector2 CornerSize = new(32, 32);
+    public static readonly Vector2 IconLogicalSize = new(IconSize, IconSize);
+    public static readonly Vector2 VoteButtonLogicalSize = new(VoteButtonSize, VoteButtonSize);
+    public static readonly Vector2 TimerBorderLogicalSize =
+        new(TimerBorderWidth, TimerBorderHeight);
+    public static readonly Vector2 ConfirmButtonSize =
+        new(ConfirmButtonWidth, ConfirmButtonHeight);
+    public static readonly Vector2 ConfirmButtonUvMax = new(1, .625f);
+
     public readonly record struct ScreenRect(Vector2 Min, Vector2 Size);
+    public readonly record struct TooltipSeat(Vector2 Anchor, Vector2 Pivot);
+
+    // Icon and Pass/Need/Greed OnEnter handlers all use ANCHOR_RIGHT.
+    public static TooltipSeat RightTooltipSeat(Vector2 ownerMin, Vector2 ownerSize) =>
+        new(ownerMin + new Vector2(ownerSize.X, 0), new Vector2(0, 1));
 
     public static ScreenRect FrameRect(Vector2 displayPixels, float scale, int frameIndex,
         in UiParentManagedState managed)
@@ -73,6 +94,40 @@ public static class GroupLootFrameUiLaw
     public static Vector2 TimerMin => new(16, 57);
     public static Vector2 TimerBorderMin => new(14, 52);
 
+    public static Vector2 TimerFillSize(float ratio, float scale) =>
+        new(TimerWidth * Math.Clamp(ratio, 0, 1) * scale, TimerHeight * scale);
+
+    public static Vector2 TimerFillUvMax(float ratio) =>
+        new(Math.Clamp(ratio, 0, 1), 1);
+
+    public static IReadOnlyList<string> WrapItemName(string? text, float width,
+        int maximumLines, Func<string, float> measure)
+    {
+        if (string.IsNullOrWhiteSpace(text) || width <= 0 || maximumLines <= 0) return [];
+        var lines = new List<string>();
+        string current = "";
+        foreach (string word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            string candidate = current.Length == 0 ? word : current + " " + word;
+            if (current.Length > 0 && measure(candidate) > width)
+            {
+                lines.Add(current);
+                if (lines.Count == maximumLines) return lines;
+                current = word;
+            }
+            else current = candidate;
+        }
+        if (current.Length > 0 && lines.Count < maximumLines) lines.Add(current);
+        return lines;
+    }
+
+    public static Vector2 NameLineMin(Vector2 frameMin, float scale, int line,
+        int lineCount, float pitch) => new(
+        frameMin.X + NameMin.X * scale,
+        frameMin.Y + NameMin.Y * scale +
+            Math.Max(0, NameSize.Y * scale - Math.Max(0, lineCount) * pitch) * .5f +
+            Math.Max(0, line) * pitch);
+
     public static Vector4 QualityColor(uint quality) => quality switch
     {
         0 => new(.62f, .62f, .62f, 1),
@@ -83,6 +138,18 @@ public static class GroupLootFrameUiLaw
         6 => new(.9f, .8f, .5f, 1),
         _ => Vector4.One,
     };
+
+    public static string ItemLink(uint itemId, string name, uint quality) =>
+        UiTextMarkupLaw.ItemLink(itemId, name, quality);
+
+    public static IconClickAction IconAction(bool clicked, bool control, bool shift,
+        bool chatOpen, bool linkAvailable)
+    {
+        if (!clicked || !linkAvailable) return IconClickAction.None;
+        if (control) return IconClickAction.DressUp;
+        if (shift && chatOpen) return IconClickAction.InsertChat;
+        return IconClickAction.None;
+    }
 
     public static ScreenRect ConfirmRect(Vector2 displayPixels, float scale, float textHeight)
     {

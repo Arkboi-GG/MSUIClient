@@ -42,20 +42,20 @@ public sealed partial class GameLoop
         EnsureBindingsLoaded();
         _bindingSnapshot ??= new Dictionary<GameBinding, BindingPair>(_bindings);
         float s = GameplayUiScale();
-        if (!BeginVanillaWindow("##keybindings", new Vector2(0, KeyBindingsUiLaw.FrameTop),
+        if (!BeginVanillaWindow("##keybindings", KeyBindingsUiLaw.WindowMinimum,
                 KeyBindingsUiLaw.FrameSize, out ImDrawListPtr dl,
                 out Vector2 origin, out s)) return;
 
         foreach (KeyBindingsUiLaw.ArtSlice piece in KeyBindingsUiLaw.Art)
             DrawArt(dl, piece.Path, origin + piece.Offset * s, piece.Size, s);
-        DrawCenteredText(dl, origin + KeyBindingsUiLaw.TitleCenter * s,
-            "Key Bindings", 14 * s, VanillaGold);
-        dl.AddText(ImGui.GetFont(), 11f * s, origin + KeyBindingsUiLaw.CommandTitle * s,
-            VanillaGold, "Command");
-        DrawCenteredText(dl, origin + KeyBindingsUiLaw.KeyOneCenter * s,
-            "Key 1", 11f * s, VanillaGold);
-        DrawCenteredText(dl, origin + KeyBindingsUiLaw.KeyTwoCenter * s,
-            "Key 2", 11f * s, VanillaGold);
+        GameText.DrawCentered(dl, KeyBindingsUiLaw.TitleFont, "Key Bindings",
+            origin + KeyBindingsUiLaw.TitleCenter * s, s);
+        GameText.Draw(dl, KeyBindingsUiLaw.ColumnHeaderFont, "Command",
+            origin + KeyBindingsUiLaw.CommandTitle * s, s);
+        GameText.DrawCentered(dl, KeyBindingsUiLaw.ColumnHeaderFont, "Key 1",
+            origin + KeyBindingsUiLaw.KeyOneCenter * s, s);
+        GameText.DrawCentered(dl, KeyBindingsUiLaw.ColumnHeaderFont, "Key 2",
+            origin + KeyBindingsUiLaw.KeyTwoCenter * s, s);
 
         KeyBindingsUiLaw.Rect search = KeyBindingsUiLaw.Search;
         if (VanillaInputText(dl, "##binding-search", _bindingSearch,
@@ -63,7 +63,7 @@ public sealed partial class GameLoop
             _bindingScroll = 0;
         if (ReadBuffer(_bindingSearch).Length == 0 && !ImGui.IsItemActive())
             GameText.Draw(dl, "GameFontDisableSmall", "Search",
-                origin + (search.Min + new Vector2(7, 5)) * s, s);
+                origin + (search.Min + KeyBindingsUiLaw.SearchPlaceholderOffset) * s, s);
 
         var visibleRows = new List<(bool Header, string Category, GameBinding Binding, string Label)>();
         string query = ReadBuffer(_bindingSearch).Trim();
@@ -90,14 +90,13 @@ public sealed partial class GameLoop
              i + _bindingScroll < visibleRows.Count; i++)
         {
             var row = visibleRows[i + _bindingScroll];
-            Vector2 rowMin = origin + (KeyBindingsUiLaw.Rows.Min +
-                new Vector2(0, i * KeyBindingsUiLaw.RowPitch)) * s;
+            Vector2 rowMin = origin + KeyBindingsUiLaw.RowMinimum(i) * s;
             if (row.Header)
             {
                 ImGui.SetCursorScreenPos(rowMin);
                 ImGui.InvisibleButton($"##binding-category-{row.Category}",
-                    new Vector2(KeyBindingsUiLaw.Rows.Width,
-                        KeyBindingsUiLaw.RowPitch) * s);
+                    KeyBindingsUiLaw.RowHitSize * s);
+                bool headerHovered = ImGui.IsItemHovered();
                 if (query.Length == 0 && ImGui.IsItemClicked(ImGuiMouseButton.Left) &&
                     !_collapsedBindingCategories.Add(row.Category))
                     _collapsedBindingCategories.Remove(row.Category);
@@ -112,14 +111,13 @@ public sealed partial class GameLoop
                     Vector2 glyphMin = rowMin + glyphRect.Min * s;
                     dl.AddImage((nint)glyph, glyphMin, glyphMin + glyphRect.Size * s);
                 }
-                dl.AddText(ImGui.GetFont(), 12f * s,
-                    rowMin + KeyBindingsUiLaw.HeaderTextOffset * s,
-                    VanillaGold, row.Label);
+                GameText.Draw(dl, headerHovered ? KeyBindingsUiLaw.CategoryHighlightFont :
+                    KeyBindingsUiLaw.CategoryFont, row.Label,
+                    rowMin + KeyBindingsUiLaw.HeaderTextOffset * s, s);
                 continue;
             }
-            dl.AddText(ImGui.GetFont(), 10f * s,
-                rowMin + KeyBindingsUiLaw.CommandTextOffset * s,
-                VanillaGold, row.Label);
+            GameText.Draw(dl, KeyBindingsUiLaw.CommandFont, row.Label,
+                rowMin + KeyBindingsUiLaw.CommandTextOffset * s, s);
             BindingPair pair = BoundKeys(row.Binding);
             DrawBindingKeyButton(dl, origin, s, rowMin, row.Binding, 1, pair.Primary);
             DrawBindingKeyButton(dl, origin, s, rowMin, row.Binding, 2, pair.Secondary);
@@ -211,7 +209,10 @@ public sealed partial class GameLoop
         Vector2 min = rowMin + keyRect.Min * s;
         bool capturing = _bindingCapture == binding && _bindingCaptureSlot == slot;
         string text = capturing ? "Press Key to Bind" : FriendlyChord(chord);
-        if (VanillaButton(dl, $"##bind-{binding}-{slot}", text, min, keyRect.Size, s))
+        if (VanillaButton(dl, $"##bind-{binding}-{slot}", text, min, keyRect.Size, s,
+                normalFont: KeyBindingsUiLaw.KeyNormalFont,
+                highlightFont: KeyBindingsUiLaw.KeyHighlightFont,
+                disabledFont: KeyBindingsUiLaw.KeyDisabledFont))
         {
             _bindingCapture = binding;
             _bindingCaptureSlot = slot;

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/fishing_line",
+  "title": "fishing line",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/fishing_line.rs",
+      "fileSha256": "0966310237bf38cab9290e53add7fe57cd64f7c76414e91fcdee92ce484b7512",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/World/Units/FishingLineLaw.cs",
+    "MSUIClient/World/Units/FishingLineRenderer.cs",
+    "MSUIClient/World/Units/AttachedItemRenderer.cs",
+    "MSUIClient/World/Units/CharacterRenderer.cs",
+    "MSUIClient/World/Units/CreatureRenderer.cs",
+    "MSUIClient/World/Doodads/DoodadRenderer.cs",
+    "MSUIClient/GameLoop/Combat/GameLoop.Targeting.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "MSUIClient/Program.cs",
+    "tools/interface-wire-check/FishingLineClinicalChecks.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI now draws current Benilla's engine fishing line for every rendered local or observed unit whose held mainhand prop authors the $CCH marker while that unit channels at a streamed type-17 FISHINGNODE. The near endpoint follows the prop's current hand attachment frame; the far endpoint is the bobber placement base plus half its scaled authored bounding-box height. The opaque, depth-tested, unlit strip has exactly 65 vertices and the fixed 0.5-world-unit half-sine sag. Focused clinical and solution builds pass; a live fishing scene remains the visual acceptance step.",
+  "openItems": [
+    {
+      "id": "verify-fishing-line-live-20260823",
+      "kind": "verify",
+      "text": "In a live desktop session, fish beside another visible fisher and confirm both local and observed lines follow the held $CCH rod tip, meet the bobber waterline center, sag by a fixed 0.5 world unit, depth-occlude against scene geometry, and disappear as soon as channel authority clears.",
+      "source": "benilla-b57ee0e9e2c8822b/fishing_line.rs",
+      "added": "2026-08-23",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-23T09:23:40.1101747Z",
+  "seededUtc": "2026-08-23T09:23:40.1101747Z"
+}

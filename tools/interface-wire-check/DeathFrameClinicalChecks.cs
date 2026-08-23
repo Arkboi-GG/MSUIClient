@@ -76,6 +76,9 @@ internal static class DeathFrameClinicalChecks
               ordinary.Size.X == 320 && alert.Min.X == 750 && alert.Size.X == 420 &&
               DeathFrameUiLaw.ButtonMin(1, 2, 320, 28).X == 26 &&
               DeathFrameUiLaw.ButtonMin(2, 2, 320, 28).X == 167 &&
+              DeathFrameUiLaw.AlertIconDimensions == new Vector2(64, 64) &&
+              DeathFrameUiLaw.ButtonSize(1.5f) == new Vector2(192, 30) &&
+              DeathFrameUiLaw.DialogButtonUvMax == new Vector2(1, .625f) &&
               !DeathFrameUiLaw.HideOnEscape(DeathDialogKind.Release) &&
               !DeathFrameUiLaw.HideOnEscape(DeathDialogKind.RecoverCorpse) &&
               DeathFrameUiLaw.HideOnEscape(DeathDialogKind.Resurrect) &&
@@ -111,6 +114,8 @@ internal static class DeathFrameClinicalChecks
               runtime.Contains("DeathPackets.ParseResurrectRequest", StringComparison.Ordinal) &&
               runtime.Contains("DeathFrameUiLaw.PopupRect", StringComparison.Ordinal) &&
               runtime.Contains("DeathFrameUiLaw.ButtonMin", StringComparison.Ordinal) &&
+              runtime.Contains("DeathFrameUiLaw.ButtonSize", StringComparison.Ordinal) &&
+              !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               runtime.Contains("_xpLossStage = 2", StringComparison.Ordinal) &&
               runtime.Contains("TryDismissDeathConfirmationOnEscape", StringComparison.Ordinal) &&
               !runtime.Contains("BeginVanillaWindow", StringComparison.Ordinal) &&

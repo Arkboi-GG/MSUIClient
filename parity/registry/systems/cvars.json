@@ -7,21 +7,22 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/cvars.rs",
-      "fileSha256": "2213e7468982ce485de45f071382193e9003daa5bb48d3a92c40d5e26b072ac8",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "0b92daf9ef225480a1b8255f2e68bcc8e38cfcfe599d6abe5550a8d5ce6fd66d",
+      "snapshotId": "benilla-current-2026-08-23"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Engine/GameSettings.cs",
-    "MSUIClient/Program.Settings.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Settings.cs",
+    "MSUIClient/Engine/CameraFollowLaw.cs",
     "MSUIClient/ClientConfig.cs"
   ],
   "status": "support-only",
-  "summary": "Benilla's cvars.rs is host plumbing: a registered CVar table bridging engine knobs to the Lua GetCVar/SetCVar API, config.toml diff-persistence, and env overrides. MSUI has no Lua VM to serve, and its settings knobs (sound volumes/enables, UI scale, farclip/view distance, name toggles, world detail, auto-loot, etc.) live in its own typed settings system with its own persistence - the player-observable effect (options that stick across sessions) is achieved through MSUI's architecture.",
+  "summary": "Benilla's cvars.rs is host plumbing: a registered CVar table bridging engine knobs to the Lua GetCVar/SetCVar API, config.toml diff-persistence, and env overrides. MSUI has no Lua VM to serve, and its settings knobs (sound volumes/enables, UI scale, farclip/view distance, name toggles, world detail, auto-loot, etc.) live in its own typed settings system with its own persistence - the player-observable effect (options that stick across sessions) is achieved through MSUI's architecture. Current cameraSmoothStyle, cameraSmoothTrackingStyle and cameraYawSmoothSpeed are now represented by typed, persisted ControlSettings and consumed by CameraFollowLaw; only the reference-visible style has an Options row, matching current Benilla.",
   "openItems": [],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T13:56:40Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

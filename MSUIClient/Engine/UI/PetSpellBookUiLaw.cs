@@ -8,7 +8,13 @@ namespace MSUIClient.Engine.UI;
 /// </summary>
 public static class PetSpellBookUiLaw
 {
-    public readonly record struct LogicalRect(float X, float Y, float Width, float Height);
+    public readonly record struct LogicalRect(float X, float Y, float Width, float Height)
+    {
+        public Vector2 Min => new(X, Y);
+        public Vector2 Size => new(Width, Height);
+        public Vector2 ScaledMin(Vector2 origin, float scale) => origin + Min * scale;
+        public Vector2 ScaledSize(float scale) => Size * scale;
+    }
 
     public const int SpellsPerPage = 12;
     public const uint SpellActionKind = 0x0100_0000u;

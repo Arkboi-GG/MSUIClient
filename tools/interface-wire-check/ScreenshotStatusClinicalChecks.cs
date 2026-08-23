@@ -11,6 +11,8 @@ internal static class ScreenshotStatusClinicalChecks
               ScreenshotStatusUiLaw.FadeSeconds == 1.5f &&
               ScreenshotStatusUiLaw.TextCenter(new Vector2(1920, 1080)) ==
                   new Vector2(960, 540) &&
+              ScreenshotStatusUiLaw.TextMinimum(new Vector2(1920, 1080), 200, 20) ==
+                  new Vector2(860, 530) &&
               ScreenshotStatusUiLaw.Alpha(0) == 1f &&
               ScreenshotStatusUiLaw.Alpha(.75) == .5f &&
               ScreenshotStatusUiLaw.Alpha(1.5) == 0f &&
@@ -38,6 +40,8 @@ internal static class ScreenshotStatusClinicalChecks
               status.Contains("Directory.CreateDirectory(directory);", StringComparison.Ordinal) &&
               status.Contains("TrySaveGameplayScreenshot(path)", StringComparison.Ordinal) &&
               status.Contains("ImGui.GetForegroundDrawList()", StringComparison.Ordinal) &&
+              status.Contains("ScreenshotStatusUiLaw.TextMinimum", StringComparison.Ordinal) &&
+              !status.Contains("new Vector2", StringComparison.Ordinal) &&
               status.Contains("InputKeyDown(Silk.NET.Input.Key.PrintScreen)",
                   StringComparison.Ordinal) &&
               status.Contains("_config.Server.Enabled && _net?.State != Net.NetState.InWorld",

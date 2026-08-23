@@ -20,7 +20,7 @@
     "tools/interface-wire-check/QuestTimerFrameClinicalChecks.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI now implements current Benilla's separate timed-quest window: live server-clock subtraction with the byte-verified minus-one bias, failed/untimed/expired filtering, log-order rows, exact SecondsToTime spelling, 160px dialog and header art, 45 + 16*n height, twenty exact row seats, hover quest title, click-to-open/select, and the managed quest-timer to durability to quest-watch stack. Deterministic geometry and production-wiring checks pass; a live timed quest and pixel comparison remain open.",
+  "summary": "MSUI now implements current Benilla's separate timed-quest window: live server-clock subtraction with the byte-verified minus-one bias, failed/untimed/expired filtering, log-order rows, exact SecondsToTime spelling, 160px dialog and header art, 45 + 16*n height, twenty exact row seats with top-anchored GameFontHighlightSmall countdowns, hover quest title, click-to-open/select, and the managed quest-timer to durability to quest-watch stack. QuestTimerFrameUiLaw owns the frame, font identities, row screen rectangles and text anchors; the renderer contains no local Vector2 geometry. Focused and full deterministic checks pass; a live timed quest and pixel comparison remain open.",
   "openItems": [
     {
       "id": "item-msui-questtimer-live-verify",
@@ -29,11 +29,20 @@
       "source": "implementation-2026-08-21",
       "added": "2026-08-21",
       "resolved": false
+    },
+    {
+      "id": "item-questtimer-row-text-seat-visual-gap-20260823",
+      "kind": "gap",
+      "text": "QuestTimer countdown text was vertically centered within each 16px row, while the current template TOP-anchors its GameFontHighlightSmall FontString at the row top.",
+      "source": "benilla-b57ee0e9e2c8822b/QuestTimerFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "QuestTimerFrameUiLaw now owns the title/row font identities and converts the authored row-top anchor to GameText's center point using the measured em. Focused QuestTimer and full desktop clinical suites pass without changing Quest Log presentation or timer behavior."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-21T00:00:00+00:00",
+  "lastReviewedUtc": "2026-08-23T16:42:00Z",
   "seededUtc": "2026-08-21T00:00:00+00:00"
 }

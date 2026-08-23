@@ -233,9 +233,8 @@ public sealed partial class GameLoop
         _worldMapOpen = false;
         if (_macroOpen) CloseMacros();
         _helpOpen = false;
-        _socialOpen = false;
-        _guildOpen = false;
-        _professionOpen = false;
+        CloseFriendsFrame();
+        CloseProfessionFrame();
         CloseBankSession(playSound: true);
         _tabardOpen = false;
         if (_taxiOpen && !_taxiLocked) CloseTaxiMap(playSound: true);
@@ -448,7 +447,7 @@ public sealed partial class GameLoop
         _keybindingsOpen || _macroOpen || _guildOpen || _auctionOpen || _mailOpen ||
         _professionOpen || _talentOpen || _tradeOpen || _bankOpen || _trainer is not null ||
         _taxiOpen || _vendor is not null || _gossipMenu is not null || _deathRezOpen ||
-        _hearthOpen || _tabardOpen || _loot.IsOpen || _itemTextRead is not null;
+        _tabardOpen || _loot.IsOpen || _itemTextRead is not null;
 
     private string ExpandQuestText(string text)
     {
@@ -733,7 +732,7 @@ public sealed partial class GameLoop
         bool logMode = _questLogOpen;
         float s=GameplayUiScale();
         Vector2 origin = UiPanelFrameOrigin(UiPanelOwnershipRegistry[logMode ? 8 : 7], s);
-        Vector2 logicalSize=new(QuestFrameUiLaw.Width, QuestFrameUiLaw.Height);
+        Vector2 logicalSize = QuestFrameUiLaw.FrameRect.Size;
         ImGui.SetNextWindowPos(origin,ImGuiCond.Always); ImGui.SetNextWindowSize(QuestFrameUiLaw.WindowSize(s),ImGuiCond.Always); ImGui.SetNextWindowBgAlpha(0);
         if (!ImGui.Begin("##quest", ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
         ImDrawListPtr dl=ImGui.GetWindowDrawList();
@@ -760,10 +759,11 @@ public sealed partial class GameLoop
         }
         if (!logMode && _entities.TryGet(QuestGiverGuid(), out WorldEntity giver))
         {
-            Vector2 portraitMin = origin + new Vector2(7, 6) * s;
-            DrawUnitPortraitImage(dl, giver, portraitMin, 60 * s, 0, false);
+            Vector2 portraitMin = QuestFrameUiLaw.NpcPortraitRect.ScaledMin(origin, s);
+            DrawUnitPortraitImage(dl, giver, portraitMin,
+                QuestFrameUiLaw.NpcPortraitRect.Width * s, 0, false);
             if (parityProof) CollectUiParityDraw("BenillaQuestFramePortrait", "Texture", portraitMin,
-                new Vector2(60) * s, frameName,
+                QuestFrameUiLaw.NpcPortraitRect.ScaledSize(s), frameName,
                 new("", 0xffffffff, "ARTWORK", "TOPLEFT", frameName, "TOPLEFT", 7, -6,
                     ContentRect: new(portraitMin.X, portraitMin.Y,
                         portraitMin.X + 60 * s, portraitMin.Y + 60 * s),
@@ -775,39 +775,54 @@ public sealed partial class GameLoop
             ClassifyUiParity("BenillaQuestFramePortrait", "Texture", frameName,
                 "NOT-DRAWN", GuidInfo.IsItem(QuestGiverGuid())
                     ? "item-giver-has-no-unit-portrait" : "quest-giver-entity-is-unavailable");
-        string stem = logMode ? "UI-QuestLog" : "UI-QuestGreeting";
-        var art = new List<(string Element,string Path,Vector2 Offset,Vector2 Size)>();
-        if (logMode) art.Add(("QuestLogFrame/Texture",@"Interface\QuestFrame\UI-QuestLog-BookIcon",new(4,4),new(64,64)));
-        art.AddRange([
-            (logMode?"QuestLogFrame/Texture#2":npcPanelName+"/Texture",$@"Interface\QuestFrame\{stem}-TopLeft",Vector2.Zero,new(256,256)),
-            (logMode?"QuestLogFrame/Texture#3":npcPanelName+"/Texture#2",$@"Interface\QuestFrame\{stem}-TopRight",new(256,0),new(128,256)),
-            (logMode?"QuestLogFrame/Texture#4":npcPanelName+"/Texture#3",$@"Interface\QuestFrame\{stem}-BotLeft",new(0,256),new(256,256)),
-            (logMode?"QuestLogFrame/Texture#5":npcPanelName+"/Texture#4",$@"Interface\QuestFrame\{stem}-BotRight",new(256,256),new(128,256))]);
-        if (!logMode && npcPanel == QuestNpcPanel.Greeting)
-            art.Add((npcPanelName+"/Texture#5",
-                @"Interface\QuestFrame\UI-Quest-BotLeftPatch", new(22, 380), new(128, 64)));
-        foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(parityProof)CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,logMode?frameName:npcPanelName,new(r.Path,0xffffffff,r.Path.EndsWith("UI-Quest-BotLeftPatch",StringComparison.OrdinalIgnoreCase)?"ARTWORK":"BACKGROUND","TOPLEFT",logMode?frameName:npcPanelName,"TOPLEFT",r.Offset.X,-r.Offset.Y,ContentRect:new(m.X,m.Y,m.X+r.Size.X*s,m.Y+r.Size.Y*s),ClipRect:new(origin.X,origin.Y,origin.X+logicalSize.X*s,origin.Y+logicalSize.Y*s),ClipMask:logMode?frameName:npcPanelName,BlendMode:"BLEND",Strata:"DIALOG"));}
+        IReadOnlyList<QuestFrameArtSeat> art = QuestFrameUiLaw.PanelArt(
+            logMode, npcPanel == QuestNpcPanel.Greeting);
+        for (int index = 0; index < art.Count; index++)
+        {
+            QuestFrameArtSeat seat = art[index];
+            string element = logMode
+                ? index == 0 ? "QuestLogFrame/Texture" : $"QuestLogFrame/Texture#{index + 1}"
+                : index == 0 ? npcPanelName + "/Texture" : $"{npcPanelName}/Texture#{index + 1}";
+            Vector2 minimum = seat.Rect.ScaledMin(origin, s);
+            DrawArt(dl, seat.Path, minimum, seat.Rect.Size, s);
+            if (parityProof)
+                CollectUiParityDraw(element, "Texture", minimum, seat.Rect.ScaledSize(s),
+                    logMode ? frameName : npcPanelName,
+                    new(seat.Path, 0xffffffff,
+                        seat.Path.EndsWith("UI-Quest-BotLeftPatch",
+                            StringComparison.OrdinalIgnoreCase) ? "ARTWORK" : "BACKGROUND",
+                        "TOPLEFT", logMode ? frameName : npcPanelName, "TOPLEFT",
+                        seat.Rect.X, -seat.Rect.Y,
+                        ContentRect:new(minimum.X, minimum.Y,
+                            minimum.X + seat.Rect.Width * s, minimum.Y + seat.Rect.Height * s),
+                        ClipRect:new(origin.X, origin.Y, origin.X + logicalSize.X * s,
+                            origin.Y + logicalSize.Y * s),
+                        ClipMask:logMode ? frameName : npcPanelName,
+                        BlendMode:"BLEND", Strata:"DIALOG"));
+        }
         if (!logMode)
         {
             ulong guid = QuestGiverGuid();
             string name = GuidInfo.IsItem(guid) ? "" : _entities.TryGet(guid, out WorldEntity namedGiver)
                 ? _creatureNames.GetValueOrDefault(namedGiver.Entry, "") : "";
-            Vector2 nameCenter = origin + new Vector2(192, 30) * s;
-            DrawNpcModalTitle(dl, name, nameCenter, s);
+            Vector2 nameCenter = origin + QuestFrameUiLaw.NpcNameCenter * s;
+            GameText.DrawCentered(dl, QuestFrameUiLaw.NpcNameFont, name, nameCenter, s);
             if (parityProof)
             {
-                Vector2 nameFrameMin = origin + new Vector2(42, 16) * s;
+                Vector2 nameFrameMin = QuestFrameUiLaw.NpcNameFrameRect.ScaledMin(origin, s);
                 CollectUiParityDraw("BenillaQuestNpcNameFrame", "Frame", nameFrameMin,
-                    new Vector2(300, 14) * s, frameName,
+                    QuestFrameUiLaw.NpcNameFrameRect.ScaledSize(s), frameName,
                     new("", 0, "FRAMES", "TOP", frameName, "TOP", 0, -23,
                         ClipRect:new(origin.X,origin.Y,origin.X+384*s,origin.Y+512*s),
                         ClipMask:frameName, Strata:"DIALOG"));
                 CollectUiParityDraw("BenillaQuestNpcNameText", "FontString",
-                    origin + new Vector2(74.5f, 20) * s, new Vector2(235, 20) * s,
-                    "BenillaQuestNpcNameFrame", new("", FontObjectLaw.Get("GameFontNormal").Color,
+                    QuestFrameUiLaw.NpcNameTextRect.ScaledMin(origin, s),
+                    QuestFrameUiLaw.NpcNameTextRect.ScaledSize(s),
+                    "BenillaQuestNpcNameFrame", new("", FontObjectLaw.Get(
+                            QuestFrameUiLaw.NpcNameFont).Color,
                         "BACKGROUND", "CENTER", "BenillaQuestNpcNameFrame", "CENTER", 0, 0,
-                        FontObjectLaw.Get("GameFontNormal").Face,
-                        FontObjectLaw.Get("GameFontNormal").Height,
+                        FontObjectLaw.Get(QuestFrameUiLaw.NpcNameFont).Face,
+                        FontObjectLaw.Get(QuestFrameUiLaw.NpcNameFont).Height,
                         ClipRect:new(origin.X,origin.Y,origin.X+384*s,origin.Y+512*s),
                         ClipMask:"BenillaQuestNpcNameFrame", Strata:"DIALOG"));
             }
@@ -816,11 +831,9 @@ public sealed partial class GameLoop
             DrawQuestLogContent(dl, origin, s, player);
         else
             DrawQuestNpcContent(dl, origin, s);
-        Vector2 close=origin+(logMode
-            ? new Vector2(QuestFrameUiLaw.QuestLogCloseRect.X,
-                QuestFrameUiLaw.QuestLogCloseRect.Y)
-            : QuestFrameUiLaw.CloseMin)*s;
-        DrawImageButton(dl,"##quest-close",close,new Vector2(32)*s,
+        QuestLogicalRect closeRect = QuestFrameUiLaw.CloseRect(logMode);
+        Vector2 close = closeRect.ScaledMin(origin, s);
+        DrawImageButton(dl,"##quest-close",close, closeRect.ScaledSize(s),
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         bool closeHovered = ImGui.IsItemHovered();
@@ -829,7 +842,7 @@ public sealed partial class GameLoop
         if (parityProof)
         {
             string closeElement = logMode ? "QuestLogFrameCloseButton" : "BenillaQuestCloseButton";
-            Vector2 closeSize = new Vector2(32) * s;
+            Vector2 closeSize = closeRect.ScaledSize(s);
             Vector4 clip = new(origin.X,origin.Y,origin.X+logicalSize.X*s,origin.Y+logicalSize.Y*s);
             CollectUiParityDraw(closeElement, "Button", close, closeSize, frameName,
                 new("", 0, "FRAMES", "CENTER", frameName,
@@ -894,25 +907,25 @@ public sealed partial class GameLoop
         if (_questLogSelectedQuestId == 0 || !rows.Any(r => !r.IsHeader && r.QuestId == _questLogSelectedQuestId))
             _questLogSelectedQuestId = rows.FirstOrDefault(r => !r.IsHeader).QuestId;
         _questLogOffset = QuestFrameUiLaw.ClampQuestLogOffset(_questLogOffset, rows.Count);
-        Vector2 listMin = origin + new Vector2(QuestFrameUiLaw.QuestLogListX,
-            QuestFrameUiLaw.QuestLogListY) * s;
-        Vector2 listMax = listMin + new Vector2(QuestFrameUiLaw.QuestLogListWidth,
-            QuestFrameUiLaw.QuestLogRows * QuestFrameUiLaw.QuestLogRowPitch + 1f) * s;
+        Vector2 listMin = QuestFrameUiLaw.QuestLogListRect.ScaledMin(origin, s);
+        Vector2 listMax = listMin + QuestFrameUiLaw.QuestLogListRect.ScaledSize(s);
         if (ImGui.IsMouseHoveringRect(listMin, listMax, false) && ImGui.GetIO().MouseWheel != 0f)
                 _questLogOffset = QuestFrameUiLaw.ClampQuestLogOffset(
                 _questLogOffset - Math.Sign(ImGui.GetIO().MouseWheel), rows.Count);
-        DrawCenteredText(dl, origin + new Vector2(192, 22) * s, "Quest Log", 12f * s, 0xffffffff);
+        DrawCenteredText(dl, origin + QuestFrameUiLaw.QuestLogTitleCenter * s,
+            "Quest Log", 12f * s, 0xffffffff);
         DrawQuestLogBookControls(dl, origin, s, quests.Length, groups);
         for (int row = 0; row < QuestFrameUiLaw.QuestLogRows; row++)
         {
             int index = _questLogOffset + row;
             if (index >= rows.Count) break;
             QuestLogDisplayRow display = rows[index];
-            Vector2 min = origin + QuestFrameUiLaw.QuestLogRowMin(row) * s;
+            QuestLogicalRect rowRect = QuestFrameUiLaw.QuestLogRowRect(row);
+            Vector2 min = rowRect.ScaledMin(origin, s);
             if (display.IsHeader)
             {
                 if (VanillaListRow(dl, $"##quest-log-header-{display.Header}", min,
-                        new Vector2(300, 16), s, "    " + display.Header, false, 0xffb3b3b3))
+                        rowRect.Size, s, "    " + display.Header, false, 0xffb3b3b3))
                 {
                     if (display.Collapsed) _questLogCollapsed.Remove(display.Header);
                     else _questLogCollapsed.Add(display.Header);
@@ -923,8 +936,9 @@ public sealed partial class GameLoop
                 uint fold = _gameplayArt?.Handle(foldArt) ?? 0;
                 if (fold != 0)
                 {
-                    Vector2 foldMin = origin + QuestFrameUiLaw.QuestLogFoldIconMin(row) * s;
-                    dl.AddImage((nint)fold, foldMin, foldMin + new Vector2(16) * s);
+                    QuestLogicalRect foldRect = QuestFrameUiLaw.QuestLogFoldIconRect(row);
+                    Vector2 foldMin = foldRect.ScaledMin(origin, s);
+                    dl.AddImage((nint)fold, foldMin, foldMin + foldRect.ScaledSize(s));
                 }
                 continue;
             }
@@ -937,7 +951,7 @@ public sealed partial class GameLoop
             uint level = _questTemplates.GetValueOrDefault(quest.QuestId)?.Level ?? player.Level;
             uint color = ImGui.ColorConvertFloat4ToU32(
                 QuestFrameUiLaw.QuestDifficultyColor(player.Level, level));
-            if (VanillaListRow(dl, $"##quest-log-{quest.QuestId}", min, new Vector2(300, 16), s,
+            if (VanillaListRow(dl, $"##quest-log-{quest.QuestId}", min, rowRect.Size, s,
                     "  " + title, _questLogSelectedQuestId == quest.QuestId, color))
             {
                 if (_questLogSelectedQuestId != quest.QuestId) _questLogDetailScroll = 0;
@@ -950,8 +964,9 @@ public sealed partial class GameLoop
                 if (check != 0)
                 {
                     float ink = GameText.MeasureWidth("GameFontNormal", "  " + title, s) / s;
-                    Vector2 checkMin = min + new Vector2(9f + ink, 0f) * s;
-                    dl.AddImage((nint)check, checkMin, checkMin + new Vector2(16f) * s);
+                    QuestLogicalRect checkRect = QuestFrameUiLaw.QuestLogWatchCheckRect(row, ink);
+                    Vector2 checkMin = checkRect.ScaledMin(origin, s);
+                    dl.AddImage((nint)check, checkMin, checkMin + checkRect.ScaledSize(s));
                 }
             }
         }
@@ -964,29 +979,25 @@ public sealed partial class GameLoop
             DrawQuestLogDetailScrollBar(dl, origin, s);
             if (VanillaButton(dl, "##quest-abandon", "Abandon Quest",
                     QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogAbandonRect),
-                    new Vector2(QuestFrameUiLaw.QuestLogAbandonRect.Width,
-                        QuestFrameUiLaw.QuestLogAbandonRect.Height), s))
+                    QuestFrameUiLaw.QuestLogAbandonRect.Size, s))
                 _questAbandonConfirmation = new(selected, title);
         }
         else VanillaButton(dl, "##quest-abandon", "Abandon Quest",
             QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogAbandonRect),
-            new Vector2(QuestFrameUiLaw.QuestLogAbandonRect.Width,
-                QuestFrameUiLaw.QuestLogAbandonRect.Height), s, false);
+            QuestFrameUiLaw.QuestLogAbandonRect.Size, s, false);
         VanillaButton(dl, "##quest-push", "Share Quest",
             QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogShareRect),
-            new Vector2(QuestFrameUiLaw.QuestLogShareRect.Width,
-                QuestFrameUiLaw.QuestLogShareRect.Height), s, false);
+            QuestFrameUiLaw.QuestLogShareRect.Size, s, false);
         if (VanillaButton(dl, "##quest-exit", "Exit",
                 QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogExitRect),
-                new Vector2(QuestFrameUiLaw.QuestLogExitRect.Width,
-                    QuestFrameUiLaw.QuestLogExitRect.Height), s)) _questLogOpen = false;
+                QuestFrameUiLaw.QuestLogExitRect.Size, s)) _questLogOpen = false;
     }
 
     private static Vector2 QuestRectMin(Vector2 origin, float scale, QuestLogicalRect rect) =>
-        origin + new Vector2(rect.X, rect.Y) * scale;
+        rect.ScaledMin(origin, scale);
 
     private static Vector2 QuestRectSize(float scale, QuestLogicalRect rect) =>
-        new(rect.Width * scale, rect.Height * scale);
+        rect.ScaledSize(scale);
 
     private void DrawQuestLogBookControls(ImDrawListPtr dl, Vector2 origin, float scale,
         int questCount, IReadOnlyList<QuestLogHeaderGroup> groups)
@@ -998,26 +1009,17 @@ public sealed partial class GameLoop
         QuestLogicalRect pill = QuestFrameUiLaw.QuestLogCountPillRect(
             labelWidth + 3f + valueWidth);
         Vector2 pillMin = QuestRectMin(origin, scale, pill);
-        DrawVanillaInputBorder(dl, pillMin, new Vector2(pill.Width, pill.Height), scale);
-        float textX = QuestFrameUiLaw.QuestLogCountRightRect.X +
-            QuestFrameUiLaw.QuestLogCountRightRect.Width - 6f - valueWidth - 3f - labelWidth;
-        Vector2 textMin = origin + new Vector2(textX, pill.Y + 4f) * scale;
+        DrawVanillaInputBorder(dl, pillMin, pill.Size, scale);
+        Vector2 logicalTextMin = QuestFrameUiLaw.QuestLogCountTextMin(
+            pill, labelWidth, valueWidth);
+        Vector2 textMin = origin + logicalTextMin * scale;
         GameText.Draw(dl, "GameFontNormalSmall", countLabel, textMin, scale);
         GameText.Draw(dl, "GameFontNormalSmall", countValue,
-            textMin + new Vector2(labelWidth + 3f, 0) * scale, scale, 0xffffffff);
+            origin + QuestFrameUiLaw.QuestLogCountValueMin(logicalTextMin, labelWidth) * scale,
+            scale, 0xffffffff);
 
-        (QuestLogicalRect Rect, string Path)[] tabPieces =
-        [
-            (QuestFrameUiLaw.QuestLogCollapseLeftRect,
-                @"Interface\QuestFrame\UI-QuestLogSortTab-Left"),
-            (QuestFrameUiLaw.QuestLogCollapseMiddleRect,
-                @"Interface\QuestFrame\UI-QuestLogSortTab-Middle"),
-            (QuestFrameUiLaw.QuestLogCollapseRightRect,
-                @"Interface\QuestFrame\UI-QuestLogSortTab-Right"),
-        ];
-        foreach ((QuestLogicalRect rect, string path) in tabPieces)
-            DrawArt(dl, path, QuestRectMin(origin, scale, rect),
-                new Vector2(rect.Width, rect.Height), scale);
+        foreach (QuestFrameArtSeat seat in QuestFrameUiLaw.QuestLogCollapseArt)
+            DrawArt(dl, seat.Path, seat.Rect.ScaledMin(origin, scale), seat.Rect.Size, scale);
 
         bool enabled = groups.Count > 0;
         bool allCollapsed = enabled && groups.All(group =>
@@ -1068,9 +1070,10 @@ public sealed partial class GameLoop
         if (radio != 0)
         {
             dl.AddImage((nint)radio, trackMin, trackMin + trackSize,
-                Vector2.Zero, new Vector2(.25f, 1f));
+                Vector2.Zero, QuestFrameUiLaw.QuestLogRadioBaseUvMax);
             dl.AddImage((nint)radio, trackMin, trackMin + trackSize,
-                new Vector2(.25f, 0), new Vector2(.5f, 1f),
+                QuestFrameUiLaw.QuestLogRadioCheckUvMin,
+                QuestFrameUiLaw.QuestLogRadioCheckUvMax,
                 _questWatches.Count > 0 ? 0xff00ff00 : 0xff0000ff);
         }
         QuestLogicalRect trackTitle = QuestFrameUiLaw.QuestLogTrackTitleRect;
@@ -1104,14 +1107,17 @@ public sealed partial class GameLoop
             string state = !enabled ? "Disabled" : active ? "Down" : "Up";
             uint art = _gameplayArt.Handle($@"Interface\Buttons\{stem}-{state}");
             if (art != 0)
-                dl.AddImage((nint)art, min, min + size, new Vector2(.25f), new Vector2(.75f));
+                dl.AddImage((nint)art, min, min + size,
+                    QuestFrameUiLaw.QuestLogScrollButtonUvMin,
+                    QuestFrameUiLaw.QuestLogScrollButtonUvMax);
             if (hovered)
             {
                 uint highlight = _gameplayArt.AdditiveHandle(
                     $@"Interface\Buttons\{stem}-Highlight");
                 if (highlight != 0)
                     dl.AddImage((nint)highlight, min, min + size,
-                        new Vector2(.25f), new Vector2(.75f));
+                        QuestFrameUiLaw.QuestLogScrollButtonUvMin,
+                        QuestFrameUiLaw.QuestLogScrollButtonUvMax);
             }
             if (clicked)
                 _questLogDetailScroll = QuestFrameUiLaw.ClampQuestLogDetailScroll(
@@ -1121,17 +1127,15 @@ public sealed partial class GameLoop
 
         Arrow("##quest-detail-up", QuestFrameUiLaw.QuestLogDetailScrollUpRect, true);
         Arrow("##quest-detail-down", QuestFrameUiLaw.QuestLogDetailScrollDownRect, false);
-        QuestLogicalRect thumb = new(QuestFrameUiLaw.QuestLogDetailScrollTrackRect.X,
-            QuestFrameUiLaw.QuestLogDetailThumbY(_questLogDetailScroll,
-                _questLogDetailContentHeight),
-            QuestFrameUiLaw.QuestLogDetailScrollTrackRect.Width,
-            QuestFrameUiLaw.ScrollThumbHeight);
+        QuestLogicalRect thumb = QuestFrameUiLaw.QuestLogDetailThumbRect(
+            _questLogDetailScroll, _questLogDetailContentHeight);
         uint knob = _gameplayArt.Handle(@"Interface\Buttons\UI-ScrollBar-Knob");
         if (knob != 0)
         {
             Vector2 min = QuestRectMin(origin, scale, thumb);
             dl.AddImage((nint)knob, min, min + QuestRectSize(scale, thumb),
-                new Vector2(.25f), new Vector2(.75f));
+                QuestFrameUiLaw.QuestLogScrollButtonUvMin,
+                QuestFrameUiLaw.QuestLogScrollButtonUvMax);
         }
     }
 
@@ -1167,32 +1171,38 @@ public sealed partial class GameLoop
         (byte Slot, uint QuestId, uint Counters, uint Timer) selectedSlot, string title)
     {
         QuestLogicalRect rect = QuestFrameUiLaw.QuestLogDetailRect;
-        Vector2 clipMin = origin + new Vector2(rect.X, rect.Y) * s;
-        Vector2 clipMax = clipMin + new Vector2(rect.Width, rect.Height) * s;
+        QuestScreenRect clip = QuestFrameUiLaw.QuestLogDetailClip(origin, s);
         _questLogDetailScroll = QuestFrameUiLaw.ClampQuestLogDetailScroll(
             _questLogDetailScroll, _questLogDetailContentHeight);
-        if (ImGui.IsMouseHoveringRect(clipMin, clipMax, false) && ImGui.GetIO().MouseWheel != 0)
+        if (ImGui.IsMouseHoveringRect(clip.Min, clip.Max, false) && ImGui.GetIO().MouseWheel != 0)
             _questLogDetailScroll = QuestFrameUiLaw.ClampQuestLogDetailScroll(
                 _questLogDetailScroll - ImGui.GetIO().MouseWheel * QuestFrameUiLaw.ScrollStep,
                 _questLogDetailContentHeight);
-        Vector2 contentOrigin = origin - new Vector2(0, _questLogDetailScroll) * s;
-        dl.PushClipRect(clipMin, clipMax, true);
-        dl.AddText(ImGui.GetFont(), 14f * s, contentOrigin + new Vector2(24, 180) * s,
+        Vector2 contentOrigin = QuestFrameUiLaw.QuestLogDetailContentOrigin(
+            origin, _questLogDetailScroll, s);
+        dl.PushClipRect(clip.Min, clip.Max, true);
+        dl.AddText(ImGui.GetFont(), 14f * s,
+            QuestFrameUiLaw.QuestLogDetailTextMin(
+                contentOrigin, QuestFrameUiLaw.QuestLogDetailTitleY, s),
             0xff202020, title);
-        dl.AddText(ImGui.GetFont(), 12f * s, contentOrigin + new Vector2(24, 207) * s,
+        dl.AddText(ImGui.GetFont(), 12f * s,
+            QuestFrameUiLaw.QuestLogDetailTextMin(
+                contentOrigin, QuestFrameUiLaw.QuestLogDetailObjectivesTitleY, s),
             0xff202020, "Objectives");
-        float y = 228f;
+        float y = QuestFrameUiLaw.QuestLogDetailInitialY;
         if (_questTemplates.TryGetValue(selectedSlot.QuestId, out QuestTemplate? template))
         {
             y += DrawWrappedText(dl, template.ObjectivesText,
-                contentOrigin + new Vector2(24, y) * s, 285, 10f * s, s, 0xff202020, 8) / s;
+                QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s),
+                QuestFrameUiLaw.QuestLogDetailTextWidth, 10f * s, s, 0xff202020, 8) / s;
             if (template.ObjectivesText.Length > 0) y += 8f;
             long? secondsLeft = QuestSecondsLeft(selectedSlot.Timer,
                 state: (byte)(selectedSlot.Counters >> 24));
             if (secondsLeft is not null)
             {
                 string timer = "Time Remaining: " + QuestFrameUiLaw.SecondsToTime(secondsLeft.Value);
-                GameText.Draw(dl, "QuestFont", timer, contentOrigin + new Vector2(24, y) * s, s,
+                GameText.Draw(dl, "QuestFont", timer,
+                    QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s), s,
                     0xff202020);
                 y += 22f;
             }
@@ -1203,29 +1213,33 @@ public sealed partial class GameLoop
                     out bool finished);
                 if (line is null) continue;
                 if (finished) line += " (Complete)";
-                y += DrawWrappedText(dl, line, contentOrigin + new Vector2(24, y) * s,
-                    285, 10f * s, s, finished ? 0xff333333 : 0xff000000, 3) / s + 2f;
+                y += DrawWrappedText(dl, line,
+                    QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s),
+                    QuestFrameUiLaw.QuestLogDetailTextWidth, 10f * s, s,
+                    finished ? 0xff333333 : 0xff000000, 3) / s + 2f;
             }
             y += 8f;
             GameText.Draw(dl, "QuestTitleFont", "Description",
-                contentOrigin + new Vector2(24, y) * s, s, 0xff202020);
+                QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s), s, 0xff202020);
             y += 20f;
             y += DrawWrappedText(dl, ExpandQuestText(template.Details),
-                contentOrigin + new Vector2(24, y) * s, 285, 10f * s, s, 0xff202020, 20) / s;
+                QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s),
+                QuestFrameUiLaw.QuestLogDetailTextWidth, 10f * s, s, 0xff202020, 20) / s;
             y += 10f;
             bool hasRewards = template.ChoiceRewards.Count > 0 || template.FixedRewards.Count > 0 ||
                 template.Money != 0 || template.RewardSpell != 0;
             if (hasRewards)
             {
                 GameText.Draw(dl, "QuestTitleFont", "Rewards",
-                    contentOrigin + new Vector2(24, y) * s, s, 0xff202020);
+                    QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s), s, 0xff202020);
                 y += 23f;
                 if (template.ChoiceRewards.Count > 0)
                 {
                     GameText.Draw(dl, "QuestFont", "You may choose one of these rewards:",
-                        contentOrigin + new Vector2(24, y) * s, s, 0xff202020);
+                        QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s), s, 0xff202020);
                     y += 20f;
-                    y = DrawQuestItemGrid(dl, contentOrigin + new Vector2(24, 0) * s, s, y,
+                    y = DrawQuestItemGrid(dl,
+                        QuestFrameUiLaw.QuestLogDetailGridOrigin(contentOrigin, s), s, y,
                         template.ChoiceRewards, false, "log-choice");
                     y += 5f;
                 }
@@ -1234,12 +1248,14 @@ public sealed partial class GameLoop
                     string receive = template.ChoiceRewards.Count > 0
                         ? "You will also receive:" : "You will receive:";
                     GameText.Draw(dl, "QuestFont", receive,
-                        contentOrigin + new Vector2(24, y) * s, s, 0xff202020);
+                        QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s), s, 0xff202020);
                     if (template.Money > 0)
-                        DrawQuestMoney(dl, contentOrigin + new Vector2(190, y) * s,
+                        DrawQuestMoney(dl,
+                            QuestFrameUiLaw.QuestLogDetailMoneyMin(contentOrigin, y, s),
                             (uint)template.Money, s, "QuestLogMoney");
                     y += 20f;
-                    y = DrawQuestItemGrid(dl, contentOrigin + new Vector2(24, 0) * s, s, y,
+                    y = DrawQuestItemGrid(dl,
+                        QuestFrameUiLaw.QuestLogDetailGridOrigin(contentOrigin, s), s, y,
                         template.FixedRewards, false, "log-reward");
                     if (template.RewardSpell != 0)
                     {
@@ -1250,11 +1266,12 @@ public sealed partial class GameLoop
                         string iconPath = foundSpell ? rewardSpell.IconPath
                             : @"Interface\Icons\INV_Misc_QuestionMark.blp";
                         uint icon = _gameplayArt?.Handle(iconPath) ?? 0;
-                        Vector2 spellMin = contentOrigin + new Vector2(24, y) * s;
+                        Vector2 spellMin = QuestFrameUiLaw.QuestLogRewardSpellMin(
+                            contentOrigin, y, s);
                         if (icon != 0) dl.AddImage((nint)icon, spellMin,
-                            spellMin + new Vector2(20) * s);
+                            spellMin + QuestFrameUiLaw.QuestLogRewardSpellSize * s);
                         GameText.Draw(dl, "GameFontHighlight", spellName,
-                            spellMin + new Vector2(25, 4) * s, s);
+                            QuestFrameUiLaw.QuestLogRewardSpellTextMin(spellMin, s), s);
                         y += 25f;
                     }
                 }
@@ -1263,8 +1280,9 @@ public sealed partial class GameLoop
         else
         {
             y += DrawWrappedText(dl, _questProgress.GetValueOrDefault(selectedSlot.QuestId,
-                    "Retrieving quest details..."), contentOrigin + new Vector2(24, y) * s,
-                285, 10f * s, s, 0xff202020, 8) / s;
+                    "Retrieving quest details..."),
+                QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s),
+                QuestFrameUiLaw.QuestLogDetailTextWidth, 10f * s, s, 0xff202020, 8) / s;
         }
         dl.PopClipRect();
         _questLogDetailContentHeight = Math.Max(rect.Height, y - rect.Y + 10f);
@@ -1350,9 +1368,7 @@ public sealed partial class GameLoop
     {
         if (_chatEditOpen)
         {
-            int room = Math.Max(0, 255 - _chatInput.Length);
-            if (room > 0) _chatInput += title[..Math.Min(title.Length, room)];
-            _chatEditCursorToEnd = true;
+            InsertChatText(title);
             return;
         }
 
@@ -1499,7 +1515,7 @@ public sealed partial class GameLoop
         float s = GameplayUiScale();
         QuestLogicalRect frame = QuestFrameUiLaw.AbandonPopupRect;
         Vector2 origin = QuestFrameUiLaw.AbandonPopupOrigin(ImGui.GetIO().DisplaySize, s);
-        Vector2 size = new(frame.Width * s, frame.Height * s);
+        Vector2 size = frame.ScaledSize(s);
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
@@ -1513,10 +1529,9 @@ public sealed partial class GameLoop
         _skin.DrawBackdrop(dl, origin, origin + size, WowSkin.Dialog);
         dl.PopClipRect();
 
-        QuestLogicalRect text = QuestFrameUiLaw.AbandonPopupTextRect;
         string message = $"Abandon \"{confirmation.Title}\"?";
         GameText.DrawCentered(dl, "GameFontHighlight", message,
-            origin + new Vector2(text.X + text.Width * .5f, text.Y + text.Height * .5f) * s, s);
+            QuestFrameUiLaw.AbandonPopupTextCenter(origin, s), s);
         bool yes = DrawQuestAbandonButton(dl, "yes", "Yes", origin,
             QuestFrameUiLaw.AbandonPopupAcceptRect, s);
         bool no = DrawQuestAbandonButton(dl, "no", "No", origin,
@@ -1536,9 +1551,8 @@ public sealed partial class GameLoop
     private bool DrawQuestAbandonButton(ImDrawListPtr dl, string id, string caption,
         Vector2 origin, QuestLogicalRect rect, float scale)
     {
-        Vector2 min = origin + new Vector2(rect.X, rect.Y) * scale;
-        return VanillaButton(dl, $"##quest-abandon-{id}", caption, min,
-            new Vector2(rect.Width, rect.Height), scale);
+        return VanillaButton(dl, $"##quest-abandon-{id}", caption,
+            rect.ScaledMin(origin, scale), rect.Size, scale);
     }
 
     private void DrawQuestNpcContent(ImDrawListPtr dl, Vector2 origin, float s)
@@ -1549,8 +1563,9 @@ public sealed partial class GameLoop
         string panelName = panelStem + "Panel";
         string scrollName = panelStem + "Scroll";
         string scrollChildName = scrollName + "Child";
-        Vector2 scrollMin = origin + new Vector2(QuestFrameUiLaw.ScrollX, QuestFrameUiLaw.ScrollY) * s;
-        Vector2 scrollSize = new(QuestFrameUiLaw.ScrollWidth * s, QuestFrameUiLaw.ScrollHeight * s);
+        QuestScreenRect scrollClip = QuestFrameUiLaw.NpcScrollClip(origin, s);
+        Vector2 scrollMin = scrollClip.Min;
+        Vector2 scrollSize = QuestFrameUiLaw.NpcScrollRect.ScaledSize(s);
         if (_uiParityArmed && _uiParityPanel == "quest-frame")
             CollectUiParityDraw(scrollName, "ScrollFrame", scrollMin, scrollSize,
                 panelName, new("", 0, "IMGUI_CLIP", "TOPLEFT", panelName, "TOPLEFT",
@@ -1560,14 +1575,16 @@ public sealed partial class GameLoop
                     ClipRect:new(scrollMin.X,scrollMin.Y,scrollMin.X+scrollSize.X,
                         scrollMin.Y+scrollSize.Y),ClipMask:scrollName,Strata:"DIALOG"));
         _questNpcScroll = QuestFrameUiLaw.ClampScroll(_questNpcScroll, _questNpcContentHeight);
-        if (ImGui.IsMouseHoveringRect(scrollMin, scrollMin + scrollSize, false) && ImGui.GetIO().MouseWheel != 0)
+        if (ImGui.IsMouseHoveringRect(scrollClip.Min, scrollClip.Max, false) &&
+            ImGui.GetIO().MouseWheel != 0)
         {
             _questNpcScroll -= ImGui.GetIO().MouseWheel * QuestFrameUiLaw.ScrollStep;
             _questNpcScroll = QuestFrameUiLaw.ClampScroll(_questNpcScroll, _questNpcContentHeight);
         }
 
-        dl.PushClipRect(scrollMin, scrollMin + scrollSize, true);
-        Vector2 content = scrollMin - new Vector2(0, _questNpcScroll * s);
+        dl.PushClipRect(scrollClip.Min, scrollClip.Max, true);
+        Vector2 content = QuestFrameUiLaw.NpcScrollContentOrigin(
+            scrollMin, _questNpcScroll, s);
         float contentHeight = panel switch
         {
             QuestNpcPanel.Greeting => DrawQuestGreetingContent(dl, content, s),
@@ -1578,15 +1595,16 @@ public sealed partial class GameLoop
         };
         dl.PopClipRect();
         if (_uiParityArmed && _uiParityPanel == "quest-frame")
-            CollectUiParityDraw(scrollChildName, "Frame", content,
-                new Vector2(QuestFrameUiLaw.ScrollWidth, Math.Max(contentHeight,
-                    QuestFrameUiLaw.ScrollHeight)) * s, scrollName,
+        {
+            Vector2 contentSize = QuestFrameUiLaw.NpcScrollContentSize(contentHeight, s);
+            CollectUiParityDraw(scrollChildName, "Frame", content, contentSize, scrollName,
                 new("",0,"FRAMES","TOPLEFT",scrollName,"TOPLEFT",0,_questNpcScroll,
                     ContentRect:new(content.X,content.Y,
-                        content.X+QuestFrameUiLaw.ScrollWidth*s,
-                        content.Y+Math.Max(contentHeight,QuestFrameUiLaw.ScrollHeight)*s),
-                    ClipRect:new(scrollMin.X,scrollMin.Y,scrollMin.X+scrollSize.X,
-                        scrollMin.Y+scrollSize.Y),ClipMask:scrollName,Strata:"DIALOG"));
+                        content.X + contentSize.X, content.Y + contentSize.Y),
+                    ClipRect:new(scrollClip.Min.X, scrollClip.Min.Y,
+                        scrollClip.Max.X, scrollClip.Max.Y),
+                    ClipMask:scrollName,Strata:"DIALOG"));
+        }
         _questNpcScroll = QuestFrameUiLaw.ClampScroll(_questNpcScroll, contentHeight);
         _questNpcContentHeight = contentHeight;
         DrawQuestNpcScrollbar(dl, origin, s, contentHeight);
@@ -1595,37 +1613,43 @@ public sealed partial class GameLoop
         {
             case QuestNpcPanel.Greeting:
                 if (QuestPanelButton(dl, "BenillaQuestGreetingGoodbyeButton", "##quest-goodbye",
-                        "Goodbye", origin + new Vector2(267, 417) * s, new Vector2(78, 22), s))
+                        "Goodbye", QuestFrameUiLaw.NpcGreetingGoodbyeRect.ScaledMin(origin, s),
+                        QuestFrameUiLaw.NpcGreetingGoodbyeRect.Size, s))
                     CloseQuestNpcFrame(playSound: true);
                 break;
             case QuestNpcPanel.Detail:
                 if (QuestPanelButton(dl, "BenillaQuestAcceptButton", "##quest-accept", "Accept",
-                        origin + new Vector2(23, 418) * s, new Vector2(77, 22), s)) AcceptQuest();
+                        QuestFrameUiLaw.NpcDetailAcceptRect.ScaledMin(origin, s),
+                        QuestFrameUiLaw.NpcDetailAcceptRect.Size, s)) AcceptQuest();
                 if (QuestPanelButton(dl, "BenillaQuestDeclineButton", "##quest-decline", "Decline",
-                        origin + new Vector2(267, 418) * s, new Vector2(78, 22), s))
+                        QuestFrameUiLaw.NpcDetailDeclineRect.ScaledMin(origin, s),
+                        QuestFrameUiLaw.NpcDetailDeclineRect.Size, s))
                 { PlayUiSound("igQuestCancel"); CloseQuestNpcFrame(playSound: true); }
                 break;
             case QuestNpcPanel.Progress:
                 if (QuestPanelButton(dl, "BenillaQuestProgressContinueButton", "##quest-continue",
-                        "Continue", origin + new Vector2(22, 418) * s, new Vector2(120, 22), s,
+                        "Continue", QuestFrameUiLaw.NpcProgressPrimaryRect.ScaledMin(origin, s),
+                        QuestFrameUiLaw.NpcProgressPrimaryRect.Size, s,
                         _questRequestItems?.Completable == true))
                     RequestQuestReward();
                 if (QuestPanelButton(dl, "BenillaQuestProgressGoodbyeButton", "##quest-progress-goodbye",
-                        "Goodbye", origin + new Vector2(267, 417) * s, new Vector2(78, 22), s))
+                        "Goodbye", QuestFrameUiLaw.NpcProgressGoodbyeRect.ScaledMin(origin, s),
+                        QuestFrameUiLaw.NpcProgressGoodbyeRect.Size, s))
                 { PlayUiSound("igQuestCancel"); CloseQuestNpcFrame(playSound: true); }
                 break;
             case QuestNpcPanel.Reward:
                 int choices = _questOffer?.ChoiceRewards.Count ?? 0;
                 bool enabled = QuestFrameUiLaw.RewardCompleteEnabled(choices, _questRewardChoice);
                 if (QuestPanelButton(dl, "BenillaQuestRewardCompleteButton", "##quest-complete",
-                        "Complete Quest", origin + new Vector2(22, 418) * s,
-                        new Vector2(120, 22), s, enabled))
+                        "Complete Quest", QuestFrameUiLaw.NpcRewardPrimaryRect.ScaledMin(origin, s),
+                        QuestFrameUiLaw.NpcRewardPrimaryRect.Size, s, enabled))
                 {
                     uint choice = (uint)Math.Max(0, _questRewardChoice);
                     if (ChooseQuestReward(choice)) PlayUiSound("igQuestListComplete");
                 }
                 if (QuestPanelButton(dl, "BenillaQuestRewardCancelButton", "##quest-reward-cancel",
-                        "Cancel", origin + new Vector2(267, 417) * s, new Vector2(78, 22), s))
+                        "Cancel", QuestFrameUiLaw.NpcRewardCancelRect.ScaledMin(origin, s),
+                        QuestFrameUiLaw.NpcRewardCancelRect.Size, s))
                 { PlayUiSound("igQuestCancel"); CloseQuestNpcFrame(playSound: true); }
                 break;
         }
@@ -1776,20 +1800,21 @@ public sealed partial class GameLoop
         float lineHeight = QuestWrappedLineHeight(fontObject, s);
         for (int i = 0; i < lines.Count; i++)
             if (lines[i].Length > 0)
-                GameText.Draw(dl, fontObject, lines[i], min + new Vector2(0, i * lineHeight),
-                    s, color);
+                GameText.Draw(dl, fontObject, lines[i],
+                    QuestFrameUiLaw.NpcWrappedLineMin(min, i, lineHeight), s, color);
         return lines.Count * lineHeight;
     }
 
     private float DrawQuestGreetingContent(ImDrawListPtr dl, Vector2 p, float s)
     {
         if (_questList is null) return 0;
-        float y = 10;
-        Vector2 greetingMin = p + new Vector2(10, y) * s;
+        float y = QuestFrameUiLaw.NpcContentInitialY;
+        Vector2 greetingMin = QuestFrameUiLaw.GreetingTextMin(p, y, s);
         float greetingHeight = DrawQuestWrappedText(dl, ExpandQuestText(_questList.Greeting),
-            greetingMin, 270, "QuestFont", s, 0xff202020);
+            greetingMin, QuestFrameUiLaw.GreetingTextWidth, "QuestFont", s, 0xff202020);
         TraceQuestText("BenillaQuestGreetingText", "QuestFont", greetingMin,
-            new Vector2(270*s,greetingHeight), "BenillaQuestGreetingScrollChild", 0xff202020);
+            QuestFrameUiLaw.NpcTraceSize(QuestFrameUiLaw.GreetingTextWidth,
+                greetingHeight, s), "BenillaQuestGreetingScrollChild", 0xff202020);
         y += greetingHeight / s + 10;
         GossipQuest[] active = _questList.Quests
             .Where(q => QuestFrameUiLaw.GreetingPool(q.Icon) == QuestGreetingPool.Active)
@@ -1800,10 +1825,11 @@ public sealed partial class GameLoop
         int titleSlot = 1;
         if (active.Length > 0)
         {
-            Vector2 headerMin=p+new Vector2(10,y)*s;
+            Vector2 headerMin = QuestFrameUiLaw.GreetingTextMin(p, y, s);
             GameText.Draw(dl, "QuestTitleFont", "Current Quests", headerMin, s);
             TraceQuestText("BenillaQuestActiveHeader","QuestTitleFont",headerMin,
-                new Vector2(300,GameText.EmPixels("QuestTitleFont",s)/s)*s,
+                QuestFrameUiLaw.NpcTraceSize(QuestFrameUiLaw.GreetingHeaderTraceWidth,
+                    GameText.EmPixels("QuestTitleFont", s), s),
                 "BenillaQuestGreetingScrollChild",FontObjectLaw.Get("QuestTitleFont").Color);
             y += 23; // header height + authored 5 px gap to the first row
             foreach (GossipQuest quest in active) y += DrawQuestTitleRow(dl, p, s, y, quest, titleSlot++);
@@ -1813,12 +1839,13 @@ public sealed partial class GameLoop
                 "BenillaQuestGreetingScrollChild","NOT-DRAWN","no-active-quest-rows");
         if (active.Length > 0 && available.Length > 0)
         {
-            Vector2 breakMin=p+new Vector2(22,y+10)*s;
+            QuestLogicalRect breakRect = QuestFrameUiLaw.GreetingBreakRect(y);
+            Vector2 breakMin = breakRect.ScaledMin(p, s);
             DrawArt(dl, @"Interface\QuestFrame\UI-HorizontalBreak", breakMin,
-                new Vector2(256, 32), s);
+                breakRect.Size, s);
             if(_uiParityArmed&&_uiParityPanel=="quest-frame")
                 CollectUiParityDraw("BenillaQuestGreetingBreak","Texture",breakMin,
-                    new Vector2(256,32)*s,"BenillaQuestGreetingScrollChild",
+                    breakRect.ScaledSize(s),"BenillaQuestGreetingScrollChild",
                     new(@"Interface\QuestFrame\UI-HorizontalBreak",0xffffffff,"ARTWORK",
                         "TOPLEFT","BenillaQuestGreetingScrollChild","TOPLEFT",22,-(y+10),
                         ClipRect:new(_uiParityOrigin.X+QuestFrameUiLaw.ScrollX*s,
@@ -1833,10 +1860,11 @@ public sealed partial class GameLoop
                 "BenillaQuestGreetingScrollChild","NOT-DRAWN","one-greeting-pool-is-empty");
         if (available.Length > 0)
         {
-            Vector2 headerMin=p+new Vector2(10,y)*s;
+            Vector2 headerMin = QuestFrameUiLaw.GreetingTextMin(p, y, s);
             GameText.Draw(dl, "QuestTitleFont", "Available Quests", headerMin, s);
             TraceQuestText("BenillaQuestAvailableHeader","QuestTitleFont",headerMin,
-                new Vector2(300,GameText.EmPixels("QuestTitleFont",s)/s)*s,
+                QuestFrameUiLaw.NpcTraceSize(QuestFrameUiLaw.GreetingHeaderTraceWidth,
+                    GameText.EmPixels("QuestTitleFont", s), s),
                 "BenillaQuestGreetingScrollChild",FontObjectLaw.Get("QuestTitleFont").Color);
             y += 23; // header height + authored 5 px gap to the first row
             foreach (GossipQuest quest in available) y += DrawQuestTitleRow(dl, p, s, y, quest, titleSlot++);
@@ -1854,20 +1882,23 @@ public sealed partial class GameLoop
     private float DrawQuestTitleRow(ImDrawListPtr dl, Vector2 p, float s, float y, GossipQuest quest,
         int displayIndex)
     {
-        Vector2 min = p + new Vector2(0, y) * s;
+        Vector2 min = QuestFrameUiLaw.GreetingRowMin(p, y, s);
         string title = ExpandQuestText(quest.Title);
         float textHeight = Math.Max(16,
             MeasureQuestWrappedText(title, 275, "QuestFont", s) / s);
-        DrawArt(dl, @"Interface\QuestFrame\UI-Quest-BulletPoint", min, new Vector2(16), s);
+        DrawArt(dl, @"Interface\QuestFrame\UI-Quest-BulletPoint", min,
+            QuestFrameUiLaw.GreetingBulletRect.Size, s);
         ImGui.SetCursorScreenPos(min);
-        bool clicked = ImGui.InvisibleButton($"##quest-title-{quest.QuestId}", new Vector2(285, textHeight + 2) * s);
+        Vector2 rowSize = QuestFrameUiLaw.GreetingRowSize(textHeight, s);
+        bool clicked = ImGui.InvisibleButton($"##quest-title-{quest.QuestId}", rowSize);
         bool hovered = ImGui.IsItemHovered();
         if (hovered)
         {
             uint hi = _gameplayArt!.AdditiveHandle(@"Interface\QuestFrame\UI-QuestTitleHighlight");
-            if (hi != 0) dl.AddImage((nint)hi, min, min + new Vector2(285, textHeight + 2) * s);
+            if (hi != 0) dl.AddImage((nint)hi, min, min + rowSize);
         }
-        DrawQuestWrappedText(dl, title, min + new Vector2(20, 0) * s, 275,
+        Vector2 titleMin = QuestFrameUiLaw.GreetingTitleMin(min, s);
+        DrawQuestWrappedText(dl, title, titleMin, QuestFrameUiLaw.GreetingTitleWidth,
             "QuestFont", s, 0xff202020);
         if (_uiParityArmed && _uiParityPanel == "quest-frame")
         {
@@ -1876,19 +1907,18 @@ public sealed partial class GameLoop
                 _uiParityOrigin.Y+QuestFrameUiLaw.ScrollY*s,
                 _uiParityOrigin.X+(QuestFrameUiLaw.ScrollX+QuestFrameUiLaw.ScrollWidth)*s,
                 _uiParityOrigin.Y+(QuestFrameUiLaw.ScrollY+QuestFrameUiLaw.ScrollHeight)*s);
-            Vector2 rowSize = new Vector2(285,textHeight+2)*s;
             CollectUiParityDraw(element,"Button",min,rowSize,"BenillaQuestGreetingScrollChild",
                 new("",0,"FRAMES","TOPLEFT","BenillaQuestGreetingScrollChild","TOPLEFT",0,-y,
                     ClipRect:clip,ClipMask:"BenillaQuestGreetingScroll",Visible:true,Enabled:true,
                     InteractionState:hovered?"hovered":"normal",HitMin:min,HitMax:min+rowSize,
                     Strata:"DIALOG"));
-            CollectUiParityDraw(element+"/Bullet","Texture",min,new Vector2(16)*s,element,
+            CollectUiParityDraw(element+"/Bullet","Texture",min,
+                QuestFrameUiLaw.GreetingBulletRect.ScaledSize(s),element,
                 new(@"Interface\QuestFrame\UI-Quest-BulletPoint",0xffffffff,"BACKGROUND",
                     "TOPLEFT",element,"TOPLEFT",0,0,ClipRect:clip,
                     ClipMask:"BenillaQuestGreetingScroll",BlendMode:"BLEND",Strata:"DIALOG"));
-            Vector2 titleMin=min+new Vector2(20,0)*s;
             CollectUiParityDraw(element+"/Text","FontString",titleMin,
-                new Vector2(275,textHeight)*s,element,
+                QuestFrameUiLaw.GreetingTitleTraceSize(textHeight, s),element,
                 new("",0xff202020,"OVERLAY","LEFT",element,"LEFT",20,0,
                     FontObjectLaw.Get("QuestFont").Face,13,ClipRect:clip,
                     ClipMask:"BenillaQuestGreetingScroll",Strata:"DIALOG"));
@@ -1915,30 +1945,35 @@ public sealed partial class GameLoop
     private float DrawQuestDetailContent(ImDrawListPtr dl, Vector2 p, float s)
     {
         if (_questDetails is null) return 0;
-        float y = 10;
-        Vector2 titleMin=p+new Vector2(5,y)*s;
+        float y = QuestFrameUiLaw.NpcContentInitialY;
+        Vector2 titleMin = QuestFrameUiLaw.NpcContentTextMin(p, y, s);
         GameText.Draw(dl, "QuestTitleFont", ExpandQuestText(_questDetails.Title), titleMin, s);
         TraceQuestText("BenillaQuestDetailTitle","QuestTitleFont",titleMin,
-            new Vector2(295,GameText.EmPixels("QuestTitleFont",s)/s)*s,
+            QuestFrameUiLaw.NpcTraceSize(QuestFrameUiLaw.NpcContentTitleTraceWidth,
+                GameText.EmPixels("QuestTitleFont", s), s),
             "BenillaQuestDetailScrollChild",FontObjectLaw.Get("QuestTitleFont").Color);
         y += 19;
-        Vector2 bodyMin=p+new Vector2(5,y)*s;
+        Vector2 bodyMin = QuestFrameUiLaw.NpcContentTextMin(p, y, s);
         float bodyHeight=DrawQuestWrappedText(dl, ExpandQuestText(_questDetails.Details), bodyMin,
-            270, "QuestFont", s, 0xff202020);
+            QuestFrameUiLaw.NpcContentBodyWidth, "QuestFont", s, 0xff202020);
         TraceQuestText("BenillaQuestDetailBody","QuestFont",bodyMin,
-            new Vector2(270*s,bodyHeight),"BenillaQuestDetailScrollChild",0xff202020);
+            QuestFrameUiLaw.NpcTraceSize(QuestFrameUiLaw.NpcContentBodyWidth, bodyHeight, s),
+            "BenillaQuestDetailScrollChild",0xff202020);
         y += bodyHeight/s+15;
-        Vector2 objectiveHeaderMin=p+new Vector2(5,y)*s;
+        Vector2 objectiveHeaderMin = QuestFrameUiLaw.NpcContentTextMin(p, y, s);
         GameText.Draw(dl, "QuestTitleFont", "Quest Objectives", objectiveHeaderMin, s);
         TraceQuestText("BenillaQuestDetailObjectiveHeader","QuestTitleFont",objectiveHeaderMin,
-            new Vector2(295,GameText.EmPixels("QuestTitleFont",s)/s)*s,
+            QuestFrameUiLaw.NpcTraceSize(QuestFrameUiLaw.NpcContentTitleTraceWidth,
+                GameText.EmPixels("QuestTitleFont", s), s),
             "BenillaQuestDetailScrollChild",FontObjectLaw.Get("QuestTitleFont").Color);
         y += 23;
-        Vector2 objectiveMin=p+new Vector2(5,y)*s;
+        Vector2 objectiveMin = QuestFrameUiLaw.NpcContentTextMin(p, y, s);
         float objectiveHeight=DrawQuestWrappedText(dl, ExpandQuestText(_questDetails.Objectives),
-            objectiveMin, 270, "QuestFont", s, 0xff202020);
+            objectiveMin, QuestFrameUiLaw.NpcContentBodyWidth,
+            "QuestFont", s, 0xff202020);
         TraceQuestText("BenillaQuestDetailObjective","QuestFont",objectiveMin,
-            new Vector2(270*s,objectiveHeight),"BenillaQuestDetailScrollChild",0xff202020);
+            QuestFrameUiLaw.NpcTraceSize(QuestFrameUiLaw.NpcContentBodyWidth,
+                objectiveHeight, s), "BenillaQuestDetailScrollChild",0xff202020);
         y += objectiveHeight/s+15;
         return DrawQuestRewardSet(dl, p, s, y, _questDetails.ChoiceRewards,
             _questDetails.FixedRewards, _questDetails.Money, selectable: false);
@@ -1947,25 +1982,28 @@ public sealed partial class GameLoop
     private float DrawQuestProgressContent(ImDrawListPtr dl, Vector2 p, float s)
     {
         if (_questRequestItems is null) return 0;
-        float y = 10;
-        Vector2 titleMin=p+new Vector2(5,y)*s;
+        float y = QuestFrameUiLaw.NpcContentInitialY;
+        Vector2 titleMin = QuestFrameUiLaw.NpcContentTextMin(p, y, s);
         GameText.Draw(dl, "QuestTitleFont", ExpandQuestText(_questRequestItems.Title), titleMin, s);
         TraceQuestText("BenillaQuestProgressTitle","QuestTitleFont",titleMin,
-            new Vector2(295,GameText.EmPixels("QuestTitleFont",s)/s)*s,
+            QuestFrameUiLaw.NpcTraceSize(QuestFrameUiLaw.NpcContentTitleTraceWidth,
+                GameText.EmPixels("QuestTitleFont", s), s),
             "BenillaQuestProgressScrollChild",FontObjectLaw.Get("QuestTitleFont").Color);
         y += 19;
-        Vector2 bodyMin=p+new Vector2(5,y)*s;
+        Vector2 bodyMin = QuestFrameUiLaw.NpcContentTextMin(p, y, s);
         float bodyHeight=DrawQuestWrappedText(dl, ExpandQuestText(_questRequestItems.Text), bodyMin,
-            270, "QuestFont", s, 0xff202020);
+            QuestFrameUiLaw.NpcContentBodyWidth, "QuestFont", s, 0xff202020);
         TraceQuestText("BenillaQuestProgressBody","QuestFont",bodyMin,
-            new Vector2(270*s,bodyHeight),"BenillaQuestProgressScrollChild",0xff202020);
+            QuestFrameUiLaw.NpcTraceSize(QuestFrameUiLaw.NpcContentBodyWidth, bodyHeight, s),
+            "BenillaQuestProgressScrollChild",0xff202020);
         y += bodyHeight/s+15;
         if (_questRequestItems.RequiredItems.Count > 0 || _questRequestItems.RequiredMoney > 0)
         {
-            Vector2 requiredMin=p+new Vector2(5,y)*s;
+            Vector2 requiredMin = QuestFrameUiLaw.NpcContentTextMin(p, y, s);
             GameText.Draw(dl, "QuestTitleFont", "Items Needed:", requiredMin, s);
             TraceQuestText("BenillaQuestProgressRequiredText","QuestTitleFont",requiredMin,
-                new Vector2(295,GameText.EmPixels("QuestTitleFont",s)/s)*s,
+                QuestFrameUiLaw.NpcTraceSize(QuestFrameUiLaw.NpcContentTitleTraceWidth,
+                    GameText.EmPixels("QuestTitleFont", s), s),
                 "BenillaQuestProgressScrollChild",FontObjectLaw.Get("QuestTitleFont").Color);
             y += 22;
         }
@@ -1975,14 +2013,16 @@ public sealed partial class GameLoop
         if (_questRequestItems.RequiredMoney > 0)
         {
             const string requiredMoney = "Required Money:";
-            Vector2 moneyLabelMin=p+new Vector2(5,y)*s;
+            Vector2 moneyLabelMin = QuestFrameUiLaw.NpcContentTextMin(p, y, s);
             GameText.Draw(dl, "QuestFontNormalSmall", requiredMoney, moneyLabelMin, s);
             TraceQuestText("BenillaQuestProgressRequiredMoneyText","QuestFontNormalSmall",
-                moneyLabelMin,new Vector2(GameText.MeasureWidth("QuestFontNormalSmall",requiredMoney,s),
-                    GameText.EmPixels("QuestFontNormalSmall",s)),
+                moneyLabelMin, QuestFrameUiLaw.NpcScreenTextSize(
+                    GameText.MeasureWidth("QuestFontNormalSmall", requiredMoney, s),
+                    GameText.EmPixels("QuestFontNormalSmall", s)),
                 "BenillaQuestProgressScrollChild",FontObjectLaw.Get("QuestFontNormalSmall").Color);
-            float moneyX = 5 + GameText.MeasureWidth("QuestFontNormalSmall", requiredMoney, s) / s + 10;
-            DrawQuestMoney(dl, p + new Vector2(moneyX, y) * s,
+            float moneyWidth = GameText.MeasureWidth("QuestFontNormalSmall", requiredMoney, s);
+            DrawQuestMoney(dl, QuestFrameUiLaw.NpcInlineMoneyMin(p, y,
+                    QuestFrameUiLaw.NpcContentTextX, moneyWidth, 10, s),
                 _questRequestItems.RequiredMoney, s, "BenillaQuestProgressMoney");
             y += 23;
         }
@@ -2001,18 +2041,20 @@ public sealed partial class GameLoop
     private float DrawQuestRewardContent(ImDrawListPtr dl, Vector2 p, float s)
     {
         if (_questOffer is null) return 0;
-        float y = 10;
-        Vector2 titleMin=p+new Vector2(5,y)*s;
+        float y = QuestFrameUiLaw.NpcContentInitialY;
+        Vector2 titleMin = QuestFrameUiLaw.NpcContentTextMin(p, y, s);
         GameText.Draw(dl, "QuestTitleFont", ExpandQuestText(_questOffer.Title), titleMin, s);
         TraceQuestText("BenillaQuestRewardTitle","QuestTitleFont",titleMin,
-            new Vector2(295,GameText.EmPixels("QuestTitleFont",s)/s)*s,
+            QuestFrameUiLaw.NpcTraceSize(QuestFrameUiLaw.NpcContentTitleTraceWidth,
+                GameText.EmPixels("QuestTitleFont", s), s),
             "BenillaQuestRewardScrollChild",FontObjectLaw.Get("QuestTitleFont").Color);
         y += 19;
-        Vector2 bodyMin=p+new Vector2(5,y)*s;
+        Vector2 bodyMin = QuestFrameUiLaw.NpcContentTextMin(p, y, s);
         float bodyHeight=DrawQuestWrappedText(dl, ExpandQuestText(_questOffer.Text), bodyMin,
-            275, "QuestFont", s, 0xff202020);
+            QuestFrameUiLaw.NpcRewardBodyWidth, "QuestFont", s, 0xff202020);
         TraceQuestText("BenillaQuestRewardBody","QuestFont",bodyMin,
-            new Vector2(275*s,bodyHeight),"BenillaQuestRewardScrollChild",0xff202020);
+            QuestFrameUiLaw.NpcTraceSize(QuestFrameUiLaw.NpcRewardBodyWidth, bodyHeight, s),
+            "BenillaQuestRewardScrollChild",0xff202020);
         y += bodyHeight/s+10;
         return DrawQuestRewardSet(dl, p, s, y, _questOffer.ChoiceRewards,
             _questOffer.FixedRewards, _questOffer.Money, selectable: true);
@@ -2051,19 +2093,21 @@ public sealed partial class GameLoop
             }
             return Math.Max(334, y + 10);
         }
-        Vector2 rewardTitleMin = p + new Vector2(5, y) * s;
+        Vector2 rewardTitleMin = QuestFrameUiLaw.NpcContentTextMin(p, y, s);
         GameText.Draw(dl, "QuestTitleFont", "Rewards", rewardTitleMin, s);
         TraceQuestText(prefix + "RewardTitleText", "QuestTitleFont", rewardTitleMin,
-            new Vector2(285, GameText.EmPixels("QuestTitleFont", s) / s) * s, child,
+            QuestFrameUiLaw.NpcTraceSize(QuestFrameUiLaw.NpcRewardTitleTraceWidth,
+                GameText.EmPixels("QuestTitleFont", s), s), child,
             FontObjectLaw.Get("QuestTitleFont").Color);
         y += 23;
         if (choices.Count > 0)
         {
             const string chooseText = "You may choose one of these rewards:";
-            Vector2 chooseMin = p + new Vector2(5, y) * s;
+            Vector2 chooseMin = QuestFrameUiLaw.NpcContentTextMin(p, y, s);
             GameText.Draw(dl, "QuestFont", chooseText, chooseMin, s);
             TraceQuestText(prefix + "ItemChooseText", "QuestFont", chooseMin,
-                new Vector2(295, GameText.EmPixels("QuestFont", s) / s) * s, child,
+                QuestFrameUiLaw.NpcTraceSize(QuestFrameUiLaw.NpcContentTitleTraceWidth,
+                    GameText.EmPixels("QuestFont", s), s), child,
                 FontObjectLaw.Get("QuestFont").Color);
             y += 20;
             y = DrawQuestItemGrid(dl, p, s, y, choices, selectable, "choice");
@@ -2083,16 +2127,19 @@ public sealed partial class GameLoop
         if (fixedItems.Count > 0 || money > 0)
         {
             string receive = choices.Count > 0 ? "You will also receive:" : "You will receive:";
-            Vector2 receiveMin = p + new Vector2(8, y) * s;
+            Vector2 receiveMin = QuestFrameUiLaw.NpcReceiveTextMin(p, y, s);
             GameText.Draw(dl, "QuestFont", receive, receiveMin, s);
             TraceQuestText(prefix + "ItemReceiveText", "QuestFont", receiveMin,
-                new Vector2(GameText.MeasureWidth("QuestFont", receive, s),
+                QuestFrameUiLaw.NpcScreenTextSize(
+                    GameText.MeasureWidth("QuestFont", receive, s),
                     GameText.EmPixels("QuestFont", s)), child,
                 FontObjectLaw.Get("QuestFont").Color);
             if (money > 0)
             {
-                float moneyX = 8 + GameText.MeasureWidth("QuestFont", receive, s) / s + 15;
-                DrawQuestMoney(dl, p + new Vector2(moneyX, y) * s, (uint)money, s,
+                float receiveWidth = GameText.MeasureWidth("QuestFont", receive, s);
+                DrawQuestMoney(dl, QuestFrameUiLaw.NpcInlineMoneyMin(p, y,
+                        QuestFrameUiLaw.NpcReceiveTextX, receiveWidth, 15, s),
+                    (uint)money, s,
                     prefix + "Money");
             }
             else if (_uiParityArmed && _uiParityPanel == "quest-frame")
@@ -2118,7 +2165,7 @@ public sealed partial class GameLoop
     {
         int count = Math.Min(items.Count, QuestFrameUiLaw.MaxItems);
         for (int i = 0; i < count; i++)
-            DrawQuestItemRow(dl, p + (new Vector2(-3, y) + QuestFrameUiLaw.ItemGridOffset(i)) * s,
+            DrawQuestItemRow(dl, QuestFrameUiLaw.ItemGridRowMin(p, y, i, s),
                 s, items[i], selectable, i, kind);
         if (_uiParityArmed && _uiParityPanel == "quest-frame")
         {
@@ -2146,15 +2193,19 @@ public sealed partial class GameLoop
             if (row.DisplayId == 0) iconPath = item.IconPath;
         }
         uint icon = _gameplayArt!.Handle(iconPath);
-        if (icon != 0) dl.AddImage((nint)icon, min, min + new Vector2(39) * s);
-        DrawArt(dl, @"Interface\QuestFrame\UI-QuestItemNameFrame", min + new Vector2(29, -12) * s,
-            new Vector2(128, 64), s);
-        GameText.Draw(dl, "GameFontHighlight", name, min + new Vector2(44, 12) * s, s,
+        Vector2 iconSize = QuestFrameUiLaw.ItemIconRect.ScaledSize(s);
+        if (icon != 0) dl.AddImage((nint)icon, min, min + iconSize);
+        Vector2 nameFrameMin = QuestFrameUiLaw.ItemNameFrameRect.ScaledMin(min, s);
+        DrawArt(dl, @"Interface\QuestFrame\UI-QuestItemNameFrame", nameFrameMin,
+            QuestFrameUiLaw.ItemNameFrameRect.Size, s);
+        Vector2 nameMin = QuestFrameUiLaw.ItemNameTextMin(min, s);
+        GameText.Draw(dl, "GameFontHighlight", name, nameMin, s,
             item is null ? 0xffffffff : ImGui.ColorConvertFloat4ToU32(ItemQualityColor(item.Quality)));
         if (row.Count > 1) GameText.DrawRightAligned(dl, "NumberFontNormal", row.Count.ToString(),
-            min + new Vector2(35, 25) * s, s);
+            min + QuestFrameUiLaw.ItemCountAnchor * s, s);
         ImGui.SetCursorScreenPos(min);
-        bool clicked = ImGui.InvisibleButton($"##quest-{kind}-{index}", new Vector2(147, 41) * s);
+        Vector2 itemSize = QuestFrameUiLaw.ItemHitRect.ScaledSize(s);
+        bool clicked = ImGui.InvisibleButton($"##quest-{kind}-{index}", itemSize);
         bool hovered = ImGui.IsItemHovered();
         if (_uiParityArmed && _uiParityPanel == "quest-frame")
         {
@@ -2165,27 +2216,28 @@ public sealed partial class GameLoop
                 _uiParityOrigin.Y + QuestFrameUiLaw.ScrollY * s,
                 _uiParityOrigin.X + (QuestFrameUiLaw.ScrollX + QuestFrameUiLaw.ScrollWidth) * s,
                 _uiParityOrigin.Y + (QuestFrameUiLaw.ScrollY + QuestFrameUiLaw.ScrollHeight) * s);
-            CollectUiParityDraw(element, "Button", min, new Vector2(147, 41) * s,
+            CollectUiParityDraw(element, "Button", min, itemSize,
                 scrollChild, new("", 0, "FRAMES", "TOPLEFT",
                     scrollChild, "TOPLEFT", 0, 0, ClipRect:clip,
                     ClipMask:scrollName, Visible:true, Enabled:true,
                     InteractionState:hovered?"hovered":"normal", HitMin:min,
-                    HitMax:min+new Vector2(147,41)*s, Strata:"DIALOG"));
+                    HitMax:min + itemSize, Strata:"DIALOG"));
             CollectUiParityDraw(element + "/IconTexture", "Texture", min,
-                new Vector2(39) * s, element, new(iconPath, 0xffffffff, "BACKGROUND",
+                iconSize, element, new(iconPath, 0xffffffff, "BACKGROUND",
                      "TOPLEFT", element, "TOPLEFT", 0, 0,
-                     ContentRect:new(min.X,min.Y,min.X+39*s,min.Y+39*s), ClipRect:clip,
+                     ContentRect:new(min.X, min.Y, min.X + iconSize.X, min.Y + iconSize.Y),
+                    ClipRect:clip,
                     ClipMask:scrollName, BlendMode:"BLEND", Strata:"DIALOG"));
-            Vector2 nameFrameMin = min + new Vector2(29, -12) * s;
             CollectUiParityDraw(element + "/NameFrame", "Texture", nameFrameMin,
-                new Vector2(128,64)*s, element,
+                QuestFrameUiLaw.ItemNameFrameRect.ScaledSize(s), element,
                 new(@"Interface\QuestFrame\UI-QuestItemNameFrame", 0xffffffff, "BORDER",
                     "TOPLEFT", element, "TOPLEFT", 29, 12,
                     ContentRect:new(nameFrameMin.X,nameFrameMin.Y,
-                        nameFrameMin.X+128*s,nameFrameMin.Y+64*s), ClipRect:clip,
+                        nameFrameMin.X + QuestFrameUiLaw.ItemNameFrameRect.Width * s,
+                        nameFrameMin.Y + QuestFrameUiLaw.ItemNameFrameRect.Height * s),
+                    ClipRect:clip,
                     ClipMask:scrollName, BlendMode:"BLEND", Strata:"DIALOG"));
             string fontObject = "GameFontHighlight";
-            Vector2 nameMin = min + new Vector2(44, 12) * s;
             CollectUiParityDraw(element + "/Name", "FontString", nameMin,
                 new(GameText.MeasureWidth(fontObject,name,s),GameText.EmPixels(fontObject,s)),
                 element, new("", item is null ? 0xffffffff :
@@ -2199,7 +2251,7 @@ public sealed partial class GameLoop
                 Vector2 countSize = new(GameText.MeasureWidth("NumberFontNormal",countText,s),
                     GameText.EmPixels("NumberFontNormal",s));
                 CollectUiParityDraw(element + "/Count", "FontString",
-                    min + new Vector2(35,25)*s - new Vector2(countSize.X,0), countSize,
+                    QuestFrameUiLaw.ItemCountMin(min, countSize, s), countSize,
                     element, new("", FontObjectLaw.Get("NumberFontNormal").Color, "ARTWORK",
                         "BOTTOMRIGHT", element+"/IconTexture", "BOTTOMRIGHT", -4, 1,
                         FontObjectLaw.Get("NumberFontNormal").Face,
@@ -2211,37 +2263,62 @@ public sealed partial class GameLoop
         }
         if (hovered)
         {
+            QuestNpcPanel tooltipPanel = QuestNpcPanelNow();
             GameTooltipOwnerKey tooltipOwner = QuestItemGameTooltipOwner(
-                QuestNpcPanelNow(), kind, index);
+                tooltipPanel, kind, index);
+            QuestTooltipSeat tooltipSeat =
+                QuestFrameUiLaw.ItemTooltipSeat(min, itemSize);
             if (item is not null)
             {
                 ItemTooltipBodySnapshot tooltipBody =
                     PrepareItemTooltipBodySnapshot(item, row.Count);
-                OfferPreparedItemTooltip(tooltipOwner, tooltipBody);
+                Vector2? tooltipAnchor = tooltipPanel == QuestNpcPanel.None
+                    ? null : tooltipSeat.Anchor;
+                Vector2? tooltipPivot = tooltipPanel == QuestNpcPanel.None
+                    ? null : tooltipSeat.Pivot;
+                OfferPreparedItemTooltip(tooltipOwner, tooltipBody, tooltipAnchor,
+                    nextWindowPivot: tooltipPivot);
             }
             else
             {
                 string retrievingItemInfo = QuestGlobalString("RETRIEVING_ITEM_INFO");
                 OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
                 {
+                    if (tooltipPanel != QuestNpcPanel.None)
+                        ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
+                            tooltipSeat.Pivot);
                     ImGui.BeginTooltip();
                     ImGui.TextUnformatted(retrievingItemInfo);
                     ImGui.EndTooltip();
                 });
             }
         }
-        if (clicked && ImGui.GetIO().KeyCtrl)
-            TryOnDressUp(row.ItemId);
-        else if (clicked && selectable) _questRewardChoice = index;
+        string itemLink = item is null
+            ? ""
+            : QuestFrameUiLaw.ItemLink(row.ItemId, item.Name, item.Quality);
+        switch (QuestFrameUiLaw.ItemClickAction(clicked, ImGui.GetIO().KeyCtrl,
+                    ImGui.GetIO().KeyShift, _chatEditOpen, selectable,
+                    itemLink.Length > 0))
+        {
+            case QuestItemClickAction.DressUp:
+                TryOnDressUp(row.ItemId);
+                break;
+            case QuestItemClickAction.InsertChat:
+                InsertChatText(itemLink);
+                break;
+            case QuestItemClickAction.Select:
+                _questRewardChoice = index;
+                break;
+        }
         if (selectable && _questRewardChoice == index)
         {
             uint glow = _gameplayArt!.AdditiveHandle(@"Interface\QuestFrame\UI-QuestItemHighlight");
-            Vector2 glowMin = min + new Vector2(-8, -7) * s;
-            if (glow != 0) dl.AddImage((nint)glow, glowMin,
-                min + new Vector2(248, 57) * s);
+            Vector2 glowMin = QuestFrameUiLaw.ItemHighlightRect.ScaledMin(min, s);
+            Vector2 glowSize = QuestFrameUiLaw.ItemHighlightRect.ScaledSize(s);
+            if (glow != 0) dl.AddImage((nint)glow, glowMin, glowMin + glowSize);
             if (_uiParityArmed && _uiParityPanel == "quest-frame")
                 CollectUiParityDraw("BenillaQuestRewardChoiceHighlight",
-                    "HighlightTexture", glowMin, new Vector2(256,64)*s,
+                    "HighlightTexture", glowMin, glowSize,
                     QuestItemElementName(kind,index),
                     new(@"Interface\QuestFrame\UI-QuestItemHighlight",0xffffffff,"HIGHLIGHT",
                         "CENTER",QuestItemElementName(kind,index),"CENTER",0,0,
@@ -2301,12 +2378,11 @@ public sealed partial class GameLoop
         {
             QuestCoin coin = coins[slot];
             string text = coin.Value.ToString();
-            GameText.Draw(dl, "NumberFontNormal", text, new Vector2(x, min.Y), s);
             float numberWidth=GameText.MeasureWidth("NumberFontNormal", text, s);
-            Vector2 numberMin=new(x,min.Y);
-            x += numberWidth;
-            Vector2 iconMin=new(x,min.Y);
-            DrawMailCoin(dl, coin.Denomination, iconMin, s);
+            QuestMoneyCoinSeat seat = QuestFrameUiLaw.MoneyCoinSeat(
+                min, x, numberWidth, s);
+            GameText.Draw(dl, "NumberFontNormal", text, seat.NumberMin, s);
+            DrawMailCoin(dl, coin.Denomination, seat.IconMin, s);
             if(_uiParityArmed&&_uiParityPanel=="quest-frame")
             {
                 string element=$"{elementPrefix}Coin{slot+1}";
@@ -2318,29 +2394,29 @@ public sealed partial class GameLoop
                     ? progressMoney ? "BenillaQuestProgressRequiredMoneyText"
                         : panelStem + "ItemReceiveText"
                     : $"{elementPrefix}Coin{slot}";
-                float offset = slot == 0 ? progressMoney ? 10 : 15 : 4;
+                float offset = QuestFrameUiLaw.MoneyAnchorOffset(slot, progressMoney);
                 Vector4 clip=new(_uiParityOrigin.X+QuestFrameUiLaw.ScrollX*s,
                     _uiParityOrigin.Y+QuestFrameUiLaw.ScrollY*s,
                     _uiParityOrigin.X+(QuestFrameUiLaw.ScrollX+QuestFrameUiLaw.ScrollWidth)*s,
                     _uiParityOrigin.Y+(QuestFrameUiLaw.ScrollY+QuestFrameUiLaw.ScrollHeight)*s);
-                CollectUiParityDraw(element,"Frame",numberMin,new Vector2(numberWidth+13*s,13*s),
+                CollectUiParityDraw(element,"Frame",seat.NumberMin,seat.FrameSize,
                     scrollChild,new("",0,"FRAMES","LEFT",relativeTo,
                         "RIGHT",offset,0,ClipRect:clip,ClipMask:scrollName,
                         Strata:"DIALOG"));
-                CollectUiParityDraw(element+"/Num","FontString",numberMin,
-                    new Vector2(numberWidth,13*s),element,
+                CollectUiParityDraw(element+"/Num","FontString",seat.NumberMin,
+                    seat.NumberSize,element,
                     new("",FontObjectLaw.Get("NumberFontNormal").Color,"OVERLAY","RIGHT",
                         element,"RIGHT",-13,0,FontObjectLaw.Get("NumberFontNormal").Face,
                         FontObjectLaw.Get("NumberFontNormal").Height,ClipRect:clip,
                         ClipMask:scrollName,Strata:"DIALOG"));
-                CollectUiParityDraw(element+"/Icon","Texture",iconMin,new Vector2(13)*s,element,
+                CollectUiParityDraw(element+"/Icon","Texture",seat.IconMin,seat.IconSize,element,
                     new(@"Interface\MoneyFrame\UI-MoneyIcons",0xffffffff,"OVERLAY","RIGHT",
                         element,"RIGHT",0,0,TexCoords:coin.Denomination switch
                         {0=>"0|0|0.25|1",1=>"0.25|0|0.5|1",_=>"0.5|0|0.75|1"},
                         ClipRect:clip,ClipMask:scrollName,BlendMode:"BLEND",
                         Strata:"DIALOG"));
             }
-            x += 17 * s; // 13 px icon + 4 px inter-slot gap
+            x = seat.NextX;
         }
         if(_uiParityArmed&&_uiParityPanel=="quest-frame")
             for(int hidden=coins.Count;hidden<3;hidden++)
@@ -2373,12 +2449,15 @@ public sealed partial class GameLoop
             }
             return;
         }
-        Vector2 bar = origin + new Vector2(329, 81) * s;
+        Vector2 bar = QuestFrameUiLaw.NpcScrollBarRect.ScaledMin(origin, s);
         Vector4 clip = new(origin.X, origin.Y, origin.X + 384 * s, origin.Y + 512 * s);
         if (_uiParityArmed && _uiParityPanel == "quest-frame")
-            CollectUiParityDraw(barName, "Frame", bar, new Vector2(16,334)*s, panelName,
+            CollectUiParityDraw(barName, "Frame", bar,
+                QuestFrameUiLaw.NpcScrollBarRect.ScaledSize(s), panelName,
                 new("",0,"FRAMES","TOPLEFT",scrollName,"TOPRIGHT",6,0,
-                    ContentRect:new(bar.X,bar.Y,bar.X+16*s,bar.Y+334*s),ClipRect:clip,
+                    ContentRect:new(bar.X, bar.Y,
+                        bar.X + QuestFrameUiLaw.NpcScrollBarRect.Width * s,
+                        bar.Y + QuestFrameUiLaw.NpcScrollBarRect.Height * s), ClipRect:clip,
                     ClipMask:panelName,Strata:"DIALOG"));
         bool up = _questNpcScroll > 0, down = _questNpcScroll < range;
         if (DrawQuestScrollButton(dl, "##quest-scroll-up", barName + "Up", bar, up,
@@ -2386,23 +2465,29 @@ public sealed partial class GameLoop
             _questNpcScroll = QuestFrameUiLaw.ClampScroll(
                 _questNpcScroll - QuestFrameUiLaw.ScrollStep, contentHeight);
         if (DrawQuestScrollButton(dl, "##quest-scroll-down", barName + "Down",
-                bar + new Vector2(0, 318) * s, down, upward: false, s: s))
+                QuestFrameUiLaw.NpcScrollDownRect.ScaledMin(origin, s),
+                down, upward: false, s: s))
             _questNpcScroll = QuestFrameUiLaw.ClampScroll(
                 _questNpcScroll + QuestFrameUiLaw.ScrollStep, contentHeight);
-        Vector2 trackMin = bar + new Vector2(0,16)*s;
+        Vector2 trackMin = QuestFrameUiLaw.NpcScrollTrackRect.ScaledMin(origin, s);
         if (_uiParityArmed && _uiParityPanel == "quest-frame")
-            CollectUiParityDraw(barName+"Track","Frame",trackMin,new Vector2(16,302)*s,
+            CollectUiParityDraw(barName+"Track","Frame",trackMin,
+                QuestFrameUiLaw.NpcScrollTrackRect.ScaledSize(s),
                 barName,new("",0,"FRAMES","TOPLEFT",barName+"Up","BOTTOMLEFT",0,0,
-                    ContentRect:new(trackMin.X,trackMin.Y,trackMin.X+16*s,trackMin.Y+302*s),
+                    ContentRect:new(trackMin.X, trackMin.Y,
+                        trackMin.X + QuestFrameUiLaw.NpcScrollTrackRect.Width * s,
+                        trackMin.Y + QuestFrameUiLaw.NpcScrollTrackRect.Height * s),
                     ClipRect:clip,ClipMask:barName,Strata:"DIALOG"));
         uint knob = _gameplayArt!.Handle(@"Interface\Buttons\UI-ScrollBar-Knob");
         if (knob != 0)
         {
-            Vector2 at = bar + new Vector2(0, 16 + QuestFrameUiLaw.ScrollThumbY(_questNpcScroll, contentHeight)) * s;
-            dl.AddImage((nint)knob, at, at + new Vector2(16) * s, new(.25f), new(.75f));
+            QuestLogicalRect thumbRect = QuestFrameUiLaw.NpcScrollThumbRect(
+                _questNpcScroll, contentHeight);
+            Vector2 at = thumbRect.ScaledMin(origin, s);
+            dl.AddImage((nint)knob, at, at + thumbRect.ScaledSize(s), new(.25f), new(.75f));
             if (_uiParityArmed && _uiParityPanel == "quest-frame")
                 CollectUiParityDraw(barName+"Thumb", "Texture", at,
-                    new Vector2(16) * s, barName+"Track",
+                    thumbRect.ScaledSize(s), barName+"Track",
                     new(@"Interface\Buttons\UI-ScrollBar-Knob", 0xffffffff, "ARTWORK",
                         "TOPLEFT", barName+"Track", "TOPLEFT", 0,
                         -QuestFrameUiLaw.ScrollThumbY(_questNpcScroll, contentHeight),
@@ -2415,7 +2500,7 @@ public sealed partial class GameLoop
     private bool DrawQuestScrollButton(ImDrawListPtr dl, string id, string element, Vector2 min,
         bool enabled, bool upward, float s)
     {
-        Vector2 size = new Vector2(16) * s;
+        Vector2 size = QuestFrameUiLaw.NpcScrollUpRect.ScaledSize(s);
         ImGui.SetCursorScreenPos(min);
         ImGui.InvisibleButton(id, size);
         bool hovered = enabled && ImGui.IsItemHovered();

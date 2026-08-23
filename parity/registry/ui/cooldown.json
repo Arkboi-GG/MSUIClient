@@ -7,21 +7,21 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/Cooldown.xml",
-      "fileSha256": "4e39b2aae40b9d1a4e2b28fb487a0fcb8dcf2c5213701ee04f27337b39e288f7",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "d0c9a1b386b0b344969c5bcb8e62943388042ce8d509513cb83dbb5905872e8c",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/CooldownVisualLaw.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.ActionBars.cs",
-    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Inventory.cs"
+    "MSUIClient/Engine/UI/CooldownVisualLaw.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.ActionBars.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Inventory.cs"
   ],
   "status": "support-only",
-  "summary": "Cooldown.xml is the shared CooldownFrame_SetTimer helper feeding a native cooldown widget. MSUI realizes the same shared machinery through CooldownVisualLaw plus the DrawCooldownSwipe/DrawCooldownFlash helpers, used by both the action bars (Program.ActionBars.cs) and bag item slots (Program.Inventory.cs ~line 1278). Not a surface of its own.",
+  "summary": "Cooldown.xml is shared machinery, not a surface of its own. Current Benilla retains CooldownFrame_SetTimer for native cooldown widgets and adds the reference-named CooldownFrameTemplate so third-party FrameXML addons inherit expected model geometry without unknown-template failures. MSUI does not host that addon/XML inheritance runtime; its desktop consumers share CooldownVisualLaw plus DrawCooldownSwipe/DrawCooldownFlash across action bars and bag item slots. The 2026-08-23 change is addon-framework compatibility, not a new desktop window or geometry delta.",
   "openItems": [],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T02:53:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -24,21 +24,42 @@
       "path": "crates/benilla-app/src/bindings/store.rs",
       "fileSha256": "217c5fc0e5702d3cd4a0d9652b793e17a90a406c2982f6418c829561b4444f1b",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/target/scan.rs",
+      "fileSha256": "f22d4e3290bda754b0f9265a94f7dc46fe93fd71a1f1a7cf6504225137c5a411",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/GameLoop/Panels/GameLoop.Bindings.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Keybindings.cs",
     "MSUIClient/Engine/UI/BindingChordLaw.cs",
+    "MSUIClient/Engine/UI/ActionBarLockLaw.cs",
+    "MSUIClient/Engine/UI/TargetBindingLaw.cs",
     "MSUIClient/Engine/UI/CharacterBindingsUiLaw.cs",
+    "MSUIClient/Engine/UI/TargetCycleLaw.cs",
     "MSUIClient/GameLoop/Combat/GameLoop.Sheath.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.Follow.cs",
     "MSUIClient/GameLoop/Hud/GameLoop.Minimap.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.ActionBars.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.StanceBar.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Pet.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Settings.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Social.cs",
     "tools/interface-wire-check/BindingChordClinicalChecks.cs",
-    "tools/interface-wire-check/CharacterBindingsClinicalChecks.cs"
+    "tools/interface-wire-check/CharacterBindingsClinicalChecks.cs",
+    "tools/interface-wire-check/TargetCycleClinicalChecks.cs",
+    "tools/interface-wire-check/SocialTabBindingClinicalChecks.cs",
+    "tools/interface-wire-check/AudioBindingClinicalChecks.cs",
+    "tools/interface-wire-check/MinimapBindingClinicalChecks.cs",
+    "tools/interface-wire-check/KeyBindingRegistryClinicalChecks.cs"
+    ,
+    "tools/interface-wire-check/TargetBindingClinicalChecks.cs",
+    "tools/interface-wire-check/ActionBarBindingTailClinicalChecks.cs"
   ],
-  "status": "partial",
-  "summary": "MSUI runs rebindable keyboard and pointer inputs through canonical ALT-CTRL-SHIFT chords with global exact-match precedence, the reference's single leftmost-modifier fallback, Super rejection, and base-key Held latches that survive modifier changes and clear cleanly for typing. Account and GUID-keyed character sets follow the reference create-copy and confirmed load-account-before-delete lifecycle. The visible page and production dispatcher now cover physical-secondary movement, NumLock/Button4 autorun, X sit/stand, follow target, T attack target, Enter/slash/reply and chat paging, camera wheel zoom, numpad minimap zoom, and independent enemy/friendly/all nameplates. Remaining coverage is the unported tail of the reference registry and exact recent-history previous-target cycling.",
+  "status": "implemented-verified",
+  "summary": "MSUI runs rebindable keyboard and pointer inputs through canonical ALT-CTRL-SHIFT chords with global exact-match precedence, the reference's single leftmost-modifier fallback, Super rejection, and base-key Held latches that survive modifier changes and clear cleanly for typing. Account and GUID-keyed character sets follow the reference create-copy and confirmed load-account-before-delete lifecycle. The visible registry follows Benilla's category ladder, one unified MultiActionBar header, and the Raid Targeting block. The production dispatcher covers physical-secondary movement, NumLock/Button4 autorun, X sit/stand, follow target, T attack target, chat commands, camera/minimap zoom and Toggle Minimap, audio controls, independent nameplate modes, direct Social panes, current enemy scanning, self/party/pet targeting, pet attack, and raid markers. The Action Bar tail now includes Ctrl-F1..F10 Shapeshift Button commands routed through the existing stance law, Ctrl-1..Ctrl-0 Secondary Action Button commands armed on key-down and fired through the real pet action on key-up, plus the unbound Toggle Action Bar Lock command and matching Interface option. Locking suppresses main/pet drag-start and receive-drag while retaining vanilla's Shift-click pickup escape hatch. Protected bag/action-bar presentation is unchanged.",
   "openItems": [
     {
       "id": "item-triage-6927a2fd",
@@ -69,10 +90,11 @@
     {
       "id": "item-triage-faaeb2fc",
       "kind": "gap",
-      "text": "Rebindable command coverage remains narrower than the reference's engine-wide registry. Common host commands now include chat open/slash/reply/page scrolling, autorun, camera/minimap zoom, physical movement secondaries, sit/stand, follow, attack target and enemy/friendly/all nameplates. Remaining work includes Benilla's scored recent-history TARGETPREVIOUSENEMY/TAB cycling and the long tail of reference edge/action commands.",
+      "text": "Rebindable command coverage remains narrower than current Benilla's honest registry. Host, social, audio, minimap, self/party/pet targeting, pet attack, multibar and raid-marker commands are present. Remaining unported commands are the shapeshift and bonus/pet action-button rows plus Toggle Action Bar Lock; bag/action-bar presentation is protected and must not be changed while adding their command seams.",
       "source": "triage-2026-08-09/batch-systems-1.json",
       "added": "2026-08-09",
-      "resolved": false
+      "resolved": true,
+      "resolution": "2026-08-23: Added the full Action Bar registry tail: Ctrl-F1..F10 invokes visible stance buttons through ActivateStanceSpell; Ctrl-1..Ctrl-0 uses the real pet actions with the reference down/up latch; Toggle Action Bar Lock is unbound and flips the persisted Interface option. ActionBarLockLaw gates only main/pet drag-start and receive-drag, leaving Shift-click pickup intact. Focused ActionBarBindingTail, KeyBindingRegistry and full interface suites pass without changing bar geometry or art."
     },
     {
       "id": "item-msui-binding-common-host-live-verify-20260822",
@@ -97,11 +119,59 @@
       "source": "benilla-b57ee0e9e2c8822b/bindings/commands.rs",
       "added": "2026-08-22",
       "resolved": false
+    },
+    {
+      "id": "item-msui-target-cycle-live-verify-20260823",
+      "kind": "verify",
+      "text": "Focused TargetCycle and full interface checks pass. Live-verify Tab screen-priority selection, off-screen fallback, fighting-me priority, repeated four-second walk/wrap, clicked-target continuation, Shift-Tab reverse history, dead/critter/range rejection, Ctrl-Tab ownership, typing suppression, custom rebind/conflict persistence and attack re-point behavior.",
+      "source": "benilla-b57ee0e9e2c8822b/target/scan.rs",
+      "added": "2026-08-23",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-social-tab-bindings-live-verify-20260823",
+      "kind": "verify",
+      "text": "Focused SocialTabBindings and full interface checks pass. Live-bind and verify Toggle Friends Pane, Toggle Who Pane and Toggle Guild Pane: same-pane close, cross-pane switch, Friends/Who refresh, guildless refusal, typing suppression, conflict stealing and save/reload persistence.",
+      "source": "benilla-b57ee0e9e2c8822b/bindings/commands.rs",
+      "added": "2026-08-23",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-audio-bindings-live-verify-20260823",
+      "kind": "verify",
+      "text": "Focused AudioBindings and full interface checks pass. Live-verify Ctrl-M music, Ctrl-S master sound, Ctrl-=/Ctrl-- tenth-step clamping, mixer response, exact-first coexistence with bare M/S/-/= commands, typing suppression, custom rebind/conflict persistence and settings save/reload.",
+      "source": "benilla-b57ee0e9e2c8822b/bindings/commands.rs",
+      "added": "2026-08-23",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-minimap-binding-live-verify-20260823",
+      "kind": "verify",
+      "text": "Focused MinimapBinding and full interface checks pass. Live-bind Toggle Minimap and verify collapse/reopen state, open/close sounds, typing suppression, conflict stealing and save/reload persistence.",
+      "source": "benilla-b57ee0e9e2c8822b/bindings/commands.rs",
+      "added": "2026-08-23",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-direct-target-bindings-live-verify-20260823",
+      "kind": "verify",
+      "text": "Focused TargetBindings and full interface checks pass. Live-verify F1/F2-F5 primary-then-pet toggles, Shift-F1/F2-F5 direct pet targeting, absent-token no-ops, Shift-T attack/stop behavior, unbound raid-marker assignment/toggle/clear, typing suppression, conflict stealing and save/reload persistence.",
+      "source": "benilla-b57ee0e9e2c8822b/bindings/commands.rs",
+      "added": "2026-08-23",
+      "resolved": false
+    },
+    {
+      "id": "item-msui-actionbar-binding-tail-live-verify-20260823",
+      "kind": "verify",
+      "text": "Focused ActionBarBindingTail, KeyBindingRegistry and full interface suites pass. Live-verify Ctrl-F1..F10 stance activation/cancellation/visibility, Ctrl-1..Ctrl-0 pet pressed-state and release firing, rebind/conflict/typing behavior, Toggle Action Bar Lock plus Options Cancel/Okay/Defaults/preset persistence, locked main/pet drag refusal, locked receive-drag payload retention, and the Shift-click pickup escape hatch.",
+      "source": "benilla-b57ee0e9e2c8822b/bindings/commands.rs+ActionBar.xml+PetActionBar.xml",
+      "added": "2026-08-23",
+      "resolved": false
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T22:35:07.6015994Z",
+  "lastReviewedUtc": "2026-08-23T09:42:48.9696291Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

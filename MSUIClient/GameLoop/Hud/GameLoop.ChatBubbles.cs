@@ -153,19 +153,17 @@ public sealed partial class GameLoop
         float width = MathF.Ceiling(textWidth) + 2f * margin;
         float height = MathF.Ceiling(textHeight) + 2f * margin;
 
-        float deviceScale = MathF.Max(1f, ImGui.GetIO().DisplayFramebufferScale.X);
-        float Snap(float value) => MathF.Round(value * deviceScale) / deviceScale;
-        float left = Snap(seat.X - width * 0.5f);
-        float bottom = Snap(seat.Y);
-        var frame = new ScreenRect(left, bottom - height, left + width, bottom);
+        ChatBubbleUiLaw.Bounds frame = ChatBubbleUiLaw.Frame(seat, width, height,
+            ImGui.GetIO().DisplayFramebufferScale.X);
         uint white = WithAlpha(0xffffffffu, bubble.Alpha);
 
         uint background = _gameplayArt!.Handle(ChatBubbleUiLaw.BackgroundTexture);
         if (background != 0)
-            draw.AddImage((nint)background,
-                new Vector2(frame.Left + border, frame.Top + border),
-                new Vector2(frame.Right - border, frame.Bottom - border),
+        {
+            ChatBubbleUiLaw.ImageRect inner = ChatBubbleUiLaw.Inner(frame, border);
+            draw.AddImage((nint)background, inner.Min, inner.Max,
                 Vector2.Zero, Vector2.One, white);
+        }
 
         uint edge = _gameplayArt.RepeatHandle(ChatBubbleUiLaw.BackdropTexture);
         if (edge != 0) DrawChatBubbleBackdrop(draw, edge, frame, border, white);
@@ -173,10 +171,9 @@ public sealed partial class GameLoop
         uint tail = _gameplayArt.Handle(ChatBubbleUiLaw.TailTexture);
         if (tail != 0)
         {
-            float center = (frame.Left + frame.Right) * 0.5f;
-            float top = frame.Bottom - border * 0.25f;
-            draw.AddImage((nint)tail, new Vector2(center - border, top),
-                new Vector2(center, top + border), Vector2.Zero, Vector2.One, white);
+            ChatBubbleUiLaw.ImageRect tailRect = ChatBubbleUiLaw.Tail(frame, border);
+            draw.AddImage((nint)tail, tailRect.Min, tailRect.Max,
+                Vector2.Zero, Vector2.One, white);
         }
 
         ImFontPtr font = ImGui.GetFont();
@@ -186,7 +183,7 @@ public sealed partial class GameLoop
         {
             float lineWidth = Measure(line);
             draw.AddText(font, fontSize,
-                new Vector2((frame.Left + frame.Right - lineWidth) * 0.5f, y), color, line);
+                ChatBubbleUiLaw.LinePosition(frame, lineWidth, y), color, line);
             y += lineHeight;
         }
     }
@@ -229,53 +226,11 @@ public sealed partial class GameLoop
     }
 
     private static void DrawChatBubbleBackdrop(ImDrawListPtr draw, uint texture,
-        ScreenRect frame, float edge, uint color)
+        ChatBubbleUiLaw.Bounds frame, float edge, uint color)
     {
-        if (edge <= 0f) return;
-        float widthRun = MathF.Max(0f, frame.Width / edge - 2f);
-        float heightRun = MathF.Max(0f, frame.Height / edge - 2f);
-        const float slice = 0.125f;
-        const float halfU = 0.5f / 256f;
-        const float halfV = 0.5f / 32f;
-
-        float InsetRunStart(float run) => run <= 1f ? MathF.Min(halfV, run * 0.5f) : 0f;
-        float InsetRunEnd(float run) => run <= 1f ? MathF.Max(run * 0.5f, run - halfV) : run;
-        float h0 = InsetRunStart(heightRun), h1 = InsetRunEnd(heightRun);
-        float w0 = InsetRunStart(widthRun), w1 = InsetRunEnd(widthRun);
-
-        void Quad(float left, float top, float right, float bottom,
-            Vector2 uvTl, Vector2 uvTr, Vector2 uvBr, Vector2 uvBl) =>
+        foreach (ChatBubbleUiLaw.ImageQuad quad in ChatBubbleUiLaw.Backdrop(frame, edge))
             draw.AddImageQuad((nint)texture,
-                new Vector2(left, top), new Vector2(right, top),
-                new Vector2(right, bottom), new Vector2(left, bottom),
-                uvTl, uvTr, uvBr, uvBl, color);
-
-        // Tiling runs keep their unbounded axis exact. Corners inset both axes
-        // onto texel centres so bilinear filtering cannot bleed atlas neighbours.
-        Quad(frame.Left, frame.Top + edge, frame.Left + edge, frame.Bottom - edge,
-            new(halfU, h0), new(slice - halfU, h0),
-            new(slice - halfU, h1), new(halfU, h1));
-        Quad(frame.Right - edge, frame.Top + edge, frame.Right, frame.Bottom - edge,
-            new(slice + halfU, h0), new(2f * slice - halfU, h0),
-            new(2f * slice - halfU, h1), new(slice + halfU, h1));
-        Quad(frame.Left + edge, frame.Top, frame.Right - edge, frame.Top + edge,
-            new(2f * slice + halfU, w1), new(2f * slice + halfU, w0),
-            new(3f * slice - halfU, w0), new(3f * slice - halfU, w1));
-        Quad(frame.Left + edge, frame.Bottom - edge, frame.Right - edge, frame.Bottom,
-            new(3f * slice + halfU, w1), new(3f * slice + halfU, w0),
-            new(4f * slice - halfU, w0), new(4f * slice - halfU, w1));
-
-        void Corner(float left, float top, int cell)
-        {
-            float u0 = cell * slice + halfU;
-            float u1 = (cell + 1) * slice - halfU;
-            Quad(left, top, left + edge, top + edge,
-                new(u0, halfV), new(u1, halfV),
-                new(u1, 1f - halfV), new(u0, 1f - halfV));
-        }
-        Corner(frame.Left, frame.Top, 4);
-        Corner(frame.Right - edge, frame.Top, 5);
-        Corner(frame.Left, frame.Bottom - edge, 6);
-        Corner(frame.Right - edge, frame.Bottom - edge, 7);
+                quad.TopLeft, quad.TopRight, quad.BottomRight, quad.BottomLeft,
+                quad.UvTopLeft, quad.UvTopRight, quad.UvBottomRight, quad.UvBottomLeft, color);
     }
 }

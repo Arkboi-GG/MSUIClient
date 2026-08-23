@@ -55,13 +55,16 @@ public sealed class LocalMovementSender
         MovementFlags extraFlags = MovementFlags.None)
     {
         const MovementFlags controllerStateMask = MovementFlags.WaterWalking |
-            MovementFlags.FeatherFalling | MovementFlags.Hover | MovementFlags.Swimming;
+            MovementFlags.FeatherFalling | MovementFlags.Hover | MovementFlags.Swimming |
+            MovementFlags.OnTransport;
         MovementFlags flags = (MovementFlags)_previousFlags & ~controllerStateMask;
         flags |= controller.GrantedMovementFlags;
         if (controller.Swimming) flags |= MovementFlags.Swimming;
+        if (controller.Transport is not null) flags |= MovementFlags.OnTransport;
         flags |= extraFlags;
-            var info = MovementInfo.Create(controller.Position, Normalize(controller.Yaw), flags);
-            if (controller.Swimming) info.Pitch = controller.SwimPitch;
+        var info = MovementInfo.Create(controller.Position, Normalize(controller.Yaw), flags);
+        if (controller.Swimming) info.Pitch = controller.SwimPitch;
+        info.Transport = controller.Transport;
         info.FallTime = (uint)Math.Clamp(MathF.Round(controller.FallTimeMs), 0f, uint.MaxValue);
         if ((flags & MovementFlags.Falling) != 0)
         {
@@ -106,6 +109,7 @@ public sealed class LocalMovementSender
         if (input.Walking) flags |= MovementFlags.WalkMode;
         flags |= controller.GrantedMovementFlags;
         if (controller.Swimming) flags |= MovementFlags.Swimming;
+        if (controller.Transport is not null) flags |= MovementFlags.OnTransport;
         if (!controller.Grounded)
         {
             if (!controller.Swimming)
@@ -125,6 +129,7 @@ public sealed class LocalMovementSender
         {
             var info = MovementInfo.Create(controller.Position, facing, flags);
             if (controller.Swimming) info.Pitch = controller.SwimPitch;
+            info.Transport = controller.Transport;
             info.FallTime = fallTimeMs;
             if (falling)
             {
@@ -155,6 +160,12 @@ public sealed class LocalMovementSender
 
         if ((added & (uint)MovementFlags.Swimming) != 0) Send(Op.MSG_MOVE_START_SWIM);
         else if ((removed & (uint)MovementFlags.Swimming) != 0) Send(Op.MSG_MOVE_STOP_SWIM);
+
+        // Board/deboard has no dedicated opcode. The reference emits an
+        // immediate heartbeat when ON_TRANSPORT is the only state edge so the
+        // server receives (or stops expecting) the local pose tail at once.
+        if (!sent && ((added | removed) & (uint)MovementFlags.OnTransport) != 0)
+            Send(Op.MSG_MOVE_HEARTBEAT);
 
         // Vanilla defers ordinary forward/strafe transitions while airborne;
         // the current bits ride the next turn/facing/landing packet instead.

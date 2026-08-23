@@ -1,3 +1,5 @@
+using MSUIClient.Formats;
+
 namespace MSUIClient.Net;
 
 public readonly record struct ActionSlot(byte Kind, uint ActionId)
@@ -17,14 +19,28 @@ public readonly record struct CooldownDisplay(float? SweepFraction, float? Flash
 /// <summary>Authoritative local 120-slot bar plus the server-fed spellbook.</summary>
 public sealed class PlayerActions
 {
-    private readonly record struct HeldCooldown(uint SpellId, uint Category,
-        uint SpellDurationMs, uint CategoryDurationMs);
+    private sealed class CooldownRecord
+    {
+        public uint SpellId;
+        public uint ItemEntry;
+        public uint Category;
+        public bool CategoryWildcard;
+        public bool OnHold;
+        public uint GcdCategory;
+        public double RecoveryStartedAt;
+        public double RecoverySeconds;
+        public double CategoryStartedAt;
+        public double CategorySeconds;
+        public double GcdStartedAt;
+        public double GcdSeconds;
+    }
+
+    private readonly record struct CooldownSample(double StartedAt, double DurationSeconds,
+        double RemainingSeconds, bool Enabled);
 
     private readonly ActionSlot?[] _slots = new ActionSlot?[120];
     private readonly HashSet<uint> _knownSpells = new();
-    private readonly Dictionary<uint, SpellCooldown> _spellCooldowns = new();
-    private readonly Dictionary<uint, SpellCooldown> _categoryCooldowns = new();
-    private readonly Dictionary<uint, List<HeldCooldown>> _heldCooldowns = new();
+    private readonly List<CooldownRecord> _cooldowns = [];
 
     public IReadOnlySet<uint> KnownSpells => _knownSpells;
     public int OccupiedCount => _slots.Count(s => s.HasValue);
@@ -34,9 +50,7 @@ public sealed class PlayerActions
     {
         Array.Clear(_slots);
         _knownSpells.Clear();
-        _spellCooldowns.Clear();
-        _categoryCooldowns.Clear();
-        _heldCooldowns.Clear();
+        _cooldowns.Clear();
     }
 
     public void ApplyButtons(byte[] body)
@@ -65,23 +79,18 @@ public sealed class PlayerActions
             r.ReadU16();
         }
 
-        _spellCooldowns.Clear();
-        _categoryCooldowns.Clear();
-        _heldCooldowns.Clear();
+        _cooldowns.Clear();
         if (r.Remaining < 2) return;
         int cooldownCount = r.ReadU16();
         for (int i = 0; i < cooldownCount && r.Remaining >= 14; i++)
         {
             uint spell = r.ReadU16();
-            r.ReadU16();
-            uint category = r.ReadU16();
+            uint itemEntry = r.ReadU16();
+            uint category = r.ReadU16() & 0x7fffu;
             uint spellMs = r.ReadU32();
             uint categoryMs = r.ReadU32();
-            if (spellMs > 1)
-                _spellCooldowns[spell] = new SpellCooldown(spell, category, nowSeconds, spellMs / 1000.0);
-            if (category != 0 && categoryMs > 1)
-                _categoryCooldowns[category] = new SpellCooldown(spell, category, nowSeconds,
-                    categoryMs / 1000.0);
+            AddRecord(spell, itemEntry, category, categoryWildcard: false,
+                spellMs, categoryMs, onHold: false, gcdCategory: 0, gcdMs: 0, nowSeconds);
         }
     }
 
@@ -115,166 +124,258 @@ public sealed class PlayerActions
         if (wireSlot is >= 0 and < 120) _slots[wireSlot] = value;
     }
 
-    public void StartCooldown(uint spell, uint category, uint durationMs, double nowSeconds)
-    {
+    public void StartCooldown(uint spell, uint category, uint durationMs, double nowSeconds) =>
         StartCooldown(spell, category, durationMs, 0, nowSeconds);
-    }
 
-    /// <summary>Starts the independent spell and category clocks carried by SMSG_SPELL_GO.</summary>
     public void StartCooldown(uint spell, uint category, uint spellDurationMs,
-        uint categoryDurationMs, double nowSeconds)
-        => StartCooldown(spell, category, spellDurationMs, categoryDurationMs, nowSeconds,
+        uint categoryDurationMs, double nowSeconds) =>
+        StartCooldown(spell, category, spellDurationMs, categoryDurationMs, nowSeconds,
             onHold: false);
 
-    /// <summary>
-    /// Insert a running cooldown or park its authored durations until SMSG_COOLDOWN_EVENT.
-    /// Multiple held records are retained because a cast's GCD and own/category recovery are
-    /// separate build-5875 history nodes even when they share the spell id.
-    /// </summary>
+    /// <summary>Append one recovery node; build 5875 never replaces a matching spell node.</summary>
     public void StartCooldown(uint spell, uint category, uint spellDurationMs,
-        uint categoryDurationMs, double nowSeconds, bool onHold)
+        uint categoryDurationMs, double nowSeconds, bool onHold,
+        bool categoryWildcard = false) =>
+        AddRecord(spell, itemEntry: 0, category, categoryWildcard, spellDurationMs,
+            categoryDurationMs, onHold, gcdCategory: 0, gcdMs: 0, nowSeconds);
+
+    /// <summary>Local SMSG_SPELL_GO self-insert, including the ranged-weapon category pad.</summary>
+    public void StartSpellCooldown(uint spell, in SpellInfo info, uint rangedAttackTimeMs,
+        double nowSeconds)
     {
-        if (onHold)
-        {
-            if (spellDurationMs == 0 && categoryDurationMs == 0) return;
-            if (!_heldCooldowns.TryGetValue(spell, out List<HeldCooldown>? records))
-                _heldCooldowns[spell] = records = [];
-            records.Add(new HeldCooldown(spell, category, spellDurationMs, categoryDurationMs));
-            return;
-        }
-        if (spellDurationMs > 0)
-            _spellCooldowns[spell] = new SpellCooldown(spell, category, nowSeconds,
-                spellDurationMs / 1000.0);
-        if (category != 0 && categoryDurationMs > 0)
-            _categoryCooldowns[category] = new SpellCooldown(spell, category, nowSeconds,
-                categoryDurationMs / 1000.0);
+        ulong categoryMs = (ulong)info.CategoryRecoveryMs +
+            (info.RangedSpeedCooldown ? rangedAttackTimeMs : 0u);
+        AddRecord(spell, itemEntry: 0, info.Category, info.CategoryWildcard, info.RecoveryMs,
+            (uint)Math.Min(categoryMs, uint.MaxValue), info.CooldownOnEvent,
+            gcdCategory: 0, gcdMs: 0, nowSeconds);
     }
 
-    /// <summary>Start every parked recovery node for one spell at this packet's receive time.</summary>
+    /// <summary>Cast-send GCD node. It remains separate from the later GO recovery node.</summary>
+    public void StartGlobalCooldown(uint spell, in SpellInfo info, double nowSeconds)
+    {
+        if (info.StartRecoveryMs == 0) return;
+        AddRecord(spell, itemEntry: 0, category: 0, categoryWildcard: false,
+            spellDurationMs: 0, categoryDurationMs: 0, info.CooldownOnEvent,
+            info.StartRecoveryCategory, info.StartRecoveryMs, nowSeconds);
+    }
+
+    /// <summary>Client-computed item-use recovery from the selected item spell slot.</summary>
+    public void StartItemUseCooldown(uint itemEntry, in ItemSpellTemplate useSpell,
+        SpellInfo? spell, double nowSeconds)
+    {
+        uint recoveryMs = useSpell.CooldownMs >= 0
+            ? (uint)useSpell.CooldownMs : spell?.RecoveryMs ?? 0;
+        uint categoryMs = useSpell.CategoryCooldownMs >= 0
+            ? (uint)useSpell.CategoryCooldownMs : spell?.CategoryRecoveryMs ?? 0;
+        bool wildcard = spell is { } resolved && resolved.Category == useSpell.Category &&
+            resolved.CategoryWildcard;
+        AddRecord(useSpell.SpellId, itemEntry, useSpell.Category, wildcard, recoveryMs,
+            categoryMs, spell?.CooldownOnEvent ?? false, gcdCategory: 0, gcdMs: 0,
+            nowSeconds);
+    }
+
+    /// <summary>SMSG_SPELL_COOLDOWN server override/refresh node.</summary>
+    public void ApplyWireCooldown(uint spell, uint wireDurationMs, SpellInfo? info,
+        double nowSeconds)
+    {
+        bool held = info?.CooldownOnEvent ?? false;
+        uint recoveryMs = wireDurationMs != 0 ? wireDurationMs : info?.RecoveryMs ?? 0;
+        uint category = info?.Category ?? 0;
+        uint categoryMs = wireDurationMs == 0 ? info?.CategoryRecoveryMs ?? 0 : 0;
+        uint gcdCategory = held ? 0 : info?.StartRecoveryCategory ?? 0;
+        uint gcdMs = held ? 0 : info?.StartRecoveryMs ?? 0;
+        AddRecord(spell, itemEntry: 0, category,
+            info is { } resolved && resolved.Category == category && resolved.CategoryWildcard,
+            recoveryMs, categoryMs, held, gcdCategory, gcdMs, nowSeconds);
+    }
+
+    /// <summary>SMSG_ITEM_COOLDOWN's fixed 30-second item/spell-pair recovery.</summary>
+    public void StartItemPacketCooldown(uint spell, uint itemEntry, double nowSeconds) =>
+        AddRecord(spell, itemEntry, category: 0, categoryWildcard: false,
+            spellDurationMs: 30_000, categoryDurationMs: 0, onHold: false,
+            gcdCategory: 0, gcdMs: 0, nowSeconds);
+
     public void StartCooldownEvent(uint spell, double nowSeconds)
     {
-        if (!_heldCooldowns.Remove(spell, out List<HeldCooldown>? records)) return;
-        foreach (HeldCooldown held in records)
-            StartCooldown(held.SpellId, held.Category, held.SpellDurationMs,
-                held.CategoryDurationMs, nowSeconds);
+        foreach (CooldownRecord record in _cooldowns.Where(r => r.SpellId == spell && r.OnHold))
+        {
+            record.RecoveryStartedAt = nowSeconds;
+            record.CategoryStartedAt = nowSeconds;
+            record.OnHold = false;
+        }
     }
 
-    /// <summary>Remove every own/category/held record belonging to one spell.</summary>
-    public void ClearCooldown(uint spell)
+    /// <summary>Cast-failure revert: clear only this cast's GCD arm.</summary>
+    public void ClearGlobalCooldown(uint spell)
     {
-        _spellCooldowns.Remove(spell);
-        foreach (uint category in _categoryCooldowns
-                     .Where(pair => pair.Value.SpellId == spell)
-                     .Select(pair => pair.Key).ToArray())
-            _categoryCooldowns.Remove(category);
-        _heldCooldowns.Remove(spell);
+        foreach (CooldownRecord record in _cooldowns.Where(r => r.SpellId == spell))
+        {
+            record.GcdCategory = 0;
+            record.GcdSeconds = 0;
+        }
+        _cooldowns.RemoveAll(Empty);
     }
 
-    /// <summary>SMSG_COOLDOWN_CHEAT: wipe the addressed player or pet history.</summary>
-    public void ClearAllCooldowns()
-    {
-        _spellCooldowns.Clear();
-        _categoryCooldowns.Clear();
-        _heldCooldowns.Clear();
-    }
+    public void ClearCooldown(uint spell) => _cooldowns.RemoveAll(r => r.SpellId == spell);
+
+    public void ClearAllCooldowns() => _cooldowns.Clear();
+
+    public bool HasOnHoldRecord(uint spell, uint category = 0) => _cooldowns.Any(r =>
+        r.OnHold && ((r.SpellId == spell && r.ItemEntry == 0) ||
+                     (category != 0 && r.Category == category && r.CategorySeconds > 0)));
 
     public float CooldownFraction(uint spell, double nowSeconds, uint category = 0)
     {
-        if (!TryActiveCooldown(spell, category, nowSeconds, out SpellCooldown cd, out _)) return 0f;
-        double elapsed = nowSeconds - cd.StartedAt;
-        return (float)Math.Clamp(elapsed / cd.DurationSeconds, 0, 1);
+        if (!TryActiveCooldown(spell, itemEntry: 0, category, startRecoveryCategory: 0,
+                excluded: false, nowSeconds, out CooldownSample sample)) return 0f;
+        return (float)Math.Clamp((nowSeconds - sample.StartedAt) / sample.DurationSeconds, 0, 1);
     }
 
-    /// <summary>
-    /// The authored CooldownFrame display phase. Expired clocks remain visible only for their
-    /// one-second finish flash; cast readiness still becomes true at the exact cooldown end.
-    /// </summary>
     public bool TryCooldownDisplay(uint spell, double nowSeconds, uint category,
-        out CooldownDisplay display)
+        out CooldownDisplay display) =>
+        TryCooldownDisplay(spell, itemEntry: 0, category, startRecoveryCategory: 0,
+            excluded: false, nowSeconds, out display);
+
+    public bool TryCooldownDisplay(uint spell, uint itemEntry, uint category,
+        double nowSeconds, out CooldownDisplay display) =>
+        TryCooldownDisplay(spell, itemEntry, category, startRecoveryCategory: 0,
+            excluded: false, nowSeconds, out display);
+
+    public bool TryCooldownDisplay(uint spell, uint itemEntry, in SpellInfo info,
+        double nowSeconds, out CooldownDisplay display) =>
+        TryCooldownDisplay(spell, itemEntry, info.Category, info.StartRecoveryCategory,
+            info.CooldownQueryExcluded, nowSeconds, out display);
+
+    public bool IsOnCooldown(uint spell, double nowSeconds, uint category = 0) =>
+        TryActiveCooldown(spell, itemEntry: 0, category, startRecoveryCategory: 0,
+            excluded: false, nowSeconds, out _);
+
+    public bool IsOnCooldown(uint spell, uint itemEntry, uint category, double nowSeconds) =>
+        TryActiveCooldown(spell, itemEntry, category, startRecoveryCategory: 0,
+            excluded: false, nowSeconds, out _);
+
+    public bool IsOnCooldown(uint spell, uint itemEntry, in SpellInfo info, double nowSeconds) =>
+        TryActiveCooldown(spell, itemEntry, info.Category, info.StartRecoveryCategory,
+            info.CooldownQueryExcluded, nowSeconds, out _);
+
+    public double CooldownRemaining(uint spell, double nowSeconds, uint category = 0) =>
+        TryActiveCooldown(spell, itemEntry: 0, category, startRecoveryCategory: 0,
+            excluded: false, nowSeconds, out CooldownSample sample)
+            ? sample.RemainingSeconds : 0;
+
+    public double CooldownRemaining(uint spell, uint itemEntry, in SpellInfo info,
+        double nowSeconds) =>
+        TryActiveCooldown(spell, itemEntry, info.Category, info.StartRecoveryCategory,
+            info.CooldownQueryExcluded, nowSeconds, out CooldownSample sample)
+            ? sample.RemainingSeconds : 0;
+
+    private void AddRecord(uint spell, uint itemEntry, uint category, bool categoryWildcard,
+        uint spellDurationMs, uint categoryDurationMs, bool onHold, uint gcdCategory,
+        uint gcdMs, double nowSeconds)
+    {
+        if (spellDurationMs == 0 && categoryDurationMs == 0 && !onHold && gcdMs == 0) return;
+        Prune(nowSeconds);
+        _cooldowns.Add(new CooldownRecord
+        {
+            SpellId = spell,
+            ItemEntry = itemEntry,
+            Category = category,
+            CategoryWildcard = categoryWildcard,
+            OnHold = onHold,
+            GcdCategory = gcdCategory,
+            RecoveryStartedAt = nowSeconds,
+            RecoverySeconds = spellDurationMs / 1000.0,
+            CategoryStartedAt = nowSeconds,
+            CategorySeconds = categoryDurationMs / 1000.0,
+            GcdStartedAt = nowSeconds,
+            GcdSeconds = gcdMs / 1000.0,
+        });
+    }
+
+    private bool TryActiveCooldown(uint spell, uint itemEntry, uint category,
+        uint startRecoveryCategory, bool excluded, double nowSeconds, out CooldownSample best)
+    {
+        best = default;
+        if (excluded) return false;
+        Prune(nowSeconds);
+        CooldownSample winner = default;
+        foreach (CooldownRecord record in _cooldowns)
+        {
+            if (record.SpellId == spell && record.ItemEntry == itemEntry)
+                Consider(record.RecoveryStartedAt, record.RecoverySeconds, record.OnHold);
+            if ((record.Category != 0 && record.Category == category) || record.CategoryWildcard)
+                Consider(record.CategoryStartedAt, record.CategorySeconds, record.OnHold);
+            if (record.GcdCategory == startRecoveryCategory && record.GcdSeconds > 0)
+                Consider(record.GcdStartedAt, record.GcdSeconds, held: false);
+        }
+        best = winner;
+        return winner.RemainingSeconds > 0;
+
+        void Consider(double startedAt, double duration, bool held)
+        {
+            if (duration <= 0) return;
+            double remaining = held ? duration : startedAt + duration - nowSeconds;
+            if (remaining > winner.RemainingSeconds)
+                winner = new CooldownSample(startedAt, duration, remaining, !held);
+        }
+    }
+
+    private bool TryCooldownDisplay(uint spell, uint itemEntry, uint category,
+        uint startRecoveryCategory, bool excluded, double nowSeconds, out CooldownDisplay display)
     {
         display = default;
-        bool found = TryDisplayClock(_spellCooldowns, spell, nowSeconds, out SpellCooldown winner);
-        if (category != 0 && TryDisplayClock(_categoryCooldowns, category, nowSeconds,
-                out SpellCooldown categoryClock) &&
-            (!found || categoryClock.StartedAt + categoryClock.DurationSeconds >
-                       winner.StartedAt + winner.DurationSeconds))
+        if (excluded) return false;
+        Prune(nowSeconds);
+        CooldownSample active = default;
+        double latestExpiredEnd = double.NegativeInfinity;
+        foreach (CooldownRecord record in _cooldowns)
         {
-            winner = categoryClock;
-            found = true;
+            if (record.SpellId == spell && record.ItemEntry == itemEntry)
+                Consider(record.RecoveryStartedAt, record.RecoverySeconds, record.OnHold);
+            if ((record.Category != 0 && record.Category == category) || record.CategoryWildcard)
+                Consider(record.CategoryStartedAt, record.CategorySeconds, record.OnHold);
+            if (record.GcdCategory == startRecoveryCategory && record.GcdSeconds > 0)
+                Consider(record.GcdStartedAt, record.GcdSeconds, held: false);
         }
-        if (!found || winner.DurationSeconds <= 0) return false;
-
-        double end = winner.StartedAt + winner.DurationSeconds;
-        if (nowSeconds < end)
+        if (active.RemainingSeconds > 0)
         {
-            float fraction = (float)Math.Clamp(
-                (nowSeconds - winner.StartedAt) / winner.DurationSeconds, 0.0, 1.0);
-            display = new CooldownDisplay(fraction, null);
+            if (!active.Enabled) return false;
+            display = new CooldownDisplay((float)Math.Clamp(
+                (nowSeconds - active.StartedAt) / active.DurationSeconds, 0.0, 1.0), null);
+            return true;
         }
-        else
-        {
-            float flash = (float)Math.Clamp(nowSeconds - end, 0.0, 1.0);
-            display = new CooldownDisplay(null, flash);
-        }
+        if (!double.IsFinite(latestExpiredEnd)) return false;
+        display = new CooldownDisplay(null,
+            (float)Math.Clamp(nowSeconds - latestExpiredEnd, 0.0, 1.0));
         return true;
-    }
 
-    public bool IsOnCooldown(uint spell, double nowSeconds, uint category = 0)
-        => TryActiveCooldown(spell, category, nowSeconds, out _, out _);
-
-    public double CooldownRemaining(uint spell, double nowSeconds, uint category = 0)
-    {
-        return TryActiveCooldown(spell, category, nowSeconds, out _, out double remaining)
-            ? remaining
-            : 0;
-    }
-
-    private bool TryActiveCooldown(uint spell, uint category, double nowSeconds,
-        out SpellCooldown cooldown, out double remaining)
-    {
-        cooldown = default;
-        remaining = 0;
-        if (TryClock(_spellCooldowns, spell, nowSeconds, out SpellCooldown spellClock,
-                out double spellRemaining))
+        void Consider(double startedAt, double duration, bool held)
         {
-            cooldown = spellClock;
-            remaining = spellRemaining;
+            if (duration <= 0) return;
+            if (held)
+            {
+                if (duration > active.RemainingSeconds)
+                    active = new CooldownSample(startedAt, duration, duration, Enabled: false);
+                return;
+            }
+            double end = startedAt + duration;
+            double remaining = end - nowSeconds;
+            if (remaining > active.RemainingSeconds)
+                active = new CooldownSample(startedAt, duration, remaining, Enabled: true);
+            else if (remaining <= 0 && remaining > -CooldownDisplay.FinishFlashSeconds)
+                latestExpiredEnd = Math.Max(latestExpiredEnd, end);
         }
-        if (category != 0 &&
-            TryClock(_categoryCooldowns, category, nowSeconds, out SpellCooldown categoryClock,
-                out double categoryRemaining) && categoryRemaining > remaining)
-        {
-            cooldown = categoryClock;
-            remaining = categoryRemaining;
-        }
-        return remaining > 0;
     }
 
-    private static bool TryClock(Dictionary<uint, SpellCooldown> clocks, uint key,
-        double nowSeconds, out SpellCooldown cooldown, out double remaining)
-    {
-        if (!clocks.TryGetValue(key, out cooldown))
-        {
-            remaining = 0;
-            return false;
-        }
-        remaining = cooldown.DurationSeconds - (nowSeconds - cooldown.StartedAt);
-        if (remaining > 0) return true;
-        // CooldownFrame's sequence 1 remains visible for one second after readiness returns.
-        // Retaining the inert record does not affect the active result above.
-        if (remaining <= -CooldownDisplay.FinishFlashSeconds) clocks.Remove(key);
-        remaining = 0;
-        return false;
-    }
+    private void Prune(double nowSeconds) => _cooldowns.RemoveAll(record =>
+        !record.OnHold &&
+        Finished(record.RecoveryStartedAt, record.RecoverySeconds, nowSeconds) &&
+        Finished(record.CategoryStartedAt, record.CategorySeconds, nowSeconds) &&
+        Finished(record.GcdStartedAt, record.GcdSeconds, nowSeconds));
 
-    private static bool TryDisplayClock(Dictionary<uint, SpellCooldown> clocks, uint key,
-        double nowSeconds, out SpellCooldown cooldown)
-    {
-        if (!clocks.TryGetValue(key, out cooldown)) return false;
-        double end = cooldown.StartedAt + cooldown.DurationSeconds;
-        if (nowSeconds < end + CooldownDisplay.FinishFlashSeconds) return true;
-        clocks.Remove(key);
-        cooldown = default;
-        return false;
-    }
+    private static bool Finished(double startedAt, double duration, double nowSeconds) =>
+        duration <= 0 || nowSeconds >= startedAt + duration + CooldownDisplay.FinishFlashSeconds;
+
+    private static bool Empty(CooldownRecord record) => !record.OnHold &&
+        record.RecoverySeconds <= 0 && record.CategorySeconds <= 0 && record.GcdSeconds <= 0;
 }

@@ -7,38 +7,38 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/net.rs",
-      "fileSha256": "78753e4d9e94696ce3b220e30e914f0882fd8042616564e360905481922dec28",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "2253809570ff6ea5a8138b4f974b99f78c46347f2ca5d042c01da97d888b48f0",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply.rs",
-      "fileSha256": "db3ee2d087973d41f05963a24398c2b76399957fb47b1b060d4334dc69bd510c",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "098fbb9f2c7b5be5f92e05f0dfff82d964be0747f3ef45bbe5c10adcec434d73",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply/anim.rs",
-      "fileSha256": "aedab971d1e66369aba7492702dc50fe1c0c9ddfcd0cf4648ec87b6c3332224c",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "c0c500402e5a7abb83ef0634bb4564ff1dbb44b3951b78f1aa047bab21857988",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply/chat.rs",
-      "fileSha256": "2504e11db181e777588362ceb19395503632f289b4d5bfcf9bb919b9501d8049",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "ba33977e3d22c85cd88cdd68bcf1e83daa1c3a971fb327a3e56a749f5eb60496",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply/combat.rs",
-      "fileSha256": "6c3fe30edab46215d81e7feb59e601a4f112fe5de9f8581ed22792c6f658ab63",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "31294a50b213c1dbf004148d5e92473444924a6e706288938a108acf2a3e10cb",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply/combat_log.rs",
-      "fileSha256": "2bbf862de56feb2e31b45c7cd95321cecdf63f9265ed664f9efa4770855dad82",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "f89a1e96b1874c7bf7bf1801ee455fda028125a86de2cf35d56baf70f7eee6bd",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply/death.rs",
-      "fileSha256": "10f0f5dce5c9bd714b58259191004548febca086da327d8ba0a99357dea0b202",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "3037f8531c21b22b86e180beedf938b5d74d51884c6a2fcc0407209a7d61a0ff",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply/group.rs",
@@ -47,8 +47,8 @@
     },
     {
       "path": "crates/benilla-app/src/net/apply/loot.rs",
-      "fileSha256": "7e596e217fc1524dd56f875a060c30d9a2039e8b1d7cf752e934d2418fc204ce",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "f4520ac869fd58c95c66cc0c1845ba4e57ca2bc47893dac5999048057ae6e889",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply/mail.rs",
@@ -62,38 +62,38 @@
     },
     {
       "path": "crates/benilla-app/src/net/apply/names.rs",
-      "fileSha256": "1019c64eb106acb83491eaee3c23306c272d41f9c64e4698c9838e8a1d617195",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "ddea769bbfbf6119a7e32110fc96b438100a67c71f4122dd35bbf90135056aba",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply/npc.rs",
-      "fileSha256": "6edc35d080dc8800e769854aac952b2bd8bed3501c0a9ba9b6dd15b0b6978822",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "4260fdb7fdd6d18bd6e4da1e02c80862cda9c9611ec1c42bda005e0b6674e30b",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply/objects.rs",
-      "fileSha256": "2ea07ecccd657a316744c5050e9e58fed7347f6262b7359fc37d355bd759f7bb",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "3553a43e36baf7b54ec91ca014a9e2be9feb908fcc7ef46ffd80fc25531fa39a",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply/pet.rs",
-      "fileSha256": "b7c5a68d30adc7cb9029fdddb4063a20c6bc216773b192c13586d1ac0f7f9a23",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "2def8220de2bf90656716b9475110c3df20add53d16510cd8cfd30ec76347cf2",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply/quests.rs",
-      "fileSha256": "87265286bb5659a6d59fd8ecb304c110b0dc4a39c137cccf0f1d760b2b3e2de1",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "76a8b946b9d3c6cfd3081f6038ba4f3c0a7e0b20c2c554c70107983f36f9df00",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply/session.rs",
-      "fileSha256": "74d9a0e056f33a90904d8cd4acf834649029c668d229dd6b03f211db0cbb996d",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "788418dfd53483c33f01e2db5611593d12a925720731319792c3d3943ab08989",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply/spells.rs",
-      "fileSha256": "3f6c18e6c6b28863dc3493e726eac4a676ec96e03606f6e59df5e693029c75de",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "2442bd45a590708354e34b6b1d88d5814982dc6e516e638cc09853b646452957",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/apply/trade.rs",
@@ -102,23 +102,23 @@
     },
     {
       "path": "crates/benilla-app/src/net/apply/world.rs",
-      "fileSha256": "cdeb86407be2c293c5135115993812ef742c85d13a3eb4589326be17fcbd6774",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "50f6eddcfc7fc84c20549482adc8f12596ed022b270a06902d5ed7d1f4f6c3c9",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/io.rs",
-      "fileSha256": "c973a97473db76abfb3baf2aad016a48c3eea567e06182df2ec21cdad82f71d8",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "3cc549367d65912db95f3310028b618841e45f3cf52240b07e16e1741e8717d4",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/motion.rs",
-      "fileSha256": "01f545c6066779554076829254de07854e261a393b0466c0c3983f4033938810",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "8de100625ff50a7acc5bc12fb3d226002df42cf21cf798e4cd0423322a8dae7b",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/motion/facing.rs",
-      "fileSha256": "0ad56a1b63f43800b82a61a6aa6a7405e8362702729444ef00d619e7f327bb9c",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "08deb888c3a154d8258a0859bd7923348e952046a3116e2c9c1d88195b9db3c2",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/motion/relay.rs",
@@ -127,13 +127,13 @@
     },
     {
       "path": "crates/benilla-app/src/net/motion/remote.rs",
-      "fileSha256": "03ab6dbd2846758f572e83271c695df14fb454e51c2a5ef6f6fefd93f7dbfc82",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "8528e5a54bb4d76d7a5d0d6b386dd36bd691a899e572bfd169a95560b369242d",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/net/motion/spline.rs",
-      "fileSha256": "e977d3402472034935cc1382df8700767970e35331d75cbda9d9232fc0f5e50a",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "cdb5ca26d6213247b8055c4bc3202a122aee06ef2055cb3b2a55a5d26da2e9e9",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [

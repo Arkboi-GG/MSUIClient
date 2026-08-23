@@ -8,6 +8,7 @@ public sealed class UiTextLinkInfo
 {
     public required string Payload { get; init; }
     public string Markup { get; set; } = "";
+    public string FullMarkup { get; set; } = "";
 }
 
 public readonly record struct UiTextColorRun(string Text, Vector4 Color, UiTextLinkInfo? Link);
@@ -19,12 +20,29 @@ public readonly record struct UiTextMarkupLine(IReadOnlyList<UiTextColorRun> Run
 /// <summary>Build-5875 FontString inline-color, line-break, escaped-pipe and hyperlink grammar.</summary>
 public static class UiTextMarkupLaw
 {
+    public static string ItemLink(uint itemId, string name, uint quality)
+    {
+        if (itemId == 0 || string.IsNullOrEmpty(name)) return "";
+        string rgb = quality switch
+        {
+            0 => "9d9d9d",
+            2 => "1eff00",
+            3 => "0070dd",
+            4 => "a335ee",
+            5 => "ff8000",
+            6 => "e6cc80",
+            _ => "ffffff",
+        };
+        return $"|cff{rgb}|Hitem:{itemId}:0:0:0|h[{name}]|h|r";
+    }
+
     public static IReadOnlyList<UiTextMarkupLine> Parse(string input, Vector4 baseColor)
     {
         var lines = new List<UiTextMarkupLine>();
         var runs = new List<UiTextColorRun>();
         var text = new StringBuilder();
         Vector4 color = baseColor;
+        string colorMarkup = "";
         UiTextLinkInfo? link = null;
         StringBuilder? linkVisible = null;
 
@@ -79,6 +97,7 @@ public static class UiTextMarkupLaw
             {
                 Flush();
                 color = baseColor;
+                colorMarkup = "";
                 i += 2;
             }
             else if ((token is 'c' or 'C') && i + 10 <= input.Length &&
@@ -86,6 +105,7 @@ public static class UiTextMarkupLaw
                          CultureInfo.InvariantCulture, out uint argb))
             {
                 Flush();
+                colorMarkup = input.Substring(i, 10);
                 color = new((argb >> 16 & 0xff) / 255f, (argb >> 8 & 0xff) / 255f,
                     (argb & 0xff) / 255f, baseColor.W);
                 i += 10;
@@ -102,7 +122,11 @@ public static class UiTextMarkupLaw
             else if (token == 'h' && link is not null)
             {
                 Flush();
-                link.Markup = $"|H{link.Payload}|h{linkVisible}|h";
+                string markup = $"|H{link.Payload}|h{linkVisible}|h";
+                link.Markup = markup;
+                link.FullMarkup = colorMarkup.Length == 0
+                    ? markup
+                    : $"{colorMarkup}{markup}|r";
                 link = null;
                 linkVisible = null;
                 i += 2;

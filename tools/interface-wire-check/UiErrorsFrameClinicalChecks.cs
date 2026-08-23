@@ -41,6 +41,8 @@ internal static class UiErrorsFrameClinicalChecks
             "GameLoop.UiErrorsParity.cs"));
         string route = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Loot.cs"));
+        string network = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
+            "GameLoop.Net.cs"));
         string spell = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Dev",
             "GameLoop.DevTools.SpellErrors.cs"));
         string quest = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
@@ -52,6 +54,10 @@ internal static class UiErrorsFrameClinicalChecks
               !renderer.Contains("new Vector2(512", StringComparison.Ordinal) &&
               route.Contains("_uiErrors.Push(text, UiMessageKind.Error", StringComparison.Ordinal) &&
               route.Contains("_uiErrors.Push(text, UiMessageKind.Info", StringComparison.Ordinal) &&
+              route.Contains("LootPackets.ParseFishingVerdict(body, escaped)", StringComparison.Ordinal) &&
+              route.Contains("ShowUiInfo(text)", StringComparison.Ordinal) &&
+              network.Contains("case Op.SMSG_FISH_NOT_HOOKED", StringComparison.Ordinal) &&
+              network.Contains("case Op.SMSG_FISH_ESCAPED", StringComparison.Ordinal) &&
               spell.Contains("ShowUiError(text)", StringComparison.Ordinal) &&
               !spell.Contains("PushCenterText(text", StringComparison.Ordinal) &&
               quest.Contains("ShowUiInfo(QuestKillProgressText(value))", StringComparison.Ordinal) &&

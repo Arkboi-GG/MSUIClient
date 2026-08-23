@@ -23,7 +23,7 @@
     "MSUIClient/Net/QuestPackets.cs"
   ],
   "status": "partial",
-  "summary": "MSUI's rule-seated quest-log book retains the full SMSG_QUEST_QUERY_RESPONSE detail model, exposes all 20 descriptor slots through Benilla's six-row wheel offset, groups positive AreaTable and negative QuestSort headers with exact plus/minus folding, preserves selection by quest identity, colors rows with exact difficulty bands, renders objectives plus a scrollable description/reward pane, uses the server wall clock for timed countdowns, implements permanent manual and five-minute automatic watches, and has a law-seated abandon dialog. The shared Quest renderer now consumes the observer-resolved registered QuestLogFrame or QuestFrame panel seat according to its active mode. The current book furniture is now present as well: the Common-Input-Border quest-count pill, sort-tab-backed All collapse control, red/green Track Quest indicator, exact 300x261 detail viewport, overflow-only detail scrollbar, and the authored Abandon/Share/Exit bottom row all take their seats from QuestFrameUiLaw. Share remains the same stub as current Benilla. Focused quest-log checks pass; live visual/input verification remains outstanding.",
+  "summary": "MSUI's rule-seated quest-log book retains the full SMSG_QUEST_QUERY_RESPONSE detail model, exposes all 20 descriptor slots through Benilla's six-row wheel offset, groups positive AreaTable and negative QuestSort headers with exact plus/minus folding, preserves selection by quest identity, colors rows with exact difficulty bands, renders objectives plus a scrollable description/reward pane, uses the server wall clock for timed countdowns, implements permanent manual and five-minute automatic watches, and has a law-seated abandon dialog. The shared Quest renderer now consumes the observer-resolved registered QuestLogFrame or QuestFrame panel seat according to its active mode. The current book furniture is now present as well: the Common-Input-Border quest-count pill, sort-tab-backed All collapse control, red/green Track Quest indicator, exact 300x261 detail viewport, overflow-only detail scrollbar, and the authored Abandon/Share/Exit bottom row all take their seats from QuestFrameUiLaw. Reward rows now follow current Benilla's modifier fork: Ctrl-preview takes precedence, Shift inserts the quality-colored classic item link only while chat edit is open, plain selectable NPC choices still select, and plain log rewards remain inert. Share remains the same stub as current Benilla. Focused quest-log checks pass; live visual/input verification remains outstanding.",
   "openItems": [
     {
       "id": "item-triage-095242eb",
@@ -116,6 +116,15 @@
       "resolution": "2026-08-21: Kill, item and objective-complete progress now arm or re-arm a 300-second automatic watch. Existing manual watches have no expiry and are never downgraded or evicted; a full list evicts only the auto watch nearest expiry, while all-manual lists reject the automatic addition."
     },
     {
+      "id": "item-questlog-reward-modifier-link-gap-20260823",
+      "kind": "gap",
+      "text": "Quest reward rows lack current Benilla's Shift-post-to-chat item link fork; MSUI only Ctrl-previews items and otherwise falls through to selectable choice handling.",
+      "source": "benilla-b57ee0e9e2c8822b/questlog_tests.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: QuestFrameUiLaw now owns modifier precedence and exact quality-colored classic item-link construction. Ctrl previews a loaded item, Shift inserts its link only into an open chat edit, Shift with closed chat is inert, plain NPC choices select, and plain log rewards remain inert. Focused QuestLog and full interface-wire checks pass."
+    },
+    {
       "id": "item-questlog-current-book-controls-live-verify-001",
       "kind": "verify",
       "text": "Live-verify the current quest-count pill, All collapse tab, Track Quest indicator, corrected detail viewport, overflow-only detail scrollbar, and Abandon/Share/Exit row at representative gameplay scales and empty/partial/full quest states.",
@@ -135,6 +144,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T22:45:05.2576369Z",
+  "lastReviewedUtc": "2026-08-23T06:19:16.8972903Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

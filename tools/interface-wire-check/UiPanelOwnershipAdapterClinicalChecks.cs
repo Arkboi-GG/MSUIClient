@@ -572,7 +572,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
                   new ProfessionPanelOpenerProvenance(true, ProfessionPanelKind.TradeSkill),
             "profession opener did not route misc0 zero to TradeSkillFrame");
         Check(ProfessionPanelOpenerLaw.Resolve([47u, 0u, 0u], [1, 0, 0]) ==
-                  new ProfessionPanelOpenerProvenance(true, ProfessionPanelKind.Craft) &&
+                  new ProfessionPanelOpenerProvenance(true, ProfessionPanelKind.Craft, 1) &&
               ProfessionPanelOpenerLaw.Resolve([47u], [-1]) ==
                   new ProfessionPanelOpenerProvenance(true, ProfessionPanelKind.Craft),
             "profession opener did not route signed misc0 nonzero to CraftFrame");
@@ -638,7 +638,9 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
             "    private void CommitCastSend(in SpellInfo spell");
 
         Check(law.Contains("effectIds[0] != TradeSkillEffect", StringComparison.Ordinal) &&
-              law.Contains("effectMiscValues[0] == 0", StringComparison.Ordinal) &&
+              law.Contains("int misc = effectMiscValues[0];", StringComparison.Ordinal) &&
+              law.Contains("misc == 0", StringComparison.Ordinal) &&
+              law.Contains("misc > 0 ? (uint)misc : 0", StringComparison.Ordinal) &&
               law.Contains("return new(true, null);", StringComparison.Ordinal) &&
               !law.Contains("333", StringComparison.Ordinal) &&
               !law.Contains(".Any(", StringComparison.Ordinal) &&
@@ -662,9 +664,10 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
               tryOpen.Contains(
                   "if (!IsCraftProfessionLine(line) || _spellCatalog.CreatedItem(spellId) != 0) return true;",
                   StringComparison.Ordinal) &&
-              tryOpen.Contains("if (!hasKnownRecipe) return true;", StringComparison.Ordinal) &&
-              tryOpen.Contains("_ = OpenProfession(line, spellId, provenance.PanelKind);",
+              tryOpen.Contains(
+                  "_ = OpenProfession(line, spellId, provenance.PanelKind, provenance.CraftType);",
                   StringComparison.Ordinal) &&
+              !tryOpen.Contains("hasKnownRecipe", StringComparison.Ordinal) &&
               tryOpen.EndsWith("        return true;\n    }\n\n", StringComparison.Ordinal) &&
               Count(tryOpen, "return false;") == 2 &&
               !tryOpen.Contains("return OpenProfession", StringComparison.Ordinal) &&
@@ -676,7 +679,10 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
               professions.Contains(
                   "_professionPanelKind = _professionOpen ? panelKind : null;",
                   StringComparison.Ordinal) &&
-              Count(professions, " OpenProfession(") == 4,
+              professions.Contains(
+                  "_professionCraftType, preserveSelection: true);",
+                  StringComparison.Ordinal) &&
+              Count(professions, " OpenProfession(") == 5,
             "diagnostic/manual profession opens retained or invented opener-kind provenance");
 
         int catalogLookup = tryCast.IndexOf(
@@ -753,7 +759,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
         [
             "_auctionOpen", "_helpOpen", "_keybindingsOpen", "_tabardOpen",
             "_backpackOpen", "_keyringOpen", "_equippedBagOpen", "_gameObjectPages",
-            "_deathRezOpen", "_hearthOpen",
+            "_deathRezOpen",
         ];
         Check(excludedHostFlags.All(flag => !adapter.Contains(flag, StringComparison.Ordinal)),
             "UI-panel observer admitted an unregistered or special-purpose host frame");

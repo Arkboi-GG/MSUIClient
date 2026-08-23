@@ -22,6 +22,12 @@ public sealed class WorldEntity
     public uint? TransportProgress;
     /// <summary>Local monotonic receipt time paired with <see cref="TransportProgress"/>.</summary>
     public long TransportProgressReceivedMs;
+    /// <summary>
+    /// Client-driven transport heading. Type-15 boats and zeppelins rotate along
+    /// their TaxiPathNode spline, so their static spawn quaternion cannot own yaw.
+    /// Null for every ordinary gameobject and for parked/unarmed transports.
+    /// </summary>
+    public float? TransportFacingOverride;
     public AuraVisualState AuraVisual { get; } = new();
 
     // The active SMSG_MONSTER_MOVE spline this creature is walking, if any. Advanced
@@ -72,6 +78,7 @@ public sealed class WorldEntity
     {
         get
         {
+            if (TransportFacingOverride is float transportFacing) return transportFacing;
             System.Numerics.Quaternion q = Fields.GameObjectRotation;
             return q.Z != 0f || q.W != 0f ? 2f * MathF.Atan2(q.Z, q.W) : Orientation;
         }
@@ -356,6 +363,20 @@ public sealed class EntityStore
 
     public void Remove(ulong guid) => _entities.Remove(guid);
     public void Clear() => _entities.Clear();
+
+    /// <summary>Worldport seam: retain one client-simulated transport while
+    /// dropping every map-local entity. The destination create refreshes it in
+    /// place after the ACK.</summary>
+    public void ClearExcept(ulong guid)
+    {
+        if (!_entities.TryGetValue(guid, out WorldEntity? retained))
+        {
+            _entities.Clear();
+            return;
+        }
+        _entities.Clear();
+        _entities[guid] = retained;
+    }
 
     public IEnumerable<WorldEntity> Units => _entities.Values.Where(e => e.IsUnit);
 

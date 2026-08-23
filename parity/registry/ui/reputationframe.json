@@ -8,17 +8,22 @@
     {
       "path": "crates/benilla-app/assets/ui/ReputationFrame.xml",
       "fileSha256": "983a5dc4b235aa6f1da3f23edf8796e93a9f82a2943d5993542ece81de5490ce",
-      "snapshotId": "benilla-b57ee0e9e2c8822b"
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_reputation.rs",
       "fileSha256": "415a67be301cc15b28b1e8b7568e3a7db12a54d211b226592c5d1892a39db218",
-      "snapshotId": "benilla-b57ee0e9e2c8822b"
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-protocol/src/messages/reputation.rs",
       "fileSha256": "ec8bead1487b4699f1c0937f0dab956b72404db718ad3f584e6c64e721d09374",
-      "snapshotId": "benilla-b57ee0e9e2c8822b"
+      "snapshotId": "benilla-ac3264a0296ae90e"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/reputation.rs",
+      "fileSha256": "fb688642c25320d965814564c26d81d2de8a6629f27eb257f7c38c7208c266e9",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [
@@ -31,7 +36,7 @@
     "tools/interface-wire-check/ReputationFrameClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "MSUI preserves its accepted Character-page presentation while matching current Benilla's reputation behavior. The existing fifteen-row list now derives header identity from live flag 0x08, re-parents 0x20 rows under a default-collapsed Inactive group, retains synthetic Other, exact alphabetical group/row ordering, plus/minus folding, standing bands, raw-value hover, selection glow, and the At War pennant. Clicking a row opens the separately hosted, rule-positioned 212x203 ReputationDetailFrame with DBC name/description, authored art, close X, At War, Move to Inactive, and Show as Experience Bar controls. The three controls send the exact 5875 messages; At War and Inactive update optimistically while watched state follows PLAYER_FIELD_WATCHED_FACTION_INDEX as the server-authoritative field. Focused and complete interface clinical checks pass; authenticated live visual/input verification remains.",
+  "summary": "MSUI preserves its accepted Character-page presentation while matching current Benilla's reputation behavior. The existing fifteen-row list now derives header identity from live flag 0x08, re-parents 0x20 rows under a default-collapsed Inactive group, retains synthetic Other, exact alphabetical group/row ordering, plus/minus folding, standing bands, raw-value hover, selection glow, and the At War pennant. Clicking a row opens the separately hosted 212x203 ReputationDetailFrame with DBC name/description, authored art, close X, At War, Move to Inactive, and Show as Experience Bar controls. ReputationFrameUiLaw now owns that detached modal's host rectangle, corner, controls, checked marks, and label positions; its renderer section contains no local Vector2 geometry. The three controls send the exact 5875 messages; At War and Inactive update optimistically while watched state follows PLAYER_FIELD_WATCHED_FACTION_INDEX as the server-authoritative field. Focused and complete interface clinical checks pass; authenticated live visual/input verification remains.",
   "openItems": [
     {
       "id": "item-msui-reputation-detail-live-verify-001",
@@ -45,6 +50,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-22T21:45:00Z",
+  "lastReviewedUtc": "2026-08-23T12:36:00Z",
   "seededUtc": "2026-08-22T21:45:00Z"
 }

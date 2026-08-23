@@ -28,6 +28,14 @@ internal static class CharacterBindingsClinicalChecks
               CharacterBindingsUiLaw.ButtonOneX == 26 &&
               CharacterBindingsUiLaw.ButtonTwoX == 167,
             "character binding confirmation escaped shared StaticPopup geometry");
+        CharacterBindingsUiLaw.PopupLayout layout = CharacterBindingsUiLaw.Layout(24);
+        Check(layout.Size == new System.Numerics.Vector2(320, 84) &&
+              layout.Text == new StaticPopupCoordinatorLaw.Rect(15, 16, 290, 24) &&
+              layout.Button1 == new StaticPopupCoordinatorLaw.Rect(26, 48, 128, 20) &&
+              layout.Button2 == new StaticPopupCoordinatorLaw.Rect(167, 48, 128, 20) &&
+              CharacterBindingsUiLaw.TextLineCenter(layout, 12, 1) ==
+                  new System.Numerics.Vector2(160, 34),
+            "character binding popup child layout drifted");
 
         StaticPopupCoordinatorLaw.Plan shown = StaticPopupCoordinatorLaw.Show(
             StaticPopupCoordinatorLaw.Slots.Empty,
@@ -82,8 +90,8 @@ internal static class CharacterBindingsClinicalChecks
         Check(popup.Contains("CharacterBindingsUiLaw.Visible(_staticPopupSlots)",
                   StringComparison.Ordinal) &&
               popup.Contains("StaticPopupOrigin(visible.Slot", StringComparison.Ordinal) &&
-              popup.Contains("CharacterBindingsUiLaw.ButtonOneX", StringComparison.Ordinal) &&
-              popup.Contains("CharacterBindingsUiLaw.ButtonTwoX", StringComparison.Ordinal) &&
+              popup.Contains("CharacterBindingsUiLaw.Layout", StringComparison.Ordinal) &&
+              !popup.Contains("new Vector2", StringComparison.Ordinal) &&
               executor.Contains("AcceptDeleteCharacterSpecificBindings();",
                   StringComparison.Ordinal),
             "character binding confirmation renderer or accept callback escaped the rule system");

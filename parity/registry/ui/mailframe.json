@@ -7,35 +7,73 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/assets/ui/MailFrame.xml",
-      "fileSha256": "044d6b5dfda2a33925a6d6f55246c115681389da36fa56308e297bd892874599",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "f3563843448488b8dc40dc23cf506db5a0ab9bd677e1f515d586baeeeed40d64",
+      "snapshotId": "benilla-ac3264a0296ae90e"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/mail.rs",
+      "fileSha256": "36319df416785d7ea5192020440d37fd4355c6b3f5d644836f5e604a8b1d903f",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_mail/mod.rs",
-      "fileSha256": "331292b4e1134e1396f195a2275a06153e4f245eaf821d2a36697f0c67ae12fb",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "c1dfa2a0aa74bc76e3609c41fbf50732ca7233f3b0688237cd655a5b6bb8ba95",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     },
     {
       "path": "crates/benilla-app/src/ui_mail/pending.rs",
       "fileSha256": "7c5d67a9ed8e37e8534a06c150ec7e7c22a6303f17e07ef041c0728a39cac022",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "snapshotId": "benilla-ac3264a0296ae90e"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/mail.rs",
+      "fileSha256": "32512117afa9d4d0fc8e2d292b8c2302003e8746d7af37e550dc9e4bc9b4773c",
+      "snapshotId": "benilla-ac3264a0296ae90e"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/Net/NetworkClient.cs",
     "MSUIClient/Net/WorldSession.cs",
-    "MSUIClient/Program.GameObjects.cs",
-    "MSUIClient/Program.Mail.cs",
-    "MSUIClient/Program.Net.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.GameObjects.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Mail.cs",
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
     "MSUIClient/Engine/UI/MailUiLaw.cs",
     "tools/mail-clinical-check/mail-clinical-check.csproj",
     "tools/mail-clinical-check/Program.cs",
     "tools/mail-clinical-check/NuGet.Config",
+    "tools/interface-wire-check/MailFrameClinicalChecks.cs",
     "MSUIClient/Formats/StationeryCatalog.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "The encoded lifecycle/inbox contracts and strong draw records now pass bounded deterministic checks. The packet stays implemented/unverified because no refreshed connected-client pixel, input, protocol, dynamic-state or audio capture exists.",
+  "summary": "The encoded lifecycle/inbox contracts and strong draw records pass bounded deterministic checks. MailUiLaw owns current Benilla's complete 384x512 shell, inbox rows and paging, compose stationery and inert scrollbar furniture, recipient/subject/body form, attachment and money controls, tabs, OpenMailFrame attachment chain, COD/delete/send-money confirmations, and every screen/content clip rectangle. GameLoop.Mail contains no renderer-authored Vector2 geometry or locally constructed clip Vector4; ImGui only hosts law-scaled seats. A received-mail push preserves the open-window deferred countdown while immediately refreshing the visible inbox, matching current Benilla's throttle-bypass edge. The pending-mail countdown uses the reference's strict 2^-22 predicate, positive-only floor-clamped step, busy/tighten ladder, and distinct -1 client query stamp rather than vmangos's -86400 no-unread reply. Focused and full interface-wire suites pass. The packet stays implemented/unverified because no refreshed connected-client pixel, input, protocol, dynamic-state or audio capture exists.",
   "openItems": [
+    {
+      "id": "item-mail-current-snapshot-rereview-20260822",
+      "kind": "gap",
+      "text": "Re-review current MailFrame source drift before trusting the older composition and lifecycle claims.",
+      "source": "benilla-b57ee0e9e2c8822b/MailFrame.xml",
+      "added": "2026-08-22",
+      "resolved": true,
+      "resolution": "Current authored MailFrame geometry is unchanged and still matches MailUiLaw. The mail implementation moved to benilla-ui script and net/apply modules; re-review found one desktop-visible lifecycle delta and closed it: SMSG_RECEIVED_MAIL while the mailbox is open now immediately refreshes the inbox while retaining the deferred pending-mail countdown behavior. Source paths and hashes are refreshed."
+    },
+    {
+      "id": "item-mail-query-stamp-parity-20260823",
+      "kind": "gap",
+      "text": "MSUI used vmangos's -86400 no-unread reply as its client-owned MSG_QUERY_NEXT_MAIL_TIME send stamp, while current Benilla and the original client stamp -1 before the query attempt.",
+      "source": "benilla-ac3264a0296ae90e/ui_mail/pending.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "MailUiLaw now owns the distinct -1 query stamp. World-entry/reset state and close-after-read refresh use it, including the failed-send edge, while an actual server -86400 reply remains stored verbatim. Focused mail and full interface clinical gates pin the distinction."
+    },
+    {
+      "id": "item-mail-fixed-fontstring-visual-gap-20260823",
+      "kind": "gap",
+      "text": "Inbox sender/subject/expiry and Open Mail sender/subject labels were drawn as unbounded lines from approximate top points, bypassing their fixed XML boxes, vertical justification and overflow behavior.",
+      "source": "benilla-ac3264a0296ae90e/MailFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "MailUiLaw now owns the exact inbox and reader FontString boxes. Mail renders fixed-width sender/subject copy through the shared build-5875 overflow law, vertically centers the authored 16px sender/expiry/label boxes, and uses the exact expiry hit seat. Focused MailFrame and full interface suites pass."
+    },
     {
       "id": "item-claim-mail-lifecycle-001-verify",
       "kind": "verify",
@@ -99,6 +137,24 @@
       "source": "claim-mail-open-composition-001",
       "added": "2026-08-09",
       "resolved": false
+    },
+    {
+      "id": "item-mailframe-right-tooltip-anchors-20260823",
+      "kind": "gap",
+      "text": "Inbox item/expiry, compose attachment, and open-mail letter/package/money tooltips followed the mouse even though every authored owner uses ANCHOR_RIGHT.",
+      "source": "benilla-b57ee0e9e2c8822b/MailFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "MailUiLaw now owns the shared right-owner tooltip seat. Item and preserved plain-text tooltip branches consistently anchor tooltip bottom-left to each control's top-right; bodies, actions, and preserved tooltip presentation remain unchanged. Focused MailFrame, tooltip source-fence, and full interface-wire checks pass."
+    },
+    {
+      "id": "item-mailframe-small-action-fonts-20260823",
+      "kind": "gap",
+      "text": "Send/Cancel and OpenMail Reply/Delete-or-Return/Close use the authored small panel-button font trio, but MSUI drew them with the generic larger panel-button labels.",
+      "source": "benilla-ac3264a0296ae90e/MailFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "MailUiLaw owns the exact GameFontNormalSmall, GameFontHighlightSmall, and GameFontDisableSmall identities, and all five authored compose/open-mail action buttons consume them without changing geometry, enable gates, release handling, or trace ownership."
     }
   ],
   "claims": [
@@ -122,6 +178,6 @@
     "trace-mail-open-composition-001"
   ],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:09:11.668164+00:00",
+  "lastReviewedUtc": "2026-08-23T18:30:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

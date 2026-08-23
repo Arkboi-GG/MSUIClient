@@ -1,3 +1,4 @@
+using System.Numerics;
 using MSUIClient;
 using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
@@ -38,6 +39,23 @@ internal static class ChatBubbleClinicalChecks
               Close(ChatBubbleUiLaw.BorderPixels(1024, 768), 16f),
             "bubble diagonal basis or 16/1024 border law drift");
 
+        ChatBubbleUiLaw.Bounds frame = ChatBubbleUiLaw.Frame(
+            new Vector2(500.2f, 400.2f), 200, 100, 2);
+        ChatBubbleUiLaw.ImageRect inner = ChatBubbleUiLaw.Inner(frame, 16);
+        ChatBubbleUiLaw.ImageRect tail = ChatBubbleUiLaw.Tail(frame, 16);
+        IReadOnlyList<ChatBubbleUiLaw.ImageQuad> backdrop =
+            ChatBubbleUiLaw.Backdrop(frame, 16);
+        Check(frame == new ChatBubbleUiLaw.Bounds(400, 300, 600, 400) &&
+              inner == new ChatBubbleUiLaw.ImageRect(
+                  new Vector2(416, 316), new Vector2(584, 384)) &&
+              tail == new ChatBubbleUiLaw.ImageRect(
+                  new Vector2(484, 396), new Vector2(500, 412)) &&
+              ChatBubbleUiLaw.LinePosition(frame, 80, 330) == new Vector2(460, 330) &&
+              backdrop.Count == 8 &&
+              backdrop[0].TopLeft == new Vector2(400, 316) &&
+              backdrop[7].BottomRight == new Vector2(600, 400),
+            "bubble frame/inner/tail/line/backdrop geometry drift");
+
         var stand = new M2Sequence
         {
             AnimationId = 0,
@@ -64,6 +82,9 @@ internal static class ChatBubbleClinicalChecks
               bubbles.Contains("LatchedChatBubbleLift", StringComparison.Ordinal) &&
               bubbles.Contains("CameraDistanceSq", StringComparison.Ordinal) &&
               bubbles.Contains("AddImageQuad", StringComparison.Ordinal) &&
+              bubbles.Contains("ChatBubbleUiLaw.Frame", StringComparison.Ordinal) &&
+              bubbles.Contains("ChatBubbleUiLaw.Backdrop", StringComparison.Ordinal) &&
+              !bubbles.Contains("new Vector2", StringComparison.Ordinal) &&
               names.Contains("HasLiveChatBubble(unit.Guid)", StringComparison.Ordinal) &&
               art.Contains("RepeatHandle", StringComparison.Ordinal) &&
               settings.Contains("BeginBox(\"chat-bubbles\", \"Chat Bubbles\")",

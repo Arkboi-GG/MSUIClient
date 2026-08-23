@@ -133,6 +133,7 @@ public sealed class WmoRenderer : IDisposable
         public string GroupName = "";
         public uint GroupFlags;
         public uint GroupWmoId;
+        public uint GroupLiquid = 0x0fu;
         public int VertexCount;
 
         // The run of MOPR entries that belong to this group (MOGP +0x24/+0x26):
@@ -328,6 +329,10 @@ public sealed class WmoRenderer : IDisposable
         public Vector3 Origin;
         public string Path = "";
 
+        /// <summary>Owning server GameObject for a dynamic WMO hull; zero for
+        /// ordinary MODF/WDT scenery placements.</summary>
+        public ulong DynamicGuid;
+
         /// <summary>Which MODS doodad set this placement asked for.</summary>
         public int DoodadSet;
 
@@ -379,6 +384,7 @@ public sealed class WmoRenderer : IDisposable
     private readonly Dictionary<string, Model?> _models = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<Instance> _instances = [];
+    private readonly Dictionary<ulong, Instance> _dynamicByGuid = [];
     private int _nextInstanceId;
 
     // Final-camera portal seeds and PVS, keyed by placed WMO identity rather
@@ -442,6 +448,7 @@ public sealed class WmoRenderer : IDisposable
     private Shader _shader = null!;
 
     public int InstanceCount => _instances.Count;
+    public int DynamicInstanceCount => _dynamicByGuid.Count;
 
     /// <summary>
     /// Every placed building's world bounds, for cross-checking against the
@@ -594,7 +601,8 @@ public sealed class WmoRenderer : IDisposable
     /// <summary>Where the camera is, in WMO terms. Null means outdoors.</summary>
     public readonly record struct CameraCell(
         string InstancePath, int GroupIndex, string GroupName,
-        bool IsInterior, float Volume, int PortalCount, bool IsExterior = false);
+        bool IsInterior, float Volume, int PortalCount, bool IsExterior = false,
+        int InstanceId = 0);
 
     /// <summary>
     /// One authored WMO group selected for the interior minimap. Bounds remain
@@ -653,8 +661,7 @@ public sealed class WmoRenderer : IDisposable
             if (CameraGroup is not { } cameraCell || cameraCell.IsExterior) return true;
             foreach (Instance instance in _instances)
             {
-                if (!instance.Path.Equals(cameraCell.InstancePath,
-                        StringComparison.OrdinalIgnoreCase) ||
+                if (instance.Id != cameraCell.InstanceId ||
                     !_portalVisible.TryGetValue(instance.Id, out HashSet<int>? visible) ||
                     visible is null) continue;
                 foreach (GroupMesh group in instance.Model.Groups)
@@ -704,7 +711,8 @@ public sealed class WmoRenderer : IDisposable
             var size = group.LocalMax - group.LocalMin;
             float volume = MathF.Max(size.X, 0f) * MathF.Max(size.Y, 0f) * MathF.Max(size.Z, 0f);
             best = new CameraCell(instance.Path, group.GroupIndex, group.GroupName,
-                group.IsInterior, volume, group.PortalCount, (group.GroupFlags & 0x08u) != 0);
+                group.IsInterior, volume, group.PortalCount,
+                (group.GroupFlags & 0x08u) != 0, instance.Id);
         }
 
         CameraGroup = best;
@@ -866,13 +874,32 @@ public sealed class WmoRenderer : IDisposable
     /// </summary>
     public bool TrySampleFootstepTerrain(
         Vector3 feetWorld, float? terrainWorldZ, out uint terrainType)
+        => TrySampleFootstepTerrain(
+            feetWorld, terrainWorldZ, out terrainType, out _, out _);
+
+    /// <summary>
+    /// Footstep surface ownership plus the placed-WMO identity needed to scope
+    /// retained MLIQ queries. An exterior group deliberately returns false.
+    /// </summary>
+    public bool TrySampleFootstepTerrain(
+        Vector3 feetWorld, float? terrainWorldZ, out uint terrainType,
+        out int liquidInstanceId)
+        => TrySampleFootstepTerrain(
+            feetWorld, terrainWorldZ, out terrainType, out liquidInstanceId, out _);
+
+    public bool TrySampleFootstepTerrain(
+        Vector3 feetWorld, float? terrainWorldZ, out uint terrainType,
+        out int liquidInstanceId, out int liquidGroupIndex)
     {
         terrainType = 0;
+        liquidInstanceId = 0;
+        liquidGroupIndex = -1;
         if (!float.IsFinite(feetWorld.X) || !float.IsFinite(feetWorld.Y) ||
             !float.IsFinite(feetWorld.Z)) return false;
 
         Vector3 probeWorld = feetWorld + new Vector3(0f, 0f, 0.1f);
         GroupMesh? bestGroup = null;
+        Instance? bestInstance = null;
         Vector3 bestProbe = default;
         float bestDrop = float.MaxValue;
 
@@ -889,13 +916,17 @@ public sealed class WmoRenderer : IDisposable
             if (group is null || drop >= bestDrop) continue;
             bestDrop = drop;
             bestGroup = group;
+            bestInstance = instance;
             bestProbe = probeLocal;
         }
 
         // EXTERIOR is the outdoor leg: allow the caller to ask the ADT.  An
         // interior-lit/exterior-like group (0x40) owns the column but has no
         // footprint material set, matching the reference's silent result.
-        if (bestGroup is null || (bestGroup.GroupFlags & 0x08u) != 0) return false;
+        if (bestInstance is null || bestGroup is null ||
+            (bestGroup.GroupFlags & 0x08u) != 0) return false;
+        liquidInstanceId = bestInstance.Id;
+        liquidGroupIndex = bestGroup.GroupIndex;
 
         float bestZ = float.NegativeInfinity;
         Vector3[] triangles = bestGroup.FootstepTriangles;
@@ -910,6 +941,21 @@ public sealed class WmoRenderer : IDisposable
             terrainType = types[face];
         }
         return true;
+    }
+
+    /// <summary>
+    /// Resolve the owning room's MOGP whole-group liquid override. This precedes
+    /// MLIQ sampling and represents a submerged room with no surface grid.
+    /// </summary>
+    public bool TryGetGroupLiquidOverride(
+        int instanceId, int groupIndex, out byte shaderType)
+    {
+        shaderType = 0;
+        Instance? instance = _instances.FirstOrDefault(i => i.Id == instanceId);
+        GroupMesh? group = instance?.Model.Groups.FirstOrDefault(
+            g => g.GroupIndex == groupIndex);
+        return group is not null &&
+               WmoLiquidPointLaw.TryMapGroupOverride(group.GroupLiquid, out shaderType);
     }
 
     /// <summary>
@@ -1840,6 +1886,200 @@ public sealed class WmoRenderer : IDisposable
         VerifyPlacement(placement, min, max, placementToWorld);
     }
 
+    public enum DynamicPlacement { Placed, Pending, Unavailable }
+
+    /// <summary>
+    /// Raw WMO local space is already WoW's X/Y/Z frame. A streamed GameObject
+    /// therefore needs only its uniform scale, WoW-Z yaw and world translation;
+    /// MODF's placement-space basis/corner shift must never enter this path.
+    /// </summary>
+    public static Matrix4x4 DynamicGameObjectTransform(
+        Vector3 position, float yaw, float scale) =>
+        Matrix4x4.CreateScale(scale > 0.0001f ? scale : 1f) *
+        Matrix4x4.CreateRotationZ(yaw) *
+        Matrix4x4.CreateTranslation(position);
+
+    public bool HasDynamic(ulong guid) => _dynamicByGuid.ContainsKey(guid);
+
+    /// <summary>Publish one WMO-display server GameObject by GUID. Missing
+    /// resident models queue on the ordinary WMO streaming lane and retry on a
+    /// later reconciliation frame; the game thread never blocks on parsing.</summary>
+    public DynamicPlacement AddDynamic(ulong guid, string modelPath, Matrix4x4 transform)
+    {
+        RemoveDynamic(guid);
+        if (_models.TryGetValue(modelPath, out Model? resolved))
+        {
+            if (resolved is null) return DynamicPlacement.Unavailable;
+            var (min, max) = TransformedBounds(resolved, transform);
+            var instance = new Instance
+            {
+                Id = ++_nextInstanceId,
+                Model = resolved,
+                Transform = transform,
+                WorldMin = min,
+                WorldMax = max,
+                Origin = new Vector3(transform.M41, transform.M42, transform.M43),
+                Path = modelPath,
+                DynamicGuid = guid,
+                DoodadSet = 0,
+                NameSetId = 0,
+                // Current Benilla does not apply the terrain-WMO appear fade to
+                // WMO-display GameObjects.
+                AppearStart = 0f,
+            };
+            _instances.Add(instance);
+            _dynamicByGuid[guid] = instance;
+            TotalTriangles += resolved.TriangleCount;
+            if (resolved.Liquids.Count > 0) BumpLiquidVersion();
+            return DynamicPlacement.Placed;
+        }
+
+        if (FindPreloadJob(modelPath) is null && _preloadQueued.Add(modelPath))
+            _preloadQueue.Enqueue(modelPath, 0f);
+        return DynamicPlacement.Pending;
+    }
+
+    /// <summary>Move a dynamic WMO hull and its draw/pick/cull bounds in place.</summary>
+    public bool TryUpdateDynamicTransform(ulong guid, Matrix4x4 transform)
+    {
+        if (!_dynamicByGuid.TryGetValue(guid, out Instance? instance)) return false;
+        instance.Transform = transform;
+        (instance.WorldMin, instance.WorldMax) = TransformedBounds(instance.Model, transform);
+        instance.Origin = new Vector3(transform.M41, transform.M42, transform.M43);
+        if (instance.Model.Liquids.Count > 0) BumpLiquidVersion();
+        return true;
+    }
+
+    public bool RemoveDynamic(ulong guid)
+    {
+        if (!_dynamicByGuid.Remove(guid, out Instance? instance)) return false;
+        _instances.Remove(instance);
+        _cameraSeeds.Remove(instance.Id);
+        _portalVisible.Remove(instance.Id);
+        if (CameraGroup is { } camera && camera.InstanceId == instance.Id) CameraGroup = null;
+        TotalTriangles -= instance.Model.TriangleCount;
+        if (instance.Model.Liquids.Count > 0) BumpLiquidVersion();
+        return true;
+    }
+
+    /// <summary>Nearest streamed WMO GameObject AABB hit. Static scenery WMOs
+    /// never participate, so the returned identity is always a server GUID.</summary>
+    public bool TryPickDynamic(Vector3 origin, Vector3 direction, float maxDistance,
+        out ulong guid, out float distance)
+    {
+        guid = 0;
+        distance = maxDistance;
+        bool hit = false;
+        foreach ((ulong candidate, Instance instance) in _dynamicByGuid)
+        {
+            if (RayAabb(origin, direction, instance.WorldMin, instance.WorldMax, out float t) &&
+                t < distance)
+            {
+                guid = candidate;
+                distance = t;
+                hit = true;
+            }
+        }
+        return hit;
+    }
+
+    /// <summary>
+    /// Raycast the live collision mesh of WMO-display GameObjects and retain the
+    /// owning server GUID. Static world collision is baked into CollisionWorld;
+    /// a moving hull cannot join that snapshot without leaving a ghost collider
+    /// at the sampled pose, so controlled transport support queries this lane.
+    /// </summary>
+    public bool TryRaycastDynamicCollision(Vector3 origin, Vector3 direction,
+        float maxDistance, out ulong guid, out RayHit hit,
+        Predicate<ulong>? accept = null)
+    {
+        guid = 0;
+        hit = default;
+        if (maxDistance <= 0f || direction.LengthSquared() < 1e-12f) return false;
+
+        Vector3 worldDirection = Vector3.Normalize(direction);
+        float best = maxDistance;
+        bool found = false;
+        foreach ((ulong candidate, Instance instance) in _dynamicByGuid)
+        {
+            if (accept is not null && !accept(candidate)) continue;
+            Vector3[] triangles = instance.Model.CollisionTriangles;
+            if (triangles.Length < 3 ||
+                !RayAabb(origin, worldDirection, instance.WorldMin, instance.WorldMax,
+                    out float boxDistance) || boxDistance > best ||
+                !Matrix4x4.Invert(instance.Transform, out Matrix4x4 inverse))
+                continue;
+
+            Vector3 localOrigin = Vector3.Transform(origin, inverse);
+            Vector3 localEnd = Vector3.Transform(origin + worldDirection * best, inverse);
+            Vector3 localDelta = localEnd - localOrigin;
+            float localLimit = localDelta.Length();
+            if (localLimit <= 1e-6f) continue;
+            Vector3 localDirection = localDelta / localLimit;
+
+            for (int i = 0; i + 2 < triangles.Length; i += 3)
+            {
+                if (!RayTriangle(localOrigin, localDirection,
+                        triangles[i], triangles[i + 1], triangles[i + 2], out float localT) ||
+                    localT < 0f || localT > localLimit)
+                    continue;
+
+                Vector3 localPoint = localOrigin + localDirection * localT;
+                Vector3 worldPoint = Vector3.Transform(localPoint, instance.Transform);
+                float worldDistance = Vector3.Distance(origin, worldPoint);
+                if (worldDistance > best) continue;
+
+                Vector3 localNormal = Vector3.Cross(
+                    triangles[i + 1] - triangles[i], triangles[i + 2] - triangles[i]);
+                Vector3 worldNormal = Vector3.TransformNormal(localNormal, instance.Transform);
+                if (worldNormal.LengthSquared() <= 1e-12f) continue;
+                worldNormal = Vector3.Normalize(worldNormal);
+                if (Vector3.Dot(worldNormal, worldDirection) > 0f) worldNormal = -worldNormal;
+
+                best = worldDistance;
+                guid = candidate;
+                hit = new RayHit(worldDistance, worldPoint, worldNormal, i / 3);
+                found = true;
+
+                // The endpoint used to define localLimit was based on the old
+                // best. Shortening it is optional for correctness but prevents
+                // later triangles from doing unnecessary range work.
+                localEnd = Vector3.Transform(origin + worldDirection * best, inverse);
+                localDelta = localEnd - localOrigin;
+                localLimit = localDelta.Length();
+                if (localLimit > 1e-6f) localDirection = localDelta / localLimit;
+            }
+        }
+        return found;
+    }
+
+    private static bool RayAabb(Vector3 origin, Vector3 direction,
+        Vector3 min, Vector3 max, out float enter)
+    {
+        enter = 0f;
+        float t0 = 0f, t1 = float.PositiveInfinity;
+        for (int axis = 0; axis < 3; axis++)
+        {
+            float o = axis == 0 ? origin.X : axis == 1 ? origin.Y : origin.Z;
+            float d = axis == 0 ? direction.X : axis == 1 ? direction.Y : direction.Z;
+            float lo = axis == 0 ? min.X : axis == 1 ? min.Y : min.Z;
+            float hi = axis == 0 ? max.X : axis == 1 ? max.Y : max.Z;
+            if (MathF.Abs(d) < 1e-8f)
+            {
+                if (o < lo || o > hi) return false;
+                continue;
+            }
+            float inv = 1f / d;
+            float ta = (lo - o) * inv, tb = (hi - o) * inv;
+            if (ta > tb) (ta, tb) = (tb, ta);
+            t0 = MathF.Max(t0, ta);
+            t1 = MathF.Min(t1, tb);
+            if (t0 > t1) return false;
+        }
+        enter = t0;
+        return true;
+    }
+
     /// <summary>
     /// Drop placed instances while retaining parsed models, textures and GPU
     /// buffers. A streaming ring change should rebuild cheap placement state,
@@ -1848,6 +2088,7 @@ public sealed class WmoRenderer : IDisposable
     public void ResetPlacements()
     {
         _instances.Clear();
+        _dynamicByGuid.Clear();
         _placed.Clear();
         _cameraSeeds.Clear();
         _portalVisible.Clear();
@@ -2903,6 +3144,10 @@ public sealed class WmoRenderer : IDisposable
 
         foreach (var instance in _instances)
         {
+            // Moving GameObject WMOs have an owner-aware live collision lane.
+            // Baking one into this immutable snapshot strands a ghost hull at
+            // whichever timetable pose happened to be current during rebuild.
+            if (instance.DynamicGuid != 0) continue;
             var tris = instance.Model.CollisionTriangles;
             if (tris.Length < 3) continue;
 
@@ -3016,6 +3261,7 @@ public sealed class WmoRenderer : IDisposable
             GroupName = group.GroupName,
             GroupFlags = group.GroupFlags,
             GroupWmoId = group.GroupWmoId,
+            GroupLiquid = group.GroupLiquid,
             PortalStart = group.PortalStart,
             PortalCount = group.PortalCount,
             VertexCount = group.Vertices.Count,
@@ -3400,6 +3646,43 @@ public sealed class WmoRenderer : IDisposable
         int WmoInstanceId, int[] OwnerGroups)> EnumerateDoodads()
         => EnumerateDoodads(Vector2.Zero, float.PositiveInfinity);
 
+    /// <summary>Set-0 MODD props belonging to one WMO-display GameObject.
+    /// PropIndex is the stable root-MODD index used for owner-scoped dynamic M2
+    /// reconciliation; every returned transform already follows the hull.</summary>
+    public IEnumerable<(int PropIndex, string ModelPath, Matrix4x4 Transform,
+        Vector4 Light, int WmoInstanceId, int[] OwnerGroups)>
+        EnumerateDynamicDoodads(ulong guid)
+    {
+        if (!_dynamicByGuid.TryGetValue(guid, out Instance? instance)) yield break;
+        Model model = instance.Model;
+        if (model.Doodads.Count == 0) yield break;
+
+        foreach (int setIndex in DoodadSetsFor(model, 0))
+        {
+            WmoDoodadSet set = model.DoodadSets[setIndex];
+            for (uint i = 0; i < set.DoodadCount; i++)
+            {
+                uint index = set.FirstInstanceIndex + i;
+                if (index >= model.Doodads.Count) break;
+                WmoDoodadDef d = model.Doodads[(int)index];
+                if (string.IsNullOrWhiteSpace(d.ModelPath)) continue;
+                Matrix4x4 local = M2ToWmo
+                    * Matrix4x4.CreateScale(d.Scale > 0.0001f ? d.Scale : 1f)
+                    * Matrix4x4.CreateFromQuaternion(
+                        new Quaternion(d.QuatX, d.QuatY, d.QuatZ, d.QuatW))
+                    * Matrix4x4.CreateTranslation(d.PosX, d.PosY, d.PosZ);
+                Vector4 light = index < (uint)model.DoodadLight.Length
+                    ? model.DoodadLight[(int)index]
+                    : ExteriorDoodadLight;
+                int[] owners = index < (uint)model.DoodadOwners.Length
+                    ? model.DoodadOwners[(int)index]
+                    : [];
+                yield return ((int)index, d.ModelPath, local * instance.Transform,
+                    light, instance.Id, owners);
+            }
+        }
+    }
+
     /// <summary>Whether an embedded prop's owning room is in this frame's PVS.
     /// Missing/invalid portal state fails open, matching the WMO group fallback.</summary>
     public bool IsDoodadPortalVisible(int wmoInstanceId, int[] ownerGroups)
@@ -3482,8 +3765,11 @@ public sealed class WmoRenderer : IDisposable
                     world[j * liq.XVerts + i] = Vector3.Transform(local, instance.Transform);
                 }
 
+                var (groupWorldMin, _) = TransformedBounds(
+                    mesh.AuthoredLocalMin, mesh.AuthoredLocalMax, instance.Transform);
                 yield return new WmoLiquidSurface(
-                    instance.Path, mesh.GroupIndex, mesh.GroupName, liq, world);
+                    instance.Id, instance.Path, mesh.GroupIndex, mesh.GroupName,
+                    groupWorldMin.Z, mesh.GroupLiquid, liq, world);
             }
         }
     }
@@ -3557,6 +3843,10 @@ public sealed class WmoRenderer : IDisposable
 
         foreach (var instance in _instances)
         {
+            // Dynamic WMO GameObjects need owner-keyed prop instances which
+            // follow every transform update. The residency population path is
+            // static and would strand their MODD props at one sampled pose.
+            if (instance.DynamicGuid != 0) continue;
             var model = instance.Model;
             if (model.Doodads.Count == 0) continue;
 
@@ -4096,7 +4386,7 @@ public sealed class WmoRenderer : IDisposable
             var cull = new FrameCullContext(
                 cameraPosition, CameraInsideInstance(instance, cameraPosition),
                 effectiveDrawDistance, viewProjection, null,
-                CameraGroup is { } pc && pc.InstancePath == instance.Path && !pc.IsExterior);
+                CameraGroup is { } pc && pc.InstanceId == instance.Id && !pc.IsExterior);
 
             foreach (var g in instance.Model.Groups)
             {
@@ -4300,20 +4590,38 @@ public sealed class WmoRenderer : IDisposable
 /// </summary>
 public sealed class WmoLiquidSurface
 {
-    public WmoLiquidSurface(string modelPath, int groupIndex, string groupName,
-                            WmoLiquid liquid, System.Numerics.Vector3[] vertices)
+    public WmoLiquidSurface(int instanceId, string modelPath, int groupIndex, string groupName,
+                            float groupFloor, uint groupLiquid, WmoLiquid liquid,
+                            System.Numerics.Vector3[] vertices)
     {
+        InstanceId = instanceId;
         ModelPath = modelPath;
         GroupIndex = groupIndex;
         GroupName = groupName;
+        GroupFloor = groupFloor;
         Liquid = liquid;
         Vertices = vertices;
+        SoundNibble = ResolveSoundNibble(groupLiquid, liquid);
+        (SoundBoundsMin, SoundBoundsMax, SoundFallbackHeight) = ResolveSoundBounds(liquid, vertices);
     }
 
+    public int InstanceId { get; }
     public string ModelPath { get; }
     public int GroupIndex { get; }
     public string GroupName { get; }
+    /// <summary>Lowest world Z of the owning group's transformed authored bounds.</summary>
+    public float GroupFloor { get; }
     public WmoLiquid Liquid { get; }
+
+    /// <summary>
+    /// Whole-group MOGP override, or the first wet MLIQ tile's low nibble. This
+    /// is the reference's SoundWaterType key for the complete WMO surface.
+    /// </summary>
+    public byte SoundNibble { get; }
+
+    public System.Numerics.Vector2 SoundBoundsMin { get; }
+    public System.Numerics.Vector2 SoundBoundsMax { get; }
+    public float SoundFallbackHeight { get; }
 
     /// <summary>World-space grid, row-major j*XVerts + i.</summary>
     public System.Numerics.Vector3[] Vertices { get; }
@@ -4343,6 +4651,43 @@ public sealed class WmoLiquidSurface
     };
 
     public bool IsHidden(int i, int j) => Liquid.IsHidden(i, j);
+
+    private static byte ResolveSoundNibble(uint groupLiquid, WmoLiquid liquid)
+    {
+        if ((groupLiquid & 0x0f) != 0x0f) return (byte)(groupLiquid & 0x0f);
+        for (int j = 0; j < liquid.YTiles; j++)
+        for (int i = 0; i < liquid.XTiles; i++)
+        {
+            byte nibble = liquid.TypeNibble(i, j);
+            if (nibble != 0x0f) return nibble;
+        }
+        return 0x0f;
+    }
+
+    private static (System.Numerics.Vector2 Min, System.Numerics.Vector2 Max, float Fallback)
+        ResolveSoundBounds(WmoLiquid liquid, System.Numerics.Vector3[] vertices)
+    {
+        var min = new System.Numerics.Vector2(float.PositiveInfinity, float.PositiveInfinity);
+        var max = new System.Numerics.Vector2(float.NegativeInfinity, float.NegativeInfinity);
+        float fallback = float.NegativeInfinity;
+        for (int j = 0; j < liquid.YTiles; j++)
+        for (int i = 0; i < liquid.XTiles; i++)
+        {
+            if (liquid.IsHidden(i, j)) continue;
+            int tl = j * liquid.XVerts + i;
+            foreach (int index in new[] { tl, tl + 1, tl + liquid.XVerts, tl + liquid.XVerts + 1 })
+            {
+                if ((uint)index >= (uint)vertices.Length) continue;
+                System.Numerics.Vector3 point = vertices[index];
+                min = System.Numerics.Vector2.Min(min, new(point.X, point.Y));
+                max = System.Numerics.Vector2.Max(max, new(point.X, point.Y));
+                fallback = MathF.Max(fallback, point.Z);
+            }
+        }
+        if (!float.IsFinite(fallback))
+            return (System.Numerics.Vector2.Zero, System.Numerics.Vector2.Zero, 0f);
+        return (min, max, fallback);
+    }
 
     /// <summary>
     /// Authored per-vertex texture coordinate in repeats (raw MLIQ int16 s/t

@@ -19,9 +19,14 @@ public sealed partial class GameLoop
 
     private void DrawWorldHoverCursor()
     {
-        if (_gameplayArt is null || _window.MouseCaptured ||
-            ImGui.GetIO().WantCaptureMouse || _settingsOpen || _groundCastSpell != 0 ||
-            _itemCastSpell != 0) return;
+        if (_gameplayArt is null || _window.MouseCaptured || _settingsOpen) return;
+        bool pointerOverUi = ImGui.GetIO().WantCaptureMouse;
+        if (_itemCastSpell != 0)
+        {
+            DrawBagHoverCursor(WorldCursorUiLaw.ItemTargeting(pointerOverUi).Stem);
+            return;
+        }
+        if (pointerOverUi || _groundCastSpell != 0) return;
 
         // Point is the reference's base in-world cursor. A unit verdict replaces it; empty world,
         // non-interactive geometry and gameobjects without a data-driven cursor retain Point.

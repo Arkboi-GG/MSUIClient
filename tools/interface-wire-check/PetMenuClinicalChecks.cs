@@ -62,7 +62,8 @@ internal static class PetMenuClinicalChecks
               plain.Text == new StaticPopupCoordinatorLaw.Rect(15, 16, 290, 14) &&
               plain.Button1 == new StaticPopupCoordinatorLaw.Rect(26, 38, 128, 20) &&
               plain.Button2 == new StaticPopupCoordinatorLaw.Rect(167, 38, 128, 20) &&
-              plain.Height == 74,
+              plain.Height == 74 && plain.Size == new Vector2(320, 74) &&
+              PetMenuUiLaw.TextLineCenter(plain, 14, 1) == new Vector2(160, 37),
             "pet plain StaticPopup child geometry drift");
 
         Check((ushort)Op.CMSG_PET_ABANDON == 0x0176 &&
@@ -104,6 +105,7 @@ internal static class PetMenuClinicalChecks
               modal.Contains("typeStillSame: false", StringComparison.Ordinal) &&
               modal.Contains("PetMenuUiLaw.RenameConfirmDefinition", StringComparison.Ordinal) &&
               modal.Contains("StaticPopupCoordinatorLaw.HideByType", StringComparison.Ordinal) &&
+              !modal.Contains("new Vector2", StringComparison.Ordinal) &&
               coordinator.Contains("ApplyPetMenuPopupEffect(effect)", StringComparison.Ordinal),
             "pet rename chain regressed from shared rule-owned StaticPopup slots");
     }

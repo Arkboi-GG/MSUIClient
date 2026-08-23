@@ -24,12 +24,16 @@ public readonly record struct MinimapZonePvpInfo(
     };
 }
 
+public readonly record struct MinimapPartyBlip(
+    Vector2 Center, float Size, float Rotation, bool IsArrow);
+
 /// <summary>Frozen minimap PvP label, zoom-state, tooltip, and sound laws.</summary>
 public static class MinimapUiLaw
 {
     public const float BlipBasisPixels = 140.8f;
     public const float LandmarkIconPixels = 16f;
     public const float LandmarkArrowPixels = 38.4f;
+    public const float PartyDotPixels = 10.4f;
     public const float LandmarkEdgeRatio = .8f;
     public const string OpenSound = "igMiniMapOpen";
     public const string CloseSound = "igMiniMapClose";
@@ -42,6 +46,8 @@ public static class MinimapUiLaw
     public static readonly Vector2 QuestDotUvMax = new(1f, .25f);
     public static readonly Vector2 TrackedCreatureDotUvMin = new(.25f, 0f);
     public static readonly Vector2 TrackedCreatureDotUvMax = new(.5f, .25f);
+    public static readonly Vector2 PartyDotUvMin = new(0f, .25f);
+    public static readonly Vector2 PartyDotUvMax = new(.25f, .5f);
     public const uint TrackUnitDynamicFlag = 0x2;
     public const uint CrossInteriorTint = 0xffb0b0b0;
     // ZOOM_CHUNKS {14,12,10,8,6,4} * .5 * one 33.3333yd ADT chunk.
@@ -93,6 +99,30 @@ public static class MinimapUiLaw
         if (direction.LengthSquared() <= float.Epsilon) return minimapCenter;
         return minimapCenter + Vector2.Normalize(direction) *
             (minimapSide * .5f * LandmarkEdgeRatio);
+    }
+
+    /// <summary>
+    /// Frozen place_party_raid_blips split: members at or inside 0.8 radius are blue dots at
+    /// their true position; farther members ride the 0.8 rim on a rotating arrow.
+    /// </summary>
+    public static MinimapPartyBlip PartyBlip(Vector2 player, Vector2 member,
+        Vector2 minimapCenter, float minimapSide, float radiusYards)
+    {
+        if (minimapSide <= 0 || radiusYards <= 0)
+            return new(minimapCenter, 0, 0, false);
+        Vector2 worldDelta = member - player;
+        Vector2 screenDirection = new(-worldDelta.Y, -worldDelta.X);
+        float distance = worldDelta.Length();
+        if (distance / radiusYards <= LandmarkEdgeRatio)
+        {
+            float pixelsPerYard = minimapSide / (radiusYards * 2f);
+            return new(minimapCenter + screenDirection * pixelsPerYard,
+                minimapSide * (PartyDotPixels / BlipBasisPixels), 0, false);
+        }
+
+        Vector2 center = LandmarkArrowCenter(minimapCenter, screenDirection, minimapSide);
+        float rotation = MathF.Atan2(screenDirection.X, -screenDirection.Y);
+        return new(center, LandmarkArrowSize(minimapSide), rotation, true);
     }
 
     /// <summary>

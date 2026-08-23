@@ -21,6 +21,20 @@ public static class MirrorTimerUiLaw
 
     public readonly record struct ScreenRect(Vector2 Min, Vector2 Size);
 
+    public static readonly Vector2 BorderSize = new(BorderWidth, BorderHeight);
+
+    public static ScreenRect BarRect(ScreenRect frame, float scale) =>
+        new(frame.Min + BarMin * scale, new(BarWidth * scale, BarHeight * scale));
+
+    public static ScreenRect BorderRect(ScreenRect frame, float scale) =>
+        new(frame.Min + BorderMin * scale, BorderSize * scale);
+
+    public static Vector2 FillSize(Vector2 barSize, float fraction) =>
+        new(barSize.X * Math.Clamp(fraction, 0, 1), barSize.Y);
+
+    public static Vector2 FillUvMax(float fraction) =>
+        new(Math.Clamp(fraction, 0, 1), 1);
+
     public static ScreenRect FrameRect(Vector2 displayPixels, float scale, int frameIndex)
     {
         Vector2 size = new Vector2(FrameWidth, FrameHeight) * scale;

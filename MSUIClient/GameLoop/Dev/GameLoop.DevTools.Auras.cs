@@ -20,6 +20,7 @@ public sealed partial class GameLoop
 
     private void ResetPlayerAuras()
     {
+        ResetScopedView();
         _playerAuraDurations.Clear();
         _playerAuraOrder.Clear();
         _playerAuraAppeared.Clear();

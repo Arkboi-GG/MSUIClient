@@ -6,6 +6,13 @@ namespace MSUIClient.Engine.UI;
 /// </summary>
 public static class CharacterBindingsUiLaw
 {
+    public readonly record struct PopupLayout(
+        float Width, float Height, StaticPopupCoordinatorLaw.Rect Text,
+        StaticPopupCoordinatorLaw.Rect Button1, StaticPopupCoordinatorLaw.Rect Button2)
+    {
+        public System.Numerics.Vector2 Size => new(Width, Height);
+    }
+
     public const string PopupType = "CONFIRM_DELETING_CHARACTER_SPECIFIC_BINDINGS";
     public const string ConfirmText =
         "Really switch to general key bindings?  All key bindings specific to this character will be permanantly deleted.";
@@ -31,6 +38,21 @@ public static class CharacterBindingsUiLaw
     public static float ButtonTop(float textHeight) => TextTop + textHeight + 8f;
     public static float ButtonOneX => Width * .5f - 134f;
     public static float ButtonTwoX => ButtonOneX + ButtonWidth + ButtonGap;
+
+    public static PopupLayout Layout(float textHeight)
+    {
+        float safeTextHeight = Math.Max(0, textHeight);
+        float buttonTop = ButtonTop(safeTextHeight);
+        return new(Width, Height(safeTextHeight),
+            new((Width - TextWidth) * .5f, TextTop, TextWidth, safeTextHeight),
+            new(ButtonOneX, buttonTop, ButtonWidth, ButtonHeight),
+            new(ButtonTwoX, buttonTop, ButtonWidth, ButtonHeight));
+    }
+
+    public static System.Numerics.Vector2 TextLineCenter(
+        PopupLayout layout, float linePitch, int lineIndex) =>
+        new(layout.Width * .5f,
+            layout.Text.Y + (Math.Max(0, lineIndex) + .5f) * linePitch);
 
     public static string CharacterFileName(ulong playerGuid) =>
         $"keybindings.character-{playerGuid:X16}.json";

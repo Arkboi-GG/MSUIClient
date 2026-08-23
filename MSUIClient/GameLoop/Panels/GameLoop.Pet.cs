@@ -110,8 +110,13 @@ public sealed partial class GameLoop
         _petCooldowns.Clear();
         double now = MovementInfo.ClientUptimeMs() / 1000.0;
         foreach (var cooldown in cooldowns)
+        {
+            bool wildcard = _spellCatalog?.TryGet(cooldown.Spell, out SpellInfo seededSpell) == true &&
+                seededSpell.CategoryWildcard;
             _petCooldowns.StartCooldown(cooldown.Spell, cooldown.Category,
-                cooldown.SpellMs, cooldown.CategoryMs, now);
+                cooldown.SpellMs, cooldown.CategoryMs, now, onHold: false,
+                categoryWildcard: wildcard);
+        }
     }
 
     // SMSG_SPELL_COOLDOWN is addressed. A pet's override belongs to the pet store, never the
@@ -131,11 +136,7 @@ public sealed partial class GameLoop
             if (store is null) continue;
             SpellInfo spell = default;
             bool resolved = _spellCatalog?.TryGet(spellId, out spell) == true;
-            uint category = resolved ? spell.Category : 0;
-            uint spellMs = wireMs != 0 ? wireMs : resolved ? spell.RecoveryMs : 0;
-            uint categoryMs = wireMs == 0 && resolved ? spell.CategoryRecoveryMs : 0;
-            store.StartCooldown(spellId, category, spellMs, categoryMs, now,
-                resolved && spell.CooldownOnEvent);
+            store.ApplyWireCooldown(spellId, wireMs, resolved ? spell : null, now);
         }
     }
 
@@ -148,7 +149,7 @@ public sealed partial class GameLoop
         CooldownPackets.ItemCooldown packet = CooldownPackets.ParseItem(body);
         if (!_entities.TryGet(packet.ItemGuid, out WorldEntity item) ||
             item.Type is not (ObjectTypeId.Item or ObjectTypeId.Container)) return;
-        (forcedStore ?? OwnActions).StartCooldown(packet.SpellId, 0, 30_000,
+        (forcedStore ?? OwnActions).StartItemPacketCooldown(packet.SpellId, item.Entry,
             MovementInfo.ClientUptimeMs() / 1000.0);
     }
 
@@ -238,6 +239,33 @@ public sealed partial class GameLoop
         return guid != 0 && _entities.TryGet(guid, out pet) && pet.IsUnit;
     }
 
+    private uint FeedPetSpell()
+    {
+        if (_spellCatalog is null) return 0;
+        uint result = 0;
+        foreach (uint spellId in OwnActions.KnownSpells.OrderBy(id => id))
+            if (_spellCatalog.TryGet(spellId, out SpellInfo spell) &&
+                FeedPetLaw.IsFeedPetSpell(spell))
+                result = spellId;
+        return result;
+    }
+
+    private bool TryFeedCarriedItemToPet(WorldEntity pet)
+    {
+        if (!HasCarriedItem || _net is null || ResolveCarriedItem() is not { } item)
+            return false;
+        uint spellId = FeedPetSpell();
+        if (!FeedPetLaw.CanFeed(pet.Guid, _petGuid, pet.Fields.CreatedBySpell,
+                pet.Fields.CreatedBy, LocalPlayerGuid, spellId, item.Guid) ||
+            !_net.CastSpellOnItem(spellId, item.Guid))
+            return false;
+
+        ClearCarriedItem();
+        EmitInterface("pet", "feed", "SENT", pet.Guid,
+            $"spell={spellId};item={item.Guid};entry={item.Entry}");
+        return true;
+    }
+
     private bool PetActionBarVisible => _petGuid != 0;
 
     private void StopPetAttackForOldTargetChange(ulong previous, ulong current)
@@ -293,7 +321,12 @@ public sealed partial class GameLoop
         ImGui.End();
         ImGui.PopStyleVar(3);
         if (leftClicked)
-            CommitSelection(pet.Guid, beginAttack: false);
+        {
+            // PetFrame_OnClick gives a held item to the pet instead of selecting it. A refusal is
+            // silent and retains the cursor; only a successful item-target cast clears it.
+            if (HasCarriedItem) TryFeedCarriedItemToPet(pet);
+            else CommitSelection(pet.Guid, beginAttack: false);
+        }
         else if (rightClicked)
             OpenUnitPopup(pet.Guid, UnitPopupWhich.Pet, ImGui.GetMousePos(),
                 InspectBinding.Target);
@@ -337,6 +370,7 @@ public sealed partial class GameLoop
         }
 
         if (_pressedPetActionSlot >= 0 &&
+            ActionBarLockLaw.DragGestureAllowed(Settings.Controls.LockActionBars) &&
             ImGui.IsMouseDown(_petActionPressMouseButton) &&
             Vector2.Distance(ImGui.GetIO().MousePos, _petActionPressPosition) > 6f * s)
         {
@@ -370,7 +404,7 @@ public sealed partial class GameLoop
                     ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
                 hoveredSlots[i] = ImGui.IsItemHovered(
                     ImGuiHoveredFlags.AllowWhenBlockedByActiveItem);
-                pushedSlots[i] = ImGui.IsItemActive();
+                pushedSlots[i] = ImGui.IsItemActive() || BindingDown(BonusActionBinding(i));
                 if (ImGui.IsItemActivated())
                 {
                     _pressedPetActionSlot = i;
@@ -546,7 +580,7 @@ public sealed partial class GameLoop
 
             bool cooldownVisible = false;
             if (resolvedSpells[i] is SpellInfo cooldownSpell &&
-                _petCooldowns.TryCooldownDisplay(action, now, cooldownSpell.Category,
+                _petCooldowns.TryCooldownDisplay(action, 0, cooldownSpell, now,
                     out CooldownDisplay cooldown))
             {
                 Vector2 center = (min + max) * .5f +
@@ -670,7 +704,11 @@ public sealed partial class GameLoop
             ImGui.IsMouseReleased(ImGuiMouseButton.Right);
         if (releasedDragButton && _draggingPetAction.HasValue && !pickedUpOnClick)
         {
-            if (hoveredSlot >= 0) PlacePetAction(hoveredSlot, petGuid, pet);
+            if (hoveredSlot >= 0)
+            {
+                if (ActionBarLockLaw.ReceiveDragAllowed(Settings.Controls.LockActionBars))
+                    PlacePetAction(hoveredSlot, petGuid, pet);
+            }
             else if (!MouseOverActionBarDropTarget()) ClearPetActionCursor();
         }
         if (releasedDragButton) _pressedPetActionSlot = -1;

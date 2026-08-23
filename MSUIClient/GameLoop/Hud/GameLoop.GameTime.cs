@@ -11,7 +11,7 @@ public sealed partial class GameLoop
         if (_gameplayArt is null || (_net is null && !HudPreview)) return;
         float scale = GameplayUiScale();
         Vector2 origin = GameTimeUiLaw.FrameOrigin(ImGui.GetIO().DisplaySize, scale);
-        Vector2 size = new(GameTimeUiLaw.Size * scale);
+        Vector2 size = GameTimeUiLaw.FrameSize(scale);
         (int hour, int minute) = GameTimeUiLaw.TimeParts(_worldClock.CurrentHours);
         bool night = GameTimeUiLaw.IsNight(hour, minute);
         uint texture = _gameplayArt.Handle(@"Interface\Minimap\UI-TOD-Indicator");
@@ -23,11 +23,9 @@ public sealed partial class GameLoop
                 night ? GameTimeUiLaw.NightUvMax : GameTimeUiLaw.DayUvMax);
         }
 
-        QuestLogicalRect hit = GameTimeUiLaw.HitRect;
-        Vector2 hitMin = origin + new Vector2(hit.X, hit.Y) * scale;
-        Vector2 hitSize = new Vector2(hit.Width, hit.Height) * scale;
-        ImGui.SetCursorScreenPos(hitMin);
-        ImGui.InvisibleButton("##game-time-frame", hitSize);
+        GameTimeUiLaw.ScreenRect hit = GameTimeUiLaw.HitScreen(origin, scale);
+        ImGui.SetCursorScreenPos(hit.Min);
+        ImGui.InvisibleButton("##game-time-frame", hit.Size);
         if (ImGui.IsItemHovered())
         {
             string prepared = GameTimeUiLaw.ClockText(hour, minute);

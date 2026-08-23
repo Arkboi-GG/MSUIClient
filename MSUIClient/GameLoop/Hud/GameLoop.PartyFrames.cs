@@ -42,6 +42,9 @@ public sealed partial class GameLoop
     private ulong _partyMasterLooterGuid;
     private byte _partyLootMethod;
     private byte _partyLootThreshold;
+    // Provenance, not presentation: true only while /partytest owns the local mirror. Any real
+    // SMSG_GROUP_LIST or session reset clears it, so synthetic rows can never outrank the wire.
+    private bool _partyTestSandbox;
     private int _partyRosterRevision;
     private StaticPopupCoordinatorLaw.Slots _staticPopupSlots =
         StaticPopupCoordinatorLaw.Slots.Empty;
@@ -97,6 +100,14 @@ public sealed partial class GameLoop
         return zeroBasedIndex >= 0 && zeroBasedIndex < slots.Length ? slots[zeroBasedIndex].Guid : 0;
     }
 
+    private void ClearPartyTestNames()
+    {
+        _playerNames.Remove(PartyTestSandboxLaw.AliceGuid);
+        _playerNames.Remove(PartyTestSandboxLaw.BobGuid);
+        _playerNames.Remove(PartyTestSandboxLaw.CarolGuid);
+        _playerNames.Remove(PartyTestSandboxLaw.DaveGuid);
+    }
+
     private void ResetParty()
     {
         bool rosterChanged = _partyMembers.Count != 0 || _partyStats.Count != 0 ||
@@ -114,6 +125,8 @@ public sealed partial class GameLoop
         _partyMasterLooterGuid = 0;
         _partyLootMethod = 0;
         _partyLootThreshold = 0;
+        if (_partyTestSandbox) ClearPartyTestNames();
+        _partyTestSandbox = false;
         if (rosterChanged) _partyRosterRevision++;
         // PartyMemberFrame objects retain flashTimer while their unit token is absent. Session
         // teardown pauses the four slot timers; it does not recreate the frames.
@@ -130,6 +143,8 @@ public sealed partial class GameLoop
     private void ApplyPartyRoster(byte[] body)
     {
         PartyRosterWire wire = PartyFramePacketLaw.ParseRoster(body);
+        if (_partyTestSandbox) ClearPartyTestNames();
+        _partyTestSandbox = false;
         PartyRosterWireMember[] previous = _partyMembers
             .Select(member => new PartyRosterWireMember(member.Name, member.Guid, member.Status,
                 (byte)(member.Subgroup | member.Flags)))
@@ -165,6 +180,101 @@ public sealed partial class GameLoop
                 !_entities.TryGet(member.Guid, out _))
                 _net?.RequestPartyMemberStats(member.Guid);
         foreach (string line in systemLines) AddChatMessage(line);
+    }
+
+    private void ApplyPartyTestRoster(bool lead)
+    {
+        short? playerX = null;
+        short? playerY = null;
+        if (_entities.TryGet(LocalPlayerGuid, out WorldEntity ownPlayer))
+        {
+            Vector3 position = UnitWorldPosition(ownPlayer);
+            playerX = unchecked((short)position.X);
+            playerY = unchecked((short)position.Y);
+        }
+        PartyTestSandboxLaw.FixtureMember[] fixture =
+            PartyTestSandboxLaw.Roster(playerX, playerY);
+        PartyRosterWireMember[] previous = _partyMembers
+            .Select(member => new PartyRosterWireMember(member.Name, member.Guid, member.Status,
+                (byte)(member.Subgroup | member.Flags)))
+            .ToArray();
+        var wire = new PartyRosterWire(0, 0,
+            fixture.Select(member => new PartyRosterWireMember(member.Name, member.Guid,
+                member.Status, 0)).ToArray(),
+            lead ? (_net?.PlayerGuid ?? LocalPlayerGuid) : PartyTestSandboxLaw.AliceGuid,
+            2, PartyTestSandboxLaw.CarolGuid, 3);
+        string[] lines = GroupUiLaw.RosterLines(_partyGroupType, previous, wire);
+
+        _partyMembers.Clear();
+        _partyStats.Clear();
+        foreach (PartyTestSandboxLaw.FixtureMember member in fixture)
+        {
+            _partyMembers.Add(new PartyMember(member.Guid, member.Name, member.Status, 0, 0));
+            _partyStats[member.Guid] = member.Stats;
+            _playerNames[member.Guid] = member.Name;
+        }
+        Array.Clear(_partyRaidTargets);
+        _partyInGroup = true;
+        _partyGroupType = 0;
+        _partyOwnFlags = 0;
+        _partyLeaderGuid = wire.LeaderGuid;
+        _partyLootMethod = wire.LootMethod;
+        _partyMasterLooterGuid = wire.MasterLooterGuid;
+        _partyLootThreshold = wire.LootThreshold;
+        _partyTestSandbox = true;
+        _partyRosterRevision++;
+        foreach (string line in lines) AddChatMessage(line);
+    }
+
+    private void ShowPartyTestInvite()
+    {
+        ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(
+            _staticPopupSlots,
+            PartyFrameUiLaw.PartyInvitePopupDefinition,
+            playerDeadOrGhost: false,
+            dataToken: "Partner"));
+    }
+
+    private bool TryPartyTestUninvite(ulong guid)
+    {
+        if (!_partyTestSandbox) return false;
+        _partyMembers.RemoveAll(member => member.Guid == guid);
+        _partyStats.Remove(guid);
+        _playerNames.Remove(guid);
+        for (int i = 0; i < _partyRaidTargets.Length; i++)
+            if (_partyRaidTargets[i] == guid) _partyRaidTargets[i] = 0;
+        _partyRosterRevision++;
+        return true;
+    }
+
+    private bool TryPartyTestPromote(ulong guid)
+    {
+        if (!_partyTestSandbox) return false;
+        if (_partyMembers.Any(member => member.Guid == guid)) _partyLeaderGuid = guid;
+        return true;
+    }
+
+    private bool TryPartyTestLeave()
+    {
+        if (!_partyTestSandbox) return false;
+        ResetParty();
+        return true;
+    }
+
+    private bool TryPartyTestLoot(byte method, ulong master, byte threshold)
+    {
+        if (!_partyTestSandbox) return false;
+        _partyLootMethod = method;
+        _partyMasterLooterGuid = method == 2 ? master : 0;
+        _partyLootThreshold = threshold;
+        return true;
+    }
+
+    private bool TryPartyTestRaidTarget(ulong guid, byte requested)
+    {
+        if (!_partyTestSandbox) return false;
+        PartyTestSandboxLaw.ApplyRaidTarget(_partyRaidTargets, guid, requested);
+        return true;
     }
 
     private void ApplyPartyMemberStats(byte[] body, bool fullSnapshot)
@@ -265,6 +375,20 @@ public sealed partial class GameLoop
             if (string.Equals(effect.Type, DuelFrameUiLaw.OutOfBoundsPopupType,
                     StringComparison.Ordinal))
                 continue;
+            if (effect.Type is EnchantConfirmUiLaw.BindPopupType or
+                    EnchantConfirmUiLaw.ReplacePopupType)
+            {
+                if (effect.Kind == StaticPopupCoordinatorLaw.EffectKind.Accept)
+                    AcceptEnchantConfirmation();
+                else if (effect.Kind == StaticPopupCoordinatorLaw.EffectKind.Hide &&
+                         _enchantConfirmation is { } enchant &&
+                         string.Equals(EnchantPopupType(enchant), effect.Type,
+                             StringComparison.Ordinal))
+                    _enchantConfirmation = null;
+                // The entries have button2 but no OnCancel callback. Their shared Hide lifecycle
+                // clears the local pending question; no wire action is sent.
+                continue;
+            }
             if (FriendsFrameUiLaw.IsNamePopup(effect.Type))
             {
                 switch (effect.Kind)

@@ -7,21 +7,40 @@
   "benillaSources": [
     {
       "path": "crates/benilla-app/src/local_state.rs",
-      "fileSha256": "705b99de83d94b0dff52096aab1631c13c0a8ca3b9bc9888b24e358b2005b560",
-      "snapshotId": "benilla-5089066fea6adbc3"
+      "fileSha256": "061c94cfbb69ced3d353fcf8e02b475dded2169381ff95a058417a5016f5bb87",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_saved.rs",
+      "fileSha256": "dbc1f1ffd4979a8913f41e9cb4521ce10cb8b4b4ee05baef5b08ced9467c66cf",
+      "snapshotId": "benilla-current-2026-08-23"
     }
   ],
   "msuiAnchors": [
     "MSUIClient/ClientConfig.cs",
     "MSUIClient/Engine/GameSettings.cs",
-    "MSUIClient/Program.Settings.cs"
+    "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Settings.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Macro.cs",
+    "MSUIClient/GameLoop/Panels/GameLoop.Bindings.cs",
+    "tools/interface-wire-check/LoginClinicalChecks.cs"
   ],
   "status": "support-only",
-  "summary": "Benilla's local_state.rs is pure persistence-path plumbing (the one benilla/ folder law, $BENILLA_HOME/$WOW_CAPTURE resolution, atomic writes). MSUI achieves the same effect through its own configuration architecture: ClientConfig/GameSettings with the MSUI_SETTINGS_PATH override (used by creator/live-capture workflows), and per-feature settings persistence in Program.Settings/Program.Bindings. No player-observable behavior is at stake beyond 'settings persist', which MSUI does its own way.",
-  "openItems": [],
+  "summary": "Current Benilla local_state.rs centralizes portable persistence paths and atomic writes for configuration, macros, bindings, remembered account, camera, screenshots and addon/Lua state. Its ui_saved.rs is specifically the host seam for Lua RegisterForSave globals and VARIABLES_LOADED ordering. MSUI uses its established configuration architecture instead: ClientConfig for machine wiring, GameSettings/SettingsStore with MSUI_SETTINGS_PATH for player preferences and remembered account/character, and dedicated macro/binding stores. Addon and SavedVariables residents remain correctly absent with their missing Lua consumer; no disconnected Lua persistence layer belongs in the desktop client. The observable desktop contract is that enabled settings persist; Remember Account Name now does so while never storing the password.",
+  "openItems": [
+    {
+      "id": "item-local-state-remembered-account-20260823",
+      "kind": "gap",
+      "text": "The login screen's Remember Account Name checkbox updated only ClientConfig in memory and did not persist the account name across launches.",
+      "source": "benilla-b57ee0e9e2c8822b/local_state.rs+login/mod.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "2026-08-23: Added GameSettings.SavedAccountName. Login initialization prefers that saved value, successful manual submit writes or clears it according to the checkbox and saves SettingsStore, and a clinical disk round-trip proves persistence. Passwords are not serialized."
+    }
+  ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "lastReviewedUtc": "2026-08-23T08:35:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

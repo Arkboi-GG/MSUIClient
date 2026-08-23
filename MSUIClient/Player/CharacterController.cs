@@ -5,6 +5,10 @@ using MSUIClient.World.Collision;
 
 namespace MSUIClient.Player;
 
+/// <summary>One owner-aware support hit from a moving world platform.</summary>
+public readonly record struct MovingGroundHit(
+    ulong OwnerGuid, float Distance, Vector3 Point, Vector3 Normal);
+
 /// <summary>Per-frame movement intent. Filled from the window's input state.</summary>
 public struct MovementInput
 {
@@ -91,6 +95,36 @@ public sealed class CharacterController
 
     /// <summary>vmap collision. Null until vmaps are configured - terrain still works.</summary>
     public CollisionWorld? Collision { get; set; }
+
+    /// <summary>
+    /// Live moving-platform support, kept outside the immutable world BVH so a
+    /// boat never leaves collision behind at an old timetable pose.
+    /// </summary>
+    public Func<Vector3, float, MovingGroundHit?>? MovingGroundProbe { get; set; }
+
+    /// <summary>
+    /// Owner-local collision that cannot live in the immutable world BVH.
+    /// Doors/buttons use this lane so an ACTIVE door is immediately passable
+    /// and a READY door is immediately solid without rebuilding the map.
+    /// </summary>
+    public Func<Vector3, Vector3, float, RayHit?>? DynamicCollisionProbe { get; set; }
+
+    private bool HasGeometryCollision =>
+        Collision is { IsEmpty: false } || DynamicCollisionProbe is not null;
+
+    private RayHit? RaycastGeometry(Vector3 origin, Vector3 direction, float maxDistance)
+    {
+        RayHit? best = Collision is { IsEmpty: false }
+            ? Collision.Raycast(origin, direction, maxDistance)
+            : null;
+        RayHit? dynamic = DynamicCollisionProbe?.Invoke(
+            origin, direction, best?.Distance ?? maxDistance);
+        return dynamic is { } live && (best is null || live.Distance < best.Value.Distance)
+            ? live : best;
+    }
+
+    /// <summary>Current boat-local wire pose while attached to a transport.</summary>
+    public TransportPose? Transport { get; set; }
 
     public Vector3 Position;
     public Vector3 Velocity;
@@ -270,6 +304,9 @@ public sealed class CharacterController
     /// <summary>Index of the collision triangle currently acting as ground, or -1.</summary>
     public int GroundTriangle { get; private set; } = -1;
 
+    /// <summary>Server GUID of the moving platform supporting the feet, or zero.</summary>
+    public ulong GroundOwnerGuid { get; private set; }
+
     /// <summary>True when neither terrain nor collision could say what is below.</summary>
     public bool NoGroundBelow { get; private set; }
 
@@ -361,6 +398,7 @@ public sealed class CharacterController
         _warnedNoGround = false;
         _landingAfterDiscontinuousMove = true;
         _underTerrainShell = false;
+        Transport = null;
     }
 
     /// <summary>How far the last depenetration pass had to push, in yards.</summary>
@@ -387,7 +425,7 @@ public sealed class CharacterController
     {
         LastPushOut = 0f;
 
-        if (Collision is null || Collision.IsEmpty) return;
+        if (!HasGeometryCollision) return;
 
         var origin = Position + new Vector3(0, 0, _opts.Height * 0.5f);
         var push = Vector3.Zero;
@@ -398,7 +436,7 @@ public sealed class CharacterController
             float angle = i * MathF.PI * 2f / rays;
             var dir = new Vector3(MathF.Cos(angle), MathF.Sin(angle), 0);
 
-            var hit = Collision.Raycast(origin, dir, _opts.Radius);
+            var hit = RaycastGeometry(origin, dir, _opts.Radius);
             if (hit is null) continue;
             if (hit.Value.Normal.Z > _minGroundZ) continue;
 
@@ -584,7 +622,7 @@ public sealed class CharacterController
     /// </summary>
     public void FlyMove(Vector3 delta)
     {
-        if (!FlyCollide || Collision is null || Collision.IsEmpty)
+        if (!FlyCollide || !HasGeometryCollision)
         {
             Position += delta;
             return;
@@ -595,7 +633,7 @@ public sealed class CharacterController
             float dist = move.Length();
             if (dist < 1e-5f) return;
             var dir = move / dist;
-            var hit = Collision.Raycast(Position, dir, dist + _opts.Radius);
+            var hit = RaycastGeometry(Position, dir, dist + _opts.Radius);
             if (hit is null || hit.Value.Distance > dist + _opts.Radius)
             {
                 Position += move;
@@ -620,7 +658,7 @@ public sealed class CharacterController
     {
         if (move.LengthSquared() < 1e-8f) return;
 
-        if (Collision is null || Collision.IsEmpty)
+        if (!HasGeometryCollision)
         {
             Position += move;
             return;
@@ -636,7 +674,7 @@ public sealed class CharacterController
             // Cast from mid-body so low rubble doesn't count as a wall.
             var origin = Position + new Vector3(0, 0, _opts.Height * 0.5f);
 
-            var hit = Collision.Raycast(origin, dir, dist + _opts.Radius);
+            var hit = RaycastGeometry(origin, dir, dist + _opts.Radius);
 
             if (hit is null || hit.Value.Distance > dist + _opts.Radius)
             {
@@ -673,12 +711,12 @@ public sealed class CharacterController
     /// <summary>Probe for a ledge within stepHeight that the move could stand on.</summary>
     private bool TryStepUp(Vector3 move)
     {
-        if (!Grounded || Collision is null) return false;
+        if (!Grounded || !HasGeometryCollision) return false;
 
         var probe = Position + move;
         probe.Z += _opts.StepHeight + 0.1f;
 
-        var down = Collision.Raycast(probe, Down, _opts.StepHeight + 0.4f);
+        var down = RaycastGeometry(probe, Down, _opts.StepHeight + 0.4f);
         if (down is null || down.Value.Normal.Z <= _minGroundZ) return false;
 
         float stepTop = probe.Z - down.Value.Distance;
@@ -764,8 +802,9 @@ public sealed class CharacterController
         GroundProbeOffset = Vector2.Zero;
         GroundProbesLastFrame = 0;
         GroundAdhesion = false;
+        GroundOwnerGuid = 0;
 
-        if (Collision is { IsEmpty: false })
+        if (HasGeometryCollision)
         {
             GroundTriangle = -1;
 
@@ -799,10 +838,13 @@ public sealed class CharacterController
                 float probeDepth = probeLift + 5f;
                 if (deepCollisionLandingProbe)
                 {
-                    float collisionBottom = Collision.BoundsMin.Z + Collision.Offset.Z;
-                    probeDepth = MathF.Max(probeDepth, origin.Z - collisionBottom + 0.01f);
+                    if (Collision is { IsEmpty: false })
+                    {
+                        float collisionBottom = Collision.BoundsMin.Z + Collision.Offset.Z;
+                        probeDepth = MathF.Max(probeDepth, origin.Z - collisionBottom + 0.01f);
+                    }
                 }
-                var hit = Collision.Raycast(origin, Down, probeDepth);
+                var hit = RaycastGeometry(origin, Down, probeDepth);
                 if (hit is null || hit.Value.Normal.Z <= _minGroundZ) return;
 
                 float surfaceZ = origin.Z - hit.Value.Distance;
@@ -873,12 +915,62 @@ public sealed class CharacterController
             }
         }
 
+        if (MovingGroundProbe is not null)
+        {
+            float bestSurfaceZ = float.NegativeInfinity;
+            MovingGroundHit bestHit = default;
+            Vector2 bestOffset = Vector2.Zero;
+            float probeRadius = MathF.Max(0f, _opts.Radius * 0.85f);
+            float probeLift = MathF.Max(_opts.StepHeight,
+                downwardTravel + GroundContactEpsilon);
+            float probeDepth = probeLift + 5f;
+
+            void ProbeMoving(Vector2 direction)
+            {
+                Vector2 offset = direction * probeRadius;
+                Vector3 origin = Position + new Vector3(offset.X, offset.Y, probeLift);
+                MovingGroundHit? candidate = MovingGroundProbe(origin, probeDepth);
+                if (candidate is not { } moving || moving.Normal.Z <= _minGroundZ ||
+                    moving.Point.Z <= bestSurfaceZ)
+                    return;
+                bestSurfaceZ = moving.Point.Z;
+                bestHit = moving;
+                bestOffset = offset;
+            }
+
+            ProbeMoving(SupportProbeDirections[0]);
+            float nearbyDistance = MathF.Max(0.05f, _opts.GroundSnapDistance);
+            if (bestHit.OwnerGuid == 0 || Position.Z - bestSurfaceZ > nearbyDistance)
+                for (int i = 1; i < SupportProbeDirections.Length; i++)
+                    ProbeMoving(SupportProbeDirections[i]);
+
+            if (bestHit.OwnerGuid != 0)
+            {
+                CollisionGroundZ = CollisionGroundZ is float staticZ
+                    ? MathF.Max(staticZ, bestSurfaceZ) : bestSurfaceZ;
+                bool underTerrain = groundZ is float overhead &&
+                                    overhead - Position.Z > UndergroundSlack;
+                bool closerThanTerrain = groundZ is float rival &&
+                    MathF.Abs(rival - Position.Z) > MathF.Abs(bestSurfaceZ - Position.Z);
+                if (groundZ is null || bestSurfaceZ > groundZ.Value ||
+                    (VanillaHeightPrecedence && underTerrain && closerThanTerrain))
+                {
+                    groundZ = bestSurfaceZ;
+                    GroundSource = "transport";
+                    GroundTriangle = -1;
+                    GroundProbeOffset = bestOffset;
+                    GroundOwnerGuid = bestHit.OwnerGuid;
+                }
+            }
+        }
+
         if (WaterWalking && ExternalWalkableSurfaceZ is float liquidZ &&
             liquidZ - Position.Z <= _opts.StepHeight &&
             (groundZ is null || liquidZ > groundZ.Value))
         {
             groundZ = liquidZ;
             GroundSource = "liquid-water-walk";
+            GroundOwnerGuid = 0;
         }
         if (Hovering && groundZ is not null) groundZ += 1f;
         GroundZ = groundZ;

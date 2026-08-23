@@ -14,6 +14,11 @@
       "path": "crates/benilla-app/src/ui_unit.rs",
       "fileSha256": "585ede61c660660b1a003450fe7b2b97a1801873967e2be1999a68fad8861479",
       "snapshotId": "benilla-b57ee0e9e2c8822b"
+    },
+    {
+      "path": "crates/benilla-app/assets/ui/TextStatusBar.xml",
+      "fileSha256": "ef49a718dd386cf6ef6276a1933eb0008555fa21cc08029cb1e7611ca8ac9582",
+      "snapshotId": "benilla-b57ee0e9e2c8822b"
     }
   ],
   "msuiAnchors": [
@@ -23,7 +28,7 @@
     "MSUIClient/Net/ObjectFields.cs"
   ],
   "status": "partial",
-  "summary": "GameLoop.UnitFrames.cs draws player and target frames on the mirrored UI-TargetingFrame art with portraits, bars, faction tint, level/difficulty, skull/death state, combat feedback and target auras. UnitFrameUiLaw supplies Benilla's FFA-first PvP badge, target classification border map, and resting/auto-attack/hate-list priority. The player frame now draws the exact state-icon atlas halves, attack disc, additive status ring/glow and 0.5-second 55/255-to-1 triangle pulse; both frame hit rectangles open the current UnitPopup on right click.",
+  "summary": "GameLoop.UnitFrames.cs draws player and target frames on the mirrored UI-TargetingFrame art with portraits, bars, faction tint, level/difficulty, skull/death state, combat feedback and target auras. UnitFrameUiLaw supplies Benilla's FFA-first PvP badge, target classification border map, and resting/auto-attack/hate-list priority. The player frame now draws the exact state-icon atlas halves, attack disc, additive status ring/glow and 0.5-second 55/255-to-1 triangle pulse; both frame hit rectangles open the current UnitPopup on right click. TextStatusBar.xml is shared hover/pinned-number plumbing for unit, pet, and XP bars rather than a standalone surface; no protected unit-frame geometry is changed by recording it here.",
   "openItems": [
     {
       "id": "item-triage-868f67e3",
@@ -74,6 +79,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-21T00:00:00Z",
+  "lastReviewedUtc": "2026-08-23T02:56:49Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -93,19 +93,14 @@ public sealed partial class GameLoop
     private void DrawSkillCollapseAll(ImDrawListPtr dl, Vector2 origin, float scale,
         IReadOnlyList<uint> categoryIds)
     {
-        static Vector2 Min(Vector2 p, float s, SkillFrameUiLaw.LogicalRect r) =>
-            p + new Vector2(r.X, r.Y) * s;
-        static Vector2 Size(float s, SkillFrameUiLaw.LogicalRect r) =>
-            new(r.Width * s, r.Height * s);
-        Vector4 panelClip = new(origin.X, origin.Y,
-            origin.X + PaperDollUiLaw.FrameWidth * scale,
-            origin.Y + PaperDollUiLaw.FrameHeight * scale);
+        Vector4 panelClip = SkillFrameUiLaw.Clip(origin, PaperDollUiLaw.FrameWidth,
+            PaperDollUiLaw.FrameHeight, scale);
         if (SkillFrameUiParityCaptureActive)
         {
             SkillFrameUiLaw.LogicalRect frame = SkillFrameUiLaw.CollapseFrameRect;
-            Vector2 frameMin = Min(origin, scale, frame);
+            Vector2 frameMin = frame.ScaledMin(origin, scale);
             CollectUiParityDraw("BenillaSkillExpandButtonFrame", "Frame", frameMin,
-                Size(scale, frame), "BenillaSkillFrame",
+                frame.ScaledSize(scale), "BenillaSkillFrame",
                 new("", 0, "FRAMES", "TOPLEFT", "BenillaSkillFrame", "TOPLEFT",
                     frame.X, -frame.Y, ClipRect: panelClip, Visible: true,
                     InteractionState: "shown", Strata: "MEDIUM"));
@@ -123,15 +118,15 @@ public sealed partial class GameLoop
         foreach ((SkillFrameUiLaw.LogicalRect rect, string path) in pieces)
         {
             uint art = _gameplayArt?.Handle(path) ?? 0;
-            Vector2 min = Min(origin, scale, rect);
-            if (art != 0) dl.AddImage((nint)art, min, min + Size(scale, rect));
+            Vector2 min = rect.ScaledMin(origin, scale);
+            if (art != 0) dl.AddImage((nint)art, min, min + rect.ScaledSize(scale));
             if (SkillFrameUiParityCaptureActive)
             {
                 string suffix = path.EndsWith("-Left", StringComparison.OrdinalIgnoreCase)
                     ? "Left" : path.EndsWith("-Middle", StringComparison.OrdinalIgnoreCase)
                     ? "Middle" : "Right";
                 CollectUiParityDraw($"BenillaSkillExpandTab{suffix}", "Texture", min,
-                    Size(scale, rect), "BenillaSkillExpandButtonFrame",
+                    rect.ScaledSize(scale), "BenillaSkillExpandButtonFrame",
                     new(path, 0xffffffff, "BACKGROUND", "TOPLEFT",
                         "BenillaSkillFrame", "TOPLEFT", rect.X, -rect.Y,
                         TexCoords: "0|0|1|1", ClipRect: panelClip,
@@ -142,8 +137,8 @@ public sealed partial class GameLoop
         bool enabled = categoryIds.Count > 0;
         bool someCollapsed = categoryIds.Any(_collapsedSkillCategories.Contains);
         SkillFrameUiLaw.LogicalRect button = SkillFrameUiLaw.CollapseButtonRect;
-        Vector2 buttonMin = Min(origin, scale, button);
-        Vector2 buttonSize = Size(scale, button);
+        Vector2 buttonMin = button.ScaledMin(origin, scale);
+        Vector2 buttonSize = button.ScaledSize(scale);
         ImGui.SetCursorScreenPos(buttonMin);
         if (!enabled) ImGui.BeginDisabled();
         ImGui.InvisibleButton("##skill-collapse-all", buttonSize);
@@ -153,8 +148,8 @@ public sealed partial class GameLoop
         if (!enabled) ImGui.EndDisabled();
 
         SkillFrameUiLaw.LogicalRect icon = SkillFrameUiLaw.CollapseIconRect;
-        Vector2 iconMin = Min(origin, scale, icon);
-        Vector2 iconSize = Size(scale, icon);
+        Vector2 iconMin = icon.ScaledMin(origin, scale);
+        Vector2 iconSize = icon.ScaledSize(scale);
         string iconPath = someCollapsed
             ? @"Interface\Buttons\UI-PlusButton-Up"
             : @"Interface\Buttons\UI-MinusButton-Up";
@@ -169,18 +164,18 @@ public sealed partial class GameLoop
             if (highlight != 0)
                 dl.AddImage((nint)highlight, iconMin, iconMin + iconSize);
         }
-        int em = GameText.EmPixels("GameFontNormalSmall", scale);
-        GameText.Draw(dl, "GameFontNormalSmall", "ALL",
-            new Vector2(buttonMin.X + 18 * scale,
-                buttonMin.Y + (buttonSize.Y - em) * .5f), scale,
+        int em = GameText.EmPixels(SkillFrameUiLaw.CollapseLabelFont, scale);
+        Vector2 textMin = SkillFrameUiLaw.CollapseTextMin(buttonMin, buttonSize, em, scale);
+        GameText.Draw(dl, SkillFrameUiLaw.CollapseLabelFont, SkillFrameUiLaw.CollapseLabel,
+            textMin, scale,
             enabled ? null : 0xff777777);
 
         if (SkillFrameUiParityCaptureActive)
         {
             CollectUiParityDraw("BenillaSkillCollapseAllButton", "Button", buttonMin,
                 buttonSize, "BenillaSkillExpandButtonFrame",
-                new("", 0, "FRAMES", "LEFT", "BenillaSkillExpandTabLeft", "RIGHT", 0,
-                    3, ClipRect: panelClip, Visible: true, Enabled: enabled,
+                new("", 0, "FRAMES", "LEFT", "BenillaSkillExpandTabLeft", "RIGHT", -3,
+                    -3, ClipRect: panelClip, Visible: true, Enabled: enabled,
                     InteractionState: active ? "pushed" : hovered ? "highlighted" :
                         enabled ? "normal" : "disabled", HitMin: buttonMin,
                     HitMax: buttonMin + buttonSize, Strata: "MEDIUM+1"));
@@ -191,14 +186,15 @@ public sealed partial class GameLoop
                     ClipRect: panelClip, BlendMode: "BLEND", Visible: iconArt != 0,
                     InteractionState: someCollapsed ? "expand-all" : "collapse-all",
                     Strata: "MEDIUM+1"));
-            Vector2 textMin = new(buttonMin.X + 18 * scale,
-                buttonMin.Y + (buttonSize.Y - em) * .5f);
             CollectUiParityDraw("BenillaSkillCollapseAllButton/ButtonText", "FontString",
-                textMin, new Vector2(GameText.MeasureWidth("GameFontNormalSmall", "ALL", scale), em),
+                textMin, SkillFrameUiLaw.MeasuredSize(
+                    GameText.MeasureWidth(SkillFrameUiLaw.CollapseLabelFont,
+                        SkillFrameUiLaw.CollapseLabel, scale), em),
                 "BenillaSkillCollapseAllButton",
-                new("", enabled ? 0xff00d1ff : 0xff777777, "ARTWORK", "LEFT",
-                    "BenillaSkillCollapseAllButton", "LEFT", 18, 0,
-                    @"Fonts\FRIZQT__.TTF", 10, ClipRect: panelClip, Visible: true,
+                new("", enabled ? 0xffffffff : 0xff777777, "ARTWORK", "LEFT",
+                    "BenillaSkillCollapseAllButton", "LEFT",
+                    SkillFrameUiLaw.CollapseLabelOffsetX, 0,
+                    @"Fonts\FRIZQT__.TTF", 12, ClipRect: panelClip, Visible: true,
                     Strata: "MEDIUM+1"));
             if (hovered)
                 CollectUiParityDraw("BenillaSkillCollapseAllButton/HighlightTexture",
@@ -227,37 +223,37 @@ public sealed partial class GameLoop
     private void DrawSkillScrollBar(ImDrawListPtr dl, Vector2 origin, float scale, int rowCount)
     {
         int maximum = SkillFrameUiLaw.MaximumScroll(rowCount);
-        Vector4 panelClip = new(origin.X, origin.Y,
-            origin.X + PaperDollUiLaw.FrameWidth * scale,
-            origin.Y + PaperDollUiLaw.FrameHeight * scale);
+        Vector4 panelClip = SkillFrameUiLaw.Clip(origin, PaperDollUiLaw.FrameWidth,
+            PaperDollUiLaw.FrameHeight, scale);
         if (SkillFrameUiParityCaptureActive)
         {
             SkillFrameUiLaw.LogicalRect list = SkillFrameUiLaw.ListRect;
-            Vector2 listMin = origin + new Vector2(list.X, list.Y) * scale;
+            Vector2 listMin = list.ScaledMin(origin, scale);
+            Vector2 listSize = list.ScaledSize(scale);
             CollectUiParityDraw("BenillaSkillListScrollFrame", "ScrollFrame", listMin,
-                new Vector2(list.Width, list.Height) * scale, "BenillaSkillFrame",
+                listSize, "BenillaSkillFrame",
                 new("", 0, "FRAMES", "TOPLEFT", "BenillaSkillFrame", "TOPLEFT",
                     list.X, -list.Y, ClipRect: panelClip, Visible: true, Enabled: true,
                     InteractionState: maximum > 0 ? "scrollable" : "at-rest",
-                    HitMin: listMin, HitMax: listMin + new Vector2(list.Width, list.Height) * scale,
+                    HitMin: listMin, HitMax: listMin + listSize,
                     Strata: "MEDIUM"));
             SkillFrameUiLaw.LogicalRect sliderTrace = SkillFrameUiLaw.ScrollSliderRect;
-            Vector2 sliderTraceMin = origin + new Vector2(sliderTrace.X, sliderTrace.Y) * scale;
+            Vector2 sliderTraceMin = sliderTrace.ScaledMin(origin, scale);
+            Vector2 sliderTraceSize = sliderTrace.ScaledSize(scale);
             CollectUiParityDraw("BenillaSkillListScrollFrameScrollBar", "Slider",
-                sliderTraceMin, new Vector2(sliderTrace.Width, sliderTrace.Height) * scale,
+                sliderTraceMin, sliderTraceSize,
                 "BenillaSkillListScrollFrame",
                 new("", 0, "FRAMES", "TOPLEFT", "BenillaSkillListScrollFrame", "TOPRIGHT",
                     6, -16, ClipRect: panelClip, Visible: true, Enabled: maximum > 0,
                     InteractionState: $"value={_skillScroll};maximum={maximum}",
                     HitMin: sliderTraceMin,
-                    HitMax: sliderTraceMin + new Vector2(sliderTrace.Width,
-                        sliderTrace.Height) * scale, Strata: "MEDIUM+1"));
+                    HitMax: sliderTraceMin + sliderTraceSize, Strata: "MEDIUM+1"));
         }
         void Arrow(string id, SkillFrameUiLaw.LogicalRect logical, bool upward)
         {
             bool enabled = upward ? _skillScroll > 0 : _skillScroll < maximum;
-            Vector2 min = origin + new Vector2(logical.X, logical.Y) * scale;
-            Vector2 size = new Vector2(logical.Width, logical.Height) * scale;
+            Vector2 min = logical.ScaledMin(origin, scale);
+            Vector2 size = logical.ScaledSize(scale);
             ImGui.SetCursorScreenPos(min);
             if (!enabled) ImGui.BeginDisabled();
             ImGui.InvisibleButton(id, size);
@@ -271,14 +267,17 @@ public sealed partial class GameLoop
             string path = $@"Interface\Buttons\UI-ScrollBar-Scroll{direction}Button-{state}";
             uint art = _gameplayArt?.Handle(path) ?? 0;
             if (art != 0)
-                dl.AddImage((nint)art, min, min + size, new Vector2(.25f), new Vector2(.75f));
+                dl.AddImage((nint)art, min, min + size,
+                    SkillFrameUiLaw.ScrollControlUvMin,
+                    SkillFrameUiLaw.ScrollControlUvMax);
             if (hovered)
             {
                 uint hi = _gameplayArt?.AdditiveHandle(
                     $@"Interface\Buttons\UI-ScrollBar-Scroll{direction}Button-Highlight") ?? 0;
                 if (hi != 0)
                     dl.AddImage((nint)hi, min, min + size,
-                        new Vector2(.25f), new Vector2(.75f));
+                        SkillFrameUiLaw.ScrollControlUvMin,
+                        SkillFrameUiLaw.ScrollControlUvMax);
             }
             if (SkillFrameUiParityCaptureActive)
             {
@@ -310,15 +309,17 @@ public sealed partial class GameLoop
         Arrow("##skill-scroll-down", SkillFrameUiLaw.ScrollDownRect, upward: false);
 
         SkillFrameUiLaw.LogicalRect slider = SkillFrameUiLaw.ScrollSliderRect;
-        Vector2 sliderMin = origin + new Vector2(slider.X, slider.Y) * scale;
-        Vector2 sliderSize = new Vector2(slider.Width, slider.Height) * scale;
-        Vector2 thumbMin = origin + new Vector2(slider.X,
-            SkillFrameUiLaw.ScrollThumbY(_skillScroll, maximum)) * scale;
-        Vector2 thumbSize = new(16 * scale);
+        Vector2 sliderMin = slider.ScaledMin(origin, scale);
+        Vector2 sliderSize = slider.ScaledSize(scale);
+        SkillFrameUiLaw.LogicalRect thumb = SkillFrameUiLaw.ScrollThumbRect(
+            _skillScroll, maximum);
+        Vector2 thumbMin = thumb.ScaledMin(origin, scale);
+        Vector2 thumbSize = thumb.ScaledSize(scale);
         uint knob = _gameplayArt?.Handle(@"Interface\Buttons\UI-ScrollBar-Knob") ?? 0;
         if (knob != 0)
             dl.AddImage((nint)knob, thumbMin, thumbMin + thumbSize,
-                new Vector2(.25f), new Vector2(.75f));
+                SkillFrameUiLaw.ScrollControlUvMin,
+                SkillFrameUiLaw.ScrollControlUvMax);
 
         if (SkillFrameUiParityCaptureActive)
             CollectUiParityDraw("BenillaSkillListScrollFrameScrollBarThumbTexture", "ThumbTexture",
@@ -342,7 +343,7 @@ public sealed partial class GameLoop
         }
     }
 
-    private void DrawSkillUnlearnButton(ImDrawListPtr dl, Vector2 borderMin, Vector2 borderMax,
+    private void DrawSkillUnlearnButton(ImDrawListPtr dl, Vector2 panelOrigin,
         float scale, WorldEntity player, SkillLineInfo skill)
     {
         if (!SkillIsCurrentlyAbandonable(player, skill.Id))
@@ -359,12 +360,12 @@ public sealed partial class GameLoop
             return;
         }
 
-        // LEFT to detail-border RIGHT, offset (-2,-1). The XML Y=-1 becomes one pixel down in
-        // top-origin coordinates.
-        Vector2 visualMin = new(borderMax.X - 2 * scale, borderMin.Y + scale);
-        Vector2 visualSize = new(32 * scale);
-        Vector2 hitMin = visualMin + new Vector2(9, -7) * scale;
-        Vector2 hitSize = new(16 * scale, 29 * scale);
+        SkillFrameUiLaw.LogicalRect visual = SkillFrameUiLaw.DetailUnlearnRect;
+        SkillFrameUiLaw.LogicalRect hit = SkillFrameUiLaw.InsetUnlearnHitRect(visual);
+        Vector2 visualMin = panelOrigin + visual.Min * scale;
+        Vector2 visualSize = visual.Size * scale;
+        Vector2 hitMin = panelOrigin + hit.Min * scale;
+        Vector2 hitSize = hit.Size * scale;
         ImGui.SetCursorScreenPos(hitMin);
         ImGui.InvisibleButton("##skill-unlearn", hitSize);
         bool active = ImGui.IsItemActive();
@@ -381,15 +382,18 @@ public sealed partial class GameLoop
             uint hi = _gameplayArt?.AdditiveHandle(
                 @"Interface\Buttons\CancelButton-Highlight") ?? 0;
             if (hi != 0) dl.AddImage((nint)hi, visualMin, visualMin + visualSize);
+            SkillFrameUiLaw.TooltipSeat tooltipSeat =
+                SkillFrameUiLaw.UnlearnTooltipSeat(visualMin, visualSize);
+            ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
+                tooltipSeat.Pivot);
             ImGui.BeginTooltip();
             ImGui.TextUnformatted(SkillFrameUiLaw.UnlearnTooltip);
             ImGui.EndTooltip();
         }
         if (SkillFrameUiParityCaptureActive)
         {
-            Vector4 panelClip = new(_uiParityOrigin.X, _uiParityOrigin.Y,
-                _uiParityOrigin.X + PaperDollUiLaw.FrameWidth * scale,
-                _uiParityOrigin.Y + PaperDollUiLaw.FrameHeight * scale);
+            Vector4 panelClip = SkillFrameUiLaw.Clip(_uiParityOrigin,
+                PaperDollUiLaw.FrameWidth, PaperDollUiLaw.FrameHeight, scale);
             CollectUiParityDraw("BenillaSkillDetailUnlearnButton", "Button", visualMin,
                 visualSize, "BenillaSkillDetailBar",
                 new("", 0, "FRAMES", "LEFT", "BenillaSkillDetailBarBorder", "RIGHT", -2,
@@ -442,9 +446,9 @@ public sealed partial class GameLoop
 
         float s = GameplayUiScale();
         Vector2 display = ImGui.GetIO().DisplaySize;
-        SkillFrameUiLaw.LogicalRect popup = SkillFrameUiLaw.PopupRect;
-        Vector2 size = new(popup.Width * s, popup.Height * s);
-        Vector2 origin = new((display.X - size.X) * .5f, popup.Y * s);
+        SkillFrameUiLaw.ScreenRect popup = SkillFrameUiLaw.PopupLayout(display, s);
+        Vector2 size = popup.Size;
+        Vector2 origin = popup.Min;
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
@@ -454,10 +458,11 @@ public sealed partial class GameLoop
             ImGuiWindowFlags.NoNav;
         if (!ImGui.Begin("##skill-unlearn-confirm", flags)) { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
-        Vector4 popupClip = new(origin.X, origin.Y, origin.X + size.X, origin.Y + size.Y);
+        Vector4 popupClip = SkillFrameUiLaw.PopupClip(origin, s);
         if (SkillFrameUiParityCaptureActive)
             CollectUiParityDraw("StaticPopup1", "Frame", origin, size, "",
-                new("", 0, "IMGUI_HOST", "TOP", "UIParent", "TOP", 0, -popup.Y,
+                new("", 0, "IMGUI_HOST", "TOP", "UIParent", "TOP", 0,
+                    -SkillFrameUiLaw.PopupRect.Y,
                     ContentRect: popupClip, ClipRect: popupClip, ClipMask: "ImGui-window",
                     Visible: true, Enabled: true, InteractionState: "unlearn-skill",
                     HitMin: origin, HitMax: origin + size, Strata: "DIALOG"));
@@ -468,10 +473,10 @@ public sealed partial class GameLoop
         if (SkillFrameUiParityCaptureActive)
         {
             float skinScale = _skin.Scale;
-            Vector2 fillMin = origin + new Vector2(WowSkin.Dialog.InsetL,
-                WowSkin.Dialog.InsetT) * skinScale;
-            Vector2 fillMax = origin + size - new Vector2(WowSkin.Dialog.InsetR,
-                WowSkin.Dialog.InsetB) * skinScale;
+            Vector2 fillMin = SkillFrameUiLaw.BackdropFillMin(origin, skinScale,
+                WowSkin.Dialog.InsetL, WowSkin.Dialog.InsetT);
+            Vector2 fillMax = SkillFrameUiLaw.BackdropFillMax(origin, size, skinScale,
+                WowSkin.Dialog.InsetR, WowSkin.Dialog.InsetB);
             bool fillTexture = _skin.TextureHandle(WowSkin.Dialog.Bg) != 0;
             bool edgeTexture = _skin.TextureHandle(WowSkin.Dialog.Edge) != 0;
             float tile = MathF.Max(WowSkin.Dialog.TileSize * skinScale, 1f);
@@ -502,11 +507,12 @@ public sealed partial class GameLoop
             SkillFrameUiLaw.UnlearnQuestionFormat, confirmation.SkillName);
         int em = GameText.EmPixels("GameFontHighlight", s);
         GameText.DrawCentered(dl, "GameFontHighlight", message,
-            origin + new Vector2(160, 16 + em / (2f * s)) * s, s);
+            SkillFrameUiLaw.PopupMessageCenter(origin, s, em), s);
         if (SkillFrameUiParityCaptureActive)
         {
-            Vector2 textSize = new(GameText.MeasureWidth("GameFontHighlight", message, s), em);
-            Vector2 textMin = origin + new Vector2(160, 16) * s - new Vector2(textSize.X * .5f, 0);
+            Vector2 textSize = SkillFrameUiLaw.MeasuredSize(
+                GameText.MeasureWidth("GameFontHighlight", message, s), em);
+            Vector2 textMin = SkillFrameUiLaw.PopupMessageMin(origin, s, textSize.X);
             CollectUiParityDraw("StaticPopup1Text", "FontString", textMin, textSize,
                 "StaticPopup1", new("", 0xffffffff, "ARTWORK", "TOP", "StaticPopup1", "TOP",
                     0, -16, @"Fonts\FRIZQT__.TTF", 12, ClipRect: popupClip, Visible: true,
@@ -549,19 +555,21 @@ public sealed partial class GameLoop
     private bool DrawSkillPopupButton(ImDrawListPtr dl, string caption, Vector2 origin,
         SkillFrameUiLaw.LogicalRect logical, float scale, string id)
     {
-        Vector2 min = origin + new Vector2(logical.X, logical.Y) * scale;
-        Vector2 size = new(logical.Width * scale, logical.Height * scale);
+        Vector2 min = logical.ScaledMin(origin, scale);
+        Vector2 size = logical.ScaledSize(scale);
         ImGui.SetCursorScreenPos(min);
         ImGui.InvisibleButton($"##skill-unlearn-{id}", size);
         bool active = ImGui.IsItemActive(), hovered = ImGui.IsItemHovered();
         uint art = _skin!.TextureHandle(active ? "dialog.button.down" : "dialog.button.up");
         if (art != 0)
-            dl.AddImage((nint)art, min, min + size, Vector2.Zero, new Vector2(1, .625f));
+            dl.AddImage((nint)art, min, min + size, Vector2.Zero,
+                SkillFrameUiLaw.PopupButtonUvMax);
         if (hovered)
         {
             uint hi = _skin.TextureHandle("dialog.button.hi");
             if (hi != 0)
-                dl.AddImage((nint)hi, min, min + size, Vector2.Zero, new Vector2(1, .625f));
+                dl.AddImage((nint)hi, min, min + size, Vector2.Zero,
+                    SkillFrameUiLaw.PopupButtonUvMax);
         }
         GameText.DrawCentered(dl,
             hovered ? "DialogButtonHighlightText" : "DialogButtonNormalText",
@@ -569,9 +577,7 @@ public sealed partial class GameLoop
         if (SkillFrameUiParityCaptureActive)
         {
             string element = id == "accept" ? "StaticPopup1Button1" : "StaticPopup1Button2";
-            Vector4 popupClip = new(origin.X, origin.Y,
-                origin.X + SkillFrameUiLaw.PopupRect.Width * scale,
-                origin.Y + SkillFrameUiLaw.PopupRect.Height * scale);
+            Vector4 popupClip = SkillFrameUiLaw.PopupClip(origin, scale);
             CollectUiParityDraw(element, "Button", min, size, "StaticPopup1",
                 new("", 0, "FRAMES", id == "accept" ? "TOPRIGHT" : "LEFT",
                     id == "accept" ? "StaticPopup1Text" : "StaticPopup1Button1",
@@ -587,8 +593,9 @@ public sealed partial class GameLoop
                 new(texture, 0xffffffff, "ARTWORK", "TOPLEFT", element, "TOPLEFT", 0, 0,
                     TexCoords: "0|0|1|0.625", ClipRect: popupClip, BlendMode: "BLEND",
                     Visible: art != 0, Strata: "DIALOG+1"));
-            Vector2 textSize = new(GameText.MeasureWidth(
-                hovered ? "DialogButtonHighlightText" : "DialogButtonNormalText", caption, scale),
+            Vector2 textSize = SkillFrameUiLaw.MeasuredSize(GameText.MeasureWidth(
+                    hovered ? "DialogButtonHighlightText" : "DialogButtonNormalText",
+                    caption, scale),
                 GameText.EmPixels("DialogButtonNormalText", scale));
             CollectUiParityDraw(element + "/ButtonText", "FontString",
                 min + (size - textSize) * .5f, textSize, element,

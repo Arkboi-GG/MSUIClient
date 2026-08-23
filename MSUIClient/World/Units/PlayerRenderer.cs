@@ -320,7 +320,8 @@ public sealed class PlayerRenderer : IDisposable
             {
                 _attachedItems.RaceGenderCode = RaceGenderCode(race, gender);
                 _attachedItems.Render(camera, m, model.Source,
-                    boneCount > 0 ? _skin : _bindSkin, mounts, e.Fields.SheathState);
+                    boneCount > 0 ? _skin : _bindSkin, mounts, e.Fields.SheathState,
+                    modelTime: _globalTime);
                 _gl.Enable(EnableCap.Blend);
                 _gl.DepthMask(true);
                 _shader.Use();
@@ -1126,6 +1127,8 @@ public sealed class PlayerRenderer : IDisposable
                 uint entry = e.Fields.PlayerVisibleItemEntry(slot);
                 if (entry == 0) continue;
                 if (net is not null) items.Require(entry, e.Guid, net);
+                if (!EquipmentDisplayPreferenceLaw.EquipmentSlotShown(
+                        slot, e.Fields.PlayerFlags)) continue;
                 if (!items.TryGet(entry, out ItemTemplate? t) || t is null) continue;
                 kit.Add($"slot{slot}", t.DisplayInfoId, (int)t.InventoryType, slot,
                     (byte)t.Class, (byte)t.Subclass, (byte)t.Material, (byte)t.Sheath,
@@ -1152,13 +1155,23 @@ public sealed class PlayerRenderer : IDisposable
         var sb = new System.Text.StringBuilder(96);
         sb.Append(race).Append('/').Append(gender).Append('/')
           .Append(skin).Append('/').Append(face).Append('/')
-          .Append(hairStyle).Append('/').Append(hairColor).Append('/').Append(e.Fields.PlayerFacialHair).Append('|');
+          .Append(hairStyle).Append('/').Append(hairColor).Append('/')
+          .Append(e.Fields.PlayerFacialHair).Append('|')
+          .Append(e.Fields.PlayerFlags &
+              (EquipmentDisplayPreferenceLaw.HideHelm |
+               EquipmentDisplayPreferenceLaw.HideCloak)).Append('|');
         for (int slot = 0; slot < 19; slot++)
         {
             uint entry = e.Fields.PlayerVisibleItemEntry(slot);
             if (entry == 0) { sb.Append("0:"); continue; }
             if (items is null) { sb.Append('?').Append(entry).Append(':'); continue; }
             if (net is not null) items.Require(entry, e.Guid, net);
+            if (!EquipmentDisplayPreferenceLaw.EquipmentSlotShown(
+                    slot, e.Fields.PlayerFlags))
+            {
+                sb.Append("hidden:");
+                continue;
+            }
             if (items.TryGet(entry, out ItemTemplate? t))
             {
                 sb.Append(t?.DisplayInfoId ?? 0).Append(':');

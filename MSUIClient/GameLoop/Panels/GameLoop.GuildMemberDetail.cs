@@ -23,8 +23,9 @@ public sealed partial class GameLoop
         string stem = up ? "ScrollUp" : "ScrollDown";
         Vector2 min = origin + rect.Min * scale;
         Vector2 size = rect.Size * scale;
-        Vector2 hitMin = min + new Vector2(6, 7) * scale;
-        Vector2 hitSize = new Vector2(16, 14) * scale;
+        GuildFrameUiLaw.LogicalRect hit = GuildFrameUiLaw.MemberRankArrowHit(rect);
+        Vector2 hitMin = origin + hit.Min * scale;
+        Vector2 hitSize = hit.Size * scale;
         ImGui.SetCursorScreenPos(hitMin);
         if (!enabled) ImGui.BeginDisabled();
         bool clicked = ImGui.InvisibleButton(id, hitSize);
@@ -41,6 +42,10 @@ public sealed partial class GameLoop
                 $@"Interface\MainMenuBar\UI-MainMenu-{stem}Button-Highlight") ?? 0;
             if (highlight != 0) draw.AddImage((nint)highlight, min, min + size);
         }
+        OfferVanillaNewbieTooltip(new("guild-member-rank", up ? 1ul : 2ul),
+            up ? "Promote" : "Demote",
+            up ? GuildFrameUiLaw.PromoteMemberTooltip :
+                GuildFrameUiLaw.DemoteMemberTooltip);
         return enabled && clicked;
     }
 
@@ -72,8 +77,7 @@ public sealed partial class GameLoop
         float scale = GameplayUiScale();
         Vector2 guildOrigin = UiPanelFrameOrigin(UiPanelOwnershipRegistry[14], scale);
         Vector2 origin = GuildFrameUiLaw.MemberDetailOrigin(guildOrigin, scale);
-        Vector2 size = new(GuildFrameUiLaw.MemberDetailWidth * scale,
-            logicalHeight * scale);
+        Vector2 size = GuildFrameUiLaw.MemberDetailSize(logicalHeight) * scale;
 
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
@@ -97,11 +101,12 @@ public sealed partial class GameLoop
         DrawArt(draw, @"Interface\DialogFrame\UI-DialogBox-Corner",
             origin + corner.Min * scale, corner.Size, scale);
 
-        string zone = _areas?.ZoneName(member.Zone) ?? $"Area {member.Zone}";
+        string zone = GuildFrameUiLaw.ResolvedRosterLabel(_areas?.ZoneName(member.Zone));
         string rank = member.Rank < _guildRankNames.Length
             ? _guildRankNames[member.Rank] : "";
         string online = member.Online ? "Online" : GuildFrameUiLaw.LastOnline(member.OfflineDays);
-        DrawGuildMemberText(draw, origin, scale, member.Name, $"Level {member.Level} {ClassName(member.Class)}",
+        DrawGuildMemberText(draw, origin, scale, member.Name,
+            $"Level {member.Level} {GuildFrameUiLaw.ResolvedRosterLabel(ClassName(member.Class))}",
             zone, rank, online);
 
         DrawGuildNotePane(draw, origin, scale, GuildFrameUiLaw.MemberNotePane,
@@ -122,14 +127,24 @@ public sealed partial class GameLoop
 
         GuildFrameUiLaw.LogicalRect remove = GuildFrameUiLaw.MemberRemoveButton(logicalHeight);
         if (VanillaButton(draw, "##guild-member-remove", "Remove",
-                origin + remove.Min * scale, remove.Size, scale, mayRemove))
+                origin + remove.Min * scale, remove.Size, scale, mayRemove,
+                normalFont: GuildFrameUiLaw.SmallButtonNormalFont,
+                highlightFont: GuildFrameUiLaw.SmallButtonHighlightFont,
+                disabledFont: GuildFrameUiLaw.SmallButtonDisabledFont))
             ShowGuildMemberPopup(GuildFrameUiLaw.RemoveMemberDefinition);
+        OfferVanillaNewbieTooltip(new("guild-member-action", 1), "Remove",
+            GuildFrameUiLaw.RemoveMemberTooltip);
         GuildFrameUiLaw.LogicalRect invite = GuildFrameUiLaw.MemberInviteButton(logicalHeight);
         bool canInvite = member.Online && !string.Equals(member.Name,
             ResolveUnitName(LocalPlayerGuid), StringComparison.OrdinalIgnoreCase);
         if (VanillaButton(draw, "##guild-member-invite", "Group Invite",
-                origin + invite.Min * scale, invite.Size, scale, canInvite))
+                origin + invite.Min * scale, invite.Size, scale, canInvite,
+                normalFont: GuildFrameUiLaw.SmallButtonNormalFont,
+                highlightFont: GuildFrameUiLaw.SmallButtonHighlightFont,
+                disabledFont: GuildFrameUiLaw.SmallButtonDisabledFont))
             _net?.GroupInvite(member.Name);
+        OfferVanillaNewbieTooltip(new("guild-member-action", 2), "Group Invite",
+            FriendsFrameUiLaw.GroupInviteTooltip);
 
         if (mayPromote || mayDemote)
         {
@@ -202,7 +217,23 @@ public sealed partial class GameLoop
                 ShowGuildMemberPopup(definition);
         }
         uint color = editable ? 0xffffffff : 0xffa6a6a6;
-        DrawWrappedText(draw, value, origin + text.Min * scale, text.Width,
-            12 * scale, scale, color, 2);
+        DrawGuildFixedText(draw, origin, scale, text,
+            GuildFrameUiLaw.MemberNoteFont, value, color);
+    }
+
+    private static void DrawGuildFixedText(ImDrawListPtr draw, Vector2 origin, float scale,
+        GuildFrameUiLaw.LogicalRect box, string font, string value, uint color)
+    {
+        float pitch = GameText.LinePitch(font, scale);
+        int maximumLines = Math.Max(1, (int)MathF.Floor(box.Height * scale / pitch));
+        string[] lines = WrapTooltipText(value, font, scale, box.Width * scale)
+            .Take(maximumLines).ToArray();
+        Vector2 boxMin = origin + box.Min * scale;
+        draw.PushClipRect(boxMin, boxMin + box.Size * scale, true);
+        for (int line = 0; line < lines.Length; line++)
+            GameText.Draw(draw, font, lines[line],
+                GuildFrameUiLaw.FixedTextLineMin(origin, box, scale, line, pitch),
+                scale, color);
+        draw.PopClipRect();
     }
 }
