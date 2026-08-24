@@ -13,6 +13,10 @@ VerifyTeleportLanding(terrain, collision);
 VerifyFlightExitLanding(terrain, collision);
 VerifyInteriorJumpDoesNotSelectMountain(CreateTerrain(height: 100f));
 VerifyOverheadTerrainExpandsSupportProbe(CreateTerrain(height: 100f));
+VerifyFloorEdgeKeepsFootprintSupport();
+VerifySunkenSupportIsRecovered();
+VerifyChestHighWallBlocksTheSweep();
+VerifyRampStillWalkable();
 VerifyContinuousInteriorEntryRetainsTerrainShell(CreateTerrain(height: 100f));
 VerifyGlobalWmoFall(CreateEmptyTerrain(), collision);
 VerifyWalkableTriangleGather();
@@ -134,6 +138,132 @@ static void VerifyOverheadTerrainExpandsSupportProbe(TerrainRenderer terrain)
         $"footprint support used {controller.GroundProbesLastFrame} probes, expected expansion to 9");
     Require(controller.GroundProbeOffset.X > 0f,
         "footprint support did not come from the overlapping right probe");
+}
+
+static void VerifyFloorEdgeKeepsFootprintSupport()
+{
+    // Model the Stormwind auction house edge: an upper deck, and just past its
+    // lip a plank a few tenths lower - inside GroundSnapDistance.
+    //
+    // Walk the capsule CENTRE a hand's breadth past the lip while most of the
+    // footprint is still over the deck. The centre ray now reports the lower
+    // plank, and the old gate read "something is nearby below, one ray is
+    // enough" and suppressed the footprint fan at exactly the moment it was
+    // load-bearing. Support collapsed to a single ray, adhesion pulled the
+    // character down onto the plank, and repeating that a few frames walked it
+    // below the deck entirely and out through the floor.
+    var collision = new CollisionWorld();
+    AddFloor(collision, -10f, 0f, -10f, 10f, 10f);      // deck
+    AddFloor(collision, 0f, 10f, -10f, 10f, 9.7f);      // plank just past the lip
+    collision.Build();
+
+    CharacterController controller = CreateController(CreateTerrain(height: 5f), collision);
+    controller.Teleport(-1f, 0f, 10f);
+    controller.Update(1f / 60f, default);
+    Require(controller.Grounded && MathF.Abs(controller.Position.Z - 10f) < 0.001f,
+        $"floor-edge setup did not settle on the deck, Z={controller.Position.Z:F3}");
+
+    // Centre 0.1 past the lip; the footprint reaches 0.34, so the deck still
+    // carries the character.
+    controller.Position = new Vector3(0.1f, 0f, 10f);
+    controller.Update(1f / 60f, default);
+
+    Require(controller.GroundProbesLastFrame == 9,
+        $"floor edge used {controller.GroundProbesLastFrame} support probes, " +
+        "expected the footprint fan to expand to 9");
+    Require(controller.Grounded,
+        "floor edge lost support entirely");
+    Require(MathF.Abs(controller.Position.Z - 10f) < 0.001f,
+        $"floor edge dropped to Z={controller.Position.Z:F3}; the deck under the " +
+        "footprint should still hold the character at 10");
+    Require(controller.GroundProbeOffset.X < 0f,
+        "floor-edge support did not come from the probe still over the deck");
+}
+
+static void VerifySunkenSupportIsRecovered()
+{
+    // Whatever puts the feet below a floor - a step-up into a solid, a stair
+    // lip miss, an adhesion frame that guessed low - must not be permanent.
+    // A fixed StepHeight probe lift cannot see a surface 1.0 above the feet, so
+    // the floor the character was standing on last frame becomes invisible and
+    // it falls out of a floor that is still there.
+    var collision = new CollisionWorld();
+    AddFloor(collision, -10f, 10f, -10f, 10f, 10f);
+    collision.Build();
+
+    CharacterController controller = CreateController(CreateTerrain(height: 5f), collision);
+    controller.Teleport(0f, 0f, 10f);
+    controller.Update(1f / 60f, default);
+    Require(controller.Grounded && controller.GroundSource == "collision",
+        "sunken-support setup did not settle on the WMO floor");
+
+    // Sink 1.0 - past StepHeight - while still horizontally over the floor.
+    controller.Position = new Vector3(0f, 0f, 9f);
+    controller.Update(1f / 60f, default);
+
+    Require(controller.Grounded,
+        $"sunken character fell instead of recovering, vz={controller.Velocity.Z:F3}");
+    Require(controller.GroundSource == "collision",
+        $"sunken recovery selected {controller.GroundSource}, expected collision");
+    Require(MathF.Abs(controller.Position.Z - 10f) < 0.001f,
+        $"sunken recovery left the character at Z={controller.Position.Z:F3}, expected 10");
+}
+
+static void VerifyChestHighWallBlocksTheSweep()
+{
+    // A rim 0.9 tall at the edge of a deck, with nothing beyond it. Taller than
+    // StepHeight, so it is not climbable and must stop the character - but its
+    // top is below the mid-body height the sweep used to be a single ray at, so
+    // that ray passed clean over it and reported open air. The character walked
+    // through a face the debug view draws in wall red and fell off the far side.
+    var collision = new CollisionWorld();
+    AddFloor(collision, -10f, 0f, -10f, 10f, 10f);
+    AddWallAtX(collision, 0f, -10f, 10f, 10f, 10.9f);
+    collision.Build();
+
+    CharacterController controller = CreateController(CreateTerrain(height: 5f), collision);
+    controller.Teleport(-2f, 0f, 10f);
+    controller.Update(1f / 60f, default);
+    Require(controller.Grounded, "chest-high wall setup did not settle on the deck");
+
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    for (int i = 0; i < 120; i++) controller.Update(1f / 60f, forward);
+
+    Require(controller.Position.X < 0f,
+        $"sweep walked through the rim to X={controller.Position.X:F3}; it must stop before 0");
+    Require(controller.Grounded,
+        $"sweep left the deck entirely, Z={controller.Position.Z:F3}");
+    Require(controller.HasBlock,
+        "the rim never registered as a block, so the sweep never saw it");
+}
+
+static void VerifyRampStillWalkable()
+{
+    // The counterpart guard: the extra sample heights must not turn a walkable
+    // slope into a wall. A 30 degree ramp is inside the 50 degree limit, so the
+    // character has to climb it, not stall against it.
+    var collision = new CollisionWorld();
+    AddFloor(collision, -12f, -6f, -6f, 6f, 10f);
+    // Ramp rising from Z=10 at X=-6 to Z=12.31 at X=-2 (about 30 degrees).
+    collision.AddTriangle(new Vector3(-6f, -6f, 10f),
+        new Vector3(-2f, -6f, 12.31f), new Vector3(-2f, 6f, 12.31f));
+    collision.AddTriangle(new Vector3(-6f, -6f, 10f),
+        new Vector3(-2f, 6f, 12.31f), new Vector3(-6f, 6f, 10f));
+    AddFloor(collision, -2f, 6f, -6f, 6f, 12.31f);
+    collision.Build();
+
+    CharacterController controller = CreateController(CreateTerrain(height: 5f), collision);
+    controller.Teleport(-9f, 0f, 10f);
+    controller.Update(1f / 60f, default);
+    Require(controller.Grounded, "ramp setup did not settle on the lower floor");
+
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    for (int i = 0; i < 90; i++) controller.Update(1f / 60f, forward);
+
+    Require(controller.Position.X > -2f,
+        $"ramp stalled the sweep at X={controller.Position.X:F3}; expected to climb past -2");
+    Require(controller.Position.Z > 12.2f,
+        $"ramp climb ended at Z={controller.Position.Z:F3}, expected the upper floor at 12.31");
 }
 
 static void VerifyContinuousInteriorEntryRetainsTerrainShell(TerrainRenderer terrain)
@@ -265,6 +395,15 @@ static void AddFloor(CollisionWorld collision, float minX, float maxX,
         new Vector3(maxX, minY, height), new Vector3(maxX, maxY, height));
     collision.AddTriangle(new Vector3(minX, minY, height),
         new Vector3(maxX, maxY, height), new Vector3(minX, maxY, height));
+}
+
+static void AddWallAtX(CollisionWorld collision, float x,
+    float minY, float maxY, float minZ, float maxZ)
+{
+    collision.AddTriangle(new Vector3(x, minY, minZ),
+        new Vector3(x, maxY, minZ), new Vector3(x, maxY, maxZ));
+    collision.AddTriangle(new Vector3(x, minY, minZ),
+        new Vector3(x, maxY, maxZ), new Vector3(x, minY, maxZ));
 }
 
 static void Land(CharacterController controller)

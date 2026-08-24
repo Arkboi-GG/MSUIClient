@@ -12,7 +12,14 @@ public sealed partial class GameLoop
     private const string MovementTraceHeader =
         "frame,t,dt,posX,posY,posZ,velX,velY,velZ,horizSpeed,aimYaw,bodyYaw," +
         "inputFlags,grounded,verticalVel,fallTimeMs,clipId,clipName,clipTime," +
-        "clipB,clipBTime,blendWeight,playbackRate,lastAnimChoice,wireSentThisTick";
+        "clipB,clipBTime,blendWeight,playbackRate,lastAnimChoice,wireSentThisTick," +
+        // Ground resolution, so a trace can answer "why did it fall" on its own.
+        // Reading grounded+posZ alone cannot separate the three causes that look
+        // identical in a plot: no triangle under the feet, a triangle rejected
+        // as too steep to stand on, and support lost to a probe that never
+        // sampled the footprint. These columns name which one it was.
+        "groundSource,terrainZ,collisionZ,groundTri,groundModel,groundProbes," +
+        "groundAdhesion,noGroundBelow,inTerrainHole";
 
     private StreamWriter? _movementTraceWriter;
     private string _movementTraceName = "manual";
@@ -123,7 +130,19 @@ public sealed partial class GameLoop
                 ? weightCharacter.IncomingBlendWeight.ToString("R", CultureInfo.InvariantCulture) : "",
             (_character?.ClipRate ?? 0f).ToString("R", CultureInfo.InvariantCulture),
             Csv(lastAnim),
-            Csv(wire)));
+            Csv(wire),
+            Csv(_controller.GroundSource),
+            _controller.TerrainGroundZ is float traceTerrainZ
+                ? traceTerrainZ.ToString("R", CultureInfo.InvariantCulture) : "",
+            _controller.CollisionGroundZ is float traceCollisionZ
+                ? traceCollisionZ.ToString("R", CultureInfo.InvariantCulture) : "",
+            _controller.GroundTriangle.ToString(CultureInfo.InvariantCulture),
+            Csv(_controller.GroundTriangle >= 0 && _collision is not null
+                ? _collision.SourceOf(_controller.GroundTriangle) : ""),
+            _controller.GroundProbesLastFrame.ToString(CultureInfo.InvariantCulture),
+            _controller.GroundAdhesion.ToString().ToLowerInvariant(),
+            _controller.NoGroundBelow.ToString().ToLowerInvariant(),
+            _controller.InTerrainHole.ToString().ToLowerInvariant()));
         _movementTraceFrame++;
         _movementTraceTime += dt;
         _movementTraceWriter.Flush();

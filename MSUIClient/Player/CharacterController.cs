@@ -219,6 +219,15 @@ public sealed class CharacterController
     /// </summary>
     private const float GroundContactEpsilon = 0.05f;
 
+    /// <summary>
+    /// Z of the surface that supported the character at the END of the previous
+    /// frame, or null if it was not grounded. Read only by
+    /// <see cref="ResolveGround"/>, to guarantee that a floor you were standing
+    /// on cannot become invisible to this frame's probe - see the lift
+    /// calculation there.
+    /// </summary>
+    private float? _lastSupportZ;
+
     public bool Grounded { get; private set; }
 
     private bool _flying;
@@ -396,6 +405,7 @@ public sealed class CharacterController
         Grounded = false;
         FallTimeMs = 0;
         _warnedNoGround = false;
+        _lastSupportZ = null;
         _landingAfterDiscontinuousMove = true;
         _underTerrainShell = false;
         Transport = null;
@@ -557,6 +567,9 @@ public sealed class CharacterController
 
     private void UpdateSwimming(float dt, in MovementInput input)
     {
+        // This path never reaches ResolveGround, so the remembered floor would
+        // survive the whole swim and reappear as a probe lift on the far side.
+        _lastSupportZ = null;
         SwimPitch = Math.Clamp(input.Pitch, -1.45f, 1.45f);
         Vector3 desired = SwimmingMovementLaw.DesiredVelocity(Yaw, SwimPitch,
             input.Forward, input.Strafe, EffectiveSwimSpeed, EffectiveSwimBackSpeed);
@@ -591,6 +604,9 @@ public sealed class CharacterController
     /// </summary>
     private void UpdateFlying(float dt, in MovementInput input, Vector3 forward, Vector3 right)
     {
+        // See UpdateSwimming: flying below a remembered floor and then landing
+        // must not let that floor lift the probe origin toward head height.
+        _lastSupportZ = null;
         float speed = _opts.FlySpeed * (input.Boost ? _opts.FlyBoost : 1f);
 
         var wish = forward * input.Forward + right * input.Strafe + Vector3.UnitZ * input.Up;
@@ -653,6 +669,22 @@ public sealed class CharacterController
     /// wall plane so the character slides instead of sticking, then a step-up is
     /// attempted - which is what makes stairs and the abbey steps walkable
     /// without jumping. Two iterations handles inside corners.
+    ///
+    /// SAMPLED AT THREE HEIGHTS, NOT ONE.
+    ///
+    /// This used to cast a single ray from mid-body, "so low rubble doesn't
+    /// count as a wall". The cost of that shortcut is a band of walls the
+    /// character cannot feel at all: anything whose top sits between the step
+    /// height it may climb and the chest height the ray occupied was invisible,
+    /// so the sweep reported clear air and the character walked straight
+    /// through a face the collision debug view draws in wall red. Walk off the
+    /// far side of one and there is no floor, which presents as falling through
+    /// a building whose mesh has no hole in it.
+    ///
+    /// The lowest sample sits just above StepHeight because a wall shorter than
+    /// that is climbable by definition - blocking on it would make every stair
+    /// riser a wall. The highest sits near the top of the capsule so railings
+    /// and door frames above the chest are felt too.
     /// </summary>
     private void MoveHorizontal(ref Vector3 move)
     {
@@ -664,26 +696,45 @@ public sealed class CharacterController
             return;
         }
 
+        Span<float> sampleHeights =
+        [
+            _opts.StepHeight + GroundContactEpsilon,
+            _opts.Height * 0.5f,
+            _opts.Height * 0.9f,
+        ];
+
         for (int iter = 0; iter < 2; iter++)
         {
             float dist = move.Length();
             if (dist < 1e-5f) return;
 
             var dir = move / dist;
+            float reach = dist + _opts.Radius;
 
-            // Cast from mid-body so low rubble doesn't count as a wall.
-            var origin = Position + new Vector3(0, 0, _opts.Height * 0.5f);
-
-            var hit = RaycastGeometry(origin, dir, dist + _opts.Radius);
-
-            if (hit is null || hit.Value.Distance > dist + _opts.Radius)
+            RayHit? nearestWall = null;
+            foreach (float height in sampleHeights)
             {
-                Position += move;
-                return;
+                var origin = Position + new Vector3(0, 0, height);
+                if (RaycastGeometry(origin, dir, reach) is not { } candidate) continue;
+
+                // Only a genuinely STEEP face stops horizontal motion. A floor,
+                // a ramp, or the underside of a deck is the ground resolver's
+                // business, and the test is absolute because the raycast turns
+                // normals to face the ray - so a ceiling arrives with the same
+                // sign as a floor and neither should act as a wall.
+                //
+                // Skipping such a hit rather than returning on it is the second
+                // half of this fix. The old code took one walkable reading as
+                // proof the whole path was clear and applied the full move with
+                // no clamp, which made any ramp - or any deck seen from below -
+                // a licence to walk into solid geometry.
+                if (MathF.Abs(candidate.Normal.Z) > _minGroundZ) continue;
+
+                if (nearestWall is null || candidate.Distance < nearestWall.Value.Distance)
+                    nearestWall = candidate;
             }
 
-            // A walkable slope is not a wall - let the ground resolver take it.
-            if (hit.Value.Normal.Z > _minGroundZ)
+            if (nearestWall is not { } wall)
             {
                 Position += move;
                 return;
@@ -693,17 +744,17 @@ public sealed class CharacterController
 
             // This is the surface that actually stops the character. Record it
             // before sliding, because after the slide the information is gone.
-            LastBlockPoint = hit.Value.Point;
-            LastBlockNormal = hit.Value.Normal;
-            LastBlockTriangle = hit.Value.Triangle;
+            LastBlockPoint = wall.Point;
+            LastBlockNormal = wall.Normal;
+            LastBlockTriangle = wall.Triangle;
             LastBlockAgeSeconds = 0f;
 
-            float advance = MathF.Max(0f, hit.Value.Distance - _opts.Radius);
+            float advance = MathF.Max(0f, wall.Distance - _opts.Radius);
             if (advance > 1e-5f) Position += dir * advance;
 
             // Slide: strip the component pushing into the wall.
-            float into = Vector3.Dot(move, hit.Value.Normal);
-            move -= hit.Value.Normal * into;
+            float into = Vector3.Dot(move, wall.Normal);
+            move -= wall.Normal * into;
             move *= 0.98f;
         }
     }
@@ -762,6 +813,13 @@ public sealed class CharacterController
     /// </summary>
     private void ResolveGround(bool allowGroundAdhesion, float downwardTravel)
     {
+        // Consumed by the probe lift below, then re-established only if this
+        // frame actually ends grounded. Clearing it up front means every early
+        // return - no ground, terrain hole, terrain shell - forgets the old
+        // support rather than carrying a stale floor into the next frame.
+        float? heldSupportZ = _lastSupportZ;
+        _lastSupportZ = null;
+
         float? sampledTerrainZ = _terrain.SampleHeight(Position.X, Position.Y, out bool inHole);
 
         bool terrainIsOverhead = sampledTerrainZ is float sampledSurface &&
@@ -816,16 +874,42 @@ public sealed class CharacterController
             // radius makes a touching wall eligible as floor due to float noise.
             float probeRadius = MathF.Max(0f, _opts.Radius * 0.85f);
 
+            // Include this frame's downward travel in the probe origin. At
+            // terminal velocity a frame can cover more than StepHeight; a
+            // fixed origin would then start below a floor crossed this frame
+            // and let the character tunnel straight through it.
+            float probeLift = MathF.Max(_opts.StepHeight,
+                downwardTravel + GroundContactEpsilon);
+
+            // AND NEVER LOSE SIGHT OF THE FLOOR YOU WERE JUST STANDING ON.
+            //
+            // A fixed StepHeight lift makes any surface more than 0.7 above the
+            // feet invisible to this probe - INCLUDING the one holding you up a
+            // moment ago. Sink below it by any means (a step-up into a solid, a
+            // stair-lip miss, an adhesion frame that guessed low) and it can
+            // never support you again: the origin is under it, the ray travels
+            // away from it, and the character falls out of a floor that is
+            // still there. That is the "no gap in x-ray but I drop through
+            // every single time" bug, and it is why it was so repeatable.
+            //
+            // Raising the origin just past last frame's support closes it. This
+            // cannot invent ground - it only lets the ray see a surface the
+            // character verifiably stood on one frame earlier - and the contact
+            // branch at the end then lifts the feet back onto it. Capped at
+            // body height so it never becomes the head-height probe this
+            // method's summary warns about, and it only ever raises the lift,
+            // so the fast-fall reach above is preserved.
+            if (Grounded && heldSupportZ is float heldZ && heldZ > Position.Z)
+            {
+                float reach = MathF.Min(_opts.Height,
+                    heldZ - Position.Z + GroundContactEpsilon);
+                probeLift = MathF.Max(probeLift, reach);
+            }
+
             void ProbeCollision(Vector2 direction)
             {
                 GroundProbesLastFrame++;
                 var offset = direction * probeRadius;
-                // Include this frame's downward travel in the probe origin. At
-                // terminal velocity a frame can cover more than StepHeight; a
-                // fixed origin would then start below a floor crossed this frame
-                // and let the character tunnel straight through it.
-                float probeLift = MathF.Max(_opts.StepHeight,
-                    downwardTravel + GroundContactEpsilon);
                 var origin = Position + new Vector3(offset.X, offset.Y, probeLift);
 
                 // Reach well below the feet so a fast fall onto a bridge or a
@@ -855,24 +939,38 @@ public sealed class CharacterController
                 bestOffset = offset;
             }
 
-            // The centre answers almost every frame. Expand to the footprint
-            // only when neither terrain nor that centre ray is close enough to
-            // support the current feet; this keeps ordinary terrain walking at
-            // one BVH query while still rescuing fence and stair-edge misses.
             ProbeCollision(SupportProbeDirections[0]);
 
-            float nearbyDistance = MathF.Max(0.05f, _opts.GroundSnapDistance);
-            // "Nearby" is a distance band, not a one-sided ceiling.  With the
-            // old <= test, terrain ninety yards ABOVE the feet counted as near
-            // (a large negative delta), suppressed the footprint probes, and
-            // left a narrow WMO prop supported by only the centre ray.  The
-            // next frame could then hand grounding to that overhead terrain.
-            bool terrainNearby = groundZ is float terrainZ &&
-                                 MathF.Abs(Position.Z - terrainZ) <= nearbyDistance;
-            bool collisionNearby = bestTriangle >= 0 &&
-                                   Position.Z - bestSurfaceZ <= nearbyDistance;
+            // THE FOOTPRINT FAN MUST RUN WHENEVER THE CENTRE RAY IS AMBIGUOUS,
+            // AND "A SURFACE A FEW TENTHS BELOW" IS THE AMBIGUOUS CASE.
+            //
+            // This gate used to skip the fan whenever the centre found anything
+            // within GroundSnapDistance below the feet, to keep flat walking at
+            // one BVH query. But that is exactly the reading a floor EDGE
+            // produces: step a hair past the triangle you are standing on and
+            // the centre ray lands on the next plank, beam or stair lip a few
+            // tenths down. The fan - the one thing that would have found the
+            // surface still under your heels - was switched off at precisely
+            // the moment it was needed. Support fell to a single ray, and the
+            // adhesion branch at the end then walked the character down through
+            // the geometry a frame at a time until the real floor was out of
+            // probe reach entirely and it dropped through.
+            //
+            // So skip the fan only for the unambiguous case: a surface already
+            // AT the feet. Flat ground and resting contact still cost one ray -
+            // the snap leaves Position.Z on the surface, so the delta is a
+            // single frame of gravity - while every height transition pays for
+            // nine and gets an answer that accounts for the whole footprint.
+            //
+            // Both tests are absolute. The one-sided form counted a surface far
+            // ABOVE the feet as "near": the same defect already fixed on the
+            // terrain line and left in place on the collision line.
+            bool terrainUnderfoot = groundZ is float terrainZ &&
+                                    MathF.Abs(Position.Z - terrainZ) <= GroundContactEpsilon;
+            bool collisionUnderfoot = bestTriangle >= 0 &&
+                                      MathF.Abs(Position.Z - bestSurfaceZ) <= GroundContactEpsilon;
 
-            if (!terrainNearby && !collisionNearby)
+            if (!terrainUnderfoot && !collisionUnderfoot)
             {
                 for (int i = 1; i < SupportProbeDirections.Length; i++)
                     ProbeCollision(SupportProbeDirections[i]);
@@ -939,8 +1037,11 @@ public sealed class CharacterController
             }
 
             ProbeMoving(SupportProbeDirections[0]);
-            float nearbyDistance = MathF.Max(0.05f, _opts.GroundSnapDistance);
-            if (bestHit.OwnerGuid == 0 || Position.Z - bestSurfaceZ > nearbyDistance)
+            // Same underfoot rule as the static lane, for the same reason: a
+            // boat deck has edges too, and the one-sided test also suppressed
+            // the fan when the centre reported a surface above the feet.
+            if (bestHit.OwnerGuid == 0 ||
+                MathF.Abs(Position.Z - bestSurfaceZ) > GroundContactEpsilon)
                 for (int i = 1; i < SupportProbeDirections.Length; i++)
                     ProbeMoving(SupportProbeDirections[i]);
 
@@ -1050,6 +1151,7 @@ public sealed class CharacterController
             Position.Z = groundZ.Value;
             Velocity.Z = 0f;
             Grounded = true;
+            _lastSupportZ = groundZ.Value;
             _landingAfterDiscontinuousMove = false;
         }
         else if (allowGroundAdhesion && Velocity.Z <= 0f &&
@@ -1063,6 +1165,7 @@ public sealed class CharacterController
             Velocity.Z = 0f;
             Grounded = true;
             GroundAdhesion = true;
+            _lastSupportZ = groundZ.Value;
             _landingAfterDiscontinuousMove = false;
         }
         else
