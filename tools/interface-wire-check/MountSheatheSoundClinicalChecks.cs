@@ -27,11 +27,27 @@ internal static class MountSheatheSoundClinicalChecks
               worldSound.Contains("_knownMountSoundDisplays[unit.Guid] = mount;",
                   StringComparison.Ordinal),
             "silent first-sight/mount-up or fixed dismount trigger drift");
-        Check(sheath.Contains("PlayCeremonialSheatheSounds(pending);", StringComparison.Ordinal) &&
+        string character = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Units",
+            "CharacterRenderer.cs"));
+        string animator = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Units",
+            "M2Animator.cs"));
+        string inventory = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Inventory.cs"));
+        Check(sheath.Contains("PlayCeremonialSheatheSounds(ceremonialState);", StringComparison.Ordinal) &&
+              !sheath.Contains("TriggerOneShot(animation)", StringComparison.Ordinal) &&
               sheath.Contains("foreach (int equipmentSlot in new[] { 15, 16 })",
                   StringComparison.Ordinal) &&
               sheath.Contains("drawing ? pair.Unsheathe : pair.Sheathe",
                   StringComparison.Ordinal) &&
+              sheath.Contains("_character.BeginSheathCeremony()", StringComparison.Ordinal) &&
+              sheath.Contains("_character.ConsumeSheathSwap()", StringComparison.Ordinal) &&
+              character.Contains("89, 90, 92", StringComparison.Ordinal) &&
+              character.Contains("EvaluateWithArmOverlays", StringComparison.Ordinal) &&
+              character.Contains("$SHL", StringComparison.Ordinal) &&
+              animator.Contains("ResolveArmRoots", StringComparison.Ordinal) &&
+              animator.Contains("ApplyOverlayChannels", StringComparison.Ordinal) &&
+              inventory.Contains("existing.EquipmentSlot == piece.EquipmentSlot", StringComparison.Ordinal) &&
+              inventory.Contains("existing.Sheath == piece.Sheath", StringComparison.Ordinal) &&
               !sheath.Contains("SetVisualSheath(byte state, bool volunteer = true)\n    {\n        PlayCeremonialSheatheSounds",
                   StringComparison.Ordinal),
             "ceremony-only per-arm sheathe sound routing drift");

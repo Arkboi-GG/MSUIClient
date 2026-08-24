@@ -65,13 +65,10 @@ public sealed partial class GameLoop
         return goTemplate.ReactionToward(playerTemplate) == FactionReaction.Hostile;
     }
 
-    private bool GameObjectMouseoverEligible(WorldEntity go)
-    {
-        GameObjectInteractionFacts f = ResolveGameObjectInteractionFacts(go);
-        return WorldCursorUiLaw.MouseoverEligibleGameObject(f.Type, f.Flags, f.DynamicFlags,
-            f.HighlightColumn, f.HostileTowardPlayer, f.FishingChannelOwned,
-            f.MeetingStoneQueued);
-    }
+    // Picking and using are separate reference decisions. Every rendered GO except the transport
+    // family may own mouseover/name/highlight; interaction eligibility is applied on use.
+    private static bool GameObjectMouseoverEligible(WorldEntity go) =>
+        go.GameObjectType is not (11 or 14 or 15);
 
     private bool GameObjectHighlightable(WorldEntity go)
     {
@@ -80,13 +77,8 @@ public sealed partial class GameLoop
             f.HostileTowardPlayer, f.FishingChannelOwned, f.MeetingStoneQueued);
     }
 
-    private bool GameObjectBrightens(WorldEntity go)
-    {
-        GameObjectInteractionFacts f = ResolveGameObjectInteractionFacts(go);
-        return WorldCursorUiLaw.BrightensGameObject(f.Type, f.Flags, f.DynamicFlags,
-            f.HighlightColumn, f.HostileTowardPlayer, f.FishingChannelOwned,
-            f.MeetingStoneQueued);
-    }
+    private static bool GameObjectBrightens(WorldEntity go) =>
+        go.GameObjectType is not (11 or 14 or 15);
 
     private static string GameObjectKind(uint type) => type switch
     {

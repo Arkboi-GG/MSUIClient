@@ -327,16 +327,20 @@ public sealed partial class GameLoop
             origin + TrainerFrameUiLaw.ScrollOrigin * scale,
             TrainerFrameUiLaw.ScrollHeight, scale,
             _trainerScroll,maximum,x=>_trainerScroll=x);
-        DrawArt(dl, @"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar",
-            origin + TrainerFrameUiLaw.HorizontalBarLeft.Min * scale,
-            TrainerFrameUiLaw.HorizontalBarLeft.Size, scale);
         uint bar=_gameplayArt.Handle(@"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar");
         if (bar != 0)
+        {
+            dl.AddImage((nint)bar,
+                origin + TrainerFrameUiLaw.HorizontalBarLeft.Min * scale,
+                origin + TrainerFrameUiLaw.HorizontalBarLeft.Max * scale,
+                TrainerFrameUiLaw.HorizontalBarLeftUvMin,
+                TrainerFrameUiLaw.HorizontalBarLeftUvMax);
             dl.AddImage((nint)bar,
                 origin + TrainerFrameUiLaw.HorizontalBarRight.Min * scale,
                 origin + TrainerFrameUiLaw.HorizontalBarRight.Max * scale,
                 TrainerFrameUiLaw.HorizontalBarRightUvMin,
                 TrainerFrameUiLaw.HorizontalBarRightUvMax);
+        }
         if (_trainerFilterOpen)
             DrawTrainerFilterMenu(dl, origin, scale);
         TrainerSpell selected=_trainerSelected<0||_trainerSelected>=_trainer.Spells.Count
@@ -346,12 +350,12 @@ public sealed partial class GameLoop
             SpellInfo? info=_spellCatalog?.TryGet(selected.ServiceSpellId,out SpellInfo found)==true?found:null;
             uint icon=_gameplayArt.Handle(info?.IconPath??@"Interface\Icons\INV_Misc_QuestionMark.blp");
             Vector2 iconMin = origin + TrainerFrameUiLaw.DetailIcon.Min * scale;
-            if (icon != 0)
-                dl.AddImage((nint)icon, iconMin,
-                    iconMin + TrainerFrameUiLaw.DetailIcon.Size * scale);
             DrawArt(dl, @"Interface\Buttons\UI-EmptySlot",
                 origin + TrainerFrameUiLaw.DetailIconRing.Min * scale,
                 TrainerFrameUiLaw.DetailIconRing.Size, scale);
+            if (icon != 0)
+                dl.AddImage((nint)icon, iconMin,
+                    iconMin + TrainerFrameUiLaw.DetailIcon.Size * scale);
             (Vector2 tooltipMinimum, Vector2 tooltipMaximum) =
                 TrainerFrameUiLaw.DetailTooltipOwnerBounds(origin, scale);
             ImGui.SetCursorScreenPos(tooltipMinimum);

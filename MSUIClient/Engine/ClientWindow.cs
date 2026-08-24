@@ -70,6 +70,8 @@ public sealed class ClientWindow : IDisposable
     private IMouse? _mouse;
     private string _hardwareCursorKey = "";
     private bool _hardwareCursorRequested;
+    private string _hardwareCursorProposalKey = "";
+    private HardwareCursorImage? _hardwareCursorProposal;
 
     public GL Gl => _gl;
     public Camera Camera { get; } = new();
@@ -353,55 +355,61 @@ public sealed class ClientWindow : IDisposable
     public string CursorModeName { get; private set; } = "Normal";
 
     /// <summary>Starts one cursor-authority frame. A custom cursor must renew its claim.</summary>
-    public void BeginHardwareCursorFrame() => _hardwareCursorRequested = false;
+    public void BeginHardwareCursorFrame()
+    {
+        _hardwareCursorRequested = false;
+        _hardwareCursorProposalKey = "";
+        _hardwareCursorProposal = null;
+    }
 
     /// <summary>
-    /// Installs a real OS cursor. Silk owns the platform handle; MSUI retains the RGBA memory in
-    /// its cursor cache and only changes the native image when the classified stem changes.
+    /// Proposes a real OS cursor for this frame. Several surfaces may refine the cursor while the
+    /// HUD is drawn; only the final proposal is installed by <see cref="EndHardwareCursorFrame"/>.
+    /// This avoids changing Point -> Loot -> Point inside every frame, which Windows exposes as a
+    /// rapidly flickering cursor even though the final classification is stable.
     /// </summary>
     public bool UseHardwareCursor(string key, in HardwareCursorImage image)
     {
         if (_mouse is null || _mouseCaptured || string.IsNullOrWhiteSpace(key)) return false;
+        if (image.Width <= 0 || image.Height <= 0 || image.Rgba.Length == 0) return false;
         _hardwareCursorRequested = true;
+        _hardwareCursorProposalKey = key;
+        _hardwareCursorProposal = image;
+        return true;
+    }
+
+    /// <summary>Commits the final proposal, or releases stale authority when none was made.</summary>
+    public void EndHardwareCursorFrame()
+    {
+        if (_mouse is null) return;
         try
         {
             ICursor cursor = _mouse.Cursor;
-            cursor.CursorMode = CursorMode.Normal;
-            if (_hardwareCursorKey.Equals(key, StringComparison.OrdinalIgnoreCase) &&
-                cursor.Type == CursorType.Custom)
-                return true;
-
-            cursor.Image = new RawImage(image.Width, image.Height, image.Rgba);
-            cursor.HotspotX = 0;
-            cursor.HotspotY = 0;
-            cursor.Type = CursorType.Custom;
-            _hardwareCursorKey = key;
-            CursorModeName = $"Custom:{key}";
-            return true;
+            if (_hardwareCursorRequested && _hardwareCursorProposal is { } image)
+            {
+                cursor.CursorMode = CursorMode.Normal;
+                if (!_hardwareCursorKey.Equals(_hardwareCursorProposalKey,
+                        StringComparison.OrdinalIgnoreCase) || cursor.Type != CursorType.Custom)
+                {
+                    cursor.Image = new RawImage(image.Width, image.Height, image.Rgba);
+                    cursor.HotspotX = 0;
+                    cursor.HotspotY = 0;
+                    cursor.Type = CursorType.Custom;
+                    _hardwareCursorKey = _hardwareCursorProposalKey;
+                    CursorModeName = $"Custom:{_hardwareCursorProposalKey}";
+                }
+                return;
+            }
+            if (_hardwareCursorKey.Length == 0) return;
+            cursor.Type = CursorType.Standard;
+            cursor.StandardCursor = StandardCursor.Default;
+            _hardwareCursorKey = "";
+            CursorModeName = cursor.CursorMode.ToString();
         }
         catch (Exception ex)
         {
-            _hardwareCursorRequested = false;
             _hardwareCursorKey = "";
-            Console.WriteLine($"[input] hardware cursor {key} failed: {ex.Message}");
-            return false;
-        }
-    }
-
-    /// <summary>Releases stale custom authority when no surface requested one this frame.</summary>
-    public void EndHardwareCursorFrame()
-    {
-        if (_hardwareCursorRequested || _mouse is null || _hardwareCursorKey.Length == 0) return;
-        try
-        {
-            _mouse.Cursor.Type = CursorType.Standard;
-            _mouse.Cursor.StandardCursor = StandardCursor.Default;
-            _hardwareCursorKey = "";
-            CursorModeName = _mouse.Cursor.CursorMode.ToString();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[input] standard cursor restore failed: {ex.Message}");
+            Console.WriteLine($"[input] hardware cursor commit failed: {ex.Message}");
         }
     }
 

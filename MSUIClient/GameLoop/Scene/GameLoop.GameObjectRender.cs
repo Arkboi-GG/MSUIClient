@@ -419,12 +419,18 @@ public sealed partial class GameLoop
 
         if (!GameObjectMouseoverEligible(go)) return 0;
 
-        // Same occlusion rule as PickUnit: static world geometry strictly nearer
-        // than the hit blocks it. A GO's own collision hull can never block its
-        // own pick - the ray always enters the AABB before reaching the hull.
+        // A genuinely nearer wall still occludes the GameObject. Flush-mounted signs and
+        // mailboxes are a special geometric case: Stormwind's server prop intersects or sits
+        // immediately against the static city WMO, so that supporting surface may be reported a
+        // few centimetres before the prop's authored AABB. Do not let the host wall veto its own
+        // sign, but retain normal through-wall rejection for every unrelated surface.
         if (_collision?.Raycast(origin, direction, hit) is { } worldHit &&
             worldHit.Distance < hit - 0.01f)
-            return 0;
+        {
+            bool supportingSurface = _doodads?.IsWorldPointNearDynamicPickBounds(
+                    guid, worldHit.Point, 0.35f) == true;
+            if (!supportingSurface) return 0;
+        }
 
         distance = hit;
         return guid;

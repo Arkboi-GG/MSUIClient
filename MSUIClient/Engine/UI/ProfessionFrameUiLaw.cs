@@ -68,7 +68,10 @@ public static class ProfessionFrameUiLaw
     public static readonly Vector2 CraftRecipeNameOffset = new(4, 0);
     public static readonly Vector2 TradeSkillRecipeNameOffset = new(22, 0);
     public static readonly Vector2 CraftSubTextOffset = new(190, 1);
-    public static readonly Vector2 HorizontalBarSize = new(331, 16);
+    public static readonly Vector2 HorizontalBarLeftUvMin = Vector2.Zero;
+    public static readonly Vector2 HorizontalBarLeftUvMax = new(1, .25f);
+    public static readonly Vector2 HorizontalBarRightUvMin = new(0, .25f);
+    public static readonly Vector2 HorizontalBarRightUvMax = new(.29296875f, .5f);
     public static readonly Vector2 ReagentIconSize = new(28);
     public static readonly Vector2 ReagentIconOffset = new(0, 2);
     public static readonly Vector2 ReagentNameOffset = new(32, 2);
@@ -120,7 +123,8 @@ public static class ProfessionFrameUiLaw
     public static readonly DropdownCapsuleUiLaw.Layout SubClassDropDown =
         DropdownCapsuleUiLaw.LeftOf(InvSlotDropDown, 35, 120);
     public static readonly Vector2 TitleCenter = new(192, 17);
-    public static readonly Vector2 HorizontalBar = new(15, 221);
+    public static readonly LogicalRect HorizontalBarLeft = new(15, 221, 256, 16);
+    public static readonly LogicalRect HorizontalBarRight = new(271, 221, 75, 16);
     public static readonly Vector2 ProductName = new(70, 239);
     public static readonly Vector2 CraftRequirements = new(70, 253);
     public static readonly Vector2 TradeSkillRequirementLabel = new(70, 253);

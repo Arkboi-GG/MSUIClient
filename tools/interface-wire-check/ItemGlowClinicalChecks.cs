@@ -122,6 +122,8 @@ internal static class ItemGlowClinicalChecks
             "AttachedItemRenderer.cs"));
         string effects = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Units",
             "SpellEffectSource.cs"));
+        string effectMeshes = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Units",
+            "SpellEffectMeshRenderer.cs"));
         string program = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.cs"));
         string creature = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Units",
             "CreatureRenderer.cs"));
@@ -152,18 +154,27 @@ internal static class ItemGlowClinicalChecks
               attached.Contains("uUnlit", StringComparison.Ordinal) &&
               attached.Contains("uFogPolicy", StringComparison.Ordinal) &&
               attached.Contains("!m2.IsBatchConstantInvisible", StringComparison.Ordinal) &&
+              attached.Contains("var visibleBatches = m2.Batches", StringComparison.Ordinal) &&
+              attached.Contains("textureRef.Filename.Length > 0", StringComparison.Ordinal) &&
+              attached.Contains("m2.UsesEnvironmentMapForBatch(batch)", StringComparison.Ordinal) &&
+              !attached.Contains("suppressedEffectPasses", StringComparison.Ordinal) &&
               attached.Contains("model.Batches.Count == 0 && m2.Batches.Count == 0",
                   StringComparison.Ordinal) &&
               attachedVertex.Contains("layout (location = 3) in vec4 aBoneWeights",
                   StringComparison.Ordinal) &&
               attachedVertex.Contains("uniform int uBoneCount", StringComparison.Ordinal) &&
-              attachedVertex.Contains("vUV = aUV + uUvOffset", StringComparison.Ordinal) &&
+              attachedVertex.Contains("uniform int uEnvironmentMap", StringComparison.Ordinal) &&
+              attachedVertex.Contains("reflect(normalize(viewPosition), viewNormal)", StringComparison.Ordinal) &&
+              attachedVertex.Contains("vUV = mappedUV + uUvOffset", StringComparison.Ordinal) &&
               characterFragment.Contains("if (uUnlit == 0)", StringComparison.Ordinal) &&
               characterFragment.Contains("uFogPolicy == 4 ? 0.0", StringComparison.Ordinal) &&
               effects.Contains("SyncItemGlows", StringComparison.Ordinal) &&
               effects.Contains("item-glow:{asset.Path}#{glow.Id}", StringComparison.Ordinal) &&
               effects.Contains("!glow.RenderMesh || !asset.Model.IsValid",
                   StringComparison.Ordinal) &&
+              effectMeshes.Contains("GetTextureTransformForBatch(source)",
+                  StringComparison.Ordinal) &&
+              effectMeshes.Contains("vUV + uUvOffset", StringComparison.Ordinal) &&
               program.Contains("_spellEffects.SyncItemGlows", StringComparison.Ordinal) &&
               creature.Contains("PlayerVisibleItemEnchant", StringComparison.Ordinal),
             "item/enchant glow attachment or shared effect-pipeline wiring drift");
@@ -229,6 +240,15 @@ internal static class ItemGlowClinicalChecks
             "actual equipped torch no longer anchors the item-authored emitter lane");
         Check(AttachedItemBillboardLaw.UsesCameraFacingPalette(torch),
             "actual equipped torch no longer exercises the camera-facing item batch lane");
+
+        byte[] guardSwordBytes = mpq.ReadFile(
+            @"Item\ObjectComponents\Weapon\Sword_1H_Long_A_02.m2") ??
+            throw new InvalidDataException("actual Stormwind guard sword unavailable");
+        M2Model guardSword = M2Reader.Parse(guardSwordBytes) ??
+            throw new InvalidDataException("actual Stormwind guard sword did not parse");
+        Check(guardSword.TextureUnitLookup.SequenceEqual(new short[] { 0, -1 }) &&
+              guardSword.Batches.Any(guardSword.UsesEnvironmentMapForBatch),
+            "actual Stormwind guard sword environment-map lookup/pass drift");
     }
 
     private static void Check(bool condition, string message)

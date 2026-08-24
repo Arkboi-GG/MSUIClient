@@ -101,6 +101,12 @@ internal static class TrainerFrameClinicalChecks
         string root = ClientConfig.FindRepoRoot();
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Trainer.cs"));
+        int detailRingDraw = runtime.IndexOf("TrainerFrameUiLaw.DetailIconRing.Min",
+            StringComparison.Ordinal);
+        int detailIconDraw = runtime.IndexOf("iconMin + TrainerFrameUiLaw.DetailIcon.Size",
+            StringComparison.Ordinal);
+        Check(detailRingDraw >= 0 && detailIconDraw > detailRingDraw,
+            "trainer detail slot surround must draw behind the spell icon");
         Check(runtime.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[4], scale)",
                   StringComparison.Ordinal) &&
               runtime.Contains("DrawUnitPortraitImage", StringComparison.Ordinal) &&

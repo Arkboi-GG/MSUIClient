@@ -14,6 +14,11 @@ internal static class ChatClinicalChecks
               ChatFrameLaw.EditBoxRect ==
                   new ChatFrameLaw.LogicalRect(-5, 122, 440, 32),
             "ChatFrame bottom anchor, background, or edit-box geometry drift");
+        Check(ChatFrameLaw.ClampFrameOrigin(new Vector2(-100, -100), new Vector2(1024, 768)) ==
+                  new Vector2(32, 45) &&
+              ChatFrameLaw.ClampFrameOrigin(new Vector2(2000, 2000), new Vector2(1024, 768)) ==
+                  new Vector2(592, 611),
+            "ChatFrame movable origin no longer stays reachable");
         Check(ChatFrameLaw.MenuButtonRect ==
                   new ChatFrameLaw.LogicalRect(-32, -2, 32, 32) &&
               ChatFrameLaw.ScrollUpButtonRect ==
@@ -171,6 +176,8 @@ internal static class ChatClinicalChecks
               chatSource.Contains("ChatFrameLaw.BorderRect(slice)", StringComparison.Ordinal) &&
               chatSource.Contains("ChatFrameLaw.TabGeometry", StringComparison.Ordinal) &&
               chatSource.Contains("ChatFrameLaw.EditGeometry", StringComparison.Ordinal) &&
+              chatSource.Contains("DrawChatMover(ref root", StringComparison.Ordinal) &&
+              chatSource.Contains("Settings.HudLayout.ChatOffset", StringComparison.Ordinal) &&
               chatSource.Contains("ChatMenuUiLaw.CardScaledSize", StringComparison.Ordinal) &&
               !chatSource.Contains("new Vector2(", StringComparison.Ordinal) &&
               !chatSource.Contains("logicalDisplay.Y - (95f", StringComparison.Ordinal) &&

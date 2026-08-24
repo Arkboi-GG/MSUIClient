@@ -76,10 +76,14 @@ public static class TrainerFrameUiLaw
     public static readonly Vector2 ScrollOrigin = new(310, 91);
     public static readonly LogicalRect HorizontalBarLeft = new(15, 275, 256, 16);
     public static readonly LogicalRect HorizontalBarRight = new(271, 275, 75, 16);
+    public static readonly Vector2 HorizontalBarLeftUvMin = Vector2.Zero;
+    public static readonly Vector2 HorizontalBarLeftUvMax = new(1, .25f);
     public static readonly Vector2 HorizontalBarRightUvMin = new(0, .25f);
     public static readonly Vector2 HorizontalBarRightUvMax = new(.29296875f, .5f);
-    public static readonly LogicalRect DetailIcon = new(27, 294, 37, 37);
-    public static readonly LogicalRect DetailIconRing = new(14, 307, 64, 64);
+    // ClassTrainerSkillIcon is 37x37 at (26,291). UI-EmptySlot is its 64x64
+    // BACKGROUND child at (-13,+13) in WoW coordinates, i.e. (13,278) here.
+    public static readonly LogicalRect DetailIcon = new(26, 291, 37, 37);
+    public static readonly LogicalRect DetailIconRing = new(13, 278, 64, 64);
     public static readonly LogicalRect DetailNameBox = new(68, 293, 244, 24);
     public static readonly LogicalRect DetailRequirementBox = new(68, 309, 244, 20);
     public static readonly LogicalRect DetailDescriptionBox = new(30, 360, 290, 30);

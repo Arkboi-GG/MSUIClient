@@ -73,6 +73,7 @@ public sealed class AttachedItemRenderer : IDisposable
         public bool NoZTest;
         public bool Unlit;
         public int FogPolicy;
+        public bool EnvironmentMapped;
         public M2Batch? Source;
         public bool Transparent => BlendMode >= 2 || NoZWrite;
     }
@@ -148,6 +149,7 @@ public sealed class AttachedItemRenderer : IDisposable
     private readonly List<ItemGlowPlacement> _glowPlacements = [];
     private readonly List<CarriedLightPlacement> _carriedLights = [];
     private readonly List<FishingPoleTipPlacement> _fishingPoleTips = [];
+    private readonly HashSet<string> _reportedHeldPlacements = new(StringComparer.Ordinal);
     private readonly Matrix4x4[] _itemSkin = new Matrix4x4[M2Animator.MaxBones];
     private readonly float[] _packedItemSkin = new float[M2Animator.MaxBones * 12];
 
@@ -363,7 +365,12 @@ public sealed class AttachedItemRenderer : IDisposable
             DisplayId = displayId, EquipmentSlot = equipmentSlot, ItemVisualId = itemVisualId,
             Enchants = enchants?.ToArray() ?? [],
         });
-        Console.WriteLine($"[attach] {label}: {model.Path} on attachment {attachmentId}");
+        int stowedAttachment = heldSlot >= 0
+            ? ResolveAttachment(mounts[^1], sheathState: 0)
+            : attachmentId;
+        Console.WriteLine($"[attach] {label}: {model.Path} on attachment {attachmentId}; " +
+                          $"heldSlot={heldSlot};inventoryType={inventoryType};" +
+                          $"itemSheath={itemSheath};stowedAttachment={stowedAttachment}");
     }
 
     // ── loading ──────────────────────────────────────────────────────────────
@@ -495,28 +502,16 @@ public sealed class AttachedItemRenderer : IDisposable
         // no filename - the name comes from ItemDisplayInfo instead.
         var texture = ResolveTexture(textureName, folder);
 
-        // Item models commonly put an opaque base and a specular/environment
-        // effect pass over the exact same submesh. This renderer does not yet
-        // implement those M2 effect shaders; drawing every pass as ordinary
-        // opaque textured geometry makes the identical triangles z-fight.
-        // Keep one base pass per submesh, preferring the authored opaque pass.
-        var baseBatches = m2.Batches
+        // Preserve every authored visible pass. Weapon models commonly overlay an additive
+        // specular/environment layer on the same submesh as the opaque base. Depth writes are
+        // disabled for that blended layer in the draw path, so the passes do not z-fight.
+        var visibleBatches = m2.Batches
             .Select((batch, index) => (batch, index))
             .Where(x => !m2.IsBatchConstantInvisible(x.batch))
-            .GroupBy(x => x.batch.SubmeshIndex)
-            .Select(group => group
-                .OrderBy(x => x.batch.MaterialIndex < m2.RenderFlags.Count &&
-                              m2.RenderFlags[x.batch.MaterialIndex].BlendingMode == 0 ? 0 : 1)
-                .ThenBy(x => x.index)
-                .First())
             .OrderBy(x => x.index)
             .ToList();
 
-        int suppressedEffectPasses = m2.Batches.Count - baseBatches.Count;
-        if (suppressedEffectPasses > 0)
-            Console.WriteLine($"[attach] suppressed {suppressedEffectPasses} overlapping effect pass(es)");
-
-        foreach (var entry in baseBatches)
+        foreach (var entry in visibleBatches)
         {
             var batch = entry.batch;
             if (batch.SubmeshIndex >= m2.Submeshes.Count) continue;
@@ -524,13 +519,25 @@ public sealed class AttachedItemRenderer : IDisposable
             if (submesh.IndexCount == 0) continue;
             if (submesh.IndexStart + submesh.IndexCount > indices.Length) continue;
 
-            Texture? slot = texture;
-            if (slot is null && batch.TextureIndex < m2.TextureLookup.Count)
+            // ItemDisplayInfo's texture is a replacement only for the M2's empty type-2
+            // slot. Explicit M2 textures (ArmorReflect, Zap, runes, and similar overlays)
+            // must remain attached to their own authored batches.
+            Texture? slot = null;
+            bool hasTextureReference = false;
+            if (batch.TextureIndex < m2.TextureLookup.Count)
             {
                 int texIdx = m2.TextureLookup[batch.TextureIndex];
-                if (texIdx >= 0 && texIdx < m2.Textures.Count && m2.Textures[texIdx].Filename.Length > 0)
-                    slot = ResolveTexturePath(m2.Textures[texIdx].Filename);
+                if (texIdx >= 0 && texIdx < m2.Textures.Count)
+                {
+                    hasTextureReference = true;
+                    M2TextureRef textureRef = m2.Textures[texIdx];
+                    if (textureRef.Filename.Length > 0)
+                        slot = ResolveTexturePath(textureRef.Filename);
+                    else if (textureRef.Type == 2)
+                        slot = texture;
+                }
             }
+            if (!hasTextureReference) slot = texture;
 
             var renderFlags = batch.MaterialIndex < m2.RenderFlags.Count
                 ? m2.RenderFlags[batch.MaterialIndex]
@@ -548,10 +555,10 @@ public sealed class AttachedItemRenderer : IDisposable
                 Unlit = renderFlags?.Unlit ?? false,
                 FogPolicy = AttachedItemMaterialLaw.FogPolicy(
                     renderFlags?.BlendingMode ?? 0, renderFlags?.Unfogged ?? false),
+                EnvironmentMapped = m2.UsesEnvironmentMapForBatch(batch),
                 Source = batch,
             });
         }
-
         // Only a truly batch-less file needs the raw-geometry fallback. A model whose authored
         // batches all combine to alpha zero is intentionally meshless (often an emitter helper);
         // re-adding its whole index buffer here would undo the visibility law above.
@@ -633,6 +640,7 @@ public sealed class AttachedItemRenderer : IDisposable
 
         shader.Use();
         shader.Set("uCameraPos", Vector3.Zero);
+        shader.Set("uView", camera.RelativeView);
         shader.Set("uSunDirection", SunDirection);
         shader.Set("uSunColor", SunColor);
         shader.Set("uSunIntensity", SunIntensity);
@@ -663,12 +671,19 @@ public sealed class AttachedItemRenderer : IDisposable
             int attachmentId = ResolveAttachment(mount, sheathState);
             if (attachmentId < 0) continue;
             M2Attachment? attachment = FindAttachment(character, attachmentId);
-            if (attachment is null) continue;
+            if (attachment is null)
+            {
+                ReportHeldPlacement(character, mount, sheathState, attachmentId, null,
+                    skin.Length, null);
+                continue;
+            }
             int bone = (int)attachment.BoneIndex;
             Matrix4x4 boneMatrix = bone >= 0 && bone < skin.Length
                 ? skin[bone] : Matrix4x4.Identity;
             Matrix4x4 itemRoot = Matrix4x4.CreateTranslation(attachment.Position) *
                                  boneMatrix * worldInstance;
+            ReportHeldPlacement(character, mount, sheathState, attachmentId, attachment,
+                skin.Length, itemRoot);
             AppendCarriedLights(mount, itemRoot);
             AppendItemModelEffects(mount, itemRoot);
             if (mount.HeldSlot >= 0) AppendGlowPlacements(mount, itemRoot);
@@ -758,6 +773,7 @@ public sealed class AttachedItemRenderer : IDisposable
                     shader.Set("uBodyTint", BodyTint * material.Tint);
                     shader.Set("uBodyAlpha", bodyAlpha * material.Alpha);
                     shader.Set("uUvOffset", material.UvOffset);
+                    shader.Set("uEnvironmentMap", batch.EnvironmentMapped ? 1 : 0);
                     shader.Set("uUnlit", batch.Unlit ? 1 : 0);
                     shader.Set("uFogPolicy", batch.FogPolicy);
 
@@ -890,11 +906,38 @@ public sealed class AttachedItemRenderer : IDisposable
         return null;
     }
 
-    /// <summary>Print what the character model actually offers, so a missing mount is readable.</summary>
+    private void ReportHeldPlacement(M2Model character, Mount mount, byte sheathState,
+        int attachmentId, M2Attachment? attachment, int skinCount, Matrix4x4? itemRoot)
+    {
+        if (mount.HeldSlot < 0) return;
+        string key = $"{mount.EquipmentSlot}:{mount.DisplayId}:{sheathState}:{attachmentId}";
+        if (!_reportedHeldPlacements.Add(key)) return;
+        if (attachment is null)
+        {
+            string offered = string.Join(',', character.Attachments.Select(point => point.Id));
+            Console.WriteLine($"[attach-place] {mount.Label}: state={sheathState};" +
+                $"resolved={attachmentId};MISSING;offered={offered}");
+            return;
+        }
+
+        int bone = (int)attachment.BoneIndex;
+        string root = itemRoot is Matrix4x4 matrix
+            ? $"({matrix.M41:R},{matrix.M42:R},{matrix.M43:R})"
+            : "pending";
+        Console.WriteLine($"[attach-place] {mount.Label}: state={sheathState};" +
+            $"resolved={attachmentId};bone={bone};boneValid={bone >= 0 && bone < skinCount};" +
+            $"position=({attachment.Position.X:R},{attachment.Position.Y:R}," +
+            $"{attachment.Position.Z:R});worldRoot={root};vertices={mount.Model.Source.Vertices.Count};" +
+            $"batches={mount.Model.Batches.Count};visible={mount.Visible}");
+    }
+
+    /// <summary>Print what the character model actually offers, without truncating later IDs.</summary>
     public static void ReportAttachments(M2Model model)
     {
-        var ids = model.Attachments.Select(a => $"{a.Id}(bone {a.BoneIndex})");
-        Console.WriteLine($"[attach] character offers {model.Attachments.Count} point(s): {string.Join(" ", ids)}");
+        Console.WriteLine($"[attach] character offers {model.Attachments.Count} point(s)");
+        foreach (M2Attachment[] chunk in model.Attachments.Chunk(10))
+            Console.WriteLine("[attach] points: " + string.Join(" ",
+                chunk.Select(a => $"{a.Id}(bone {a.BoneIndex})")));
     }
 
     public void Dispose()

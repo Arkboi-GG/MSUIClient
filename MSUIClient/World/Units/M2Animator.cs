@@ -152,12 +152,15 @@ public sealed class M2Animator
     private readonly int[] _order;
 
     private readonly Matrix4x4[] _global;
+    private int _rightArmRoot = -1;
+    private int _leftArmRoot = -1;
 
     private readonly Dictionary<int, Clip> _clips = [];
     private readonly Dictionary<int, Clip> _sequenceClips = [];
 
     public IReadOnlyDictionary<int, Clip> Clips => _clips;
     public int BoneCount => _boneCount;
+    public bool HasArmOverlayRoots => _rightArmRoot >= 0 && _leftArmRoot >= 0;
 
     /// <summary>
     /// Base pose for the sparse ShuffleLeft/ShuffleRight clips. Those clips only key the
@@ -275,6 +278,7 @@ public sealed class M2Animator
         }
 
         _order = BuildEvaluationOrder(_parent);
+        ResolveArmRoots(m2);
     }
 
     /// <summary>
@@ -423,6 +427,29 @@ public sealed class M2Animator
             node = _parent[node];
         }
         return false;
+    }
+
+    private void ResolveArmRoots(M2Model m2)
+    {
+        int ShoulderAncestor(uint handAttachmentId)
+        {
+            M2Attachment? attachment = m2.Attachments.FirstOrDefault(a => a.Id == handAttachmentId);
+            int bone = attachment is null ? -1 : (int)attachment.BoneIndex;
+            int guard = 0;
+            while (bone >= 0 && bone < _boneCount && guard++ < _boneCount)
+            {
+                if (m2.Bones[bone].KeyBoneId is 2 or 3) return bone;
+                bone = _parent[bone];
+            }
+            return -1;
+        }
+
+        _rightArmRoot = ShoulderAncestor(1);
+        _leftArmRoot = ShoulderAncestor(2);
+        if (HasArmOverlayRoots)
+            Console.WriteLine($"[anim] sheath arm masks: right root {_rightArmRoot}, left root {_leftArmRoot}");
+        else
+            Console.WriteLine("[anim] no complete hand-to-shoulder arm masks; sheath ceremony will snap");
     }
 
     /// <summary>How many bones hang below this one, itself included.</summary>
@@ -701,6 +728,19 @@ public sealed class M2Animator
     public void Evaluate(Clip? clip, float timeSeconds,
                          Clip? previous, float previousTimeSeconds, float previousWeight,
                          float globalTimeSeconds, Matrix4x4[] skin)
+        => EvaluateWithArmOverlays(clip, timeSeconds, previous, previousTimeSeconds,
+            previousWeight, null, 0f, null, 0f, globalTimeSeconds, skin);
+
+    /// <summary>
+    /// Evaluate the live base pose and replace only keyed channels inside the requested arm
+    /// subtrees. This is the vanilla per-slot sheath composition: gait and jump legs continue
+    /// while each occupied hand performs its own draw/stow one-shot.
+    /// </summary>
+    public void EvaluateWithArmOverlays(Clip? clip, float timeSeconds,
+                         Clip? previous, float previousTimeSeconds, float previousWeight,
+                         Clip? rightOverlay, float rightOverlayTime,
+                         Clip? leftOverlay, float leftOverlayTime,
+                         float globalTimeSeconds, Matrix4x4[] skin)
     {
         if (skin.Length < _boneCount)
             throw new ArgumentException($"skin array holds {skin.Length}, need {_boneCount}", nameof(skin));
@@ -711,6 +751,8 @@ public sealed class M2Animator
         Clip? previousBasePose = IsSparseTurn(previous) ? TurnBasePose : null;
         float basePoseTime = ClipTime(basePose, globalTimeSeconds);
         float previousBasePoseTime = ClipTime(previousBasePose, globalTimeSeconds);
+        float rightTime = ClipTime(rightOverlay, rightOverlayTime);
+        float leftTime = ClipTime(leftOverlay, leftOverlayTime);
 
         float weight = previous is null ? 0f : Math.Clamp(previousWeight, 0f, 1f);
         if (float.IsNaN(weight)) weight = 0f;
@@ -749,6 +791,13 @@ public sealed class M2Animator
                 rotation = Quaternion.Slerp(rotation, outRotation, weight);
                 scale = Vector3.Lerp(scale, outScale, weight);
             }
+
+            if (rightOverlay is not null && _rightArmRoot >= 0 && IsDescendant(i, _rightArmRoot))
+                ApplyOverlayChannels(rightOverlay, rightTime, i,
+                    ref translation, ref rotation, ref scale);
+            if (leftOverlay is not null && _leftArmRoot >= 0 && IsDescendant(i, _leftArmRoot))
+                ApplyOverlayChannels(leftOverlay, leftTime, i,
+                    ref translation, ref rotation, ref scale);
 
             if (sampleGlobals)
             {
@@ -835,6 +884,19 @@ public sealed class M2Animator
 
         if (c.ScaleTimes.Length > 0)
             scale = SampleVector3(c.ScaleTimes, c.ScaleKeys, t);
+    }
+
+    private void ApplyOverlayChannels(Clip overlay, float time, int bone,
+        ref Vector3 translation, ref Quaternion rotation, ref Vector3 scale)
+    {
+        BoneChannels channels = overlay.Bones[bone];
+        if (channels.TranslationTimes.Length > 0)
+            translation = _restTranslation[bone] +
+                SampleVector3(channels.TranslationTimes, channels.TranslationKeys, time);
+        if (channels.RotationTimes.Length > 0)
+            rotation = SampleQuaternion(channels.RotationTimes, channels.RotationKeys, time);
+        if (channels.ScaleTimes.Length > 0)
+            scale = SampleVector3(channels.ScaleTimes, channels.ScaleKeys, time);
     }
 
     /// <summary>

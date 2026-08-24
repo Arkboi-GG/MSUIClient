@@ -261,8 +261,12 @@ public sealed partial class GameLoop
         foreach (var resolvedItem in resolved)
         {
             ItemTemplate item = resolvedItem.Item;
+            int heldSlot = resolvedItem.Slot switch { 15 => 0, 16 => 1, 17 => 2, _ => -1 };
+            byte querySheath = (byte)item.Sheath;
+            byte liveSheath = heldSlot >= 0 ? player.Fields.VirtualItemSheath(heldSlot) : (byte)0;
+            byte sheath = liveSheath != 0 ? liveSheath : querySheath;
             equipment.Add(item.Name, item.DisplayInfoId, (int)item.InventoryType, resolvedItem.Slot,
-                (byte)item.Class, (byte)item.Subclass, (byte)item.Material, (byte)item.Sheath,
+                (byte)item.Class, (byte)item.Subclass, (byte)item.Material, sheath,
                 player.Fields.PlayerInventorySlot(resolvedItem.Slot) is ulong itemGuid &&
                 _entities.TryGet(itemGuid, out WorldEntity instance)
                     ? Enumerable.Range(0, 7)
@@ -295,6 +299,11 @@ public sealed partial class GameLoop
             bool found = current.Pieces.Any(existing =>
                 existing.DisplayId == piece.DisplayId &&
                 existing.InventoryType == piece.InventoryType &&
+                existing.EquipmentSlot == piece.EquipmentSlot &&
+                existing.ItemClass == piece.ItemClass &&
+                existing.ItemSubclass == piece.ItemSubclass &&
+                existing.Material == piece.Material &&
+                existing.Sheath == piece.Sheath &&
                 existing.Enchants.SequenceEqual(piece.Enchants));
             if (!found) return false;
         }
@@ -2073,16 +2082,22 @@ public sealed partial class GameLoop
     private bool TryUseHardwareCursor(string stem)
     {
         if (_gameplayArt is null || string.IsNullOrWhiteSpace(stem)) return false;
-        if (!_hardwareCursorImages.TryGetValue(stem, out HardwareCursorImage? image))
+        float scale = Math.Clamp(GameplayUiScale() * Settings.Display.CursorScale, .5f, 4f);
+        int cursorPixels = Math.Clamp((int)MathF.Round(32f * scale), 16, 128);
+        string cacheKey = $"{stem}@{cursorPixels}";
+        if (!_hardwareCursorImages.TryGetValue(cacheKey, out HardwareCursorImage? image))
         {
             GameplayArt.PreparedTexture? prepared =
                 _gameplayArt.Prepare($@"Interface\Cursor\{stem}");
             image = prepared is { } pixels
-                ? HardwareCursorLaw.FromBgra(pixels.Pixels, pixels.Width, pixels.Height)
+                ? HardwareCursorLaw.ResizeNearest(
+                    HardwareCursorLaw.FromBgra(pixels.Pixels, pixels.Width, pixels.Height),
+                    Math.Max(1, (int)MathF.Round(pixels.Width * scale)),
+                    Math.Max(1, (int)MathF.Round(pixels.Height * scale)))
                 : null;
-            _hardwareCursorImages[stem] = image;
+            _hardwareCursorImages[cacheKey] = image;
         }
-        if (image is not { } resolved || !_window.UseHardwareCursor(stem, resolved)) return false;
+        if (image is not { } resolved || !_window.UseHardwareCursor(cacheKey, resolved)) return false;
         ImGui.GetIO().ConfigFlags |= ImGuiConfigFlags.NoMouseCursorChange;
         return true;
     }
@@ -2095,7 +2110,8 @@ public sealed partial class GameLoop
         if (cursor == 0) return;
         ImGui.SetMouseCursor(ImGuiMouseCursor.None);
         Vector2 min = ImGui.GetIO().MousePos;
-        ImGui.GetForegroundDrawList().AddImage((nint)cursor, min, min + new Vector2(32f));
+        float size = 32f * Math.Clamp(GameplayUiScale() * Settings.Display.CursorScale, .5f, 4f);
+        ImGui.GetForegroundDrawList().AddImage((nint)cursor, min, min + new Vector2(size));
     }
 
     private ulong ResolveSlotGuid(WorldEntity owner, int container, int slot) => container switch

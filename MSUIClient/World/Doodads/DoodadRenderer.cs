@@ -240,6 +240,10 @@ public sealed class DoodadRenderer : IDisposable
         public float LastAnimSampleTime = float.NegativeInfinity;
         public ulong LastAnimSampleDynamicGuid;
 
+        /// <summary>Bind-pose render positions and indices retained for exact dynamic-GO mouse picking.</summary>
+        public Vector3[] PickVertices = [];
+        public ushort[] PickIndices = [];
+
         /// <summary>The M2's own collision hull, local space, three verts per triangle.</summary>
         public Vector3[] CollisionTriangles = [];
 
@@ -1431,8 +1435,10 @@ public sealed class DoodadRenderer : IDisposable
 
     /// <summary>
     /// Nearest dynamic placement (server gameobject) hit by a world ray, for
-    /// mouse-over picking. Tests the same per-instance world AABBs the cull
-    /// uses — deliberately loose the way unit picking's vertical cylinders are.
+    /// mouse-over picking. The world AABB and oriented model box are broad phases;
+    /// the accepted hit is against the model's visible render triangles, matching
+    /// the object mesh the player sees. Empty corners around rotated signs and
+    /// benches therefore cannot cover a nearby NPC.
     /// Static doodads are never tested: a tree is scenery, not an entity.
     /// A hit strictly beyond <paramref name="maxDistance"/> does not count, so
     /// callers can pass the nearest unit hit and let the unit win ties.
@@ -1445,8 +1451,8 @@ public sealed class DoodadRenderer : IDisposable
         bool hit = false;
         foreach (var (candidate, entry) in _dynamicByKey)
         {
-            Instance instance = entry.Instance;
-            if (RayAabb(origin, direction, instance.WorldMin, instance.WorldMax, out float t) &&
+            if (RayDynamicRenderMesh(origin, direction, distance,
+                    entry.Model, entry.Instance, out float t) &&
                 t < distance)
             {
                 distance = t;
@@ -1456,8 +1462,8 @@ public sealed class DoodadRenderer : IDisposable
         }
         foreach (var (owner, entry) in _dynamicWmoProps)
         {
-            Instance instance = entry.Instance;
-            if (RayAabb(origin, direction, instance.WorldMin, instance.WorldMax, out float t) &&
+            if (RayDynamicRenderMesh(origin, direction, distance,
+                    entry.Model, entry.Instance, out float t) &&
                 t < distance)
             {
                 distance = t;
@@ -1468,6 +1474,87 @@ public sealed class DoodadRenderer : IDisposable
         return hit;
     }
 
+    /// <summary>
+    /// Whether a world point lies on or immediately beside one of a dynamic GameObject's
+    /// oriented model bounds. Used only to recognize the WMO surface supporting a flush-mounted
+    /// sign/mailbox; unlike a unioned world AABB, this cannot bless an unrelated point in the
+    /// empty corners around a rotated prop.
+    /// </summary>
+    public bool IsWorldPointNearDynamicPickBounds(ulong key, Vector3 point, float tolerance)
+    {
+        if (_dynamicByKey.TryGetValue(key, out var direct) &&
+            IsWorldPointNearModelBounds(point, tolerance, direct.Model, direct.Instance))
+            return true;
+        foreach (var (owner, entry) in _dynamicWmoProps)
+        {
+            if (owner.HostGuid != key) continue;
+            if (IsWorldPointNearModelBounds(point, tolerance, entry.Model, entry.Instance))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool RayDynamicRenderMesh(Vector3 origin, Vector3 direction,
+        float maxDistance, Model model, Instance instance, out float worldDistance)
+    {
+        worldDistance = 0f;
+        if (maxDistance <= 0f || direction.LengthSquared() < 1e-12f ||
+            model.PickVertices.Length == 0 || model.PickIndices.Length < 3 ||
+            !Matrix4x4.Invert(instance.Transform, out Matrix4x4 inverse))
+            return false;
+
+        Vector3 worldDirection = Vector3.Normalize(direction);
+        if (!RayAabb(origin, worldDirection, instance.WorldMin, instance.WorldMax,
+                out float broadHit) || broadHit >= maxDistance)
+            return false;
+
+        Vector3 localOrigin = Vector3.Transform(origin, inverse);
+        Vector3 localEnd = Vector3.Transform(origin + worldDirection * maxDistance, inverse);
+        Vector3 localDelta = localEnd - localOrigin;
+        float localLimit = localDelta.Length();
+        if (localLimit <= 1e-6f) return false;
+
+        Vector3 localDirection = localDelta / localLimit;
+        if (!RayAabb(localOrigin, localDirection, model.LocalMin, model.LocalMax,
+                out float orientedHit) || orientedHit > localLimit)
+            return false;
+
+        float nearestLocal = localLimit;
+        bool found = false;
+        for (int i = 0; i + 2 < model.PickIndices.Length; i += 3)
+        {
+            int ia = model.PickIndices[i];
+            int ib = model.PickIndices[i + 1];
+            int ic = model.PickIndices[i + 2];
+            if ((uint)ia >= (uint)model.PickVertices.Length ||
+                (uint)ib >= (uint)model.PickVertices.Length ||
+                (uint)ic >= (uint)model.PickVertices.Length)
+                continue;
+            if (!RayTriangle(localOrigin, localDirection,
+                    model.PickVertices[ia], model.PickVertices[ib], model.PickVertices[ic],
+                    out float localDistance) || localDistance > nearestLocal)
+                continue;
+            nearestLocal = localDistance;
+            found = true;
+        }
+        if (!found) return false;
+
+        Vector3 localPoint = localOrigin + localDirection * nearestLocal;
+        Vector3 worldPoint = Vector3.Transform(localPoint, instance.Transform);
+        worldDistance = Vector3.Distance(origin, worldPoint);
+        return worldDistance < maxDistance;
+    }
+
+    private static bool IsWorldPointNearModelBounds(Vector3 point, float tolerance,
+        Model model, Instance instance)
+    {
+        if (tolerance < 0f || !Matrix4x4.Invert(instance.Transform, out Matrix4x4 inverse))
+            return false;
+        Vector3 localPoint = Vector3.Transform(point, inverse);
+        Vector3 nearestLocal = Vector3.Clamp(localPoint, model.LocalMin, model.LocalMax);
+        Vector3 nearestWorld = Vector3.Transform(nearestLocal, instance.Transform);
+        return Vector3.DistanceSquared(point, nearestWorld) <= tolerance * tolerance;
+    }
     /// <summary>
     /// Raycast owner-keyed M2 collision at its current retained transform. Lift cars move every
     /// frame and cannot be baked into the static BVH without leaving a solid ghost behind.
@@ -2126,6 +2213,7 @@ public sealed class DoodadRenderer : IDisposable
         model.Attach(_gl);
 
         BuildBatches(m2, model, indices.Length);
+        BuildPickMesh(m2, model, indices);
         if (m2.Events.Count > 0) model.EventSource = m2;
         ClassifyBoneAnimation(m2, model, hasGeometry);
         model.CollisionTriangles = BuildCollision(m2, CollisionBasisIndex);
@@ -2187,6 +2275,28 @@ public sealed class DoodadRenderer : IDisposable
     /// preview pipeline in SuperUI had to get right; going straight to
     /// Textures[TextureIndex] resolves the wrong image on most models.
     /// </summary>
+    private static void BuildPickMesh(M2Model m2, Model model, ushort[] indices)
+    {
+        if (m2.Vertices.Count == 0 || indices.Length < 3 || model.Batches.Count == 0) return;
+        model.PickVertices = m2.Vertices
+            .Select(vertex => new Vector3(vertex.PosX, vertex.PosY, vertex.PosZ))
+            .ToArray();
+
+        var pickIndices = new List<ushort>();
+        var includedRanges = new HashSet<(uint Start, uint Count)>();
+        foreach (Batch batch in model.Batches)
+        {
+            var range = (batch.IndexStart, batch.IndexCount);
+            if (!includedRanges.Add(range)) continue;
+            int start = checked((int)batch.IndexStart);
+            int count = checked((int)batch.IndexCount);
+            if (start < 0 || count < 3 || start + count > indices.Length) continue;
+            for (int i = start; i < start + count; i++)
+                pickIndices.Add(indices[i]);
+        }
+        model.PickIndices = [.. pickIndices];
+    }
+
     private void BuildBatches(M2Model m2, Model model, int indexCount)
     {
         foreach (var batch in m2.Batches)

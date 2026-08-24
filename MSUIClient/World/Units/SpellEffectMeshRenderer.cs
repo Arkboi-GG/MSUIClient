@@ -84,6 +84,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         public GroundQuad? Ground;
         public bool AnimatedAlpha;
         public string? TexturePath;
+        public M2AnimTrack<Vector3>? UvTranslation;
         public M2Batch Source = null!;
         public bool Transparent => Blend >= 2 || NoZWrite || AnimatedAlpha;
     }
@@ -355,6 +356,15 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                     }
                     else { _shader.Set("uHasTexture", 0); _shader.Set("uAlphaCutoff", 0f); }
                     int sequence = item.Source.SequenceIndex;
+                    Vector2 uvOffset = Vector2.Zero;
+                    if (batch.UvTranslation is not null)
+                    {
+                        Vector3 offset = M2TrackSampling.Vector(batch.UvTranslation,
+                            item.Source.Model, sequence, item.Source.Age, Vector3.Zero);
+                        if (float.IsFinite(offset.X) && float.IsFinite(offset.Y))
+                            uvOffset = new Vector2(offset.X, offset.Y);
+                    }
+                    _shader.Set("uUvOffset", uvOffset);
                     Vector3 tint = item.Source.Tint;
                     float opacity = item.Source.Opacity;
                     if (batch.Source.ColorIndex >= 0 && batch.Source.ColorIndex < item.Source.Model.Colors.Count)
@@ -486,11 +496,16 @@ public sealed class SpellEffectMeshRenderer : IDisposable
             M2Submesh sub = model.Submeshes[source.SubmeshIndex];
             if (sub.IndexCount == 0 || sub.IndexStart + sub.IndexCount > indices.Length) continue;
             M2RenderFlag? flags = source.MaterialIndex < model.RenderFlags.Count ? model.RenderFlags[source.MaterialIndex] : null;
+            int uvTransform = model.GetTextureTransformForBatch(source);
+            M2AnimTrack<Vector3>? uvTranslation =
+                uvTransform >= 0 ? model.TextureTransforms[uvTransform].Translation : null;
+            if (uvTranslation is not null && uvTranslation.Keys.Count == 0) uvTranslation = null;
             mesh.Batches.Add(new Batch
             {
                 Start = sub.IndexStart, Count = sub.IndexCount,
                 Texture = ResolveBatchTexture(model, source),
                 TexturePath = BatchTexturePath(model, source),
+                UvTranslation = uvTranslation,
                 Blend = flags?.BlendingMode ?? 0,
                 TwoSided = flags?.TwoSided ?? true,
                 NoZWrite = flags?.NoZWrite ?? false,
@@ -1295,6 +1310,7 @@ in vec3 vNormal;
 in vec2 vUV;
 in float vEyeDepth;
 uniform sampler2D uTexture;
+uniform vec2 uUvOffset;
 uniform int uHasTexture;
 uniform float uAlphaCutoff;
 uniform vec3 uTint;
@@ -1314,7 +1330,7 @@ uniform float uFarClip;
 out vec4 FragColor;
 void main() {
     if (uFarClip > 0.0 && vEyeDepth > uFarClip) discard;
-    vec4 tex = uHasTexture != 0 ? texture(uTexture, vUV) : vec4(1.0);
+    vec4 tex = uHasTexture != 0 ? texture(uTexture, vUV + uUvOffset) : vec4(1.0);
     vec4 base = vec4(tex.rgb * uTint, tex.a * uOpacity);
     if (base.a < uAlphaCutoff || base.a <= 0.001) discard;
     vec3 light = vec3(1.0);

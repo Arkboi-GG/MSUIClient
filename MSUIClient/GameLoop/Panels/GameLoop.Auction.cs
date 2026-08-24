@@ -20,7 +20,8 @@ public sealed partial class GameLoop
     private uint _auctionSellEntry;
     private int _auctionSellBid;
     private int _auctionSellBuyout;
-    private int _auctionSellDuration = 720;
+    private int _auctionSellDuration = 480;
+    private int _auctionBidAmount;
     private uint _auctionTotal;
     private uint _auctionCategory = uint.MaxValue;
     private readonly byte[] _auctionSearch = new byte[65];
@@ -252,7 +253,7 @@ public sealed partial class GameLoop
         if (!ImGui.Begin("##auction",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
         ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="auction"){BeginUiParityFrame(origin,s);CollectUiParityDraw("AuctionFrame","Frame",origin,AuctionFrameUiLaw.Frame.Size*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
         dl.PushClipRect(origin,origin+AuctionFrameUiLaw.Frame.Size*s,true);
-        foreach(AuctionFrameUiLaw.ArtPiece r in AuctionFrameUiLaw.Art){Vector2 m=origin+r.Rect.Min*s,sz=r.Rect.Size*s;DrawArt(dl,r.Path,m,r.Rect.Size,s);if(_uiParityArmed&&_uiParityPanel=="auction")CollectUiParityDraw(r.Element,"Texture",m,sz,"AuctionFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","AuctionFrame","TOPLEFT",r.Rect.X,-r.Rect.Y));}
+        foreach(AuctionFrameUiLaw.ArtPiece r in AuctionFrameUiLaw.ArtForTab(_auctionTab)){Vector2 m=origin+r.Rect.Min*s,sz=r.Rect.Size*s;DrawArt(dl,r.Path,m,r.Rect.Size,s);if(_uiParityArmed&&_uiParityPanel=="auction")CollectUiParityDraw(r.Element,"Texture",m,sz,"AuctionFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","AuctionFrame","TOPLEFT",r.Rect.X,-r.Rect.Y));}
         dl.PopClipRect();
         DrawVanillaAuction(dl,origin,s);
         DrawImageButton(dl,"##auction-close",origin+AuctionFrameUiLaw.Close.Min*s,
@@ -266,11 +267,21 @@ public sealed partial class GameLoop
 
     private void DrawVanillaAuction(ImDrawListPtr dl, Vector2 origin, float s)
     {
-        DrawCenteredText(dl,origin+AuctionFrameUiLaw.TitleCenter*s,"Auction House",14f*s,VanillaGold);
+        GameText.DrawCentered(dl, "GameFontNormal", "Auction House",
+            origin + AuctionFrameUiLaw.TitleCenter * s, s, VanillaGold);
         if(_auctionTab==0)
         {
-            VanillaInputText(dl,"##auction-search",_auctionSearch,origin+AuctionFrameUiLaw.Search.Min*s,AuctionFrameUiLaw.Search.Size,s);
-            if(VanillaButton(dl,"##auction-search-button","Search",origin+AuctionFrameUiLaw.SearchButton.Min*s,AuctionFrameUiLaw.SearchButton.Size,s))BrowseAuctions(0,ReadBuffer(_auctionSearch));
+            GameText.Draw(dl, "GameFontHighlightSmall", "Name",
+                origin + AuctionFrameUiLaw.NameLabel * s, s);
+            GameText.DrawCentered(dl, "GameFontHighlightSmall", "Filters",
+                origin + AuctionFrameUiLaw.FilterTitleCenter * s, s);
+            VanillaInputText(dl,"##auction-search",_auctionSearch,
+                origin+AuctionFrameUiLaw.Search.Min*s,AuctionFrameUiLaw.Search.Size,s);
+            if(VanillaButton(dl,"##auction-search-button","Search",
+                    origin+AuctionFrameUiLaw.SearchButton.Min*s,
+                    AuctionFrameUiLaw.SearchButton.Size,s))
+                BrowseAuctions(0,ReadBuffer(_auctionSearch));
+
             (string Name,uint Class)[] categories =
             [
                 ("All",uint.MaxValue),("Weapons",2),("Armor",4),("Containers",1),
@@ -278,67 +289,365 @@ public sealed partial class GameLoop
                 ("Recipes",9),("Reagents",5),("Miscellaneous",15)
             ];
             for(int i=0;i<categories.Length;i++)
-            {
-                AuctionFrameUiLaw.LogicalRect category=AuctionFrameUiLaw.CategoryRow(i);
-                if(VanillaListRow(dl,$"##auction-category-{categories[i].Class}",
-                    origin+category.Min*s,category.Size,s,categories[i].Name,
-                    _auctionCategory==categories[i].Class,0xffffffff))
-                { _auctionCategory=categories[i].Class; BrowseAuctions(0,ReadBuffer(_auctionSearch)); }
-            }
+                if(DrawAuctionFilterRow(dl,origin,s,i,categories[i].Name,
+                        _auctionCategory==categories[i].Class))
+                {
+                    _auctionCategory=categories[i].Class;
+                    BrowseAuctions(0,ReadBuffer(_auctionSearch));
+                }
+
             foreach(AuctionFrameUiLaw.Header header in AuctionFrameUiLaw.BrowseHeaders)
-            {
-                dl.AddRectFilled(origin+header.Rect.Min*s,origin+(header.Rect.Min+header.Rect.Size)*s,0xff342517);
-                dl.AddText(ImGui.GetFont(),9f*s,origin+AuctionFrameUiLaw.HeaderTextMin(header)*s,0xffffffff,header.Text);
-            }
-            DrawAuctionRows(dl,origin,s,true);
+                DrawAuctionSortHeader(dl,origin,s,header);
+            DrawAuctionRows(dl,origin,s,0);
+
+            if(VanillaButton(dl,"##auction-browse-close","Close",
+                    origin+AuctionFrameUiLaw.BrowseCloseButton.Min*s,
+                    AuctionFrameUiLaw.BrowseCloseButton.Size,s))
+                ResetAuction();
         }
         else if(_auctionTab==1)
         {
-            DrawAuctionRows(dl,origin,s,true);
+            foreach(AuctionFrameUiLaw.Header header in AuctionFrameUiLaw.BidHeaders)
+                DrawAuctionSortHeader(dl,origin,s,header);
+            DrawAuctionRows(dl,origin,s,1);
+            GameText.Draw(dl,"GameFontHighlightSmall","Bid",
+                origin+AuctionFrameUiLaw.BidPriceLabel*s,s);
+            DrawAuctionMoneyInput(dl,"auction-bid-price",ref _auctionBidAmount,
+                origin+AuctionFrameUiLaw.BidPrice.Min*s,s);
+            if(VanillaButton(dl,"##auction-bids-close","Close",
+                    origin+AuctionFrameUiLaw.BrowseCloseButton.Min*s,
+                    AuctionFrameUiLaw.BrowseCloseButton.Size,s))
+                ResetAuction();
         }
         else
         {
-            DrawAuctionRows(dl,origin,s,false);
-            dl.AddText(ImGui.GetFont(),10f*s,origin+AuctionFrameUiLaw.SellPromptMin*s,0xffffffff,
-                _auctionSellEntry==0?"Place an item here":"Item " + _auctionSellEntry);
-            dl.AddText(ImGui.GetFont(),10*s,origin+AuctionFrameUiLaw.BidLabelMin*s,VanillaGold,"Bid");
-            VanillaInputInt(dl,"##auction-bid-value",ref _auctionSellBid,origin+AuctionFrameUiLaw.BidInput.Min*s,AuctionFrameUiLaw.BidInput.Size,s);
-            dl.AddText(ImGui.GetFont(),10*s,origin+AuctionFrameUiLaw.BuyoutLabelMin*s,VanillaGold,"Buyout");
-            VanillaInputInt(dl,"##auction-buyout-value",ref _auctionSellBuyout,origin+AuctionFrameUiLaw.BuyoutInput.Min*s,AuctionFrameUiLaw.BuyoutInput.Size,s);
-            dl.AddText(ImGui.GetFont(),10*s,origin+AuctionFrameUiLaw.DurationLabelMin*s,VanillaGold,"Duration");
-            VanillaInputInt(dl,"##auction-duration-value",ref _auctionSellDuration,origin+AuctionFrameUiLaw.DurationInput.Min*s,AuctionFrameUiLaw.DurationInput.Size,s);
-            _auctionSellDuration=_auctionSellDuration<1080?720:_auctionSellDuration<2160?1440:2880;
-            bool ready=_auctionSellEntry!=0&&_auctionSellBid>0;
-            if(VanillaButton(dl,"##auction-create","Create Auction",origin+AuctionFrameUiLaw.CreateButton.Min*s,AuctionFrameUiLaw.CreateButton.Size,s,ready))
-                CreateAuction(_auctionSellEntry,(uint)_auctionSellBid,(uint)Math.Max(0,_auctionSellBuyout),(uint)_auctionSellDuration);
+            foreach(AuctionFrameUiLaw.Header header in AuctionFrameUiLaw.OwnerHeaders)
+                DrawAuctionSortHeader(dl,origin,s,header);
+            DrawAuctionRows(dl,origin,s,2);
+            DrawAuctionOwnerForm(dl,origin,s);
+            if(VanillaButton(dl,"##auction-owner-close","Close",
+                    origin+AuctionFrameUiLaw.BrowseCloseButton.Min*s,
+                    AuctionFrameUiLaw.BrowseCloseButton.Size,s))
+                ResetAuction();
         }
         float browseWidth=VanillaCharacterTabWidth("Browse",s,0);
         float bidsWidth=VanillaCharacterTabWidth("Bids",s,0);
         float auctionsWidth=VanillaCharacterTabWidth("Auctions",s,0);
-        if(VanillaTab(dl,"##auction-browse-tab",origin+AuctionFrameUiLaw.TabMin(0,browseWidth,bidsWidth)*s,"Browse",browseWidth,s,_auctionTab==0))
+        if(VanillaTab(dl,"##auction-browse-tab",
+                origin+AuctionFrameUiLaw.TabMin(0,browseWidth,bidsWidth)*s,
+                "Browse",browseWidth,s,_auctionTab==0))
         { _auctionTab=0; BrowseAuctions(0,ReadBuffer(_auctionSearch)); }
-        if(VanillaTab(dl,"##auction-bids-tab",origin+AuctionFrameUiLaw.TabMin(1,browseWidth,bidsWidth)*s,"Bids",bidsWidth,s,_auctionTab==1))
+        if(VanillaTab(dl,"##auction-bids-tab",
+                origin+AuctionFrameUiLaw.TabMin(1,browseWidth,bidsWidth)*s,
+                "Bids",bidsWidth,s,_auctionTab==1))
         { _auctionTab=1; RequestBidderAuctions(); }
-        if(VanillaTab(dl,"##auction-owner-tab",origin+AuctionFrameUiLaw.TabMin(2,browseWidth,bidsWidth)*s,"Auctions",auctionsWidth,s,_auctionTab==2))
+        if(VanillaTab(dl,"##auction-owner-tab",
+                origin+AuctionFrameUiLaw.TabMin(2,browseWidth,bidsWidth)*s,
+                "Auctions",auctionsWidth,s,_auctionTab==2))
         { _auctionTab=2; RequestOwnerAuctions(); }
     }
 
-    private void DrawAuctionRows(ImDrawListPtr dl, Vector2 origin, float s, bool canBid)
+    private bool DrawAuctionFilterRow(ImDrawListPtr dl, Vector2 origin, float s,
+        int index, string label, bool selected)
     {
-        for(int i=0;i<_auctions.Count&&i<8;i++)
+        AuctionFrameUiLaw.LogicalRect row=AuctionFrameUiLaw.CategoryRow(index);
+        Vector2 min=origin+row.Min*s;
+        uint background=_gameplayArt?.Handle(AuctionFrameUiLaw.FilterBackgroundPath)??0;
+        if(background!=0)
+            dl.AddImage((nint)background,min,min+row.Size*s,
+                Vector2.Zero,new Vector2(.53125f,.625f));
+        ImGui.SetCursorScreenPos(min);
+        bool clicked=ImGui.InvisibleButton($"##auction-category-{index}",row.Size*s);
+        bool highlighted=selected||ImGui.IsItemHovered();
+        if(highlighted)
         {
-            AuctionRow row=_auctions[i];ItemTemplate? item=null;if(_items?.TryGet(row.Item,out ItemTemplate? found)==true)item=found;
-            string text=$"{item?.Name??$"Item {row.Item}"} x{row.Count}        {FormatMoney(row.Bid==0?row.StartBid:row.Bid)} / {FormatMoney(row.Buyout)}";
-            AuctionFrameUiLaw.LogicalRect seat=AuctionFrameUiLaw.AuctionRow(i);
-            if(VanillaListRow(dl,$"##auction-row-{row.Id}",origin+seat.Min*s,seat.Size,s,text,_auctionSelected==i,0xffffffff,item?.IconPath))_auctionSelected=i;
+            uint highlight=_gameplayArt?.AdditiveHandle(
+                AuctionFrameUiLaw.FilterHighlightPath)??0;
+            if(highlight!=0)
+                dl.AddImage((nint)highlight,min,min+row.Size*s);
         }
+        Vector2 textMin=min+new Vector2(4,
+            Math.Max(0,(row.Height-GameText.EmPixels("GameFontNormalSmall",s)/s)*.5f))*s;
+        GameText.Draw(dl,highlighted?"GameFontHighlightSmall":"GameFontNormalSmall",
+            label,textMin,s);
+        return clicked;
+    }
+
+    private void DrawAuctionSortHeader(ImDrawListPtr dl, Vector2 origin, float s,
+        AuctionFrameUiLaw.Header header)
+    {
+        uint texture=_gameplayArt?.Handle(AuctionFrameUiLaw.SortTabPath)??0;
+        if(texture!=0)
+            foreach(AuctionFrameUiLaw.TextureSlice slice in
+                    AuctionFrameUiLaw.SortHeaderSlices(header.Rect.Width))
+            {
+                Vector2 min=origin+(header.Rect.Min+slice.Rect.Min)*s;
+                dl.AddImage((nint)texture,min,min+slice.Rect.Size*s,
+                    slice.UvMin,slice.UvMax);
+            }
+        GameText.Draw(dl,"GameFontHighlightSmall",header.Text,
+            origin+AuctionFrameUiLaw.HeaderTextMin(header)*s,s);
+    }
+    private void DrawAuctionRows(ImDrawListPtr dl, Vector2 origin, float s, int tab)
+    {
+        int maximumRows = tab == 0 ? 8 : 9;
+        for(int i=0;i<_auctions.Count&&i<maximumRows;i++)
+        {
+            AuctionRow row=_auctions[i];
+            ItemTemplate? item=null;
+            if(_items?.TryGet(row.Item,out ItemTemplate? found)==true)item=found;
+            AuctionFrameUiLaw.LogicalRect seat=tab switch
+            {
+                1=>AuctionFrameUiLaw.BidRow(i),
+                2=>AuctionFrameUiLaw.OwnerRow(i),
+                _=>AuctionFrameUiLaw.AuctionRow(i),
+            };
+            Vector2 rowMin=origin+seat.Min*s;
+            ImGui.SetCursorScreenPos(rowMin);
+            bool clicked=ImGui.InvisibleButton($"##auction-row-{tab}-{row.Id}",seat.Size*s);
+            bool highlighted=_auctionSelected==i||ImGui.IsItemHovered();
+
+            uint nameFrame=_gameplayArt?.Handle(AuctionFrameUiLaw.ItemNameFramePath)??0;
+            if(nameFrame!=0)
+                foreach(AuctionFrameUiLaw.TextureSlice slice in
+                        AuctionFrameUiLaw.ItemNameSlices(seat.Width))
+                {
+                    Vector2 min=rowMin+slice.Rect.Min*s;
+                    dl.AddImage((nint)nameFrame,min,min+slice.Rect.Size*s,
+                        slice.UvMin,slice.UvMax);
+                }
+
+            if(item is not null)
+            {
+                uint icon=_gameplayArt?.Handle(item.IconPath)??0;
+                if(icon!=0)dl.AddImage((nint)icon,rowMin,rowMin+new Vector2(32)*s);
+            }
+            DrawArt(dl,AuctionFrameUiLaw.ItemSlotPath,
+                rowMin-new Vector2(14)*s,new Vector2(60),s);
+            if(row.Count>1)
+                GameText.DrawRightAligned(dl,"NumberFontNormal",row.Count.ToString(),
+                    rowMin+new Vector2(29,20)*s,s,0xffffffff);
+
+            float textTop=GameText.BoxCenteredTop("GameFontNormal",rowMin.Y,32,s);
+            uint nameColor=item is null?0xffffffff:
+                ImGui.ColorConvertFloat4ToU32(ItemQualityColor(item.Quality));
+            GameText.Draw(dl,"GameFontNormal",item?.Name??$"Item {row.Item}",
+                new Vector2(rowMin.X+(tab==1?41:43)*s,textTop),s,nameColor);
+
+            if(tab==0)
+            {
+                GameText.DrawCentered(dl,"GameFontHighlightSmall",
+                    (item?.RequiredLevel??0).ToString(),rowMin+new Vector2(231,16)*s,s);
+                GameText.DrawCentered(dl,"GameFontHighlightSmall",
+                    AuctionFrameUiLaw.TimeLeftText(row.TimeLeftMs),
+                    rowMin+new Vector2(299,16)*s,s);
+                GameText.DrawCentered(dl,"GameFontHighlightSmall",
+                    _playerNames.GetValueOrDefault(row.Owner,""),
+                    rowMin+new Vector2(384,16)*s,s);
+                uint current=row.Bid==0?row.StartBid:row.Bid;
+                DrawTrainerMoney(dl,current,rowMin+new Vector2(seat.Width+10,3)*s,
+                    s,0xffffffff,true);
+                if(row.Buyout>0)
+                    DrawTrainerMoney(dl,row.Buyout,rowMin+new Vector2(seat.Width+10,19)*s,
+                        s,VanillaGold,true);
+            }
+            else if(tab==1)
+            {
+                GameText.DrawCentered(dl,"GameFontHighlightSmall",
+                    (item?.RequiredLevel??0).ToString(),rowMin+new Vector2(266,16)*s,s);
+                GameText.DrawCentered(dl,"GameFontHighlightSmall",
+                    AuctionFrameUiLaw.TimeLeftText(row.TimeLeftMs),
+                    rowMin+new Vector2(332,16)*s,s);
+                if(row.Buyout>0)
+                    DrawTrainerMoney(dl,row.Buyout,rowMin+new Vector2(535,10)*s,
+                        s,VanillaGold,true);
+                string status=row.Bidder==0?"":row.Bidder==_net?.PlayerGuid?"High Bidder":"Outbid";
+                GameText.DrawCentered(dl,"GameFontHighlightSmall",status,
+                    rowMin+new Vector2(580,16)*s,s);
+                DrawTrainerMoney(dl,row.Bid==0?row.StartBid:row.Bid,
+                    rowMin+new Vector2(795,10)*s,s,0xffffffff,true);
+            }
+            else
+            {
+                GameText.DrawCentered(dl,"GameFontHighlightSmall",
+                    AuctionFrameUiLaw.TimeLeftText(row.TimeLeftMs),
+                    rowMin+new Vector2(223,16)*s,s);
+                GameText.DrawCentered(dl,"GameFontHighlightSmall",
+                    _playerNames.GetValueOrDefault(row.Bidder,""),
+                    rowMin+new Vector2(331,16)*s,s);
+                DrawTrainerMoney(dl,row.Bid==0?row.StartBid:row.Bid,
+                    rowMin+new Vector2(seat.Width,3)*s,s,0xffffffff,true);
+                if(row.Buyout>0)
+                {
+                    GameText.Draw(dl,"GameFontNormalSmall","Buyout",
+                        rowMin+new Vector2(401,20)*s,s,VanillaGold);
+                    DrawTrainerMoney(dl,row.Buyout,rowMin+new Vector2(seat.Width,19)*s,
+                        s,VanillaGold,true);
+                }
+            }
+
+            if(highlighted)
+            {
+                uint highlight=_gameplayArt?.AdditiveHandle(
+                    AuctionFrameUiLaw.RowHighlightPath)??0;
+                float width=tab switch {1=>670,2=>540,_=>523};
+                if(highlight!=0)
+                    dl.AddImage((nint)highlight,rowMin+new Vector2(33,0)*s,
+                        rowMin+new Vector2(33+width,32)*s,
+                        Vector2.Zero,new Vector2(1,.578125f));
+            }
+            if(clicked)
+            {
+                _auctionSelected=i;
+                if(tab!=2)
+                {
+                    uint minimum=Math.Max(row.StartBid,row.Bid+row.MinIncrement);
+                    _auctionBidAmount=(int)Math.Min((uint)int.MaxValue,minimum);
+                }
+            }
+        }
+
         if(_auctions.Count==0)return;
         AuctionRow selected=_auctions[Math.Clamp(_auctionSelected,0,_auctions.Count-1)];
-        if(canBid)
+        if(tab is 0 or 1)
         {
-            if(VanillaButton(dl,"##auction-bid","Bid",origin+AuctionFrameUiLaw.BidButton.Min*s,AuctionFrameUiLaw.BidButton.Size,s))BidAuction(selected.Id,Math.Max(selected.StartBid,selected.Bid+selected.MinIncrement));
-            if(VanillaButton(dl,"##auction-buyout","Buyout",origin+AuctionFrameUiLaw.BuyoutButton.Min*s,AuctionFrameUiLaw.BuyoutButton.Size,s,selected.Buyout>0))BidAuction(selected.Id,selected.Buyout);
+            uint minimum=Math.Max(selected.StartBid,selected.Bid+selected.MinIncrement);
+            uint offered=(uint)Math.Max((long)minimum,_auctionBidAmount);
+            if(VanillaButton(dl,$"##auction-{tab}-bid","Bid",
+                    origin+AuctionFrameUiLaw.BidButton.Min*s,
+                    AuctionFrameUiLaw.BidButton.Size,s))
+                BidAuction(selected.Id,offered);
+            if(VanillaButton(dl,$"##auction-{tab}-buyout","Buyout",
+                    origin+AuctionFrameUiLaw.BuyoutButton.Min*s,
+                    AuctionFrameUiLaw.BuyoutButton.Size,s,selected.Buyout>0))
+                BidAuction(selected.Id,selected.Buyout);
         }
-        else if(VanillaButton(dl,"##auction-cancel","Cancel Auction",origin+AuctionFrameUiLaw.CancelButton.Min*s,AuctionFrameUiLaw.CancelButton.Size,s))CancelAuction(selected.Id);
+        else if(VanillaButton(dl,"##auction-owner-cancel","Cancel Auction",
+                origin+AuctionFrameUiLaw.OwnerCancelButton.Min*s,
+                AuctionFrameUiLaw.OwnerCancelButton.Size,s))
+            CancelAuction(selected.Id);
+    }
+
+    private void DrawAuctionOwnerForm(ImDrawListPtr dl, Vector2 origin, float s)
+    {
+        GameText.DrawCentered(dl,"GameFontHighlightSmall","Create Auction",
+            origin+new Vector2(121,55)*s,s);
+        GameText.Draw(dl,"GameFontHighlightSmall","Auction Item",
+            origin+AuctionFrameUiLaw.OwnerItemLabel*s,s);
+
+        ItemTemplate? item=null;
+        if(_auctionSellEntry!=0&&_items?.TryGet(_auctionSellEntry,out ItemTemplate? found)==true)
+            item=found;
+        Vector2 slotMin=origin+AuctionFrameUiLaw.OwnerItemSlot.Min*s;
+        if(item is not null)
+        {
+            uint icon=_gameplayArt?.Handle(item.IconPath)??0;
+            if(icon!=0)dl.AddImage((nint)icon,slotMin,
+                slotMin+AuctionFrameUiLaw.OwnerItemSlot.Size*s);
+            GameText.Draw(dl,"GameFontNormal",item.Name,
+                origin+AuctionFrameUiLaw.OwnerItemName*s,s,
+                ImGui.ColorConvertFloat4ToU32(ItemQualityColor(item.Quality)));
+        }
+        ImGui.SetCursorScreenPos(slotMin);
+        bool clicked=ImGui.InvisibleButton("##auction-sell-item",
+            AuctionFrameUiLaw.OwnerItemSlot.Size*s);
+        if(ImGui.IsItemHovered())
+        {
+            uint highlight=_gameplayArt?.AdditiveHandle(
+                @"Interface\Buttons\ButtonHilight-Square")??0;
+            if(highlight!=0)dl.AddImage((nint)highlight,slotMin,
+                slotMin+AuctionFrameUiLaw.OwnerItemSlot.Size*s);
+        }
+        if(clicked)
+        {
+            if(HasCarriedItem&&ResolveCarriedItem() is { } carried)
+            { _auctionSellEntry=carried.Entry; ClearCarriedItem(); }
+            else if(_auctionSellEntry!=0)_auctionSellEntry=0;
+        }
+        if(ImGui.BeginDragDropTarget())
+        {
+            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM");
+            if(ImGui.IsMouseReleased(ImGuiMouseButton.Left)&&
+                ResolveCarriedItem() is { } carried)
+            { _auctionSellEntry=carried.Entry; ClearCarriedItem(); }
+            ImGui.EndDragDropTarget();
+        }
+
+        GameText.Draw(dl,"GameFontHighlightSmall","Starting Price",
+            origin+AuctionFrameUiLaw.OwnerStartPriceLabel*s,s);
+        DrawAuctionMoneyInput(dl,"auction-start-price",ref _auctionSellBid,
+            origin+AuctionFrameUiLaw.OwnerStartPrice.Min*s,s);
+        GameText.Draw(dl,"GameFontHighlightSmall","Auction Duration",
+            origin+AuctionFrameUiLaw.OwnerDurationLabel*s,s);
+        DrawMailRadio(dl,"##auction-duration-short",
+            origin+AuctionFrameUiLaw.OwnerShortDuration*s,"2 Hours",
+            _auctionSellDuration==120,true,s,()=>_auctionSellDuration=120);
+        DrawMailRadio(dl,"##auction-duration-medium",
+            origin+AuctionFrameUiLaw.OwnerMediumDuration*s,"8 Hours",
+            _auctionSellDuration==480,true,s,()=>_auctionSellDuration=480);
+        DrawMailRadio(dl,"##auction-duration-long",
+            origin+AuctionFrameUiLaw.OwnerLongDuration*s,"24 Hours",
+            _auctionSellDuration==1440,true,s,()=>_auctionSellDuration=1440);
+        GameText.Draw(dl,"GameFontHighlightSmall","Buyout Price (optional)",
+            origin+AuctionFrameUiLaw.OwnerBuyoutLabel*s,s);
+        DrawAuctionMoneyInput(dl,"auction-buyout-price",ref _auctionSellBuyout,
+            origin+AuctionFrameUiLaw.OwnerBuyoutPrice.Min*s,s);
+        GameText.Draw(dl,"GameFontNormal","Deposit:",
+            origin+AuctionFrameUiLaw.OwnerDepositLabel*s,s,VanillaGold);
+        uint deposit=item is null?0:CalculateAuctionDeposit(item.SellPrice,1,
+            (uint)_auctionSellDuration);
+        DrawTrainerMoney(dl,deposit,origin+AuctionFrameUiLaw.OwnerDepositMoney*s,
+            s,0xffffffff,false);
+
+        bool ready=_auctionSellEntry!=0&&_auctionSellBid>0;
+        if(VanillaButton(dl,"##auction-create","Create Auction",
+                origin+AuctionFrameUiLaw.OwnerCreateButton.Min*s,
+                AuctionFrameUiLaw.OwnerCreateButton.Size,s,ready))
+            CreateAuction(_auctionSellEntry,(uint)_auctionSellBid,
+                (uint)Math.Max(0,_auctionSellBuyout),(uint)_auctionSellDuration);
+    }
+
+    private bool DrawAuctionMoneyEditBox(ImDrawListPtr dl, string id, ref int value,
+        Vector2 min, Vector2 logicalSize, float rightInset, float s)
+    {
+        uint border=_gameplayArt?.Handle(AuctionFrameUiLaw.InputBorderPath)??0;
+        if(border!=0)
+            foreach(AuctionFrameUiLaw.TextureSlice slice in
+                    AuctionFrameUiLaw.MoneyInputBorderSlices(logicalSize.X,rightInset))
+            {
+                Vector2 sliceMin=min+slice.Rect.Min*s;
+                dl.AddImage((nint)border,sliceMin,sliceMin+slice.Rect.Size*s,
+                    slice.UvMin,slice.UvMax);
+            }
+        ImGui.SetCursorScreenPos(min+new Vector2(6,2)*s);
+        ImGui.SetNextItemWidth((logicalSize.X-12)*s);
+        ImGui.PushStyleColor(ImGuiCol.FrameBg,Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgHovered,Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgActive,Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.Border,Vector4.Zero);
+        bool changed=ImGui.InputInt(id,ref value,0,0);
+        ImGui.PopStyleColor(4);
+        return changed;
+    }
+    private void DrawAuctionMoneyInput(ImDrawListPtr dl, string id, ref int copper,
+        Vector2 min, float s)
+    {
+        int safe=Math.Max(0,copper);
+        int gold=safe/10000;
+        int silver=safe/100%100;
+        int bronze=safe%100;
+        bool changed=DrawAuctionMoneyEditBox(dl,$"##{id}-gold",ref gold,min,
+            new Vector2(58,20),0,s);
+        DrawMailCoin(dl,0,min+new Vector2(60,3)*s,s);
+        changed|=DrawAuctionMoneyEditBox(dl,$"##{id}-silver",ref silver,
+            min+new Vector2(84,0)*s,new Vector2(30,20),10,s);
+        DrawMailCoin(dl,1,min+new Vector2(106,3)*s,s);
+        changed|=DrawAuctionMoneyEditBox(dl,$"##{id}-copper",ref bronze,
+            min+new Vector2(130,0)*s,new Vector2(30,20),10,s);
+        DrawMailCoin(dl,2,min+new Vector2(152,3)*s,s);
+        if(changed)
+            copper=(int)Math.Min(int.MaxValue,
+                (long)Math.Max(0,gold)*10000L+(long)Math.Clamp(silver,0,99)*100L+
+                Math.Clamp(bronze,0,99));
     }
 }

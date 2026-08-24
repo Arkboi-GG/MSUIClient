@@ -125,8 +125,8 @@ public sealed class CharacterEquipment
             }
 
             string kind = piece.NeedsAttachment ? "attachment" : piece.AffectsBody ? "body" : "nothing";
-            Console.WriteLine($"[equip] {piece.Name} (display {piece.DisplayId}, slot {piece.InventoryType}) " +
-                              $"-> {kind}: {piece.Row}");
+            Console.WriteLine($"[equip] {piece.Name} (display {piece.DisplayId}, inv {piece.InventoryType}, " +
+                              $"equip {piece.EquipmentSlot}, sheath {piece.Sheath}) -> {kind}: {piece.Row}");
         }
 
         int attachments = _pieces.Count(p => p.NeedsAttachment);

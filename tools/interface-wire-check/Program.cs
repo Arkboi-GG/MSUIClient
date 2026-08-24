@@ -79,7 +79,7 @@ static void CheckGameMenuLayout()
             "\"FontScale\":1.35}," +
             "\"MenuLayout\":{}},\"Presets\":[]}");
         SettingsStore migrated = SettingsStore.Load(root, migrationPath);
-        Check(migrated.Settings.Version == 10 &&
+        Check(migrated.Settings.Version == 11 &&
               MathF.Abs(migrated.Settings.MenuLayout.Scale - 1.125f) < .0001f &&
               MathF.Abs(migrated.Settings.MenuLayout.TextScale - 1.35f) < .0001f,
             "menu layout migration did not preserve its existing chrome and text sizes");

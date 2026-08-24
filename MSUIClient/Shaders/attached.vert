@@ -18,10 +18,12 @@ layout (location = 4) in vec4 aBoneIndices;
 
 uniform mat4 uModel;
 uniform mat4 uModelViewProjection;
+uniform mat4 uView;
 const int MAX_BONES = 160;
 uniform vec4 uBones[MAX_BONES * 3];
 uniform int uBoneCount;
 uniform vec2 uUvOffset;
+uniform int uEnvironmentMap;
 
 out vec3 vWorldPos;
 out vec3 vNormal;
@@ -69,7 +71,21 @@ void main()
 
     vWorldPos = world.xyz;
     vNormal = normalize(transpose(inverse(mat3(uModel) * skinLinear)) * aNormal);
-    vUV = aUV + uUvOffset;
+    vec2 mappedUV = aUV;
+    if (uEnvironmentMap != 0)
+    {
+        // Vanilla's -1 texture-unit lookup requests camera-space sphere mapping.
+        // The reflected view vector makes the highlight move across the weapon as
+        // either the weapon or camera turns, instead of pinning the effect bitmap.
+        vec3 viewPosition = (uView * world).xyz;
+        vec3 viewNormal = normalize(mat3(uView) * vNormal);
+        vec3 reflected = reflect(normalize(viewPosition), viewNormal);
+        float denominator = 2.0 * sqrt(max(0.000001,
+            reflected.x * reflected.x + reflected.y * reflected.y +
+            (reflected.z + 1.0) * (reflected.z + 1.0)));
+        mappedUV = reflected.xy / denominator + vec2(0.5);
+    }
+    vUV = mappedUV + uUvOffset;
 
     gl_Position = uModelViewProjection * vec4(p, 1.0);
 }

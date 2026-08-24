@@ -623,9 +623,21 @@ public sealed partial class GameLoop
             DrawProfessionTradeSkillControls(dl, origin, s, displayRows);
         if (maximumScroll > 0)
             DrawProfessionScrollBar(dl, origin, s, maximumScroll);
-        DrawArt(dl, @"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar",
-            origin + ProfessionFrameUiLaw.HorizontalBar * s,
-            ProfessionFrameUiLaw.HorizontalBarSize, s);
+        uint horizontalBar = _gameplayArt.Handle(
+            @"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar");
+        if (horizontalBar != 0)
+        {
+            Vector2 barLeft = origin + ProfessionFrameUiLaw.HorizontalBarLeft.Min * s;
+            dl.AddImage((nint)horizontalBar, barLeft,
+                barLeft + ProfessionFrameUiLaw.HorizontalBarLeft.Size * s,
+                ProfessionFrameUiLaw.HorizontalBarLeftUvMin,
+                ProfessionFrameUiLaw.HorizontalBarLeftUvMax);
+            Vector2 barRight = origin + ProfessionFrameUiLaw.HorizontalBarRight.Min * s;
+            dl.AddImage((nint)horizontalBar, barRight,
+                barRight + ProfessionFrameUiLaw.HorizontalBarRight.Size * s,
+                ProfessionFrameUiLaw.HorizontalBarRightUvMin,
+                ProfessionFrameUiLaw.HorizontalBarRightUvMax);
+        }
         DrawArt(dl, @"Interface\ClassTrainerFrame\UI-ClassTrainer-DetailHeaderLeft",
             origin + ProfessionFrameUiLaw.DetailHeaderLeft.Min * s,
             ProfessionFrameUiLaw.DetailHeaderLeft.Size, s);

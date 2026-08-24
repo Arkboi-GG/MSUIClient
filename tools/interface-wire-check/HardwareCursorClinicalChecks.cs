@@ -11,6 +11,10 @@ internal static class HardwareCursorClinicalChecks
                   new byte[] { 0x30, 0x20, 0x10, 0x40, 0xC0, 0xB0, 0xA0, 0xD0 }),
             "hardware cursor BGRA-to-RGBA conversion drift");
         CheckThrows(() => HardwareCursorLaw.FromBgra(new byte[7], 2, 1));
+        HardwareCursorImage scaled = HardwareCursorLaw.ResizeNearest(image, 4, 2);
+        Check(scaled.Width == 4 && scaled.Height == 2 && scaled.Rgba.Length == 32 &&
+              scaled.Rgba[0] == 0x30 && scaled.Rgba[8] == 0xC0 && scaled.Rgba[16] == 0x30,
+            "hardware cursor nearest-neighbour scaling drift");
 
         string root = ClientConfig.FindRepoRoot();
         string window = SourceText.Read(Path.Combine(root, "MSUIClient", "Engine",
@@ -22,8 +26,11 @@ internal static class HardwareCursorClinicalChecks
         Check(window.Contains("CursorType.Custom", StringComparison.Ordinal) &&
               window.Contains("cursor.HotspotX = 0", StringComparison.Ordinal) &&
               window.Contains("cursor.HotspotY = 0", StringComparison.Ordinal) &&
-              inventory.Contains("_window.UseHardwareCursor(stem, resolved)",
+              window.Contains("_hardwareCursorProposal = image", StringComparison.Ordinal) &&
+              window.Contains("EndHardwareCursorFrame", StringComparison.Ordinal) &&
+              inventory.Contains("_window.UseHardwareCursor(cacheKey, resolved)",
                   StringComparison.Ordinal) &&
+              inventory.Contains("Settings.Display.CursorScale", StringComparison.Ordinal) &&
               inventory.Contains("if (TryUseHardwareCursor(stem)) return;",
                   StringComparison.Ordinal) &&
               hud.Contains("TryUseHardwareCursor(WorldCursorKind.Point.ToString())",

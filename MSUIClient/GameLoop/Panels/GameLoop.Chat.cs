@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
@@ -36,6 +37,7 @@ public sealed partial class GameLoop
     // fade in only when the cursor rests on the frame. _chatReveal is 0..1.
     private float _chatReveal, _chatRevealTarget, _chatHoverTime;
     private bool _chatEditOpen;                       // edit box shown (Enter) - wired in a later stage
+    private bool _chatDragDirty;
     private ChatFrameLaw.MsgType _chatSendType = ChatFrameLaw.MsgType.Say;
     private int _chatSelectedTab;                     // 0 = General, 1 = Combat Log
 
@@ -465,7 +467,11 @@ public sealed partial class GameLoop
         if (_gameplayArt is null) return;
         float s = GameplayUiScale();
         Vector2 logicalDisplay = ImGui.GetIO().DisplaySize / s;
-        Vector2 root = ChatFrameLaw.FrameOrigin(logicalDisplay);
+        Settings.HudLayout ??= new GameSettings.HudLayoutSettings();
+        Vector2 authoredRoot = ChatFrameLaw.FrameOrigin(logicalDisplay);
+        Vector2 savedOffset = new(Settings.HudLayout.ChatOffsetX, Settings.HudLayout.ChatOffsetY);
+        Vector2 root = ChatFrameLaw.ClampFrameOrigin(authoredRoot + savedOffset, logicalDisplay);
+        DrawChatMover(ref root, authoredRoot, logicalDisplay, s);
         Vector2 rootPx = root * s;
         ImDrawListPtr dl = ImGui.GetBackgroundDrawList();
 
@@ -505,6 +511,39 @@ public sealed partial class GameLoop
         if (_chatEditOpen) DrawChatEditBox(dl, root, s);
 
         if (_uiParityArmed && _uiParityPanel == "chat-frame") MarkUiParityFrameComplete();
+    }
+
+    private void DrawChatMover(ref Vector2 root, Vector2 authoredRoot,
+        Vector2 logicalDisplay, float scale)
+    {
+        if (!Settings.HudLayout.ChatUnlocked) return;
+
+        Vector2 handleSize = new(92f, 22f);
+        Vector2 handleOffset = new(ChatFrameLaw.FrameWidth - handleSize.X, -30f);
+        Vector2 handle = root + handleOffset;
+        ImGui.SetNextWindowPos(handle * scale);
+        ImGui.SetNextWindowSize(handleSize * scale);
+        ImGui.SetNextWindowBgAlpha(.82f);
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoSavedSettings |
+            ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoNav;
+        ImGui.Begin("##chat-frame-mover", flags);
+        ImGui.Button("Drag chat##chat-frame-drag", handleSize * scale);
+        if (ImGui.IsItemActive() && ImGui.IsMouseDragging(ImGuiMouseButton.Left))
+        {
+            root = ChatFrameLaw.ClampFrameOrigin(
+                root + ImGui.GetIO().MouseDelta / MathF.Max(.01f, scale), logicalDisplay);
+            Vector2 offset = root - authoredRoot;
+            Settings.HudLayout.ChatOffsetX = offset.X;
+            Settings.HudLayout.ChatOffsetY = offset.Y;
+            _chatDragDirty = true;
+        }
+        if (_chatDragDirty && ImGui.IsItemDeactivated())
+        {
+            SettingsFile?.Save();
+            _chatDragDirty = false;
+        }
+        ImGui.End();
     }
 
     /// <summary>

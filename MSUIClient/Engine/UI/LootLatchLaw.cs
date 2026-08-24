@@ -18,13 +18,10 @@ public static class LootLatchLaw
             : new(false, lootType != 0, 0);
     }
 
+    // The active player's reference predicate reads the client-local loot target itself. Target
+    // classification is relevant to remote descriptor-driven looting, not to this predicted latch.
     public static bool ShouldKneel(ulong latch, TargetKind kind, uint gameObjectType,
-        uint unitHealth) => latch != 0 && kind switch
-        {
-            TargetKind.GameObject => gameObjectType != 17,
-            TargetKind.Unit => unitHealth == 0,
-            _ => false,
-        };
+        uint unitHealth) => latch != 0;
 
     public static ulong ClearFor(ulong latch, ulong guid) => latch == guid ? 0 : latch;
 }

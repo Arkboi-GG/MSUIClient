@@ -215,6 +215,8 @@ internal static class UnitPopupClinicalChecks
             "GameLoop.Targeting.cs"));
         string picker = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
             "GameLoop.GameObjectRender.cs"));
+        string doodads = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Doodads",
+            "DoodadRenderer.cs"));
         string cursor = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
             "GameLoop.WorldCursor.cs"));
         string gameObjects = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
@@ -227,6 +229,10 @@ internal static class UnitPopupClinicalChecks
               targeting.Contains("GameObjectBrightens(hoveredGo)", StringComparison.Ordinal) &&
               picker.Contains("TryPickDynamic", StringComparison.Ordinal) &&
               picker.Contains("GameObjectMouseoverEligible(go)", StringComparison.Ordinal) &&
+              picker.Contains("IsWorldPointNearDynamicPickBounds", StringComparison.Ordinal) &&
+              doodads.Contains("RayDynamicRenderMesh", StringComparison.Ordinal) &&
+              doodads.Contains("model.PickIndices", StringComparison.Ordinal) &&
+              !doodads.Contains("TryGetDynamicPickBounds", StringComparison.Ordinal) &&
               cursor.Contains("FirstCursorLockType", StringComparison.Ordinal) &&
               cursor.Contains("WorldCursorUiLaw.GameObject(", StringComparison.Ordinal) &&
               cursor.Contains("ResolveGameObjectLock(hoveredGo)", StringComparison.Ordinal) &&

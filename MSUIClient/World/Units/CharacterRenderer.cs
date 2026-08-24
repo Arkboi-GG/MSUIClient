@@ -63,7 +63,7 @@ public sealed partial class CharacterRenderer : IDisposable
     /// </summary>
     private static readonly int[] BakedAnimations =
         [0, 4, 5, 9, 11, 12, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30,
-         37, 38, 39, 40, 41, 42, 43, 44, 45, 85, 87, 88, 92, 93, 96, 97, 98, 99, 100, 101, 102, 103, 104,
+         37, 38, 39, 40, 41, 42, 43, 44, 45, 85, 87, 88, 89, 90, 92, 93, 96, 97, 98, 99, 100, 101, 102, 103, 104,
          114, 115, 116, 117, 187];
 
     /// <summary>
@@ -318,6 +318,14 @@ public sealed partial class CharacterRenderer : IDisposable
     private float _clipRate = 1f;
     private M2Animator.Clip? _combatAction;
     private M2Animator.Clip? _spellHold;
+    private M2Animator.Clip? _rightSheathOverlay;
+    private M2Animator.Clip? _leftSheathOverlay;
+    private float _sheathOverlayTime;
+    private float _sheathSwapAt;
+    private float _sheathCeremonyDuration;
+    private bool _sheathCeremonyActive;
+    private bool _sheathSwapReady;
+    public bool SheathCeremonyActive => _sheathCeremonyActive;
     public long CombatActionsTriggered { get; private set; }
     public string CurrentAnimation => _clip?.Name ?? "none";
     public string CurrentActionAnimation => _combatAction?.Name ?? "none";
@@ -513,7 +521,9 @@ public sealed partial class CharacterRenderer : IDisposable
         M2Sequence? stand = _m2.Sequences.FirstOrDefault(s =>
             s.AnimationId == 0 && s.VariationId == 0) ??
             _m2.Sequences.FirstOrDefault(s => s.AnimationId == 0);
-        return stand is null ? 0f : stand.BoundsZExtent * MathF.Max(0.01f, ModelScale);
+        float scale = MathF.Max(0.01f, ModelScale);
+        float authored = stand?.BoundsZExtent ?? 0f;
+        return MathF.Max(authored, _bindPoseHeight) * scale;
     }
 
     public bool TryGetAuthoredPortrait(in UnitState state, out M2PortraitCamera camera,
@@ -2409,6 +2419,101 @@ public sealed partial class CharacterRenderer : IDisposable
 
     // ── animation ────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Start the manual draw/stow motion as independent right/left-arm overlays. Returns false
+    /// when the model or currently equipped hands cannot author a ceremony; callers then snap.
+    /// </summary>
+    public bool BeginSheathCeremony()
+    {
+        CancelSheathCeremony();
+        if (_animator is null || _m2 is null || !_animator.HasArmOverlayRoots) return false;
+
+        CharacterEquipment.Piece? main = Equipment.Pieces.FirstOrDefault(
+            piece => piece.EquipmentSlot == 15);
+        CharacterEquipment.Piece? off = Equipment.Pieces.FirstOrDefault(
+            piece => piece.EquipmentSlot == 16);
+        _rightSheathOverlay = ResolveSheathOverlay(main);
+        _leftSheathOverlay = ResolveSheathOverlay(off);
+        if (_rightSheathOverlay is null && _leftSheathOverlay is null) return false;
+
+        _sheathOverlayTime = 0f;
+        _sheathSwapAt = float.PositiveInfinity;
+        _sheathCeremonyDuration = 0f;
+        if (_rightSheathOverlay is { } right)
+        {
+            _sheathSwapAt = SheathSwapMoment(right);
+            _sheathCeremonyDuration = right.DurationSeconds;
+        }
+        if (_leftSheathOverlay is { } left)
+        {
+            _sheathSwapAt = MathF.Min(_sheathSwapAt, SheathSwapMoment(left));
+            _sheathCeremonyDuration = MathF.Max(_sheathCeremonyDuration, left.DurationSeconds);
+        }
+        _sheathCeremonyActive = _sheathCeremonyDuration > 0f;
+        return _sheathCeremonyActive;
+    }
+
+    public bool ConsumeSheathSwap()
+    {
+        if (!_sheathSwapReady) return false;
+        _sheathSwapReady = false;
+        return true;
+    }
+
+    public void CancelSheathCeremony()
+    {
+        _rightSheathOverlay = null;
+        _leftSheathOverlay = null;
+        _sheathOverlayTime = 0f;
+        _sheathSwapAt = 0f;
+        _sheathCeremonyDuration = 0f;
+        _sheathCeremonyActive = false;
+        _sheathSwapReady = false;
+    }
+
+    private M2Animator.Clip? ResolveSheathOverlay(CharacterEquipment.Piece? piece)
+    {
+        if (piece is null || _animator is null) return null;
+        int animationId = piece.Sheath is 3 or 7 ? 90 : 89;
+        return _animator.FindOrBake(animationId, includeStaticSequences: true);
+    }
+
+    private float SheathSwapMoment(M2Animator.Clip clip)
+    {
+        float fallback = clip.DurationSeconds * 0.5f;
+        if (_m2 is null || clip.SequenceIndex < 0 || clip.SequenceIndex >= _m2.Sequences.Count)
+            return fallback;
+
+        M2Sequence sequence = _m2.Sequences[clip.SequenceIndex];
+        float best = float.PositiveInfinity;
+        foreach (M2EventMarker marker in _m2.Events)
+        {
+            string identifier = marker.Identifier.TrimEnd('\0');
+            if (!identifier.Equals("$SHL", StringComparison.Ordinal) &&
+                !identifier.Equals("$SHR", StringComparison.Ordinal))
+                continue;
+            foreach (uint timestamp in marker.Times)
+            {
+                if (timestamp < sequence.StartTimestamp || timestamp > sequence.EndTimestamp) continue;
+                best = MathF.Min(best, (timestamp - sequence.StartTimestamp) / 1000f);
+            }
+        }
+        return float.IsFinite(best) ? Math.Clamp(best, 0f, clip.DurationSeconds) : fallback;
+    }
+
+    private void AdvanceSheathCeremony(float dt)
+    {
+        if (!_sheathCeremonyActive) return;
+        _sheathOverlayTime += dt;
+        if (!_sheathSwapReady && _sheathOverlayTime >= _sheathSwapAt)
+            _sheathSwapReady = true;
+        if (_sheathOverlayTime >= _sheathCeremonyDuration)
+        {
+            if (!_sheathSwapReady) _sheathSwapReady = true;
+            _sheathCeremonyActive = false;
+        }
+    }
+
     public void Update(float dt, in UnitState state)
     {
         if (_m2 is null || dt <= 0f) return;
@@ -2416,6 +2521,8 @@ public sealed partial class CharacterRenderer : IDisposable
         // Ice Block is not a locomotion root or a stun animation. It preserves the exact pose
         // reached by the cast and stops every character animation clock until the aura ends.
         if (state.FreezePose) return;
+
+        AdvanceSheathCeremony(dt);
 
         MeasureMotion(dt, state);
         ResolveMotion(state);
@@ -3281,8 +3388,16 @@ public sealed partial class CharacterRenderer : IDisposable
             }
             else
             {
-                _animator.Evaluate(_clip, _clipTime,
+                M2Animator.Clip? rightOverlay = _sheathCeremonyActive &&
+                    _rightSheathOverlay is { } right && _sheathOverlayTime <= right.DurationSeconds
+                        ? right : null;
+                M2Animator.Clip? leftOverlay = _sheathCeremonyActive &&
+                    _leftSheathOverlay is { } left && _sheathOverlayTime <= left.DurationSeconds
+                        ? left : null;
+                _animator.EvaluateWithArmOverlays(_clip, _clipTime,
                                    _previousClip, _previousClipTime, BlendWeightNow(),
+                                   rightOverlay, _sheathOverlayTime,
+                                   leftOverlay, _sheathOverlayTime,
                                    _globalTime, _skin);
             }
             M2Animator.Pack(_skin, Math.Min(bones, M2Animator.MaxBones), _packed);
@@ -3508,6 +3623,7 @@ public sealed partial class CharacterRenderer : IDisposable
         _bodySlotIndex = -1;
         _baseSkin = null;
         _animator = null;
+        CancelSheathCeremony();
 
         // Every clip reference has to go, not just the current one. A Clip holds
         // a per-bone array sized to the animator that baked it, so a stale

@@ -249,6 +249,16 @@ public static class ChatFrameLaw
     public static Vector2 FrameOrigin(Vector2 logicalDisplay) =>
         new(AnchorX, logicalDisplay.Y - AnchorBottomY - FrameHeight);
 
+    /// <summary>Keep controls, tabs and the edit box reachable after a move or resize.</summary>
+    public static Vector2 ClampFrameOrigin(Vector2 origin, Vector2 logicalDisplay)
+    {
+        Vector2 minimum = new(ControlButtonSize, HoverUp);
+        Vector2 maximum = new(
+            MathF.Max(minimum.X, logicalDisplay.X - FrameWidth - BgRight),
+            MathF.Max(minimum.Y,
+                logicalDisplay.Y - FrameHeight - EditDrop - EditHeight - BgBottom));
+        return Vector2.Clamp(origin, minimum, maximum);
+    }
     public static Vector2 FrameScaledSize(float scale) => FrameRect.ScaledSize(scale);
 
     public static int PageUpOffset(int current, int visibleLines) =>

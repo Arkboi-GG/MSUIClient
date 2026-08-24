@@ -20,6 +20,16 @@ public class M2Model
     public List<M2TextureRef> Textures { get; set; } = new();
     public List<ushort> TextureLookup { get; set; } = new();
 
+    /// <summary>
+    /// Per-texture-coordinate-unit lookup. Vanilla M2 uses -1 to request
+    /// camera-space environment coordinates instead of authored model UVs.
+    /// </summary>
+    public List<short> TextureUnitLookup { get; set; } = new();
+
+    public bool UsesEnvironmentMapForBatch(M2Batch batch)
+        => batch.TextureCoordIndex < TextureUnitLookup.Count &&
+           TextureUnitLookup[batch.TextureCoordIndex] == -1;
+
     // ── Skeleton ─────────────────────────────────────────────────────────────
     public List<M2Bone> Bones { get; set; } = new();
     public List<short> KeyBoneLookup { get; set; } = new();
@@ -1637,6 +1647,7 @@ public class M2Reader
             // ── Textures + lookups + render flags + transparency ────────────
             ParseTextures(data, ReadUInt32(data, 0x05C), ReadUInt32(data, 0x060), model);
             ParseTextureLookup(data, ReadUInt32(data, 0x094), ReadUInt32(data, 0x098), model);
+            ParseTextureUnitLookup(data, ReadUInt32(data, 0x09C), ReadUInt32(data, 0x0A0), model);
             ParseRenderFlags(data, ReadUInt32(data, 0x084), ReadUInt32(data, 0x088), model);
             ParseColors(data, ReadUInt32(data, 0x054), ReadUInt32(data, 0x058), model);
             ParseParticleEmitters(data, ReadUInt32(data, 0x13C), ReadUInt32(data, 0x140), model,
@@ -2318,6 +2329,14 @@ public class M2Reader
         if (offset + count * 2 > data.Length) return;
         for (uint i = 0; i < count; i++)
             model.TextureLookup.Add(ReadUInt16(data, (int)(offset + i * 2)));
+    }
+
+    private static void ParseTextureUnitLookup(byte[] data, uint count, uint offset, M2Model model)
+    {
+        if (count == 0 || offset == 0) return;
+        if (offset + count * 2 > data.Length) return;
+        for (uint i = 0; i < count; i++)
+            model.TextureUnitLookup.Add((short)ReadUInt16(data, (int)(offset + i * 2)));
     }
 
     private static void ParseRenderFlags(byte[] data, uint count, uint offset, M2Model model)

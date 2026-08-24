@@ -87,8 +87,9 @@ public sealed class GameSettings
     ///     the server's game clock instead of a world pinned at noon.
     /// v8: Escape/Options menu scale became independent from gameplay Interface scale.
     /// v9: Escape/Options text scale moved beside its independent chrome scale.
-    /// v10: vanilla Camera Following Style became a persisted Smart/Always/Never control.</summary>
-    public int Version { get; set; } = 10;
+    /// v10: vanilla Camera Following Style became a persisted Smart/Always/Never control.
+    /// v11: cursor scale and movable gameplay-frame positions became persistent.</summary>
+    public int Version { get; set; } = 11;
 
     /// <summary>Name of the preset last selected, or "Custom". Cosmetic; the values below are the truth.</summary>
     public string ActivePreset { get; set; } = "Custom";
@@ -123,6 +124,7 @@ public sealed class GameSettings
     public DevWindowSettings DevWindow { get; set; } = new();
     public EncounterLabSettings EncounterLab { get; set; } = new();
     public MenuLayoutSettings MenuLayout { get; set; } = new();
+    public HudLayoutSettings HudLayout { get; set; } = new();
     public MountSettings Mounts { get; set; } = new();
     public AudioSettings Audio { get; set; } = new();
 
@@ -246,6 +248,14 @@ public sealed class GameSettings
         public float ControlsHeight { get; set; }
         public float SoundWidth { get; set; }
         public float SoundHeight { get; set; }
+    }
+
+    /// <summary>Player-placed gameplay frames, stored in logical pixels so UI scaling is neutral.</summary>
+    public sealed class HudLayoutSettings
+    {
+        public bool ChatUnlocked { get; set; }
+        public float ChatOffsetX { get; set; }
+        public float ChatOffsetY { get; set; }
     }
 
     /// <summary>
@@ -399,6 +409,7 @@ public sealed class GameSettings
         public bool MultisamplingEnabled { get; set; } = true;    // live (the GL enable, not the count)
         public float Anisotropy { get; set; } = 8f;               // restart
         public float UiScale { get; set; } = 1.8f;                // live
+        public float CursorScale { get; set; } = 1f;              // live, on top of UiScale
         // Legacy v8 migration source. MenuLayout.TextScale now owns Escape/Options text.
         public float FontScale { get; set; } = 1f;
         public bool TexturedFrame { get; set; } = true;           // live - WowSkin.Textured
@@ -1397,6 +1408,13 @@ public sealed class SettingsStore
             s.Controls.CameraFollowTrackingStyle = CameraFollowStyle.Smart;
             s.Controls.CameraFollowYawSpeed = CameraFollowLaw.DefaultYawSpeedDegrees;
             s.Version = 10;
+        }
+
+        if (s.Version < 11)
+        {
+            s.Display.CursorScale = 1f;
+            s.HudLayout ??= new GameSettings.HudLayoutSettings();
+            s.Version = 11;
         }
 
     }

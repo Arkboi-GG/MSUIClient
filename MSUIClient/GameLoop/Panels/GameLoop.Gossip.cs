@@ -284,7 +284,14 @@ public sealed partial class GameLoop
                 rows.Count < GossipUiLaw.MaximumRows; i++)
         {
             GossipOption option = _gossipMenu.Options[i];
-            rows.Add((false, i, ExpandQuestText(option.Text),
+            string displayText = ExpandQuestText(option.Text);
+            if (option.Text.StartsWith("GOSSIP_OPTION_", StringComparison.Ordinal))
+                displayText = InventoryGlobalString(option.Text, option.Text switch
+                {
+                    "GOSSIP_OPTION_AUCTIONEER" => "I would like to make a bid.",
+                    _ => displayText,
+                });
+            rows.Add((false, i, displayText,
                 GossipUiLaw.OptionIcon(option.Icon), !option.Coded, 0, 0));
         }
         float[] rowHeights = rows.Select(row => GossipUiLaw.RowHeight(

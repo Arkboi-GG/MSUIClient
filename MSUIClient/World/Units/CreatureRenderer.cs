@@ -1008,8 +1008,10 @@ public sealed partial class CreatureRenderer : IDisposable
         M2Sequence? stand = model.Source.Sequences.FirstOrDefault(s =>
             s.AnimationId == 0 && s.VariationId == 0) ??
             model.Source.Sequences.FirstOrDefault(s => s.AnimationId == 0);
-        if (stand is null) return true;
-        height = stand.BoundsZExtent * UnitRenderScale(entity.Scale, ScaleMultiplier);
+        float authored = stand?.BoundsZExtent ?? 0f;
+        float modelHeight = MathF.Max(0f, model.MaxHeight - model.MinHeight);
+        height = MathF.Max(authored, modelHeight) *
+            UnitRenderScale(entity.Scale, ScaleMultiplier);
         return true;
     }
 

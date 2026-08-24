@@ -1252,6 +1252,15 @@ public sealed partial class GameLoop
                     if (_skin is not null) _skin.Scale = v;
                 }
 
+                Slider("cursor-scale", "Mouse cursor scale", () => s.Display.CursorScale,
+                    v => s.Display.CursorScale = v, .5f, 2f, "x{0:F2}",
+                    "Multiplies the cursor after Interface scale, so it follows the HUD but can be tuned independently.");
+
+                s.HudLayout ??= new GameSettings.HudLayoutSettings();
+                Check("Unlock chat frame", () => s.HudLayout.ChatUnlocked,
+                    v => s.HudLayout.ChatUnlocked = v,
+                    "Shows a drag handle above chat. Its position is saved in logical UI units.");
+
                 if (ImGui.TreeNode("Advanced##display"))
                 {
                     Restart();
