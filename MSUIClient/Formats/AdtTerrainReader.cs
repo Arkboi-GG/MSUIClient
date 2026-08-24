@@ -1421,6 +1421,10 @@ public static class AdtTerrainReader
         if (mcnkDataStart + MCNK_HEADER_SIZE > data.Length)
             return chunk;
 
+        // Header bit 1 is MCNK_IMPASSABLE. The 1.12 movement gather turns it
+        // into four tall, one-way walls around this whole 33-yard chunk; it is
+        // not a render flag and must survive the ADT parse for terrain movement.
+        chunk.Flags = BitConverter.ToUInt32(data, mcnkDataStart + 0x00);
         chunk.IndexX = (int)BitConverter.ToUInt32(data, mcnkDataStart + 0x04);
         chunk.IndexY = (int)BitConverter.ToUInt32(data, mcnkDataStart + 0x08);
         // AreaTable.dbc ID authored for this 33-yard terrain chunk. The stock
@@ -1911,6 +1915,18 @@ public static class AdtTerrainReader
     /// <summary>A single 33-yard terrain chunk with texture layers and alpha.</summary>
     public class McnkChunk
     {
+        private const uint McnkImpassable = 0x0000_0002;
+
+        /// <summary>Raw MCNK header flags at offset 0x00.</summary>
+        public uint Flags { get; set; }
+
+        /// <summary>
+        /// Authored whole-chunk movement barrier. Vanilla surrounds every such
+        /// chunk with one-way walls: entry is blocked, while a mover already
+        /// inside may leave.
+        /// </summary>
+        public bool Impassable => (Flags & McnkImpassable) != 0;
+
         public int IndexX { get; set; }
         public int IndexY { get; set; }
         public uint AreaId { get; set; }

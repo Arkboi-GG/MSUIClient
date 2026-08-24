@@ -218,6 +218,10 @@ public sealed class CharacterController
     /// where a fixed distance is the right thing.
     /// </summary>
     private const float GroundContactEpsilon = 0.05f;
+    private const float TerrainSkin = 0.02f;
+    private const float StepUpAdvance = 1.1917536f;
+    private const float StepSlopeRatio = 1.849399f;
+    private const float StepSnapSlack = 0.0277778f;
 
     /// <summary>
     /// Z of the surface that supported the character at the END of the previous
@@ -305,6 +309,9 @@ public sealed class CharacterController
     /// while needing completely different fixes.
     /// </summary>
     public float? TerrainGroundZ { get; private set; }
+    public Vector3 TerrainGroundNormal { get; private set; } = Vector3.UnitZ;
+    public bool TerrainGroundSteep { get; private set; }
+    public bool TerrainChunkImpassable { get; private set; }
     public float? CollisionGroundZ { get; private set; }
 
     /// <summary>Which candidate won: "terrain", "collision", or "none".</summary>
@@ -549,6 +556,7 @@ public sealed class CharacterController
 
         Depenetrate();
 
+        var terrainMoveStart = new Vector2(Position.X, Position.Y);
         MoveHorizontal(ref move);
 
         Velocity.Z -= _opts.Gravity * dt;
@@ -558,7 +566,7 @@ public sealed class CharacterController
         Position.Z += Velocity.Z * dt;
 
         ResolveGround(wasGrounded && !jumped,
-            MathF.Max(0f, verticalStartZ - Position.Z));
+            MathF.Max(0f, verticalStartZ - Position.Z), terrainMoveStart);
 
         LastBlockAgeSeconds += dt;
 
@@ -670,7 +678,7 @@ public sealed class CharacterController
     /// attempted - which is what makes stairs and the abbey steps walkable
     /// without jumping. Two iterations handles inside corners.
     ///
-    /// SAMPLED AT THREE HEIGHTS, NOT ONE.
+    /// SAMPLED THROUGH THE BODY, NOT ONCE AT THE CHEST.
     ///
     /// This used to cast a single ray from mid-body, "so low rubble doesn't
     /// count as a wall". The cost of that shortcut is a band of walls the
@@ -681,13 +689,16 @@ public sealed class CharacterController
     /// far side of one and there is no floor, which presents as falling through
     /// a building whose mesh has no hole in it.
     ///
-    /// The lowest sample sits just above StepHeight because a wall shorter than
-    /// that is climbable by definition - blocking on it would make every stair
-    /// riser a wall. The highest sits near the top of the capsule so railings
-    /// and door frames above the chest are felt too.
+    /// The foot sample discovers low risers so the atomic step maneuver gets a
+    /// chance to certify their top; if certification fails, the same face still
+    /// blocks instead of becoming intangible. The remaining samples cover the
+    /// step-ceiling, chest, and near-head bands.
     /// </summary>
     private void MoveHorizontal(ref Vector3 move)
     {
+        if (move.LengthSquared() < 1e-8f) return;
+
+        ConstrainTerrainHorizontal(ref move);
         if (move.LengthSquared() < 1e-8f) return;
 
         if (!HasGeometryCollision)
@@ -698,6 +709,7 @@ public sealed class CharacterController
 
         Span<float> sampleHeights =
         [
+            GroundContactEpsilon,
             _opts.StepHeight + GroundContactEpsilon,
             _opts.Height * 0.5f,
             _opts.Height * 0.9f,
@@ -752,34 +764,255 @@ public sealed class CharacterController
             float advance = MathF.Max(0f, wall.Distance - _opts.Radius);
             if (advance > 1e-5f) Position += dir * advance;
 
-            // Slide: strip the component pushing into the wall.
+            // Vanilla's steep-face response writes only the two horizontal
+            // axes. An orthogonal plane projection would add Normal.Z lift to
+            // this nominally horizontal vector, which is the jump-climb ratchet.
+            Vector3 horizontalNormal = new(wall.Normal.X, wall.Normal.Y, 0f);
+            float horizontalLengthSq = horizontalNormal.LengthSquared();
             float into = Vector3.Dot(move, wall.Normal);
-            move -= wall.Normal * into;
+            if (into < 0f && horizontalLengthSq > 1e-8f)
+                move -= horizontalNormal * (into / horizontalLengthSq);
+            move.Z = 0f;
             move *= 0.98f;
         }
     }
 
-    /// <summary>Probe for a ledge within stepHeight that the move could stand on.</summary>
+    /// <summary>
+    /// Apply the two terrain-only collision laws before the vmap sweep.
+    ///
+    /// ADT terrain deliberately stays out of CollisionWorld's million-triangle
+    /// BVH, but that cannot mean it is only a post-move height snap. This local
+    /// fan-triangle query supplies the same face normal a swept terrain mesh
+    /// would: impassable MCNK walls reject entry, and an opposing face over the
+    /// 50-degree standability limit removes only the uphill horizontal push.
+    /// </summary>
+    private void ConstrainTerrainHorizontal(ref Vector3 move)
+    {
+        Vector2 start = new(Position.X, Position.Y);
+        Vector2 requested = start + new Vector2(move.X, move.Y);
+        bool haveStart = _terrain.TrySampleMovementSurface(
+            start.X, start.Y, out TerrainSurfaceSample startSurface, out _);
+        bool haveTarget = _terrain.TrySampleMovementSurface(
+            requested.X, requested.Y, out TerrainSurfaceSample targetSurface, out _);
+
+        static bool SameChunk(in TerrainSurfaceSample a, in TerrainSurfaceSample b) =>
+            a.TileCol == b.TileCol && a.TileRow == b.TileRow &&
+            a.ChunkX == b.ChunkX && a.ChunkY == b.ChunkY;
+        bool FenceActive(in TerrainSurfaceSample surface) =>
+            surface.Impassable &&
+            Position.Z + _opts.Height >= surface.ChunkMinimumHeight - TerrainSkin;
+
+        // MCNK_IMPASSABLE is four outward-facing walls around each authored
+        // chunk. Entry is blocked; starting inside and leaving remains legal.
+        if (haveTarget && FenceActive(targetSurface) &&
+            (!haveStart || !SameChunk(startSurface, targetSurface)))
+        {
+            float lo = 0f, hi = 1f;
+            for (int i = 0; i < 16; i++)
+            {
+                float mid = (lo + hi) * 0.5f;
+                Vector2 point = Vector2.Lerp(start, requested, mid);
+                bool blocked = _terrain.TrySampleMovementSurface(
+                    point.X, point.Y, out TerrainSurfaceSample probe, out _) &&
+                    FenceActive(probe) &&
+                    (!haveStart || !SameChunk(startSurface, probe));
+                if (blocked) hi = mid;
+                else lo = mid;
+            }
+
+            float distance = move.Length();
+            float allowed = MathF.Max(0f, distance * hi - _opts.Radius);
+            Vector3 direction = distance > 1e-6f ? move / distance : Vector3.Zero;
+            move = direction * allowed;
+            LastBlockPoint = new Vector3(
+                start.X + direction.X * distance * hi,
+                start.Y + direction.Y * distance * hi,
+                Position.Z);
+            LastBlockNormal = -direction;
+            LastBlockTriangle = -1;
+            LastBlockAgeSeconds = 0f;
+
+            requested = start + new Vector2(move.X, move.Y);
+            haveTarget = _terrain.TrySampleMovementSurface(
+                requested.X, requested.Y, out targetSurface, out _);
+        }
+
+        TerrainSurfaceSample face = default;
+        bool contact = false;
+        if (haveTarget && targetSurface.Normal.Z < _minGroundZ &&
+            Position.Z <= targetSurface.Height + TerrainSkin)
+        {
+            face = targetSurface;
+            contact = true;
+        }
+        else if (haveStart && startSurface.Normal.Z < _minGroundZ &&
+                 Position.Z <= startSurface.Height + TerrainSkin)
+        {
+            face = startSurface;
+            contact = true;
+        }
+
+        if (!contact) return;
+
+        Vector3 horizontalNormal = new(face.Normal.X, face.Normal.Y, 0f);
+        float lengthSq = horizontalNormal.LengthSquared();
+        float into = Vector3.Dot(move, face.Normal);
+        if (into >= 0f || lengthSq <= 1e-8f) return;
+
+        move -= horizontalNormal * (into / lengthSq);
+        move.Z = 0f;
+        LastBlockPoint = new Vector3(requested.X, requested.Y, face.Height);
+        LastBlockNormal = face.Normal;
+        LastBlockTriangle = -1;
+        LastBlockAgeSeconds = 0f;
+    }
+
+    /// <summary>
+    /// Certify and atomically commit a low ledge step. Current Benilla raises by
+    /// the available one-yard ceiling, advances at least one body-scale probe,
+    /// and settles onto a higher walkable floor; any failed phase leaves the
+    /// original position untouched so walls and pinches remain ordinary slides.
+    /// </summary>
     private bool TryStepUp(Vector3 move)
     {
         if (!Grounded || !HasGeometryCollision) return false;
 
-        var probe = Position + move;
-        probe.Z += _opts.StepHeight + 0.1f;
+        float travel = new Vector2(move.X, move.Y).Length();
+        if (travel <= 1e-6f) return false;
 
-        var down = RaycastGeometry(probe, Down, _opts.StepHeight + 0.4f);
-        if (down is null || down.Value.Normal.Z <= _minGroundZ) return false;
+        Vector3 direction = new(move.X / travel, move.Y / travel, 0f);
+        float advance = MathF.Max(travel, StepUpAdvance);
 
-        float stepTop = probe.Z - down.Value.Distance;
+        // Sweep the raised body before asking what floor lies below it. A point
+        // ray alone can certify a tread through a wall or beneath a low lintel.
+        Span<float> bodyBands =
+        [
+            GroundContactEpsilon,
+            _opts.Height * 0.5f,
+            _opts.Height * 0.9f,
+        ];
+        foreach (float height in bodyBands)
+        {
+            Vector3 origin = Position +
+                             new Vector3(0f, 0f, _opts.StepHeight + height);
+            if (RaycastGeometry(origin, direction, advance + _opts.Radius) is not { } hit)
+                continue;
+            if (MathF.Abs(hit.Normal.Z) <= _minGroundZ)
+                return false;
+        }
+
+        Vector3 target = Position + direction * advance;
+        Vector3 probe = target + Vector3.UnitZ * (_opts.StepHeight + GroundContactEpsilon);
+        float settleReach = _opts.StepHeight +
+                            advance * StepSlopeRatio + StepSnapSlack +
+                            GroundContactEpsilon;
+        if (RaycastGeometry(probe, Down, settleReach) is not { } down ||
+            down.Normal.Z <= _minGroundZ)
+            return false;
+
+        float stepTop = probe.Z - down.Distance;
         float rise = stepTop - Position.Z;
-        if (rise < -0.05f || rise > _opts.StepHeight) return false;
+        if (rise <= GroundContactEpsilon || rise > _opts.StepHeight)
+            return false;
 
-        Position.X += move.X;
-        Position.Y += move.Y;
-        Position.Z = stepTop;
-        Velocity.Z = 0;
+        // The top of the capsule must be able to make the same rise. Probe the
+        // centre and a footprint cross so an overhang cannot accept the feet and
+        // leave the body embedded.
+        float inset = _opts.Radius * 0.7f;
+        Span<Vector2> footprint =
+        [
+            Vector2.Zero,
+            new Vector2(inset, 0f),
+            new Vector2(-inset, 0f),
+            new Vector2(0f, inset),
+            new Vector2(0f, -inset),
+        ];
+        Span<Vector2> headroomBases =
+        [
+            new Vector2(Position.X, Position.Y),
+            new Vector2(target.X, target.Y),
+        ];
+        foreach (Vector2 headroomBase in headroomBases)
+        foreach (Vector2 offset in footprint)
+        {
+            Vector3 head = new(
+                headroomBase.X + offset.X,
+                headroomBase.Y + offset.Y,
+                Position.Z + _opts.Height - GroundContactEpsilon);
+            if (RaycastGeometry(head, Vector3.UnitZ, rise + GroundContactEpsilon) is { } ceiling &&
+                ceiling.Distance < rise)
+                return false;
+        }
+
+        Position = new Vector3(target.X, target.Y, stepTop);
+        Velocity.Z = 0f;
         Grounded = true;
         return true;
+    }
+    /// <summary>
+    /// Keep an airborne body outside a steep heightfield without changing Z.
+    /// The push is down the face's horizontal normal by exactly the distance
+    /// needed to preserve this frame's vertical descent. That is the Z-up form
+    /// of vanilla's horizontal-only steep response.
+    /// </summary>
+    private void ResolveSteepTerrainContact(Vector2 horizontalStart)
+    {
+        Vector2 end = new(Position.X, Position.Y);
+        Vector2 travel = end - horizontalStart;
+
+        bool IsSteepPenetration(Vector2 point)
+        {
+            return _terrain.TrySampleMovementSurface(
+                       point.X, point.Y, out TerrainSurfaceSample sample, out _) &&
+                   sample.Normal.Z < _minGroundZ &&
+                   Position.Z < sample.Height;
+        }
+
+        // If this frame crossed from clear space into the hillside, retain the
+        // last clear horizontal point. Z and Velocity.Z are deliberately never
+        // touched, so a jump cannot bank height at the contact.
+        if (travel.LengthSquared() > 1e-10f && !IsSteepPenetration(horizontalStart))
+        {
+            float lo = 0f, hi = 1f;
+            for (int i = 0; i < 16; i++)
+            {
+                float mid = (lo + hi) * 0.5f;
+                if (IsSteepPenetration(Vector2.Lerp(horizontalStart, end, mid)))
+                    hi = mid;
+                else
+                    lo = mid;
+            }
+
+            Vector2 clear = Vector2.Lerp(horizontalStart, end, lo);
+            Position = new Vector3(clear.X, clear.Y, Position.Z);
+            return;
+        }
+
+        // Already touching the face: gravity's downward travel becomes a
+        // downslope horizontal displacement. For z=f(x,y), the upward face
+        // normal's XY projection points downhill and |grad z|=|n.xy|/n.z.
+        for (int i = 0; i < 4; i++)
+        {
+            if (!_terrain.TrySampleMovementSurface(
+                    Position.X, Position.Y, out TerrainSurfaceSample surface, out _) ||
+                surface.Normal.Z >= _minGroundZ)
+                return;
+
+            float penetration = surface.Height - Position.Z;
+            if (penetration <= 0f) return;
+
+            Vector2 downhill = new(surface.Normal.X, surface.Normal.Y);
+            float horizontalNormal = downhill.Length();
+            if (horizontalNormal <= 1e-6f) return;
+
+            downhill /= horizontalNormal;
+            float distance = penetration * MathF.Max(0f, surface.Normal.Z) /
+                             horizontalNormal + 0.001f;
+            Position = new Vector3(
+                Position.X + downhill.X * distance,
+                Position.Y + downhill.Y * distance,
+                Position.Z);
+        }
     }
 
     /// <summary>
@@ -811,7 +1044,8 @@ public sealed class CharacterController
     /// was ported faithfully, which was the right default and the wrong outcome
     /// here.
     /// </summary>
-    private void ResolveGround(bool allowGroundAdhesion, float downwardTravel)
+    private void ResolveGround(
+        bool allowGroundAdhesion, float downwardTravel, Vector2 terrainMoveStart)
     {
         // Consumed by the probe lift below, then re-established only if this
         // frame actually ends grounded. Clearing it up front means every early
@@ -820,23 +1054,40 @@ public sealed class CharacterController
         float? heldSupportZ = _lastSupportZ;
         _lastSupportZ = null;
 
-        float? sampledTerrainZ = _terrain.SampleHeight(Position.X, Position.Y, out bool inHole);
+        bool haveTerrain = _terrain.TrySampleMovementSurface(
+            Position.X, Position.Y, out TerrainSurfaceSample terrainSurface, out bool inHole);
+        float? sampledTerrainZ = haveTerrain ? terrainSurface.Height : null;
 
         bool terrainIsOverhead = sampledTerrainZ is float sampledSurface &&
                                  sampledSurface - Position.Z > UndergroundSlack;
 
         // A teleport/fly exit below ADT proves that the ADT is a shell, not a
-        // floor.  Once WMO precedence proves the same thing during continuous
+        // floor. Once WMO precedence proves the same thing during continuous
         // movement, retain that fact across short gaps in collision support.
-        // Reaching the terrain surface (or moving above it) is the unambiguous
-        // exit and clears the state without a map/area heuristic.
         if (_landingAfterDiscontinuousMove && terrainIsOverhead)
             _underTerrainShell = true;
         else if (_underTerrainShell && sampledTerrainZ is not null && !terrainIsOverhead)
             _underTerrainShell = false;
 
         bool ignoreTerrainShell = _underTerrainShell && terrainIsOverhead;
-        float? groundZ = ignoreTerrainShell ? null : sampledTerrainZ;
+
+        bool steepContact = haveTerrain && !ignoreTerrainShell &&
+                            terrainSurface.Normal.Z < _minGroundZ &&
+                            Position.Z < terrainSurface.Height;
+        if (steepContact)
+        {
+            ResolveSteepTerrainContact(terrainMoveStart);
+            haveTerrain = _terrain.TrySampleMovementSurface(
+                Position.X, Position.Y, out terrainSurface, out inHole);
+            sampledTerrainZ = haveTerrain ? terrainSurface.Height : null;
+            terrainIsOverhead = sampledTerrainZ is float movedSurface &&
+                                movedSurface - Position.Z > UndergroundSlack;
+            ignoreTerrainShell = _underTerrainShell && terrainIsOverhead;
+        }
+
+        bool terrainSteep = haveTerrain && !ignoreTerrainShell &&
+                            terrainSurface.Normal.Z < _minGroundZ;
+        float? groundZ = ignoreTerrainShell || terrainSteep ? null : sampledTerrainZ;
 
         // A server teleport and the F-key fly rig both supply an intentional Z.
         // If that Z is well below the outdoor height field, the terrain sample
@@ -851,10 +1102,17 @@ public sealed class CharacterController
 
         InTerrainHole = inHole;
         TerrainGroundZ = sampledTerrainZ;
+        TerrainGroundNormal = haveTerrain ? terrainSurface.Normal : Vector3.UnitZ;
+        TerrainGroundSteep = terrainSteep;
+        TerrainChunkImpassable = haveTerrain && terrainSurface.Impassable;
         CollisionGroundZ = null;
         if (ignoreTerrainShell)
         {
             GroundSource = "terrain-overhead";
+        }
+        else if (terrainSteep)
+        {
+            GroundSource = "terrain-steep";
         }
         else GroundSource = groundZ is null ? (inHole ? "hole" : "none") : "terrain";
         GroundProbeOffset = Vector2.Zero;
@@ -883,7 +1141,7 @@ public sealed class CharacterController
 
             // AND NEVER LOSE SIGHT OF THE FLOOR YOU WERE JUST STANDING ON.
             //
-            // A fixed StepHeight lift makes any surface more than 0.7 above the
+            // A fixed StepHeight lift makes any surface above the configured ceiling
             // feet invisible to this probe - INCLUDING the one holding you up a
             // moment ago. Sink below it by any means (a step-up into a solid, a
             // stair-lip miss, an adhesion frame that guessed low) and it can
@@ -1077,7 +1335,7 @@ public sealed class CharacterController
         GroundZ = groundZ;
 
         if (groundZ is null &&
-            (inHole || ignoreTerrainShell || TerrainAbsentByDesign))
+            (inHole || ignoreTerrainShell || TerrainAbsentByDesign || terrainSteep))
         {
             // None of these cases is missing data: a hole is authored geometry,
             // a global-WMO map has no terrain by design, and the discarded

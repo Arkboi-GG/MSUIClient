@@ -18,7 +18,8 @@ public sealed partial class GameLoop
         // identical in a plot: no triangle under the feet, a triangle rejected
         // as too steep to stand on, and support lost to a probe that never
         // sampled the footprint. These columns name which one it was.
-        "groundSource,terrainZ,collisionZ,groundTri,groundModel,groundProbes," +
+        "groundSource,terrainZ,terrainNx,terrainNy,terrainNz,terrainSteep,terrainImpassable," +
+        "collisionZ,groundTri,groundModel,groundProbes," +
         "groundAdhesion,noGroundBelow,inTerrainHole";
 
     private StreamWriter? _movementTraceWriter;
@@ -134,6 +135,11 @@ public sealed partial class GameLoop
             Csv(_controller.GroundSource),
             _controller.TerrainGroundZ is float traceTerrainZ
                 ? traceTerrainZ.ToString("R", CultureInfo.InvariantCulture) : "",
+            _controller.TerrainGroundNormal.X.ToString("R", CultureInfo.InvariantCulture),
+            _controller.TerrainGroundNormal.Y.ToString("R", CultureInfo.InvariantCulture),
+            _controller.TerrainGroundNormal.Z.ToString("R", CultureInfo.InvariantCulture),
+            _controller.TerrainGroundSteep.ToString().ToLowerInvariant(),
+            _controller.TerrainChunkImpassable.ToString().ToLowerInvariant(),
             _controller.CollisionGroundZ is float traceCollisionZ
                 ? traceCollisionZ.ToString("R", CultureInfo.InvariantCulture) : "",
             _controller.GroundTriangle.ToString(CultureInfo.InvariantCulture),

@@ -1,6 +1,6 @@
 # MSUI ⇄ Benilla implementation backlog
 
-_Generated 2026-08-23 20:10 UTC by tools/rebuild_backlog.py — do not edit; edit registry/*.json instead._
+_Generated 2026-08-24 19:59 UTC by tools/rebuild_backlog.py — do not edit; edit registry/*.json instead._
 
 ## 1. Divergences awaiting Nico's ruling
 
@@ -24,15 +24,15 @@ decision in `decisions/` preserving MSUI (allowed only when `deviationPolicy: ui
 
 ## 3. Verification debt — blocked on a live authenticated session
 
-222 claims across 75 entries are implemented but nonterminal until live verification runs.
+223 claims across 75 entries are implemented but nonterminal until live verification runs.
 
 - **ui/bagframe** — 12 claims to verify
 - **ui/uipanels** — 12 claims to verify
 - **systems/net** — 11 claims to verify
 - **systems/bindings** — 10 claims to verify
+- **systems/player** — 9 claims to verify
 - **ui/merchantframe** — 9 claims to verify
 - **systems/entities** — 8 claims to verify
-- **systems/player** — 8 claims to verify
 - **ui/friendsframe** — 7 claims to verify
 - **ui/gametooltip** — 7 claims to verify
 - **ui/mailframe** — 7 claims to verify

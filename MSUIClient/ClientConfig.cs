@@ -406,13 +406,11 @@ public sealed partial class ClientConfig
         /// <summary>
         /// Ledges up to this tall are stepped onto rather than blocking.
         ///
-        /// A yard was too generous. Combined with the 55-degree slope gate below
-        /// it let the character walk up rocks, crates and terrain that the
-        /// reference makes you jump, which is a feel difference you notice
-        /// everywhere in the world without ever being able to point at one
-        /// obstacle and call it wrong. 0.7 is the reference's own step ceiling.
+        /// Current Benilla's verified STEP_UP_HEIGHT is one yard. Terrain slope
+        /// eligibility is enforced independently by the 50-degree normal gate,
+        /// so this ceiling applies to atomic ledge steps rather than mountains.
         /// </summary>
-        public float StepHeight { get; set; } = 0.7f;
+        public float StepHeight { get; set; } = 1.0f;
 
         /// <summary>
         /// When a previously grounded character moves onto a slightly lower

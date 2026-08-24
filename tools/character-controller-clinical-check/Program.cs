@@ -16,7 +16,12 @@ VerifyOverheadTerrainExpandsSupportProbe(CreateTerrain(height: 100f));
 VerifyFloorEdgeKeepsFootprintSupport();
 VerifySunkenSupportIsRecovered();
 VerifyChestHighWallBlocksTheSweep();
+VerifyAtomicLowStepClimbs();
 VerifyRampStillWalkable();
+VerifyWalkableAdtTerrainClimbs();
+VerifySteepAdtTerrainBlocksWalking();
+VerifySteepAdtTerrainDoesNotBankJumps();
+VerifyImpassableMcnkIsOneWay();
 VerifyContinuousInteriorEntryRetainsTerrainShell(CreateTerrain(height: 100f));
 VerifyGlobalWmoFall(CreateEmptyTerrain(), collision);
 VerifyWalkableTriangleGather();
@@ -184,7 +189,7 @@ static void VerifySunkenSupportIsRecovered()
 {
     // Whatever puts the feet below a floor - a step-up into a solid, a stair
     // lip miss, an adhesion frame that guessed low - must not be permanent.
-    // A fixed StepHeight probe lift cannot see a surface 1.0 above the feet, so
+    // A fixed StepHeight probe lift cannot see a surface 1.1 above the feet, so
     // the floor the character was standing on last frame becomes invisible and
     // it falls out of a floor that is still there.
     var collision = new CollisionWorld();
@@ -197,8 +202,8 @@ static void VerifySunkenSupportIsRecovered()
     Require(controller.Grounded && controller.GroundSource == "collision",
         "sunken-support setup did not settle on the WMO floor");
 
-    // Sink 1.0 - past StepHeight - while still horizontally over the floor.
-    controller.Position = new Vector3(0f, 0f, 9f);
+    // Sink 1.1 - past StepHeight - while still horizontally over the floor.
+    controller.Position = new Vector3(0f, 0f, 8.9f);
     controller.Update(1f / 60f, default);
 
     Require(controller.Grounded,
@@ -212,7 +217,7 @@ static void VerifySunkenSupportIsRecovered()
 static void VerifyChestHighWallBlocksTheSweep()
 {
     // A rim 0.9 tall at the edge of a deck, with nothing beyond it. Taller than
-    // StepHeight, so it is not climbable and must stop the character - but its
+    // It has no walkable top beyond it, so it must stop the character - but its
     // top is below the mid-body height the sweep used to be a single ray at, so
     // that ray passed clean over it and reported open air. The character walked
     // through a face the debug view draws in wall red and fell off the far side.
@@ -237,6 +242,42 @@ static void VerifyChestHighWallBlocksTheSweep()
         "the rim never registered as a block, so the sweep never saw it");
 }
 
+static void VerifyAtomicLowStepClimbs()
+{
+    // Current Benilla's maneuver looks only this frame's travel for the face,
+    // then advances a fixed body-scale distance to find the tread. A 0.3-yard
+    // curb therefore commits in one certified move at both 60 and 240 fps.
+    var collision = new CollisionWorld();
+    AddFloor(collision, -10f, 0f, -4f, 4f, 10f);
+    AddWallAtX(collision, 0f, -4f, 4f, 10f, 10.3f);
+    AddFloor(collision, 0f, 10f, -4f, 4f, 10.3f);
+    collision.Build();
+
+    CharacterController controller = CreateController(CreateTerrain(height: 5f), collision);
+    controller.Teleport(-2f, 0f, 10f);
+    controller.Update(1f / 60f, default);
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    for (int i = 0; i < 60; i++) controller.Update(1f / 60f, forward);
+
+    Require(controller.Position.X > 2f,
+        $"atomic step stalled at X={controller.Position.X:F3}");
+    Require(controller.Grounded && MathF.Abs(controller.Position.Z - 10.3f) < 0.01f,
+        $"atomic step landed at Z={controller.Position.Z:F3}, expected 10.3");
+
+    var pinched = new CollisionWorld();
+    AddFloor(pinched, -10f, 0f, -4f, 4f, 10f);
+    AddWallAtX(pinched, 0f, -4f, 4f, 10f, 10.3f);
+    AddFloor(pinched, 0f, 10f, -4f, 4f, 10.3f);
+    AddFloor(pinched, 0f, 2f, -4f, 4f, 12.2f); // too low over the landing footprint
+    pinched.Build();
+
+    CharacterController blocked = CreateController(CreateTerrain(height: 5f), pinched);
+    blocked.Teleport(-2f, 0f, 10f);
+    blocked.Update(1f / 60f, default);
+    for (int i = 0; i < 60; i++) blocked.Update(1f / 60f, forward);
+    Require(blocked.Position.X < 0f && MathF.Abs(blocked.Position.Z - 10f) < 0.01f,
+        $"atomic step committed without landing headroom at {blocked.Position}");
+}
 static void VerifyRampStillWalkable()
 {
     // The counterpart guard: the extra sample heights must not turn a walkable
@@ -266,6 +307,116 @@ static void VerifyRampStillWalkable()
         $"ramp climb ended at Z={controller.Position.Z:F3}, expected the upper floor at 12.31");
 }
 
+static void VerifyWalkableAdtTerrainClimbs()
+{
+    // ADT used to be sampled as a height only, so MaxSlopeDegrees was never
+    // involved. A genuine 40-degree fan must remain ordinary walkable ground.
+    TerrainRenderer terrain = CreateTerrainGrid((worldX, _) =>
+        10f + MathF.Max(0f, worldX + 25f) * MathF.Tan(40f * MathF.PI / 180f));
+    CharacterController controller = CreateController(terrain, new CollisionWorld());
+    controller.Teleport(-30f, -10f, 10f);
+    controller.Update(1f / 60f, default);
+
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    for (int i = 0; i < 150; i++) controller.Update(1f / 60f, forward);
+
+    Require(controller.Position.X > -16f,
+        $"walkable ADT slope stalled at X={controller.Position.X:F3}");
+    Require(controller.Position.Z > 17f,
+        $"walkable ADT slope did not climb, ending at Z={controller.Position.Z:F3}");
+    Require(controller.Grounded && !controller.TerrainGroundSteep,
+        "40-degree ADT face was classified as unwalkable");
+}
+
+static void VerifySteepAdtTerrainBlocksWalking()
+{
+    TerrainRenderer terrain = CreateTerrainGrid((worldX, _) =>
+        10f + MathF.Max(0f, worldX + 25f) * MathF.Tan(55f * MathF.PI / 180f));
+    CharacterController controller = CreateController(terrain, new CollisionWorld());
+    controller.Teleport(-30f, -10f, 10f);
+    controller.Update(1f / 60f, default);
+
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    for (int i = 0; i < 180; i++) controller.Update(1f / 60f, forward);
+
+    Require(controller.Position.X < -23f,
+        $"55-degree ADT face was walked up to X={controller.Position.X:F3}");
+    Require(controller.Position.Z < 10.1f,
+        $"55-degree ADT face manufactured elevation Z={controller.Position.Z:F3}");
+    Require(controller.TerrainGroundSteep || controller.HasBlock,
+        "55-degree ADT face never registered as a steep contact");
+}
+
+static void VerifySteepAdtTerrainDoesNotBankJumps()
+{
+    // This is the Elwynn regression in synthetic form. Repeated forward jumps
+    // into a 55-degree terrain face must not turn horizontal plane projection
+    // into cumulative vertical lift.
+    TerrainRenderer terrain = CreateTerrainGrid((worldX, _) =>
+        10f + MathF.Max(0f, worldX + 25f) * MathF.Tan(55f * MathF.PI / 180f));
+    CharacterController controller = CreateController(terrain, new CollisionWorld());
+    controller.Teleport(-27f, -10f, 10f);
+    controller.Update(1f / 60f, default);
+
+    float highestLanding = controller.Position.Z;
+    for (int jump = 0; jump < 6; jump++)
+    {
+        controller.Update(1f / 60f,
+            new MovementInput { Forward = 1f, Yaw = 0f, Jump = true });
+        for (int frame = 0; frame < 240 && !controller.Grounded; frame++)
+            controller.Update(1f / 60f,
+                new MovementInput { Forward = 1f, Yaw = 0f });
+
+        Require(controller.Grounded,
+            $"steep-terrain jump {jump + 1} did not return to ground");
+        highestLanding = MathF.Max(highestLanding, controller.Position.Z);
+    }
+
+    Require(highestLanding < 10.1f,
+        $"repeated steep-terrain jumps banked landing height {highestLanding:F3}");
+    Require(controller.Position.X < -23f,
+        $"repeated steep-terrain jumps climbed through the face to X={controller.Position.X:F3}");
+}
+
+static void VerifyImpassableMcnkIsOneWay()
+{
+    Require(new MSUIClient.Formats.AdtTerrainReader.McnkChunk { Flags = 0x2 }.Impassable,
+        "MCNK header bit 1 was not decoded as impassable");
+
+    // Tile (32,32), chunk row 1 spans X -33.33 to -66.66. Vanilla's authored
+    // fence rejects entry but intentionally lets a character already inside
+    // escape, avoiding permanent traps after teleports or old saves.
+    TerrainRenderer terrain = CreateTerrainGrid((_, _) => 10f, (0, 1));
+    CharacterController outside = CreateController(terrain, new CollisionWorld());
+    outside.Teleport(-30f, -10f, 10f);
+    outside.Update(1f / 60f, default);
+
+    var towardChunk = new MovementInput { Forward = 1f, Yaw = MathF.PI };
+    for (int i = 0; i < 120; i++) outside.Update(1f / 60f, towardChunk);
+    Require(outside.Position.X > -33.34f,
+        $"entered authored impassable MCNK at X={outside.Position.X:F3}");
+    Require(outside.HasBlock,
+        "impassable MCNK boundary did not register as a block");
+
+    // The literal fence rises from the chunk's lowest terrain vertex, not from
+    // negative infinity. A WMO tunnel fully below that base must cross freely.
+    var tunnelFloor = new CollisionWorld();
+    AddFloor(tunnelFloor, -80f, 0f, -20f, 0f, 0f);
+    tunnelFloor.Build();
+    CharacterController below = CreateController(terrain, tunnelFloor);
+    below.Teleport(-30f, -10f, 0f);
+    below.Update(1f / 60f, default);
+    for (int i = 0; i < 120; i++) below.Update(1f / 60f, towardChunk);
+    Require(below.Position.X < -35f,
+        $"impassable fence extended below its terrain base at X={below.Position.X:F3}");
+    CharacterController inside = CreateController(terrain, new CollisionWorld());
+    inside.Teleport(-40f, -10f, 10f);
+    inside.Update(1f / 60f, default);
+    var leaveChunk = new MovementInput { Forward = 1f, Yaw = 0f };
+    for (int i = 0; i < 120; i++) inside.Update(1f / 60f, leaveChunk);
+    Require(inside.Position.X > -33f,
+        $"one-way MCNK fence trapped an inside mover at X={inside.Position.X:F3}");
+}
 static void VerifyContinuousInteriorEntryRetainsTerrainShell(TerrainRenderer terrain)
 {
     // Simulate already being inside without Teleport's discontinuity marker.
@@ -363,17 +514,50 @@ static CharacterController CreateController(TerrainRenderer terrain, CollisionWo
     => new(terrain, new ClientConfig.MovementConfig()) { Collision = collision };
 
 static TerrainRenderer CreateTerrain(float height)
+    => CreateTerrainGrid((_, _) => height);
+
+static TerrainRenderer CreateTerrainGrid(
+    Func<float, float, float> heightAt,
+    params (int ChunkX, int ChunkY)[] impassableChunks)
 {
     var terrain = new TerrainRenderer(null!, new ClientConfig(), null!, null!);
-    FieldInfo field = typeof(TerrainRenderer).GetField("_heights",
+
+    FieldInfo heightField = typeof(TerrainRenderer).GetField("_heights",
         BindingFlags.Instance | BindingFlags.NonPublic)
         ?? throw new InvalidOperationException("TerrainRenderer._heights not found");
-    var heights = (Dictionary<(int col, int row), float[]>)field.GetValue(terrain)!;
-    heights[(32, 32)] = Enumerable.Repeat(height,
-        TerrainRenderer.HeightGridSide * TerrainRenderer.HeightGridSide).ToArray();
+    var heights = (Dictionary<(int col, int row), float[]>)heightField.GetValue(terrain)!;
+    var outer = new float[TerrainRenderer.HeightGridSide * TerrainRenderer.HeightGridSide];
+    float cell = TerrainRenderer.GridSize / TerrainRenderer.QuadGridSide;
+    for (int row = 0; row < TerrainRenderer.HeightGridSide; row++)
+    for (int col = 0; col < TerrainRenderer.HeightGridSide; col++)
+        outer[row * TerrainRenderer.HeightGridSide + col] =
+            heightAt(-row * cell, -col * cell);
+    heights[(32, 32)] = outer;
+
+    FieldInfo innerField = typeof(TerrainRenderer).GetField("_innerHeights",
+        BindingFlags.Instance | BindingFlags.NonPublic)
+        ?? throw new InvalidOperationException("TerrainRenderer._innerHeights not found");
+    var innerHeights =
+        (Dictionary<(int col, int row), float[]>)innerField.GetValue(terrain)!;
+    var inner = new float[TerrainRenderer.QuadGridSide * TerrainRenderer.QuadGridSide];
+    for (int row = 0; row < TerrainRenderer.QuadGridSide; row++)
+    for (int col = 0; col < TerrainRenderer.QuadGridSide; col++)
+        inner[row * TerrainRenderer.QuadGridSide + col] =
+            heightAt(-(row + 0.5f) * cell, -(col + 0.5f) * cell);
+    innerHeights[(32, 32)] = inner;
+
+    FieldInfo impassableField = typeof(TerrainRenderer).GetField("_impassableChunks",
+        BindingFlags.Instance | BindingFlags.NonPublic)
+        ?? throw new InvalidOperationException("TerrainRenderer._impassableChunks not found");
+    var impassable =
+        (Dictionary<(int col, int row), byte[]>)impassableField.GetValue(terrain)!;
+    var chunkFlags = new byte[16 * 16];
+    foreach ((int chunkX, int chunkY) in impassableChunks)
+        chunkFlags[chunkY * 16 + chunkX] = 1;
+    impassable[(32, 32)] = chunkFlags;
+
     return terrain;
 }
-
 static TerrainRenderer CreateEmptyTerrain()
     => new(null!, new ClientConfig(), null!, null!);
 

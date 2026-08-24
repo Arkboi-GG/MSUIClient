@@ -3310,6 +3310,20 @@ public sealed partial class GameLoop : IDisposable
                 ImGui.Text(_controller.TerrainGroundZ is float tz
                     ? $"    terrain   {tz,9:F2}"
                     : "    terrain     (none)");
+                if (_controller.TerrainGroundZ is not null)
+                {
+                    Vector3 terrainNormal = _controller.TerrainGroundNormal;
+                    float terrainSlope = MathF.Acos(Math.Clamp(terrainNormal.Z, -1f, 1f)) *
+                                         180f / MathF.PI;
+                    ImGui.Text($"      normal ({terrainNormal.X:F3}, {terrainNormal.Y:F3}, " +
+                               $"{terrainNormal.Z:F3})  slope {terrainSlope:F1} deg");
+                    if (_controller.TerrainGroundSteep)
+                        ImGui.TextColored(new Vector4(1f, 0.45f, 0.2f, 1f),
+                            "      unwalkable terrain face");
+                    if (_controller.TerrainChunkImpassable)
+                        ImGui.TextColored(new Vector4(1f, 0.7f, 0.2f, 1f),
+                            "      authored impassable chunk");
+                }
                 ImGui.Text(_controller.CollisionGroundZ is float cz
                     ? $"    collision {cz,9:F2}"
                     : "    collision   (none)");

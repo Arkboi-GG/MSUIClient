@@ -9,6 +9,20 @@ using Shader = MSUIClient.Engine.Shader;
 namespace MSUIClient.World;
 
 /// <summary>
+/// The exact rendered ADT fan triangle under one world point, plus the authored
+/// MCNK movement-band identity that owns it.
+/// </summary>
+public readonly record struct TerrainSurfaceSample(
+    float Height,
+    Vector3 Normal,
+    int TileCol,
+    int TileRow,
+    int ChunkX,
+    int ChunkY,
+    bool Impassable,
+    float ChunkMinimumHeight);
+
+/// <summary>
 /// Owns the loaded terrain tiles: loads a block around a position, draws them
 /// with frustum culling, and answers ground-height queries.
 ///
@@ -37,6 +51,8 @@ public sealed class TerrainRenderer : IDisposable
         public float[] Heights = [];
         public float[] InnerHeights = [];
         public byte[] Holes = [];
+        public byte[] ImpassableChunks = [];
+        public float[] ChunkMinimumHeights = [];
         public int[] GroundEffects = [];
     }
     private HashSet<(int col, int row)> _desired = [];
@@ -61,6 +77,13 @@ public sealed class TerrainRenderer : IDisposable
     /// mouth and climb the mountain instead of walking in.
     /// </summary>
     private readonly Dictionary<(int col, int row), byte[]> _holes = [];
+
+    /// <summary>
+    /// One byte per 33-yard MCNK (16x16). A set byte is header bit 1,
+    /// MCNK_IMPASSABLE; movement treats its four boundaries as one-way walls.
+    /// </summary>
+    private readonly Dictionary<(int col, int row), byte[]> _impassableChunks = [];
+    private readonly Dictionary<(int col, int row), float[]> _chunkMinimumHeights = [];
     private int _holeQuadCount;
     private bool _holeCountDirty = true;
 
@@ -235,6 +258,8 @@ public sealed class TerrainRenderer : IDisposable
             _heights.Remove(key);
             _innerHeights.Remove(key);
             _groundEffects.Remove(key);
+            _impassableChunks.Remove(key);
+            _chunkMinimumHeights.Remove(key);
             RemoveHoles(key);
             changed = true;
         }
@@ -267,6 +292,8 @@ public sealed class TerrainRenderer : IDisposable
                 _heights[(col, row)] = ready.Heights;
                 _innerHeights[(col, row)] = ready.InnerHeights;
                 _groundEffects[(col, row)] = ready.GroundEffects;
+                _impassableChunks[(col, row)] = ready.ImpassableChunks;
+                _chunkMinimumHeights[(col, row)] = ready.ChunkMinimumHeights;
                 SetHoles((col, row), ready.Holes);
                 changed = true;
                 continue;
@@ -280,6 +307,8 @@ public sealed class TerrainRenderer : IDisposable
             _heights[(col, row)] = BuildHeightGrid(adt);
             _innerHeights[(col, row)] = BuildInnerHeightGrid(adt);
             _groundEffects[(col, row)] = BuildGroundEffectGrid(adt);
+            _impassableChunks[(col, row)] = BuildImpassableChunkGrid(adt);
+            _chunkMinimumHeights[(col, row)] = BuildChunkMinimumHeightGrid(adt);
             SetHoles((col, row), BuildHoleGrid(adt));
             changed = true;
         }
@@ -351,6 +380,8 @@ public sealed class TerrainRenderer : IDisposable
                 Heights = BuildHeightGrid(adt),
                 InnerHeights = BuildInnerHeightGrid(adt),
                 Holes = BuildHoleGrid(adt),
+                ImpassableChunks = BuildImpassableChunkGrid(adt),
+                ChunkMinimumHeights = BuildChunkMinimumHeightGrid(adt),
                 GroundEffects = BuildGroundEffectGrid(adt),
                 Uploaded = null,
             }).ConfigureAwait(false);
@@ -384,6 +415,8 @@ public sealed class TerrainRenderer : IDisposable
                 _heights[key] = ready.Heights;
                 _innerHeights[key] = ready.InnerHeights;
                 _groundEffects[key] = ready.GroundEffects;
+                _impassableChunks[key] = ready.ImpassableChunks;
+                _chunkMinimumHeights[key] = ready.ChunkMinimumHeights;
                 SetHoles(key, ready.Holes);
             }
             catch (Exception ex)
@@ -579,6 +612,54 @@ public sealed class TerrainRenderer : IDisposable
         return grid;
     }
 
+    /// <summary>One authored MCNK_IMPASSABLE byte per terrain chunk.</summary>
+    private static byte[] BuildImpassableChunkGrid(AdtTerrainReader.AdtResult? adt)
+    {
+        const int chunksPerSide = 16;
+        var grid = new byte[chunksPerSide * chunksPerSide];
+        if (adt?.Chunks == null) return grid;
+
+        foreach (var chunk in adt.Chunks)
+        {
+            if (chunk is null ||
+                chunk.IndexX is < 0 or >= chunksPerSide ||
+                chunk.IndexY is < 0 or >= chunksPerSide)
+                continue;
+
+            grid[chunk.IndexY * chunksPerSide + chunk.IndexX] =
+                chunk.Impassable ? (byte)1 : (byte)0;
+        }
+
+        return grid;
+    }
+
+    /// <summary>
+    /// Lowest rendered vertex in each MCNK. Benilla's 32,000-yard impassable
+    /// fence begins here rather than at negative infinity, so tunnels genuinely
+    /// below a flagged mountain chunk remain traversable.
+    /// </summary>
+    private static float[] BuildChunkMinimumHeightGrid(AdtTerrainReader.AdtResult? adt)
+    {
+        const int chunksPerSide = 16;
+        var grid = Enumerable.Repeat(float.PositiveInfinity,
+            chunksPerSide * chunksPerSide).ToArray();
+        if (adt?.Chunks == null) return grid;
+
+        foreach (var chunk in adt.Chunks)
+        {
+            if (chunk?.Heights is not { Length: > 0 } heights ||
+                chunk.IndexX is < 0 or >= chunksPerSide ||
+                chunk.IndexY is < 0 or >= chunksPerSide)
+                continue;
+
+            float minimum = float.PositiveInfinity;
+            foreach (float relativeHeight in heights)
+                minimum = MathF.Min(minimum, chunk.BaseZ + relativeHeight);
+            grid[chunk.IndexY * chunksPerSide + chunk.IndexX] = minimum;
+        }
+
+        return grid;
+    }
     /// <summary>True if the quad under a world position was cut away.</summary>
     public bool IsHoleAt(float worldX, float worldY)
     {
@@ -669,6 +750,120 @@ public sealed class TerrainRenderer : IDisposable
              + h01 * (1 - tr) * tc
              + h10 * tr * (1 - tc)
              + h11 * tr * tc;
+    }
+
+    /// <summary>
+    /// Sample the exact one of four fan triangles rendered for the ADT cell.
+    /// Movement needs the face normal as well as the height: a 50-degree
+    /// walkability rule cannot be enforced by a scalar height query, and using
+    /// the fan triangle keeps collision coincident with the visible ground.
+    /// </summary>
+    public bool TrySampleMovementSurface(
+        float worldX, float worldY, out TerrainSurfaceSample sample, out bool hole)
+    {
+        sample = default;
+        hole = false;
+
+        var key = TileAt(worldX, worldY);
+        if (!_heights.TryGetValue(key, out float[]? grid) ||
+            grid.Length != HeightGridSide * HeightGridSide)
+            return false;
+
+        float originX = (32 - key.row) * GridSize;
+        float originY = (32 - key.col) * GridSize;
+        const float cell = GridSize / QuadGridSide;
+
+        float fr = (originX - worldX) / cell;
+        float fc = (originY - worldY) / cell;
+        int r0 = (int)MathF.Floor(fr);
+        int c0 = (int)MathF.Floor(fc);
+        if (r0 < 0 || c0 < 0 || r0 >= QuadGridSide || c0 >= QuadGridSide)
+            return false;
+
+        if (ApplyHoles &&
+            _holes.TryGetValue(key, out byte[]? holes) &&
+            holes.Length == QuadGridSide * QuadGridSide &&
+            holes[r0 * QuadGridSide + c0] != 0)
+        {
+            hole = true;
+            return false;
+        }
+
+        float At(int r, int c) => grid[r * HeightGridSide + c];
+        float h00 = At(r0, c0), h01 = At(r0, c0 + 1);
+        float h10 = At(r0 + 1, c0), h11 = At(r0 + 1, c0 + 1);
+        if (h00 == 0f && h01 == 0f && h10 == 0f && h11 == 0f)
+            return false;
+
+        float middle = _innerHeights.TryGetValue(key, out float[]? inner) &&
+                       inner.Length == QuadGridSide * QuadGridSide
+            ? inner[r0 * QuadGridSide + c0]
+            : (h00 + h01 + h10 + h11) * 0.25f;
+
+        float x0 = originX - r0 * cell;
+        float y0 = originY - c0 * cell;
+        var tl = new Vector3(x0, y0, h00);
+        var tr = new Vector3(x0, y0 - cell, h01);
+        var br = new Vector3(x0 - cell, y0 - cell, h11);
+        var bl = new Vector3(x0 - cell, y0, h10);
+        var mid = new Vector3(x0 - cell * 0.5f, y0 - cell * 0.5f, middle);
+
+        float localRow = fr - r0;
+        float localCol = fc - c0;
+        float dx = localCol - 0.5f;
+        float dy = localRow - 0.5f;
+        Vector3 a, b, c;
+        if (-dy >= MathF.Abs(dx))
+            (a, b, c) = (tl, mid, tr);
+        else if (dx >= MathF.Abs(dy))
+            (a, b, c) = (tr, mid, br);
+        else if (dy >= MathF.Abs(dx))
+            (a, b, c) = (br, mid, bl);
+        else
+            (a, b, c) = (bl, mid, tl);
+
+        Vector3 cross = Vector3.Cross(b - a, c - a);
+        Vector3 normal;
+        float height;
+        if (cross.LengthSquared() > 1e-12f && MathF.Abs(cross.Z) > 1e-8f)
+        {
+            normal = Vector3.Normalize(cross);
+            if (normal.Z < 0f) normal = -normal;
+            height = a.Z -
+                (normal.X * (worldX - a.X) + normal.Y * (worldY - a.Y)) / normal.Z;
+        }
+        else
+        {
+            float rowT = localRow;
+            float colT = localCol;
+            height = h00 * (1 - rowT) * (1 - colT)
+                   + h01 * (1 - rowT) * colT
+                   + h10 * rowT * (1 - colT)
+                   + h11 * rowT * colT;
+            float dRow = (h10 - h00) * (1 - colT) + (h11 - h01) * colT;
+            float dCol = (h01 - h00) * (1 - rowT) + (h11 - h10) * rowT;
+            normal = Vector3.Normalize(new Vector3(dRow / cell, dCol / cell, 1f));
+        }
+
+        const int chunksPerSide = 16;
+        int chunkX = c0 / 8;
+        int chunkY = r0 / 8;
+        int chunkIndex = chunkY * chunksPerSide + chunkX;
+        bool impassable =
+            _impassableChunks.TryGetValue(key, out byte[]? impassableGrid) &&
+            impassableGrid.Length == chunksPerSide * chunksPerSide &&
+            impassableGrid[chunkIndex] != 0;
+        float chunkMinimumHeight =
+            _chunkMinimumHeights.TryGetValue(key, out float[]? chunkMinimums) &&
+            chunkMinimums.Length == chunksPerSide * chunksPerSide &&
+            float.IsFinite(chunkMinimums[chunkIndex])
+                ? chunkMinimums[chunkIndex]
+                : MathF.Min(MathF.Min(h00, h01), MathF.Min(h10, h11));
+
+        sample = new TerrainSurfaceSample(
+            height, normal, key.col, key.row, chunkX, chunkY,
+            impassable, chunkMinimumHeight);
+        return true;
     }
 
     public void Render(Camera camera) => Render(camera, null);
@@ -814,6 +1009,8 @@ public sealed class TerrainRenderer : IDisposable
         _innerHeights.Clear();
         _groundEffects.Clear();
         _holes.Clear();
+        _impassableChunks.Clear();
+        _chunkMinimumHeights.Clear();
         _holeCountDirty = true;
         _preloads.Clear();
 
