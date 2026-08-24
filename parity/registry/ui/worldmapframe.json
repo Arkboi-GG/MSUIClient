@@ -19,6 +19,8 @@
   "msuiAnchors": [
     "MSUIClient/Engine/UI/WorldMapUiLaw.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.WorldMap.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.GameTooltip.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.GameTooltip.Renderer.cs",
     "MSUIClient/GameLoop/Hud/GameLoop.Minimap.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.CommanderMap.cs",
     "MSUIClient/Formats/WorldMapAreaCatalog.cs",
@@ -26,7 +28,7 @@
     "tools/interface-wire-check/WorldMapClinicalChecks.cs"
   ],
   "status": "implemented",
-  "summary": "MSUI's fullscreen M-map now carries the current Benilla surface: WorldMapUiLaw owns the preserved 1024x768 scale-to-fit and letterbox-centered host transform, blackout and twelve-piece shell/detail grid, map viewport, exact GameFontNormal title and clamped-32px WorldMapTextFont hover label, action/close seats, current/arbitrary zone and continent selection, exact continent/zone dropdown capsule slices and fixed-width lists, continent click-to-drill and right-click/Zoom Out navigation, map-fraction marker/highlight projection, explored-overlay chunk rectangles, additive zone highlight, facing-rotated MinimapArrow player marker, corpse marker, and its left/right screen-half tooltip seat. The former extra center view label is removed because the two authored dropdown selections already carry that state. GameLoop.WorldMap contains no local Vector2 geometry. Focused and full interface-wire checks pass.",
+  "summary": "MSUI's fullscreen M-map now carries the current Benilla surface: WorldMapUiLaw owns the preserved 1024x768 scale-to-fit and letterbox-centered host transform, blackout and twelve-piece shell/detail grid, map viewport, exact GameFontNormal title and clamped-32px WorldMapTextFont hover label, action/close seats, current/arbitrary zone and continent selection, exact continent/zone dropdown capsule slices and fixed-width lists, continent click-to-drill and right-click/Zoom Out navigation, map-fraction marker/highlight projection, explored-overlay chunk rectangles, additive zone highlight, facing-rotated MinimapArrow player marker, corpse marker, and its left/right screen-half tooltip seat. The corpse label now publishes through the shared typed classic GameTooltip renderer with its explicit law-owned anchor/pivot and authored red text instead of an ImGui tooltip window. The former extra center view label is removed because the two authored dropdown selections already carry that state. GameLoop.WorldMap contains no local Vector2 geometry. Focused WorldMap and GameTooltip interface-wire checks pass.",
   "openItems": [
     {
       "id": "item-triage-b470a0b6",
@@ -107,11 +109,29 @@
       "added": "2026-08-23",
       "resolved": true,
       "resolution": "WorldMapUiLaw owns the marker-vs-map-center side pick and corresponding tooltip anchor/pivot; the shared GameTooltip renderer now applies it with the authored red Corpse label."
+    },
+    {
+      "id": "item-worldmap-corpse-tooltip-classic-renderer-gap-20260823",
+      "kind": "gap",
+      "text": "The corpse tooltip had acquired the correct screen-half seat but still painted its content through a generic ImGui tooltip callback instead of Benilla's shared classic GameTooltip presentation.",
+      "source": "benilla-b57ee0e9e2c8822b/WorldMapFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "The shared GameTooltip coordinator now exposes an owner-anchored typed adapter that accepts WorldMapUiLaw's resolved anchor and pivot, publishes the authored red Corpse line, prepares the existing classic WowSkin tooltip shell, and retains immediate-hide ownership. Existing shared-tooltip callers keep their prior default pivot. Focused WorldMap and GameTooltip checks pass."
+    },
+    {
+      "id": "item-worldmap-dropdown-state-visual-gap-20260823",
+      "kind": "gap",
+      "text": "WorldMap's dropdown toggle stayed in its pushed texture for the entire open state, selected rows omitted UIDropDownMenu's locked highlight, and row picks played the capsule-toggle cue instead of UChatScrollButton.",
+      "source": "benilla-b57ee0e9e2c8822b/WorldMapFrame.xml+UIDropDownMenu.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "WorldMapUiLaw now derives both 130px capsules from DropdownCapsuleUiLaw. The renderer uses held-only pushed art, the shared selected check plus locked additive row highlight, and the exact distinct toggle/row sounds while preserving fullscreen scaling, list geometry, selection, navigation, and click-away behavior. Focused WorldMap checks pass."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T16:38:00Z",
+  "lastReviewedUtc": "2026-08-23T19:37:08.1710396Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

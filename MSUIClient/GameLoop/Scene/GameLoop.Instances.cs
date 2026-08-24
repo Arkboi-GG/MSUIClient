@@ -752,8 +752,14 @@ public sealed partial class GameLoop
     /// </summary>
     private void UpdateAreaTriggers()
     {
-        if (_controller is null || _areaTriggers is null) return;
+        if (_areaTriggers is null || !TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return;
         if (_travelInProgress) return;
+
+        // Area triggers are server-owned gameplay volumes for the logged-in
+        // character.  In Free View the controller is only the observer rig;
+        // letting it drive this test makes an invisible camera trip inns,
+        // quests, battlegrounds, and portals on the session body's behalf.
+        Vector3 bodyPosition = sessionBody.Position;
 
         int mapId = _config.Start.Map;
         if (_portalLatchMap != mapId)
@@ -763,9 +769,9 @@ public sealed partial class GameLoop
         }
         bool stillInsideLatched = _portalLatch != 0 &&
             _areaTriggers.ForMap(mapId).FirstOrDefault(row => row.Id == _portalLatch)
-                ?.Contains(_controller.Position) == true;
+                ?.Contains(bodyPosition) == true;
         AreaTriggerRow? first = stillInsideLatched
-            ? null : _areaTriggers.Containing(mapId, _controller.Position);
+            ? null : _areaTriggers.Containing(mapId, bodyPosition);
         AreaTriggerLatchStep step = AreaTriggerLaw.Step(
             _portalLatch, stillInsideLatched, first?.Id);
         _portalLatch = step.LatchedId;

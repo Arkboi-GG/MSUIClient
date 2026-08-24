@@ -339,20 +339,24 @@ public sealed partial class GameLoop
             }
         float distanceSquared = float.MaxValue;
         bool tracked = _entities.TryGet(_unitPopupGuid, out WorldEntity unit);
-        if (tracked && _controller is not null)
-            distanceSquared = Vector3.DistanceSquared(_controller.Position, unit.Position);
+        if (tracked && TryGetControlledBodyPose(out WorldBodyPose controlledBody))
+            distanceSquared = Vector3.DistanceSquared(controlledBody.Position, unit.Position);
         // ControlledGuid, not PlayerGuid: while possessing a bot, the controlled unit is
         // "self" for the inspect gate (the CRPG seam the pre-rewrite popup carried).
         if (row == UnitPopupRow.Inspect)
-            return _net is null || !tracked || InspectUiLaw.PopupRowEnabled(unit.IsPlayer,
-                _unitPopupGuid == ControlledGuid, CanAttack(unit), distanceSquared);
+            return _net is null || !tracked || CanAuthorControlledGameplay &&
+                InspectUiLaw.PopupRowEnabled(unit.IsPlayer,
+                    _unitPopupGuid == ControlledGuid, CanAttack(unit), distanceSquared);
         if (row == UnitPopupRow.Duel)
         {
             bool playerDead = _entities.TryGet(ControlledGuid, out WorldEntity player) &&
                 player.IsDead;
             return tracked && unit.IsPlayer && DuelFrameUiLaw.DuelRowEnabled(playerDead,
-                unit.IsDead, fullControl: true, distanceSquared);
+                unit.IsDead, fullControl: CanAuthorControlledGameplay, distanceSquared);
         }
+        if (row == UnitPopupRow.Trade && !CanAuthorControlledGameplay) return false;
+        if (row is UnitPopupRow.PetRename or UnitPopupRow.PetAbandon or UnitPopupRow.PetDismiss &&
+            !CanAuthorControlledGameplay) return false;
         if (row == UnitPopupRow.Follow)
             return tracked && unit.IsPlayer && !_freeView && _controlState == ControlState.OwnChar;
         return UnitPopupUiLaw.RowEnabled(row, inParty, isLeader, isRaid,
@@ -371,13 +375,14 @@ public sealed partial class GameLoop
                 OpenCharacterPageThroughUiPanel(requestedTab: 1);
                 break;
             case UnitPopupRow.PetRename:
-                ShowPetRenamePopup(guid);
+                if (CanAuthorControlledGameplay) ShowPetRenamePopup(guid);
                 break;
             case UnitPopupRow.PetAbandon:
-                ShowPetAbandonPopup(guid);
+                if (CanAuthorControlledGameplay) ShowPetAbandonPopup(guid);
                 break;
             case UnitPopupRow.PetDismiss:
-                _net?.PetAction(guid, PetMenuUiLaw.DismissWord, 0);
+                if (CanAuthorControlledGameplay)
+                    _net?.PetAction(guid, PetMenuUiLaw.DismissWord, 0);
                 break;
             case UnitPopupRow.Whisper:
                 if (name.Length > 0) OpenChatEditWith($"/w {name} ");
@@ -402,8 +407,11 @@ public sealed partial class GameLoop
                 ShowGuildActionPopup(GuildFrameUiLaw.ConfirmLeaveDefinition, _guildName);
                 break;
             case UnitPopupRow.Trade:
-                _tradePartnerGuid = guid;
-                _net?.InitiateTrade(guid);
+                if (CanAuthorControlledGameplay && UnitPopupRowEnabled(row))
+                {
+                    _tradePartnerGuid = guid;
+                    _net?.InitiateTrade(guid);
+                }
                 break;
             case UnitPopupRow.Follow:
                 StartAutoFollow(guid, name);

@@ -12,7 +12,8 @@ public sealed partial class GameLoop
     /// </summary>
     private void ApplyServerAuthoredSelfMove(MovementRelay relay)
     {
-        if (_controller is null || _freeView || relay.Guid != ControlledGuid) return;
+        if (_controller is null || !ControllerOwnsControlledBodyPose ||
+            relay.Guid != ControlledGuid) return;
         MovementInfo movement = relay.Movement;
         uint localFlags = _movementSender.LastFlags |
             (uint)_controller.GrantedMovementFlags |

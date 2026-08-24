@@ -29,24 +29,87 @@ public sealed partial class GameLoop
     private void ResetAuction()
     { _auctions.Clear(); _auctionOpen = false; _auctioneerGuid = 0; _auctionHouseId = 0; _auctionTotal = 0; _auctionSelected = 0; }
 
+    private bool AuctioneerEligible(
+        ulong guid, out WorldEntity? npc, out float distanceSquared)
+    {
+        npc = null;
+        distanceSquared = float.PositiveInfinity;
+        if (_net is not { IsInWorld: true } ||
+            !TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
+            !_entities.TryGet(guid, out npc) || !npc.IsCreature || npc.IsDead ||
+            (npc.NpcFlags & NpcAuctioneer) == 0)
+            return false;
+        distanceSquared = Vector3.DistanceSquared(sessionBody.Position, npc.Position);
+        return NpcSessionUiLaw.InRange(distanceSquared);
+    }
+
+    private bool AuctionSessionInRange(out float distanceSquared)
+    {
+        distanceSquared = float.PositiveInfinity;
+        return _auctionOpen && _auctioneerGuid != 0 &&
+            AuctioneerEligible(_auctioneerGuid, out _, out distanceSquared);
+    }
+
     private bool RequestAuction(ulong guid)
     {
-        bool eligible = _entities.TryGet(guid, out WorldEntity npc) && npc.IsCreature && (npc.NpcFlags & NpcAuctioneer) != 0;
+        bool eligible = AuctioneerEligible(
+            guid, out WorldEntity? npc, out float distanceSquared);
         bool sent = eligible && _net?.AuctionHello(guid) == true;
         EmitInterface("auction", "hello-send", sent ? "SENT" : "REFUSED", guid,
-            $"eligible={eligible};npcFlags=0x{npc?.NpcFlags ?? 0:X8};body={Convert.ToHexString(WorldSession.BuildAuctionGuidBody(guid))}");
+            $"eligible={eligible};distanceSquared={distanceSquared:R};" +
+            $"npcFlags=0x{npc?.NpcFlags ?? 0:X8};" +
+            $"body={Convert.ToHexString(WorldSession.BuildAuctionGuidBody(guid))}");
         return sent;
+    }
+
+    private bool UpdateAuctionLifecycle()
+    {
+        if (!_auctionOpen ||
+            !TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return false;
+        ulong sourceGuid = _auctioneerGuid;
+        bool sourceAvailable = _entities.TryGet(sourceGuid, out WorldEntity auctioneer) &&
+            auctioneer.IsCreature && !auctioneer.IsDead &&
+            (auctioneer.NpcFlags & NpcAuctioneer) != 0;
+        float distanceSquared = sourceAvailable
+            ? Vector3.DistanceSquared(sessionBody.Position, auctioneer.Position)
+            : float.PositiveInfinity;
+        if (!NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
+            return false;
+        ResetAuction();
+        EmitInterface("auction", "lifecycle-close", "CLOSED", sourceGuid,
+            sourceAvailable
+                ? $"distanceSquared={distanceSquared:R};" +
+                  $"limitSquared={NpcSessionUiLaw.ServiceRangeSquared:R}"
+                : "source-unavailable");
+        return true;
     }
 
     private void ApplyAuctionHello(byte[] body)
     {
-        if (body.Length < 12) return; var r = new PacketReader(body); _auctioneerGuid = r.ReadU64(); _auctionHouseId = r.ReadU32(); _auctionOpen = true;
-        EmitInterface("auction", "hello", "OPEN", _auctioneerGuid, $"house={_auctionHouseId};body={Convert.ToHexString(body)}");
+        if (body.Length < 12) return;
+        var r = new PacketReader(body);
+        ulong guid = r.ReadU64();
+        uint house = r.ReadU32();
+        bool eligible = AuctioneerEligible(guid, out _, out float distanceSquared);
+        if (!eligible)
+        {
+            ResetAuction();
+            EmitInterface("auction", "hello", "REFUSED", guid,
+                $"house={house};distanceSquared={distanceSquared:R};" +
+                $"body={Convert.ToHexString(body)}");
+            return;
+        }
+        _auctioneerGuid = guid;
+        _auctionHouseId = house;
+        _auctionOpen = true;
+        EmitInterface("auction", "hello", "OPEN", _auctioneerGuid,
+            $"house={_auctionHouseId};distanceSquared={distanceSquared:R};" +
+            $"body={Convert.ToHexString(body)}");
     }
 
     private bool BrowseAuctions(uint page = 0, string search = "")
     {
-        if (!_auctionOpen || _net is null) return false; byte[] body = WorldSession.BuildAuctionBrowseBody(_auctioneerGuid, page, search, _auctionCategory);
+        if (!AuctionSessionInRange(out _) || _net is null) return false; byte[] body = WorldSession.BuildAuctionBrowseBody(_auctioneerGuid, page, search, _auctionCategory);
         bool sent = _net.AuctionBrowse(_auctioneerGuid, page, search, _auctionCategory);
         EmitInterface("auction", "browse-send", sent ? "SENT" : "SEND_FAILED", _auctioneerGuid,
             $"page={page};search={SanitizeEvidence(search)};body={Convert.ToHexString(body)}"); return sent;
@@ -54,14 +117,14 @@ public sealed partial class GameLoop
 
     private bool RequestOwnerAuctions(uint page = 0)
     {
-        if (!_auctionOpen || _net is null) return false; bool sent = _net.AuctionOwnerList(_auctioneerGuid, page);
+        if (!AuctionSessionInRange(out _) || _net is null) return false; bool sent = _net.AuctionOwnerList(_auctioneerGuid, page);
         EmitInterface("auction", "owner-send", sent ? "SENT" : "SEND_FAILED", _auctioneerGuid,
             $"page={page};body={Convert.ToHexString(WorldSession.BuildAuctionPageBody(_auctioneerGuid, page))}"); return sent;
     }
 
     private bool RequestBidderAuctions(uint page = 0)
     {
-        if (!_auctionOpen || _net is null) return false;
+        if (!AuctionSessionInRange(out _) || _net is null) return false;
         return _net.AuctionBidderList(_auctioneerGuid, page);
     }
 
@@ -114,21 +177,23 @@ public sealed partial class GameLoop
 
     private bool BidAuction(uint id, uint price)
     {
-        if (!_auctionOpen || _net is null || _auctions.All(x => x.Id != id)) return false; bool sent = _net.AuctionBid(_auctioneerGuid, id, price);
+        if (!AuctionSessionInRange(out _) || _net is null ||
+            _auctions.All(x => x.Id != id)) return false; bool sent = _net.AuctionBid(_auctioneerGuid, id, price);
         EmitInterface("auction", "bid-send", sent ? "SENT" : "SEND_FAILED", _auctioneerGuid,
             $"auction={id};price={price};body={Convert.ToHexString(WorldSession.BuildAuctionBidBody(_auctioneerGuid, id, price))}"); return sent;
     }
 
     private bool CancelAuction(uint id)
     {
-        if (!_auctionOpen || _net is null) return false; bool sent = _net.AuctionCancel(_auctioneerGuid, id);
+        if (!AuctionSessionInRange(out _) || _net is null) return false; bool sent = _net.AuctionCancel(_auctioneerGuid, id);
         EmitInterface("auction", "cancel-send", sent ? "SENT" : "SEND_FAILED", _auctioneerGuid,
             $"auction={id};body={Convert.ToHexString(WorldSession.BuildAuctionPageBody(_auctioneerGuid, id))}"); return sent;
     }
 
     private bool CreateAuction(uint itemEntry, uint bid, uint buyout, uint durationMinutes)
     {
-        if (!_auctionOpen || _net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        if (!AuctionSessionInRange(out _) || _net is null ||
+            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
         ulong itemGuid = Enumerable.Range(0, 16).Select(i => player.Fields.PlayerBackpackSlot(i))
             .FirstOrDefault(g => g != 0 && _entities.TryGet(g, out WorldEntity item) && item.Entry == itemEntry);
         if (itemGuid == 0) return false; bool sent = _net.AuctionSell(_auctioneerGuid, itemGuid, bid, buyout, durationMinutes);
@@ -147,7 +212,11 @@ public sealed partial class GameLoop
 
     private void SimulateAuctionFlow()
     {
-        var hello = new PacketWriter(); hello.WriteU64(0xF130000361000001); hello.WriteU32(1); ApplyAuctionHello(hello.ToArray());
+        _auctioneerGuid = 0xF130000361000001;
+        _auctionHouseId = 1;
+        _auctionOpen = true;
+        EmitInterface("auction", "hello", "OPEN", _auctioneerGuid,
+            "house=1;source=runtime-replay");
         var list = new PacketWriter(); list.WriteU32(2);
         WriteAuctionRow(list, 700, 159, 1, 0x111, 100, 5, 250, 3600000, 0, 0);
         WriteAuctionRow(list, 701, 117, 5, 0x222, 50, 3, 150, 7200000, 0x333, 80);

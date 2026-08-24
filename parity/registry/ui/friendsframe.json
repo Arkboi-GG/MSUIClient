@@ -78,6 +78,8 @@
     "MSUIClient/GameLoop/Panels/GameLoop.GuildMemberDetail.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.GuildControl.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.GuildPopups.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.GameTooltip.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.GameTooltip.Renderer.cs",
     "MSUIClient/GameLoop/Hud/GameLoop.UnitPopup.cs",
     "MSUIClient/Engine/UI/FriendsFrameUiLaw.cs",
     "MSUIClient/Engine/UI/GuildFrameUiLaw.cs",
@@ -282,7 +284,16 @@
       "source": "benilla-ac3264a0296ae90e/FriendsFrame.xml",
       "added": "2026-08-23",
       "resolved": true,
-      "resolution": "GuildFrameUiLaw owns the exact Click to add rank / Click to remove this rank copy and ANCHOR_RIGHT seat; both enabled mini-buttons publish through shared GameTooltip arbitration."
+      "resolution": "GuildFrameUiLaw owns the exact Click to add rank / Click to remove this rank copy and ANCHOR_RIGHT seat; both mini-buttons publish through shared GameTooltip arbitration."
+    },
+    {
+      "id": "item-guildcontrol-rank-button-classic-tooltip-gap-20260823",
+      "kind": "gap",
+      "text": "Guild Control's add/remove-rank tooltips had the authored copy and ANCHOR_RIGHT seat but still painted through a generic ImGui tooltip callback instead of GameTooltip:SetText's shared classic presentation.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "Both rank mini-buttons now submit a white typed line and GuildFrameUiLaw's resolved anchor/pivot to the shared owner-anchored classic GameTooltip adapter. The renderer consumes no local tooltip geometry, and focused GuildFrame checks pass."
     },
     {
       "id": "item-social-guild-newbie-tooltips-20260823",
@@ -301,11 +312,29 @@
       "added": "2026-08-23",
       "resolved": true,
       "resolution": "GuildFrameUiLaw owns GameFontNormalSmall, GameFontHighlightSmall, and GameFontDisableSmall for the authored override sites. The main guild footer plus Guild Information and member-detail action buttons consume those identities; Guild Control Accept/Cancel retain the base UIPanelButtonTemplate fonts because FrameXML does not override them."
+    },
+    {
+      "id": "item-guildcontrol-rank-dropdown-visual-gap-20260823",
+      "kind": "gap",
+      "text": "Guild Control's rank selector used an invented 128x32 tooltip-backed button and 18px unchecked rows instead of its authored UIDropDownMenuTemplate with SetWidth(110), SetButtonWidth(54), left-justified selection, dialog backdrop, and 16px checked rows.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml+UIDropDownMenu.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "DropdownCapsuleUiLaw now owns customized capsule button/justification plus fixed-width list, row, check, highlight, and sound rules. GuildFrameUiLaw derives the centered 160x32 selector and adjacent rank buttons from that shared law; Guild Control consumes the exact 54x24 toggle, left label, dialog list, selected check/highlight, 16px rows, and reference sounds. The shared capsule's standard toggle was also corrected from y=18 to the FrameXML-proven y=1 seat, covering Trainer and TradeSkill. Focused GuildFrame, UI foundation, TrainerFrame, and ProfessionFrame checks pass."
+    },
+    {
+      "id": "item-whoframe-dropdown-template-visual-gap-20260823",
+      "kind": "gap",
+      "text": "WhoFrame's variable-column selector duplicated UIDropDownMenuTemplate with a 17px-low arrow, a 5px-left-shifted selection, tooltip rather than dialog list art, no locked selected-row highlight, and no row-click sound.",
+      "source": "benilla-b57ee0e9e2c8822b/FriendsFrame.xml+UIDropDownMenu.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "FriendsFrameUiLaw now derives the crowded/wide Who selector from DropdownCapsuleUiLaw with SetButtonWidth(24) and LEFT justification. Social consumes the shared capsule, fixed-width dialog list, selected check/highlight, exact 16px row seats, toggle cue, and UChatScrollButton selection cue; its existing Zone/Guild/Race behavior and sort law remain unchanged. Focused FriendsFrame checks pass."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T18:00:00.0000000Z",
+  "lastReviewedUtc": "2026-08-23T19:40:05.8496509Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

@@ -256,6 +256,32 @@ public sealed partial class GameLoop
             SharedGameTooltipLeavePolicy.ImmediateHide, preparedRenderer);
     }
 
+    /// <summary>
+    /// Publishes an ordinary owner-anchored GameTooltip through the shared classic renderer.
+    /// Anchor/pivot are the resolved FrameXML SetOwner seat, so ANCHOR_LEFT and ANCHOR_RIGHT
+    /// surfaces share one content/render path without falling back to an ImGui tooltip window.
+    /// </summary>
+    private bool OfferOwnerAnchoredSharedGameTooltip(
+        in GameTooltipOwnerKey owner,
+        GameTooltipLine[] lines,
+        Vector2 anchor,
+        Vector2 pivot)
+    {
+        if (!_sharedTooltipFrameOpen || _sharedTooltipFrameResolved ||
+            _skin is null || lines.Length == 0) return false;
+        GameTooltipOwnerToken token = ClaimSharedGameTooltip(owner);
+        if (!PublishSharedGameTooltip(token,
+                new GameTooltipContent(GameTooltipAnchorKind.OwnerRight, lines)))
+            throw new InvalidOperationException(
+                "A freshly claimed owner-anchored GameTooltip rejected its content.");
+        PreparedSharedGameTooltipRenderer? prepared =
+            PrepareSharedGameTooltipRenderer(SharedGameTooltipSnapshot(), anchor, pivot);
+        if (prepared is null) return false;
+        return QueueSharedGameTooltipRenderer(token,
+            SharedGameTooltipLeavePolicy.ImmediateHide,
+            () => DrawPreparedSharedGameTooltip(prepared));
+    }
+
     private bool BeginSharedGameTooltipFade(
         in GameTooltipOwnerToken token,
         double now,

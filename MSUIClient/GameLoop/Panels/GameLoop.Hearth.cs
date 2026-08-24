@@ -28,9 +28,10 @@ public sealed partial class GameLoop
     private bool RequestBind(ulong guid)
     {
         WorldEntity? inn = null; float distance = float.PositiveInfinity;
-        bool eligible = _net is { IsInWorld: true } && _controller is not null &&
+        bool eligible = _net is { IsInWorld: true } &&
+            TryGetSessionBodyPose(out WorldBodyPose sessionBody) &&
             _entities.TryGet(guid, out inn) && inn.IsCreature && !inn.IsDead && (inn.NpcFlags & NpcInnkeeper) != 0 &&
-            (distance = Vector3.Distance(_controller.Position, inn.Position)) <= BinderConfirmUiLaw.ServiceRange;
+            (distance = Vector3.Distance(sessionBody.Position, inn.Position)) <= BinderConfirmUiLaw.ServiceRange;
         bool sent = eligible && _net!.BinderActivate(guid);
         EmitInterface("hearth", "bind-send", sent ? "SENT" : "REFUSED", guid,
             $"eligible={eligible};distance={distance:R};npcFlags=0x{inn?.NpcFlags ?? 0:X8};body={Convert.ToHexString(WorldSession.BuildBinderBody(guid))}");
@@ -59,8 +60,10 @@ public sealed partial class GameLoop
     {
         PlayerBoundPacket packet = BinderPackets.ParsePlayerBound(body);
         _binderConfirmOpen = false;
-        Vector3 listener = _controller?.Position ?? Vector3.Zero;
-        _spellSounds?.Play(BinderConfirmUiLaw.BoundSoundId, ControlledGuid, listener, listener,
+        Vector3 listener = TryGetSessionBodyPose(out WorldBodyPose sessionBody)
+            ? sessionBody.Position
+            : Vector3.Zero;
+        _spellSounds?.Play(BinderConfirmUiLaw.BoundSoundId, LocalPlayerGuid, listener, listener,
             category: "ui.binder");
         EnsureAreaTableForMinimap();
         string? message = BinderConfirmUiLaw.PlayerBoundText(_areas?.AreaName(packet.AreaId));
@@ -81,12 +84,13 @@ public sealed partial class GameLoop
 
     private bool UseHearthstone()
     {
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        if (_net is null || !TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
+            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
         for (int i = 0; i < 16; i++)
         {
             ulong guid = player.Fields.PlayerBackpackSlot(i);
             if (guid == 0 || !_entities.TryGet(guid, out WorldEntity item) || item.Entry != HearthstoneEntry) continue;
-            _hearthFrom = _controller?.Position ?? Vector3.Zero; _hearthPending = true;
+            _hearthFrom = sessionBody.Position; _hearthPending = true;
             _net.UseItem(255, (byte)(23 + i), 0);
             EmitInterface("hearth", "use-send", "SENT", guid,
                 $"entry={HearthstoneEntry};bag=255;slot={23+i};spellSlot=0;from={_hearthFrom.X:R}|{_hearthFrom.Y:R}|{_hearthFrom.Z:R}");
@@ -123,10 +127,10 @@ public sealed partial class GameLoop
     private bool BinderConfirmationInRange(out float distance)
     {
         distance = float.PositiveInfinity;
-        bool playerAvailable = _controller is not null;
+        bool playerAvailable = TryGetSessionBodyPose(out WorldBodyPose sessionBody);
         bool binderAvailable = _entities.TryGet(_binderGuid, out WorldEntity binder);
         if (playerAvailable && binderAvailable)
-            distance = Vector3.Distance(_controller!.Position, binder.Position);
+            distance = Vector3.Distance(sessionBody.Position, binder.Position);
         return BinderConfirmUiLaw.ShouldRemainOpen(playerAvailable, binderAvailable,
             binder?.IsCreature == true, binder?.IsDead == true, distance);
     }

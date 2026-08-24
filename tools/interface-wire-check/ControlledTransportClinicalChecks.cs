@@ -43,6 +43,8 @@ internal static class ControlledTransportClinicalChecks
               program.Contains("ReconcileControlledTransportRider();", StringComparison.Ordinal) &&
               transports.Contains("ProbeMovingTransportGround", StringComparison.Ordinal) &&
               transports.Contains("ride.LocalPosition", StringComparison.Ordinal) &&
+              Count(transports, "!ControllerOwnsControlledBodyPose") >= 2 &&
+              transports.Contains("_controller.Transport = null;", StringComparison.Ordinal) &&
               transports.Contains("TryUpdateDynamicTransform(go.Guid", StringComparison.Ordinal) &&
               sender.Contains("MovementFlags.OnTransport", StringComparison.Ordinal) &&
               sender.Contains("info.Transport = controller.Transport", StringComparison.Ordinal) &&
@@ -54,6 +56,15 @@ internal static class ControlledTransportClinicalChecks
               doodads.Contains("TryRaycastDynamicCollision", StringComparison.Ordinal) &&
               doodads.Contains("LiveCollision = liveCollision", StringComparison.Ordinal),
             "controlled transport production wiring drifted");
+    }
+
+    private static int Count(string text, string needle)
+    {
+        int count = 0;
+        for (int at = 0; (at = text.IndexOf(needle, at, StringComparison.Ordinal)) >= 0;
+             at += needle.Length)
+            count++;
+        return count;
     }
 
     private static void Check(bool condition, string message)

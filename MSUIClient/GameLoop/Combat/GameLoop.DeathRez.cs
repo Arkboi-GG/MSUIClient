@@ -124,9 +124,9 @@ public sealed partial class GameLoop
             x.Type == ObjectTypeId.Corpse && x.Fields.GetGuid(6) == owner);
         if (corpse is null || corpse.Guid == _corpseGuid) return;
         _corpseGuid = corpse.Guid;
-        float distance = _controller is null
-            ? float.PositiveInfinity
-            : Vector3.Distance(_controller.Position, corpse.Position);
+        float distance = TryGetSessionBodyPose(out WorldBodyPose sessionBody)
+            ? Vector3.Distance(sessionBody.Position, corpse.Position)
+            : float.PositiveInfinity;
         EmitInterface("death-rez", "corpse", "CREATED", corpse.Guid,
             $"owner={owner:X16};distance={distance:R};" +
             $"position={corpse.Position.X:R}|{corpse.Position.Y:R}|{corpse.Position.Z:R}");
@@ -189,6 +189,7 @@ public sealed partial class GameLoop
     private void UpdateDeathDialogs(WorldEntity player, bool ghost)
     {
         double now = NowSeconds();
+        bool sessionBodyAvailable = TryGetSessionBodyPose(out WorldBodyPose sessionBody);
         if (_resurrectOffer is { } offer)
         {
             if (now >= offer.ExpiresAt)
@@ -202,9 +203,9 @@ public sealed partial class GameLoop
 
         if (_spiritHealerGuid != 0)
         {
-            bool inRange = _controller is not null &&
+            bool inRange = sessionBodyAvailable &&
                 _entities.TryGet(_spiritHealerGuid, out WorldEntity healer) &&
-                Vector3.DistanceSquared(_controller.Position, healer.Position) <=
+                Vector3.DistanceSquared(sessionBody.Position, healer.Position) <=
                     DeathFrameUiLaw.SpiritHealerRangeSquared;
             if (!inRange)
             {
@@ -216,9 +217,9 @@ public sealed partial class GameLoop
         }
 
         _recoverDialog = DeathDialogKind.None;
-        if (ghost && _corpseLocation is { } corpse && _controller is not null &&
+        if (ghost && _corpseLocation is { } corpse && sessionBodyAvailable &&
             corpse.DisplayMap == _config.Start.Map &&
-            Vector3.DistanceSquared(_controller.Position, corpse.Position) <=
+            Vector3.DistanceSquared(sessionBody.Position, corpse.Position) <=
                 DeathFrameUiLaw.CorpseRangeSquared)
             _recoverDialog = corpse.DisplayMap == corpse.CorpseMap
                 ? DeathDialogKind.RecoverCorpse
@@ -278,9 +279,14 @@ public sealed partial class GameLoop
     private bool ReclaimCorpse()
     {
         bool timerReady = NowSeconds() >= _corpseReclaimReadyAt;
-        bool sent = timerReady && _net?.ReclaimCorpse(_corpseGuid) == true;
+        bool inRange = TryGetSessionBodyPose(out WorldBodyPose sessionBody) &&
+            _corpseLocation is { } corpse && corpse.DisplayMap == _config.Start.Map &&
+            Vector3.DistanceSquared(sessionBody.Position, corpse.Position) <=
+                DeathFrameUiLaw.CorpseRangeSquared;
+        bool sent = timerReady && inRange && _net?.ReclaimCorpse(_corpseGuid) == true;
         EmitInterface("death-rez", "reclaim",
-            sent ? "SENT" : timerReady ? "SEND_FAILED" : "REFUSED_DELAY", _corpseGuid,
+            sent ? "SENT" : !timerReady ? "REFUSED_DELAY" : !inRange
+                ? "REFUSED_RANGE" : "SEND_FAILED", _corpseGuid,
             $"delayMs={_corpseReclaimDelayMs};remainingMs=" +
             $"{(uint)Math.Max(0, (_corpseReclaimReadyAt - NowSeconds()) * 1000)};" +
             $"body={Convert.ToHexString(WorldSession.BuildReclaimCorpseBody(_corpseGuid))}");
@@ -308,6 +314,17 @@ public sealed partial class GameLoop
     {
         if (_spiritHealerGuid == 0 || _net is null) return;
         ulong healer = _spiritHealerGuid;
+        if (!TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
+            !_entities.TryGet(healer, out WorldEntity spiritHealer) ||
+            Vector3.DistanceSquared(sessionBody.Position, spiritHealer.Position) >
+                DeathFrameUiLaw.SpiritHealerRangeSquared)
+        {
+            EmitInterface("death-rez", "spirit-healer", "REFUSED_RANGE", healer,
+                $"limit={DeathFrameUiLaw.SpiritHealerRange:R}");
+            _spiritHealerGuid = 0;
+            _xpLossStage = 0;
+            return;
+        }
         bool sent = _net.SpiritHealerActivate(healer);
         EmitInterface("death-rez", "spirit-healer", sent ? "ACCEPT_SENT" : "SEND_FAILED",
             healer, $"body={Convert.ToHexString(WorldSession.BuildSpiritHealerBody(healer))}");

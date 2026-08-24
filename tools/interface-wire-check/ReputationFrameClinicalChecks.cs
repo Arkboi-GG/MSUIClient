@@ -27,14 +27,22 @@ internal static class ReputationFrameClinicalChecks
             ReputationFrameUiLaw.DetailScreenRect(new Vector2(10, 20), 2);
         ReputationFrameUiLaw.CheckGeometry sword = ReputationFrameUiLaw.Check(
             frame.Min, ReputationFrameUiLaw.AtWarCheck, 2, true);
+        ReputationFrameUiLaw.TooltipSeat tooltip =
+            ReputationFrameUiLaw.RightTooltipSeat(sword);
         Check(frame == new ReputationFrameUiLaw.ScreenRect(
                   new Vector2(712, -36), new Vector2(424, 406)) &&
               sword.Hit == new ReputationFrameUiLaw.ScreenRect(
                   new Vector2(740, 250), new Vector2(52, 52)) &&
               sword.MarkMin == new Vector2(746, 240) &&
               sword.MarkSize == new Vector2(64) &&
-              sword.LabelPosition == new Vector2(788, 264),
+              sword.LabelPosition == new Vector2(788, 264) &&
+              tooltip == new ReputationFrameUiLaw.TooltipSeat(
+                  new Vector2(792, 250), Vector2.UnitY),
             "ReputationDetailFrame screen/checkbox projection drift");
+
+        Check(ReputationFrameUiLaw.AtWarDescription ==
+                  "This determines how you will interact with members of this faction. If you have at war checked then your default behavior will be to attack them. If you do not have it checked you will not be able to attack them. ",
+            "ReputationDetailFrame At War tooltip wording drift");
 
         byte flags = ReputationFrameUiLaw.Visible | ReputationFrameUiLaw.AtWar;
         Check(ReputationFrameUiLaw.IsVisible(flags) &&
@@ -93,8 +101,18 @@ internal static class ReputationFrameClinicalChecks
         Check(detailStart >= 0 && detailEnd > detailStart &&
               detailRuntime.Contains("ReputationFrameUiLaw.DetailScreenRect", StringComparison.Ordinal) &&
               detailRuntime.Contains("ReputationFrameUiLaw.Check", StringComparison.Ordinal) &&
+              detailRuntime.Contains("ReputationFrameUiLaw.RightTooltipSeat(geometry)",
+                  StringComparison.Ordinal) &&
+              detailRuntime.Contains("new(\"reputation-detail-at-war\", 0)",
+                  StringComparison.Ordinal) &&
+              detailRuntime.Contains("GameTooltipTextTone.White, Wrap: true",
+                  StringComparison.Ordinal) &&
+              detailRuntime.Contains("bool itemHovered = ImGui.IsItemHovered();",
+                  StringComparison.Ordinal) &&
+              !detailRuntime.Contains("ImGui.BeginTooltip", StringComparison.Ordinal) &&
+              !detailRuntime.Contains("ImGui.SetTooltip", StringComparison.Ordinal) &&
               !detailRuntime.Contains("new Vector2", StringComparison.Ordinal),
-            "ReputationDetailFrame renderer owns modal geometry");
+            "ReputationDetailFrame renderer bypasses modal/tooltip law");
     }
 
     private static void Check(bool condition, string message)

@@ -67,12 +67,18 @@ internal static class MovementModeClinicalChecks
             "CharacterController.cs"));
         string sender = SourceText.Read(Path.Combine(root, "MSUIClient", "Net",
             "LocalMovementSender.cs"));
+        string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.cs"));
         Check(dispatch.Contains("case Op.SMSG_MOVE_UNSET_HOVER", StringComparison.Ordinal) &&
               modes.Contains("MoveModeAck", StringComparison.Ordinal) &&
               controller.Contains("FeatherFalling ? 7f", StringComparison.Ordinal) &&
               controller.Contains("liquid-water-walk", StringComparison.Ordinal) &&
               controller.Contains("groundZ += 1f", StringComparison.Ordinal) &&
-              sender.Contains("controller.GrantedMovementFlags", StringComparison.Ordinal),
+              sender.Contains("controller.GrantedMovementFlags", StringComparison.Ordinal) &&
+              sender.Contains("flags |= serverGrantedFlags;", StringComparison.Ordinal) &&
+              sender.Contains("flags &= ~RootIncompatibleFlags;", StringComparison.Ordinal) &&
+              runtime.Contains(
+                  "_movementRooted ? MovementFlags.Root : MovementFlags.None",
+                  StringComparison.Ordinal),
             "movement-mode apply/effect/outbound-flag wiring drift");
     }
 

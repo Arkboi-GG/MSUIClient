@@ -63,7 +63,7 @@ public sealed partial class GameLoop
 
     private float LatchedChatBubbleLift(WorldEntity speaker)
     {
-        if (speaker.Guid == ControlledGuid && _character is not null)
+        if (speaker.Guid == ControlledGuid && !ControlledBodyIsStreamed && _character is not null)
             return _character.StandBoxHeight();
         return _creatures?.TryGetStandBoxHeight(speaker, out float height) == true
             ? height : 0f;

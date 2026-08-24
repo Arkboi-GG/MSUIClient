@@ -36,12 +36,13 @@ public static class TaxiFrameUiLaw
         public Vector2 ScaledSize(float scale) => Size * scale;
     }
 
+    public readonly record struct TooltipSeat(Vector2 Anchor, Vector2 Pivot);
+
     public static readonly LogicalRect Frame = new(0, 0, Width, Height);
     public static readonly LogicalRect Portrait = new(
         PortraitOffset.X, PortraitOffset.Y, PortraitSize, PortraitSize);
     public static readonly LogicalRect Map = new(MapOffset.X, MapOffset.Y, MapSize.X, MapSize.Y);
     public static readonly LogicalRect Close = new(CloseButton.X, CloseButton.Y, 32, 32);
-    public static readonly LogicalRect FallbackContent = new(50, 82, 270, 300);
     public static readonly LogicalRect[] ShellPieces =
     [
         new(0, 0, 256, 256),
@@ -61,6 +62,14 @@ public static class TaxiFrameUiLaw
         new(origin.X + Width * .5f * scale, origin.Y + 17f * scale + titleEm * .5f);
 
     public static Vector2 NodeHalf(float size, float scale) => Vector2.One * (size * scale * .5f);
+
+    // TaxiButtonTemplate: GameTooltip:SetOwner(button, "ANCHOR_RIGHT"). The shared classic
+    // renderer consumes a bottom-left tooltip pivot seated at the button's screen top-right.
+    public static TooltipSeat NodeTooltipSeat(Vector2 center, float scale)
+    {
+        Vector2 half = NodeHalf(NodeSize, scale);
+        return new(new Vector2(center.X + half.X, center.Y - half.Y), Vector2.UnitY);
+    }
 
     public static Vector2 SegmentSource(Vector4 normalized) => new(normalized.X, normalized.Y);
     public static Vector2 SegmentDestination(Vector4 normalized) => new(normalized.Z, normalized.W);

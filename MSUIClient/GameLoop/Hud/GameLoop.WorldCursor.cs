@@ -33,7 +33,7 @@ public sealed partial class GameLoop
         string stem = WorldCursorKind.Point.ToString();
         if (_hoveredGameObjectGuid != 0 &&
             _entities.TryGet(_hoveredGameObjectGuid, out WorldEntity hoveredGo) &&
-            hoveredGo.IsGameObject && _entities.TryGet(ControlledGuid, out WorldEntity goPlayer))
+            hoveredGo.IsGameObject)
         {
             RequireGameObjectTemplate(hoveredGo);
             EnsureLockCatalog();
@@ -44,12 +44,20 @@ public sealed partial class GameLoop
             bool lockMet = !lockOutcome.BlocksUsable(
                 (hoveredGo.Fields.GameObjectFlags & WorldCursorUiLaw.GameObjectLocked) != 0);
             GameObjectInteractionFacts facts = ResolveGameObjectInteractionFacts(hoveredGo);
+            bool goSessionScoped = hoveredGo.GameObjectType is 9 or 19;
+            WorldBodyPose goActorBody;
+            bool goBodyAvailable = goSessionScoped
+                ? TryGetSessionBodyPose(out goActorBody)
+                : TryGetControlledBodyPose(out goActorBody);
+            float goDistanceSquared = goBodyAvailable &&
+                (goSessionScoped || CanAuthorControlledGameplay)
+                    ? Vector3.DistanceSquared(goActorBody.Position, hoveredGo.Position)
+                    : float.PositiveInfinity;
             WorldCursorState? goState = WorldCursorUiLaw.GameObject(
                 unchecked((int)hoveredGo.GameObjectType), hoveredGo.Fields.GameObjectFlags,
                 hoveredGo.Fields.GameObjectDynamicFlags, firstLockType,
                 facts.FishingChannelOwned, facts.MeetingStoneQueued,
-                facts.HostileTowardPlayer, lockMet, Vector3.DistanceSquared(
-                    _controller?.Position ?? goPlayer.Position, hoveredGo.Position));
+                facts.HostileTowardPlayer, lockMet, goDistanceSquared);
             if (goState is not null) stem = goState.Value.Stem;
             DrawBagHoverCursor(stem);
             return;
@@ -61,17 +69,31 @@ public sealed partial class GameLoop
             return;
         }
 
-        float distanceSquared = Vector3.DistanceSquared(
-            _controller?.Position ?? player.Position, unit.Position);
         uint? questStatus = _questStatuses.TryGetValue(unit.Guid, out uint status)
             ? status : null;
-        bool knowsSkinning = _skillLines is not null && _actions.KnownSpells
+        WorldCursorKind? serviceKind = WorldCursorServiceKind(unit);
+        // Loot, skinning and NPC services are session-character interactions. Attacks are
+        // routed through the controlled combat body. Neither route ever measures from the
+        // Free View camera rig.
+        bool sessionScoped = unit.IsDead || serviceKind is not null;
+        WorldEntity actor = player;
+        bool hasActorPose = TryGetControlledBodyPose(out WorldBodyPose actorPose);
+        if (sessionScoped && _entities.TryGet(LocalPlayerGuid, out WorldEntity sessionPlayer))
+        {
+            actor = sessionPlayer;
+            hasActorPose = TryGetSessionBodyPose(out actorPose);
+        }
+        float distanceSquared = hasActorPose
+            ? Vector3.DistanceSquared(actorPose.Position, unit.Position)
+            : float.PositiveInfinity;
+        PlayerActions skinningActions = unit.IsDead ? OwnActions : _actions;
+        bool knowsSkinning = _skillLines is not null && skinningActions.KnownSpells
             .Any(spell => _skillLines.SpellLine(spell) == 393);
         WorldCursorState? state = WorldCursorUiLaw.Unit(unit.IsPlayer, unit.IsDead,
             unit.Fields.Lootable, (unit.Fields.UnitFlags & WorldCursorUiLaw.Skinnable) != 0,
             knowsSkinning, CanAttack(unit),
-            WorldCursorServiceKind(unit) is not null,
-            unit.NpcFlags, questStatus, distanceSquared, player.Fields.CombatReach,
+            serviceKind is not null,
+            unit.NpcFlags, questStatus, distanceSquared, actor.Fields.CombatReach,
             unit.Fields.CombatReach, autoLoot: false, ImGui.GetIO().KeyShift);
         if (state is not null) stem = state.Value.Stem;
         DrawBagHoverCursor(stem);

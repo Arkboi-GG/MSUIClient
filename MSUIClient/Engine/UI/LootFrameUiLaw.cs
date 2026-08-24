@@ -53,7 +53,7 @@ public static class LootFrameUiLaw
 
     // ANCHOR_RIGHT with x=-123 on the 160x37 row: tooltip BOTTOMLEFT lands at the
     // 37px icon's TOPRIGHT instead of the row's far edge.
-    public static TooltipSeat ItemTooltipSeat(Vector2 rowMin, float scale) =>
+    public static TooltipSeat RowTooltipSeat(Vector2 rowMin, float scale) =>
         new(rowMin + new Vector2(RowIconSize.X * scale, 0), new Vector2(0, 1));
 
     public static IReadOnlyList<string> WrapName(string? text, float width,

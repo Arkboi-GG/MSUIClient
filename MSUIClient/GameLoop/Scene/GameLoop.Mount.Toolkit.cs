@@ -89,13 +89,15 @@ public sealed partial class GameLoop
     private void ApplyMountHandling()
     {
         if (_controller is null) return;
-        bool mounted = SelfMountDisplayId() > 0;
+        bool mounted = ControllerOwnsControlledBodyPose && SelfMountDisplayId() > 0;
         _controller.SpeedMultiplier = mounted ? Settings.Mounts.SpeedMultiplier : 1f;
         _controller.JumpMultiplier = mounted ? Settings.Mounts.JumpMultiplier : 1f;
     }
 
     private float MountTurnMultiplier() =>
-        SelfMountDisplayId() > 0 ? MathF.Max(0.05f, Settings.Mounts.TurnMultiplier) : 1f;
+        ControllerOwnsControlledBodyPose && SelfMountDisplayId() > 0
+            ? MathF.Max(0.05f, Settings.Mounts.TurnMultiplier)
+            : 1f;
 
     // ── the window ───────────────────────────────────────────────────────────
 

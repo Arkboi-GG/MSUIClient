@@ -8,6 +8,7 @@ public static class QuestTimerFrameUiLaw
     public const string TitleFont = "GameFontNormal";
     public const string RowFont = "GameFontHighlightSmall";
     public readonly record struct ScreenRect(Vector2 Min, Vector2 Size);
+    public readonly record struct TooltipSeat(Vector2 Anchor, Vector2 Pivot);
     public const int MaxTimers = 20;
     public const float Width = 160f;
     public const float EmptyHeight = 72f;
@@ -46,4 +47,8 @@ public static class QuestTimerFrameUiLaw
 
     public static Vector2 RowTextCenter(in ScreenRect row, float textEm) =>
         new(row.Min.X + row.Size.X * .5f, row.Min.Y + textEm * .5f);
+
+    // GameTooltip:SetOwner(row) defaults to ANCHOR_RIGHT: tooltip BOTTOMLEFT to owner TOPRIGHT.
+    public static TooltipSeat RowTooltipSeat(in ScreenRect row) =>
+        new(new Vector2(row.Min.X + row.Size.X, row.Min.Y), Vector2.UnitY);
 }

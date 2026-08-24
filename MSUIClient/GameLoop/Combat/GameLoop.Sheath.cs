@@ -1,6 +1,7 @@
 using System.Numerics;
 using MSUIClient.Net;
 using MSUIClient.Formats;
+using MSUIClient.World.Sound;
 using MSUIClient.World.Units;
 
 namespace MSUIClient;
@@ -31,11 +32,12 @@ public sealed partial class GameLoop
         // Melee engagement is an instant draw in the reference client. Keep it
         // optimistic so the hand mount moves in the attack-start frame, then
         // volunteer the pose for other clients through UNIT_FIELD_BYTES_2.
+        bool controllerOwnsBody = ControllerOwnsControlledBodyPose;
         if (player.Engaged && _visualSheathState != 1)
         {
             _pendingVisualSheathState = null;
             _visualSheathState = 1;
-            _net.SetSheathed(1);
+            if (controllerOwnsBody) _net.SetSheathed(1);
         }
 
         if (_pendingVisualSheathState is { } pending &&
@@ -50,7 +52,8 @@ public sealed partial class GameLoop
         // base key separately so releasing a modifier before the base cannot manufacture an edge.
         bool physicalDown = BindingBaseDown(GameBinding.Sheath);
         bool acceptedDown = BindingDown(GameBinding.Sheath);
-        if (acceptedDown && !_sheathKeyWasDown && !typing && !player.Engaged)
+        if (controllerOwnsBody && acceptedDown && !_sheathKeyWasDown &&
+            !typing && !player.Engaged)
         {
             byte next = _visualSheathState == 0 ? (byte)1 : (byte)0;
             _net.SetSheathed(next);
@@ -69,6 +72,7 @@ public sealed partial class GameLoop
 
     private void PlayCeremonialSheatheSounds(byte destinationState)
     {
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled) return;
         if (_spellSounds is null || _character is null || _controller is null) return;
         if (!_sheatheSoundsLoaded)
         {
@@ -98,7 +102,7 @@ public sealed partial class GameLoop
     {
         if (state > 2 || _visualSheathState == state) return;
         _visualSheathState = state;
-        if (volunteer) _net?.SetSheathed(state);
+        if (volunteer && ControllerOwnsControlledBodyPose) _net?.SetSheathed(state);
         if (_character is not null) _character.SheathState = state;
     }
 }

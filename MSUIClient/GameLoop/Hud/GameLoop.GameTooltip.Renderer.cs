@@ -147,12 +147,13 @@ public sealed partial class GameLoop
 
     private PreparedSharedGameTooltipRenderer? PrepareSharedGameTooltipRenderer(
         GameTooltipRuntimeSnapshot snapshot,
-        Vector2? ownerTopRight = null)
+        Vector2? ownerAnchor = null,
+        Vector2? ownerPivot = null)
     {
         if (_skin is null || !snapshot.Lifecycle.Visible || snapshot.Lifecycle.Alpha <= 0f ||
             snapshot.Anchor is not (GameTooltipAnchorKind.DefaultBottomRight or
                 GameTooltipAnchorKind.OwnerRight) ||
-            snapshot.Anchor == GameTooltipAnchorKind.OwnerRight && ownerTopRight is null ||
+            snapshot.Anchor == GameTooltipAnchorKind.OwnerRight && ownerAnchor is null ||
             (snapshot.Lines.Length == 0 && snapshot.Money is null))
             return null;
 
@@ -218,7 +219,7 @@ public sealed partial class GameLoop
             MaxLevelShown: false);
         Vector2 display = ImGui.GetIO().DisplaySize;
         Vector2 position = snapshot.Anchor == GameTooltipAnchorKind.OwnerRight
-            ? new Vector2(ownerTopRight!.Value.X, ownerTopRight.Value.Y - size.Y)
+            ? ownerAnchor!.Value - size * (ownerPivot ?? Vector2.UnitY)
             : SharedGameTooltipDefaultAnchor(display, size, scale, managed);
         position = SharedGameTooltipClampToScreen(position, size, display);
 

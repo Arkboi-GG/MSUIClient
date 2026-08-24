@@ -110,6 +110,53 @@ public sealed partial class GameLoop
         return enabled && releasedInside;
     }
 
+    private bool VanillaDropdownCapsule(ImDrawListPtr draw, string id, Vector2 origin,
+        float scale, in DropdownCapsuleUiLaw.Layout layout, string selection,
+        bool enabled = true)
+    {
+        Vector2 frameMin = origin + layout.Frame.Min * scale;
+        uint art = _gameplayArt?.Handle(DropdownCapsuleUiLaw.Texture) ?? 0;
+        if (art != 0)
+            foreach (DropdownCapsuleUiLaw.TextureSlice slice in layout.Art)
+            {
+                Vector2 min = frameMin + slice.Rect.Min * scale;
+                draw.AddImage((nint)art, min, min + slice.Rect.Size * scale,
+                    slice.UvMin, slice.UvMax);
+            }
+
+        string visibleSelection = GameText.EllipsizeToBox(DropdownCapsuleUiLaw.SelectionFont,
+            selection, layout.TextBox.Width, layout.TextBox.Height, scale);
+        if (layout.LeftJustified)
+            GameText.Draw(draw, DropdownCapsuleUiLaw.SelectionFont, visibleSelection,
+                frameMin + new Vector2(layout.TextBox.X, layout.SelectionRight.Y) * scale,
+                scale);
+        else
+            GameText.DrawRightAligned(draw, DropdownCapsuleUiLaw.SelectionFont,
+                visibleSelection, frameMin + layout.SelectionRight * scale, scale);
+
+        Vector2 buttonMin = frameMin + layout.Button.Min * scale;
+        Vector2 buttonSize = layout.Button.Size * scale;
+        ImGui.SetCursorScreenPos(buttonMin);
+        if (!enabled) ImGui.BeginDisabled();
+        bool releasedInside = ImGui.InvisibleButton(id, buttonSize);
+        bool held = enabled && ImGui.IsItemActive();
+        bool hovered = enabled && ImGui.IsItemHovered();
+        if (!enabled) ImGui.EndDisabled();
+        string buttonPath = !enabled ? DropdownCapsuleUiLaw.ButtonDisabled :
+            held ? DropdownCapsuleUiLaw.ButtonDown : DropdownCapsuleUiLaw.ButtonUp;
+        uint button = _gameplayArt?.Handle(buttonPath) ?? 0;
+        if (button != 0)
+            draw.AddImage((nint)button, buttonMin, buttonMin + buttonSize);
+        if (hovered)
+        {
+            uint highlight = _gameplayArt?.AdditiveHandle(
+                DropdownCapsuleUiLaw.ButtonHighlight) ?? 0;
+            if (highlight != 0)
+                draw.AddImage((nint)highlight, buttonMin, buttonMin + buttonSize);
+        }
+        return enabled && releasedInside;
+    }
+
     /// <summary>
     /// FrameXML's GameTooltip_AddNewbieTip contract. The 1.12 default is detailed tips on,
     /// so the shared tooltip law owns the default-corner seat and two-line wrapped content.

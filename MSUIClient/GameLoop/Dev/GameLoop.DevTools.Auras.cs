@@ -52,13 +52,15 @@ public sealed partial class GameLoop
         if (auraActive && !_iceBlockFrozen)
         {
             _iceBlockFrozen = true;
-            _iceBlockFacing = _controller?.Yaw ?? _window.Camera.Yaw;
+            _iceBlockFacing = TryGetControlledBodyPose(out WorldBodyPose bodyPose)
+                ? bodyPose.Orientation
+                : 0f;
             Console.WriteLine($"[movement] Ice Block pose frozen at facing={_iceBlockFacing:F4}");
         }
         else if (_iceBlockFrozen && !auraActive)
         {
             _iceBlockFrozen = false;
-            if (_controller is not null)
+            if (ControllerOwnsControlledBodyPose && _controller is not null)
                 _window.Camera.SetFacingKeepingView(_controller.Yaw);
             Console.WriteLine("[movement] Ice Block pose released");
         }

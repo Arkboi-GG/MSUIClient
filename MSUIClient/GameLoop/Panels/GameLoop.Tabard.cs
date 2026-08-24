@@ -20,38 +20,82 @@ public sealed partial class GameLoop
         _tabardStyle = _tabardColor = _tabardBorderStyle = _tabardBorderColor = _tabardBackgroundColor = 0;
     }
 
+    private bool TabardDesignerEligible(
+        ulong guid, out WorldEntity? npc, out float distanceSquared)
+    {
+        npc = null;
+        distanceSquared = float.PositiveInfinity;
+        if (_net is not { IsInWorld: true } ||
+            !TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
+            !_entities.TryGet(guid, out npc) || !npc.IsCreature || npc.IsDead ||
+            (npc.NpcFlags & NpcTabardDesigner) == 0)
+            return false;
+        distanceSquared = Vector3.DistanceSquared(sessionBody.Position, npc.Position);
+        return NpcSessionUiLaw.InRange(distanceSquared);
+    }
+
     private bool RequestTabardDesigner(ulong guid)
     {
-        bool eligible = _entities.TryGet(guid, out WorldEntity npc) && npc.IsCreature && !npc.IsDead &&
-            (npc.NpcFlags & NpcTabardDesigner) != 0;
+        bool eligible = TabardDesignerEligible(
+            guid, out WorldEntity? npc, out float distanceSquared);
         bool sent = eligible && _net?.GossipHello(guid) == true;
         EmitInterface("tabard", "open-send", sent ? "SENT" : eligible ? "SEND_FAILED" : "REFUSED", guid,
-            $"eligible={eligible};npcFlags=0x{npc?.NpcFlags ?? 0:X8};body={Convert.ToHexString(WorldSession.BuildBankGuidBody(guid))}");
+            $"eligible={eligible};distanceSquared={distanceSquared:R};" +
+            $"npcFlags=0x{npc?.NpcFlags ?? 0:X8};" +
+            $"body={Convert.ToHexString(WorldSession.BuildBankGuidBody(guid))}");
         return sent;
+    }
+
+    private bool UpdateTabardLifecycle()
+    {
+        if (!_tabardOpen ||
+            !TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return false;
+        ulong sourceGuid = _tabardVendorGuid;
+        bool sourceAvailable = _entities.TryGet(sourceGuid, out WorldEntity vendor) &&
+            vendor.IsCreature && !vendor.IsDead &&
+            (vendor.NpcFlags & NpcTabardDesigner) != 0;
+        float distanceSquared = sourceAvailable
+            ? Vector3.DistanceSquared(sessionBody.Position, vendor.Position)
+            : float.PositiveInfinity;
+        if (!NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
+            return false;
+        _tabardOpen = false;
+        _tabardVendorGuid = 0;
+        EmitInterface("tabard", "lifecycle-close", "CLOSED", sourceGuid,
+            sourceAvailable
+                ? $"distanceSquared={distanceSquared:R};" +
+                  $"limitSquared={NpcSessionUiLaw.ServiceRangeSquared:R}"
+                : "source-unavailable");
+        return true;
     }
 
     private void ApplyTabardVendorActivate(byte[] body)
     {
         if (body.Length != 8) { EmitInterface("tabard", "activate", "MALFORMED", 0, $"bytes={body.Length}"); return; }
         var r = new PacketReader(body); ulong guid = r.ReadU64();
-        bool eligible = _entities.TryGet(guid, out WorldEntity npc) && (npc.NpcFlags & NpcTabardDesigner) != 0;
-        _tabardVendorGuid = guid; _tabardOpen = eligible;
-        EmitInterface("tabard", "activate", eligible ? "OPEN" : "REFUSED-FLAG", guid,
-            $"npcFlags=0x{npc?.NpcFlags ?? 0:X8};body={Convert.ToHexString(body)}");
+        bool eligible = TabardDesignerEligible(
+            guid, out WorldEntity? npc, out float distanceSquared);
+        _tabardVendorGuid = eligible ? guid : 0;
+        _tabardOpen = eligible;
+        EmitInterface("tabard", "activate", eligible ? "OPEN" : "REFUSED", guid,
+            $"distanceSquared={distanceSquared:R};npcFlags=0x{npc?.NpcFlags ?? 0:X8};" +
+            $"body={Convert.ToHexString(body)}");
     }
 
     private bool SaveTabardDesign(uint style, uint color, uint borderStyle, uint borderColor, uint backgroundColor)
     {
-        if (_tabardVendorGuid == 0) _tabardVendorGuid = _selectionGuid;
         bool range = style <= 99 && color <= 16 && borderStyle <= 5 && borderColor <= 16 && backgroundColor <= 50;
-        bool eligible = _entities.TryGet(_tabardVendorGuid, out WorldEntity npc) &&
-            (npc.NpcFlags & NpcTabardDesigner) != 0;
+        float distanceSquared = float.PositiveInfinity;
+        bool eligible = _tabardOpen && TabardDesignerEligible(
+            _tabardVendorGuid, out _, out distanceSquared);
         byte[] body = WorldSession.BuildSaveGuildEmblemBody(_tabardVendorGuid, style, color,
             borderStyle, borderColor, backgroundColor);
         bool sent = range && eligible && _net?.SaveGuildEmblem(_tabardVendorGuid, style, color,
             borderStyle, borderColor, backgroundColor) == true;
         EmitInterface("tabard", "save-send", sent ? "SENT" : !range ? "REFUSED-RANGE" : !eligible ? "REFUSED-NPC" : "SEND_FAILED",
-            _tabardVendorGuid, $"style={style};color={color};border={borderStyle};borderColor={borderColor};background={backgroundColor};body={Convert.ToHexString(body)}");
+            _tabardVendorGuid, $"style={style};color={color};border={borderStyle};" +
+            $"borderColor={borderColor};background={backgroundColor};" +
+            $"distanceSquared={distanceSquared:R};body={Convert.ToHexString(body)}");
         if (sent)
         {
             _tabardStyle = style; _tabardColor = color; _tabardBorderStyle = borderStyle;

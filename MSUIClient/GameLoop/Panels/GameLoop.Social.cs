@@ -751,92 +751,62 @@ public sealed partial class GameLoop
 
     private void DrawWhoVariableDropdown(ImDrawListPtr draw, Vector2 origin, float scale)
     {
-        if (_gameplayArt is null) return;
-        FriendsFrameUiLaw.LogicalRect frame = FriendsFrameUiLaw.WhoDropdownFrame(_who.Count);
-        Vector2 frameMin = origin + frame.Min * scale;
-        uint art = _gameplayArt.Handle(
-            @"Interface\Glues\CharacterCreate\CharacterCreate-LabelFrame");
-        if (art != 0)
-            foreach (FriendsFrameUiLaw.TextureSlice slice in
-                     FriendsFrameUiLaw.WhoDropdownArtSlices(_who.Count))
-            {
-                Vector2 at = frameMin + slice.Rect.Min * scale;
-                draw.AddImage((nint)art, at, at + slice.Rect.Size * scale,
-                    slice.UvMin, slice.UvMax);
-            }
-        GameText.Draw(draw, "GameFontHighlightSmall",
-            FriendsFrameUiLaw.WhoVariableLabels[(int)_whoVariable],
-            frameMin + FriendsFrameUiLaw.WhoDropdownLabelOffset * scale, scale);
-
-        FriendsFrameUiLaw.LogicalRect buttonRect =
-            FriendsFrameUiLaw.WhoDropdownButton(_who.Count);
-        Vector2 buttonMin = frameMin + buttonRect.Min * scale;
-        ImGui.SetCursorScreenPos(buttonMin);
-        bool toggled = ImGui.InvisibleButton("##who-variable-dropdown",
-            buttonRect.Size * scale);
-        bool held = ImGui.IsItemActive();
-        bool hovered = ImGui.IsItemHovered();
-        string state = held ? "Down" : "Up";
-        uint button = _gameplayArt.Handle($@"Interface\ChatFrame\UI-ChatIcon-ScrollDown-{state}");
-        if (button != 0)
-            draw.AddImage((nint)button, buttonMin, buttonMin + buttonRect.Size * scale);
-        if (hovered)
-        {
-            uint highlight = _gameplayArt.AdditiveHandle(
-                @"Interface\Buttons\UI-Common-MouseHilight");
-            if (highlight != 0)
-                draw.AddImage((nint)highlight, buttonMin,
-                    buttonMin + buttonRect.Size * scale);
-        }
-        if (toggled)
+        DropdownCapsuleUiLaw.Layout dropdown = FriendsFrameUiLaw.WhoDropdown(_who.Count);
+        if (VanillaDropdownCapsule(draw, "##who-variable-dropdown", origin, scale,
+                dropdown, FriendsFrameUiLaw.WhoVariableLabels[(int)_whoVariable]))
         {
             _whoVariableMenuOpen = !_whoVariableMenuOpen;
-            PlayUiSound("igMainMenuOptionCheckBoxOn", "ui.social");
+            PlayUiSound(DropdownCapsuleUiLaw.ToggleSound, "ui.social");
         }
 
         if (!_whoVariableMenuOpen) return;
-        FriendsFrameUiLaw.LogicalRect list = FriendsFrameUiLaw.WhoDropdownList(_who.Count);
+        DropdownCapsuleUiLaw.LogicalRect list = DropdownCapsuleUiLaw.List(dropdown,
+            FriendsFrameUiLaw.WhoVariableLabels.Length);
         Vector2 listMin = origin + list.Min * scale;
         Vector2 listMax = listMin + list.Size * scale;
-        _skin?.DrawBackdrop(draw, listMin, listMax, WowSkin.Tooltip,
-            UnitPopupUiLaw.MenuBackdropFillTint, UnitPopupUiLaw.MenuBackdropEdgeTint);
+        _skin?.DrawBackdrop(draw, listMin, listMax, WowSkin.Dialog);
         for (int i = 0; i < FriendsFrameUiLaw.WhoVariableLabels.Length; i++)
         {
-            FriendsFrameUiLaw.LogicalRect row = FriendsFrameUiLaw.WhoDropdownRow(_who.Count, i);
+            DropdownCapsuleUiLaw.LogicalRect row = DropdownCapsuleUiLaw.Row(dropdown, i);
             Vector2 rowMin = origin + row.Min * scale;
             Vector2 rowSize = row.Size * scale;
             ImGui.SetCursorScreenPos(rowMin);
             bool clicked = ImGui.InvisibleButton($"##who-variable-{i}", rowSize);
-            if (ImGui.IsItemHovered())
+            bool selected = i == (int)_whoVariable;
+            if (selected || ImGui.IsItemHovered())
             {
-                uint highlight = _gameplayArt.AdditiveHandle(
-                    @"Interface\QuestFrame\UI-QuestTitleHighlight");
+                uint highlight = _gameplayArt?.AdditiveHandle(
+                    DropdownCapsuleUiLaw.RowHighlight) ?? 0;
                 if (highlight != 0)
                     draw.AddImage((nint)highlight, rowMin, rowMin + rowSize);
             }
-            if (i == (int)_whoVariable)
+            if (selected)
             {
-                uint check = _gameplayArt.Handle(@"Interface\Buttons\UI-CheckBox-Check");
+                uint check = _gameplayArt?.Handle(DropdownCapsuleUiLaw.RowCheck) ?? 0;
                 if (check != 0)
                 {
-                    Vector2 checkMin = rowMin + FriendsFrameUiLaw.WhoDropdownCheck.Min * scale;
+                    Vector2 checkMin = rowMin + DropdownCapsuleUiLaw.Check.Min * scale;
                     draw.AddImage((nint)check, checkMin,
-                        checkMin + FriendsFrameUiLaw.WhoDropdownCheck.Size * scale);
+                        checkMin + DropdownCapsuleUiLaw.Check.Size * scale);
                 }
             }
-            GameText.Draw(draw, "GameFontHighlightSmall",
+            GameText.Draw(draw, DropdownCapsuleUiLaw.SelectionFont,
                 FriendsFrameUiLaw.WhoVariableLabels[i],
-                rowMin + FriendsFrameUiLaw.WhoDropdownRowTextOffset * scale,
-                scale);
-            if (clicked) SelectWhoVariable((FriendsWhoVariable)i);
+                rowMin + DropdownCapsuleUiLaw.RowTextOffset * scale, scale);
+            if (clicked)
+            {
+                SelectWhoVariable((FriendsWhoVariable)i);
+                PlayUiSound(DropdownCapsuleUiLaw.RowSound, "ui.social");
+            }
         }
 
         if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
         {
             Vector2 mouse = ImGui.GetIO().MousePos;
+            Vector2 frameMin = origin + dropdown.Frame.Min * scale;
             bool inFrame = mouse.X >= frameMin.X && mouse.Y >= frameMin.Y &&
-                mouse.X <= frameMin.X + frame.Size.X * scale &&
-                mouse.Y <= frameMin.Y + frame.Size.Y * scale;
+                mouse.X <= frameMin.X + dropdown.Frame.Size.X * scale &&
+                mouse.Y <= frameMin.Y + dropdown.Frame.Size.Y * scale;
             bool inList = mouse.X >= listMin.X && mouse.Y >= listMin.Y &&
                 mouse.X <= listMax.X && mouse.Y <= listMax.Y;
             if (!inFrame && !inList) _whoVariableMenuOpen = false;

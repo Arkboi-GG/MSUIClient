@@ -10,6 +10,22 @@ public static class ViewSubjectLaw
     public const float PivotFloor = 5f / 6f;
     public const float PivotFallback = 1.8f;
 
+    public readonly record struct PlayerFarSightOwnership(bool MayOwnCamera, bool AwaitClear);
+
+    /// <summary>
+    /// SUI Free View owns the detached RTS camera. The server publishes its streaming eye in
+    /// PLAYER_FARSIGHT, the same field used by stock Bind Sight, and may clear that descriptor
+    /// after the free-view ACK. Keep the stock path fenced until the SUI eye actually clears so
+    /// a delayed field update cannot reclaim the camera during the landing hand-off.
+    /// </summary>
+    public static PlayerFarSightOwnership ResolvePlayerFarSightOwnership(
+        bool freeView, bool awaitingFreeViewClear, ulong anchor)
+    {
+        if (freeView) return new(false, true);
+        if (awaitingFreeViewClear && anchor != 0) return new(false, true);
+        return new(true, false);
+    }
+
     public static float PivotHeight(float? attachment17Z, float minHeight, float maxHeight,
         float scale)
     {

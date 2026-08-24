@@ -608,7 +608,10 @@ public sealed partial class GameLoop : IDisposable
     private bool _devOverlayKeyDown;
     /// <summary>F1: are the ImGui developer panels on screen? Visibility only — the
     /// instruments behind them keep running either way.</summary>
-    private bool _devOverlayVisible = true;
+    private bool _devOverlayVisible;
+    /// <summary>One-frame request set only by an F1 open edge, so the developer
+    /// stack comes forward when summoned without owning startup focus.</summary>
+    private bool _devOverlayFocusRequested;
     private string? _currentVantage;
 
     // Curated visibility overrides: core data, loaded and honoured always (even in
@@ -1690,6 +1693,8 @@ public sealed partial class GameLoop : IDisposable
         UpdateTrainerLifecycle();
         UpdateTaxiLifecycle();
         UpdateBankLifecycle();
+        UpdateAuctionLifecycle();
+        UpdateTabardLifecycle();
         UpdateNpcGreetingLifecycle();
         // Encounter Lab playback: the ONLY place wall clock reaches the simulator,
         // and it only ever decides how many fixed steps to take. No-op while the
@@ -1751,6 +1756,7 @@ public sealed partial class GameLoop : IDisposable
         if (devOverlayKey && !_devOverlayKeyDown && !typing && _config.DevTools)
         {
             _devOverlayVisible = !_devOverlayVisible;
+            _devOverlayFocusRequested = _devOverlayVisible;
             Console.WriteLine($"[dev] overlay {(_devOverlayVisible ? "shown" : "hidden")} (F1)");
         }
         _devOverlayKeyDown = devOverlayKey;
@@ -1834,17 +1840,22 @@ public sealed partial class GameLoop : IDisposable
         OverrideMovementInput(ref forward, ref strafe, ref turn, ref shift, ref scriptedJump);
         ApplyTaxiInputLockout(ref forward, ref strafe, ref turn, ref scriptedJump);
         ApplyVanillaControlLockout(ref forward, ref strafe, ref turn, ref scriptedJump);
+        bool vanillaControlLocked = VanillaSelfControlLocksMover;
+        // Body status can keep changing while Ctrl+F is detached. Root, Ice Block, drunkenness,
+        // and cast interruption belong to that streamed body; none may seize the observer rig.
+        bool controllerRooted = ControllerOwnsControlledBodyPose && _movementRooted;
+        bool controllerIceBlockFrozen = ControllerOwnsControlledBodyPose && _iceBlockFrozen;
 
         // Root and Ice Block are intentionally separate. A normal root removes translation and
         // jump while leaving turning/casting live. Ice Block additionally freezes facing and the
         // character pose; its aura state owns that stronger gate below.
-        if (_movementRooted)
+        if (controllerRooted)
         {
             forward = 0f;
             strafe = 0f;
             scriptedJump = false;
         }
-        if (_iceBlockFrozen)
+        if (controllerIceBlockFrozen)
         {
             forward = 0f;
             strafe = 0f;
@@ -1861,7 +1872,9 @@ public sealed partial class GameLoop : IDisposable
         // Mouse steering is deliberately NOT rate-limited: it is a direct
         // pointing device and the client does not throttle it either.
         bool translating = MathF.Abs(forward) > 0.01f || MathF.Abs(strafe) > 0.01f;
-        float baseTurnRate = _serverTurnRate ?? _turnSpeed;
+        float baseTurnRate = ControllerOwnsControlledBodyPose
+            ? _serverTurnRate ?? _turnSpeed
+            : _turnSpeed;
         float turnRate = baseTurnRate * (translating ? TurnRateMoving : 1f) * MountTurnMultiplier();
 
         if (turn != 0f) _window.Camera.Rotate(turn * turnRate * dt, 0f);
@@ -1869,7 +1882,8 @@ public sealed partial class GameLoop : IDisposable
         // Drunkenness belongs to the logged-in player even while another unit is possessed.
         // Current Benilla adds this pulse to movement facing (unless a keyboard turn is held)
         // and to active swim pitch; it deliberately has no normal-play FOV effect.
-        byte drunkByte = _entities.TryGet(LocalPlayerGuid, out WorldEntity sessionPlayer)
+        byte drunkByte = ControllerOwnsControlledBodyPose &&
+            _entities.TryGet(LocalPlayerGuid, out WorldEntity sessionPlayer)
             ? sessionPlayer.Fields.PlayerDrunkByte
             : (byte)0;
         float drunkWobble = translating
@@ -1888,20 +1902,20 @@ public sealed partial class GameLoop : IDisposable
         // it needs to know what was pressed and whether the aim is being steered.
         _moveForward = forward;
         _moveStrafe = strafe;
-        _steering = !_iceBlockFrozen && !_vanillaSelfControlLost &&
+        _steering = !controllerIceBlockFrozen && !vanillaControlLocked &&
             (turn != 0f || mouseSteering);
 
         var input = new MovementInput
         {
             Forward = forward,
             Strafe = strafe,
-            Up = typing || _movementRooted || _iceBlockFrozen || _vanillaSelfControlLost ? 0f : ((BindingDown(GameBinding.Jump) ? 1f : 0f) -
+            Up = typing || controllerRooted || controllerIceBlockFrozen || vanillaControlLocked ? 0f : ((BindingDown(GameBinding.Jump) ? 1f : 0f) -
                                 (InputKeyDown(Key.CapsLock) ? 1f : 0f)),
-            Yaw = _iceBlockFrozen ? _iceBlockFacing :
-                _vanillaSelfControlLost ? _controller.Yaw : _window.Camera.Yaw,
+            Yaw = controllerIceBlockFrozen ? _iceBlockFacing :
+                vanillaControlLocked ? _controller.Yaw : _window.Camera.Yaw,
             Pitch = -_window.Camera.Pitch + DrunkMovementLaw.SwimPitchWobble(
                 drunkWobble, _controller.Swimming, translating),
-            Jump = !_movementRooted && !_iceBlockFrozen && !_vanillaSelfControlLost && (_movementScript is not null
+            Jump = !controllerRooted && !controllerIceBlockFrozen && !vanillaControlLocked && (_movementScript is not null
                 ? scriptedJump : !typing && BindingDown(GameBinding.Jump)),
             Walking = (_walkToggled || shift) && !_controller.Flying,
             Boost = shift && _controller.Flying,
@@ -1911,7 +1925,8 @@ public sealed partial class GameLoop : IDisposable
         // alone consumes the press silently; translating keeps the ordinary jump. The opcode is
         // guidless, so never volunteer the logged-in character's flourish while driving a bot.
         bool jumpCommandDown = input.Jump;
-        if (ControlledGuid == LocalPlayerGuid && SelfMountDisplayId() != 0 &&
+        if (ControllerOwnsControlledBodyPose && ControlledGuid == LocalPlayerGuid &&
+            SelfMountDisplayId() != 0 &&
             input.Jump && !translating && _controller.Grounded)
         {
             input.Jump = false;
@@ -1921,7 +1936,8 @@ public sealed partial class GameLoop : IDisposable
         }
         _mountSpecialJumpDown = jumpCommandDown;
 
-        UpdateCastMovementInput(translating || input.Jump);
+        UpdateCastMovementInput(ControllerOwnsControlledBodyPose &&
+            (translating || input.Jump));
 
         ApplyMountHandling();
 
@@ -1968,6 +1984,7 @@ public sealed partial class GameLoop : IDisposable
                 movementJumped, movementLanded, movementStartedFalling,
                 (uint)Math.Clamp(MathF.Round(fallMs), 0f, uint.MaxValue),
                 _config.Movement.JumpVelocity,
+                _movementRooted ? MovementFlags.Root : MovementFlags.None,
                 MovementInfo.ClientUptimeMs() / 1000.0);
         }
         _movementMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
@@ -2060,7 +2077,7 @@ public sealed partial class GameLoop : IDisposable
             FollowBit(bindingTurnRight, CameraFollowCommand.TurnRight);
             FollowBit(_autorunToggled, CameraFollowCommand.Autorun);
             FollowBit(serverRideActive, CameraFollowCommand.Track);
-            FollowBit(_vanillaSelfControlLost, CameraFollowCommand.Fear);
+            FollowBit(vanillaControlLocked, CameraFollowCommand.Fear);
 
             CameraFollowStyle ordinaryStyle = Settings.Controls.CameraFollowStyle;
             CameraFollowStyle trackingStyle = Settings.Controls.CameraFollowTrackingStyle;
@@ -2143,6 +2160,7 @@ public sealed partial class GameLoop : IDisposable
             jumped: false, landed: false, startedFalling: false,
             (uint)Math.Clamp(MathF.Round(_controller.FallTimeMs), 0f, uint.MaxValue),
             _config.Movement.JumpVelocity,
+            _movementRooted ? MovementFlags.Root : MovementFlags.None,
             MovementInfo.ClientUptimeMs() / 1000.0);
     }
 
@@ -2685,16 +2703,16 @@ public sealed partial class GameLoop : IDisposable
             // are not far below it - so wading leaves a trail, walking a bridge
             // over a river does not, and a swimmer well under the surface does
             // not either. Three cases, one test.
-            if (_controller is not null)
+            if (TryGetControlledBodyPose(out WorldBodyPose wakeBody))
             {
-                var feet = _controller.Position;
+                var feet = wakeBody.Position;
 
                 bool inWater =
                     TryGetBodyLiquidSurface(feet, out float wakeZ, out _, waterOnly: true)
                     && wakeZ > feet.Z
                     && wakeZ - feet.Z < WakeMaxWadeDepth;
 
-                _liquid.UpdateWake(feet, _controller.Yaw, dt, inWater);
+                _liquid.UpdateWake(feet, wakeBody.Orientation, dt, inWater);
             }
 
             // WMO liquid (MLIQ). A per-frame INT COMPARE against LiquidVersion,
@@ -3097,6 +3115,11 @@ public sealed partial class GameLoop : IDisposable
 
         ImGui.SetNextWindowPos(new Vector2(12, 12), ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSize(new Vector2(430, 0), ImGuiCond.FirstUseEver);
+        if (_devOverlayFocusRequested)
+        {
+            ImGui.SetNextWindowFocus();
+            _devOverlayFocusRequested = false;
+        }
 
         if (ImGui.Begin("MSUI Client"))
         {

@@ -13,6 +13,8 @@ internal static class GameTimeClinicalChecks
               GameTimeUiLaw.HitScreen(new Vector2(1828, 38), 2) ==
                   new GameTimeUiLaw.ScreenRect(new Vector2(1840, 48),
                       new Vector2(88, 70)) &&
+              GameTimeUiLaw.BottomLeftTooltipSeat(new Vector2(1828, 38), 2) ==
+                  new GameTimeUiLaw.TooltipSeat(new Vector2(1828, 138), Vector2.UnitX) &&
               GameTimeUiLaw.DayUvMax == new Vector2(50f / 128f, 50f / 64f) &&
               GameTimeUiLaw.NightUvMin == new Vector2(.5f, 0f),
             "game-time frame geometry/atlas law drift");
@@ -36,7 +38,14 @@ internal static class GameTimeClinicalChecks
               !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               runtime.Contains("_worldClock.CurrentHours", StringComparison.Ordinal) &&
               runtime.Contains("UI-TOD-Indicator", StringComparison.Ordinal) &&
-              runtime.Contains("OfferPreservedSharedGameTooltipRenderer", StringComparison.Ordinal) &&
+              runtime.Contains("GameTimeUiLaw.BottomLeftTooltipSeat(origin, scale)",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("OfferOwnerAnchoredSharedGameTooltip(",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("GameTooltipTextTone.White", StringComparison.Ordinal) &&
+              !runtime.Contains("OfferPreservedSharedGameTooltipRenderer",
+                  StringComparison.Ordinal) &&
+              !runtime.Contains("ImGui.SetTooltip", StringComparison.Ordinal) &&
               composition.Contains("DrawMinimap();\n            DrawGameTimeFrame();",
                   StringComparison.Ordinal),
             "game-time production wiring drift");

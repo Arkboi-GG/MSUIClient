@@ -32,6 +32,7 @@ public sealed partial class GameLoop
 
     private void ShowSkillUnlearnConfirmation(uint skillId, string skillName)
     {
+        if (!CanAuthorControlledGameplay || ControlledGuid != LocalPlayerGuid) return;
         // StaticPopup_Show overrides a visible dialog of the same type by hiding and showing it.
         if (_skillUnlearnConfirmation is not null)
             ClearSkillUnlearnConfirmation();
@@ -434,7 +435,8 @@ public sealed partial class GameLoop
             ClassifySkillPopupNotDrawn("confirmation-timeout");
             return;
         }
-        if (_net is not { IsInWorld: true } net ||
+        if (!CanAuthorControlledGameplay || ControlledGuid != LocalPlayerGuid ||
+            _net is not { IsInWorld: true } net ||
             !_entities.TryGet(net.PlayerGuid, out WorldEntity player) ||
             _selectedSkill != confirmation.SkillId ||
             !SkillIsCurrentlyAbandonable(player, confirmation.SkillId))
@@ -534,7 +536,8 @@ public sealed partial class GameLoop
 
         // Revalidate at the final send edge. The server owns the state mutation and reports it
         // later through PLAYER_SKILL_INFO; MSUI never removes the line optimistically.
-        if (_selectedSkill == confirmation.SkillId &&
+        if (CanAuthorControlledGameplay && ControlledGuid == LocalPlayerGuid &&
+            _selectedSkill == confirmation.SkillId &&
             SkillIsCurrentlyAbandonable(player, confirmation.SkillId))
             net.UnlearnSkill(confirmation.SkillId);
         ClearSkillUnlearnConfirmation();

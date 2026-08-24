@@ -1,6 +1,6 @@
 # MSUI ⇄ Benilla implementation backlog
 
-_Generated 2026-08-23 17:18 UTC by tools/rebuild_backlog.py — do not edit; edit registry/*.json instead._
+_Generated 2026-08-23 20:10 UTC by tools/rebuild_backlog.py — do not edit; edit registry/*.json instead._
 
 ## 1. Divergences awaiting Nico's ruling
 

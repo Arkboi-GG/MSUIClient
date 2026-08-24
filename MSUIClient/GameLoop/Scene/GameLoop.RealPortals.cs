@@ -856,7 +856,11 @@ public sealed partial class GameLoop
     /// </summary>
     private void ResolveRealPortalMovement(Vector3 previousFeet)
     {
-        if (!RealPortalsEnabled || _controller is null ||
+        // This resolver mutates the local controller and emits a real
+        // CMSG_GAMEOBJ_USE.  A Free View controller is an observer rig, not a
+        // body that may cross/use gameplay portals; pending/parked/fly states
+        // likewise leave authoritative pose on the streamed body.
+        if (!ControllerOwnsControlledBodyPose || !RealPortalsEnabled || _controller is null ||
             _net is not { IsInWorld: true } || _realPortals.Count == 0)
             return;
 

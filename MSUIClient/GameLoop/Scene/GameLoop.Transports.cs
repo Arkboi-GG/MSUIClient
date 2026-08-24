@@ -214,7 +214,8 @@ public sealed partial class GameLoop
     {
         foreach (WorldEntity rider in _entities.Units)
         {
-            if (rider.Guid == ControlledGuid || rider.Transport is not { } local ||
+            if ((rider.Guid == ControlledGuid && !ControlledBodyIsStreamed) ||
+                rider.Transport is not { } local ||
                 (!_elevatorTransports.ContainsKey(local.Guid) &&
                  !_moTransports.ContainsKey(local.Guid)) ||
                 !_entities.TryGet(local.Guid, out WorldEntity transport))
@@ -249,7 +250,11 @@ public sealed partial class GameLoop
     /// and the visible view receive the same transport-yaw delta.</summary>
     private void CarryControlledTransportRider()
     {
-        if (_controller is null || _controlledTransportRide is not { } ride) return;
+        // A detached, parked, or pending controller is not a world body. Its former ride can
+        // survive until reconciliation at frame end, but only an embodied controlled mover may
+        // be carried by this client-side transport cache.
+        if (!ControllerOwnsControlledBodyPose || _controller is null ||
+            _controlledTransportRide is not { } ride) return;
         if (!IsArmedTransport(ride.Guid) ||
             !_entities.TryGet(ride.Guid, out WorldEntity transport))
         {
@@ -273,8 +278,17 @@ public sealed partial class GameLoop
     private void ReconcileControlledTransportRider()
     {
         if (_controller is null) return;
+        if (!ControllerOwnsControlledBodyPose)
+        {
+            // In Free View the controller's collision probes belong to the observer rig. Do not
+            // turn a camera resting over a deck into a gameplay rider, and do not retain the
+            // embodied unit's transport tail across a parked/pending ownership transition.
+            _controlledTransportRide = null;
+            _controller.Transport = null;
+            return;
+        }
         ulong support = _controller.GroundOwnerGuid;
-        if (_controller.Swimming || _controller.Flying || _freeView ||
+        if (_controller.Swimming || _controller.Flying ||
             (_controller.Grounded && support == 0))
             _controlledTransportRide = null;
 

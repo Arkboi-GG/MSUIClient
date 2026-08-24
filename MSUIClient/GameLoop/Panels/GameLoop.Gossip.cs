@@ -44,7 +44,8 @@ public sealed partial class GameLoop
         string detail;
         WorldEntity? target = null;
         float distance = float.PositiveInfinity;
-        if (_net is not { IsInWorld: true } || _controller is null)
+        if (_net is not { IsInWorld: true } ||
+            !TryGetSessionBodyPose(out WorldBodyPose sessionBody))
         {
             outcome = "REFUSED_NOT_IN_WORLD";
             detail = "inWorld=false";
@@ -65,9 +66,9 @@ public sealed partial class GameLoop
             detail = $"npcFlags=0x{target.NpcFlags:X8}";
         }
         else if (!NpcSessionUiLaw.InRange(
-                     Vector3.DistanceSquared(_controller.Position, target.Position)))
+                     Vector3.DistanceSquared(sessionBody.Position, target.Position)))
         {
-            distance = Vector3.Distance(_controller.Position, target.Position);
+            distance = Vector3.Distance(sessionBody.Position, target.Position);
             outcome = "REFUSED_RANGE";
             detail = $"distance={distance:R};limit={GossipInteractDistance:R};npcFlags=0x{target.NpcFlags:X8}";
         }
@@ -89,11 +90,12 @@ public sealed partial class GameLoop
 
     private bool UpdateGossipLifecycle()
     {
-        if (_gossipMenu is null || _controller is null) return false;
+        if (_gossipMenu is null ||
+            !TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return false;
         ulong sourceGuid = _gossipMenu.SourceGuid;
         bool sourceAvailable = _entities.TryGet(sourceGuid, out WorldEntity source);
         float distanceSquared = sourceAvailable
-            ? Vector3.DistanceSquared(_controller.Position, source.Position)
+            ? Vector3.DistanceSquared(sessionBody.Position, source.Position)
             : float.PositiveInfinity;
         if (!NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
             return false;

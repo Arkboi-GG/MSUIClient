@@ -1,3 +1,4 @@
+using System.Numerics;
 using MSUIClient;
 using MSUIClient.Engine.UI;
 
@@ -418,10 +419,54 @@ internal static class UiFoundationClinicalChecks
         string root = ClientConfig.FindRepoRoot();
         string source = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.VanillaUi.cs"));
         Check(!source.Contains("ImGui.IsItemClicked()", StringComparison.Ordinal) &&
-              Count(source, "bool releasedInside = ImGui.InvisibleButton") == 6 &&
-              Count(source, "ButtonInteractionLaw.ResolveVisual") == 3 &&
+              Count(source, "bool releasedInside = ImGui.InvisibleButton") == 8 &&
+              Count(source, "ButtonInteractionLaw.ResolveVisual") == 4 &&
               Count(source, "PanelTabLaw.Resolve") == 4,
             "Program.VanillaUi release-edge/law adapter source drift");
+        Check(source.Contains("private bool VanillaCollapseAllButton",
+                  StringComparison.Ordinal) &&
+              source.Contains("collapsed ? plusPath : minusPath", StringComparison.Ordinal) &&
+              source.Contains("_gameplayArt?.AdditiveHandle(highlightPath)",
+                  StringComparison.Ordinal) &&
+              source.Contains("enabled ? normalFont : disabledFont", StringComparison.Ordinal),
+            "Program.VanillaUi collapse-all tab adapter drift");
+        DropdownCapsuleUiLaw.Layout capsule = DropdownCapsuleUiLaw.TopRight(
+            parentWidth: 384, rightInset: 26, top: 64, middleWidth: 96);
+        Check(capsule.Frame == new DropdownCapsuleUiLaw.LogicalRect(212, 64, 146, 32) &&
+              capsule.Art[0].Rect ==
+                  new DropdownCapsuleUiLaw.LogicalRect(0, -17, 25, 64) &&
+              capsule.Art[1].Rect ==
+                  new DropdownCapsuleUiLaw.LogicalRect(25, -17, 96, 64) &&
+              capsule.TextBox ==
+                  new DropdownCapsuleUiLaw.LogicalRect(32, 6, 71, 10) &&
+              capsule.SelectionRight == new Vector2(103, 11) &&
+              capsule.Button == new DropdownCapsuleUiLaw.LogicalRect(106, 1, 24, 24) &&
+              DropdownCapsuleUiLaw.LeftOf(capsule, 35, 120).Frame ==
+                  new DropdownCapsuleUiLaw.LogicalRect(77, 64, 170, 32),
+            "UIDropDownMenu capsule geometry drift");
+        DropdownCapsuleUiLaw.Layout guildCapsule = DropdownCapsuleUiLaw.TopCenter(
+            -3, 300, 30, 110, 54, leftJustified: true);
+        Check(guildCapsule.Frame ==
+                  new DropdownCapsuleUiLaw.LogicalRect(67, 30, 160, 32) &&
+              guildCapsule.Button ==
+                  new DropdownCapsuleUiLaw.LogicalRect(90, 1, 54, 24) &&
+              guildCapsule.LeftJustified &&
+              DropdownCapsuleUiLaw.List(guildCapsule, 6) ==
+                  new DropdownCapsuleUiLaw.LogicalRect(75, 55, 142, 126) &&
+              DropdownCapsuleUiLaw.Row(guildCapsule, 5) ==
+                  new DropdownCapsuleUiLaw.LogicalRect(92, 150, 110, 16) &&
+              DropdownCapsuleUiLaw.Check ==
+                  new DropdownCapsuleUiLaw.LogicalRect(0, -4, 24, 24) &&
+              DropdownCapsuleUiLaw.RowTextOffset == new Vector2(27, 2),
+            "UIDropDownMenu customized capsule/list geometry drift");
+        Check(source.Contains("private bool VanillaDropdownCapsule",
+                  StringComparison.Ordinal) &&
+              source.Contains("DropdownCapsuleUiLaw.Texture", StringComparison.Ordinal) &&
+              source.Contains("GameText.EllipsizeToBox(DropdownCapsuleUiLaw.SelectionFont",
+                  StringComparison.Ordinal) &&
+              source.Contains("DropdownCapsuleUiLaw.ButtonHighlight",
+                  StringComparison.Ordinal),
+            "Program.VanillaUi dropdown-capsule adapter drift");
         Check(source.Contains("AdditiveHandle(\n                @\"Interface\\PaperDollInfoFrame\\UI-Character-Tab-Highlight\")",
                   StringComparison.Ordinal) &&
               source.Contains("\"GameFontHighlight\"", StringComparison.Ordinal) &&

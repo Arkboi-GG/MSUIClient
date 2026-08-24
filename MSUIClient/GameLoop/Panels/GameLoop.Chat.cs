@@ -67,9 +67,10 @@ public sealed partial class GameLoop
 
         // The jingle is independent of whether AreaTable can name the id and plays
         // even for a zero-XP discovery (max level / an unleveled area).
-        if (_mpq is not null)
+        if (World.Sound.AudioFeaturePolicy.ExpandedWorldAudioEnabled && _mpq is not null)
             _explorationSounds ??= ExplorationSoundCatalog.Load(_mpq);
-        if (_entities.TryGet(ControlledGuid, out WorldEntity player) &&
+        if (World.Sound.AudioFeaturePolicy.ExpandedWorldAudioEnabled &&
+            _entities.TryGet(ControlledGuid, out WorldEntity player) &&
             _explorationSounds?.Kit(player.Fields.Bytes0.Race) is uint kit)
         {
             PlaySpellSound(ControlledGuid, kit, trackHold: false);
@@ -416,15 +417,17 @@ public sealed partial class GameLoop
         // SMSG_TEXT_EMOTE is also the receive-side voice trigger. Race/sex are
         // descriptor data, never inferred from the name or display; absent race
         // stays silent. The server echo routes our own emotes through this same path.
-        if (_soundscapePlaybackArmed && emoter is not null && _spellSounds is not null &&
+        if (World.Sound.AudioFeaturePolicy.ExpandedWorldAudioEnabled &&
+            _soundscapePlaybackArmed && emoter is not null && _spellSounds is not null &&
             _controller is not null)
         {
             var traits = emoter.Fields.Bytes0;
             if (traits.Race != 0 && _emoteTextSounds?.TryGet(
                     textEmote, traits.Race, traits.Gender, out uint voiceKit) == true)
             {
-                Vector3 source = sourceGuid == ControlledGuid
-                    ? _controller.Position : emoter.Position;
+                Vector3 source = TryGetWorldBodyPose(sourceGuid, out WorldBodyPose bodyPose)
+                    ? bodyPose.Position
+                    : emoter.Position;
                 _spellSounds.Play(voiceKit, sourceGuid, source, _controller.Position,
                     forceLoop: false, trackHold: false, category: "sfx");
             }
@@ -580,7 +583,6 @@ public sealed partial class GameLoop
         int bottom = lines.Count - _chatScroll;
         int top = Math.Max(0, bottom - maxVisible);
 
-        int linkId = 0;
         for (int i = bottom - 1, row = 0; i >= top; i--, row++)
         {
             Vector2 at = ChatFrameLaw.MessagePosition(root, row, pitch, s);
@@ -591,17 +593,19 @@ public sealed partial class GameLoop
                 float width = GameText.MeasureWidth(ChatFrameLaw.ChatFont, run.Text, s);
                 if (run.Link is { Markup.Length: > 0 } link && width > 0)
                 {
-                    ImGui.SetCursorScreenPos(at);
-                    ImGui.InvisibleButton($"##chat-link-{i}-{linkId++}",
-                        ChatFrameLaw.LinkHitSize(width, pitch));
-                    if (ImGui.IsItemHovered())
+                    // Chat is painted on the background draw list and has no
+                    // ImGui window. A window-bound InvisibleButton here activates
+                    // ImGui's otherwise-hidden Debug##Default fallback. Link
+                    // interaction is purely rectangular, like the chat controls.
+                    Vector2 linkSize = ChatFrameLaw.LinkHitSize(width, pitch);
+                    if (ImGui.IsMouseHoveringRect(at, at + linkSize, false))
                     {
                         ChatFrameLaw.ScreenLine underline =
                             ChatFrameLaw.LinkUnderline(at, width, pitch);
                         dl.AddLine(underline.Start, underline.End, runColor, MathF.Max(1, s));
-                        if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
+                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
                             ActivateChatLink(link, ImGuiMouseButton.Left);
-                        else if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+                        else if (ImGui.IsMouseClicked(ImGuiMouseButton.Right))
                             ActivateChatLink(link, ImGuiMouseButton.Right);
                     }
                 }
@@ -1170,7 +1174,8 @@ public sealed partial class GameLoop
 
     private bool TrySetLocalStandState(byte standState)
     {
-        if (!StandStateUiLaw.IsClientState(standState) ||
+        if (!CanAuthorControlledGameplay || ControlledGuid != LocalPlayerGuid ||
+            !StandStateUiLaw.IsClientState(standState) ||
             _net?.StandStateChange(standState) != true ||
             !_entities.TryGet(LocalPlayerGuid, out WorldEntity self)) return false;
         self.Fields.SetUnitStandState(standState);
@@ -1223,6 +1228,11 @@ public sealed partial class GameLoop
     {
         if (!raw.StartsWith('/') || raw.Contains(' ')) return false;
         if (EmoteCommandLaw.Resolve(raw.ToLowerInvariant()) is not { } id) return false;
+        if (!CanAuthorControlledGameplay)
+        {
+            ShowUiError("Cannot emote while in Free View.");
+            return true;
+        }
         _net?.SendTextEmote((uint)id, _selectionGuid);
         return true;
     }

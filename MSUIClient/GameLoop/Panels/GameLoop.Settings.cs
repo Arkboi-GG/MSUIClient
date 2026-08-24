@@ -589,7 +589,14 @@ public sealed partial class GameLoop
             ImGui.EndPopup();
         }
 
-        if (!showing) _settingsPopupCloseRequested = false;
+        if (!showing)
+        {
+            _settingsPopupCloseRequested = false;
+            // OpenSettings is a logical state transition, not a best-effort
+            // one-frame draw. If ImGui defers/rejects this frame's Begin, retry
+            // under the same stable owner instead of trapping all player menus.
+            if (_settingsOpen) _settingsPopupRequested = true;
+        }
 
         _skin?.PopStyle();
         RestoreGameplaySkinScale();
@@ -603,7 +610,7 @@ public sealed partial class GameLoop
 
         // notEscaped is ignored on purpose: ImGui never clears it for a modal.
         // It exists only because BeginPopupModal has no (name, flags) overload.
-        _escapePressed = false;
+        if (showing) _escapePressed = false;
     }
 
     private void RestoreGameplaySkinScale()
@@ -621,13 +628,8 @@ public sealed partial class GameLoop
     {
         if (_menuPage != MenuPage.GameMenu)
         {
-            // Back to the Game Menu. The popup has to be closed and reopened
-            // rather than just repainted, because the two pages are different
-            // sizes and SetNextWindowSize only takes effect on a fresh Begin.
-            _menuPage = MenuPage.GameMenu;
             _optionsSearch = "";
-            _settingsPopupRequested = true;
-            ImGui.CloseCurrentPopup();
+            Go(MenuPage.GameMenu);
             return;
         }
 
@@ -979,8 +981,14 @@ public sealed partial class GameLoop
     private void Go(MenuPage page)
     {
         _menuPage = page;
-        _settingsPopupRequested = true;   // resize needs a fresh open
-        ImGui.CloseCurrentPopup();
+        // This is one modal with several pages. Closing it here and trying to
+        // reopen it on the next frame made every internal GameMenu button a
+        // best-effort operation: actions that LEFT the modal worked, while
+        // Video/Sound/Interface silently fell back to the unchanged menu.
+        // Reflow the existing popup in place; DrawSettingsModal already uses
+        // an Always size/position condition when this flag is set.
+        _measuredMenuPage = (MenuPage)(-1);
+        _menuLayoutReflowRequested = true;
     }
 
     private void DrawOptionsSearch(ImDrawListPtr draw, Vector2 windowMin, Vector2 size)
@@ -2042,6 +2050,17 @@ public sealed partial class GameLoop
             }
             EndBox();
 
+            BeginBox("floating-text", "Floating Text");
+            {
+                Check("Loot messages", () => s.Controls.ShowLootAcquisitionText,
+                    value => s.Controls.ShowLootAcquisitionText = value,
+                    "Show green center-screen notices when an item is looted. Off by default.");
+                Check("Entering / leaving combat", () => s.Controls.ShowCombatStateText,
+                    value => s.Controls.ShowCombatStateText = value,
+                    "Show red center-screen notices when combat state changes. Off by default.");
+            }
+            EndBox();
+
             BeginBox("crpg", "CRPG / RTS");
             {
                 Check("RTS commands on party portraits", () => s.Controls.RtsCommands,
@@ -2306,10 +2325,8 @@ public sealed partial class GameLoop
         if (Button("Okay (Esc)", button))
         {
             CommitSettings();
-            _menuPage = MenuPage.GameMenu;
             _optionsSearch = "";
-            _settingsPopupRequested = true;
-            ImGui.CloseCurrentPopup();
+            Go(MenuPage.GameMenu);
         }
 
         if (!string.IsNullOrEmpty(_settingsStatus))
@@ -2351,10 +2368,8 @@ public sealed partial class GameLoop
         }
 
         _settingsCancelling = true;
-        _menuPage = MenuPage.GameMenu;
         _optionsSearch = "";
-        _settingsPopupRequested = true;
-        ImGui.CloseCurrentPopup();
+        Go(MenuPage.GameMenu);
     }
 
     private void CommitSettings()

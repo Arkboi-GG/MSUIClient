@@ -23,6 +23,7 @@
   ],
   "msuiAnchors": [
     "MSUIClient/GameLoop/Panels/GameLoop.Taxi.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.GameTooltip.Renderer.cs",
     "MSUIClient/Engine/UI/TaxiFrameUiLaw.cs",
     "MSUIClient/Formats/TaxiNodeCatalog.cs",
     "MSUIClient/Formats/TaxiRouteCatalog.cs",
@@ -30,7 +31,7 @@
     "tools/interface-wire-check/TaxiFrameClinicalChecks.cs"
   ],
   "status": "complete",
-  "summary": "The taxi window now follows the current 384x512 law, exact 58x58 flight-master portrait seat, authored continent art/projection, green current and white reachable node states, one-hop default route lines and full hovered chains, shared-tooltip fares, geographic-distance routing over TaxiPath.dbc, and direct-versus-express activation by the byte-verified direct-edge discriminator. TaxiFrameUiLaw owns the full shell-piece table, portrait/map/close/fallback rectangles, title seat, node extents, route endpoint projection, and quad UVs; GameLoop.Taxi contains no local Vector2 geometry. It also covers range expiry, discovery message/sound, stock rejection text, MainMenu cues, no-path self-close, and flight spline lockout without reopening the NPC map. Focused and full interface-wire checks pass.",
+  "summary": "The taxi window now follows the current 384x512 law, exact 58x58 flight-master portrait seat, authored continent art/projection, green current and white reachable node states, one-hop default route lines and full hovered chains, shared-tooltip fares, geographic-distance routing over TaxiPath.dbc, and direct-versus-express activation by the byte-verified direct-edge discriminator. TaxiFrameUiLaw owns the full shell-piece table, portrait/map/close rectangles, title seat, node extents, exact ANCHOR_RIGHT node-tooltip seat, route endpoint projection, and quad UVs; GameLoop.Taxi contains no local Vector2 geometry. The unreachable developer node-list fallback has been removed, leaving only the authored map surface. It also covers range expiry, discovery message/sound, stock rejection text, MainMenu cues, no-path self-close, and flight spline lockout without reopening the NPC map. Focused TaxiFrame and GameTooltip checks pass.",
   "openItems": [
     {
       "id": "item-triage-7909e5b6",
@@ -94,11 +95,20 @@
       "added": "2026-08-09",
       "resolved": true,
       "resolution": "2026-08-21: node placement now uses WorldMapContinent fields 9-12 and the byte-verified cross-axis taxi projection, followed by the bottom-left-to-screen conversion owned by TaxiFrameUiLaw."
+    },
+    {
+      "id": "item-taxiframe-node-tooltip-seat-visual-gap-20260823",
+      "kind": "gap",
+      "text": "Taxi node hover passed the 16x16 button's bottom-right corner into the shared GameTooltip path even though the helper and Benilla ANCHOR_RIGHT contract require the owner's top-right, placing the classic tooltip one full node height too low.",
+      "source": "benilla-b57ee0e9e2c8822b/TaxiFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "TaxiFrameUiLaw now derives the exact top-right anchor and bottom-left tooltip pivot from the node center and authored 16px extent. The fare/name/current-node renderer consumes that explicit seat, and the unreachable raw-ImGui node-list fallback plus its unused geometry were removed."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T04:33:15.1931732Z",
+  "lastReviewedUtc": "2026-08-23T19:49:20.3077522Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

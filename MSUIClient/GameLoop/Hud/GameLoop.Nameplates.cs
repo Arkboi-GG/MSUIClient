@@ -297,17 +297,16 @@ public sealed partial class GameLoop
     }
 
     private Vector3 UnitWorldPosition(WorldEntity unit) =>
-        // In the free view the rig IS the camera — the character stands in the world
-        // at its streamed position, and its name must stay planted on it.
-        _net is not null && unit.Guid == ControlledGuid && _controller is not null &&
-        !_freeView
-            ? _controller.Position : unit.Position;
+        TryGetWorldBodyPose(unit.Guid, out WorldBodyPose pose)
+            ? pose.Position
+            : unit.Position;
 
     private float UnitOverheadHeight(WorldEntity unit)
     {
         if (unit.IsCreature && _creatures?.TryGetOverheadHeight(unit, out float height) == true)
             return height;
-        if (_net is not null && unit.Guid == ControlledGuid && _character is not null)
+        if (_net is not null && unit.Guid == ControlledGuid &&
+            !ControlledBodyIsStreamed && _character is not null)
             return MathF.Max(0.3f, _character.BindPoseHeight() * MathF.Max(0.01f, unit.Scale));
         return MathF.Max(0.3f, 2.2f * MathF.Max(0.01f, unit.Scale));
     }

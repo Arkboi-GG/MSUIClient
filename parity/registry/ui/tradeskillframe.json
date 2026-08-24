@@ -19,11 +19,12 @@
   "msuiAnchors": [
     "MSUIClient/GameLoop/Panels/GameLoop.Professions.cs",
     "MSUIClient/Engine/UI/ProfessionFrameUiLaw.cs",
+    "MSUIClient/Engine/UI/DropdownCapsuleUiLaw.cs",
     "MSUIClient/Formats/ItemSubClassCatalog.cs",
     "MSUIClient/Engine/UI/ProfessionPanelOpenerLaw.cs"
   ],
   "status": "implemented-verified",
-  "summary": "MSUI's current TradeSkillFrame is a law-positioned 384x512 player profession panel with the stock rank StatusBar, exact eight-row faux-scroll controls, created-item (ItemClass, ItemSubClass) groups named verbose-first from ItemSubClass.dbc, tier/item-level/name sorting, fold headers and Collapse All, subclass and byte-law inventory-slot filters, product/list/reagent tooltips, have/need reagents and tool/focus gates, plus typed bounded repeat count, Create All, Create and Exit/Cancel batch behavior. The centered title uses GameFontNormal. The split GameFontHighlightSmall Requires label/text occupies the exact recipe-header seat; carried tools use inline red when missing and the spell-focus name remains uncolored. All production geometry is owned by ProfessionFrameUiLaw; focused and full interface-wire suites pass.",
+  "summary": "MSUI's current TradeSkillFrame is a law-positioned 384x512 player profession panel with the stock rank StatusBar, exact eight-row faux-scroll controls, created-item (ItemClass, ItemSubClass) groups named verbose-first from ItemSubClass.dbc, tier/item-level/name sorting, authored fold headers and Collapse All tab, exact overlapping subclass/inventory UIDropDownMenu capsules, product/list/reagent tooltips, have/need reagents and tool/focus gates, plus typed bounded repeat count, Create All, Create and Exit/Cancel batch behavior. The centered title uses GameFontNormal. The split GameFontHighlightSmall Requires label/text occupies the exact recipe-header seat; carried tools use inline red when missing and the spell-focus name remains uncolored. Production geometry is owned by ProfessionFrameUiLaw and the shared DropdownCapsuleUiLaw; focused and full interface-wire suites pass.",
   "openItems": [
     {
       "id": "item-triage-0367972f",
@@ -122,12 +123,30 @@
       "source": "benilla-ac3264a0296ae90e/TradeSkillFrame.xml",
       "added": "2026-08-23",
       "resolved": true,
-      "resolution": "ProfessionFrameUiLaw owns the exact 54x32 tab artwork, 40x22 hit seat, 16x16 fold icon, small-font label center, and texture identities. The shared renderer consumes those rules, and mixed state now follows Benilla's all-collapsed predicate: any expanded header yields the minus icon and collapses every group on click. Focused ProfessionFrame checks pass."
+      "resolution": "ProfessionFrameUiLaw owns the exact 54x32 tab artwork, 40x22 hit seat, 16x16 fold icon, small-font label center, and texture identities. The shared renderer consumes those rules, and mixed state now follows Benilla's all-collapsed predicate: any expanded header yields the minus icon and collapses every group on click. Focused ProfessionFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-tradeskill-filter-capsule-visual-gap-20260823",
+      "kind": "gap",
+      "text": "TradeSkill subclass and inventory filters used generic panel-button rectangles instead of the authored overlapping UIDropDownMenuTemplate capsules and arrow-only toggle controls.",
+      "source": "benilla-ac3264a0296ae90e/TradeSkillFrame.xml+UIDropDownMenu.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "The shared DropdownCapsuleUiLaw owns the reference end-cap/middle art slices, fixed selection box, arrow button states, hover art, and sound identity. ProfessionFrameUiLaw owns the exact TOPRIGHT inventory capsule and overlapping subclass capsule anchors; the existing filter choices and menu behavior are unchanged. Focused ProfessionFrame/UiFoundation and full interface-wire checks pass."
+    },
+    {
+      "id": "item-tradeskill-filter-list-visual-gap-20260823",
+      "kind": "gap",
+      "text": "TradeSkill's open subclass and inventory filters used custom dark/gold boxes, textual checkmarks, and 18px rows offset from their capsules instead of UIDropDownMenu's anchored dialog lists and 16px checked rows.",
+      "source": "benilla-b57ee0e9e2c8822b/TradeSkillFrame.xml+UIDropDownMenu.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "Both filter lists now derive directly from their DropdownCapsuleUiLaw layouts and consume the exact fixed 120px row width, 15px borders, dialog backdrop, selected check plus locked additive highlight, hover highlight, GameFontHighlightSmall label seat, and UChatScrollButton selection cue. Existing subclass/inventory choices, single selection, close-on-pick, and scroll reset remain unchanged. Focused ProfessionFrame checks pass."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T19:05:00Z",
+  "lastReviewedUtc": "2026-08-23T19:30:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

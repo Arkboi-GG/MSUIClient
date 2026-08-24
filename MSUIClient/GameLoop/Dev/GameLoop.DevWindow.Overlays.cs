@@ -135,7 +135,8 @@ public sealed partial class GameLoop
 
     private void PlayCreatureReaction(AiReactionPacket packet)
     {
-        if (!AiReactionPackets.Audible(packet.Reaction) || _spellSounds is null ||
+        if (!World.Sound.AudioFeaturePolicy.ExpandedWorldAudioEnabled ||
+            !AiReactionPackets.Audible(packet.Reaction) || _spellSounds is null ||
             _audioMixer is null || _creatureVoices is null ||
             !_entities.TryGet(packet.UnitGuid, out WorldEntity unit)) return;
         uint displayId = packet.Reaction == AiReactionPackets.Alert && unit.MountDisplayId != 0

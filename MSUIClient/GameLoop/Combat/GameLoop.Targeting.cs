@@ -385,10 +385,11 @@ public sealed partial class GameLoop
     {
         if (_net is null && !_creatorWorldRequested) return;
 
-        bool wasAttacking = _attackTargetGuid != 0 ||
-            (_net is not null && _combat.IsEngaged(ControlledGuid));
+        bool canAuthor = CanAuthorControlledGameplay;
+        bool wasAttacking = canAuthor && (_attackTargetGuid != 0 ||
+            (_net is not null && _combat.IsEngaged(ControlledGuid)));
         bool changed = guid != _selectionGuid;
-        if (changed) StopPetAttackForOldTargetChange(_selectionGuid, guid);
+        if (changed && canAuthor) StopPetAttackForOldTargetChange(_selectionGuid, guid);
         if (changed && wasAttacking)
         {
             EmitCombat("TargetSwitch", "selection-change", guid,
@@ -399,7 +400,7 @@ public sealed partial class GameLoop
         if (changed)
         {
             _selectionGuid = guid;
-            _net?.SetSelection(guid);
+            if (canAuthor) _net?.SetSelection(guid);
             if (guid != 0 && _net is not null && _entities.TryGet(guid, out WorldEntity identity))
             {
                 if (identity.IsPlayer && _queriedPlayerNames.Add(guid)) _net.NameQuery(guid);
@@ -416,7 +417,8 @@ public sealed partial class GameLoop
         // A running swing follows a valid target switch. A clean right click
         // starts it when it was not already active. Never offline - the creator
         // dummy is scenery, not an opponent.
-        if (_net is not null && guid != 0 && (beginAttack || (changed && wasAttacking)) &&
+        if (canAuthor && _net is not null && guid != 0 &&
+            (beginAttack || (changed && wasAttacking)) &&
             _entities.TryGet(guid, out WorldEntity entity) && CanAttack(entity))
         {
             if (_attackTargetGuid != guid)
@@ -438,7 +440,8 @@ public sealed partial class GameLoop
 
     private void StopAttack(string cause = "user-cancel")
     {
-        if (_net is null || (_attackTargetGuid == 0 && !_combat.IsEngaged(ControlledGuid))) return;
+        if (!CanAuthorControlledGameplay || _net is null ||
+            (_attackTargetGuid == 0 && !_combat.IsEngaged(ControlledGuid))) return;
         _net.AttackStop();
         ObserveCombatIntent(false, _attackTargetGuid, cause);
         _attackTargetGuid = 0;

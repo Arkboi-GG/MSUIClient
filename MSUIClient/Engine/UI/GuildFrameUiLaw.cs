@@ -221,11 +221,15 @@ public static class GuildFrameUiLaw
     public static readonly LogicalRect ControlShellBottomLeft = new(0, 256, 256, 64);
     public static readonly LogicalRect ControlShellBottomRight = new(256, 256, 64, 64);
     public static readonly LogicalRect ControlSelectLabel = new(20, 15, 257, 16);
-    public static readonly LogicalRect ControlDropDown = new(84, 30, 128, 32);
-    public static readonly Vector2 ControlDropDownTextOffset = new(9, 10);
-    public static readonly LogicalRect ControlDropDownArrow = new(185, 34, 24, 24);
-    public static readonly LogicalRect ControlAddRank = new(197, 39, 16, 16);
-    public static readonly LogicalRect ControlRemoveRank = new(211, 39, 16, 16);
+    // The 300px checkbox host is TOPRIGHT-seated in the 297px popup, hence x=-3.
+    // OnLoad applies SetWidth(110), SetButtonWidth(54), and LEFT text justification.
+    public static readonly DropdownCapsuleUiLaw.Layout ControlRankDropDown =
+        DropdownCapsuleUiLaw.TopCenter(-3, 300, 30, 110, 54, leftJustified: true);
+    public static readonly LogicalRect ControlAddRank = new(
+        ControlRankDropDown.Frame.X + ControlRankDropDown.Frame.Width - 15,
+        ControlRankDropDown.Frame.Y + 7, 16, 16);
+    public static readonly LogicalRect ControlRemoveRank = new(
+        ControlAddRank.X + ControlAddRank.Width - 2, ControlAddRank.Y, 16, 16);
     public const string ControlAddRankTooltip = "Click to add rank";
     public const string ControlRemoveRankTooltip = "Click to remove this rank";
     public static readonly LogicalRect ControlRankName = new(118, 68, 130, 32);
@@ -235,7 +239,6 @@ public static class GuildFrameUiLaw
     public static readonly LogicalRect ControlAllowLabel = new(20, 106, 257, 16);
     public static readonly LogicalRect ControlAccept = new(128, 263, 78, 22);
     public static readonly LogicalRect ControlCancel = new(208, 263, 78, 22);
-    public static readonly Vector2 ControlDropDownRowTextOffset = new(5, 3);
     public static readonly Vector2 ControlCheckboxLabelOffset = new(21, 4);
     public static readonly string[] RankRightLabels =
     [
@@ -271,12 +274,6 @@ public static class GuildFrameUiLaw
 
     public static bool ShowRemoveRank(int selectedRank, int rankCount) =>
         rankCount > 5 && selectedRank == rankCount - 1;
-
-    public static LogicalRect ControlDropDownList(int rankCount) =>
-        new(84, 62, 128, 8 + Math.Clamp(rankCount, 0, 10) * 18);
-
-    public static LogicalRect ControlDropDownRow(int index) =>
-        new(88, 66 + Math.Max(0, index) * 18, 120, 18);
 
     public static Vector2 MemberDetailOrigin(Vector2 guildFrameOrigin, float scale) =>
         guildFrameOrigin + MemberDetailOffset * scale;

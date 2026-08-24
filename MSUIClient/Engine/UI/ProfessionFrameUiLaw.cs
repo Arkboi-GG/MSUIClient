@@ -31,7 +31,6 @@ public static class ProfessionFrameUiLaw
     public const float Height = 512f;
     public const float Top = 104f;
     public const float RowHeight = 16f;
-    public const float FilterRowHeight = 18f;
     public const float DescriptionWidth = 290f;
     public const string RequirementFont = "GameFontHighlightSmall";
     public const string RequiresLabel = "Requires:";
@@ -116,10 +115,10 @@ public static class ProfessionFrameUiLaw
             @"Interface\QuestFrame\UI-QuestLogSortTab-Right",
             new(61, 65, 8, 32)),
     ];
-    public static readonly LogicalRect SubClassFilter = new(71, 66, 128, 22);
-    public static readonly LogicalRect InvSlotFilter = new(203, 66, 136, 22);
-    public static readonly Vector2 FilterMenu = new(71, 89);
-    public static readonly Vector2 InventoryFilterMenu = new(203, 89);
+    public static readonly DropdownCapsuleUiLaw.Layout InvSlotDropDown =
+        DropdownCapsuleUiLaw.TopRight(Width, 25, 66, 120);
+    public static readonly DropdownCapsuleUiLaw.Layout SubClassDropDown =
+        DropdownCapsuleUiLaw.LeftOf(InvSlotDropDown, 35, 120);
     public static readonly Vector2 TitleCenter = new(192, 17);
     public static readonly Vector2 HorizontalBar = new(15, 221);
     public static readonly Vector2 ProductName = new(70, 239);
@@ -169,13 +168,6 @@ public static class ProfessionFrameUiLaw
 
     public static Vector2 TradeSkillRequirementTextAt(float labelWidth, float scale) =>
         TradeSkillRequirementLabel + new Vector2(labelWidth / Math.Max(float.Epsilon, scale) + 4, 0);
-
-    public static Vector2 FilterMenuSize(float width, int choiceCount) =>
-        new(width, Math.Max(0, choiceCount) * FilterRowHeight + 4);
-
-    public static LogicalRect FilterMenuRow(int index, float width) =>
-        new(2, 2 + Math.Max(0, index) * FilterRowHeight,
-            Math.Max(0, width - 4), FilterRowHeight);
 
     public static Vector2 RankFillSize(Vector2 rankSize, float fraction) =>
         new(rankSize.X * Math.Clamp(fraction, 0, 1), rankSize.Y);

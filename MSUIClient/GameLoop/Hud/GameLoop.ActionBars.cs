@@ -198,6 +198,12 @@ public sealed partial class GameLoop
             EmitCastVerdict(spellId, CastTargetReason.ProfessionWindow, 0, sent: false);
             return;
         }
+        if (!CanAuthorControlledGameplay)
+        {
+            EmitCastVerdict(spellId, CastTargetReason.UnavailableOrPassive, 0, sent: false);
+            RefuseCast(spellId, "LOCAL_OBSERVER", "Cannot cast while in Free View.");
+            return;
+        }
         if (spell.Passive)
         {
             EmitCastVerdict(spellId, CastTargetReason.UnavailableOrPassive, 0, sent: false);
@@ -333,6 +339,11 @@ public sealed partial class GameLoop
         Vector3? ground, CastTargetReason reason)
     {
         if (_net is null || _actions is null) return;
+        if (!CanAuthorControlledGameplay)
+        {
+            EmitCastVerdict(spellId, CastTargetReason.UnavailableOrPassive, target, sent: false);
+            return;
+        }
         bool sent = ground is { } dest
             ? _net.CastSpellAtLocation(spellId, dest)
             : _net.CastSpell(spellId, target);
@@ -365,7 +376,7 @@ public sealed partial class GameLoop
 
     private void CommitItemCast(uint spellId, ulong itemGuid)
     {
-        if (_net is null || _spellCatalog is null ||
+        if (!CanAuthorControlledGameplay || _net is null || _spellCatalog is null ||
             !_spellCatalog.TryGet(spellId, out SpellInfo spell)) return;
         bool sent = _net.CastSpellOnItem(spellId, itemGuid);
         EmitCastVerdict(spellId, CastTargetReason.ItemTargeting, itemGuid, sent);
@@ -407,7 +418,8 @@ public sealed partial class GameLoop
 
     private (string Text, CastTargetReason Reason)? CastRangeRefusal(in SpellInfo spell)
     {
-        if (_net is null || _controller is null || _spellCatalog is null || _selectionGuid == 0 ||
+        if (_net is null || !TryGetControlledBodyPose(out WorldBodyPose controlledBody) ||
+            _spellCatalog is null || _selectionGuid == 0 ||
             !_entities.TryGet(_selectionGuid, out WorldEntity target) ||
             !_spellCatalog.TryGetRange(spell.RangeIndex, out SpellRangeRow row)) return null;
         float selfReach = _entities.TryGet(ControlledGuid, out WorldEntity self)
@@ -421,7 +433,7 @@ public sealed partial class GameLoop
             max += selfReach + targetReach;
             if (min != 0f) min += selfReach + targetReach;
         }
-        float d2 = Vector3.DistanceSquared(_controller.Position, target.Position);
+        float d2 = Vector3.DistanceSquared(controlledBody.Position, target.Position);
         if (min > 0f && d2 < min * min)
             return ("Target too close", CastTargetReason.TooClose);
         return d2 > max * max ? ("Out of range.", CastTargetReason.OutOfRange) : null;
@@ -1868,7 +1880,8 @@ public sealed partial class GameLoop
     private (ButtonRange Range, float Min, float Max, float Distance)
         ComputeButtonRange(in SpellInfo spell)
     {
-        if (_net is null || _controller is null || _spellCatalog is null || _selectionGuid == 0 ||
+        if (_net is null || !TryGetControlledBodyPose(out WorldBodyPose controlledBody) ||
+            _spellCatalog is null || _selectionGuid == 0 ||
             !_entities.TryGet(_selectionGuid, out WorldEntity target) ||
             !_spellCatalog.TryGetRange(spell.RangeIndex, out SpellRangeRow row))
             return (ButtonRange.NoCheck, 0f, 0f, -1f);
@@ -1890,7 +1903,7 @@ public sealed partial class GameLoop
             if (min != 0f) min += selfReach + targetReach;
         }
 
-        float distanceSquared = Vector3.DistanceSquared(_controller.Position, target.Position);
+        float distanceSquared = Vector3.DistanceSquared(controlledBody.Position, target.Position);
         float distance = MathF.Sqrt(distanceSquared);
         ButtonRange range = distanceSquared >= min * min && distanceSquared <= max * max
             ? ButtonRange.InRange : ButtonRange.OutOfRange;

@@ -24,6 +24,8 @@ internal static class MicroMenuClinicalChecks
             "GameLoop.ActionBars.cs"));
         string bindings = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Bindings.cs"));
+        string settings = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Settings.cs"));
         Check(actionBars.Contains("MicroMenuUiLaw.VisibleButtons", StringComparison.Ordinal) &&
               actionBars.Contains("MicroMenuUiLaw.TooltipTitle", StringComparison.Ordinal) &&
               actionBars.Contains("ImGui.TextWrapped(newbieText)", StringComparison.Ordinal),
@@ -32,6 +34,9 @@ internal static class MicroMenuClinicalChecks
               bindings.Contains("GameBinding.OpenQuestLog, \"Quest Log\", Key.L", StringComparison.Ordinal) &&
               bindings.Contains("GameBinding.OpenSocial, \"Social\", Key.O", StringComparison.Ordinal),
             "N/L/O live binding registry drift");
+        Check(settings.Contains("if (_settingsOpen) _settingsPopupRequested = true;",
+                  StringComparison.Ordinal),
+            "game-menu popup lost its one-frame recovery path");
     }
 
     private static void Check(bool condition, string message)

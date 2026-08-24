@@ -28,6 +28,26 @@ internal static class ClientControlUpdateClinicalChecks
                   ClientControlUpdateLaw.Verdict.ForeignReleased,
             "client-control two-dimensional verdict drift");
 
+        Check(!ClientControlUpdateLaw.SuiOwnsRouting(
+                  freeView: false, ordinaryOwnCharacterState: true) &&
+              ClientControlUpdateLaw.SuiOwnsRouting(
+                  freeView: true, ordinaryOwnCharacterState: true) &&
+              ClientControlUpdateLaw.SuiOwnsRouting(
+                  freeView: false, ordinaryOwnCharacterState: false) &&
+              ClientControlUpdateLaw.LocksCurrentMover(
+                  selfControlLost: true, freeView: false,
+                  ordinaryOwnCharacterState: true, controllingSessionCharacter: true) &&
+              !ClientControlUpdateLaw.LocksCurrentMover(
+                  selfControlLost: true, freeView: true,
+                  ordinaryOwnCharacterState: false, controllingSessionCharacter: true) &&
+              !ClientControlUpdateLaw.LocksCurrentMover(
+                  selfControlLost: true, freeView: false,
+                  ordinaryOwnCharacterState: false, controllingSessionCharacter: false) &&
+              !ClientControlUpdateLaw.LocksCurrentMover(
+                  selfControlLost: false, freeView: false,
+                  ordinaryOwnCharacterState: true, controllingSessionCharacter: true),
+            "stock body lock escaped its ordinary-own-character ownership boundary");
+
         string root = ClientConfig.FindRepoRoot();
         string host = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
             "GameLoop.ClientControlUpdate.cs"));
@@ -38,6 +58,9 @@ internal static class ClientControlUpdateClinicalChecks
                   StringComparison.Ordinal) &&
               host.Contains("net.SetActiveMover(update.Mover)", StringComparison.Ordinal) &&
               host.Contains("_controlState == ControlState.OwnChar", StringComparison.Ordinal) &&
+              host.Contains("if (SuiOwnsClientControl)", StringComparison.Ordinal) &&
+              host.Contains("if (!VanillaSelfControlLocksMover) return;",
+                  StringComparison.Ordinal) &&
               host.Contains("verdict != ClientControlUpdateLaw.Verdict.SelfRestored",
                   StringComparison.Ordinal) &&
               !host.Contains("_controlState = ControlState.Possessing",
@@ -45,8 +68,11 @@ internal static class ClientControlUpdateClinicalChecks
               net.Contains("case Op.SMSG_CLIENT_CONTROL_UPDATE:", StringComparison.Ordinal) &&
               program.Contains("ApplyVanillaControlLockout(ref forward, ref strafe, ref turn",
                   StringComparison.Ordinal) &&
-              program.Contains("_vanillaSelfControlLost ? _controller.Yaw",
-                  StringComparison.Ordinal),
+              program.Contains("bool vanillaControlLocked = VanillaSelfControlLocksMover",
+                  StringComparison.Ordinal) &&
+              program.Contains("vanillaControlLocked ? _controller.Yaw",
+                  StringComparison.Ordinal) &&
+              !program.Contains("_vanillaSelfControlLost", StringComparison.Ordinal),
             "client-control own-body lock/restore or protected SUI boundary drift");
     }
 

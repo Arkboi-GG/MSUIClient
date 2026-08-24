@@ -33,6 +33,7 @@ public sealed partial class GameLoop
     private double _soundscapeArmDeadline;
     private long _glueMusicVoice;
     private double _glueMusicFadeStartedAt = -1;
+    private bool _audioCompatibilityAnnounced;
 
     /// <summary>Consecutive settled frames required before the first voices of a
     /// world are allowed to exist. Small: this is a "the loader let go" test, not
@@ -57,6 +58,12 @@ public sealed partial class GameLoop
         // system's per-frame tick, which meant a music track could only be noticed
         // as finished on frames where spell audio happened to be ticked.
         _audioMixer.PollFinished();
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled && !_audioCompatibilityAnnounced)
+        {
+            _audioCompatibilityAnnounced = true;
+            Console.WriteLine("[audio] known-clean producer set active; " +
+                              "expanded creature/GO/liquid emitters quarantined");
+        }
         UpdateGlueAudio();
 
         // SoundListenerAtCharacter=1: ordinary play listens from the avatar's head and facing,
@@ -73,7 +80,8 @@ public sealed partial class GameLoop
             listenerPosition = _window.Camera.Position;
             listenerYaw = _window.Camera.ViewYaw;
         }
-        _spellSounds?.SetListener(listenerPosition, listenerYaw);
+        if (AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+            _spellSounds?.SetListener(listenerPosition, listenerYaw);
 
         bool inWorld = _terrain is not null && _worldLoadStarted && !_worldLoading &&
                        !GlueFrontDoorActive && _controller is not null;
@@ -92,7 +100,8 @@ public sealed partial class GameLoop
 
         // The mount-up attach is silent. Only a live nonzero->zero edge plays
         // the fixed global dismount kit; first sight merely seeds the observer.
-        ObserveDismountSoundTransitions(_soundscapePlaybackArmed);
+        if (AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+            ObserveDismountSoundTransitions(_soundscapePlaybackArmed);
 
         // DO NOT LET THE FIRST MCI/DirectShow VOICES COME INTO EXISTENCE WHILE THE
         // LOADER STILL OWNS THE MACHINE. On Windows a graph built under that
@@ -194,10 +203,16 @@ public sealed partial class GameLoop
         _soundscape.InteriorIntroSoundId = _soundscapeInterior.Intro;
         _soundscape.Interior = _soundscapeIndoors;
         _soundscape.WeatherAmbienceKit = _weatherSoundKit;
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+        {
+            _soundscape.Interior = false;
+            _soundscape.WeatherAmbienceKit = 0;
+        }
         _soundscape.DayPhase = hours >= 5.5f && hours < 21f;   // vanilla's hard step
         _soundscape.Submerged = submerged;
         _soundscape.Update(now);
-        if (_liquid is not null && _liquidAmbient is not null)
+        if (AudioFeaturePolicy.ExpandedWorldAudioEnabled &&
+            _liquid is not null && _liquidAmbient is not null)
         {
             RefreshRetainedWmoLiquid();
             LiquidRenderer.LiquidSoundCandidate?[] nearest =
@@ -216,6 +231,13 @@ public sealed partial class GameLoop
     private void UpdateGlueAudio()
     {
         if (_audioMixer is null) return;
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+        {
+            if (_glueMusicVoice != 0) _audioMixer.Stop(_glueMusicVoice);
+            _glueMusicVoice = 0;
+            _glueMusicFadeStartedAt = -1;
+            return;
+        }
         double now = NowSeconds();
         bool glueActive = GlueAudioLaw.ShouldPlayMusic(
             GlueFrontDoorActive, CreatorInWorld, _net?.State);
@@ -283,6 +305,7 @@ public sealed partial class GameLoop
     /// </summary>
     private void ApplyServerSound(Op opcode, byte[] body)
     {
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled) return;
         switch (opcode)
         {
             case Op.SMSG_PLAY_SOUND:

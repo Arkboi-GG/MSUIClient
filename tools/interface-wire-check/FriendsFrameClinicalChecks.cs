@@ -153,20 +153,22 @@ internal static class FriendsFrameClinicalChecks
             "Friends/Ignore resolved-name order or identity selection drift");
         IReadOnlyList<FriendsFrameUiLaw.TextureSlice> headerSlices =
             FriendsFrameUiLaw.WhoColumnHeaderSlices(83);
-        IReadOnlyList<FriendsFrameUiLaw.TextureSlice> dropdownSlices =
-            FriendsFrameUiLaw.WhoDropdownArtSlices(18);
+        DropdownCapsuleUiLaw.Layout whoDropdown = FriendsFrameUiLaw.WhoDropdown(18);
         FriendsFrameUiLaw.ScrollBarLayout friendsScroll = FriendsFrameUiLaw.ScrollBar(
             FriendsFrameUiLaw.FriendsScrollFrame, 2, 4);
         Check(headerSlices.Count == 3 &&
               headerSlices[0].Rect == new FriendsFrameUiLaw.LogicalRect(0, 0, 5, 24) &&
               headerSlices[1].Rect == new FriendsFrameUiLaw.LogicalRect(5, 0, 74, 24) &&
               headerSlices[2].Rect == new FriendsFrameUiLaw.LogicalRect(79, 0, 4, 24) &&
-              dropdownSlices[0].Rect ==
-                  new FriendsFrameUiLaw.LogicalRect(0, -17, 25, 64) &&
-              dropdownSlices[1].Rect ==
-                  new FriendsFrameUiLaw.LogicalRect(25, -17, 80, 64) &&
-              FriendsFrameUiLaw.WhoDropdownButton(18) ==
-                  new FriendsFrameUiLaw.LogicalRect(90, 18, 24, 24) &&
+              whoDropdown.Frame ==
+                  new DropdownCapsuleUiLaw.LogicalRect(86, 70, 130, 32) &&
+              whoDropdown.Button ==
+                  new DropdownCapsuleUiLaw.LogicalRect(90, 1, 24, 24) &&
+              whoDropdown.LeftJustified &&
+              DropdownCapsuleUiLaw.List(whoDropdown, 3) ==
+                  new DropdownCapsuleUiLaw.LogicalRect(94, 95, 112, 78) &&
+              DropdownCapsuleUiLaw.Row(whoDropdown, 2) ==
+                  new DropdownCapsuleUiLaw.LogicalRect(111, 142, 80, 16) &&
               friendsScroll.UpButton ==
                   new FriendsFrameUiLaw.LogicalRect(323, 75, 16, 16) &&
               friendsScroll.DownButton ==
@@ -319,6 +321,10 @@ internal static class FriendsFrameClinicalChecks
               runtime.Contains("FriendsFrameUiLaw.ListWheelRegion", StringComparison.Ordinal) &&
               runtime.Contains("DrawSocialFauxScrollBar", StringComparison.Ordinal) &&
               runtime.Contains("DrawWhoVariableDropdown", StringComparison.Ordinal) &&
+              runtime.Contains("FriendsFrameUiLaw.WhoDropdown", StringComparison.Ordinal) &&
+              runtime.Contains("VanillaDropdownCapsule", StringComparison.Ordinal) &&
+              runtime.Contains("DropdownCapsuleUiLaw.RowCheck", StringComparison.Ordinal) &&
+              runtime.Contains("WowSkin.Dialog", StringComparison.Ordinal) &&
               runtime.Contains("FriendsFrameUiLaw.ShellFor", StringComparison.Ordinal) &&
               runtime.Contains("FriendsWhoVariable.Race", StringComparison.Ordinal) &&
               runtime.Contains("FriendsFrameScrollIcon", StringComparison.Ordinal) &&

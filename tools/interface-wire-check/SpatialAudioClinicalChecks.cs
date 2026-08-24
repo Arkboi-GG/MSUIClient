@@ -41,10 +41,18 @@ internal static class SpatialAudioClinicalChecks
             "AudioMixer.cs"));
         string voice = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Sound",
             "WaveOutVoice.cs"));
+        string policy = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Sound",
+            "AudioFeaturePolicy.cs"));
         string spells = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Spells",
             "SpellSoundSystem.cs"));
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
             "GameLoop.Sound.cs"));
+        string creatures = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
+            "GameLoop.CreatureVoices.cs"));
+        string footsteps = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
+            "GameLoop.Footsteps.cs"));
+        string gameObjects = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
+            "GameLoop.GameObjectSounds.cs"));
         Check(mixer.Contains("SetVoiceGainPan", StringComparison.Ordinal) &&
               voice.Contains("SpatialAudioLaw.StereoLevels", StringComparison.Ordinal) &&
               spells.Contains("SpatialAudioLaw.Pan", StringComparison.Ordinal) &&
@@ -52,6 +60,23 @@ internal static class SpatialAudioClinicalChecks
               runtime.Contains("SpatialAudioLaw.CharacterListener", StringComparison.Ordinal) &&
               runtime.Contains("_window.Camera.ViewYaw", StringComparison.Ordinal),
             "production listener/source/pan/rolloff wiring drifted");
+        Check(policy.Contains("MSUI_EXPANDED_WORLD_AUDIO", StringComparison.Ordinal) &&
+              policy.Contains("== \"1\"", StringComparison.Ordinal) &&
+              creatures.Contains("if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)",
+                  StringComparison.Ordinal) &&
+              footsteps.Contains("if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)",
+                  StringComparison.Ordinal) &&
+              gameObjects.Contains("if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)",
+                  StringComparison.Ordinal) &&
+              spells.Contains("Preserve the attenuation law from the last known-clean audio build.",
+                  StringComparison.Ordinal),
+            "known-clean producer compatibility boundary drifted");
+        int prepare = voice.IndexOf("waveOutPrepareHeader", StringComparison.Ordinal);
+        int loopFlags = voice.IndexOf("header.Flags |= WhdrBeginLoop | WhdrEndLoop;",
+            StringComparison.Ordinal);
+        int write = voice.IndexOf("waveOutWrite", StringComparison.Ordinal);
+        Check(prepare >= 0 && loopFlags > prepare && write > loopFlags,
+            "WinMM loop flags must be installed after prepare and before write");
     }
 
     private static bool Near(float left, float right) => MathF.Abs(left - right) < 1e-5f;

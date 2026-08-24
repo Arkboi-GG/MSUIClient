@@ -30,7 +30,7 @@
     "tools/interface-wire-check/LootFrameClinicalChecks.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI's loot window is a close counterpart of current Benilla's: the 256x256 UI-LootPanel at the left UIPanel seat, quality-colored rows, synthesized coin row, 4-row/3+pager law, minimize close, shared item tooltip, click/autoloot wire, and client-authoritative auto-release are present. LootFrameUiLaw owns the complete exact host, portrait/title, 41-pixel row chain, row plate/icon/name/count/hit geometry, pager, close art/hitbox, and row modifier decision fork; the renderer contains no locally authored Vector2 geometry. The title and wrapped, vertically centered 93x38 item-name box use GameFontNormal, while stack counts use NumberFontNormal at the exact item-button count seat. LootLatchLaw separately owns the response handshake: a warm matching latch admits any successful type, a cold latch admits only server-started types 2/3/4, and a refused success is bounced with CMSG_LOOT_RELEASE while clearing the old latch. Accepted sessions retain their target latch until the guid-matched release/refusal path. Corpse sends and local OPEN_LOCK SPELL_GO chest impacts arm the latch before the response. CharacterRenderer holds Loot animation 50 only for a stationary unmounted player whose target passes the exact predicate: dead unit and non-type-17 GameObject kneel; live units, fishing nodes, items and unresolved targets do not; movement outranks the pose and release returns directly to the normal selector. Ctrl previews a resolved item, Shift inserts its quality-colored classic link only into an open chat edit, Alt suppresses the take, modified linkless/coin rows are inert, and either unmodified mouse button loots. Quest and Loot share one bounded chat insertion path and one classic item-link grammar. The law also freezes the exact Lua-owned OnShow fork: empty loot plays LOOTWINDOWOPENEMPTY with the corpse overlay; non-empty fishing loot plays FISHING REEL IN and swaps to FishingLoot-Icon; ordinary non-empty loot remains silent because its sound is C-side and current Benilla intentionally does not guess a kit. Focused LootFrame and full interface-wire checks pass.",
+  "summary": "MSUI's loot window is a close counterpart of current Benilla's: the 256x256 UI-LootPanel at the left UIPanel seat, quality-colored rows, synthesized coin row, 4-row/3+pager law, minimize close, shared item tooltips plus the coin row's white classic SetText tooltip, click/autoloot wire, and client-authoritative auto-release are present. LootFrameUiLaw owns the complete exact host, portrait/title, 41-pixel row chain, row plate/icon/name/count/hit geometry, icon-relative tooltip seat, pager, close art/hitbox, and row modifier decision fork; the renderer contains no locally authored Vector2 geometry or raw ImGui tooltip. The title and wrapped, vertically centered 93x38 item-name box use GameFontNormal, while stack counts use NumberFontNormal at the exact item-button count seat. LootLatchLaw separately owns the response handshake: a warm matching latch admits any successful type, a cold latch admits only server-started types 2/3/4, and a refused success is bounced with CMSG_LOOT_RELEASE while clearing the old latch. Accepted sessions retain their target latch until the guid-matched release/refusal path. Corpse sends and local OPEN_LOCK SPELL_GO chest impacts arm the latch before the response. CharacterRenderer holds Loot animation 50 only for a stationary unmounted player whose target passes the exact predicate: dead unit and non-type-17 GameObject kneel; live units, fishing nodes, items and unresolved targets do not; movement outranks the pose and release returns directly to the normal selector. Ctrl previews a resolved item, Shift inserts its quality-colored classic link only into an open chat edit, Alt suppresses the take, modified linkless/coin rows are inert, and either unmodified mouse button loots. Quest and Loot share one bounded chat insertion path and one classic item-link grammar. The law also freezes the exact Lua-owned OnShow fork: empty loot plays LOOTWINDOWOPENEMPTY with the corpse overlay; non-empty fishing loot plays FISHING REEL IN and swaps to FishingLoot-Icon; ordinary non-empty loot remains silent because its sound is C-side and current Benilla intentionally does not guess a kit. Focused LootFrame and full interface-wire checks pass.",
   "openItems": [
     {
       "id": "item-triage-c56c8ca0",
@@ -85,11 +85,20 @@
       "added": "2026-08-23",
       "resolved": true,
       "resolution": "LootFrameUiLaw now owns the icon-relative tooltip anchor and bottom-left pivot. Resolved item tooltips land at the row icon's top-right; loot actions, links, content, and preserved tooltip presentation remain unchanged. Focused and full interface-wire checks pass."
+    },
+    {
+      "id": "item-lootframe-coin-row-tooltip-gap-20260823",
+      "kind": "gap",
+      "text": "Current Benilla applies the same icon-relative owner seat to every Loot row and uses white GameTooltip:SetText for coin piles, while MSUI only offered a tooltip when an item template resolved and therefore left the synthesized coin row silent on hover.",
+      "source": "benilla-current-2026-08-23/LootFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "LootFrameUiLaw now exposes the shared row tooltip seat. Coin rows publish their formatted money name as one typed white SetText line through the owner-anchored classic GameTooltip adapter; item rows retain their prepared rich tooltip on the same exact seat. Focused LootFrame and GameTooltip checks pin the split and ban raw ImGui tooltip fallback."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T18:22:00Z",
+  "lastReviewedUtc": "2026-08-23T20:02:49.8697656Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

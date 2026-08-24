@@ -24,7 +24,8 @@ public sealed partial class GameLoop
         CombatTextStateCue? combat = CombatTextStateUiLaw.CombatState(
             _combatTextInCombat, player.InCombat);
         _combatTextInCombat = player.InCombat;
-        if (combat is { } combatCue) QueueCombatTextState(combatCue);
+        if (Settings.Controls.ShowCombatStateText && combat is { } combatCue)
+            QueueCombatTextState(combatCue);
 
         CombatTextResourceTransition health = CombatTextStateUiLaw.Resource(
             _combatTextLowHealth, player.Fields.Health, player.Fields.MaxHealth);

@@ -40,8 +40,6 @@ public static class WorldMapUiLaw
     public const float RowHeight = 16f;
     public const float BorderHeight = 15f;
     public const int MaximumRows = 32;
-    public const string CapsuleTexture =
-        @"Interface\Glues\CharacterCreate\CharacterCreate-LabelFrame";
     public const string TitleFont = "GameFontNormal";
     public const string HoverLabelFont = "WorldMapTextFont";
     public const float TileSize = 256f;
@@ -51,18 +49,10 @@ public static class WorldMapUiLaw
     public static readonly Vector2 TitleCenter = new(512, 12);
     public static readonly LogicalRect ViewAction = new(680, 34, 110, 22);
     public static readonly LogicalRect Close = new(982, 4, 32, 32);
-    public static readonly TextureSlice[] CapsuleSlices =
-    [
-        new(new(0, -17, 25, 64), Vector2.Zero, new(.1953125f, 1)),
-        new(new(25, -17, 130, 64), new(.1953125f, 0), new(.8046875f, 1)),
-        new(new(155, -17, 25, 64), new(.8046875f, 0), Vector2.One)
-    ];
+    public static readonly DropdownCapsuleUiLaw.Layout Capsule =
+        DropdownCapsuleUiLaw.At(0, 0, DropWidth);
     public static readonly Vector2 CapsuleLabel = new(20, -10);
-    public static readonly Vector2 CapsuleSelectionRight = new(137, 11);
-    public static readonly LogicalRect CapsuleButton = new(140, 1, 24, 24);
     public static readonly LogicalRect DropdownRow = new(0, 0, DropWidth, RowHeight);
-    public static readonly LogicalRect DropdownCheck = new(0, -4, 24, 24);
-    public static readonly Vector2 DropdownText = new(27, 2);
     public static readonly Vector4 CorpseTooltipColor = new(1f, .125f, .125f, 1f);
 
     /// <summary>Preserves the fullscreen 1024x768 scale-to-fit and letterbox centering.</summary>

@@ -154,41 +154,49 @@ public sealed partial class GameLoop
     private void DrawGuildControlDropDown(ImDrawListPtr draw, Vector2 origin, float scale,
         int rankCount)
     {
-        GuildFrameUiLaw.LogicalRect box = GuildFrameUiLaw.ControlDropDown;
-        Vector2 min = origin + box.Min * scale;
-        _skin?.DrawBackdrop(draw, min, min + box.Size * scale, WowSkin.Tooltip,
-            UnitPopupUiLaw.MenuBackdropFillTint, UnitPopupUiLaw.MenuBackdropEdgeTint);
-        GameText.Draw(draw, "GameFontHighlightSmall", _guildControlRankName,
-            min + GuildFrameUiLaw.ControlDropDownTextOffset * scale, scale);
-        GuildFrameUiLaw.LogicalRect arrowRect = GuildFrameUiLaw.ControlDropDownArrow;
-        Vector2 arrowMin = origin + arrowRect.Min * scale;
-        ImGui.SetCursorScreenPos(min);
-        if (ImGui.InvisibleButton("##guild-control-dropdown", box.Size * scale))
+        DropdownCapsuleUiLaw.Layout dropdown = GuildFrameUiLaw.ControlRankDropDown;
+        if (VanillaDropdownCapsule(draw, "##guild-control-dropdown", origin, scale,
+                dropdown, _guildControlRankName))
+        {
             _guildControlDropDownOpen = !_guildControlDropDownOpen;
-        uint arrow = _gameplayArt?.Handle(@"Interface\ChatFrame\UI-ChatIcon-ScrollDown-Up") ?? 0;
-        if (arrow != 0) draw.AddImage((nint)arrow, arrowMin,
-            arrowMin + arrowRect.Size * scale);
+            PlayUiSound(DropdownCapsuleUiLaw.ToggleSound, "ui.guild");
+        }
         if (!_guildControlDropDownOpen) return;
 
-        GuildFrameUiLaw.LogicalRect list = GuildFrameUiLaw.ControlDropDownList(rankCount);
+        DropdownCapsuleUiLaw.LogicalRect list =
+            DropdownCapsuleUiLaw.List(dropdown, rankCount);
         Vector2 listMin = origin + list.Min * scale;
-        _skin?.DrawBackdrop(draw, listMin, listMin + list.Size * scale, WowSkin.Tooltip,
-            UnitPopupUiLaw.MenuBackdropFillTint, UnitPopupUiLaw.MenuBackdropEdgeTint);
+        _skin?.DrawBackdrop(draw, listMin, listMin + list.Size * scale, WowSkin.Dialog);
         for (int i = 0; i < rankCount; i++)
         {
-            GuildFrameUiLaw.LogicalRect row = GuildFrameUiLaw.ControlDropDownRow(i);
+            DropdownCapsuleUiLaw.LogicalRect row = DropdownCapsuleUiLaw.Row(dropdown, i);
             Vector2 rowMin = origin + row.Min * scale;
             ImGui.SetCursorScreenPos(rowMin);
             bool clicked = ImGui.InvisibleButton($"##guild-control-rank-{i}", row.Size * scale);
-            if (ImGui.IsItemHovered())
+            bool selected = i == _guildControlRank;
+            if (selected || ImGui.IsItemHovered())
             {
                 uint hi = _gameplayArt?.AdditiveHandle(
-                    @"Interface\QuestFrame\UI-QuestTitleHighlight") ?? 0;
+                    DropdownCapsuleUiLaw.RowHighlight) ?? 0;
                 if (hi != 0) draw.AddImage((nint)hi, rowMin, rowMin + row.Size * scale);
             }
-            GameText.Draw(draw, "GameFontHighlightSmall", _guildRankNames[i],
-                rowMin + GuildFrameUiLaw.ControlDropDownRowTextOffset * scale, scale);
-            if (clicked) LoadGuildControlRank(i);
+            if (selected)
+            {
+                uint check = _gameplayArt?.Handle(DropdownCapsuleUiLaw.RowCheck) ?? 0;
+                if (check != 0)
+                {
+                    Vector2 checkMin = rowMin + DropdownCapsuleUiLaw.Check.Min * scale;
+                    draw.AddImage((nint)check, checkMin,
+                        checkMin + DropdownCapsuleUiLaw.Check.Size * scale);
+                }
+            }
+            GameText.Draw(draw, DropdownCapsuleUiLaw.SelectionFont, _guildRankNames[i],
+                rowMin + DropdownCapsuleUiLaw.RowTextOffset * scale, scale);
+            if (clicked)
+            {
+                LoadGuildControlRank(i);
+                PlayUiSound(DropdownCapsuleUiLaw.RowSound, "ui.guild");
+            }
         }
     }
 
@@ -236,16 +244,10 @@ public sealed partial class GameLoop
                 GuildFrameUiLaw.RightTooltipSeat(min, size);
             string tooltip = plus ? GuildFrameUiLaw.ControlAddRankTooltip :
                 GuildFrameUiLaw.ControlRemoveRankTooltip;
-            OfferPreservedSharedGameTooltipRenderer(
+            OfferOwnerAnchoredSharedGameTooltip(
                 new(plus ? "guild-control-add-rank" : "guild-control-remove-rank", 0),
-                () =>
-                {
-                    ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
-                        tooltipSeat.Pivot);
-                    ImGui.BeginTooltip();
-                    ImGui.TextUnformatted(tooltip);
-                    ImGui.EndTooltip();
-                });
+                [new(tooltip, GameTooltipTextTone.White)],
+                tooltipSeat.Anchor, tooltipSeat.Pivot);
         }
         return enabled && clicked;
     }

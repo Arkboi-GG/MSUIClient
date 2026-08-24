@@ -1,6 +1,7 @@
 using System.Numerics;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Sound;
 
 namespace MSUIClient;
 
@@ -19,6 +20,7 @@ public sealed partial class GameLoop
     /// </summary>
     private void RequestNpcSelectionGreeting(ulong guid)
     {
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled) return;
         if (!TryResolveNpcGreeting(guid, out WorldEntity npc, out NpcGreeting greeting)) return;
         if (_npcGreetingSequenceGuid != guid)
         {
@@ -47,6 +49,11 @@ public sealed partial class GameLoop
     /// </summary>
     private void UpdateNpcGreetingLifecycle()
     {
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+        {
+            ResetNpcGreetingSoundState();
+            return;
+        }
         ReapNpcGreetingVoices();
         ulong active = ActiveInteractionGuid();
         NpcWindowVocal vocal = NpcGreetingLaw.WindowTransition(_activeInteractionNpc, active);

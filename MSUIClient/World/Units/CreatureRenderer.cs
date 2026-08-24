@@ -153,6 +153,7 @@ public sealed partial class CreatureRenderer : IDisposable
     private readonly Dictionary<ulong, (int Sequence, float Time)> _footstepTime = [];
     private readonly Dictionary<ulong, CombatAction> _combatActions = new();
     private readonly Dictionary<ulong, int> _spellHolds = new();
+    private readonly HashSet<ulong> _lootKneeling = new();
     private readonly HashSet<ulong> _knownAlive = new();
     private readonly HashSet<ulong> _observedDead = new();
     private readonly Dictionary<ulong, float> _deathTime = new();
@@ -187,6 +188,16 @@ public sealed partial class CreatureRenderer : IDisposable
         _combatActions[guid] = new CombatAction(animationId, _globalTime,
             _globalTime + 4f, AuthoredExact: true);
         CombatActionsTriggered++;
+    }
+
+    /// <summary>
+    /// Optimistic CMSG_LOOT pose for a streamed player body. This is a durable base-pose
+    /// override rather than a one-shot because the latch owns it until loot opens/refuses.
+    /// </summary>
+    public void SetLootKneel(ulong guid, bool kneeling)
+    {
+        bool changed = kneeling ? _lootKneeling.Add(guid) : _lootKneeling.Remove(guid);
+        if (changed) _animTime[guid] = 0f;
     }
 
     public void TriggerCombatReaction(ulong guid, uint victimState, bool landedHit)
@@ -558,7 +569,8 @@ public sealed partial class CreatureRenderer : IDisposable
                 else
                 {
                     _combatActions.Remove(e.Guid);
-                    clip = SelectClip(e, model.Animator, unit, out rate);
+                    clip = SelectClip(e, model.Animator, unit,
+                        _lootKneeling.Contains(e.Guid), out rate);
                     if (!frozen) at += dt * rate;
                 }
                 if (float.IsNaN(at) || float.IsInfinity(at)) at = 0f;
@@ -1120,7 +1132,7 @@ public sealed partial class CreatureRenderer : IDisposable
     }
 
     private static M2Animator.Clip? SelectClip(
-        WorldEntity e, M2Animator animator, string unit, out float rate)
+        WorldEntity e, M2Animator animator, string unit, bool lootKneeling, out float rate)
     {
         rate = 1f;
         float speed = e.Spline?.AverageSpeed ?? 0f;
@@ -1132,6 +1144,9 @@ public sealed partial class CreatureRenderer : IDisposable
             // final fall/stand fallbacks keep models with a smaller animation vocabulary visible.
             if (flying)
                 return animator.Resolve(unit, BaseAnimationTrack, 193, true, 135, 40, 0);
+
+            if (lootKneeling)
+                return animator.Resolve(unit, BaseAnimationTrack, 50, true, 0);
 
             int pose = StandStateUiLaw.LoopAnimation(e.Fields.UnitStandState);
             if (pose != 0)
@@ -1212,6 +1227,7 @@ public sealed partial class CreatureRenderer : IDisposable
             _animTime.Remove(k);
             _combatActions.Remove(k);
             _spellHolds.Remove(k);
+            _lootKneeling.Remove(k);
             _knownAlive.Remove(k);
             _observedDead.Remove(k);
             _deathTime.Remove(k);

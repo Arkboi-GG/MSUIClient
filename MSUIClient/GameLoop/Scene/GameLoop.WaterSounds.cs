@@ -79,6 +79,11 @@ public sealed partial class GameLoop
     /// </summary>
     private void UpdateWaterSplashSounds()
     {
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+        {
+            ResetWaterSplashSounds();
+            return;
+        }
         if (_spellSounds is null || _creatureVoices is null || _liquid is null) return;
 
         foreach (WorldEntity unit in _entities.Units)

@@ -1,5 +1,6 @@
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Sound;
 
 namespace MSUIClient;
 
@@ -13,6 +14,12 @@ public sealed partial class GameLoop
 
     private void WireCreatureAnimationVoices()
     {
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+        {
+            if (_creatures is not null) _creatures.CreatureAnimationSoundEvent = null;
+            if (_character is not null) _character.CreatureAnimationSoundEvent = null;
+            return;
+        }
         if (_creatures is not null)
             _creatures.CreatureAnimationSoundEvent = PlayCreatureAnimationSoundEvent;
         if (_character is not null)
@@ -74,6 +81,11 @@ public sealed partial class GameLoop
         float previousZ,
         float currentZ)
     {
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+        {
+            ResetControlledHardLandingArc();
+            return;
+        }
         ulong guid = ControlledGuid;
         if (guid == 0 || wasFlying || nowFlying || guid != _hardLandingControlledGuid)
         {
@@ -111,6 +123,11 @@ public sealed partial class GameLoop
     /// </summary>
     private void ObserveCreatureDeathVoice(ulong guid, bool? previousReadsDead)
     {
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+        {
+            _knownCreatureReadsDead.Remove(guid);
+            return;
+        }
         if (!_entities.TryGet(guid, out WorldEntity unit) || !unit.IsUnit)
         {
             _knownCreatureReadsDead.Remove(guid);
@@ -143,6 +160,11 @@ public sealed partial class GameLoop
 
     private void UpdateCreatureBodyLoops()
     {
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+        {
+            StopCreatureBodyLoops();
+            return;
+        }
         if (!_soundscapePlaybackArmed || _creatureVoices is null || _spellSounds is null)
         {
             foreach (var loop in _creatureBodyLoops.Values) _spellSounds?.Stop(loop.Voice);

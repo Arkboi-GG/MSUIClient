@@ -924,6 +924,13 @@ if (args.Contains("--observer-speed-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--observer-body-only", StringComparer.Ordinal))
+{
+    ObserverBodyOwnershipClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ObserverBodyOwnership PASS");
+    return;
+}
+
 if (args.Contains("--movement-mode-only", StringComparer.Ordinal))
 {
     MovementModeClinicalChecks.Run();
@@ -1268,6 +1275,7 @@ DrunkMovementClinicalChecks.Run();
 ItemGlowClinicalChecks.Run();
 CarriedLightClinicalChecks.Run();
 ObserverSpeedClinicalChecks.Run();
+ObserverBodyOwnershipClinicalChecks.Run();
 CompressedMovementClinicalChecks.Run();
 SelfSplineClinicalChecks.Run();
 SpellChainBeamClinicalChecks.Run();
@@ -1755,6 +1763,17 @@ Check(gameMenuCaptureSource.Contains("stateSource", StringComparison.Ordinal) &&
       gameMenuLiveRunSource.Contains("EmitInterface(\"ui-sound\"", StringComparison.Ordinal),
     "GameMenuFrame observational capture or strict live assertion surface drift");
 
+int gameMenuGoStart = gameMenuSettingsSource.IndexOf(
+    "private void Go(MenuPage page)", StringComparison.Ordinal);
+int gameMenuGoEnd = gameMenuSettingsSource.IndexOf(
+    "private void DrawOptionsSearch", gameMenuGoStart, StringComparison.Ordinal);
+Check(gameMenuGoStart >= 0 && gameMenuGoEnd > gameMenuGoStart &&
+      gameMenuSettingsSource[gameMenuGoStart..gameMenuGoEnd]
+          .Contains("_menuLayoutReflowRequested = true;", StringComparison.Ordinal) &&
+      !gameMenuSettingsSource[gameMenuGoStart..gameMenuGoEnd]
+          .Contains("CloseCurrentPopup", StringComparison.Ordinal),
+    "GameMenu internal pages must resize in place, never close/reopen the modal");
+
 string[] preservedGameMenuLabels =
 [
     "Video Options", "Sound Options", "Interface Options", "Key Bindings",
@@ -1814,6 +1833,45 @@ Check(spellbookMpq.ReadFile(@"Interface\Buttons\UI-Debuff-Overlays.blp") is not 
       spellbookMpq.ReadFile(@"Interface\Icons\INV_Misc_QuestionMark.blp") is not null &&
       spellbookMpq.ReadFile(@"Fonts\FRIZQT__.TTF") is not null,
     "BuffFrame debuff overlay/fallback icon/duration font asset closure missing");
+SpellVisualCatalog hardcodedVisuals = SpellVisualCatalog.Load(spellbookMpq) ??
+    throw new InvalidDataException("SpellVisual DBCs unavailable");
+bool lootFxResolved = hardcodedVisuals.TryGetHardcodedEffect(
+    SpellVisualCatalog.HardcodedLootArt, out string lootFxPath);
+bool levelFxResolved = hardcodedVisuals.TryGetHardcodedEffect(
+    SpellVisualCatalog.HardcodedUnitLevelUp, out string levelFxPath);
+Check(lootFxResolved && lootFxPath == @"Particles\LootFX.m2" &&
+      levelFxResolved && levelFxPath == @"Spells\LevelUp\LevelUp.m2",
+    "hardcoded loot/level-up SpellVisualEffectName resolution drift");
+var hardcodedFx = new SpellEffectSource(spellbookMpq);
+var levelSounds = new List<uint>();
+hardcodedFx.AnimationSoundEvent = (sound, _, _) => levelSounds.Add(sound);
+var levelFxKit = new SpellVisualKitInfo(null, null,
+    [new SpellVisualKitEffect(0x13, levelFxPath)], []);
+Check(hardcodedFx.SpawnKit(1, 0, levelFxKit, StageLife.SelfTerminating,
+          0, "HARDCODED_LEVEL_UP") == 1,
+    "hardcoded unit level-up model did not spawn");
+hardcodedFx.Tick(0.05, _ => new SpellUnitPose(true, Vector3.Zero, 0,
+    Matrix4x4.Identity, null, null));
+Check(levelSounds.Contains(888),
+    "LevelUp.m2 did not deliver its authored $SND(888) event");
+var lootFxKit = new SpellVisualKitInfo(null, null,
+    [new SpellVisualKitEffect(0x13, lootFxPath)], []);
+var lootHardcodedFx = new SpellEffectSource(spellbookMpq);
+Check(lootHardcodedFx.SpawnKit(2, uint.MaxValue, lootFxKit, StageLife.AuraState,
+          0, "HARDCODED_LOOT") == 1 &&
+      lootHardcodedFx.EmitterInstances(0, _ => new SpellUnitPose(true, Vector3.Zero, 0,
+          Matrix4x4.Identity, null, null)).Count() == 4,
+    "LootFX.m2 did not publish its four corpse-sparkle emitters");
+string hardcodedCastingSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "GameLoop", "Combat", "GameLoop.Casting.cs"));
+string hardcodedNetSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "GameLoop", "Scene", "GameLoop.Net.cs"));
+Check(hardcodedCastingSource.Contains("unit.Fields.ReadsDead && unit.Fields.Lootable",
+          StringComparison.Ordinal) &&
+      hardcodedCastingSource.Contains("StageLife.AuraState", StringComparison.Ordinal) &&
+      hardcodedNetSource.Contains("levelBefore is uint oldLevel", StringComparison.Ordinal) &&
+      hardcodedNetSource.Contains("PlayHardcodedUnitLevelUp", StringComparison.Ordinal),
+    "hardcoded loot persistence or field-level level-up edge wiring drift");
 Check(spellbookMpq.ReadFile(@"Interface\DialogFrame\UI-DialogBox-Background.blp") is not null &&
       spellbookMpq.ReadFile(@"Interface\DialogFrame\UI-DialogBox-Border.blp") is not null &&
       spellbookMpq.ReadFile(@"Interface\DialogFrame\DialogAlertIcon.blp") is not null &&

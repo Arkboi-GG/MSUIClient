@@ -18,6 +18,8 @@ public static class TalentFrameUiLaw
 
     public readonly record struct TextureSlice(LogicalRect Rect, Vector2 UvMin, Vector2 UvMax);
     public readonly record struct TooltipSeat(Vector2 Anchor, Vector2 Pivot);
+    public readonly record struct TalentTooltipRow(
+        string Left, string? Right, string FontObject, uint Color, bool Wrap);
 
     public readonly record struct DependencyRoute(
         int DependentRow, int DependentColumn,
@@ -39,6 +41,10 @@ public static class TalentFrameUiLaw
     public const float ScrollStep = 20f;
     public const float ScrollMaximum = ScrollChildHeight - 332f;
     public const float TabOverlap = 15f;
+    public const uint TooltipWhite = 0xffffffff;
+    public const uint TooltipGold = 0xff00d2ff;
+    public const uint TooltipRed = 0xff2020ff;
+    public const uint TooltipGreen = 0xff00ff00;
 
     public const string TopLeftArt =
         @"Interface\PaperDollInfoFrame\UI-Character-General-TopLeft";
@@ -95,6 +101,75 @@ public static class TalentFrameUiLaw
     public static string SpentPointsPrefix(string treeName) =>
         $"Points spent in {treeName} Talents: ";
 
+    public static bool ShowTalentLearnHint(uint freePoints, int rank, int maxRank) =>
+        freePoints > 0 && rank < maxRank;
+
+    /// <summary>
+    /// SetTalent's locked lines, in the builder's authored order: tier, required spell,
+    /// prerequisite talent. Missing catalog names do not leak synthetic identifiers.
+    /// </summary>
+    public static string[] TalentTooltipRequirements(
+        string treeName,
+        int tierPoints,
+        int spentPoints,
+        string? requiredSpellName,
+        bool requiredSpellMet,
+        string? prerequisiteName,
+        int prerequisiteRank,
+        int learnedPrerequisiteRank)
+    {
+        var lines = new List<string>(3);
+        if (spentPoints < tierPoints)
+            lines.Add($"Requires {tierPoints} points in {treeName} Talents");
+        if (!requiredSpellMet && !string.IsNullOrWhiteSpace(requiredSpellName))
+            lines.Add($"Requires {requiredSpellName.Trim()}");
+        if (prerequisiteRank > 0 && learnedPrerequisiteRank < prerequisiteRank &&
+            !string.IsNullOrWhiteSpace(prerequisiteName))
+            lines.Add(prerequisiteRank == 1
+                ? $"Requires 1 point in {prerequisiteName.Trim()}"
+                : $"Requires {prerequisiteRank} points in {prerequisiteName.Trim()}");
+        return [.. lines];
+    }
+
+    /// <summary>
+    /// The exact SetTalent interleave around the existing spell-tooltip projection. Rendering
+    /// owns wrapping and pixels; this law owns row order, fonts, paired columns, and colors.
+    /// </summary>
+    public static TalentTooltipRow[] TalentTooltipRows(
+        in SpellTooltipView display,
+        int rank,
+        int maxRank,
+        IEnumerable<string> requirements,
+        string? nextRankDescription,
+        bool showLearnHint)
+    {
+        var rows = new List<TalentTooltipRow>
+        {
+            new(display.Name, null, "GameTooltipHeaderText", TooltipWhite, false),
+            new($"Rank {rank}/{maxRank}", null, "GameTooltipText", TooltipWhite, false),
+        };
+        foreach (string requirement in requirements)
+            if (!string.IsNullOrWhiteSpace(requirement))
+                rows.Add(new(requirement, null, "GameTooltipText", TooltipRed, true));
+        if (display.Cost is not null || display.Range is not null)
+            rows.Add(new(display.Cost ?? display.Range!,
+                display.Cost is null ? null : display.Range,
+                "GameTooltipText", TooltipWhite, false));
+        if (display.CastTime is not null)
+            rows.Add(new(display.CastTime, display.Cooldown,
+                "GameTooltipText", TooltipWhite, false));
+        if (!string.IsNullOrWhiteSpace(display.Description))
+            rows.Add(new(display.Description, null, "GameTooltipText", TooltipGold, true));
+        if (!string.IsNullOrWhiteSpace(nextRankDescription))
+        {
+            rows.Add(new("Next rank:", null, "GameTooltipText", TooltipWhite, false));
+            rows.Add(new(nextRankDescription, null, "GameTooltipText", TooltipGold, true));
+        }
+        if (showLearnHint)
+            rows.Add(new("Click to learn", null, "GameTooltipText", TooltipGreen, false));
+        return [.. rows];
+    }
+
     public static LogicalRect TalentButton(int row, int column) => new(
         ScrollFrame.X + 35 + Math.Clamp(column, 0, TalentColumns - 1) * TalentPitch,
         ScrollFrame.Y + 20 + Math.Clamp(row, 0, MaximumTalentTiers - 1) * TalentPitch,
@@ -122,6 +197,15 @@ public static class TalentFrameUiLaw
     // TalentButtonTemplate OnEnter uses ANCHOR_RIGHT: GameTooltip BOTTOMLEFT to TOPRIGHT.
     public static TooltipSeat TalentTooltipSeat(Vector2 buttonMin, Vector2 buttonSize) =>
         new(buttonMin + Vector2.UnitX * buttonSize.X, Vector2.UnitY);
+
+    public static Vector2 TalentTooltipOrigin(
+        in TooltipSeat seat,
+        Vector2 frameSize,
+        Vector2 displaySize,
+        float scale) =>
+        SpellTooltipLaw.ClampOrigin(
+            new Vector2(seat.Anchor.X, seat.Anchor.Y - frameSize.Y),
+            frameSize, displaySize);
 
     public static float ClampScroll(float value) => Math.Clamp(value, 0, ScrollMaximum);
 

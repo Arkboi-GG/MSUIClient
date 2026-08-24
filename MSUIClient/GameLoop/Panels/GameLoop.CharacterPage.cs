@@ -295,7 +295,7 @@ public sealed partial class GameLoop
         }
         var bytes = player.Fields.Bytes0;
         string level = petPage
-            ? $"Level {pet!.Level}{PetFamilySuffix(pet)}"
+            ? PetPaperDollUiLaw.LevelText(pet!.Level, PetFamilyName(pet))
             : $"Level {player.Level} {RaceName(bytes.Race)} {ClassName(bytes.Class)}";
         if (petPage)
             GameText.DrawCentered(dl, PetPaperDollUiLaw.PetLevelFont, level,
@@ -355,13 +355,13 @@ public sealed partial class GameLoop
         if (ImGui.IsItemClicked()) SetCharacterPageOpen(false);
     }
 
-    private string PetFamilySuffix(WorldEntity pet)
+    private string? PetFamilyName(WorldEntity pet)
     {
         if (_creatureQueryRecords.TryGetValue(pet.Entry, out CreatureQueryInfo? query) &&
             query is not null && _creatureFamilies?.TryGet(query.PetFamily,
                 out CreatureFamilyInfo family) == true)
-            return " " + family.Name;
-        return "";
+            return family.Name;
+        return null;
     }
 
     private void DrawPetPaperDollPage(ImDrawListPtr dl, Vector2 p, float s,
@@ -932,8 +932,10 @@ public sealed partial class GameLoop
 
     private bool AutoEquipCarriedPaperDollItem(bool ammoOnly = false)
     {
-        if (_net is null || ResolveCarriedItem() is not { } carried ||
+        if (!CanAuthorControlledGameplay || _net is null ||
+            ResolveCarriedItem() is not { } carried ||
             CarriedPaperDollTemplate() is not { } item) return false;
+        if (!CanAuthorSessionInventory) return false;
         if (ammoOnly && !PaperDollUiLaw.IsAmmo(item.InventoryType)) return false;
         bool isAmmo = PaperDollUiLaw.IsAmmo(item.InventoryType);
         bool sent;
@@ -1614,7 +1616,8 @@ public sealed partial class GameLoop
         bool atWar = ReputationFrameUiLaw.IsAtWar(state.Flags);
         bool canToggle = ReputationFrameUiLaw.CanToggleAtWar(state.Flags, totalStanding);
         if (DrawReputationCheck(draw, frame.Min, ReputationFrameUiLaw.AtWarCheck,
-                "##reputation-at-war", "At War", atWar, canToggle, true, s))
+                "##reputation-at-war", "At War", atWar, canToggle, true, s,
+                ReputationFrameUiLaw.AtWarDescription))
         {
             SetSelectedFactionAtWar(!atWar, totalStanding);
             PlayUiSound(!atWar ? "igMainMenuOptionCheckBoxOn" :
@@ -1643,14 +1646,15 @@ public sealed partial class GameLoop
 
     private bool DrawReputationCheck(ImDrawListPtr draw, Vector2 origin,
         ReputationFrameUiLaw.LogicalRect logical, string id, string label, bool value,
-        bool enabled, bool sword, float s)
+        bool enabled, bool sword, float s, string? tooltip = null)
     {
         ReputationFrameUiLaw.CheckGeometry geometry =
             ReputationFrameUiLaw.Check(origin, logical, s, sword);
         ImGui.SetCursorScreenPos(geometry.Hit.Min);
         ImGui.InvisibleButton(id, geometry.Hit.Size);
         bool active = enabled && ImGui.IsItemActive();
-        bool hovered = enabled && ImGui.IsItemHovered();
+        bool itemHovered = ImGui.IsItemHovered();
+        bool hovered = enabled && itemHovered;
         uint box = _gameplayArt?.Handle(active
             ? @"Interface\Buttons\UI-CheckBox-Down"
             : @"Interface\Buttons\UI-CheckBox-Up") ?? 0;
@@ -1678,6 +1682,14 @@ public sealed partial class GameLoop
         uint labelColor = enabled ? sword ? 0xff3333ff : 0xffffffff : 0xff777777;
         GameText.Draw(draw, "GameFontNormalSmall", label,
             geometry.LabelPosition, s, labelColor);
+        if (itemHovered && tooltip is not null)
+        {
+            ReputationFrameUiLaw.TooltipSeat tooltipSeat =
+                ReputationFrameUiLaw.RightTooltipSeat(geometry);
+            OfferOwnerAnchoredSharedGameTooltip(new("reputation-detail-at-war", 0),
+                [new(tooltip, GameTooltipTextTone.White, Wrap: true)],
+                tooltipSeat.Anchor, tooltipSeat.Pivot);
+        }
         return enabled && ImGui.IsItemClicked();
     }
 

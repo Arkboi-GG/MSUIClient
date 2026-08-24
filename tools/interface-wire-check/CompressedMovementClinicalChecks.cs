@@ -37,7 +37,7 @@ internal static class CompressedMovementClinicalChecks
         Check(dispatch.Contains("case Op.SMSG_COMPRESSED_MOVES:", StringComparison.Ordinal) &&
               dispatch.Contains("CompressedMovementPackets.Parse(body)", StringComparison.Ordinal) &&
               dispatch.Contains("compressed.Relay", StringComparison.Ordinal) &&
-              dispatch.Contains("relay.Guid == ControlledGuid && !_freeView",
+              dispatch.Contains("relay.Guid == ControlledGuid && ControllerOwnsControlledBodyPose",
                   StringComparison.Ordinal) &&
               dispatch.Contains("ApplyServerAuthoredSelfMove(relay)", StringComparison.Ordinal),
             "compressed movement dispatch or self/observer split drift");

@@ -106,7 +106,7 @@ internal static class RemoteMovementClinicalChecks
             "GameLoop.Net.cs"));
         Check(dispatch.Contains("MovementRelayPackets.Parse((Op)opcode, body)",
                   StringComparison.Ordinal) &&
-              dispatch.Contains("relay.Guid == ControlledGuid && !_freeView",
+              dispatch.Contains("relay.Guid == ControlledGuid && ControllerOwnsControlledBodyPose",
                   StringComparison.Ordinal) &&
               dispatch.Contains("ApplyServerAuthoredSelfMove(relay)", StringComparison.Ordinal) &&
               dispatch.Contains("_entities.ApplyRemotePlayerMove(", StringComparison.Ordinal),

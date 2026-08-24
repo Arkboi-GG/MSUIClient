@@ -380,7 +380,9 @@ public sealed partial class GameLoop
                 _objectUpdateBuffer = new ObjectUpdateBuffer(12_000);
             ControlledTransportRide? crossingRide = null;
             WorldEntity? crossingTransport = null;
+            bool crossingRideBelongsToController = false;
             if (announcedTransfer?.RidingTransport == true &&
+                ControllerOwnsControlledBodyPose && ControlledGuid == net.PlayerGuid &&
                 _controlledTransportRide is { } liveRide &&
                 _entities.TryGet(liveRide.Guid, out WorldEntity? liveTransport) &&
                 liveTransport.Entry == announcedTransfer.Value.TransportEntry)
@@ -393,6 +395,26 @@ public sealed partial class GameLoop
                 };
                 crossingTransport = liveTransport;
                 _entities.ClearExcept(liveRide.Guid);
+                crossingRideBelongsToController = true;
+            }
+            else if (announcedTransfer?.RidingTransport == true &&
+                     _entities.TryGet(net.PlayerGuid, out WorldEntity? streamedRider) &&
+                     streamedRider.Transport is { } streamedRide &&
+                     _entities.TryGet(streamedRide.Guid, out WorldEntity? streamedTransport) &&
+                     streamedTransport.Entry == announcedTransfer.Value.TransportEntry)
+            {
+                // In Free View (and while possessing another unit) the session rider is an
+                // observed world body. Its Transport tail, not the camera controller's stale
+                // ride cache, identifies the vessel that must survive this map seam. NEW_WORLD
+                // supplies the fresh rider-local position/orientation below.
+                crossingRide = new ControlledTransportRide
+                {
+                    Guid = streamedRide.Guid,
+                    LocalPosition = enter.Position,
+                    TransportYaw = streamedTransport.GameObjectFacing,
+                };
+                crossingTransport = streamedTransport;
+                _entities.ClearExcept(streamedRide.Guid);
             }
             else
             {
@@ -477,7 +499,10 @@ public sealed partial class GameLoop
                     crossingRide.LocalPosition, enter.Orientation);
                 adoptedPosition = world.Position;
                 adoptedOrientation = world.Orientation;
-                _controlledTransportRide = crossingRide;
+                // Only an embodied session rider may install controller transport state. A
+                // streamed rider will be recreated from destination object updates and composed
+                // by ComposeObservedTransportRiders; the observer rig remains transport-free.
+                _controlledTransportRide = crossingRideBelongsToController ? crossingRide : null;
             }
 
             _config.Start.X = adoptedPosition.X;
@@ -485,7 +510,7 @@ public sealed partial class GameLoop
             _config.Start.Z = adoptedPosition.Z;
             _config.Start.Orientation = adoptedOrientation;
             _controller.Teleport(adoptedPosition.X, adoptedPosition.Y, adoptedPosition.Z);
-            if (crossingRide is not null)
+            if (crossingRide is not null && crossingRideBelongsToController)
                 _controller.Transport = new TransportPose(crossingRide.Guid,
                     crossingRide.LocalPosition, enter.Orientation);
 
@@ -851,6 +876,25 @@ public sealed partial class GameLoop
                                 break;
                             }
 
+                            // The packet addresses the logged-in session body. During Free View
+                            // the controller is only the observer rig; while possessing, it belongs
+                            // to a different body. Adopt the authoritative teleport directly on the
+                            // streamed entity and ACK it without moving the camera, changing its
+                            // residency centre, or resetting the active controller's movement state.
+                            if (moverGuid != ControlledGuid || !ControllerOwnsControlledBodyPose)
+                            {
+                                _entities.ApplyServerAuthoredMove(
+                                    moverGuid, destination, MovementInfo.ClientUptimeMs());
+                                ObserveTeleportApplied(moverGuid, counter, destination);
+                                net.TeleportAck(moverGuid, counter);
+                                Console.WriteLine(
+                                    $"[net] adopted same-map teleport for streamed session body " +
+                                    $"0x{moverGuid:X16} at ({destination.Position.X:F1}, " +
+                                    $"{destination.Position.Y:F1}, {destination.Position.Z:F1}); " +
+                                    "observer rig retained");
+                                break;
+                            }
+
                             // A same-map teleport can still be thousands of yards
                             // away.  The old handler treated "same map" as "same
                             // resident scene": it acknowledged immediately, then
@@ -983,7 +1027,7 @@ public sealed partial class GameLoop
                     case Op.MSG_MOVE_HEARTBEAT:
                     {
                         MovementRelay relay = MovementRelayPackets.Parse((Op)opcode, body);
-                        if (relay.Guid == ControlledGuid && !_freeView)
+                        if (relay.Guid == ControlledGuid && ControllerOwnsControlledBodyPose)
                             ApplyServerAuthoredSelfMove(relay);
                         else
                             _entities.ApplyRemotePlayerMove(
@@ -1033,7 +1077,7 @@ public sealed partial class GameLoop
                                  CompressedMovementPackets.Parse(body))
                         {
                             MovementRelay relay = compressed.Relay;
-                            if (relay.Guid == ControlledGuid && !_freeView)
+                            if (relay.Guid == ControlledGuid && ControllerOwnsControlledBodyPose)
                                 ApplyServerAuthoredSelfMove(relay);
                             else
                                 _entities.ApplyRemotePlayerMove(
@@ -1461,7 +1505,8 @@ public sealed partial class GameLoop
                         ulong rider = MountSpecialPackets.ParseGuid(body);
                         // The sender already played locally on the key edge. Some VMaNGOS
                         // configurations echo this broadcast to self and some do not.
-                        if (rider != LocalPlayerGuid) _creatures?.TriggerMountFlourish(rider);
+                        if (rider != LocalPlayerGuid || ControlledBodyIsStreamed)
+                            _creatures?.TriggerMountFlourish(rider);
                         break;
                     }
                     case Op.SMSG_ATTACKSTART:
@@ -1618,8 +1663,8 @@ public sealed partial class GameLoop
 
         // Advance every in-progress creature spline so NPCs actually move between packets.
         _entities.TickSplines(MovementInfo.ClientUptimeMs());
-        if (_controller is not null)
-            _entities.FaceIdleTargets(dt, net.PlayerGuid, _controller.Position);
+        if (TryGetWorldBodyPose(net.PlayerGuid, out WorldBodyPose sessionBody))
+            _entities.FaceIdleTargets(dt, net.PlayerGuid, sessionBody.Position);
         DiscoverItemTemplates();
     }
 
@@ -1643,6 +1688,8 @@ public sealed partial class GameLoop
     {
         _entities.TryGet(u.Guid, out WorldEntity? auraUnitBefore);
         bool? readsDeadBefore = auraUnitBefore?.Fields.ReadsDead;
+        uint? levelBefore = u.Kind == UpdateKind.Values && auraUnitBefore?.IsUnit == true
+            ? auraUnitBefore.Fields.GetU32(ObjectFields.UNIT_LEVEL) : null;
         uint? playerFlagsBefore = auraUnitBefore?.IsPlayer == true
             ? auraUnitBefore.Fields.PlayerFlags : null;
         Dictionary<byte, AuraSnapshot> aurasBefore = SnapshotAuras(auraUnitBefore);
@@ -1658,6 +1705,11 @@ public sealed partial class GameLoop
             ForgetCreatureVoiceState(u.Guids);
         }
         _entities.Apply(u, MovementInfo.ClientUptimeMs());
+        if (levelBefore is uint oldLevel &&
+            _entities.TryGet(u.Guid, out WorldEntity leveledUnit) && leveledUnit.IsUnit &&
+            leveledUnit.Fields.GetU32(ObjectFields.UNIT_LEVEL) is uint newLevel &&
+            newLevel != oldLevel)
+            PlayHardcodedUnitLevelUp(u.Guid, newLevel);
         if (u.Guid != 0 && _entities.TryGet(u.Guid, out WorldEntity updatedPlayer) &&
             updatedPlayer.IsPlayer && playerFlagsBefore != updatedPlayer.Fields.PlayerFlags)
         {

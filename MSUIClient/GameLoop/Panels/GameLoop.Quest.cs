@@ -8,6 +8,10 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
+    // The ordinary entity stream around an embodied player is roughly this neighborhood.
+    // Free View adds a second, camera-owned stream; quest status queries must not follow it.
+    private const float QuestStatusSessionNeighborhoodSquared = 130f * 130f;
+
     private readonly record struct QuestAbandonConfirmation(uint QuestId, string Title);
     private readonly record struct QuestLogDisplayRow(bool IsHeader, string Header,
         bool Collapsed, byte Slot, uint QuestId, uint Counters, uint Timer);
@@ -63,11 +67,11 @@ public sealed partial class GameLoop
             bool sent = send(net); outcome = sent ? "SENT" : "SEND_FAILED";
             detail = "giver=item;rangeGate=bypassed";
         }
-        else if (_controller is not null &&
+        else if (TryGetSessionBodyPose(out WorldBodyPose sessionBody) &&
             _entities.TryGet(guid, out WorldEntity npc) && npc.IsCreature && !npc.IsDead &&
             (npc.NpcFlags & NpcQuestGiver) != 0)
         {
-            float distance = Vector3.Distance(_controller.Position, npc.Position);
+            float distance = Vector3.Distance(sessionBody.Position, npc.Position);
             if (distance <= GossipInteractDistance)
             {
                 bool sent = send(net); outcome = sent ? "SENT" : "SEND_FAILED";
@@ -159,7 +163,8 @@ public sealed partial class GameLoop
     private void UpdateQuestGiverStatusQueries()
     {
         if (_net is not { IsInWorld: true } net ||
-            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
+            !TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
+            !_entities.TryGet(net.PlayerGuid, out WorldEntity player)) return;
 
         ulong generation = QuestStatusRefreshLaw.PlayerGeneration(
             player.Fields, _questStatusReaskEpoch);
@@ -172,7 +177,9 @@ public sealed partial class GameLoop
 
         foreach (ulong stale in _questStatusAsked.Keys
                      .Where(guid => !_entities.TryGet(guid, out WorldEntity live) ||
-                         !live.IsCreature).ToArray())
+                         !live.IsCreature || Vector3.DistanceSquared(
+                             sessionBody.Position, live.Position) >
+                             QuestStatusSessionNeighborhoodSquared).ToArray())
         {
             _questStatusAsked.Remove(stale);
             _questStatuses.Remove(stale);
@@ -180,7 +187,9 @@ public sealed partial class GameLoop
 
         foreach (WorldEntity npc in _entities.Units.Where(unit => unit.IsCreature))
         {
-            if ((npc.NpcFlags & NpcQuestGiver) == 0)
+            if ((npc.NpcFlags & NpcQuestGiver) == 0 ||
+                Vector3.DistanceSquared(sessionBody.Position, npc.Position) >
+                    QuestStatusSessionNeighborhoodSquared)
             {
                 _questStatusAsked.Remove(npc.Guid);
                 _questStatuses.Remove(npc.Guid);
@@ -426,13 +435,13 @@ public sealed partial class GameLoop
             reason = "left-panel-displaced";
         else if (GuidInfo.IsItem(giver))
             return false;
-        else if (_controller is null)
+        else if (!TryGetSessionBodyPose(out WorldBodyPose sessionBody))
             return false;
         else if (!_entities.TryGet(giver, out WorldEntity npc))
             reason = "giver-despawned";
         else
         {
-            float distanceSquared = Vector3.DistanceSquared(_controller.Position, npc.Position);
+            float distanceSquared = Vector3.DistanceSquared(sessionBody.Position, npc.Position);
             if (!NpcSessionUiLaw.InRange(distanceSquared))
                 reason = $"rangeSquared={distanceSquared:R};limitSquared={NpcSessionUiLaw.ServiceRangeSquared:R}";
         }

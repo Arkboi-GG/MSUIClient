@@ -29,6 +29,8 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
         new("DressUpFrame", UiPanelOwnershipLaw.Area.Left, 2);
     private static readonly UiPanelOwnershipLaw.Panel GameMenu =
         new("GameMenuFrame", UiPanelOwnershipLaw.Area.Center, WhileDead: true);
+    private static readonly UiPanelOwnershipLaw.Panel Options =
+        new("OptionsFrame", UiPanelOwnershipLaw.Area.Center, WhileDead: true);
     private static readonly UiPanelOwnershipLaw.Panel WorldMap =
         new("WorldMapFrame", UiPanelOwnershipLaw.Area.Fullscreen, WhileDead: true);
 
@@ -49,6 +51,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
         CheckProfessionSourceFence();
         CheckObservationOnlySourceFence();
         CheckRuntimeReconciliationSourceFence();
+        CheckGameMenuOptionsAtomicReplacementFence();
         CheckHostTransitionSourceFence();
     }
 
@@ -852,6 +855,25 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
                   "    private void TriggerItemPushAnimation")
                   .Contains("InventoryUiLaw.KeyringContainer", StringComparison.Ordinal),
             "Escape CloseAllWindows or native-center CloseAllBags/keyring split drift");
+    }
+
+    private static void CheckGameMenuOptionsAtomicReplacementFence()
+    {
+        UiPanelOwnershipLaw.Seats gameMenuSeats = UiPanelOwnershipLaw.Show(
+            UiPanelOwnershipLaw.Seats.Empty, GameMenu).Seats;
+        UiPanelOwnershipLaw.Transition replacement = UiPanelOwnershipLaw.Show(
+            gameMenuSeats, Options);
+        Check(replacement.Outcome == UiPanelOwnershipLaw.Outcome.Opened &&
+              replacement.Seats == new UiPanelOwnershipLaw.Seats(null, Options, null),
+            "GameMenuFrame -> OptionsFrame is no longer a valid atomic center replacement");
+
+        string adapter = AdapterSource().Replace("\r\n", "\n", StringComparison.Ordinal);
+        int addOnly = adapter.IndexOf(
+            "if (added.Length == 1 && removed.Length == 0)", StringComparison.Ordinal);
+        int atomicReplace = adapter.IndexOf(
+            "if (added.Length == 1 && removed.Length > 0)", StringComparison.Ordinal);
+        Check(addOnly >= 0 && atomicReplace > addOnly,
+            "runtime reconciliation can consume an atomic replacement as an add and close its shared host");
     }
 
     private static void CheckHostTransitionSourceFence()

@@ -160,7 +160,7 @@ public sealed partial class GameLoop
     private bool HasNearbySpellFocus(uint focusId)
     {
         if (focusId == 0) return true;
-        if (_controller is null) return false;
+        if (!TryGetControlledBodyPose(out WorldBodyPose controlledBody)) return false;
         foreach (WorldEntity go in _entities.Entities.Values.Where(x => x.IsGameObject))
         {
             RequireGameObjectTemplate(go);
@@ -168,7 +168,7 @@ public sealed partial class GameLoop
                 template.Type != 8 || template.Data.Length < 2 ||
                 unchecked((uint)Math.Max(0, template.Data[0])) != focusId) continue;
             float limit = Math.Clamp(template.Data[1], 0, 10);
-            if (limit > 0 && Vector3.Distance(go.Position, _controller.Position) <= limit) return true;
+            if (limit > 0 && Vector3.Distance(go.Position, controlledBody.Position) <= limit) return true;
         }
         return false;
     }
@@ -184,48 +184,66 @@ public sealed partial class GameLoop
         float distance = float.PositiveInfinity;
         float interactDistance = GameObjectInteractDistance;
         string outcome;
-        if (_net is not { IsInWorld: true } || _controller is null) outcome = "REFUSED_NOT_IN_WORLD";
+        if (_net is not { IsInWorld: true }) outcome = "REFUSED_NOT_IN_WORLD";
         else if (!_entities.TryGet(guid, out go) || !go.IsGameObject) outcome = "REFUSED_NOT_GAMEOBJECT";
-        else if ((distance = Vector3.Distance(_controller.Position, go.Position)) >
-                 (interactDistance = IsStockPortalEntry(go.Entry)
-                     ? MagePortalClickInteractDistance
-                     : GameObjectInteractDistance)) outcome = "REFUSED_RANGE";
-        else if (go.GameObjectType == 19)
-        {
-            // Mailbox use is a local panel open. The mail window's CheckInbox equivalent owns the
-            // first CMSG_GET_MAIL_LIST; build 5875 sends no CMSG_GAMEOBJ_USE for a mailbox.
-            outcome = RequestMail(guid) ? "OPENED_MAIL" : "REFUSED_MAIL";
-        }
-        else if (go.GameObjectType == 9)
-        {
-            // Current Benilla opens plaques/books locally from GAMEOBJECT_TYPE_TEXT template
-            // data. There is no CMSG_GAMEOBJ_USE (and no CMSG_READ_ITEM) for this route.
-            OpenGameObjectText(go);
-            outcome = "OPENED_ITEM_TEXT";
-        }
         else
         {
-            GameObjectLockOutcome lockOutcome = ResolveGameObjectLock(go);
-            if (lockOutcome.Kind == GameObjectLockOutcomeKind.OpenBySpell)
-            {
-                uint opener = lockOutcome.Id;
-                outcome = _net.CastSpellOnGameObject(opener, guid) ? "SENT_OPEN_LOCK_SPELL" : "SEND_FAILED";
-                if (outcome.StartsWith("SENT", StringComparison.Ordinal)) _pendingCastSpell = opener;
-            }
-            else if (lockOutcome.Kind == GameObjectLockOutcomeKind.Unmet)
-            {
-                ShowUiError("Locked.");
-                outcome = "REFUSED_LOCK";
-            }
+            // Mail and text panels belong to the logged-in session character. Every other
+            // game-object use is authored by the controlled body; the detached camera only picks.
+            bool sessionScoped = go.GameObjectType is 19 or 9;
+            WorldBodyPose actorBody;
+            bool bodyAvailable = sessionScoped
+                ? TryGetSessionBodyPose(out actorBody)
+                : TryGetControlledBodyPose(out actorBody);
+            if (!bodyAvailable) outcome = "REFUSED_NO_BODY";
             else
             {
-                bool sent = _net.GameObjectUse(guid);
-                outcome = sent ? "SENT" : "SEND_FAILED";
-                // Arm only after a READY portal's ordinary authoritative use
-                // was successfully queued. Proximity, clicks on other objects,
-                // and failed sends retain the normal loading-screen path.
-                if (sent && IsStockPortalEntry(go.Entry))
-                    ArmRealPortalHandoffAfterSuccessfulUse(guid);
+                distance = Vector3.Distance(actorBody.Position, go.Position);
+                interactDistance = IsStockPortalEntry(go.Entry)
+                    ? MagePortalClickInteractDistance
+                    : GameObjectInteractDistance;
+                if (!sessionScoped && !CanAuthorControlledGameplay)
+                    outcome = "REFUSED_OBSERVER";
+                else if (distance > interactDistance)
+                    outcome = "REFUSED_RANGE";
+                else if (go.GameObjectType == 19)
+                {
+                    // Mailbox use is a local panel open. The mail window's CheckInbox equivalent owns the
+                    // first CMSG_GET_MAIL_LIST; build 5875 sends no CMSG_GAMEOBJ_USE for a mailbox.
+                    outcome = RequestMail(guid) ? "OPENED_MAIL" : "REFUSED_MAIL";
+                }
+                else if (go.GameObjectType == 9)
+                {
+                    // Current Benilla opens plaques/books locally from GAMEOBJECT_TYPE_TEXT template
+                    // data. There is no CMSG_GAMEOBJ_USE (and no CMSG_READ_ITEM) for this route.
+                    OpenGameObjectText(go);
+                    outcome = "OPENED_ITEM_TEXT";
+                }
+                else
+                {
+                    GameObjectLockOutcome lockOutcome = ResolveGameObjectLock(go);
+                    if (lockOutcome.Kind == GameObjectLockOutcomeKind.OpenBySpell)
+                    {
+                        uint opener = lockOutcome.Id;
+                        outcome = _net.CastSpellOnGameObject(opener, guid) ? "SENT_OPEN_LOCK_SPELL" : "SEND_FAILED";
+                        if (outcome.StartsWith("SENT", StringComparison.Ordinal)) _pendingCastSpell = opener;
+                    }
+                    else if (lockOutcome.Kind == GameObjectLockOutcomeKind.Unmet)
+                    {
+                        ShowUiError("Locked.");
+                        outcome = "REFUSED_LOCK";
+                    }
+                    else
+                    {
+                        bool sent = _net.GameObjectUse(guid);
+                        outcome = sent ? "SENT" : "SEND_FAILED";
+                        // Arm only after a READY portal's ordinary authoritative use
+                        // was successfully queued. Proximity, clicks on other objects,
+                        // and failed sends retain the normal loading-screen path.
+                        if (sent && IsStockPortalEntry(go.Entry))
+                            ArmRealPortalHandoffAfterSuccessfulUse(guid);
+                    }
+                }
             }
         }
         if (outcome.StartsWith("SENT", StringComparison.Ordinal))

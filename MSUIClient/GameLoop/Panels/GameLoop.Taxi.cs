@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
@@ -24,6 +25,24 @@ public sealed partial class GameLoop
     private TaxiRouteView[] _taxiRoutes = [];
     private bool _taxiNodesLoaded;
 
+    /// <summary>
+    /// SMSG_MONSTER_MOVE is always keyed to a world body. It may drive this controller only
+    /// while the controller is that same, ordinarily embodied session character. In SUI modes
+    /// the session body remains server-driven in the entity stream while this controller is a
+    /// possessed bot or the detached camera rig.
+    /// </summary>
+    private bool ServerRideMayOwnController => ServerRideOwnershipLaw.MayOwnController(
+        _freeView,
+        _controlState == ControlState.OwnChar,
+        ControlledGuid == LocalPlayerGuid);
+
+    private void DiscardServerRideWithoutAck()
+    {
+        _serverRideSpline = null;
+        _serverRideStoppedId = null;
+        _taxiLocked = false;
+    }
+
     private void ResetTaxi()
     {
         _taxiMasterGuid = 0; _taxiCurrentNode = 0; _taxiKnownNodes.Clear();
@@ -37,11 +56,12 @@ public sealed partial class GameLoop
     {
         master = null;
         distance = float.PositiveInfinity;
-        if (_net is not { IsInWorld: true } || _controller is null ||
+        if (_net is not { IsInWorld: true } ||
+            !TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
             !_entities.TryGet(guid, out master) || !master.IsCreature || master.IsDead ||
             (master.NpcFlags & NpcFlightMaster) == 0)
             return false;
-        Vector3 delta = _controller.Position - master.Position;
+        Vector3 delta = sessionBody.Position - master.Position;
         distance = delta.Length();
         return NpcSessionUiLaw.InRange(delta.LengthSquared());
     }
@@ -79,10 +99,16 @@ public sealed partial class GameLoop
     /// </summary>
     private void UpdateTaxiNodeStatusQueries()
     {
-        if (_net is not { IsInWorld: true } net) return;
+        if (_net is not { IsInWorld: true } net ||
+            !TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return;
+        // The Free View streaming eye can publish flight masters around the observer camera.
+        // Vanilla's automatic status sweep is still a session-owned NPC interaction, so camera
+        // visibility alone must never manufacture its CMSG_TAXINODE_STATUS_QUERY.
         HashSet<ulong> visible = _entities.Entities.Values
             .Where(unit => unit.IsCreature && !unit.IsDead &&
-                (unit.NpcFlags & NpcFlightMaster) != 0 && !CanAttack(unit))
+                (unit.NpcFlags & NpcFlightMaster) != 0 && !CanAttack(unit) &&
+                NpcSessionUiLaw.InRange(
+                    Vector3.DistanceSquared(sessionBody.Position, unit.Position)))
             .Select(unit => unit.Guid)
             .ToHashSet();
         _taxiStatusAsked.RemoveWhere(guid => !visible.Contains(guid));
@@ -202,7 +228,11 @@ public sealed partial class GameLoop
 
     private void ObserveServerRideSpline(MonsterMove move)
     {
-        if (_net is null || move.Guid != _net.PlayerGuid) return;
+        // Free View and possession deliberately leave the session body on AI. Its ordinary
+        // ground spline still belongs in EntityStore (the dispatcher applies it below), but it
+        // must never become a taxi spline for the detached/possessed local controller.
+        if (_net is null || move.Guid != _net.PlayerGuid || !ServerRideMayOwnController)
+            return;
         if (move.Stop || move.DurationMs == 0 || move.Points.Length < 2)
         {
             _serverRideSpline = null;
@@ -222,10 +252,11 @@ public sealed partial class GameLoop
 
     private bool UpdateTaxiLifecycle()
     {
-        if (!_taxiOpen || _taxiLocked || _controller is null) return false;
+        if (!_taxiOpen || _taxiLocked ||
+            !TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return false;
         bool sourceAvailable = _entities.TryGet(_taxiMasterGuid, out WorldEntity master);
         float distanceSquared = sourceAvailable
-            ? Vector3.DistanceSquared(_controller.Position, master.Position)
+            ? Vector3.DistanceSquared(sessionBody.Position, master.Position)
             : float.PositiveInfinity;
         if (!NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
             return false;
@@ -239,6 +270,13 @@ public sealed partial class GameLoop
 
     private void ApplyTaxiInputLockout(ref float forward, ref float strafe, ref float turn, ref bool jump)
     {
+        // UpdateControlInput runs before this method. That makes ReleasePending an immediate
+        // ownership boundary on the Ctrl+F frame, rather than one frame of a parked fly rig.
+        if (!ServerRideMayOwnController)
+        {
+            DiscardServerRideWithoutAck();
+            return;
+        }
         if (!_taxiLocked && _serverRideSpline is null && _serverRideStoppedId is null) return;
         bool attempted = MathF.Abs(forward) > .01f || MathF.Abs(strafe) > .01f || MathF.Abs(turn) > .01f || jump;
         forward = strafe = turn = 0; jump = false;
@@ -247,6 +285,14 @@ public sealed partial class GameLoop
 
     private bool UpdateServerRide()
     {
+        // A spline admitted while we still owned the character can outlive the transition to
+        // SUI routing. Drop it without CMSG_MOVE_SPLINE_DONE: the streamed body, not the camera
+        // rig or possessed bot, is now the server's mover and owns its own completion.
+        if (!ServerRideMayOwnController)
+        {
+            DiscardServerRideWithoutAck();
+            return false;
+        }
         if (_controller is null) return false;
         if (_serverRideStoppedId is { } stoppedId)
         {
@@ -293,9 +339,7 @@ public sealed partial class GameLoop
 
     private void AbortServerRideForTeleport()
     {
-        _serverRideSpline = null;
-        _serverRideStoppedId = null;
-        _taxiLocked = false;
+        DiscardServerRideWithoutAck();
     }
 
     private void SimulateTaxiFlow()
@@ -314,10 +358,29 @@ public sealed partial class GameLoop
 
     private void DrawTaxiFrame()
     {
-        if (!_taxiOpen||_gameplayArt is null) return;float s=GameplayUiScale();Vector2 origin=UiPanelFrameOrigin(UiPanelOwnershipRegistry[6], s),size=TaxiFrameUiLaw.FrameSize(s);
-        ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(size,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
-        if (!ImGui.Begin("##taxi",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
-        ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="taxi"){BeginUiParityFrame(origin,s);CollectUiParityDraw("TaxiFrame","Frame",origin,size,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
+        if (!_taxiOpen || _gameplayArt is null) return;
+        float s = GameplayUiScale();
+        Vector2 origin = UiPanelFrameOrigin(UiPanelOwnershipRegistry[6], s);
+        Vector2 size = TaxiFrameUiLaw.FrameSize(s);
+        ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0);
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground |
+            ImGuiWindowFlags.NoNav;
+        if (!ImGui.Begin("##taxi", flags))
+        {
+            ImGui.End();
+            return;
+        }
+
+        ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        if (_uiParityArmed && _uiParityPanel == "taxi")
+        {
+            BeginUiParityFrame(origin, s);
+            CollectUiParityDraw("TaxiFrame", "Frame", origin, size, "",
+                new("", 0, "IMGUI_HOST", "ANCHOR:ABSOLUTE", "", "", 0, 8));
+        }
         if (_entities.TryGet(_taxiMasterGuid, out WorldEntity portraitMaster))
             DrawUnitPortraitImage(dl, portraitMaster,
                 origin + TaxiFrameUiLaw.PortraitOffset * s,
@@ -338,32 +401,9 @@ public sealed partial class GameLoop
                     "TaxiFrame", new(paths[index], 0xffffffff, "IMGUI_IMAGE", "TOPLEFT",
                         "TaxiFrame", "TOPLEFT", piece.X, -piece.Y));
         }
-        if(_gameplayArt is not null)
-        {
-            DrawVanillaTaxiMap(dl,origin,s);
-            if(_uiParityArmed&&_uiParityPanel=="taxi")MarkUiParityFrameComplete();
-            ImGui.End();return;
-        }
-        ImGui.SetCursorScreenPos(TaxiFrameUiLaw.FallbackContent.ScaledMin(origin, s));
-        ImGui.BeginChild("##taxi-content", TaxiFrameUiLaw.FallbackContent.ScaledSize(s), false);
-        ImGui.TextColored(new Vector4(1f,.82f,0f,1f), $"Current node: {_taxiCurrentNode}");
-        ImGui.TextDisabled(_taxiLocked ? "In flight — movement controls locked" : "Choose a discovered destination");
-        ImGui.Separator();
-        foreach (uint node in _taxiKnownNodes)
-        {
-            bool current = node == _taxiCurrentNode;
-            if (current) ImGui.TextDisabled($"• Node {node} (current)");
-            else if (ImGui.Button($"Fly to node {node}##taxi-{node}")) ActivateTaxi(node);
-        }
-        if (_taxiKnownNodes.Count == 0) ImGui.TextDisabled("No discovered flight nodes received.");
-        ImGui.EndChild();
-        Vector2 close = TaxiFrameUiLaw.Close.ScaledMin(origin, s);
-        DrawImageButton(dl, "##taxi-close", close, TaxiFrameUiLaw.Close.ScaledSize(s),
-            @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
-            @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
-            @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
-        if(ImGui.IsItemClicked())CloseTaxiMap();
-        if(_uiParityArmed&&_uiParityPanel=="taxi")MarkUiParityFrameComplete();
+
+        DrawVanillaTaxiMap(dl, origin, s);
+        if (_uiParityArmed && _uiParityPanel == "taxi") MarkUiParityFrameComplete();
         ImGui.End();
     }
 
@@ -418,7 +458,7 @@ public sealed partial class GameLoop
                 Vector2 highlightHalf = TaxiFrameUiLaw.NodeHalf(
                     TaxiFrameUiLaw.NodeHighlightSize, s);
                 if(highlight!=0)dl.AddImage((nint)highlight,center-highlightHalf,center+highlightHalf);
-                OfferTaxiNodeTooltip(route,center+half);
+                OfferTaxiNodeTooltip(route, TaxiFrameUiLaw.NodeTooltipSeat(center, s));
             }
             if(!route.Current&&!_taxiLocked&&ImGui.IsItemClicked())ActivateTaxi(route.Node.Id);
         }
@@ -449,7 +489,8 @@ public sealed partial class GameLoop
                 TaxiFrameUiLaw.RouteWidth * scale);
     }
 
-    private bool OfferTaxiNodeTooltip(in TaxiRouteView route, Vector2 ownerTopRight)
+    private bool OfferTaxiNodeTooltip(in TaxiRouteView route,
+        TaxiFrameUiLaw.TooltipSeat tooltipSeat)
     {
         if (!_sharedTooltipFrameOpen || _sharedTooltipFrameResolved || _skin is null) return false;
         GameTooltipOwnerToken token = ClaimSharedGameTooltip(
@@ -462,7 +503,8 @@ public sealed partial class GameLoop
                 new GameTooltipContent(GameTooltipAnchorKind.OwnerRight, lines))) return false;
         if (!route.Current && !SetSharedGameTooltipMoney(token, route.Fare)) return false;
         PreparedSharedGameTooltipRenderer? prepared =
-            PrepareSharedGameTooltipRenderer(SharedGameTooltipSnapshot(), ownerTopRight);
+            PrepareSharedGameTooltipRenderer(SharedGameTooltipSnapshot(),
+                tooltipSeat.Anchor, tooltipSeat.Pivot);
         return prepared is not null && QueueSharedGameTooltipRenderer(token,
             SharedGameTooltipLeavePolicy.ImmediateHide,
             () => DrawPreparedSharedGameTooltip(prepared));

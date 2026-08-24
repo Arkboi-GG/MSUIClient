@@ -14,7 +14,8 @@ public sealed partial class GameLoop
 
     private void TryOpenDeleteItemConfirmation()
     {
-        if (_deleteItemConfirmation is not null || !HasCarriedItem ||
+        if (!CanAuthorSessionInventory || _deleteItemConfirmation is not null ||
+            !HasCarriedItem ||
             !ImGui.IsMouseReleased(ImGuiMouseButton.Left) || ImGui.IsAnyItemHovered() ||
             ResolveCarriedItem() is not { } instance ||
             _items?.TryGet(instance.Entry, out ItemTemplate? item) != true || item is null)
@@ -29,7 +30,10 @@ public sealed partial class GameLoop
 
     private void AcceptDeleteItem()
     {
-        if (_deleteItemConfirmation is not { } pending || _net is null ||
+        // Recheck at the destructive send edge: the popup may have been opened immediately
+        // before Ctrl+F detached the observer rig from the gameplay body.
+        if (!CanAuthorSessionInventory ||
+            _deleteItemConfirmation is not { } pending || _net is null ||
             InventoryUiLaw.ToWire(pending.Container, pending.Slot) is not { } wire)
         {
             CancelDeleteItem();

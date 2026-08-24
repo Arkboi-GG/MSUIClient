@@ -24,6 +24,11 @@ internal static class QuestTimerFrameClinicalChecks
               QuestTimerFrameUiLaw.RowTextCenter(
                   new QuestTimerFrameUiLaw.ScreenRect(new Vector2(10, 20),
                       new Vector2(140, 16)), 10) == new Vector2(80, 25) &&
+              QuestTimerFrameUiLaw.RowTooltipSeat(
+                  new QuestTimerFrameUiLaw.ScreenRect(new Vector2(1620, 476),
+                      new Vector2(280, 32))) ==
+                  new QuestTimerFrameUiLaw.TooltipSeat(new Vector2(1900, 476),
+                      Vector2.UnitY) &&
               QuestFrameUiLaw.SecondsToTime(859) == "14 Mins 19 Secs " &&
               QuestFrameUiLaw.SecondsToTime(44) == "44 Secs ",
             "quest-timer frame geometry/countdown law drift");
@@ -45,7 +50,14 @@ internal static class QuestTimerFrameClinicalChecks
               runtime.Contains("QuestTimerFrameUiLaw.FrameHeight", StringComparison.Ordinal) &&
               runtime.Contains("QuestTimerFrameUiLaw.RowScreen", StringComparison.Ordinal) &&
               runtime.Contains("QuestTimerFrameUiLaw.RowTextCenter", StringComparison.Ordinal) &&
+              runtime.Contains("QuestTimerFrameUiLaw.RowTooltipSeat(row)",
+                  StringComparison.Ordinal) &&
               runtime.Contains("QuestTimerFrameUiLaw.RowFont", StringComparison.Ordinal) &&
+              runtime.Contains("OfferOwnerAnchoredSharedGameTooltip(",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("GameTooltipTextTone.White", StringComparison.Ordinal) &&
+              !runtime.Contains("ImGui.BeginTooltip", StringComparison.Ordinal) &&
+              !runtime.Contains("ImGui.SetTooltip", StringComparison.Ordinal) &&
               !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               runtime.Contains("QuestSignedSecondsLeft", StringComparison.Ordinal) &&
               runtime.Contains("UI-DialogBox-Header", StringComparison.Ordinal) &&

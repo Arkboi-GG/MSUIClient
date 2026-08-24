@@ -263,36 +263,15 @@ public sealed partial class GameLoop
         string selected, in WorldMapDropdownGeometry geometry, float scale,
         ref bool open, ref bool otherOpen)
     {
-        uint art = _gameplayArt?.Handle(WorldMapUiLaw.CapsuleTexture) ?? 0;
-        if (art != 0)
-        {
-            foreach (WorldMapUiLaw.TextureSlice slice in WorldMapUiLaw.CapsuleSlices)
-            {
-                Vector2 min = slice.Rect.ScaledMin(geometry.FrameMin, scale);
-                draw.AddImage((nint)art, min, min + slice.Rect.ScaledSize(scale),
-                    slice.UvMin, slice.UvMax);
-            }
-        }
+        bool toggled = VanillaDropdownCapsule(draw, $"##world-map-{id}-dropdown",
+            geometry.FrameMin, scale, WorldMapUiLaw.Capsule, selected);
         GameText.Draw(draw, "GameFontNormalSmall", label,
             WorldMapUiLaw.At(geometry.FrameMin, WorldMapUiLaw.CapsuleLabel, scale), scale);
-        GameText.DrawRightAligned(draw, "GameFontHighlightSmall", selected,
-            WorldMapUiLaw.At(geometry.FrameMin,
-                WorldMapUiLaw.CapsuleSelectionRight, scale), scale);
-
-        Vector2 buttonMin = WorldMapUiLaw.CapsuleButton.ScaledMin(
-            geometry.FrameMin, scale);
-        Vector2 buttonSize = WorldMapUiLaw.CapsuleButton.ScaledSize(scale);
-        uint button = _gameplayArt?.Handle(open
-            ? @"Interface\ChatFrame\UI-ChatIcon-ScrollDown-Down"
-            : @"Interface\ChatFrame\UI-ChatIcon-ScrollDown-Up") ?? 0;
-        if (button != 0)
-            draw.AddImage((nint)button, buttonMin, buttonMin + buttonSize);
-        ImGui.SetCursorScreenPos(buttonMin);
-        if (ImGui.InvisibleButton($"##world-map-{id}-dropdown", buttonSize))
+        if (toggled)
         {
             open = !open;
             otherOpen = false;
-            PlayUiSound("igMainMenuOptionCheckBoxOn", "ui.world-map");
+            PlayUiSound(DropdownCapsuleUiLaw.ToggleSound, "ui.world-map");
         }
     }
 
@@ -310,28 +289,28 @@ public sealed partial class GameLoop
             Vector2 rowSize = WorldMapUiLaw.DropdownRow.ScaledSize(scale);
             ImGui.SetCursorScreenPos(rowMin);
             bool clicked = ImGui.InvisibleButton($"##world-map-{id}-row-{i}", rowSize);
-            if (ImGui.IsItemHovered())
+            if (rows[i].Checked || ImGui.IsItemHovered())
             {
                 uint highlight = _gameplayArt!.AdditiveHandle(
-                    @"Interface\QuestFrame\UI-QuestTitleHighlight");
+                    DropdownCapsuleUiLaw.RowHighlight);
                 if (highlight != 0) draw.AddImage((nint)highlight, rowMin, rowMin + rowSize);
             }
             if (rows[i].Checked)
             {
-                uint check = _gameplayArt!.Handle(@"Interface\Buttons\UI-CheckBox-Check");
+                uint check = _gameplayArt!.Handle(DropdownCapsuleUiLaw.RowCheck);
                 if (check != 0)
                 {
-                    Vector2 checkMin = WorldMapUiLaw.DropdownCheck.ScaledMin(rowMin, scale);
+                    Vector2 checkMin = rowMin + DropdownCapsuleUiLaw.Check.Min * scale;
                     draw.AddImage((nint)check, checkMin,
-                        checkMin + WorldMapUiLaw.DropdownCheck.ScaledSize(scale));
+                        checkMin + DropdownCapsuleUiLaw.Check.Size * scale);
                 }
             }
-            GameText.Draw(draw, "GameFontHighlightSmall", rows[i].Text,
-                WorldMapUiLaw.At(rowMin, WorldMapUiLaw.DropdownText, scale), scale);
+            GameText.Draw(draw, DropdownCapsuleUiLaw.SelectionFont, rows[i].Text,
+                rowMin + DropdownCapsuleUiLaw.RowTextOffset * scale, scale);
             if (clicked)
             {
                 rows[i].Select();
-                PlayUiSound("igMainMenuOptionCheckBoxOn", "ui.world-map");
+                PlayUiSound(DropdownCapsuleUiLaw.RowSound, "ui.world-map");
             }
         }
     }
@@ -354,15 +333,9 @@ public sealed partial class GameLoop
         {
             WorldMapUiLaw.TooltipSeat tooltipSeat =
                 WorldMapUiLaw.CorpseTooltipSeat(min, size, mapMin, mapSize);
-            OfferPreservedSharedGameTooltipRenderer(new("world-map-corpse", 0), () =>
-            {
-                ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
-                    tooltipSeat.Pivot);
-                ImGui.BeginTooltip();
-                ImGui.TextColored(WorldMapUiLaw.CorpseTooltipColor,
-                    DeathFrameUiLaw.CorpseTooltip);
-                ImGui.EndTooltip();
-            });
+            OfferOwnerAnchoredSharedGameTooltip(new("world-map-corpse", 0),
+                [new(DeathFrameUiLaw.CorpseTooltip, GameTooltipTextTone.Red)],
+                tooltipSeat.Anchor, tooltipSeat.Pivot);
         }
     }
 

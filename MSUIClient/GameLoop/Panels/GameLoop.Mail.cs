@@ -128,11 +128,11 @@ public sealed partial class GameLoop
 
     private bool RequestMail(ulong guid)
     {
-        if (_net is null || _controller is null ||
+        if (_net is null || !TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
             !_entities.TryGet(guid, out WorldEntity mailbox) || !mailbox.IsGameObject ||
             mailbox.GameObjectType != 19 ||
             !NpcSessionUiLaw.InRange(
-                Vector3.DistanceSquared(_controller.Position, mailbox.Position)))
+                Vector3.DistanceSquared(sessionBody.Position, mailbox.Position)))
             return false;
 
         bool newMailbox = !_mailOpen || _mailboxGuid != guid;
@@ -160,7 +160,7 @@ public sealed partial class GameLoop
         PlayUiSound("igCharacterInfoOpen");
         bool sent = RefreshMailList(force: newMailbox);
         EmitInterface("mail", "open", sent ? "OPENED" : "OPENED_THROTTLED", guid,
-            $"local=true;distance={Vector3.Distance(_controller.Position, mailbox.Position):R};limit={MailUiLaw.InteractionDistance:R}");
+            $"local=true;distance={Vector3.Distance(sessionBody.Position, mailbox.Position):R};limit={MailUiLaw.InteractionDistance:R}");
         return true;
     }
 
@@ -220,10 +220,10 @@ public sealed partial class GameLoop
         // Synthetic/live-run mail panels deliberately have no world mailbox. Only enforce
         // the vanilla five-yard auto-close rule for a panel opened from a real mailbox.
         if (_mailboxGuid == 0) return;
-        if (_controller is null) return;
+        if (!TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return;
         bool sourceAvailable = _entities.TryGet(_mailboxGuid, out WorldEntity mailbox);
         float distanceSquared = sourceAvailable
-            ? Vector3.DistanceSquared(_controller.Position, mailbox.Position)
+            ? Vector3.DistanceSquared(sessionBody.Position, mailbox.Position)
             : float.PositiveInfinity;
         if (NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
             CloseMailSession();
@@ -975,14 +975,9 @@ public sealed partial class GameLoop
             GameTooltipOwnerKey tooltipOwner = new("mail-inbox-expiry", (ulong)visibleIndex);
             MailUiLaw.TooltipSeat tooltipSeat =
                 MailUiLaw.RightTooltipSeat(expiryMin, expirySize);
-            OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
-            {
-                ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
-                    tooltipSeat.Pivot);
-                ImGui.BeginTooltip();
-                ImGui.TextUnformatted(expiryTooltip);
-                ImGui.EndTooltip();
-            });
+            OfferOwnerAnchoredSharedGameTooltip(tooltipOwner,
+                [new(expiryTooltip, GameTooltipTextTone.White)],
+                tooltipSeat.Anchor, tooltipSeat.Pivot);
         }
         if (_uiParityArmed && _uiParityPanel == "mail")
         {
@@ -1466,14 +1461,9 @@ public sealed partial class GameLoop
                 GameTooltipOwnerKey tooltipOwner = new("item:mail-send-attachment", 0);
                 MailUiLaw.TooltipSeat tooltipSeat =
                     MailUiLaw.RightTooltipSeat(min, slotSize);
-                OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
-                {
-                    ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
-                        tooltipSeat.Pivot);
-                    ImGui.BeginTooltip();
-                    ImGui.TextUnformatted("Attach an item to send.");
-                    ImGui.EndTooltip();
-                });
+                OfferOwnerAnchoredSharedGameTooltip(tooltipOwner,
+                    [new("Attach an item to send.", GameTooltipTextTone.White)],
+                    tooltipSeat.Anchor, tooltipSeat.Pivot);
             }
         }
         if (_uiParityArmed && _uiParityPanel == "mail")
@@ -1739,7 +1729,8 @@ public sealed partial class GameLoop
             if (DrawOpenMailSlot(dl, "##mail-copy",
                     MailUiLaw.OpenMailAttachmentSlot(slotIndex).ScaledMin(origin, s),
                     MailStationeryIcon(row), 1, s, new("mail-open-letter", 0),
-                    "Click to make a permanent\ncopy of this letter.", clip))
+                    "Click to make a permanent\ncopy of this letter.", clip,
+                    setTextTone: GameTooltipTextTone.White))
                 MakeMailPermanent(row.Id);
             slotIndex++;
         }
@@ -1823,7 +1814,8 @@ public sealed partial class GameLoop
 
     private bool DrawOpenMailSlot(ImDrawListPtr dl, string id, Vector2 min, string iconPath,
         uint count, float s, GameTooltipOwnerKey tooltipOwner, string? tooltip, Vector4 clip,
-        MailRow? row = null, ItemTemplate? item = null)
+        MailRow? row = null, ItemTemplate? item = null,
+        GameTooltipTextTone? setTextTone = null)
     {
         DrawArt(dl, @"Interface\Buttons\UI-EmptySlot",
             MailUiLaw.OpenMailSlotArt.ScaledMin(min, s), MailUiLaw.OpenMailSlotArt.Size, s);
@@ -1860,14 +1852,22 @@ public sealed partial class GameLoop
             else if (!string.IsNullOrEmpty(tooltip))
             {
                 string tooltipText = tooltip;
-                OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
+                if (setTextTone is { } tone)
                 {
-                    ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
-                        tooltipSeat.Pivot);
-                    ImGui.BeginTooltip();
-                    ImGui.TextUnformatted(tooltipText);
-                    ImGui.EndTooltip();
-                });
+                    OfferOwnerAnchoredSharedGameTooltip(tooltipOwner,
+                        [new(tooltipText, tone)], tooltipSeat.Anchor, tooltipSeat.Pivot);
+                }
+                else
+                {
+                    OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
+                    {
+                        ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
+                            tooltipSeat.Pivot);
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted(tooltipText);
+                        ImGui.EndTooltip();
+                    });
+                }
             }
         }
         if (_uiParityArmed && _uiParityPanel == "mail")

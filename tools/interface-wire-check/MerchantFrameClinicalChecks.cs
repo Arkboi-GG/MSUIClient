@@ -510,10 +510,13 @@ internal static class MerchantFrameClinicalChecks
               Count(session, "PlayUiSound(\"igCharacterInfoClose\"") == 1 &&
               session.Contains("if (_vendorOpenedBags[container] && IsBagWindowOpen(container))",
                   StringComparison.Ordinal) &&
-              session.Contains("if (_controller is null) return;", StringComparison.Ordinal) &&
+              session.Contains("TryGetSessionBodyPose(out WorldBodyPose sessionBody)",
+                  StringComparison.Ordinal) &&
               session.Contains("return NpcSessionUiLaw.InRange(delta.LengthSquared());",
                   StringComparison.Ordinal) &&
-              session.Contains("Vector3.DistanceSquared(_controller.Position, vendor.Position)",
+              session.Contains("Vector3 delta = sessionBody.Position - candidate.Position",
+                  StringComparison.Ordinal) &&
+              session.Contains("Vector3.DistanceSquared(sessionBody.Position, vendor.Position)",
                   StringComparison.Ordinal) &&
               session.Contains(
                   "NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared)",

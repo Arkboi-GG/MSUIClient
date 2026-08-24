@@ -1,11 +1,16 @@
 using System.Numerics;
 using MSUIClient;
+using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
 
 internal static class CombatTextStateClinicalChecks
 {
     public static void Run()
     {
+        var defaults = new GameSettings.ControlSettings();
+        Check(!defaults.ShowLootAcquisitionText && !defaults.ShowCombatStateText,
+            "loot and combat-state center text must ship disabled");
+
         CombatTextResourceTransition full = CombatTextStateUiLaw.Resource(false, 100, 100);
         CombatTextResourceTransition crossing = CombatTextStateUiLaw.Resource(false, 20, 100);
         CombatTextResourceTransition held = CombatTextStateUiLaw.Resource(true, 10, 100);
@@ -47,12 +52,32 @@ internal static class CombatTextStateClinicalChecks
             "combat-text world/center placement law drift");
 
         string root = ClientConfig.FindRepoRoot();
+        string legacySettingsPath = Path.Combine(Path.GetTempPath(),
+            $"msui-combat-text-defaults-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(legacySettingsPath,
+                "{\"Settings\":{\"Version\":10,\"Controls\":{\"ShowPlayerNames\":true}}," +
+                "\"Presets\":[]}");
+            SettingsStore loaded = SettingsStore.Load(root, legacySettingsPath);
+            Check(!loaded.Settings.Controls.ShowLootAcquisitionText &&
+                  !loaded.Settings.Controls.ShowCombatStateText,
+                "existing v10 settings missing the new keys must inherit both default-off values");
+        }
+        finally
+        {
+            if (File.Exists(legacySettingsPath)) File.Delete(legacySettingsPath);
+        }
         string feedback = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Combat",
             "GameLoop.CombatFeedback.cs"));
         string aura = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Dev",
             "GameLoop.DevTools.Auras.cs"));
         string net = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
             "GameLoop.Net.cs"));
+        string loot = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Loot.cs"));
+        string settings = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Settings.cs"));
         Check(feedback.Contains("ResetCombatTextState()", StringComparison.Ordinal) &&
               feedback.Contains("QueueCenterCombatText(cue.Text, cue.Style, cue.Critical)",
                   StringComparison.Ordinal) &&
@@ -61,6 +86,10 @@ internal static class CombatTextStateClinicalChecks
               aura.Contains("CompletePlayerAuraCombatTextBaseline()", StringComparison.Ordinal) &&
               net.Contains("ObservePlayerCombatTextState(player)", StringComparison.Ordinal),
             "player aura/combat/resource center-text feeds are unwired");
+        Check(loot.Contains("Settings.Controls.ShowLootAcquisitionText", StringComparison.Ordinal) &&
+              settings.Contains("ShowCombatStateText", StringComparison.Ordinal) &&
+              settings.Contains("ShowLootAcquisitionText", StringComparison.Ordinal),
+            "default-off loot/combat-state Interface Options are unwired");
 
         int rendererStart = feedback.IndexOf("private void DrawFloatingCombatText",
             StringComparison.Ordinal);

@@ -1,6 +1,7 @@
 using System.Numerics;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Sound;
 using MSUIClient.World.Wmo;
 
 namespace MSUIClient;
@@ -12,6 +13,12 @@ public sealed partial class GameLoop
 
     private void WireFootstepPlayback()
     {
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+        {
+            if (_creatures is not null) _creatures.FootstepAnimationEvent = null;
+            if (_character is not null) _character.FootstepAnimationEvent = null;
+            return;
+        }
         if (_mpq is not null) _footsteps = FootstepCatalog.Load(_mpq);
         if (_creatures is not null)
             _creatures.FootstepAnimationEvent = PlayFootstepAnimationEvent;
@@ -36,7 +43,7 @@ public sealed partial class GameLoop
             _creatureVoices is null || _spellSounds is null ||
             displayId <= 0 || !_entities.TryGet(rootGuid, out WorldEntity root)) return;
 
-        uint moveFlags = rootGuid == ControlledGuid
+        uint moveFlags = rootGuid == ControlledGuid && !ControlledBodyIsStreamed
             ? _movementSender.LastFlags : root.MoveFlags;
         if ((moveFlags & (uint)MovementFlags.Hover) != 0 ||
             root.Fields.UnitIsStealthed ||

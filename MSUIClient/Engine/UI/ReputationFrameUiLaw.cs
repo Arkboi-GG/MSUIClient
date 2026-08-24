@@ -19,6 +19,8 @@ public static class ReputationFrameUiLaw
     public readonly record struct CheckGeometry(ScreenRect Hit, Vector2 MarkMin,
         Vector2 MarkSize, Vector2 LabelPosition);
 
+    public readonly record struct TooltipSeat(Vector2 Anchor, Vector2 Pivot);
+
     public const byte Visible = 0x01;
     public const byte AtWar = 0x02;
     public const byte Header = 0x08;
@@ -28,6 +30,8 @@ public static class ReputationFrameUiLaw
     public const int RowPitch = 26;
     public const int WatchedNone = -1;
     public const uint InactiveHeaderKey = uint.MaxValue;
+    public const string AtWarDescription =
+        "This determines how you will interact with members of this faction. If you have at war checked then your default behavior will be to attack them. If you do not have it checked you will not be able to attack them. ";
 
     // ReputationDetailFrame: TOPLEFT to CharacterFrame TOPRIGHT (-33,-28), 212x203.
     public static readonly Vector2 DetailOffset = new(351, -28);
@@ -66,6 +70,11 @@ public static class ReputationFrameUiLaw
         return new(hit, markMin, markSize,
             hit.Min + new Vector2(CheckLabelX, CheckLabelY) * scale);
     }
+
+    // ReputationDetailAtWarCheckBox OnEnter uses ANCHOR_RIGHT: the GameTooltip's
+    // BOTTOMLEFT corner is seated at the checkbox owner's TOPRIGHT corner.
+    public static TooltipSeat RightTooltipSeat(in CheckGeometry check) =>
+        new(check.Hit.Min + Vector2.UnitX * check.Hit.Size.X, Vector2.UnitY);
 
     public static bool IsVisible(byte flags) => (flags & Visible) != 0;
     public static bool IsHeader(byte flags) => (flags & Header) != 0;

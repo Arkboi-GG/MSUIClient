@@ -36,6 +36,8 @@
     "MSUIClient/Net/WorldSession.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.GameObjects.cs",
     "MSUIClient/GameLoop/Panels/GameLoop.Mail.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.GameTooltip.cs",
+    "MSUIClient/GameLoop/Hud/GameLoop.GameTooltip.Renderer.cs",
     "MSUIClient/GameLoop/Scene/GameLoop.Net.cs",
     "MSUIClient/Engine/UI/MailUiLaw.cs",
     "tools/mail-clinical-check/mail-clinical-check.csproj",
@@ -145,7 +147,16 @@
       "source": "benilla-b57ee0e9e2c8822b/MailFrame.xml",
       "added": "2026-08-23",
       "resolved": true,
-      "resolution": "MailUiLaw now owns the shared right-owner tooltip seat. Item and preserved plain-text tooltip branches consistently anchor tooltip bottom-left to each control's top-right; bodies, actions, and preserved tooltip presentation remain unchanged. Focused MailFrame, tooltip source-fence, and full interface-wire checks pass."
+      "resolution": "MailUiLaw now owns the shared right-owner tooltip seat. Item, money, and plain-text branches consistently anchor tooltip bottom-left to each control's top-right while retaining their distinct content channels. Focused MailFrame, tooltip source-fence, and full interface-wire checks pass."
+    },
+    {
+      "id": "item-mailframe-simple-settext-classic-tooltip-gap-20260823",
+      "kind": "gap",
+      "text": "The inbox expiry label, empty outgoing attachment slot, and permanent-letter-copy slot had their authored ANCHOR_RIGHT seats but still rendered GameTooltip:SetText content through generic ImGui tooltip callbacks.",
+      "source": "benilla-b57ee0e9e2c8822b/MailFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "All three simple SetText owners now submit white typed lines and MailUiLaw's exact anchor/pivot to the shared owner-anchored classic GameTooltip adapter. The open-slot helper explicitly distinguishes SetText from its preserved money path; rich inbox item, package, and money tooltips remain on their existing semantic render paths. Focused MailFrame checks pass."
     },
     {
       "id": "item-mailframe-small-action-fonts-20260823",
@@ -178,6 +189,6 @@
     "trace-mail-open-composition-001"
   ],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T18:30:00Z",
+  "lastReviewedUtc": "2026-08-23T19:45:04.0399445Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

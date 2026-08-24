@@ -645,21 +645,24 @@ public sealed partial class GameLoop
         if (target.HasValue) CommitSelection(target.Value, beginAttack: false);
     }
 
-    private WorldEntity? NearestAttackableUnit() => _controller is null ? null :
-        _entities.Units
+    private WorldEntity? NearestAttackableUnit()
+    {
+        if (!TryGetControlledBodyPose(out WorldBodyPose body)) return null;
+        return _entities.Units
             .Where(x => x.Guid != ControlledGuid && !x.IsDead && CanAttack(x))
-            .OrderBy(x => Vector3.DistanceSquared(x.Position, _controller.Position))
+            .OrderBy(x => Vector3.DistanceSquared(x.Position, body.Position))
             .FirstOrDefault();
+    }
 
     private void CycleEnemyTarget(bool reverse)
     {
-        if (_controller is null) return;
+        if (!TryGetControlledBodyPose(out WorldBodyPose body)) return;
         Vector2 viewport = ImGuiNET.ImGui.GetIO().DisplaySize;
         List<TargetCycleLaw.Candidate> candidates = [];
         foreach (WorldEntity unit in _entities.Units)
         {
             if (unit.Guid == ControlledGuid || unit.Fields.ReadsDead || !CanAttack(unit)) continue;
-            float distance = Vector3.Distance(unit.Position, _controller.Position);
+            float distance = Vector3.Distance(unit.Position, body.Position);
             if (distance > TargetCycleLaw.Range) continue;
             if (unit.IsCreature &&
                 _creatureQueryRecords.TryGetValue(unit.Entry, out CreatureQueryInfo? query) &&

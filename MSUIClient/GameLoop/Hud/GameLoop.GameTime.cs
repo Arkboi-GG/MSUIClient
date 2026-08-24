@@ -24,13 +24,32 @@ public sealed partial class GameLoop
         }
 
         GameTimeUiLaw.ScreenRect hit = GameTimeUiLaw.HitScreen(origin, scale);
+        // InvisibleButton still needs an authored ImGui window. Submitting it on
+        // the implicit Debug##Default window makes Dear ImGui expose that fallback
+        // as a large empty "Debug" panel over the world. Give the clock's small
+        // hover target its own transparent host instead.
+        ImGui.SetNextWindowPos(hit.Min, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(hit.Size, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0f);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        bool hostOpen = ImGui.Begin("##game-time-frame-host", VanillaWindowFlags);
+        ImGui.PopStyleVar();
+        if (!hostOpen)
+        {
+            ImGui.End();
+            return;
+        }
         ImGui.SetCursorScreenPos(hit.Min);
         ImGui.InvisibleButton("##game-time-frame", hit.Size);
         if (ImGui.IsItemHovered())
         {
             string prepared = GameTimeUiLaw.ClockText(hour, minute);
-            OfferPreservedSharedGameTooltipRenderer(new("game-time-frame", 1),
-                () => ImGui.SetTooltip(prepared));
+            GameTimeUiLaw.TooltipSeat tooltipSeat =
+                GameTimeUiLaw.BottomLeftTooltipSeat(origin, scale);
+            OfferOwnerAnchoredSharedGameTooltip(new("game-time-frame", 1),
+                [new(prepared, GameTooltipTextTone.White)],
+                tooltipSeat.Anchor, tooltipSeat.Pivot);
         }
+        ImGui.End();
     }
 }

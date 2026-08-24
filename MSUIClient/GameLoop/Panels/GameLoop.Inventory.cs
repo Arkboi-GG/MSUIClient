@@ -52,6 +52,14 @@ public sealed partial class GameLoop
     private readonly ItemEnchantTimerState _itemEnchantTimers = new();
     private readonly Dictionary<uint, uint> _itemProficiencies = [];
 
+    /// <summary>
+    /// Inventory opcodes do not carry an actor guid: the server always applies them to the
+    /// logged-in character. Plain Free View and possessed-body inspection therefore stay
+    /// read-only even though possession may author guid-addressed controlled-body actions.
+    /// </summary>
+    private bool CanAuthorSessionInventory =>
+        CanAuthorControlledGameplay && ControlledGuid == LocalPlayerGuid;
+
     private sealed record InventoryTransition(string Kind, ulong ItemGuid, uint Entry, int SourceSlot,
         int DestinationSlot, double SentAt);
     private sealed record PendingBagLock(ulong Guid, uint Count, double SentAt, long Operation);
@@ -132,12 +140,14 @@ public sealed partial class GameLoop
         uint money = player.Fields.Coinage;
         uint? previous = _previousCoinage;
         _previousCoinage = money;
-        if (AcquisitionSoundLaw.PlayCoin(previous, money))
+        if (World.Sound.AudioFeaturePolicy.ExpandedWorldAudioEnabled &&
+            AcquisitionSoundLaw.PlayCoin(previous, money))
             PlayUiSound(AcquisitionSoundLaw.CoinCue, AcquisitionSoundLaw.CoinCategory);
     }
 
     private void PlayItemPickupSound(uint displayInfoId)
     {
+        if (!World.Sound.AudioFeaturePolicy.ExpandedWorldAudioEnabled) return;
         uint? kit = AcquisitionSoundLaw.PickupKit(displayInfoId, _itemDisplays, _itemGroupSounds);
         if (kit is null) return;
         Vector3 listener = _controller?.Position ?? Vector3.Zero;
@@ -168,7 +178,9 @@ public sealed partial class GameLoop
 
     private bool EquipBackpackEntry(uint entry)
     {
-        if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
+        if (!CanAuthorControlledGameplay || _net is null ||
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
+        if (!CanAuthorSessionInventory) return false;
         for (int slot = 0; slot < 16; slot++)
         {
             ulong guid = player.Fields.PlayerBackpackSlot(slot);
@@ -185,7 +197,8 @@ public sealed partial class GameLoop
 
     private bool UnequipSlot(int slot)
     {
-        if (_net is null || slot is < 0 or >= 19 || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
+        if (!CanAuthorSessionInventory || _net is null || slot is < 0 or >= 19 ||
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
         ulong guid = player.Fields.PlayerInventorySlot(slot);
         if (guid == 0 || !_entities.TryGet(guid, out WorldEntity item)) return false;
         int empty = Enumerable.Range(0, 16).FirstOrDefault(i => player.Fields.PlayerBackpackSlot(i) == 0, -1);
@@ -746,7 +759,10 @@ public sealed partial class GameLoop
 
     private void PickupOrPlaceItem(int container, int slot, ulong guid, bool ignoreModifiers = false)
     {
-        if (_net is null) return;
+        // The inventory wire has no actor guid: every split/swap mutates the gameplay body.
+        // A detached Free View cursor may inspect bags, but it must never become that actor.
+        if (!CanAuthorControlledGameplay || _net is null) return;
+        if (!CanAuthorSessionInventory) return;
         if (!HasCarriedItem)
         {
             if (guid != 0 && !IsInventorySlotLocked(container, slot))
@@ -817,7 +833,7 @@ public sealed partial class GameLoop
 
     private void UseItemAction(uint entry)
     {
-        if (_net is null || _items is null ||
+        if (!CanAuthorSessionInventory || _net is null || _items is null ||
             !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
 
         List<(byte Bag, byte Slot, WorldEntity Item, bool Worn)> all =
@@ -875,7 +891,7 @@ public sealed partial class GameLoop
     /// </summary>
     private bool SendItemUse(byte bag, byte slot, WorldEntity instance, ItemTemplate template)
     {
-        if (_net is null) return false;
+        if (!CanAuthorSessionInventory || _net is null) return false;
         ItemSpellTemplate useSpell = template.Spells[template.UseSpellIndex];
         SpellInfo? spell = _spellCatalog?.TryGet(useSpell.SpellId, out SpellInfo resolved) == true
             ? resolved : null;
@@ -932,7 +948,7 @@ public sealed partial class GameLoop
 
     private void UseBackpackItem(int slot, ItemTemplate item)
     {
-        if (_net is null) return;
+        if (!CanAuthorSessionInventory || _net is null) return;
         if (item.InventoryType != 0) _net.AutoEquipItem(255, (byte)(23 + slot));
         else if (ResolveInventoryItem(0, slot) is { } instance)
             SendItemUse(255, (byte)(23 + slot), instance, item);
@@ -1830,7 +1846,7 @@ public sealed partial class GameLoop
             ImGui.IsMouseReleased(ImGuiMouseButton.Left) && ImGui.IsItemDeactivated();
         // A possessed bot's bags are read-only in v1.0: every inventory mutation opcode is
         // guid-less and acts on the SESSION character server-side. Hover/tooltips stay live.
-        bool interactive = ControlledGuid == LocalPlayerGuid;
+        bool interactive = CanAuthorSessionInventory;
         bool leftClicked = interactive && !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Left);
         bool rightClicked = interactive && !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Right);
         bool dressUpClick = leftClicked && ImGui.GetIO().KeyCtrl && instance is not null;
@@ -1891,15 +1907,29 @@ public sealed partial class GameLoop
                 else if (item.PageText != 0)
                     OpenItemTextPages(instance.Guid, item.Name, item.PageText, item.PageMaterial);
                 else if (InventoryUiLaw.UnwrapsGift(item.Flags, instance.Fields.ItemFlags))
-                    _net.OpenItem(wire.Bag, wire.Slot);
+                {
+                    if (CanAuthorSessionInventory) _net.OpenItem(wire.Bag, wire.Slot);
+                }
                 else if (item.StartQuest != 0)
-                    _net.QuestgiverQuery(instance.Guid, item.StartQuest);
+                {
+                    if (CanAuthorSessionInventory)
+                        _net.QuestgiverQuery(instance.Guid, item.StartQuest);
+                }
                 else if (InventoryUiLaw.OpensLoot(item.Flags))
                 {
-                    AddPendingBagLock(container, slot, ++_pendingBagOperation);
-                    _net.OpenItem(wire.Bag, wire.Slot);
+                    if (CanAuthorSessionInventory)
+                    {
+                        AddPendingBagLock(container, slot, ++_pendingBagOperation);
+                        _net.OpenItem(wire.Bag, wire.Slot);
+                    }
                 }
-                else if (item.InventoryType != 0) _net.AutoEquipItem(wire.Bag, wire.Slot);
+                else if (item.InventoryType != 0)
+                {
+                    if (CanAuthorSessionInventory)
+                    {
+                        if (CanAuthorControlledGameplay) _net.AutoEquipItem(wire.Bag, wire.Slot);
+                    }
+                }
                 else SendItemUse(wire.Bag, wire.Slot, instance, item);
             }
         }
@@ -2505,8 +2535,21 @@ public sealed partial class GameLoop
     private void PlayBagSound(string name)
         => PlayUiSound(name, "ui.inventory");
 
+    private static readonly bool SuppressUiAudioForDiagnostics =
+        Environment.GetEnvironmentVariable("MSUI_UI_AUDIO_OFF") == "1";
+    private bool _uiAudioSuppressionAnnounced;
+
     private void PlayUiSound(string name, string category = "ui")
     {
+        if (SuppressUiAudioForDiagnostics)
+        {
+            if (!_uiAudioSuppressionAnnounced)
+            {
+                _uiAudioSuppressionAnnounced = true;
+                Console.WriteLine("[audio] MSUI_UI_AUDIO_OFF=1 - interface cues suppressed");
+            }
+            return;
+        }
         Vector3 listener = _controller?.Position ?? Vector3.Zero;
         _spellSounds?.Play(name, ControlledGuid, listener, listener, category);
     }

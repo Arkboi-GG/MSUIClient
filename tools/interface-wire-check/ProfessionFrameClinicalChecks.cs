@@ -34,8 +34,10 @@ internal static class ProfessionFrameClinicalChecks
                   new ProfessionFrameUiLaw.LogicalRect(20, 231, 256, 64) &&
               ProfessionFrameUiLaw.DetailEmptySlot ==
                   new ProfessionFrameUiLaw.LogicalRect(15, 224, 64, 64) &&
-              ProfessionFrameUiLaw.FilterMenuRow(2, 128) ==
-                  new ProfessionFrameUiLaw.LogicalRect(2, 38, 124, 18) &&
+              DropdownCapsuleUiLaw.List(ProfessionFrameUiLaw.SubClassDropDown, 3) ==
+                  new DropdownCapsuleUiLaw.LogicalRect(62, 91, 152, 78) &&
+              DropdownCapsuleUiLaw.Row(ProfessionFrameUiLaw.InvSlotDropDown, 2) ==
+                  new DropdownCapsuleUiLaw.LogicalRect(214, 138, 120, 16) &&
               !ProfessionFrameUiLaw.RowHoverHighlight(tradeSkill: false) &&
               ProfessionFrameUiLaw.RowHoverHighlight(tradeSkill: true) &&
               !ProfessionFrameUiLaw.DetailIconVisible(0) &&
@@ -77,7 +79,13 @@ internal static class ProfessionFrameClinicalChecks
               ProfessionFrameUiLaw.CollapseAllPlusPath ==
                   @"Interface\Buttons\UI-PlusButton-Up" &&
               ProfessionFrameUiLaw.CollapseAllHighlightPath ==
-                  @"Interface\Buttons\UI-PlusButton-Hilight",
+                  @"Interface\Buttons\UI-PlusButton-Hilight" &&
+              ProfessionFrameUiLaw.InvSlotDropDown.Frame ==
+                  new DropdownCapsuleUiLaw.LogicalRect(189, 66, 170, 32) &&
+              ProfessionFrameUiLaw.SubClassDropDown.Frame ==
+                  new DropdownCapsuleUiLaw.LogicalRect(54, 66, 170, 32) &&
+              ProfessionFrameUiLaw.InvSlotDropDown.Button ==
+                  new DropdownCapsuleUiLaw.LogicalRect(130, 1, 24, 24),
             "shared Craft/TradeSkill geometry drift");
 
         Check(ProfessionFrameUiLaw.BottomLeftArtFor(tradeSkill: false) ==
@@ -202,9 +210,21 @@ internal static class ProfessionFrameClinicalChecks
               runtime.Contains("ProfessionFrameUiLaw.CollapseAllTabArt",
                   StringComparison.Ordinal) &&
               runtime.Contains("VanillaCollapseAllButton", StringComparison.Ordinal) &&
+              runtime.Contains("VanillaDropdownCapsule", StringComparison.Ordinal) &&
+              runtime.Contains("ProfessionFrameUiLaw.SubClassDropDown",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("ProfessionFrameUiLaw.InvSlotDropDown",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("DropdownCapsuleUiLaw.RowCheck", StringComparison.Ordinal) &&
+              runtime.Contains("DropdownCapsuleUiLaw.RowSound", StringComparison.Ordinal) &&
+              runtime.Contains("WowSkin.Dialog", StringComparison.Ordinal) &&
               runtime.Contains("groupKeys.All(_professionCollapsedGroups.Contains)",
                   StringComparison.Ordinal) &&
               !runtime.Contains("anyCollapsed", StringComparison.Ordinal) &&
+              !runtime.Contains("VanillaButton(dl, \"##profession-subclass-filter\"",
+                  StringComparison.Ordinal) &&
+              !runtime.Contains("VanillaButton(dl, \"##profession-inventory-filter\"",
+                  StringComparison.Ordinal) &&
               runtime.Contains("ProfessionFrameUiLaw.BottomLeftArtFor(tradeSkill)",
                   StringComparison.Ordinal) &&
               runtime.Contains("GameText.DrawCentered(dl, ProfessionFrameUiLaw.TitleFont",

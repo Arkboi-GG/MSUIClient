@@ -35,11 +35,12 @@ public sealed partial class GameLoop
         // This makes repeat requests a complete close/request/open transition, and an invalid
         // replacement request cannot leave stale equipment visible.
         if (_inspectOpen) CloseInspect(playSound: true);
-        if (_net is null || _controller is null ||
+        if (_net is null || !CanAuthorControlledGameplay ||
+            !TryGetControlledBodyPose(out WorldBodyPose controlledBody) ||
             !_entities.TryGet(guid, out WorldEntity unit)) return false;
         bool canInspect = InspectUiLaw.CanInspect(
             unit.IsPlayer, guid == ControlledGuid, CanAttack(unit),
-            Vector3.DistanceSquared(_controller.Position, unit.Position));
+            Vector3.DistanceSquared(controlledBody.Position, unit.Position));
         if (!canInspect) return false;
 
         if (!_net.Inspect(guid)) return false;

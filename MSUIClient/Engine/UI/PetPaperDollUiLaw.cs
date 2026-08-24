@@ -159,6 +159,13 @@ public static class PetPaperDollUiLaw
     /// </summary>
     public static uint CreatureSkill(uint level) => level * 5;
 
+    /// <summary>
+    /// The reference only assigns PetLevelText after UnitCreatureFamily succeeds. A pet whose
+    /// family has not resolved yet therefore has a blank level line, not a bare "Level N".
+    /// </summary>
+    public static string LevelText(uint level, string? family) =>
+        string.IsNullOrWhiteSpace(family) ? "" : $"Level {level} {family.Trim()}";
+
     public static string LoyaltyName(byte level) => level switch
     {
         1 => "Rebellious",

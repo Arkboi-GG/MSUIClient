@@ -166,6 +166,9 @@ public sealed partial class GameLoop
     /// </summary>
     private bool FireMountKitSlot(int index)
     {
+        // The kit is a local physical controller effect. In Free View the controller is the
+        // observer rig, so firing it must fall through instead of dashing or aiming the camera.
+        if (!ControllerOwnsControlledBodyPose) return false;
         var kit = CurrentMountKit();
         if (kit is null || index < 0 || index >= kit.Count) return false;
         var slot = kit[index];

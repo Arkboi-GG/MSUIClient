@@ -79,6 +79,7 @@ public sealed partial class GameLoop
     {
         if (_freeView == up) return;
         _freeView = up;
+        RefreshLootKneel();
         _freeViewExitRequested = false;
         // A vanilla world map left open would hijack the whole HUD via its
         // fullscreen early-return; the free view has its own map (M → commander).
@@ -140,8 +141,17 @@ public sealed partial class GameLoop
             ? _freecamSelection[0]
             : ControlledGuid;
 
-    /// <summary>Free-view inspection shows another unit's bars; they must never act.</summary>
-    private bool BarsReadOnly => BarsGuid != ControlledGuid;
+    /// <summary>
+    /// Whether a real unit, rather than the observer or a pending hand-off, owns direct action
+    /// authoring. Possession remains actionable from the sky by design; plain FreeCam commands
+    /// the party only through the explicit SUI order route.
+    /// </summary>
+    private bool CanAuthorControlledGameplay =>
+        _controlState == ControlState.Possessing ||
+        _controlState == ControlState.OwnChar && !_freeView;
+
+    /// <summary>Inspection and observer bars display state but never author gameplay.</summary>
+    private bool BarsReadOnly => BarsGuid != ControlledGuid || !CanAuthorControlledGameplay;
 
     /// <summary>
     /// Divinity-style cutaway subject: the commanded toon's position (eye height
@@ -165,6 +175,64 @@ public sealed partial class GameLoop
     /// nobody is looking at and the commanded toon casts without moving a muscle.
     /// </summary>
     private bool ControlledBodyIsStreamed => _freeView;
+
+    private readonly record struct WorldBodyPose(Vector3 Position, float Orientation);
+
+    /// <summary>
+    /// True only while the controller is physically driving the controlled body. Free View,
+    /// pending hand-offs, parked movement, and fly rigs all leave body pose on the entity stream.
+    /// </summary>
+    private bool ControllerOwnsControlledBodyPose =>
+        _controller is not null &&
+        WorldBodyPoseLaw.ControllerOwnsPose(
+            _freeView,
+            _controlState is ControlState.OwnChar or ControlState.Possessing,
+            queriedControlledBody: true,
+            controllerMovementAuthoritative:
+                !_movementSender.Parked && !_controller.Flying);
+
+    /// <summary>
+    /// Resolve a unit's actual world pose without ever substituting the observer camera.
+    ///
+    /// There are deliberately two identities above this primitive:
+    /// <see cref="ControlledGuid"/> is the combat/action body, while
+    /// <see cref="LocalPlayerGuid"/> is the logged-in session body that owns loot, quests,
+    /// mail, NPC services, resurrection, and other non-proxied interactions. Both identities
+    /// use this same pose rule. Only a stably embodied controlled unit may read the controller;
+    /// pending SUI states and Free View read the streamed entity instead.
+    /// </summary>
+    private bool TryGetWorldBodyPose(ulong guid, out WorldBodyPose pose)
+    {
+        if (guid != 0 && guid == ControlledGuid && ControllerOwnsControlledBodyPose &&
+            _controller is { } bodyController)
+        {
+            pose = new(bodyController.Position, bodyController.Yaw);
+            return true;
+        }
+
+        if (guid != 0 && _entities.TryGet(guid, out WorldEntity body))
+        {
+            pose = new(body.Position, body.Orientation);
+            return true;
+        }
+
+        // Creator Free View has no server stream. The body remains exactly where the observer
+        // detached from it; the fly rig must still never become its interaction pose.
+        if (_net is null && _freeView && guid == CreatorLocalGuid)
+        {
+            pose = new(_creatorFreeViewReturn, _creatorFreeViewReturnYaw);
+            return true;
+        }
+
+        pose = default;
+        return false;
+    }
+
+    private bool TryGetControlledBodyPose(out WorldBodyPose pose) =>
+        TryGetWorldBodyPose(ControlledGuid, out pose);
+
+    private bool TryGetSessionBodyPose(out WorldBodyPose pose) =>
+        TryGetWorldBodyPose(LocalPlayerGuid, out pose);
 
     /// <summary>
     /// The store the action-bar/spellbook/talent UI reads. Deliberately keeps the historical
@@ -197,6 +265,11 @@ public sealed partial class GameLoop
         ResetRtsControlGroups();
         PurgeSuiSnapshot();
         _movementSender.Parked = false;
+        // Session loss has no later seating edge from which to adopt a body.
+        // Drop every per-mover grant/override now so the next character cannot
+        // inherit root, water-walk, hover, or a stale aura/mount speed table.
+        ResetMovementModes();
+        ResetControlledSpeeds();
         _walkToggled = false;
         _autorunToggled = false;
         if (_controller is not null) _controller.Flying = false;
@@ -632,6 +705,8 @@ public sealed partial class GameLoop
             if (_controller is not null) _controller.Flying = false;
             if (_character is not null) _character.Enabled = true;
             _movementSender.Parked = false;
+            AdoptControlledMovementModes();
+            AdoptControlledSpeeds();
         }
         _net?.SetActiveMover(LocalPlayerGuid);
         EnterPlayerAuraWorld(LocalPlayerGuid);
@@ -667,6 +742,11 @@ public sealed partial class GameLoop
         if (!_entities.TryGet(ControlledGuid, out WorldEntity driven)) return;
         driven.Position = _controller.Position;
         driven.Orientation = _controller.Yaw;
+        // A control/free-view hand-off also changes who owns transport composition. Preserve
+        // the embodied mover's rider-local tail on the streamed entity before the controller
+        // becomes an observer rig; otherwise ReconcileControlledTransportRider clears its
+        // private cache and a NEW_WORLD boat seam has no honest local frame to compose.
+        driven.Transport = _controller.Transport;
     }
 
     /// <summary>
@@ -702,6 +782,8 @@ public sealed partial class GameLoop
         _walkToggled = false;
         _autorunToggled = false;
         if (_controller is not null) _controller.Flying = false;   // exits the free-view fly rig
+        AdoptControlledMovementModes();
+        AdoptControlledSpeeds();
         if (_character is not null) _character.Enabled = true;
         _controller?.Teleport(x, y, z);
         if (_controller is not null) _controller.Yaw = o;
@@ -904,6 +986,8 @@ public sealed partial class GameLoop
                 if (_controller is not null) _controller.Flying = false;
                 if (_character is not null) _character.Enabled = true;
                 _movementSender.Parked = false;
+                AdoptControlledMovementModes();
+                AdoptControlledSpeeds();
             }
             ApplyControlledCharacter();
             AddChatMessage($"You take control of {ResolveUnitName(_controlTargetGuid)}.");

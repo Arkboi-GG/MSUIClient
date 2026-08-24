@@ -1287,16 +1287,59 @@ public sealed partial class GameLoop
             MinimapZonePvpInfo pvp = ResolveAreaPvp(zonePlayer, areaId, zoneId);
             UpdateZoneTextIdentity(new(zoneId, zoneText, subZoneText, interior is not null), pvp);
         }
-        if (zoneId == 0 || zoneId == _minimapReportedZoneId) return;
-        _minimapReportedZoneId = zoneId;
-        _net?.ZoneUpdate(zoneId);
+        // The minimap deliberately follows the commanded body, but
+        // CMSG_ZONEUPDATE belongs to the logged-in session character. During
+        // possession/Free View those are different roles; reporting this
+        // displayed zone would move session-owned PvP/rest/zone bookkeeping to
+        // wherever the bot or observer happens to be.
+        uint reportedZoneId = ResolveSessionBodyZone(zoneId);
+        if (reportedZoneId == 0 || reportedZoneId == _minimapReportedZoneId) return;
+        _minimapReportedZoneId = reportedZoneId;
+        _net?.ZoneUpdate(reportedZoneId);
         EmitInterface("minimap", "area", "UPDATED", _net?.PlayerGuid ?? 0,
             $"map={mapName};tile={projection.TileColumn}|{projection.TileRow};" +
             $"chunk={projection.ChunkX}|{projection.ChunkY};area={areaId};" +
             (interior is not { } logInterior ? "" :
                 $"wmo={logInterior.RootWmoId}/{logInterior.NameSetId}/{logInterior.GroupWmoId};") +
-            $"subZone={_areas?.AreaName(areaId)};zone={zoneId}");
-        Console.WriteLine($"[minimap] area={areaId} '{_areas?.AreaName(areaId)}' zone={zoneId}");
+            $"subZone={_areas?.AreaName(areaId)};displayZone={zoneId};" +
+            $"reportedSessionZone={reportedZoneId}");
+        Console.WriteLine($"[minimap] area={areaId} '{_areas?.AreaName(areaId)}' " +
+                          $"displayZone={zoneId} reportedSessionZone={reportedZoneId}");
+    }
+
+    /// <summary>
+    /// Resolve the zone the session-owned wire may report. The displayed zone
+    /// is already exact when the controller embodies the own character; every
+    /// detached/possessed state resolves from the streamed session body.
+    /// </summary>
+    private uint ResolveSessionBodyZone(uint displayedZoneId)
+    {
+        if (ControlledGuid == LocalPlayerGuid && ControllerOwnsControlledBodyPose)
+            return displayedZoneId;
+        if (!TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return 0;
+
+        Vector3 position = sessionBody.Position;
+        Vector3 probe = position + new Vector3(0f, 0f, 1.7f);
+        float? terrainZ = _terrain?.SampleHeight(probe.X, probe.Y);
+        uint areaId = 0;
+
+        if (_wmo?.ResolveAreaMinimapIdentity(position, terrainZ) is { } interior)
+        {
+            EnsureWmoAreaTableForMinimap();
+            areaId = _wmoAreas?.Resolve(
+                interior.RootWmoId, interior.NameSetId, interior.GroupWmoId)?.AreaTableId ?? 0;
+        }
+
+        if (areaId == 0)
+        {
+            MinimapProjection projection = MinimapProjection.FromWorld(position);
+            if (_adts?.TryPeek(projection.TileColumn, projection.TileRow, out var adt) == true)
+                areaId = projection.AreaId(adt);
+        }
+
+        if (areaId == 0) return 0;
+        uint zoneId = _areas?.ParentZoneId(areaId) ?? 0;
+        return zoneId != 0 ? zoneId : areaId;
     }
 
     private MinimapZonePvpInfo ResolveAreaPvp(WorldEntity player, uint leafArea, uint zoneArea)

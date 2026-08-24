@@ -27,7 +27,7 @@ internal static class LootFrameClinicalChecks
               LootFrameUiLaw.TitleCenter == new System.Numerics.Vector2(116, 26) &&
               LootFrameUiLaw.Row(0) == new LootFrameUiLaw.LogicalRect(24, 80, 160, 37) &&
               LootFrameUiLaw.Row(3) == new LootFrameUiLaw.LogicalRect(24, 203, 160, 37) &&
-              LootFrameUiLaw.ItemTooltipSeat(
+              LootFrameUiLaw.RowTooltipSeat(
                   new System.Numerics.Vector2(24, 80), 2) ==
                   new LootFrameUiLaw.TooltipSeat(
                       new System.Numerics.Vector2(98, 80),
@@ -124,10 +124,18 @@ internal static class LootFrameClinicalChecks
                   StringComparison.Ordinal) &&
               runtime.Contains("LootFrameUiLaw.ClickAction", StringComparison.Ordinal) &&
               runtime.Contains("LootFrameUiLaw.ItemLink", StringComparison.Ordinal) &&
-              runtime.Contains("LootFrameUiLaw.ItemTooltipSeat(rowMin, s)",
+              runtime.Contains("LootFrameUiLaw.RowTooltipSeat(rowMin, s)",
                   StringComparison.Ordinal) &&
               runtime.Contains("nextWindowPivot: tooltipSeat.Pivot",
                   StringComparison.Ordinal) &&
+              runtime.Contains("new(\"loot-coin-row\", (ulong)visual)",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("new(row.Name, GameTooltipTextTone.White)",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("OfferOwnerAnchoredSharedGameTooltip(",
+                  StringComparison.Ordinal) &&
+              !runtime.Contains("ImGui.BeginTooltip", StringComparison.Ordinal) &&
+              !runtime.Contains("ImGui.SetTooltip", StringComparison.Ordinal) &&
               runtime.Contains("InsertChatText(itemLink)", StringComparison.Ordinal) &&
               runtime.Contains(".OverlayPath", StringComparison.Ordinal) &&
               !runtime.Contains("new Vector2", StringComparison.Ordinal) &&

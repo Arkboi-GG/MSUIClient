@@ -22,6 +22,14 @@ public sealed partial class GameLoop
     private bool _castMovementWasActive;
     private readonly HashSet<(ulong Unit, uint Spell)> _activeAuraStateFx = [];
     private readonly Dictionary<ulong, uint> _activeObservedChannels = [];
+    private readonly HashSet<ulong> _lootableCorpseVisualsSeen = [];
+    private readonly HashSet<ulong> _activeLootableCorpseFx = [];
+
+    // Hardcoded effects are client-owned rather than real spell casts. Give the
+    // persistent corpse sparkle its own AuraState key so BeginCast cannot sweep
+    // it together with a unit's precast/channel hold.
+    private const uint LootableCorpseVisualKey = uint.MaxValue;
+    private const uint UnitLevelUpVisualKey = uint.MaxValue - 1;
 
     private void ApplySpellStart(SpellStartPacket packet)
     {
@@ -158,7 +166,7 @@ public sealed partial class GameLoop
     {
         if (!missed) { ApplySpellImpact(target, spellId, visual); return; }
         if (reason is not (3 or 5)) return; // Benilla: Dodge and Block only.
-        if (_net is not null && target == ControlledGuid)
+        if (_net is not null && target == ControlledGuid && !ControlledBodyIsStreamed)
             _character?.TriggerCombatReaction(reason, landedHit: false);
         else _creatures?.TriggerCombatReaction(target, reason, landedHit: false);
     }
@@ -258,7 +266,7 @@ public sealed partial class GameLoop
     /// </summary>
     private bool TryCancelSpellOnEscape()
     {
-        if (_net is not { IsInWorld: true }) return false;
+        if (!CanAuthorControlledGameplay || _net is not { IsInWorld: true }) return false;
         if (_autoRepeatSpell != 0)
         {
             _net.CancelAutoRepeat();
@@ -315,6 +323,7 @@ public sealed partial class GameLoop
     private void UpdateSpellPresentation()
     {
         double now = NowSeconds();
+        UpdateLootableCorpseVisuals(now);
         _spellEffects?.Tick(now, SpellEffectUnitPose);
         UpdateAuraStateVisuals(now);
         UpdateObservedChannels(now);
@@ -335,6 +344,57 @@ public sealed partial class GameLoop
         }
         if (_castBarPhase is CastBarPhase.Success or CastBarPhase.Failed && now >= _castBarDisplayUntil)
             _castBarPhase = CastBarPhase.Hidden;
+    }
+
+    /// <summary>
+    /// Benilla's client-owned corpse effect. Loot art follows the viewer-filtered
+    /// UNIT_DYNFLAG_LOOTABLE bit for exactly as long as the corpse is lootable.
+    /// </summary>
+    private void UpdateLootableCorpseVisuals(double now)
+    {
+        if (_spellEffects is null || _spellVisualCatalog is null) return;
+
+        _lootableCorpseVisualsSeen.Clear();
+        foreach (WorldEntity unit in _entities.Units)
+        {
+            ulong guid = unit.Guid;
+            _lootableCorpseVisualsSeen.Add(guid);
+
+            bool wantsLootArt = unit.Fields.ReadsDead && unit.Fields.Lootable;
+            if (wantsLootArt && !_activeLootableCorpseFx.Contains(guid) &&
+                _spellVisualCatalog.TryGetHardcodedEffect(
+                    SpellVisualCatalog.HardcodedLootArt, out string lootPath))
+            {
+                var kit = new SpellVisualKitInfo(null, null,
+                    [new SpellVisualKitEffect(0x13, lootPath)], []);
+                if (_spellEffects.SpawnKit(guid, LootableCorpseVisualKey, kit,
+                        StageLife.AuraState, now, "HARDCODED_LOOT") > 0)
+                    _activeLootableCorpseFx.Add(guid);
+            }
+            else if (!wantsLootArt && _activeLootableCorpseFx.Remove(guid))
+            {
+                _spellEffects.Reap(guid, LootableCorpseVisualKey, StageLife.AuraState);
+            }
+
+        }
+
+        foreach (ulong guid in _activeLootableCorpseFx
+                     .Where(guid => !_lootableCorpseVisualsSeen.Contains(guid)).ToArray())
+        {
+            _activeLootableCorpseFx.Remove(guid);
+            _spellEffects.Reap(guid, LootableCorpseVisualKey, StageLife.AuraState);
+        }
+    }
+
+    private void PlayHardcodedUnitLevelUp(ulong guid, uint level)
+    {
+        if (level == 0 || _spellEffects is null || _spellVisualCatalog is null ||
+            !_spellVisualCatalog.TryGetHardcodedEffect(
+                SpellVisualCatalog.HardcodedUnitLevelUp, out string levelPath)) return;
+        var kit = new SpellVisualKitInfo(null, null,
+            [new SpellVisualKitEffect(0x13, levelPath)], []);
+        _spellEffects.SpawnKit(guid, UnitLevelUpVisualKey, kit,
+            StageLife.SelfTerminating, NowSeconds(), "HARDCODED_LEVEL_UP");
     }
 
     private long PlaySpellSound(ulong unit, uint? soundId, bool forceLoop = false,
@@ -485,7 +545,7 @@ public sealed partial class GameLoop
         if (_spellVisualCatalog?.TryGetKit(kitId, out SpellVisualKitInfo kit) != true) return;
         _spellEffects?.SpawnKit(unit, 0, kit, persistent: false, NowSeconds(), "PUSHED");
         PlaySpellSound(unit, kit.Sound);
-        if (_net is not null && unit == ControlledGuid)
+        if (_net is not null && unit == ControlledGuid && !ControlledBodyIsStreamed)
             _character?.ReleaseSpellVisual(kit.AnimationId);
         else
             _creatures?.ReleaseSpellVisual(unit, kit.AnimationId);
@@ -661,8 +721,11 @@ public sealed partial class GameLoop
 
     private bool TryUnitPosition(ulong guid, out Vector3 position)
     {
-        if (guid == ControlledGuid && _controller is not null)
-        { position = _controller.Position; return true; }
+        if (guid == ControlledGuid && TryGetWorldBodyPose(guid, out WorldBodyPose bodyPose))
+        {
+            position = bodyPose.Position;
+            return true;
+        }
         if (_entities.TryGet(guid, out WorldEntity unit))
         {
             position = unit.Type == ObjectTypeId.DynamicObject
@@ -677,7 +740,7 @@ public sealed partial class GameLoop
         // The first-person body's pose is the CONTROLLER's — which in the free view is the
         // fly rig, i.e. the middle of the screen. A spell cast from up there has to come out
         // of the caster standing in the world, so fall through to its streamed pose.
-        if (guid == ControlledGuid && _controller is not null && !_freeView)
+        if (guid == ControlledGuid && ControllerOwnsControlledBodyPose)
             return _character?.SpellPose(BuildUnitState()) ?? SpellUnitPose.Missing;
         if (_creatures?.TryGetSpellPose(guid, out SpellUnitPose pose) == true)
             return pose;
@@ -888,7 +951,8 @@ public sealed partial class GameLoop
         if (_spellVisualCatalog?.TryGetStages(info.Value.VisualId, out _) == true ||
             !info.Value.Ranged) return info.Value.VisualId;
         uint display = 0;
-        if (_net is not null && caster == ControlledGuid && _character is not null)
+        if (_net is not null && caster == ControlledGuid &&
+            !ControlledBodyIsStreamed && _character is not null)
             display = _character.Equipment.Pieces.LastOrDefault(p =>
                 p.EquipmentSlot == 17 || p.InventoryType is 15 or 25 or 26)?.DisplayId ?? 0;
         else if (_entities.TryGet(caster, out WorldEntity unit))

@@ -66,7 +66,7 @@ public sealed partial class GameLoop
     private bool SpendTalent(uint talentId)
     {
         // CMSG_LEARN_TALENT acts on the session character; a possessed bot's tree is read-only.
-        if (ControlledGuid != LocalPlayerGuid) return false;
+        if (!CanAuthorControlledGameplay || ControlledGuid != LocalPlayerGuid) return false;
         if (_net is null || _talents is null || !_talents.TryGet(talentId, out TalentInfo talent)) return false;
         int rank = TalentRank(talent);
         bool pass = TalentEligible(talent, out string reason);
@@ -127,7 +127,8 @@ public sealed partial class GameLoop
 
     private bool ConfirmTalentWipe()
     {
-        if (_net is null || _talentWipeTrainer == 0) return false;
+        if (!CanAuthorControlledGameplay || ControlledGuid != LocalPlayerGuid ||
+            _net is null || _talentWipeTrainer == 0) return false;
         byte[] body = WorldSession.BuildTalentWipeBody(_talentWipeTrainer);
         _net.ConfirmTalentWipe(_talentWipeTrainer);
         EmitInterface("talent", "unlearn-confirm", "SENT", _talentWipeTrainer,
@@ -294,7 +295,7 @@ public sealed partial class GameLoop
         foreach (TalentInfo talent in visibleTalents)
         {
             int rank = TalentRank(talent);
-            bool eligible = TalentEligible(talent, out string reason);
+            bool eligible = TalentEligible(talent, out _);
             SpellInfo? spell = _spellCatalog?.TryGet(
                 talent.RankSpells[Math.Min(rank, talent.RankSpells.Length - 1)], out SpellInfo si) == true ? si : null;
             string name = spell?.Name ?? $"Talent {talent.Id}";
@@ -345,15 +346,52 @@ public sealed partial class GameLoop
                 DrawArt(dl, @"Interface\Buttons\ButtonHilight-Square", min,
                     buttonRect.Size, s);
             if (ImGui.IsItemClicked() && eligible) SpendTalent(talent.Id);
-            if (ImGui.IsItemHovered())
+            if (ImGui.IsItemHovered() && _skin is { } talentTooltipSkin)
             {
                 TalentFrameUiLaw.TooltipSeat tooltipSeat =
                     TalentFrameUiLaw.TalentTooltipSeat(min, buttonRect.Size * s);
-                ImGui.SetNextWindowPos(tooltipSeat.Anchor, ImGuiCond.Always,
-                    tooltipSeat.Pivot);
-                ImGui.BeginTooltip(); ImGui.TextUnformatted(name);
-                ImGui.TextUnformatted($"Rank {rank}/{talent.RankSpells.Length}");
-                if (!eligible) ImGui.TextDisabled(reason); ImGui.EndTooltip();
+                uint casterLevel = entity?.Level ?? 0;
+                SpellTooltipView displayTooltip = spell is SpellInfo displaySpell
+                    ? SpellTooltipLaw.Build(displaySpell, _spellCatalog!, casterLevel)
+                    : new(name, "", null, null, null, null, "");
+                string? nextRankDescription = null;
+                if (rank > 0 && rank < talent.RankSpells.Length &&
+                    _spellCatalog?.TryGet(talent.RankSpells[rank], out SpellInfo nextSpell) == true)
+                    nextRankDescription = SpellTooltipLaw.Build(nextSpell,
+                        _spellCatalog, casterLevel).Description;
+
+                bool requiredSpellMet = talent.RequiredSpell == 0 ||
+                    _actions.KnownSpells.Contains(talent.RequiredSpell);
+                string? requiredSpellName = talent.RequiredSpell != 0 &&
+                    _spellCatalog?.TryGet(talent.RequiredSpell, out SpellInfo requiredSpell) == true
+                    ? requiredSpell.Name : null;
+                string? prerequisiteName = null;
+                int prerequisiteRank = 0;
+                int learnedPrerequisiteRank = 0;
+                if (talent.DependsOn != 0 &&
+                    _talents.TryGet(talent.DependsOn, out TalentInfo prerequisite))
+                {
+                    prerequisiteRank = checked((int)talent.DependsOnRank + 1);
+                    learnedPrerequisiteRank = TalentRank(prerequisite);
+                    if (prerequisite.RankSpells.Length > 0 &&
+                        _spellCatalog?.TryGet(prerequisite.RankSpells[0],
+                            out SpellInfo prerequisiteSpell) == true)
+                        prerequisiteName = prerequisiteSpell.Name;
+                }
+                string[] requirements = TalentFrameUiLaw.TalentTooltipRequirements(
+                    active.Name, checked((int)talent.Row * 5), tabSpent,
+                    requiredSpellName, requiredSpellMet, prerequisiteName,
+                    prerequisiteRank, learnedPrerequisiteRank);
+                TalentFrameUiLaw.TalentTooltipRow[] tooltipRows =
+                    TalentFrameUiLaw.TalentTooltipRows(displayTooltip, rank,
+                        talent.RankSpells.Length, requirements, nextRankDescription,
+                        TalentFrameUiLaw.ShowTalentLearnHint(TalentPoints(), rank,
+                            talent.RankSpells.Length));
+                Vector2 tooltipDisplay = ImGui.GetIO().DisplaySize;
+                var tooltipOwner = new GameTooltipOwnerKey("talent-button", talent.Id);
+                OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
+                    DrawTalentTooltip(tooltipRows, talentTooltipSkin, s,
+                        tooltipSeat, tooltipDisplay));
             }
         }
         dl.PopClipRect();
@@ -407,6 +445,88 @@ public sealed partial class GameLoop
         if (ImGui.IsItemClicked()) _talentOpen = false;
         if (_uiParityArmed && _uiParityPanel == "talent-frame") MarkUiParityFrameComplete();
         ImGui.End();
+    }
+
+    private void DrawTalentTooltip(
+        TalentFrameUiLaw.TalentTooltipRow[] sourceRows,
+        WowSkin skin,
+        float scale,
+        in TalentFrameUiLaw.TooltipSeat seat,
+        Vector2 displaySize)
+    {
+        var rows = new List<TooltipPaintRow>(sourceRows.Length + 4);
+        foreach (TalentFrameUiLaw.TalentTooltipRow source in sourceRows)
+        {
+            if (!source.Wrap)
+            {
+                rows.Add(new(source.Left, source.Right, source.FontObject,
+                    source.Color, rows.Count > 0));
+                continue;
+            }
+
+            bool first = true;
+            foreach (string line in WrapTooltipText(source.Left, source.FontObject,
+                         scale, SpellTooltipLaw.WrapWidth * scale))
+            {
+                rows.Add(new(line, null, source.FontObject, source.Color,
+                    first && rows.Count > 0));
+                first = false;
+            }
+        }
+
+        float contentWidth = 0f;
+        float rowStackHeight = 0f;
+        foreach (TooltipPaintRow row in rows)
+        {
+            float rowWidth = GameText.MeasureWidth(row.FontObject, row.Left, scale);
+            if (!string.IsNullOrEmpty(row.Right))
+                rowWidth += SpellTooltipLaw.DoubleGap * scale +
+                    GameText.MeasureWidth(row.FontObject, row.Right, scale);
+            contentWidth = MathF.Max(contentWidth, rowWidth);
+            rowStackHeight += GameText.LinePitch(row.FontObject, scale);
+            if (row.GapBefore) rowStackHeight += SpellTooltipLaw.LineGap * scale;
+        }
+        Vector2 size = SpellTooltipLaw.FrameSize(contentWidth, rowStackHeight, scale);
+        Vector2 position = TalentFrameUiLaw.TalentTooltipOrigin(
+            seat, size, displaySize, scale);
+
+        ImGui.SetNextWindowPos(position, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        if (ImGui.Begin("##talent-tooltip",
+            ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground |
+            ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoInputs))
+        {
+            ImDrawListPtr draw = ImGui.GetWindowDrawList();
+            float savedScale = skin.Scale;
+            try
+            {
+                skin.Scale = scale;
+                skin.DrawBackdrop(draw, position, position + size, WowSkin.Tooltip,
+                    new(.09f, .09f, .19f, 1f), Vector4.One);
+            }
+            finally
+            {
+                skin.Scale = savedScale;
+            }
+
+            float y = position.Y + SpellTooltipLaw.Pad * scale;
+            foreach (TooltipPaintRow row in rows)
+            {
+                if (row.GapBefore) y += SpellTooltipLaw.LineGap * scale;
+                GameText.Draw(draw, row.FontObject, row.Left,
+                    SpellTooltipLaw.LeftTextPosition(position, y, scale), scale, row.Color);
+                if (!string.IsNullOrEmpty(row.Right))
+                    GameText.DrawRightAligned(draw, row.FontObject, row.Right,
+                        SpellTooltipLaw.RightTextPosition(position, size, y, scale),
+                        scale, row.Color);
+                y += GameText.LinePitch(row.FontObject, scale);
+            }
+        }
+        ImGui.End();
+        ImGui.PopStyleVar();
     }
 
     private void DrawTalentScrollBar(ImDrawListPtr dl, Vector2 origin, float s)

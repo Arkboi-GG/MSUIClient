@@ -136,7 +136,9 @@ public sealed partial class GameLoop
                 origin + HelpFrameUiLaw.TicketSubmit.Min * s,
                 HelpFrameUiLaw.TicketSubmit.Size, s, hasText))
         {
-            uint map = _net?.Player?.Map ?? 0; Vector3 pos = _controller?.Position ?? Vector3.Zero;
+            uint map = _net?.Player?.Map ?? 0;
+            Vector3 pos = TryGetSessionBodyPose(out WorldBodyPose sessionBody)
+                ? sessionBody.Position : Vector3.Zero;
             _net?.GmTicketCreate(_helpTicketType, map, pos, _helpTicketText);
         }
         if (VanillaButton(dl, "##ticket-delete", "Delete Ticket",

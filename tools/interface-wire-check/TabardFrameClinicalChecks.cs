@@ -31,9 +31,16 @@ internal static class TabardFrameClinicalChecks
         string root = ClientConfig.FindRepoRoot();
         string source = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Tabard.cs"));
+        string program = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.cs"));
         Check(source.Contains("TabardFrameUiLaw.Frame.Min", StringComparison.Ordinal) &&
               source.Contains("TabardFrameUiLaw.Selector(i)", StringComparison.Ordinal) &&
               source.Contains("TabardFrameUiLaw.Accept.Min", StringComparison.Ordinal) &&
+              source.Contains("TryGetSessionBodyPose(out WorldBodyPose sessionBody)",
+                  StringComparison.Ordinal) &&
+              source.Contains("_tabardOpen && TabardDesignerEligible(",
+                  StringComparison.Ordinal) &&
+              source.Contains("UpdateTabardLifecycle()", StringComparison.Ordinal) &&
+              program.Contains("UpdateTabardLifecycle();", StringComparison.Ordinal) &&
               !source.Contains("new Vector2(0, 104)", StringComparison.Ordinal) &&
               !source.Contains("new Vector2(218, y + 8)", StringComparison.Ordinal) &&
               !source.Contains("new Vector2(323, 8)", StringComparison.Ordinal),

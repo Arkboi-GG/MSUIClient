@@ -20,7 +20,7 @@ public sealed partial class GameLoop
     private uint _draggingSpellId;
     private Vector2 _spellPressPosition;
     private PreparedSharedSpellTooltip? _hoveredSpellTooltip;
-    private bool _spellbookFontCalibrationOpen = true;
+    private bool _spellbookFontCalibrationOpen;
     private bool _spellbookFontCalibrationKeyDown;
     private bool _spellbookFontPixelSnap = true;
     // Diagnostic multiplier on the gameplay text scale, F6 panel only. 1.0 is the derived law
@@ -187,7 +187,9 @@ public sealed partial class GameLoop
             OfferPreservedSharedGameTooltipRenderer(prepared.Owner,
                 () => DrawSpellTooltip(prepared.Snapshot));
         }
-        if (_config.DevTools && _spellbookFontCalibrationOpen)
+        // Diagnostic pop-outs belong to the F1 master stack too: opening the
+        // ordinary spellbook must never manufacture a debug window at startup.
+        if (_config.DevTools && _devOverlayVisible && _spellbookFontCalibrationOpen)
             DrawSpellbookFontCalibration(p, s);
 
         if (_pressedSpellId != 0 && ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
@@ -251,7 +253,7 @@ public sealed partial class GameLoop
 
     private void CastPetBookSpell(uint packed, in SpellInfo spell, WorldEntity? pet)
     {
-        if (_petGuid == 0 || spell.Passive) return;
+        if (!CanAuthorControlledGameplay || _petGuid == 0 || spell.Passive) return;
         if (IsPetSpellShowingActive(packed, spell, pet))
         {
             _net?.PetCancelAura(_petGuid, spell.Id);
@@ -263,7 +265,7 @@ public sealed partial class GameLoop
 
     private void TogglePetBookAutocast(uint spellId)
     {
-        if (_petGuid == 0 || !PetSpellBookUiLaw.TryToggleAutocast(
+        if (!CanAuthorControlledGameplay || _petGuid == 0 || !PetSpellBookUiLaw.TryToggleAutocast(
                 _petBookSpells, _petActions, spellId, out bool enabled)) return;
         _net?.PetSpellAutocast(_petGuid, spellId, enabled);
     }

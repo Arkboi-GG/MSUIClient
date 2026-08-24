@@ -19,4 +19,17 @@ public static class ClientControlUpdateLaw
             (false, true) => Verdict.ForeignGranted,
             _ => Verdict.ForeignReleased,
         };
+
+    /// <summary>
+    /// Stock control statements own movement only while the client is ordinarily embodied as
+    /// its session character. SUI possession and Free View deliberately use the same server
+    /// SetClientControl machinery while routing input to a bot or detached camera instead.
+    /// </summary>
+    public static bool SuiOwnsRouting(bool freeView, bool ordinaryOwnCharacterState) =>
+        freeView || !ordinaryOwnCharacterState;
+
+    public static bool LocksCurrentMover(bool selfControlLost, bool freeView,
+        bool ordinaryOwnCharacterState, bool controllingSessionCharacter) =>
+        selfControlLost && controllingSessionCharacter &&
+        !SuiOwnsRouting(freeView, ordinaryOwnCharacterState);
 }

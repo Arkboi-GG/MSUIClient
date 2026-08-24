@@ -43,7 +43,7 @@
     "tools/interface-wire-check/PetPaperDollClinicalChecks.cs"
   ],
   "status": "complete",
-  "summary": "MSUI's already conditional Pet tab is no longer an empty generic page. PetPaperDollUiLaw seats the current 384x512 child page's pet-specific bottom quadrants, 318x224 model pane, 35px rotation controls, 319x11 purple XP bar and dwarf-notch overlay, paired 114x78 attribute plates, five primary and five combat rows, five resistance icons, hunter-only diet/training affordances, and 80x22 Close button. A dedicated appearance-keyed full-body creature render target supplies a live looping Stand model; PetPaperDollUiLaw owns its resume/stall-safe animation step as well as the pane geometry. Pet name, level/family, loyalty, XP, training points, stats and resistances come from live descriptors plus CreatureQuery/CreatureFamily/ItemPetFood data. Attack and Defense both use the reference CGUnit branch's level-times-five calculation with zero modifier; a pet has no player skill block to stream. Diet and all fifteen stat/resistance rows expose their exact rule-owned hit rectangles, reference-shaped content, and authored ANCHOR_RIGHT tooltip seats through shared tooltip arbitration. The protected player Character page tooltip placement remains unchanged. Pet loss while this page is selected closes the character window as the reference does. Focused and complete interface clinical checks pass; live verification remains.",
+  "summary": "MSUI's already conditional Pet tab is no longer an empty generic page. PetPaperDollUiLaw seats the current 384x512 child page's pet-specific bottom quadrants, 318x224 model pane, 35px rotation controls, 319x11 purple XP bar and dwarf-notch overlay, paired 114x78 attribute plates, five primary and five combat rows, five resistance icons, hunter-only diet/training affordances, and 80x22 Close button. A dedicated appearance-keyed full-body creature render target supplies a live looping Stand model; PetPaperDollUiLaw owns its resume/stall-safe animation step as well as the pane geometry. Pet name, conditional level/family, loyalty, XP, training points, stats and resistances come from live descriptors plus CreatureQuery/CreatureFamily/ItemPetFood data; an unresolved family now leaves the level line blank exactly as the reference does. Attack and Defense both use the reference CGUnit branch's level-times-five calculation with zero modifier; a pet has no player skill block to stream. Diet and all fifteen stat/resistance rows expose their exact rule-owned hit rectangles, reference-shaped content, and authored ANCHOR_RIGHT tooltip seats through shared tooltip arbitration. The protected player Character page tooltip placement remains unchanged. Pet loss while this page is selected closes the character window as the reference does. Focused and complete interface clinical checks pass; live verification remains.",
   "openItems": [
     {
       "id": "item-msui-pet-paper-doll-tooltip-calculation-001",
@@ -82,6 +82,16 @@
       "resolution": "2026-08-23: PetPaperDollUiLaw now owns every pet-page art/UV rectangle and fixed text anchor. Pet name uses GameFontHighlight; level/loyalty follow their exact TOP chains; stat labels/values center in the 104x13 rows; resistance, training, XP and diet composition consume law seats. The protected player Character page presentation is unchanged. Focused PetPaperDoll and full interface-wire checks pass."
     },
     {
+      "id": "item-petpaperdoll-unresolved-family-level-gap-20260823",
+      "kind": "gap",
+      "text": "When CreatureQuery or CreatureFamily data had not resolved, MSUI displayed a bare 'Level N' pet line while the reference leaves PetLevelText blank behind its UnitCreatureFamily guard.",
+      "source": "benilla-b57ee0e9e2c8822b/PetPaperDollFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "PetPaperDollUiLaw now owns the conditional level/family projection: a resolved family produces 'Level N Family', while null or whitespace produces the reference blank line. The shared protected player Character page branch is unchanged. Focused and full interface-wire checks pass.",
+      "resolvedUtc": "2026-08-23T19:21:31Z"
+    },
+    {
       "id": "item-msui-pet-paper-doll-live-verify-001",
       "kind": "verify",
       "text": "Live-verify hunter pet and warlock minion paths at representative gameplay scales: conditional tab reflow, name/level/family/loyalty, full-body crop, continuously looping Stand animation and rotation, XP bar, stat plates and resistance UVs, training-point arithmetic, diet tooltip, both Close controls, painterly rebake, and pet-dismissal closure.",
@@ -103,6 +113,6 @@
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T17:24:00Z",
+  "lastReviewedUtc": "2026-08-23T19:21:31Z",
   "seededUtc": "2026-08-22T22:10:00Z"
 }

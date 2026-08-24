@@ -19,6 +19,7 @@ public sealed partial class GameLoop
 
     private void ShowPetAbandonPopup(ulong guid)
     {
+        if (!CanAuthorControlledGameplay) return;
         _petPopupGuid = guid;
         ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(
             _staticPopupSlots, PetMenuUiLaw.AbandonDefinition,
@@ -27,6 +28,7 @@ public sealed partial class GameLoop
 
     private void ShowPetRenamePopup(ulong guid)
     {
+        if (!CanAuthorControlledGameplay) return;
         _petPopupGuid = guid;
         ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(
             _staticPopupSlots, PetMenuUiLaw.RenameDefinition,
@@ -45,6 +47,7 @@ public sealed partial class GameLoop
     // ordinary edit popup hides.
     private void StartPetRenameConfirmation()
     {
+        if (!CanAuthorControlledGameplay) return;
         string name = PetRenameInput();
         _petRenameCandidate = name;
         ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(
@@ -95,6 +98,9 @@ public sealed partial class GameLoop
             return;
         }
         if (effect.Kind != StaticPopupCoordinatorLaw.EffectKind.Accept) return;
+        // A popup may have been opened while embodied and accepted after Ctrl+F detached.
+        // Revalidate at the irreversible packet tail, not only when the row was clicked.
+        if (!CanAuthorControlledGameplay) return;
         if (effect.Type == PetMenuUiLaw.AbandonPopupType)
             _net?.PetAbandon(_petPopupGuid);
         else if (effect.Type == PetMenuUiLaw.RenameConfirmPopupType)

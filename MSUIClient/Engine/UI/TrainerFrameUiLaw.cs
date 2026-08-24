@@ -69,7 +69,8 @@ public static class TrainerFrameUiLaw
             @"Interface\QuestFrame\UI-QuestLogSortTab-Right",
             new(61, 64, 8, 32)),
     ];
-    public static readonly LogicalRect Filter = new(245, 65, 96, 22);
+    public static readonly DropdownCapsuleUiLaw.Layout FilterDropDown =
+        DropdownCapsuleUiLaw.TopRight(Width, 26, 64, 96);
     public static readonly LogicalRect ListWheel = new(22, 96, 293, 184);
     public static readonly Vector2 HeaderTextOffset = new(22, 2);
     public static readonly Vector2 ScrollOrigin = new(310, 91);
@@ -85,8 +86,6 @@ public static class TrainerFrameUiLaw
     public static readonly LogicalRect Train = new(184, 409, 80, 22);
     public static readonly LogicalRect Exit = new(265, 409, 80, 22);
     public static readonly LogicalRect Close = new(322, 8, 32, 32);
-    public static readonly LogicalRect FilterMenu = new(224, 88, 126, 58);
-    public static readonly Vector2 FilterRowTextOffset = new(2, 1);
     public static readonly ArtPiece[] ShellArt =
     [
         new("ClassTrainerFrame/Texture",
@@ -168,9 +167,6 @@ public static class TrainerFrameUiLaw
     public static uint RowSubtextColor(byte state, bool selected, bool hovered) =>
         selected || hovered ? 0xffffffff : state == AvailableState ? 0xff009900 :
         state == UsedState ? 0xff808080 : 0xff000099;
-
-    public static LogicalRect FilterRow(int index) =>
-        new(3, 3 + Math.Clamp(index, 0, 2) * 17, 120, 16);
 
     public static Vector2 DetailMoneyAt(float labelWidth, float scale) =>
         DetailCostLabel + new Vector2(labelWidth / scale + MoneyGap, 0);

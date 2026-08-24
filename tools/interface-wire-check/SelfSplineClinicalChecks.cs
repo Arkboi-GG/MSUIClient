@@ -1,5 +1,6 @@
 using System.Numerics;
 using MSUIClient;
+using MSUIClient.Engine;
 using MSUIClient.Net;
 
 internal static class SelfSplineClinicalChecks
@@ -38,6 +39,20 @@ internal static class SelfSplineClinicalChecks
         Check(!running && endpoint == new Vector3(10, 0, 0) && ride.Id == 77,
             "self ride did not finish with the server's spline id at its endpoint");
 
+        Check(ServerRideOwnershipLaw.MayOwnController(
+                  freeView: false, ordinaryOwnCharacterState: true,
+                  controllingSessionCharacter: true) &&
+              !ServerRideOwnershipLaw.MayOwnController(
+                  freeView: true, ordinaryOwnCharacterState: true,
+                  controllingSessionCharacter: true) &&
+              !ServerRideOwnershipLaw.MayOwnController(
+                  freeView: false, ordinaryOwnCharacterState: false,
+                  controllingSessionCharacter: true) &&
+              !ServerRideOwnershipLaw.MayOwnController(
+                  freeView: false, ordinaryOwnCharacterState: true,
+                  controllingSessionCharacter: false),
+            "session-body spline escaped its ordinary own-character ownership boundary");
+
         string root = ClientConfig.FindRepoRoot();
         string taxi = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Taxi.cs"));
@@ -45,6 +60,12 @@ internal static class SelfSplineClinicalChecks
         string dispatch = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
             "GameLoop.Net.cs"));
         Check(taxi.Contains("ObserveServerRideSpline(MonsterMove move)", StringComparison.Ordinal) &&
+              taxi.Contains("move.Guid != _net.PlayerGuid || !ServerRideMayOwnController",
+                  StringComparison.Ordinal) &&
+              taxi.Contains("private void DiscardServerRideWithoutAck()",
+                  StringComparison.Ordinal) &&
+              taxi.Split("if (!ServerRideMayOwnController)",
+                  StringSplitOptions.None).Length >= 3 &&
               taxi.Contains("_serverRideStoppedId = move.SplineId", StringComparison.Ordinal) &&
               taxi.Contains("uint completedId = ride.Id", StringComparison.Ordinal) &&
               taxi.Contains("_net?.MoveSplineDone(movement, splineId)", StringComparison.Ordinal) &&

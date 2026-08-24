@@ -41,15 +41,30 @@ internal static class AuctionFrameClinicalChecks
         string root = ClientConfig.FindRepoRoot();
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Auction.cs"));
+        string program = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.cs"));
         Check(runtime.Contains("AuctionFrameUiLaw.FrameOrigin", StringComparison.Ordinal) &&
               runtime.Contains("AuctionFrameUiLaw.Art", StringComparison.Ordinal) &&
               runtime.Contains("AuctionFrameUiLaw.CategoryRow", StringComparison.Ordinal) &&
               runtime.Contains("AuctionFrameUiLaw.AuctionRow", StringComparison.Ordinal) &&
               runtime.Contains("AuctionFrameUiLaw.TabMin", StringComparison.Ordinal) &&
+              runtime.Contains("TryGetSessionBodyPose(out WorldBodyPose sessionBody)",
+                  StringComparison.Ordinal) &&
+              Count(runtime, "AuctionSessionInRange(out _)") >= 6 &&
+              runtime.Contains("UpdateAuctionLifecycle()", StringComparison.Ordinal) &&
+              program.Contains("UpdateAuctionLifecycle();", StringComparison.Ordinal) &&
               !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               !runtime.Contains("BeginChild(\"##auction-content\"", StringComparison.Ordinal) &&
               !runtime.Contains("ImGui.Selectable", StringComparison.Ordinal),
             "AuctionFrame renderer-local geometry or unreachable generic fallback returned");
+    }
+
+    private static int Count(string text, string needle)
+    {
+        int count = 0;
+        for (int at = 0; (at = text.IndexOf(needle, at, StringComparison.Ordinal)) >= 0;
+             at += needle.Length)
+            count++;
+        return count;
     }
 
     private static void Check(bool condition, string message)

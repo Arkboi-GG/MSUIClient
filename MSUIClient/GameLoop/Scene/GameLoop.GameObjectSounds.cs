@@ -1,6 +1,7 @@
 using System.Numerics;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Sound;
 
 namespace MSUIClient;
 
@@ -17,6 +18,11 @@ public sealed partial class GameLoop
     /// </summary>
     private void UpdateGameObjectSounds()
     {
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+        {
+            ResetGameObjectSoundState();
+            return;
+        }
         if (_gameObjectSounds is null) return;
         HashSet<ulong> seen = [];
         Vector3 listener = _controller?.Position ?? Vector3.Zero;

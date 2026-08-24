@@ -857,7 +857,11 @@ public sealed partial class GameLoop
                 origin + ProfessionFrameUiLaw.Exit.Min * s,
                 ProfessionFrameUiLaw.Exit.Size, s))
         {
-            if (_professionBatchRemaining > 0) { _professionBatchRemaining = 0; _net?.CancelCast(_professionCraftSpell); }
+            if (_professionBatchRemaining > 0)
+            {
+                _professionBatchRemaining = 0;
+                if (CanAuthorControlledGameplay) _net?.CancelCast(_professionCraftSpell);
+            }
             else CloseProfessionFrame();
         }
         DrawImageButton(dl, "##profession-close", origin + ProfessionFrameUiLaw.Close * s,
@@ -961,14 +965,18 @@ public sealed partial class GameLoop
         if (string.IsNullOrWhiteSpace(subclassCaption)) subclassCaption = "Other";
         string inventoryCaption = _professionInventorySlotFilter is int slotBit
             ? ProfessionFrameUiLaw.InventorySlotName(slotBit) : "All Slots";
-        if (VanillaButton(dl, "##profession-subclass-filter", subclassCaption,
-                origin + ProfessionFrameUiLaw.SubClassFilter.Min * scale,
-                ProfessionFrameUiLaw.SubClassFilter.Size, scale))
+        if (VanillaDropdownCapsule(dl, "##profession-subclass-filter", origin, scale,
+                ProfessionFrameUiLaw.SubClassDropDown, subclassCaption))
+        {
             _professionFilterMenu = _professionFilterMenu == 1 ? 0 : 1;
-        if (VanillaButton(dl, "##profession-inventory-filter", inventoryCaption,
-                origin + ProfessionFrameUiLaw.InvSlotFilter.Min * scale,
-                ProfessionFrameUiLaw.InvSlotFilter.Size, scale))
+            PlayUiSound(DropdownCapsuleUiLaw.ToggleSound, ProfessionFrameUiLaw.SoundCategory);
+        }
+        if (VanillaDropdownCapsule(dl, "##profession-inventory-filter", origin, scale,
+                ProfessionFrameUiLaw.InvSlotDropDown, inventoryCaption))
+        {
             _professionFilterMenu = _professionFilterMenu == 2 ? 0 : 2;
+            PlayUiSound(DropdownCapsuleUiLaw.ToggleSound, ProfessionFrameUiLaw.SoundCategory);
+        }
         if (_professionFilterMenu != 0)
             DrawProfessionFilterMenu(dl, origin, scale, nodes);
     }
@@ -1007,29 +1015,50 @@ public sealed partial class GameLoop
                 .Select(bit => (ProfessionFrameUiLaw.InventorySlotName(bit),
                     (ulong?)null, (int?)bit)));
         }
-        Vector2 logicalMin = subclass ? ProfessionFrameUiLaw.FilterMenu :
-            ProfessionFrameUiLaw.InventoryFilterMenu;
-        float width = subclass ? ProfessionFrameUiLaw.SubClassFilter.Width :
-            ProfessionFrameUiLaw.InvSlotFilter.Width;
-        Vector2 min = origin + logicalMin * scale;
-        Vector2 size = ProfessionFrameUiLaw.FilterMenuSize(width, choices.Count);
-        dl.AddRectFilled(min, min + size * scale, 0xf0100804);
-        dl.AddRect(min, min + size * scale, VanillaGold, 0, ImDrawFlags.None, scale);
+        DropdownCapsuleUiLaw.Layout dropdown = subclass
+            ? ProfessionFrameUiLaw.SubClassDropDown
+            : ProfessionFrameUiLaw.InvSlotDropDown;
+        DropdownCapsuleUiLaw.LogicalRect list = DropdownCapsuleUiLaw.List(dropdown,
+            choices.Count);
+        Vector2 listMin = origin + list.Min * scale;
+        _skin?.DrawBackdrop(dl, listMin, listMin + list.Size * scale, WowSkin.Dialog);
         for (int i = 0; i < choices.Count; i++)
         {
             (string text, ulong? subclassKey, int? slot) = choices[i];
             bool selected = subclass ? _professionSubclassFilter == subclassKey :
                 _professionInventorySlotFilter == slot;
-            ProfessionFrameUiLaw.LogicalRect row =
-                ProfessionFrameUiLaw.FilterMenuRow(i, width);
-            if (VanillaListRow(dl, $"##profession-filter-{_professionFilterMenu}-{i}",
-                    min + row.Min * scale, row.Size, scale,
-                    (selected ? "✓ " : "  ") + text, selected, VanillaGold))
+            DropdownCapsuleUiLaw.LogicalRect row = DropdownCapsuleUiLaw.Row(dropdown, i);
+            Vector2 rowMin = origin + row.Min * scale;
+            ImGui.SetCursorScreenPos(rowMin);
+            bool clicked = ImGui.InvisibleButton(
+                $"##profession-filter-{_professionFilterMenu}-{i}", row.Size * scale);
+            if (selected || ImGui.IsItemHovered())
+            {
+                uint highlight = _gameplayArt?.AdditiveHandle(
+                    DropdownCapsuleUiLaw.RowHighlight) ?? 0;
+                if (highlight != 0)
+                    dl.AddImage((nint)highlight, rowMin, rowMin + row.Size * scale);
+            }
+            if (selected)
+            {
+                uint check = _gameplayArt?.Handle(DropdownCapsuleUiLaw.RowCheck) ?? 0;
+                if (check != 0)
+                {
+                    Vector2 checkMin = rowMin + DropdownCapsuleUiLaw.Check.Min * scale;
+                    dl.AddImage((nint)check, checkMin,
+                        checkMin + DropdownCapsuleUiLaw.Check.Size * scale);
+                }
+            }
+            GameText.Draw(dl, DropdownCapsuleUiLaw.SelectionFont, text,
+                rowMin + DropdownCapsuleUiLaw.RowTextOffset * scale, scale);
+            if (clicked)
             {
                 if (subclass) _professionSubclassFilter = subclassKey;
                 else _professionInventorySlotFilter = slot;
                 _professionFilterMenu = 0;
                 _professionScroll = 0;
+                PlayUiSound(DropdownCapsuleUiLaw.RowSound,
+                    ProfessionFrameUiLaw.SoundCategory);
             }
         }
     }

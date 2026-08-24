@@ -73,9 +73,11 @@ public sealed partial class GameLoop
                     GameText.EmPixels(QuestTimerFrameUiLaw.RowFont, scale)), scale);
             if (hovered)
             {
-                ImGui.BeginTooltip();
-                ImGui.TextUnformatted(timer.Title);
-                ImGui.EndTooltip();
+                QuestTimerFrameUiLaw.TooltipSeat tooltipSeat =
+                    QuestTimerFrameUiLaw.RowTooltipSeat(row);
+                OfferOwnerAnchoredSharedGameTooltip(new("quest-timer-row", (ulong)i),
+                    [new(timer.Title, GameTooltipTextTone.White)],
+                    tooltipSeat.Anchor, tooltipSeat.Pivot);
             }
             if (clicked)
             {

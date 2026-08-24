@@ -24,12 +24,13 @@
   "msuiAnchors": [
     "MSUIClient/GameLoop/Panels/GameLoop.Trainer.cs",
     "MSUIClient/Engine/UI/TrainerFrameUiLaw.cs",
+    "MSUIClient/Engine/UI/DropdownCapsuleUiLaw.cs",
     "MSUIClient/Formats/SpellCatalog.cs",
     "MSUIClient/Engine/UI/NpcSessionUiLaw.cs",
     "tools/interface-wire-check/TrainerFrameClinicalChecks.cs"
   ],
   "status": "implemented-verified",
-  "summary": "The trainer session/window covers request/decode/buy/results, range expiry, authored ClassTrainer shell, live portrait/title, exact GameFont greeting/detail typography, purse and detail MoneyFrame coin cells, 11-row faux scroll, flowing service-name/rank rows with authored state colors, detail pane, Train/Exit, and transition sounds. Its current tree is complete: learn wrappers hop through EffectTriggerSpell to the taught spell's SkillLine, tradeskill trainers partition Development Skills/Recipes, mount-known rows use My Talents, headers use the real +/- fold art, All fold controls work, and the persistent Available/Unavailable/Already Known filter defaults to 1/1/0. Service rows carry no synthetic tooltip; the selected detail icon alone owns the shared spell tooltip at authored ANCHOR_RIGHT. Every production seat, text box/font identity and shell-art rectangle is owned by TrainerFrameUiLaw; focused and full interface-wire suites pass.",
+  "summary": "The trainer session/window covers request/decode/buy/results, range expiry, authored ClassTrainer shell, live portrait/title, exact GameFont greeting/detail typography, purse and detail MoneyFrame coin cells, 11-row faux scroll, flowing service-name/rank rows with authored state colors, detail pane, Train/Exit, and transition sounds. Its current tree is complete: learn wrappers hop through EffectTriggerSpell to the taught spell's SkillLine, tradeskill trainers partition Development Skills/Recipes, mount-known rows use My Talents, headers and the All control use their authored fold/tab art, and the persistent Available/Unavailable/Already Known filter uses the exact UIDropDownMenu capsule and defaults to 1/1/0. Service rows carry no synthetic tooltip; the selected detail icon alone owns the shared spell tooltip at authored ANCHOR_RIGHT. Production geometry is owned by TrainerFrameUiLaw and DropdownCapsuleUiLaw; focused and full interface-wire suites pass.",
   "openItems": [
     {
       "id": "item-triage-d282a163",
@@ -101,12 +102,30 @@
       "source": "benilla-ac3264a0296ae90e/TrainerFrame.xml",
       "added": "2026-08-23",
       "resolved": true,
-      "resolution": "TrainerFrameUiLaw now owns the exact tab pieces, hit seat, icon seat, label center, font, and texture identities. GameLoop.Trainer paints the tab art and uses the shared collapse-all renderer without changing the rule-owned frame position, group semantics, or scroll reset. Focused TrainerFrame checks pass."
+      "resolution": "TrainerFrameUiLaw now owns the exact tab pieces, hit seat, icon seat, label center, font, and texture identities. GameLoop.Trainer paints the tab art and uses the shared collapse-all renderer without changing the rule-owned frame position, group semantics, or scroll reset. Focused TrainerFrame and full interface-wire checks pass."
+    },
+    {
+      "id": "item-trainerframe-filter-capsule-visual-gap-20260823",
+      "kind": "gap",
+      "text": "Trainer's state filter was drawn as a generic panel button rather than the authored UIDropDownMenuTemplate capsule with fixed right-aligned Filter text and a separate scroll-down arrow toggle.",
+      "source": "benilla-ac3264a0296ae90e/TrainerFrame.xml+UIDropDownMenu.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "DropdownCapsuleUiLaw owns the exact shared capsule art, text box, arrow textures, highlight and toggle sound; TrainerFrameUiLaw owns the reference TOPRIGHT(-26,-64), width-96 layout. The existing three-state keep-open filter menu remains intact. Focused TrainerFrame/UiFoundation and full interface-wire checks pass."
+    },
+    {
+      "id": "item-trainerframe-filter-list-visual-gap-20260823",
+      "kind": "gap",
+      "text": "Trainer's open filter used an invented 126x58 dark/gold box, textual checkmarks, GameFontNormalSmall, and 17px row pitch rather than UIDropDownMenu's fixed-width dialog list, check/highlight art, GameFontHighlightSmall, and 16px rows.",
+      "source": "benilla-b57ee0e9e2c8822b/TrainerFrame.xml+UIDropDownMenu.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "The Trainer keepShownOnClick list now consumes DropdownCapsuleUiLaw's exact dialog bounds, three 96x16 rows, selected check and locked highlight art, hover highlight, colored GameFontHighlightSmall labels, and UChatScrollButton cue. Independent 1/1/0 toggles, open-menu retention, and scroll reset remain unchanged. Focused TrainerFrame checks pass."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T19:05:00Z",
+  "lastReviewedUtc": "2026-08-23T19:30:00Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

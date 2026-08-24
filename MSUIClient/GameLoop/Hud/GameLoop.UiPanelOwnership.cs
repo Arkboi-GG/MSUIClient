@@ -106,7 +106,12 @@ public sealed partial class GameLoop
         // renders, run that single incoming edge through ShowUIPanel and perform only the host
         // effects the law asks for. This is what prevents two zero-push panels from both falling
         // back to x=0 after the read-only observer quite correctly rejects the overlap.
-        if (added.Length == 1)
+        //
+        // A simultaneous removal is an already-completed atomic replacement and belongs to the
+        // confirmation path below. Treating GameMenuFrame -> OptionsFrame as an ordinary add
+        // applies Hide(GameMenuFrame); both registry IDs share _settingsOpen, so that callback
+        // closes the new OptionsFrame along with the old page.
+        if (added.Length == 1 && removed.Length == 0)
         {
             UiPanelOwnershipLaw.Panel incoming = current.VisibleRegistered.First(
                 panel => string.Equals(panel.Id, added[0], StringComparison.Ordinal));

@@ -1215,11 +1215,12 @@ internal static class GameTooltipClinicalChecks
 
         int preservedOfferStart = coordinator.IndexOf(
             "private bool OfferPreservedSharedGameTooltipRenderer(", StringComparison.Ordinal);
-        int fadeStart = coordinator.IndexOf("private bool BeginSharedGameTooltipFade(",
+        int ownerAnchoredOfferStart = coordinator.IndexOf(
+            "private bool OfferOwnerAnchoredSharedGameTooltip(",
             preservedOfferStart, StringComparison.Ordinal);
-        Check(preservedOfferStart >= 0 && fadeStart > preservedOfferStart,
+        Check(preservedOfferStart >= 0 && ownerAnchoredOfferStart > preservedOfferStart,
             "GameTooltip preserved-renderer adapter source fence is missing");
-        string preservedOffer = coordinator[preservedOfferStart..fadeStart];
+        string preservedOffer = coordinator[preservedOfferStart..ownerAnchoredOfferStart];
         int frameGuard = preservedOffer.IndexOf(
             "if (!_sharedTooltipFrameOpen || _sharedTooltipFrameResolved) return false;",
             StringComparison.Ordinal);
@@ -1240,14 +1241,14 @@ internal static class GameTooltipClinicalChecks
         int producerReferences = Directory.EnumerateFiles(client, "*.cs",
                 SearchOption.AllDirectories)
             .Sum(path => Count(SourceText.Read(path), "QueueSharedGameTooltipRenderer"));
-        Check(Count(coordinator, "QueueSharedGameTooltipRenderer") == 3 &&
+        Check(Count(coordinator, "QueueSharedGameTooltipRenderer") == 4 &&
               Count(party, "QueueSharedGameTooltipRenderer") == 1 &&
               Count(minimap, "QueueSharedGameTooltipRenderer") == 1 &&
               Count(worldUnit, "QueueSharedGameTooltipRenderer") == 1 &&
               Count(merchant, "QueueSharedGameTooltipRenderer") == 1 &&
               Count(taxi, "QueueSharedGameTooltipRenderer") == 1 &&
-              producerReferences == 9,
-            "GameTooltip Queue escaped coordinator/opaque helper/newbie responder, Party, B5 minimap, B6 world-unit/world-object, Merchant repair, or Taxi node lease");
+              producerReferences == 10,
+            "GameTooltip Queue escaped coordinator/opaque/owner-anchored helper/newbie responder, Party, B5 minimap, B6 world-unit/world-object, Merchant repair, or Taxi node lease");
     }
 
     private static void CheckB2ProducerSourceFence()
@@ -1431,6 +1432,7 @@ internal static class GameTooltipClinicalChecks
         string vendor = SourceText.Read(Path.Combine(client, "Program.Vendor.cs")) +
                         SourceText.Read(Path.Combine(client, "Program.Vendor.Render.cs"));
         string taxi = SourceText.Read(Path.Combine(client, "Program.Taxi.cs"));
+        string questTimer = SourceText.Read(Path.Combine(client, "Program.QuestTimerFrame.cs"));
         string actions = SourceText.Read(Path.Combine(client, "Program.ActionBars.cs"));
 
         string allPrograms = string.Concat(Directory.EnumerateFiles(client, "Program*.cs",
@@ -1615,6 +1617,15 @@ internal static class GameTooltipClinicalChecks
               !loot.Contains("item:loot-row\", (ulong)row.", StringComparison.Ordinal),
             "B3 secondary fixed widget owner identity drift");
 
+        Check(loot.Contains("new(\"loot-coin-row\", (ulong)visual)",
+                  StringComparison.Ordinal) &&
+              loot.Contains("LootFrameUiLaw.RowTooltipSeat(rowMin, s)",
+                  StringComparison.Ordinal) &&
+              loot.Contains("new(row.Name, GameTooltipTextTone.White)",
+                  StringComparison.Ordinal) &&
+              Count(loot, "OfferOwnerAnchoredSharedGameTooltip(") == 1,
+            "B3 Loot coin-row SetText owner/seat route drift");
+
         Check(mail.Contains("DrawMailInboxRow(dl, rowMin, _mail[index], s, visible);",
                   StringComparison.Ordinal) &&
               mail.Contains("new(\"mail-inbox-expiry\", (ulong)visibleIndex)",
@@ -1629,8 +1640,9 @@ internal static class GameTooltipClinicalChecks
                   StringComparison.Ordinal) &&
               mail.Contains("PreparedItemTooltipPlain(\"Cash on Delivery Amount:\")",
                   StringComparison.Ordinal) &&
-              mail.Contains("ImGui.TextUnformatted(\"Attach an item to send.\");",
+              mail.Contains("new(\"Attach an item to send.\", GameTooltipTextTone.White)",
                   StringComparison.Ordinal) &&
+              Count(mail, "OfferOwnerAnchoredSharedGameTooltip") == 3 &&
               mail.Contains("Click to make a permanent\\ncopy of this letter.",
                   StringComparison.Ordinal) &&
               !mail.Contains("SetSharedGameTooltipMoney", StringComparison.Ordinal),
@@ -1652,6 +1664,27 @@ internal static class GameTooltipClinicalChecks
         Check(formatCod >= 0 && formatCod < appendCod && appendCod < separatorCod &&
               separatorCod < labelCod && labelCod < amountCod && amountCod < offerCod,
             "B3 Mail COD tail lost separator/label/verbose-money snapshot order");
+
+        Check(questTimer.Contains("new(\"quest-timer-row\", (ulong)i)",
+                  StringComparison.Ordinal) &&
+              questTimer.Contains("QuestTimerFrameUiLaw.RowTooltipSeat(row)",
+                  StringComparison.Ordinal) &&
+              questTimer.Contains("OfferOwnerAnchoredSharedGameTooltip(",
+                  StringComparison.Ordinal) &&
+              questTimer.Contains("GameTooltipTextTone.White", StringComparison.Ordinal) &&
+              !questTimer.Contains("ImGui.BeginTooltip", StringComparison.Ordinal) &&
+              !questTimer.Contains("ImGui.SetTooltip", StringComparison.Ordinal),
+            "B3 QuestTimer default-ANCHOR_RIGHT classic tooltip route drift");
+
+        Check(character.Contains("new(\"reputation-detail-at-war\", 0)",
+                  StringComparison.Ordinal) &&
+              character.Contains("ReputationFrameUiLaw.RightTooltipSeat(geometry)",
+                  StringComparison.Ordinal) &&
+              character.Contains("ReputationFrameUiLaw.AtWarDescription",
+                  StringComparison.Ordinal) &&
+              character.Contains("GameTooltipTextTone.White, Wrap: true",
+                  StringComparison.Ordinal),
+            "B3 ReputationDetail At War SetText owner/seat/wrap route drift");
     }
 
     private static void CheckB4B5ProducerSourceFence()
@@ -1923,6 +1956,8 @@ internal static class GameTooltipClinicalChecks
             Path.Combine(client, "Program.GameTooltip.WorldUnit.cs"));
         string renderer = SourceText.Read(
             Path.Combine(client, "Program.GameTooltip.Renderer.cs"));
+        string coordinator = SourceText.Read(
+            Path.Combine(client, "Program.GameTooltip.cs"));
         string combat = SourceText.Read(Path.Combine(client, "Program.CombatFeedback.cs"));
 
         Check(query.Contains("public sealed record CreatureQueryInfo(",
@@ -2124,6 +2159,15 @@ internal static class GameTooltipClinicalChecks
             prepareStart, StringComparison.Ordinal);
         Check(prepareStart >= 0 && drawStart > prepareStart,
             "B6 immutable shared renderer preparation/draw seams are missing");
+        Check(renderer.Contains("ownerAnchor!.Value - size * (ownerPivot ?? Vector2.UnitY)",
+                  StringComparison.Ordinal) &&
+              coordinator.Contains("private bool OfferOwnerAnchoredSharedGameTooltip(",
+                  StringComparison.Ordinal) &&
+              coordinator.Contains("new GameTooltipContent(GameTooltipAnchorKind.OwnerRight, lines)",
+                  StringComparison.Ordinal) &&
+              coordinator.Contains("PrepareSharedGameTooltipRenderer(SharedGameTooltipSnapshot(), anchor, pivot)",
+                  StringComparison.Ordinal),
+            "owner-anchored classic GameTooltip adapter or explicit pivot projection drift");
         string prepare = renderer[prepareStart..drawStart];
         string draw = renderer[drawStart..];
         int defaultAnchor = prepare.IndexOf(

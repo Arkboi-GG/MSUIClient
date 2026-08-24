@@ -27,11 +27,11 @@ public sealed partial class GameLoop
     private bool RequestBank(ulong guid)
     {
         WorldEntity? banker = null;
-        bool eligible = _controller is not null &&
+        bool eligible = TryGetSessionBodyPose(out WorldBodyPose sessionBody) &&
                         _entities.TryGet(guid, out banker) && banker.IsCreature &&
                         !banker.IsDead && (banker.NpcFlags & NpcBanker) != 0 &&
                         NpcSessionUiLaw.InRange(
-                            Vector3.DistanceSquared(_controller.Position, banker.Position));
+                            Vector3.DistanceSquared(sessionBody.Position, banker.Position));
         bool sent = eligible && _net?.BankerActivate(guid) == true;
         EmitInterface("bank", "open", sent ? "SENT" : "REFUSED", guid,
             $"eligible={eligible};npcFlags=0x{banker?.NpcFlags ?? 0:X8};body={Convert.ToHexString(WorldSession.BuildBankGuidBody(guid))}");
@@ -40,11 +40,12 @@ public sealed partial class GameLoop
 
     private bool UpdateBankLifecycle()
     {
-        if (!_bankOpen || _controller is null) return false;
+        if (!_bankOpen ||
+            !TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return false;
         ulong sourceGuid = _bankSource;
         bool sourceAvailable = _entities.TryGet(sourceGuid, out WorldEntity banker);
         float distanceSquared = sourceAvailable
-            ? Vector3.DistanceSquared(_controller.Position, banker.Position)
+            ? Vector3.DistanceSquared(sessionBody.Position, banker.Position)
             : float.PositiveInfinity;
         if (!NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
             return false;

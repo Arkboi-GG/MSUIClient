@@ -184,10 +184,19 @@ internal static class GuildFrameClinicalChecks
                   new System.Numerics.Vector2(106, 84) &&
               GuildFrameUiLaw.ControlRankNameTextOffset ==
                   new System.Numerics.Vector2(0, 7) &&
-              GuildFrameUiLaw.ControlDropDownArrow ==
-                  new GuildFrameUiLaw.LogicalRect(185, 34, 24, 24) &&
-              GuildFrameUiLaw.ControlDropDownRowTextOffset ==
-                  new System.Numerics.Vector2(5, 3) &&
+              GuildFrameUiLaw.ControlRankDropDown.Frame ==
+                  new DropdownCapsuleUiLaw.LogicalRect(67, 30, 160, 32) &&
+              GuildFrameUiLaw.ControlRankDropDown.Button ==
+                  new DropdownCapsuleUiLaw.LogicalRect(90, 1, 54, 24) &&
+              GuildFrameUiLaw.ControlRankDropDown.LeftJustified &&
+              GuildFrameUiLaw.ControlAddRank ==
+                  new GuildFrameUiLaw.LogicalRect(212, 37, 16, 16) &&
+              GuildFrameUiLaw.ControlRemoveRank ==
+                  new GuildFrameUiLaw.LogicalRect(226, 37, 16, 16) &&
+              DropdownCapsuleUiLaw.List(GuildFrameUiLaw.ControlRankDropDown, 6) ==
+                  new DropdownCapsuleUiLaw.LogicalRect(75, 55, 142, 126) &&
+              DropdownCapsuleUiLaw.Row(GuildFrameUiLaw.ControlRankDropDown, 5) ==
+                  new DropdownCapsuleUiLaw.LogicalRect(92, 150, 110, 16) &&
               GuildFrameUiLaw.ControlCheckboxLabelOffset ==
                   new System.Numerics.Vector2(21, 4) &&
               GuildFrameUiLaw.ControlCheckbox(1) ==
@@ -458,11 +467,19 @@ internal static class GuildFrameClinicalChecks
               control.Contains("GuildFrameUiLaw.ControlFrameOrigin", StringComparison.Ordinal) &&
               control.Contains("DrawGuildControlShell", StringComparison.Ordinal) &&
               control.Contains("GuildFrameUiLaw.ControlShellTopLeft", StringComparison.Ordinal) &&
-              control.Contains("GuildFrameUiLaw.ControlDropDownArrow", StringComparison.Ordinal) &&
+              control.Contains("GuildFrameUiLaw.ControlRankDropDown", StringComparison.Ordinal) &&
+              control.Contains("VanillaDropdownCapsule", StringComparison.Ordinal) &&
+              control.Contains("DropdownCapsuleUiLaw.List", StringComparison.Ordinal) &&
+              control.Contains("DropdownCapsuleUiLaw.RowCheck", StringComparison.Ordinal) &&
+              control.Contains("WowSkin.Dialog", StringComparison.Ordinal) &&
               control.Contains("GuildFrameUiLaw.ControlCheckbox", StringComparison.Ordinal) &&
               control.Contains("GuildFrameUiLaw.RightTooltipSeat", StringComparison.Ordinal) &&
               control.Contains("GuildFrameUiLaw.ControlAddRankTooltip", StringComparison.Ordinal) &&
               control.Contains("GuildFrameUiLaw.ControlRemoveRankTooltip", StringComparison.Ordinal) &&
+              control.Contains("OfferOwnerAnchoredSharedGameTooltip(",
+                  StringComparison.Ordinal) &&
+              control.Contains("GameTooltipTextTone.White", StringComparison.Ordinal) &&
+              !control.Contains("ImGui.BeginTooltip", StringComparison.Ordinal) &&
               !control.Contains("new Vector2", StringComparison.Ordinal) &&
               control.Contains("_net?.GuildRank", StringComparison.Ordinal) &&
               control.Contains("_net?.GuildDeleteRank", StringComparison.Ordinal) &&

@@ -21,11 +21,12 @@ public sealed partial class GameLoop
     private bool RequestTrainer(ulong guid)
     {
         string outcome = "REFUSED"; string detail = "descriptorMissing";
-        if (_net is { IsInWorld: true } && _controller is not null &&
+        if (_net is { IsInWorld: true } &&
+            TryGetSessionBodyPose(out WorldBodyPose sessionBody) &&
             _entities.TryGet(guid, out WorldEntity npc) && npc.IsCreature && !npc.IsDead &&
             (npc.NpcFlags & NpcTrainer) != 0)
         {
-            Vector3 delta = _controller.Position - npc.Position;
+            Vector3 delta = sessionBody.Position - npc.Position;
             float distance = delta.Length();
             if (NpcSessionUiLaw.InRange(delta.LengthSquared()))
             {
@@ -39,11 +40,12 @@ public sealed partial class GameLoop
 
     private bool UpdateTrainerLifecycle()
     {
-        if (_trainer is null || _controller is null) return false;
+        if (_trainer is null ||
+            !TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return false;
         ulong trainerGuid = _trainer.TrainerGuid;
         bool sourceAvailable = _entities.TryGet(trainerGuid, out WorldEntity trainer);
         float distanceSquared = sourceAvailable
-            ? Vector3.DistanceSquared(_controller.Position, trainer.Position)
+            ? Vector3.DistanceSquared(sessionBody.Position, trainer.Position)
             : float.PositiveInfinity;
         if (!NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
             return false;
@@ -246,10 +248,12 @@ public sealed partial class GameLoop
                 foreach (uint group in groups) _trainerCollapsedGroups.Add(group);
             _trainerScroll = 0;
         }
-        if (VanillaButton(dl, "##trainer-filter", "Filter",
-                origin + TrainerFrameUiLaw.Filter.Min * scale,
-                TrainerFrameUiLaw.Filter.Size, scale))
+        if (VanillaDropdownCapsule(dl, "##trainer-filter", origin, scale,
+                TrainerFrameUiLaw.FilterDropDown, "Filter"))
+        {
             _trainerFilterOpen = !_trainerFilterOpen;
+            PlayUiSound(DropdownCapsuleUiLaw.ToggleSound, TrainerFrameUiLaw.SoundCategory);
+        }
 
         int maximum=Math.Max(0,tree.Count-TrainerFrameUiLaw.VisibleRows);
         if (ImGui.IsMouseHoveringRect(
@@ -406,29 +410,52 @@ public sealed partial class GameLoop
 
     private void DrawTrainerFilterMenu(ImDrawListPtr draw, Vector2 origin, float scale)
     {
-        Vector2 menu = origin + TrainerFrameUiLaw.FilterMenu.Min * scale;
-        draw.AddRectFilled(menu, menu + TrainerFrameUiLaw.FilterMenu.Size * scale, 0xf0181818u);
-        draw.AddRect(menu, menu + TrainerFrameUiLaw.FilterMenu.Size * scale, VanillaGold);
         (string Label, bool Value, uint Color)[] rows =
         [
             ("Available", _trainerFilterAvailable, 0xff20ff20),
             ("Unavailable", _trainerFilterUnavailable, 0xff2020ff),
             ("Already Known", _trainerFilterUsed, 0xff808080),
         ];
+        DropdownCapsuleUiLaw.LogicalRect list = DropdownCapsuleUiLaw.List(
+            TrainerFrameUiLaw.FilterDropDown, rows.Length);
+        Vector2 listMin = origin + list.Min * scale;
+        _skin?.DrawBackdrop(draw, listMin, listMin + list.Size * scale, WowSkin.Dialog);
         for (int i = 0; i < rows.Length; i++)
         {
-            TrainerFrameUiLaw.LogicalRect logicalRow = TrainerFrameUiLaw.FilterRow(i);
-            Vector2 min = menu + logicalRow.Min * scale;
+            DropdownCapsuleUiLaw.LogicalRect logicalRow = DropdownCapsuleUiLaw.Row(
+                TrainerFrameUiLaw.FilterDropDown, i);
+            Vector2 min = origin + logicalRow.Min * scale;
             ImGui.SetCursorScreenPos(min);
-            if (ImGui.InvisibleButton($"##trainer-filter-{i}", logicalRow.Size * scale))
+            bool clicked = ImGui.InvisibleButton($"##trainer-filter-{i}",
+                logicalRow.Size * scale);
+            if (rows[i].Value || ImGui.IsItemHovered())
+            {
+                uint highlight = _gameplayArt?.AdditiveHandle(
+                    DropdownCapsuleUiLaw.RowHighlight) ?? 0;
+                if (highlight != 0)
+                    draw.AddImage((nint)highlight, min, min + logicalRow.Size * scale);
+            }
+            if (rows[i].Value)
+            {
+                uint check = _gameplayArt?.Handle(DropdownCapsuleUiLaw.RowCheck) ?? 0;
+                if (check != 0)
+                {
+                    Vector2 checkMin = min + DropdownCapsuleUiLaw.Check.Min * scale;
+                    draw.AddImage((nint)check, checkMin,
+                        checkMin + DropdownCapsuleUiLaw.Check.Size * scale);
+                }
+            }
+            GameText.Draw(draw, DropdownCapsuleUiLaw.SelectionFont, rows[i].Label,
+                min + DropdownCapsuleUiLaw.RowTextOffset * scale, scale, rows[i].Color);
+            if (clicked)
             {
                 if (i == 0) _trainerFilterAvailable = !_trainerFilterAvailable;
                 else if (i == 1) _trainerFilterUnavailable = !_trainerFilterUnavailable;
                 else _trainerFilterUsed = !_trainerFilterUsed;
                 _trainerScroll = 0;
+                PlayUiSound(DropdownCapsuleUiLaw.RowSound,
+                    TrainerFrameUiLaw.SoundCategory);
             }
-            GameText.Draw(draw, "GameFontNormalSmall", (rows[i].Value ? "✓ " : "  ") + rows[i].Label,
-                min + TrainerFrameUiLaw.FilterRowTextOffset * scale, scale, rows[i].Color);
         }
     }
 

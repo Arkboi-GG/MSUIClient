@@ -252,7 +252,8 @@ public sealed partial class GameLoop
 
     private bool TryFeedCarriedItemToPet(WorldEntity pet)
     {
-        if (!HasCarriedItem || _net is null || ResolveCarriedItem() is not { } item)
+        if (!CanAuthorControlledGameplay || !HasCarriedItem || _net is null ||
+            ResolveCarriedItem() is not { } item)
             return false;
         uint spellId = FeedPetSpell();
         if (!FeedPetLaw.CanFeed(pet.Guid, _petGuid, pet.Fields.CreatedBySpell,
@@ -270,7 +271,8 @@ public sealed partial class GameLoop
 
     private void StopPetAttackForOldTargetChange(ulong previous, ulong current)
     {
-        if (!PetActionBarUiLaw.StopsAttackOnSelectionChange(_petAttacking, previous, current)) return;
+        if (!CanAuthorControlledGameplay ||
+            !PetActionBarUiLaw.StopsAttackOnSelectionChange(_petAttacking, previous, current)) return;
         _net?.PetStopAttack(_petGuid);
         _petAttacking = false;
     }
@@ -731,6 +733,7 @@ public sealed partial class GameLoop
 
     private void UsePetAction(int slot, ulong petGuid, WorldEntity? pet)
     {
+        if (!CanAuthorControlledGameplay) return;
         uint packed = _petActions[slot];
         if (!PetActionBarUiLaw.HasPayload(packed)) return;
         uint action = PetActionBarUiLaw.Action(packed);
@@ -777,6 +780,7 @@ public sealed partial class GameLoop
 
     private void TogglePetAutocast(int slot, ulong petGuid)
     {
+        if (!CanAuthorControlledGameplay) return;
         uint toggled = PetActionBarUiLaw.ToggleAutocast(_petActions[slot]);
         _petActions[slot] = toggled; // the server does not echo this half
         _net?.PetSetAction(petGuid, new[] { ((uint)slot, toggled) });
@@ -784,6 +788,7 @@ public sealed partial class GameLoop
 
     private void PickupPetAction(int slot, ulong petGuid, WorldEntity? pet)
     {
+        if (!CanAuthorControlledGameplay) return;
         uint unitFlags = pet?.Fields.UnitFlags ?? 0;
         if (!PetActionBarUiLaw.PickupAllowed(unitFlags)) return;
         if (_draggingPetAction.HasValue)
@@ -809,6 +814,11 @@ public sealed partial class GameLoop
 
     private void PlacePetAction(int target, ulong petGuid, WorldEntity? pet)
     {
+        if (!CanAuthorControlledGameplay)
+        {
+            ClearPetActionCursor();
+            return;
+        }
         uint unitFlags = pet?.Fields.UnitFlags ?? 0;
         if (!PetActionBarUiLaw.PickupAllowed(unitFlags) || !_draggingPetAction.HasValue) return;
         uint source = _draggingPetAction.Value;

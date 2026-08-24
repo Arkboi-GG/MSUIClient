@@ -54,6 +54,9 @@ public readonly record struct AudioPlayRequest(
 /// </summary>
 public sealed class AudioMixer : IDisposable
 {
+    private static readonly bool DiagnosticToneSolo =
+        Environment.GetEnvironmentVariable("MSUI_AUDIO_TONE") == "1";
+
     public sealed record SoundPlayJournalEntry(long Sequence, double TimeSeconds,
         string Category, string RequestedCue, uint SoundId, string ResolvedPath,
         ulong Owner, bool Looping, bool TrackHold);
@@ -146,6 +149,9 @@ public sealed class AudioMixer : IDisposable
     public AudioMixer(MpqMount mpq)
     {
         _mpq = mpq;
+        if (DiagnosticToneSolo)
+            Console.WriteLine("[audio] MSUI_AUDIO_TONE=1 - solo mixer mode; " +
+                              "all non-test requests suppressed");
         _worker = new Thread(WorkerLoop)
         {
             IsBackground = true,
@@ -227,6 +233,13 @@ public sealed class AudioMixer : IDisposable
     /// audio protocols assert on.</summary>
     public long Play(in AudioPlayRequest request)
     {
+        // A diagnostic tone is useful only when it is genuinely the sole mixer voice. World
+        // soundscape suppression alone does not cover footsteps, creature loops, spell cues,
+        // GameObject events, or server-pushed sounds, all of which enter through this method.
+        if (DiagnosticToneSolo &&
+            !request.RequestedCue.Equals("audio-self-test", StringComparison.Ordinal))
+            return 0;
+
         long sequence = Interlocked.Increment(ref _plays);
         _playJournal.Enqueue(new(sequence, Environment.TickCount64 / 1000.0,
             request.Category, request.RequestedCue, request.SoundId, request.Path,

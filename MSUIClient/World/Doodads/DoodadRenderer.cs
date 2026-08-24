@@ -625,6 +625,15 @@ public sealed class DoodadRenderer : IDisposable
     private HashSet<Model> _drawnThisFrame = [];
 
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Runtime safety gate for owner-local GameObject animation. The first live entry test of
+    /// the per-owner VBO rewrite path produced a repeatable native access violation in
+    /// nvoglv64.dll immediately after the initial Closed (AnimationData 147) poses were armed.
+    /// Keep ordinary/static doodad rendering and GameObject interaction enabled while this
+    /// isolated GL path is quarantined for a focused renderer repair.
+    /// </summary>
+    public bool DynamicGameObjectAnimationEnabled { get; set; }
     public bool FrustumCulling { get; set; } = true;
     /// <summary>
     /// When true, a placement whose model is not resident queues that model and
@@ -1635,6 +1644,7 @@ public sealed class DoodadRenderer : IDisposable
         out float durationSeconds)
     {
         durationSeconds = 0;
+        if (!DynamicGameObjectAnimationEnabled) return false;
         if (!_dynamicByKey.TryGetValue(key, out var entry) ||
             entry.Model.BoneAnimator is null)
             return false;
@@ -1657,6 +1667,10 @@ public sealed class DoodadRenderer : IDisposable
         playedAnimationId = -1;
         transition = false;
         if (!_dynamicByKey.TryGetValue(key, out var entry)) return false;
+        // Report a successfully consumed static state while the unsafe animation lane is
+        // quarantined. This prevents a retry every frame and preserves the pre-animation
+        // renderer without suppressing the GameObject itself.
+        if (!DynamicGameObjectAnimationEnabled) return true;
         if (entry.Model.BoneAnimator is not { } animator) return true;
 
         bool Owns(int id) => animator.FindOrBake(

@@ -23,7 +23,7 @@
     "tools/interface-wire-check/TalentFrameClinicalChecks.cs"
   ],
   "status": "partial",
-  "summary": "TalentFrameUiLaw now owns the current 384x512 shell, portrait, class-background quadrants, 264x20 points border, 296x332 ScrollFrame with fixed 504px child, exact 172px range and 20px step, 8x4/63px talent grid, tabs and close controls. It also owns portrait and scrollbar UVs, scroll offset/knob projection, measured points-spent placement, tab positioning, and each talent tooltip's authored ANCHOR_RIGHT seat; GameLoop.Talents contains no local Vector2 geometry. The renderer uses the exact TalentBranches/TalentArrows atlas cells for prerequisite routing instead of generic lines, restores the Quickslot2 talent-button layer, hides locked zero-rank badges, shows the reference rank number rather than an invented rank/max fraction, and uses the exact enabled/locked/maxed tints. Existing talent eligibility, CMSG_LEARN_TALENT, server confirmation observation, wipe confirmation, portrait and class tree backgrounds remain. Focused and full desktop clinical suites pass; live visual/input acceptance remains.",
+  "summary": "TalentFrameUiLaw now owns the current 384x512 shell, portrait, class-background quadrants, 264x20 points border, 296x332 ScrollFrame with fixed 504px child, exact 172px range and 20px step, 8x4/63px talent grid, tabs and close controls. It also owns portrait and scrollbar UVs, scroll offset/knob projection, measured points-spent placement, tab positioning, and each talent tooltip's authored ANCHOR_RIGHT seat; GameLoop.Talents contains no local Vector2 geometry. The renderer uses the exact TalentBranches/TalentArrows atlas cells for prerequisite routing instead of generic lines, restores the Quickslot2 talent-button layer, hides locked zero-rank badges, shows the reference rank number rather than an invented rank/max fraction, and uses the exact enabled/locked/maxed tints. Talent hover now follows SetTalent's shared classic tooltip shape: white spell name and rank line, ordered red tier/required-spell/prerequisite requirements, the current spell body, gold next-rank description, and the independently gated green learn hint. Existing talent eligibility, CMSG_LEARN_TALENT, server confirmation observation, wipe confirmation, portrait and class tree backgrounds remain. Focused and full desktop clinical suites pass; live visual/input acceptance remains.",
   "openItems": [
     {
       "id": "item-talentframe-scroll-connector-presentation-gap-20260822",
@@ -50,11 +50,21 @@
       "added": "2026-08-23",
       "resolved": true,
       "resolution": "TalentFrameUiLaw maps each talent button TOPRIGHT to the tooltip BOTTOMLEFT, and the renderer applies that seat before opening the tooltip."
+    },
+    {
+      "id": "item-talentframe-settalent-content-visual-gap-20260823",
+      "kind": "gap",
+      "text": "Talent hover used a generic ImGui tooltip containing only the name, rank fraction, and an internal eligibility token instead of Benilla's SetTalent spell-builder content and classic tooltip presentation.",
+      "source": "benilla-b57ee0e9e2c8822b/TalentFrame.xml+ui_talent.rs+tooltip_spell.rs",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "TalentFrameUiLaw now owns the exact SetTalent row interleave, requirement wording/order, white/gold/red/green colors, learn-hint gate, and owner-right origin. The window publishes through shared GameTooltip arbitration and paints the current spell body plus next-rank description without changing the protected Spellbook tooltip path. Focused TalentFrame and full interface-wire checks pass.",
+      "resolvedUtc": "2026-08-23T19:30:10Z"
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T04:41:52.4700828Z",
+  "lastReviewedUtc": "2026-08-23T19:30:10Z",
   "seededUtc": "2026-08-09T03:36:17.848398+00:00"
 }

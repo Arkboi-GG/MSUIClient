@@ -166,6 +166,9 @@ public enum SpellStage { Precast, Cast, Impact, State, Channel }
 
 public sealed class SpellVisualCatalog
 {
+    public const string HardcodedLootArt = "HARDCODED Loot Art";
+    public const string HardcodedUnitLevelUp = "HARDCODED Unit Level Up";
+
     /// <summary>
     /// Kit fields 3..11 -> M2 AttachmentID, IN KIT-FIELD ORDER. These are
     /// compile-time immediates in the reference client's slot loop, not data:
@@ -196,6 +199,8 @@ public sealed class SpellVisualCatalog
     private readonly Dictionary<uint, (ushort? Anim, uint? Sound, uint[] Effects,
         SpellVisualCharProc[] CharProcs)> _kits = [];
     private readonly Dictionary<uint, string> _effects = [];
+    private readonly Dictionary<string, string> _hardcodedEffects =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<uint, SpellChainEffectInfo> _chainEffects = [];
 
     /// <summary>Fold BOTH none-sentinels. See the class remarks.</summary>
@@ -233,6 +238,24 @@ public sealed class SpellVisualCatalog
 
     public bool TryGetStages(uint id, out SpellVisualStages stages)
         => _visuals.TryGetValue(id, out stages);
+
+    /// <summary>
+    /// Resolve one of the client-owned SpellVisualEffectName rows (loot sparkle,
+    /// unit level-up, resurrection, and their siblings) by its build-5875 label.
+    /// These do not belong to a SpellVisual kit, so field 1 is their only stable
+    /// lookup key. The returned path obeys the same .mdl/.mdx-to-.m2 law as every
+    /// ordinary kit effect.
+    /// </summary>
+    public bool TryGetHardcodedEffect(string label, out string modelPath)
+    {
+        if (_hardcodedEffects.TryGetValue(label, out string? dbcPath))
+        {
+            modelPath = ModelPath(dbcPath);
+            return modelPath.Length != 0;
+        }
+        modelPath = "";
+        return false;
+    }
 
     public bool TryGetKit(uint id, out SpellVisualKitInfo kit)
     {
@@ -345,9 +368,13 @@ public sealed class SpellVisualCatalog
         for (int row = 0; row < names.RecordCount; row++)
         {
             uint id = names.GetUInt(row, 0);
+            string label = names.GetString(row, 1);
             string path = names.GetString(row, 2);
             if (id != 0 && path.Length > 0)
                 result._effects[id] = path;
+            if (label.StartsWith("HARDCODED ", StringComparison.OrdinalIgnoreCase) &&
+                path.Length > 0)
+                result._hardcodedEffects[label] = path;
         }
 
         for (int row = 0; row < kits.RecordCount; row++)

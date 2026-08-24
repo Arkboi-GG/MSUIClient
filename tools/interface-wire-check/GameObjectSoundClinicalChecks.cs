@@ -52,7 +52,8 @@ internal static class GameObjectSoundClinicalChecks
             "DoodadRenderer.cs"));
         Check(runtime.Contains("_knownGameObjectSoundStates[go.Guid] = state;",
                   StringComparison.Ordinal) &&
-              runtime.Contains("_gameObjectEventClocks[go.Guid] = currentClock;",
+              runtime.Contains(
+                  "_gameObjectEventClocks[go.Guid] = (sequence, currentAnimationClock);",
                   StringComparison.Ordinal) &&
               runtime.Contains("forceLoop: false, trackHold: false, category: \"sfx\"",
                   StringComparison.Ordinal) &&

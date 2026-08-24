@@ -6,6 +6,7 @@ namespace MSUIClient.Engine.UI;
 public static class GameTimeUiLaw
 {
     public readonly record struct ScreenRect(Vector2 Min, Vector2 Size);
+    public readonly record struct TooltipSeat(Vector2 Anchor, Vector2 Pivot);
     public const float Size = 50f;
     public const int DawnMinute = 5 * 60 + 30;
     public const int DuskMinute = 21 * 60;
@@ -21,6 +22,11 @@ public static class GameTimeUiLaw
     public static QuestLogicalRect HitRect => new(6f, 5f, 44f, 35f);
 
     public static Vector2 FrameSize(float scale) => Vector2.One * (Size * scale);
+
+    // GameTime.xml: GameTooltip:SetOwner(this, "ANCHOR_BOTTOMLEFT"). Benilla maps the
+    // tooltip's TOPRIGHT to the owner's BOTTOMLEFT.
+    public static TooltipSeat BottomLeftTooltipSeat(Vector2 frameOrigin, float scale) =>
+        new(frameOrigin + new Vector2(0, Size * scale), Vector2.UnitX);
 
     public static ScreenRect HitScreen(Vector2 origin, float scale)
     {

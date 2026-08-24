@@ -20,12 +20,12 @@
     "tools/interface-wire-check/QuestTimerFrameClinicalChecks.cs"
   ],
   "status": "implemented-unverified",
-  "summary": "MSUI now implements current Benilla's separate timed-quest window: live server-clock subtraction with the byte-verified minus-one bias, failed/untimed/expired filtering, log-order rows, exact SecondsToTime spelling, 160px dialog and header art, 45 + 16*n height, twenty exact row seats with top-anchored GameFontHighlightSmall countdowns, hover quest title, click-to-open/select, and the managed quest-timer to durability to quest-watch stack. QuestTimerFrameUiLaw owns the frame, font identities, row screen rectangles and text anchors; the renderer contains no local Vector2 geometry. Focused and full deterministic checks pass; a live timed quest and pixel comparison remain open.",
+  "summary": "MSUI now implements current Benilla's separate timed-quest window: live server-clock subtraction with the byte-verified minus-one bias, failed/untimed/expired filtering, log-order rows, exact SecondsToTime spelling, 160px dialog and header art, 45 + 16*n height, twenty exact row seats with top-anchored GameFontHighlightSmall countdowns, default-ANCHOR_RIGHT classic white quest-title tooltips, click-to-open/select, and the managed quest-timer to durability to quest-watch stack. QuestTimerFrameUiLaw owns the frame, font identities, row screen rectangles, text anchors, and tooltip seat; the renderer contains no local Vector2 geometry or raw ImGui tooltip. Focused and full deterministic checks pass; a live timed quest and pixel comparison remain open.",
   "openItems": [
     {
       "id": "item-msui-questtimer-live-verify",
       "kind": "verify",
-      "text": "Verify a live timed quest counts down, opens the correct quest-log entry on click, disappears on expiry/failure, and moves the durability and quest-watch frames by its dynamic height at multiple UI scales.",
+      "text": "Verify a live timed quest counts down, shows its white classic tooltip at the row's exact right anchor, opens the correct quest-log entry on click, disappears on expiry/failure, and moves the durability and quest-watch frames by its dynamic height at multiple UI scales.",
       "source": "implementation-2026-08-21",
       "added": "2026-08-21",
       "resolved": false
@@ -38,11 +38,20 @@
       "added": "2026-08-23",
       "resolved": true,
       "resolution": "QuestTimerFrameUiLaw now owns the title/row font identities and converts the authored row-top anchor to GameText's center point using the measured em. Focused QuestTimer and full desktop clinical suites pass without changing Quest Log presentation or timer behavior."
+    },
+    {
+      "id": "item-questtimer-classic-tooltip-seat-gap-20260823",
+      "kind": "gap",
+      "text": "QuestTimer rows used an implicit ImGui tooltip even though current Benilla calls GameTooltip:SetOwner(self) with its default ANCHOR_RIGHT and SetText white content.",
+      "source": "benilla-b57ee0e9e2c8822b/QuestTimerFrame.xml",
+      "added": "2026-08-23",
+      "resolved": true,
+      "resolution": "QuestTimerFrameUiLaw now owns the exact tooltip BOTTOMLEFT-to-row-TOPRIGHT seat. The renderer publishes the quest title as a typed white SetText line through the shared classic GameTooltip adapter; focused QuestTimer and GameTooltip clinical checks pin the route and ban raw ImGui tooltip fallback."
     }
   ],
   "claims": [],
   "traces": [],
   "decisions": [],
-  "lastReviewedUtc": "2026-08-23T16:42:00Z",
+  "lastReviewedUtc": "2026-08-23T19:56:07.0870506Z",
   "seededUtc": "2026-08-21T00:00:00+00:00"
 }

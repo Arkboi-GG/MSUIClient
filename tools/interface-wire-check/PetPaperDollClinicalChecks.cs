@@ -55,6 +55,9 @@ internal static class PetPaperDollClinicalChecks
               PetPaperDollUiLaw.LiveAnimationStep(10.0, 0) == 0f &&
               PetPaperDollUiLaw.CreatureSkill(0) == 0 &&
               PetPaperDollUiLaw.CreatureSkill(60) == 300 &&
+              PetPaperDollUiLaw.LevelText(58, "Boar") == "Level 58 Boar" &&
+              PetPaperDollUiLaw.LevelText(58, null) == "" &&
+              PetPaperDollUiLaw.LevelText(58, "  ") == "" &&
               PetPaperDollUiLaw.LoyaltyName(6) == "Best Friend" &&
               PetPaperDollUiLaw.ResistanceTooltip("Fire Resistance", 15, 0, 0) ==
                   "Fire Resistance" &&
@@ -118,6 +121,9 @@ internal static class PetPaperDollClinicalChecks
               page.Contains("PetPaperDollUiLaw.BackgroundArt", StringComparison.Ordinal) &&
               page.Contains("PetPaperDollUiLaw.PetNameCenter", StringComparison.Ordinal) &&
               page.Contains("PetPaperDollUiLaw.PetLevelCenter", StringComparison.Ordinal) &&
+              page.Contains("PetPaperDollUiLaw.LevelText(pet!.Level, PetFamilyName(pet))",
+                  StringComparison.Ordinal) &&
+              !page.Contains("PetFamilySuffix", StringComparison.Ordinal) &&
               petRenderer.Contains("PetPaperDollUiLaw.PetLoyaltyCenter", StringComparison.Ordinal) &&
               petRenderer.Contains("PetPaperDollUiLaw.TrainingLabelRightTop", StringComparison.Ordinal) &&
               petRenderer.Contains("PetPaperDollUiLaw.StatLabelMin", StringComparison.Ordinal) &&

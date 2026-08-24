@@ -15,6 +15,7 @@ public sealed partial class GameLoop
     private readonly LootState _loot = new();
     private ulong _lootPendingGuid;
     private Vector3 _lootOpenedAt;
+    private bool _lootOpenedAtKnown;
     private int _lootPage = 1;
     private readonly List<(uint Entry, uint Count, int TriesLeft)> _pendingReceives = new();
     private uint _lootMoneyBefore;
@@ -30,6 +31,7 @@ public sealed partial class GameLoop
         _pendingGroupLootLines.Clear();
         _groupLootConfirm = null;
         _lootPendingGuid = 0;
+        _lootOpenedAtKnown = false;
         RefreshLootKneel();
         _lootPage = 1;
         _pendingReceives.Clear();
@@ -56,6 +58,23 @@ public sealed partial class GameLoop
                 $"inWorld={_net?.IsInWorld == true};entity={source is not null};dead={source?.IsDead == true};lootable={source?.Fields.Lootable == true}");
             return false;
         }
+        if (!TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
+            !_entities.TryGet(LocalPlayerGuid, out WorldEntity sessionPlayer))
+        {
+            EmitInterface("loot", "request", "REFUSED_NO_BODY", guid,
+                "sessionBody=false");
+            return false;
+        }
+        float distanceSquared = Vector3.DistanceSquared(sessionBody.Position, source.Position);
+        float reachSquared = WorldCursorUiLaw.UnitMeleeReachSquared(
+            sessionPlayer.Fields.CombatReach, source.Fields.CombatReach);
+        if (distanceSquared > reachSquared)
+        {
+            ShowUiError("You are too far away!");
+            EmitInterface("loot", "request", "REFUSED_RANGE", guid,
+                $"distanceSquared={distanceSquared:R};reachSquared={reachSquared:R}");
+            return false;
+        }
         _lootPendingGuid = guid;
         bool sent = _net.Loot(guid);
         EmitInterface("loot", "request", sent ? "SENT" : "SEND_FAILED", guid,
@@ -67,7 +86,6 @@ public sealed partial class GameLoop
 
     private void RefreshLootKneel()
     {
-        if (_character is null) return;
         LootLatchLaw.TargetKind kind = LootLatchLaw.TargetKind.Unresolved;
         uint gameObjectType = 0;
         uint unitHealth = 0;
@@ -87,8 +105,18 @@ public sealed partial class GameLoop
                 kind = LootLatchLaw.TargetKind.Item;
             else kind = LootLatchLaw.TargetKind.Other;
         }
-        _character.LootKneel = LootLatchLaw.ShouldKneel(
+        bool kneeling = LootLatchLaw.ShouldKneel(
             _lootPendingGuid, kind, gameObjectType, unitHealth);
+        if (ControlledBodyIsStreamed)
+        {
+            if (_character is not null) _character.LootKneel = false;
+            _creatures?.SetLootKneel(LocalPlayerGuid, kneeling);
+        }
+        else
+        {
+            _creatures?.SetLootKneel(LocalPlayerGuid, false);
+            if (_character is not null) _character.LootKneel = kneeling;
+        }
     }
 
     private void ApplyLootResponse(byte[] body)
@@ -125,7 +153,8 @@ public sealed partial class GameLoop
         if (openPresentation.SoundCue is { } cue)
             PlayUiSound(cue, LootFrameUiLaw.SoundCategory);
         _lootPage = 1;
-        if (_controller is not null) _lootOpenedAt = _controller.Position;
+        _lootOpenedAtKnown = TryGetSessionBodyPose(out WorldBodyPose sessionBody);
+        if (_lootOpenedAtKnown) _lootOpenedAt = sessionBody.Position;
         if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
             _lootMoneyBefore = player.Fields.Coinage;
         EmitInterface("loot", "response", items.Count == 0 && gold == 0 ? "EMPTY" : "OPEN", guid,
@@ -280,8 +309,9 @@ public sealed partial class GameLoop
             if (_items?.TryGet(entry, out ItemTemplate? template) == true && template is not null)
             {
                 string suffix = count > 1 ? $" x{count}" : "";
-                PushCenterText($"You receive loot: [{template.Name}]{suffix}.",
-                    CenterCombatTextStyle.Heal);
+                if (Settings.Controls.ShowLootAcquisitionText)
+                    PushCenterText($"You receive loot: [{template.Name}]{suffix}.",
+                        CenterCombatTextStyle.Heal);
                 _pendingReceives.RemoveAt(i);
             }
             else if (tries <= 0) _pendingReceives.RemoveAt(i);
@@ -305,8 +335,8 @@ public sealed partial class GameLoop
         // Corpse despawned under us, or the player walked away: release. The real client
         // stands you up and closes on movement; distance is our movement proxy.
         if (!_entities.TryGet(_loot.Source, out _)) { ReleaseLoot(); return; }
-        if (_controller is not null &&
-            Vector3.DistanceSquared(_controller.Position, _lootOpenedAt) > 2.25f)
+        if (_lootOpenedAtKnown && TryGetSessionBodyPose(out WorldBodyPose sessionBody) &&
+            Vector3.DistanceSquared(sessionBody.Position, _lootOpenedAt) > 2.25f)
             ReleaseLoot();
     }
 
@@ -479,14 +509,20 @@ public sealed partial class GameLoop
         {
             uint highlight = _gameplayArt.AdditiveHandle(@"Interface\Buttons\ButtonHilight-Square");
             if (highlight != 0) dl.AddImage((nint)highlight, iconMin, iconMax);
+            LootFrameUiLaw.TooltipSeat tooltipSeat =
+                LootFrameUiLaw.RowTooltipSeat(rowMin, s);
             if (rowTemplate is not null)
             {
                 ItemTooltipBodySnapshot tooltipBody =
                     PrepareItemTooltipBodySnapshot(rowTemplate, row.Count);
-                LootFrameUiLaw.TooltipSeat tooltipSeat =
-                    LootFrameUiLaw.ItemTooltipSeat(rowMin, s);
                 OfferPreparedItemTooltip(new("item:loot-row", (ulong)visual), tooltipBody,
                     tooltipSeat.Anchor, nextWindowPivot: tooltipSeat.Pivot);
+            }
+            else if (row.IsCoin)
+            {
+                OfferOwnerAnchoredSharedGameTooltip(new("loot-coin-row", (ulong)visual),
+                    [new(row.Name, GameTooltipTextTone.White)],
+                    tooltipSeat.Anchor, tooltipSeat.Pivot);
             }
         }
         string itemLink = rowTemplate is null ? "" :

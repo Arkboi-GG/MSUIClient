@@ -18,12 +18,13 @@ public sealed partial class GameLoop
     {
         vendor = null;
         distance = float.PositiveInfinity;
-        if (_controller is null || !_entities.TryGet(guid, out WorldEntity candidate) ||
+        if (!TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
+            !_entities.TryGet(guid, out WorldEntity candidate) ||
             !candidate.IsCreature || candidate.IsDead ||
             (candidate.NpcFlags & NpcVendor) == 0)
             return false;
         vendor = candidate;
-        Vector3 delta = _controller.Position - candidate.Position;
+        Vector3 delta = sessionBody.Position - candidate.Position;
         distance = delta.Length();
         return NpcSessionUiLaw.InRange(delta.LengthSquared());
     }
@@ -103,10 +104,10 @@ public sealed partial class GameLoop
         // The established session closes only when its actor is gone or moves beyond service
         // range. Opener-only type/death/service-bit gates must not tear down a live window, and a
         // temporarily unavailable player transform is not evidence of departure.
-        if (_controller is null) return;
+        if (!TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return;
         bool sourceAvailable = _entities.TryGet(_vendor.VendorGuid, out WorldEntity vendor);
         float distanceSquared = sourceAvailable
-            ? Vector3.DistanceSquared(_controller.Position, vendor.Position)
+            ? Vector3.DistanceSquared(sessionBody.Position, vendor.Position)
             : float.PositiveInfinity;
         if (NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
             CloseVendorSession(playSound: true);

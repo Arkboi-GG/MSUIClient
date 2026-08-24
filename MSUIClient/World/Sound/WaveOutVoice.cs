@@ -60,10 +60,10 @@ internal sealed class WaveOutVoice : IDisposable
             {
                 Data = voice._data,
                 BufferLength = (uint)dataLength,
-                // An infinite loop count with the begin/end pair is the driver's own
-                // looping, which is why this path has no loop seam to maintain.
-                Flags = looping ? WhdrBeginLoop | WhdrEndLoop : 0u,
-                Loops = looping ? 0xFFFFFFFFu : 0u,
+                // waveOutPrepareHeader requires caller-owned flags to be clear.
+                // Loop markers are installed on the prepared native header below.
+                Flags = 0u,
+                Loops = 0u,
             };
             voice._header = Marshal.AllocHGlobal(Marshal.SizeOf<WaveHdr>());
             Marshal.StructureToPtr(header, voice._header, false);
@@ -71,6 +71,17 @@ internal sealed class WaveOutVoice : IDisposable
             if (waveOutPrepareHeader(voice._device, voice._header, (uint)Marshal.SizeOf<WaveHdr>()) != 0)
             { voice.Dispose(); return null; }
             voice._prepared = true;
+
+            if (looping)
+            {
+                // Preserve WHDR_PREPARED and any native-owned fields written by
+                // prepare. WinMM permits changing dwFlags/dwLoops after prepare
+                // and before write; one block may carry both loop markers.
+                header = Marshal.PtrToStructure<WaveHdr>(voice._header);
+                header.Flags |= WhdrBeginLoop | WhdrEndLoop;
+                header.Loops = uint.MaxValue;
+                Marshal.StructureToPtr(header, voice._header, false);
+            }
 
             voice.SetMix(gain, pan);
 

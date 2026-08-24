@@ -1,5 +1,6 @@
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Sound;
 
 namespace MSUIClient;
 
@@ -16,6 +17,13 @@ public sealed partial class GameLoop
 
     private void WireMeleeSounds()
     {
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+        {
+            if (_creatures is not null) _creatures.CombatAnimationSoundEvent = null;
+            if (_character is not null) _character.CombatAnimationSoundEvent = null;
+            _pendingMeleeSounds.Clear();
+            return;
+        }
         if (_mpq is not null) _weaponImpacts = WeaponImpactCatalog.Load(_mpq);
         if (_creatures is not null)
             _creatures.CombatAnimationSoundEvent = PlayMeleeAnimationSoundEvent;
@@ -29,6 +37,7 @@ public sealed partial class GameLoop
 
     private void QueueMeleeSound(CombatMeleeSwing swing)
     {
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled) return;
         var pending = new PendingMeleeSound(swing);
         _pendingMeleeSounds[swing.Attacker] = pending;
         bool attackerResolved = swing.Attacker == ControlledGuid && !ControlledBodyIsStreamed
@@ -132,8 +141,8 @@ public sealed partial class GameLoop
     }
 
     private System.Numerics.Vector3 PositionOf(ulong guid) =>
-        _entities.TryGet(guid, out WorldEntity unit) ? unit.Position :
-        _controller?.Position ?? default;
+        TryGetWorldBodyPose(guid, out WorldBodyPose pose) ? pose.Position :
+        _entities.TryGet(guid, out WorldEntity unit) ? unit.Position : default;
 
     private void PlayMeleeKit(uint kit, ulong owner, System.Numerics.Vector3 position)
     {

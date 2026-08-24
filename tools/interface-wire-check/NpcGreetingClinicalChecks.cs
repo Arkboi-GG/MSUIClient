@@ -52,7 +52,7 @@ internal static class NpcGreetingClinicalChecks
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
             "GameLoop.NpcGreetings.cs"));
         Check(targeting.IndexOf("RequestNpcSelectionGreeting(picked);", StringComparison.Ordinal) <
-              targeting.IndexOf("CommitSelection(picked, beginAttack: false); // empty left clears",
+              targeting.IndexOf("CommitSelection(TargetClickLaw.LeftClickSelection(",
                   StringComparison.Ordinal),
             "left-click greeting must precede SetSelection path");
         Check(runtime.Contains("if (_trainer is not null) return _trainer.TrainerGuid;",

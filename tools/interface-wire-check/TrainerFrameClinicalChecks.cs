@@ -28,8 +28,10 @@ internal static class TrainerFrameClinicalChecks
               TrainerFrameUiLaw.DetailDescriptionFont == "GameFontHighlightSmall" &&
               TrainerFrameUiLaw.Row(10) ==
                   new TrainerFrameUiLaw.LogicalRect(22, 260, 293, 16) &&
-              TrainerFrameUiLaw.FilterRow(2) ==
-                  new TrainerFrameUiLaw.LogicalRect(3, 37, 120, 16) &&
+              DropdownCapsuleUiLaw.List(TrainerFrameUiLaw.FilterDropDown, 3) ==
+                  new DropdownCapsuleUiLaw.LogicalRect(220, 89, 128, 78) &&
+              DropdownCapsuleUiLaw.Row(TrainerFrameUiLaw.FilterDropDown, 2) ==
+                  new DropdownCapsuleUiLaw.LogicalRect(237, 136, 96, 16) &&
               TrainerFrameUiLaw.Close ==
                   new TrainerFrameUiLaw.LogicalRect(322, 8, 32, 32) &&
               TrainerFrameUiLaw.CollapseAll ==
@@ -52,6 +54,10 @@ internal static class TrainerFrameClinicalChecks
                   @"Interface\Buttons\UI-PlusButton-Up" &&
               TrainerFrameUiLaw.CollapseAllHighlightPath ==
                   @"Interface\Buttons\UI-PlusButton-Hilight" &&
+              TrainerFrameUiLaw.FilterDropDown.Frame ==
+                  new DropdownCapsuleUiLaw.LogicalRect(212, 64, 146, 32) &&
+              TrainerFrameUiLaw.FilterDropDown.Button ==
+                  new DropdownCapsuleUiLaw.LogicalRect(106, 1, 24, 24) &&
               TrainerFrameUiLaw.DetailTooltipOwnerBounds(new Vector2(100, 200), 2) ==
                   (new Vector2(154, 788), new Vector2(228, 862)),
             "trainer identity/window geometry drift");
@@ -110,9 +116,16 @@ internal static class TrainerFrameClinicalChecks
               runtime.Contains("TrainerFrameUiLaw.CollapseAllTabArt",
                   StringComparison.Ordinal) &&
               runtime.Contains("VanillaCollapseAllButton", StringComparison.Ordinal) &&
+              runtime.Contains("VanillaDropdownCapsule", StringComparison.Ordinal) &&
+              runtime.Contains("TrainerFrameUiLaw.FilterDropDown", StringComparison.Ordinal) &&
+              !runtime.Contains("VanillaButton(dl, \"##trainer-filter\"",
+                  StringComparison.Ordinal) &&
               runtime.Contains("bool collapseEnabled = tree.Any(row => row.Header)",
                   StringComparison.Ordinal) &&
               runtime.Contains("DrawTrainerFilterMenu", StringComparison.Ordinal) &&
+              runtime.Contains("DropdownCapsuleUiLaw.RowCheck", StringComparison.Ordinal) &&
+              runtime.Contains("DropdownCapsuleUiLaw.RowSound", StringComparison.Ordinal) &&
+              runtime.Contains("WowSkin.Dialog", StringComparison.Ordinal) &&
               runtime.Contains("TrainerFrameUiLaw.DetailTooltipOwnerBounds", StringComparison.Ordinal) &&
               runtime.Contains("SpellTooltipPlacement.OwnerRight", StringComparison.Ordinal) &&
               runtime.Contains("spell:trainer-service", StringComparison.Ordinal) &&

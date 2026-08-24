@@ -68,6 +68,11 @@ public sealed class SpellSoundSystem
     /// <summary>Current character-head listener pose; orientation is character facing.</summary>
     public void SetListener(Vector3 position, float yaw)
     {
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+        {
+            _listenerSet = false;
+            return;
+        }
         _listenerPosition = position;
         _listenerYaw = yaw;
         _listenerSet = true;
@@ -142,7 +147,8 @@ public sealed class SpellSoundSystem
 
         Vector3 effectiveListener = _listenerSet ? _listenerPosition : listener;
         float gain = Gain(entry, source, effectiveListener) * _mixer.CategoryAmp(category);
-        float pan = entry.CutoffDistance > 0f
+        float pan = AudioFeaturePolicy.ExpandedWorldAudioEnabled &&
+                    entry.CutoffDistance > 0f
             ? SpatialAudioLaw.Pan(source, effectiveListener, _listenerYaw) : 0f;
         long voiceId = _mixer.Play(new AudioPlayRequest(
             variant.Path, category, gain, looping,
@@ -191,7 +197,8 @@ public sealed class SpellSoundSystem
             float gain = Gain(voice.Entry, position, effectiveListener) *
                 _mixer.CategoryAmp(voice.Category);
             if (gain <= 0) { Stop(id); continue; }
-            float pan = voice.Entry.CutoffDistance > 0f
+            float pan = AudioFeaturePolicy.ExpandedWorldAudioEnabled &&
+                        voice.Entry.CutoffDistance > 0f
                 ? SpatialAudioLaw.Pan(position, effectiveListener, _listenerYaw) : 0f;
 
             // Only when the quantized value moved. Every mciSendString is a
@@ -204,7 +211,10 @@ public sealed class SpellSoundSystem
             if (_sentVolume.TryGetValue(id, out var last) &&
                 last == (volume, panLevel)) continue;
             _sentVolume[id] = (volume, panLevel);
-            _mixer.SetVoiceGainPan(id, gain, pan);
+            if (AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+                _mixer.SetVoiceGainPan(id, gain, pan);
+            else
+                _mixer.SetVoiceGain(id, gain);
         }
 
         // A hold whose voice finished on its own leaves a dead id behind; stopping
@@ -214,6 +224,22 @@ public sealed class SpellSoundSystem
     }
 
     private static float Gain(in SoundEntry entry, Vector3 source, Vector3 listener)
-        => SpatialAudioLaw.Gain(entry.Volume, entry.MinDistance, entry.CutoffDistance,
-            source, listener);
+    {
+        if (AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+            return SpatialAudioLaw.Gain(entry.Volume, entry.MinDistance,
+                entry.CutoffDistance, source, listener);
+
+        // Preserve the attenuation law from the last known-clean audio build.
+        // The expanded pass replaced this with inverse rolloff; switching that
+        // law while the old per-voice WinMM backend is still active makes moving
+        // loops pump much more sharply than the established client did.
+        float volume = float.IsFinite(entry.Volume)
+            ? Math.Clamp(entry.Volume, 0f, 1f) : 1f;
+        if (entry.CutoffDistance <= 0) return volume;
+        float distance = Vector3.Distance(source, listener);
+        if (distance >= entry.CutoffDistance) return 0;
+        if (distance <= entry.MinDistance) return volume;
+        float span = Math.Max(.001f, entry.CutoffDistance - entry.MinDistance);
+        return volume * (1f - (distance - entry.MinDistance) / span);
+    }
 }

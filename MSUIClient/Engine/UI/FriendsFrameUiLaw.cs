@@ -163,9 +163,6 @@ public static class FriendsFrameUiLaw
         new(132 + variableWidth, 3);
     // 298x16 FontString anchored BOTTOM at (-10,127) inside the 384x512 frame.
     public static readonly LogicalRect WhoTotalsBox = new(33, 369, 298, 16);
-    public static readonly Vector2 WhoDropdownLabelOffset = new(27, 11);
-    public static readonly LogicalRect WhoDropdownCheck = new(0, -4, 24, 24);
-    public static readonly Vector2 WhoDropdownRowTextOffset = new(27, 2);
     public static readonly Vector2 ScrollUvMin = new(.25f);
     public static readonly Vector2 ScrollUvMax = new(.75f);
 
@@ -277,22 +274,11 @@ public static class FriendsFrameUiLaw
         LogicalRect level = WhoLevelHeader(itemCount);
         return new(level.X + level.Width - 2, 70, 92, 24);
     }
-    public static LogicalRect WhoDropdownFrame(int itemCount)
+    public static DropdownCapsuleUiLaw.Layout WhoDropdown(int itemCount)
     {
         float width = WhoDropdownWidth(itemCount);
-        return new(WhoVariableHeader(itemCount).X - 15, 70, width + 50, 32);
-    }
-    public static LogicalRect WhoDropdownList(int itemCount)
-    {
-        LogicalRect frame = WhoDropdownFrame(itemCount);
-        return new(frame.X + 8, frame.Y + frame.Height - 7,
-            WhoDropdownWidth(itemCount) + 32, WhoVariableLabels.Length * 16 + 30);
-    }
-    public static LogicalRect WhoDropdownRow(int itemCount, int index)
-    {
-        LogicalRect list = WhoDropdownList(itemCount);
-        return new(list.X + 17, list.Y + 15 + Math.Clamp(index, 0,
-            WhoVariableLabels.Length - 1) * 16, list.Width - 34, 16);
+        return DropdownCapsuleUiLaw.At(WhoVariableHeader(itemCount).X - 15, 70,
+            width, buttonWidth: 24, leftJustified: true);
     }
 
     public static IReadOnlyList<TextureSlice> WhoColumnHeaderSlices(float width)
@@ -337,25 +323,6 @@ public static class FriendsFrameUiLaw
             FriendsWhoSort.Race => rows.OrderBy(row => row.Race).ToArray(),
             _ => rows.OrderBy(row => row.Name, StringComparer.Ordinal).ToArray(),
         };
-    }
-
-    public static IReadOnlyList<TextureSlice> WhoDropdownArtSlices(int itemCount)
-    {
-        float middleWidth = WhoDropdownWidth(itemCount);
-        return
-        [
-            new(new(0, -17, 25, 64), Vector2.Zero, new(.1953125f, 1)),
-            new(new(25, -17, middleWidth, 64), new(.1953125f, 0),
-                new(.8046875f, 1)),
-            new(new(25 + middleWidth, -17, 25, 64), new(.8046875f, 0),
-                Vector2.One),
-        ];
-    }
-
-    public static LogicalRect WhoDropdownButton(int itemCount)
-    {
-        LogicalRect frame = WhoDropdownFrame(itemCount);
-        return new(frame.Width - 40, 18, 24, 24);
     }
 
     public static ScrollBarLayout ScrollBar(LogicalRect scrollFrame, int value, int maximum)

@@ -14,6 +14,11 @@ public sealed class LocalMovementSender
     private const uint ForwardBackMask = (uint)(MovementFlags.Forward | MovementFlags.Backward);
     private const uint StrafeMask = (uint)(MovementFlags.StrafeLeft | MovementFlags.StrafeRight);
     private const uint TurnMask = (uint)(MovementFlags.TurnLeft | MovementFlags.TurnRight);
+    private const MovementFlags RootIncompatibleFlags =
+        MovementFlags.Forward | MovementFlags.Backward |
+        MovementFlags.StrafeLeft | MovementFlags.StrafeRight |
+        MovementFlags.Falling | MovementFlags.FallingFar |
+        MovementFlags.SplineEnabled;
 
     private uint _previousFlags;
     private float _previousFacing;
@@ -87,6 +92,7 @@ public sealed class LocalMovementSender
         bool startedFalling,
         uint fallTimeMs,
         float jumpLaunchSpeed,
+        MovementFlags serverGrantedFlags,
         double nowSeconds)
     {
         _lastUpdateOpcodes.Clear();
@@ -118,6 +124,9 @@ public sealed class LocalMovementSender
                 if (controller.FallTimeMs >= 500f) flags |= MovementFlags.FallingFar;
             }
         }
+        flags |= serverGrantedFlags;
+        if ((flags & MovementFlags.Root) != 0)
+            flags &= ~RootIncompatibleFlags;
 
         uint current = (uint)flags;
         uint added = current & ~_previousFlags;

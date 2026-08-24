@@ -1,6 +1,7 @@
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Sound;
 
 namespace MSUIClient;
 
@@ -23,9 +24,12 @@ public sealed partial class GameLoop
         else
             _creatures?.TriggerOneShot(packet.UnitGuid, (int)emote.AnimationId);
 
-        if (emote.EventSoundId != 0 && _spellSounds is not null && _controller is not null)
+        if (AudioFeaturePolicy.ExpandedWorldAudioEnabled &&
+            emote.EventSoundId != 0 && _spellSounds is not null && _controller is not null)
         {
-            var source = packet.UnitGuid == ControlledGuid ? _controller.Position : unit.Position;
+            var source = TryGetWorldBodyPose(packet.UnitGuid, out WorldBodyPose bodyPose)
+                ? bodyPose.Position
+                : unit.Position;
             _spellSounds.Play(emote.EventSoundId, packet.UnitGuid, source, _controller.Position,
                 forceLoop: false, trackHold: false, category: "creature");
         }

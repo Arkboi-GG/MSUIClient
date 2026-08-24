@@ -818,6 +818,14 @@ public sealed class GameSettings
         public bool ChatBubbles { get; set; } = true;
         public bool PartyChatBubbles { get; set; } = true;
 
+        /// <summary>Green center-screen "You receive loot" notices. The loot
+        /// window and chat/economy state are unaffected.</summary>
+        public bool ShowLootAcquisitionText { get; set; }
+
+        /// <summary>Red center-screen entering/leaving-combat notices. Resource,
+        /// aura, and damage/heal combat feedback keep their independent behavior.</summary>
+        public bool ShowCombatStateText { get; set; }
+
         /// <summary>CRPG/RTS command strips beside the party portraits (roles, hold, patrol).</summary>
         public bool RtsCommands { get; set; }
 

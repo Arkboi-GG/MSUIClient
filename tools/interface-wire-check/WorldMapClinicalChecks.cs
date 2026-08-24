@@ -40,15 +40,15 @@ internal static class WorldMapClinicalChecks
               continent.Contains(new Vector2(400, 100), true) &&
               !continent.Contains(new Vector2(400, 100), false),
             "world-map dropdown row or pointer-ownership law drift");
-        Check(WorldMapUiLaw.CapsuleSlices.Length == 3 &&
-              WorldMapUiLaw.CapsuleSlices[0].Rect ==
-                  new WorldMapUiLaw.LogicalRect(0, -17, 25, 64) &&
-              WorldMapUiLaw.CapsuleSlices[1].Rect ==
-                  new WorldMapUiLaw.LogicalRect(25, -17, 130, 64) &&
-              WorldMapUiLaw.CapsuleSlices[2].Rect ==
-                  new WorldMapUiLaw.LogicalRect(155, -17, 25, 64) &&
-              WorldMapUiLaw.CapsuleButton ==
-                  new WorldMapUiLaw.LogicalRect(140, 1, 24, 24) &&
+        Check(WorldMapUiLaw.Capsule.Art.Length == 3 &&
+              WorldMapUiLaw.Capsule.Frame ==
+                  new DropdownCapsuleUiLaw.LogicalRect(0, 0, 180, 32) &&
+              WorldMapUiLaw.Capsule.Art[0].Rect ==
+                  new DropdownCapsuleUiLaw.LogicalRect(0, -17, 25, 64) &&
+              WorldMapUiLaw.Capsule.Art[1].Rect ==
+                  new DropdownCapsuleUiLaw.LogicalRect(25, -17, 130, 64) &&
+              WorldMapUiLaw.Capsule.Button ==
+                  new DropdownCapsuleUiLaw.LogicalRect(140, 1, 24, 24) &&
               WorldMapUiLaw.DropdownRow ==
                   new WorldMapUiLaw.LogicalRect(0, 0, 130, 16) &&
               WorldMapUiLaw.MapPoint(new Vector2(11, 69), new Vector2(1002, 668),
@@ -75,11 +75,15 @@ internal static class WorldMapClinicalChecks
               map.Contains("WorldMapUiLaw.Frame(display)", StringComparison.Ordinal) &&
               map.Contains("WorldMapUiLaw.Continent", StringComparison.Ordinal) &&
               map.Contains("WorldMapUiLaw.Zone", StringComparison.Ordinal) &&
-              map.Contains("WorldMapUiLaw.CapsuleSlices", StringComparison.Ordinal) &&
+              map.Contains("WorldMapUiLaw.Capsule", StringComparison.Ordinal) &&
+              map.Contains("VanillaDropdownCapsule", StringComparison.Ordinal) &&
               map.Contains("WorldMapUiLaw.MapPoint", StringComparison.Ordinal) &&
               map.Contains("WorldMapUiLaw.PixelRect", StringComparison.Ordinal) &&
               map.Contains("WorldMapUiLaw.CorpseTooltipSeat", StringComparison.Ordinal) &&
               map.Contains("world-map-corpse", StringComparison.Ordinal) &&
+              map.Contains("OfferOwnerAnchoredSharedGameTooltip", StringComparison.Ordinal) &&
+              map.Contains("GameTooltipTextTone.Red", StringComparison.Ordinal) &&
+              !map.Contains("ImGui.BeginTooltip", StringComparison.Ordinal) &&
               map.Contains("GameText.DrawCentered(dl, WorldMapUiLaw.TitleFont",
                   StringComparison.Ordinal) &&
               map.Contains("GameText.DrawCentered(dl, WorldMapUiLaw.HoverLabelFont",
@@ -88,7 +92,8 @@ internal static class WorldMapClinicalChecks
               !map.Contains("ViewLabelCenter", StringComparison.Ordinal) &&
               !map.Contains("new Vector2", StringComparison.Ordinal) &&
               map.Contains("WowSkin.Dialog", StringComparison.Ordinal) &&
-              map.Contains("UI-CheckBox-Check", StringComparison.Ordinal) &&
+              map.Contains("DropdownCapsuleUiLaw.RowCheck", StringComparison.Ordinal) &&
+              map.Contains("DropdownCapsuleUiLaw.RowSound", StringComparison.Ordinal) &&
               catalog.Contains("_continentOrder.Add(info)", StringComparison.Ordinal) &&
               catalog.Contains("_areaOrder.Add(info)", StringComparison.Ordinal),
             "world-map dropdown law, authored art, checks, or stable catalog order drift");

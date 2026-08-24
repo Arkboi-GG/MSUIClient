@@ -58,6 +58,45 @@ internal static class TalentFrameClinicalChecks
               TalentFrameUiLaw.ScrollControlUvMax == new Vector2(.75f, .75f),
             "TalentFrame fixed 504-minus-332 scroll range/20px step/thumb projection drift");
 
+        string[] talentRequirements = TalentFrameUiLaw.TalentTooltipRequirements(
+            "Arms", 20, 15, "Defensive Stance", false,
+            "Deep Wounds", 2, 1);
+        var talentSpell = new SpellTooltipView("Mortal Strike", "Rank 1",
+            "30 Rage", "Melee Range", "Instant cast", "6 sec cooldown",
+            "A vicious strike that causes weapon damage.");
+        TalentFrameUiLaw.TalentTooltipRow[] talentRows =
+            TalentFrameUiLaw.TalentTooltipRows(talentSpell, 1, 5,
+                talentRequirements, "Causes more weapon damage.", showLearnHint: true);
+        Check(talentRequirements.SequenceEqual(new[]
+              {
+                  "Requires 20 points in Arms Talents",
+                  "Requires Defensive Stance",
+                  "Requires 2 points in Deep Wounds",
+              }) &&
+              TalentFrameUiLaw.TalentTooltipRequirements("Arms", 0, 0,
+                  null, true, "Improved Heroic Strike", 1, 0)[0] ==
+                  "Requires 1 point in Improved Heroic Strike" &&
+              TalentFrameUiLaw.ShowTalentLearnHint(1, 4, 5) &&
+              !TalentFrameUiLaw.ShowTalentLearnHint(0, 4, 5) &&
+              !TalentFrameUiLaw.ShowTalentLearnHint(1, 5, 5) &&
+              talentRows.Length == 11 &&
+              talentRows[0] == new TalentFrameUiLaw.TalentTooltipRow(
+                  "Mortal Strike", null, "GameTooltipHeaderText",
+                  TalentFrameUiLaw.TooltipWhite, false) &&
+              talentRows[1].Left == "Rank 1/5" &&
+              talentRows[2].Color == TalentFrameUiLaw.TooltipRed && talentRows[2].Wrap &&
+              talentRows[5].Left == "30 Rage" && talentRows[5].Right == "Melee Range" &&
+              talentRows[7].Color == TalentFrameUiLaw.TooltipGold && talentRows[7].Wrap &&
+              talentRows[8].Left == "Next rank:" &&
+              talentRows[9].Left == "Causes more weapon damage." &&
+              talentRows[10].Left == "Click to learn" &&
+              talentRows[10].Color == TalentFrameUiLaw.TooltipGreen &&
+              TalentFrameUiLaw.TalentTooltipOrigin(
+                  new TalentFrameUiLaw.TooltipSeat(new Vector2(137, 200), Vector2.UnitY),
+                  new Vector2(100, 80), new Vector2(1920, 1080), 1) ==
+                  new Vector2(137, 120),
+            "TalentFrame SetTalent tooltip interleave/requirement/owner-right law drift");
+
         TalentFrameUiLaw.ConnectorSprite[] vertical = TalentFrameUiLaw.BuildConnectors(
             [(0, 0), (2, 0)],
             [new(2, 0, 0, 0, true)]);
@@ -83,6 +122,12 @@ internal static class TalentFrameClinicalChecks
               runtime.Contains("TalentFrameUiLaw.CloseX", StringComparison.Ordinal) &&
               runtime.Contains("TalentFrameUiLaw.TalentButton(", StringComparison.Ordinal) &&
               runtime.Contains("TalentFrameUiLaw.TalentTooltipSeat", StringComparison.Ordinal) &&
+              runtime.Contains("TalentFrameUiLaw.TalentTooltipRows", StringComparison.Ordinal) &&
+              runtime.Contains("TalentFrameUiLaw.TalentTooltipRequirements", StringComparison.Ordinal) &&
+              runtime.Contains("OfferPreservedSharedGameTooltipRenderer", StringComparison.Ordinal) &&
+              runtime.Contains("DrawTalentTooltip", StringComparison.Ordinal) &&
+              !runtime.Contains("ImGui.BeginTooltip", StringComparison.Ordinal) &&
+              !runtime.Contains("ImGui.TextDisabled", StringComparison.Ordinal) &&
               runtime.Contains("TalentFrameUiLaw.ScrollKnob(", StringComparison.Ordinal) &&
               runtime.Contains("TalentFrameUiLaw.SpentTextTop", StringComparison.Ordinal) &&
               runtime.Contains("TalentFrameUiLaw.TabMinimum", StringComparison.Ordinal) &&

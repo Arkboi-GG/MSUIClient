@@ -46,8 +46,8 @@ internal static class TaxiFrameClinicalChecks
               TaxiFrameUiLaw.MapSize == new Vector2(316, 352) &&
               TaxiFrameUiLaw.Map == new TaxiFrameUiLaw.LogicalRect(21, 75, 316, 352) &&
               TaxiFrameUiLaw.Close == new TaxiFrameUiLaw.LogicalRect(323, 8, 32, 32) &&
-              TaxiFrameUiLaw.FallbackContent ==
-                  new TaxiFrameUiLaw.LogicalRect(50, 82, 270, 300) &&
+              TaxiFrameUiLaw.NodeTooltipSeat(new Vector2(100, 200), 2f) ==
+                  new TaxiFrameUiLaw.TooltipSeat(new Vector2(116, 184), Vector2.UnitY) &&
               status.FlightMasterGuid == 0x123456789ABCDEF0 && status.Known &&
               TaxiPackets.ParseActivateReply(Convert.FromHexString("03000000")) == 3 &&
               TaxiFrameUiLaw.ActivateErrorText(3) == "You don't have enough money!" &&
@@ -100,8 +100,16 @@ internal static class TaxiFrameClinicalChecks
               runtime.Contains("TaxiFrameUiLaw.ReachableIcon", StringComparison.Ordinal) &&
               runtime.Contains("DrawTaxiRouteLine", StringComparison.Ordinal) &&
               runtime.Contains("OfferTaxiNodeTooltip", StringComparison.Ordinal) &&
+              runtime.Contains("TaxiFrameUiLaw.NodeTooltipSeat(center, s)",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("tooltipSeat.Anchor, tooltipSeat.Pivot",
+                  StringComparison.Ordinal) &&
               runtime.Contains("ActivateTaxiExpress", StringComparison.Ordinal) &&
               runtime.Contains("TryBetween", StringComparison.Ordinal) &&
+              runtime.Contains("!TryGetSessionBodyPose(out WorldBodyPose sessionBody)",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("Vector3.DistanceSquared(sessionBody.Position, unit.Position)",
+                  StringComparison.Ordinal) &&
               !runtime.Contains("if (body.Length < 20)", StringComparison.Ordinal) &&
               !runtime.Contains("UI-Taxi-Icon-Yellow", StringComparison.Ordinal) &&
               !runtime.Contains("float minX=continent", StringComparison.Ordinal) &&
@@ -109,6 +117,9 @@ internal static class TaxiFrameClinicalChecks
               runtime.Contains("TaxiFrameUiLaw.ShellPieces", StringComparison.Ordinal) &&
               runtime.Contains("TaxiFrameUiLaw.TitleCenter", StringComparison.Ordinal) &&
               runtime.Contains("TaxiFrameUiLaw.RouteUvA", StringComparison.Ordinal) &&
+              !runtime.Contains("##taxi-content", StringComparison.Ordinal) &&
+              !runtime.Contains("Current node:", StringComparison.Ordinal) &&
+              !runtime.Contains("Fly to node", StringComparison.Ordinal) &&
               !runtime.Contains("_taxiStart = move.Points[0]; _taxiOpen = true",
                   StringComparison.Ordinal),
             "taxi production wiring drift");

@@ -119,6 +119,27 @@ internal static class MailFrameClinicalChecks
               source.Contains("MailUiLaw.ConfirmationAccept", StringComparison.Ordinal),
             "Mail satellite renderers must consume rule-owned geometry");
 
+        string inboxRow = MethodBody(source, "private void DrawMailInboxRow");
+        string sendSlot = MethodBody(source, "private void DrawMailSendSlot");
+        string openSlot = MethodBody(source, "private bool DrawOpenMailSlot");
+        Check(inboxRow.Contains("OfferOwnerAnchoredSharedGameTooltip(tooltipOwner,",
+                  StringComparison.Ordinal) &&
+              inboxRow.Contains("GameTooltipTextTone.White", StringComparison.Ordinal) &&
+              !inboxRow.Contains("ImGui.BeginTooltip", StringComparison.Ordinal) &&
+              sendSlot.Contains("OfferOwnerAnchoredSharedGameTooltip(tooltipOwner,",
+                  StringComparison.Ordinal) &&
+              sendSlot.Contains("GameTooltipTextTone.White", StringComparison.Ordinal) &&
+              !sendSlot.Contains("ImGui.BeginTooltip", StringComparison.Ordinal) &&
+              source.Contains("setTextTone: GameTooltipTextTone.White",
+                  StringComparison.Ordinal) &&
+              openSlot.Contains("if (setTextTone is { } tone)",
+                  StringComparison.Ordinal) &&
+              openSlot.Contains("OfferOwnerAnchoredSharedGameTooltip(tooltipOwner,",
+                  StringComparison.Ordinal) &&
+              openSlot.Contains("OfferPreservedSharedGameTooltipRenderer(tooltipOwner,",
+                  StringComparison.Ordinal),
+            "Mail SetText tooltips must use the rule-seated shared classic renderer");
+
         Check(!source.Contains("new Vector2", StringComparison.Ordinal) &&
               !source.Contains("Vector4 clip = new(", StringComparison.Ordinal) &&
               !source.Contains("Vector4 panelClip = new(", StringComparison.Ordinal) &&

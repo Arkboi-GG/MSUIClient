@@ -55,6 +55,18 @@ public static class WorldCursorUiLaw
     public const float MeleeReachFloor = 5f;
     public const float GameObjectInteractRangeSquared = ServiceRangeSquared;
 
+    /// <summary>
+    /// Build-5875 unit interaction reach shared by the cursor verdict and the actual commit
+    /// tail. Keeping this calculation here prevents an UnableLoot cursor from disagreeing with
+    /// whether CMSG_LOOT is allowed to leave the client.
+    /// </summary>
+    public static float UnitMeleeReachSquared(float playerCombatReach, float unitCombatReach)
+    {
+        float reach = MathF.Max(playerCombatReach + unitCombatReach + MeleeReachOffset,
+            MeleeReachFloor);
+        return reach * reach;
+    }
+
     public static WorldCursorState ItemTargeting(bool pointerOverUi) =>
         new(WorldCursorKind.Cast, Unable: !pointerOverUi);
 
@@ -87,9 +99,8 @@ public static class WorldCursorUiLaw
     {
         if (dead)
         {
-            float reach = MathF.Max(playerCombatReach + unitCombatReach + MeleeReachOffset,
-                MeleeReachFloor);
-            bool unable = distanceSquared > reach * reach;
+            bool unable = distanceSquared >
+                UnitMeleeReachSquared(playerCombatReach, unitCombatReach);
             if (lootable)
                 return new(autoLoot != shiftHeld ? WorldCursorKind.LootAll :
                     WorldCursorKind.Pickup, unable);
