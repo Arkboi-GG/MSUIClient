@@ -124,6 +124,19 @@ public static class PartyFramePacketLaw
             threshold = reader.ReadU8();
             dungeonDifficulty = reader.ReadU8();
         }
+        // vmangos does not send the 14-byte header-shaped empty roster when you stop being in a
+        // group. Group::RemoveMember (src/game/Group/Group.cpp:506) and Group::Disband (:602) both
+        // send a fixed 24-byte all-zero body — data.Initialize(SMSG_GROUP_LIST, 24) followed by
+        // three uint64(0). The header shape consumes 14 of those; the remaining 10 are padding,
+        // not fields. Rejecting them discarded the ONLY packet that ever clears the roster: a
+        // two-man leave takes Disband(hideDestroy=true), so no SMSG_GROUP_DESTROYED arrives either.
+        if (count == 0 && leader == 0 && reader.Remaining == 10)
+        {
+            for (int i = 0; i < 10; i++)
+                if (reader.ReadU8() != 0)
+                    throw new InvalidDataException(
+                        "SMSG_GROUP_LIST leave padding must be all zero");
+        }
         if (reader.Remaining != 0)
             throw new InvalidDataException($"SMSG_GROUP_LIST trailing bytes {reader.Remaining}");
         return new(groupType, ownFlags, members, leader, lootMethod,
@@ -282,6 +295,13 @@ public static class PartyFramePacketLaw
 public static class PartyFrameUiLaw
 {
     public const string PartyInvitePopupType = "PARTY_INVITE";
+
+    /// <summary>
+    /// SoundEntries kit 881 -> Sound\Interface\iPlayerInviteA.wav, the roster-change drum.
+    /// The reference client plays it from the engine rather than FrameXML — the name appears
+    /// nowhere in the 1.12 Lua — so the roster diff is the only hook there is to mirror.
+    /// </summary>
+    public const string MemberJoinedSound = "igPlayerInviteAccept";
     public static readonly StaticPopupCoordinatorLaw.Definition PartyInvitePopupDefinition = new(
         PartyInvitePopupType,
         WhileDead: true,

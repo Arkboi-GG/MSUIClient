@@ -33,7 +33,11 @@ public sealed partial class GameLoop
         _unitPopupSubmenu = UnitPopupSubmenu.None;
         _unitPopupSubmenuParentRow = -1;
         _unitPopupNameOverride = "";
-        if (which != UnitPopupWhich.Pet && !_playerNames.ContainsKey(guid))
+        // Pet and Target are creature guids. CMSG_NAME_QUERY on one answers empty and the
+        // handler caches that empty answer as a negative entry, so asking would both put junk
+        // on the wire and poison _playerNames on every first right-click of every mob.
+        if (which is not (UnitPopupWhich.Pet or UnitPopupWhich.Target) &&
+            !_playerNames.ContainsKey(guid))
             _net?.NameQuery(guid);
         PlayUiSound("igMainMenuOpen");
     }
@@ -116,11 +120,14 @@ public sealed partial class GameLoop
         if (!UnitPopupUiLaw.ShouldOpen(rows)) { _unitPopupGuid = 0; return; }
         float s = GameplayUiScale();
         bool isLeader = _partyInGroup && _net is not null && _partyLeaderGuid == _net.PlayerGuid;
+        // A creature has no _playerNames entry, so without the Target arm the card over a mob
+        // would be headed with the literal word "Player".
         string title = _unitPopupNameOverride.Length > 0
             ? _unitPopupNameOverride
-            : _unitPopupWhich == UnitPopupWhich.Pet &&
+            : (_unitPopupWhich is UnitPopupWhich.Pet or UnitPopupWhich.Target) &&
                 _entities.TryGet(_unitPopupGuid, out WorldEntity popupPet)
-                ? ResolveCreatureOrPetName(popupPet, "Pet")
+                ? ResolveCreatureOrPetName(popupPet,
+                    _unitPopupWhich == UnitPopupWhich.Pet ? "Pet" : "Target")
                 : _playerNames.GetValueOrDefault(_unitPopupGuid, "Player");
         float cardWidth = MeasureUnitPopupWidth(rows, hasTitle: true, title, isLeader, s);
         Vector2 logicalSize = new(cardWidth, UnitPopupUiLaw.CardHeight(rows.Length));

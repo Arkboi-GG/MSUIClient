@@ -21,7 +21,13 @@ public readonly record struct QuestLogObjective(uint CreatureOrGo, uint Required
 public sealed record QuestTemplate(uint QuestId, uint Level, int ZoneOrSort, string Title,
     string ObjectivesText, string Details, int Money, uint RewardSpell,
     IReadOnlyList<QuestRewardItem> FixedRewards, IReadOnlyList<QuestRewardItem> ChoiceRewards,
-    IReadOnlyList<QuestLogObjective> Objectives);
+    IReadOnlyList<QuestLogObjective> Objectives, uint Flags = 0)
+{
+    /// <summary>QUEST_FLAGS_SHARABLE. The server does NOT gate the push on this —
+    /// it happily forwards an unsharable quest and then refuses every accept — so
+    /// the client is what must keep the Share Quest button honest.</summary>
+    public bool Sharable => (Flags & 0x08) != 0;
+}
 
 public static class QuestPackets
 {
@@ -102,7 +108,8 @@ public static class QuestPackets
         int money = r.ReadI32();
         r.ReadU32(); // reward money at max level
         uint rewardSpell = r.ReadU32();
-        r.Skip(2 * 4); // source item and flags
+        r.ReadU32(); // source item
+        uint questFlags = r.ReadU32();
         QuestRewardItem[] fixedRewards = ReadFixedTemplateItems(r, 4);
         QuestRewardItem[] choiceRewards = ReadFixedTemplateItems(r, 6);
         r.Skip(4 * 4); // map id, x, y, point option
@@ -123,7 +130,7 @@ public static class QuestPackets
         }
         RequireEnd(r, "quest query response");
         return new(id, level, zoneOrSort, title, objectivesText, details, money, rewardSpell,
-            fixedRewards, choiceRewards, result);
+            fixedRewards, choiceRewards, result, questFlags);
     }
 
     private static QuestRewardItem[] ReadFixedTemplateItems(PacketReader r, int slots)

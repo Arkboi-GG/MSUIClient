@@ -840,6 +840,12 @@ public sealed class GameSettings
         /// <summary>CRPG/RTS command strips beside the party portraits (roles, hold, patrol).</summary>
         public bool RtsCommands { get; set; }
 
+        /// <summary>Warcraft-style spoken feedback from commanded companions, in their
+        /// own 1.12 race/gender voices: hello on selection, yes on an order, charge or
+        /// open fire on an attack, no on a refusal — and the classic pissed lines when
+        /// a companion is clicked one time too many.</summary>
+        public bool CompanionVoice { get; set; } = true;
+
         /// <summary>Divinity-style cutaway: while commanding an indoor toon from the
         /// free view, the building's shell/roof is hidden so the room shows from the
         /// sky. Owner verdict 2026-08-11: the open-face dollhouse look is "no good" —

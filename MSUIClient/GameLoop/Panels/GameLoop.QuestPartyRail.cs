@@ -1,0 +1,275 @@
+using System.Numerics;
+using ImGuiNET;
+using MSUIClient.Engine.UI;
+using MSUIClient.Net;
+
+namespace MSUIClient;
+
+/// <summary>
+/// The companion rail beside the questgiver frame (PLAN_20 P3): who comes with
+/// you on this quest, and — on a turn-in — which reward each of them takes.
+///
+/// It is a SEPARATE window sitting to the right of the 384-wide quest frame, and
+/// it is deliberately painted in the SuperUI dialog skin rather than FrameXML
+/// parchment. Nothing it draws overlaps x ∈ [0, 384], so no vanilla element
+/// moves and the quest frame's parity element tree is untouched — and dressing
+/// commander furniture as vanilla art would invite a parity claim it could never
+/// satisfy. While a UI-parity proof is armed the rail does not draw at all.
+/// </summary>
+public sealed partial class GameLoop
+{
+    private const float QuestRailGap = 6f;
+    private const float QuestRailX = QuestFrameUiLaw.Width + QuestRailGap;   // 390
+    private const float QuestRailTop = QuestFrameUiLaw.ScrollY;              // 81
+    private const float QuestRailWidth = 150f;
+    private const float QuestRailHeaderHeight = 18f;
+    private const float QuestRailRowPitch = 36f;
+
+    private const float QuestRewardBoardPad = 10f;
+    private const float QuestRewardColumnWidth = 47f;
+    private const float QuestRewardHeadHeight = 16f;
+    private const float QuestRewardMemberHeight = 32f;
+
+    /// <summary>Companions ticked for the next act. Sticky across frames so a
+    /// deselection survives the panel redrawing every frame.</summary>
+    private readonly HashSet<ulong> _questRailExcluded = [];
+
+    /// <summary>Per-member reward pick for the current offer; absent = auto.</summary>
+    private readonly Dictionary<ulong, byte> _questRailRewardChoice = [];
+
+    private void ResetQuestPartyRail()
+    {
+        _questRailExcluded.Clear();
+        _questRailRewardChoice.Clear();
+    }
+
+    /// <summary>The companions this rail offers, in party order.</summary>
+    private List<(ulong Guid, string Name)> QuestRailMembers() => PartyQuestCandidates();
+
+    private bool QuestRailIncluded(ulong guid) => !_questRailExcluded.Contains(guid);
+
+    private List<PartyQuestSubject> QuestRailSubjects(bool withRewards)
+    {
+        var subjects = new List<PartyQuestSubject>();
+        foreach ((ulong guid, _) in QuestRailMembers())
+        {
+            if (!QuestRailIncluded(guid)) continue;
+            byte choice = withRewards && _questRailRewardChoice.TryGetValue(guid, out byte pick)
+                ? pick : PartyQuestWire.RewardChoiceAuto;
+            subjects.Add(new PartyQuestSubject(guid, choice));
+        }
+        return subjects;
+    }
+
+    private void DrawQuestPartyRail()
+    {
+        if (_uiParityArmed) return;              // never perturb a parity proof
+        if (!_partyQuestActsAvailable) return;
+        QuestNpcPanel panel = QuestNpcPanelNow();
+        if (panel is QuestNpcPanel.None or QuestNpcPanel.Greeting) return;
+
+        List<(ulong Guid, string Name)> members = QuestRailMembers();
+        if (members.Count == 0) return;
+
+        uint questId = _questOffer?.QuestId ?? _questRequestItems?.QuestId ??
+            _questDetails?.QuestId ?? 0;
+        if (questId == 0) return;
+
+        float s = GameplayUiScale();
+        Vector2 origin = UiPanelFrameOrigin(UiPanelOwnershipRegistry[7], s);
+        bool reward = panel == QuestNpcPanel.Reward;
+
+        int choices = reward
+            ? Math.Min(_questOffer?.ChoiceRewards.Count ?? 0, QuestFrameUiLaw.MaxItems) : 0;
+        int included = QuestRailSubjects(withRewards: false).Count;
+        float width = reward && choices > 0
+            ? 2 * QuestRewardBoardPad + Math.Max(1, included) * QuestRewardColumnWidth
+            : QuestRailWidth;
+        float height = QuestRailHeaderHeight + members.Count * QuestRailRowPitch + 30f;
+        if (reward && choices > 0)
+            height = QuestRewardHeadHeight + QuestRewardMemberHeight +
+                choices * QuestRewardColumnWidth + 30f;
+
+        ImGui.SetNextWindowPos(origin + new Vector2(QuestRailX, QuestRailTop) * s,
+            ImGuiCond.Always);
+        ImGui.SetNextWindowSize(new Vector2(width, height) * s, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0f);
+        if (!ImGui.Begin("##quest-party-rail", ImGuiWindowFlags.NoTitleBar |
+                ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoCollapse |
+                ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove |
+                ImGuiWindowFlags.NoScrollbar))
+        {
+            ImGui.End();
+            return;
+        }
+
+        ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        Vector2 min = ImGui.GetWindowPos();
+        _skin?.DrawBackdrop(dl, min, min + ImGui.GetWindowSize(), WowSkin.Dialog);
+        Vector2 c0 = min + new Vector2(8f, 8f) * s;
+
+        if (reward && choices > 0)
+            DrawQuestRewardBoard(dl, c0, s, members, choices, questId);
+        else
+            DrawQuestRailRoster(dl, c0, s, members, panel, questId);
+
+        ImGui.End();
+    }
+
+    /// <summary>Greeting/Detail/Progress: who comes along, and one act button.</summary>
+    private void DrawQuestRailRoster(ImDrawListPtr dl, Vector2 c0, float s,
+        List<(ulong Guid, string Name)> members, QuestNpcPanel panel, uint questId)
+    {
+        bool accepting = panel == QuestNpcPanel.Detail;
+        GameText.Draw(dl, "GameFontNormalSmall",
+            accepting ? "Send with you" : "Turning in with you",
+            c0, s, VanillaGold);
+        float y = QuestRailHeaderHeight;
+
+        foreach ((ulong guid, string name) in members)
+        {
+            Vector2 rowMin = c0 + new Vector2(0, y) * s;
+            var rowSize = new Vector2(QuestRailWidth - 16f, 34f) * s;
+            ImGui.SetCursorScreenPos(rowMin);
+            ImGui.InvisibleButton($"##quest-rail-{guid}", rowSize);
+            if (ImGui.IsItemClicked())
+            {
+                if (!_questRailExcluded.Remove(guid)) _questRailExcluded.Add(guid);
+            }
+
+            bool included = QuestRailIncluded(guid);
+            Vector2 boxMin = rowMin + new Vector2(2f, 10f) * s;
+            var boxSize = new Vector2(14f, 14f) * s;
+            dl.AddRect(boxMin, boxMin + boxSize, 0xff2a343d, 0f, ImDrawFlags.None,
+                MathF.Max(1f, s));
+            if (included)
+                dl.AddRectFilled(boxMin + new Vector2(3f, 3f) * s,
+                    boxMin + boxSize - new Vector2(3f, 3f) * s, VanillaGold);
+
+            DrawQuestRailPortrait(dl, guid, rowMin + new Vector2(22f, 1f) * s, 32f * s);
+
+            uint tint = included ? 0xffd8e0e6 : 0xff5a646b;
+            GameText.Draw(dl, "GameFontNormalSmall",
+                GameText.EllipsizeToBox("GameFontNormalSmall", name, 82f, 12f, s),
+                rowMin + new Vector2(58f, 2f) * s, s, tint);
+            GameText.Draw(dl, "GameFontNormalSmall", QuestRailVerdict(guid, questId),
+                rowMin + new Vector2(58f, 17f) * s, s, 0xff9aa4ab);
+            y += QuestRailRowPitch;
+        }
+
+        int count = QuestRailSubjects(withRewards: false).Count;
+        Vector2 buttonMin = c0 + new Vector2(0, y + 4f) * s;
+        var buttonSize = new Vector2(QuestRailWidth - 16f, 22f);
+        string caption = accepting ? $"Accept for party ({count})" : $"Turn in all ({count})";
+        if (VanillaButton(dl, "##quest-party-act", caption, buttonMin, buttonSize, s,
+                enabled: count > 0) && count > 0)
+        {
+            List<PartyQuestSubject> subjects = QuestRailSubjects(withRewards: false);
+            ulong giver = _questDetails?.GiverGuid ?? _questRequestItems?.GiverGuid ?? 0;
+            RequestPartyQuestAct(
+                accepting ? PartyQuestWire.ActionAccept : PartyQuestWire.ActionTurnIn,
+                questId, giver, subjects);
+        }
+    }
+
+    /// <summary>
+    /// Reward panel: one column per included companion, one row per choice —
+    /// every member's picker visible at once, which is the owner's decision.
+    /// Your own picker stays exactly where vanilla puts it, untouched.
+    /// </summary>
+    private void DrawQuestRewardBoard(ImDrawListPtr dl, Vector2 c0, float s,
+        List<(ulong Guid, string Name)> members, int choices, uint questId)
+    {
+        GameText.Draw(dl, "GameFontNormalSmall", "Their rewards", c0, s, VanillaGold);
+
+        var included = members.Where(m => QuestRailIncluded(m.Guid)).ToList();
+        float colX = QuestRewardBoardPad - 8f;
+        foreach ((ulong guid, string name) in included)
+        {
+            DrawQuestRailPortrait(dl, guid,
+                c0 + new Vector2(colX + 11.5f, QuestRewardHeadHeight) * s, 24f * s);
+            GameText.Draw(dl, "GameFontNormalSmall",
+                GameText.EllipsizeToBox("GameFontNormalSmall", name, 45f, 11f, s),
+                c0 + new Vector2(colX, QuestRewardHeadHeight + 25f) * s, s, 0xffd8e0e6);
+
+            for (int k = 0; k < choices; k++)
+            {
+                Vector2 cellMin = c0 + new Vector2(colX + 4f,
+                    QuestRewardHeadHeight + QuestRewardMemberHeight +
+                    k * QuestRewardColumnWidth) * s;
+                var cellSize = new Vector2(QuestFrameUiLaw.ItemIcon, QuestFrameUiLaw.ItemIcon) * s;
+                ImGui.SetCursorScreenPos(cellMin);
+                ImGui.InvisibleButton($"##quest-party-choice-{guid}-{k}", cellSize);
+                if (ImGui.IsItemClicked()) _questRailRewardChoice[guid] = (byte)k;
+
+                // Same icon resolution the vanilla reward row uses: the item's
+                // own IconPath unless the offer carried an explicit display id.
+                QuestRewardItem row = _questOffer!.ChoiceRewards[k];
+                string iconPath = QuestRewardIconPath(row);
+                uint icon = iconPath.Length > 0 ? _gameplayArt?.Handle(iconPath) ?? 0 : 0;
+                if (icon != 0) dl.AddImage((nint)icon, cellMin, cellMin + cellSize);
+                else dl.AddRectFilled(cellMin, cellMin + cellSize, 0x55101418);
+                if (row.Count > 1)
+                    GameText.DrawRightAligned(dl, "NumberFontNormal", row.Count.ToString(),
+                        cellMin + QuestFrameUiLaw.ItemCountAnchor * s, s);
+
+                bool picked = _questRailRewardChoice.TryGetValue(guid, out byte pick) && pick == k;
+                dl.AddRect(cellMin, cellMin + cellSize,
+                    picked ? VanillaGold : 0xff2a343d, 0f, ImDrawFlags.None,
+                    MathF.Max(1f, (picked ? 2f : 1f) * s));
+                if (ImGui.IsItemHovered())
+                    HoverTip(picked ? "Their pick" : "Choose this for them");
+            }
+            colX += QuestRewardColumnWidth;
+        }
+
+        // Members with no explicit pick are sent as "auto" — the server's own
+        // spec-aware chooser, which is the same one the fleet uses unattended.
+        int autos = included.Count(m => !_questRailRewardChoice.ContainsKey(m.Guid));
+        float y = QuestRewardHeadHeight + QuestRewardMemberHeight + choices * QuestRewardColumnWidth;
+        if (autos > 0)
+            GameText.Draw(dl, "GameFontNormalSmall",
+                autos == included.Count ? "all on auto-pick" : $"{autos} on auto-pick",
+                c0 + new Vector2(0, y - 14f) * s, s, 0xff9aa4ab);
+
+        Vector2 buttonMin = c0 + new Vector2(0, y + 4f) * s;
+        var buttonSize = new Vector2(Math.Max(90f, included.Count * QuestRewardColumnWidth), 22f);
+        if (VanillaButton(dl, "##quest-party-turnin", $"Turn in all ({included.Count})",
+                buttonMin, buttonSize, s, enabled: included.Count > 0) && included.Count > 0)
+            RequestPartyQuestAct(PartyQuestWire.ActionTurnIn, questId,
+                _questOffer!.GiverGuid, QuestRailSubjects(withRewards: true));
+    }
+
+    private string QuestRewardIconPath(in QuestRewardItem row)
+    {
+        if (row.DisplayId != 0) return "";      // the offer named its own art
+        return _items?.TryGet(row.ItemId, out ItemTemplate? item) == true && item is not null
+            ? item.IconPath : "";
+    }
+
+    private void DrawQuestRailPortrait(ImDrawListPtr dl, ulong guid, Vector2 min, float size)
+    {
+        uint art = PartyColumnPortraitHandle(guid);
+        var max = min + new Vector2(size, size);
+        if (art != 0) dl.AddImage((nint)art, min, max, new Vector2(0, 1), new Vector2(1, 0));
+        else dl.AddRectFilled(min, max, 0x55101418);
+        dl.AddRect(min, max, 0xff2a343d);
+    }
+
+    /// <summary>
+    /// What we can HONESTLY say about this member and this quest. Everything here
+    /// comes from their pushed quest log; eligibility to accept is the server's
+    /// answer to give, so the rail never predicts it.
+    /// </summary>
+    private string QuestRailVerdict(ulong guid, uint questId)
+    {
+        foreach (MemberQuestEntry entry in MemberQuestEntries(guid))
+        {
+            if (entry.QuestId != questId) continue;
+            if (entry.Failed) return "failed it";
+            if (entry.Complete) return "ready to turn in";
+            return entry.Overflow ? "on it (past slots)" : "on it";
+        }
+        return HasMemberQuestFacts(guid) ? "not in their log" : "log not synced";
+    }
+}

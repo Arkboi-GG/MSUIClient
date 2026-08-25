@@ -2,15 +2,21 @@ using System.IO.Compression;
 
 namespace MSUIClient.Net;
 
-public readonly record struct CompressedMovementRelay(Op Opcode, MovementRelay Relay);
+/// <summary>One record of a compressed-moves batch. Relay is parsed for the MSG_MOVE_*
+/// observer family; every other opcode carries its raw body for the dispatcher.</summary>
+public readonly record struct CompressedMovementRecord(Op Opcode, MovementRelay? Relay, byte[] Body);
 
 /// <summary>
 /// SMSG_COMPRESSED_MOVES is a zlib envelope of [u8 size][u16 opcode][body] records. Size includes
-/// the two-byte opcode. vmangos only batches the ordinary MSG_MOVE_* observer relay family here.
+/// the two-byte opcode. vmangos batches the ordinary MSG_MOVE_* observer relay family here, and
+/// under mass bot movement also SMSG_MONSTER_MOVE splines and SMSG_SPLINE_* speed records. The
+/// records are length-prefixed, so an opcode without a handler is the DISPATCHER's decision to
+/// skip — a foreign record must never abort the rest of the batch (the old fatal treatment
+/// dropped every spline behind it whenever twenty bots were ordered to move at once).
 /// </summary>
 public static class CompressedMovementPackets
 {
-    public static IReadOnlyList<CompressedMovementRelay> Parse(byte[] body)
+    public static IReadOnlyList<CompressedMovementRecord> Parse(byte[] body)
     {
         var outer = new PacketReader(body);
         uint announcedSize = outer.ReadU32();
@@ -20,7 +26,7 @@ public static class CompressedMovementPackets
         zlib.CopyTo(inflated);
         byte[] records = inflated.ToArray();
 
-        var result = new List<CompressedMovementRelay>();
+        var result = new List<CompressedMovementRecord>();
         int offset = 0;
         while (offset < records.Length)
         {
@@ -38,13 +44,13 @@ public static class CompressedMovementPackets
                     $"{records.Length - offset} left");
             if (opcode == Op.SMSG_COMPRESSED_MOVES)
                 throw new InvalidDataException("compressed-moves cannot nest");
-            if (!MovementRelayPackets.IsRelayOpcode(opcode))
-                throw new InvalidDataException(
-                    $"compressed-moves record {opcode} is not a movement relay");
 
             byte[] recordBody = records.AsSpan(offset, bodyLength).ToArray();
             offset += bodyLength;
-            result.Add(new(opcode, MovementRelayPackets.Parse(opcode, recordBody)));
+            MovementRelay? relay = MovementRelayPackets.IsRelayOpcode(opcode)
+                ? MovementRelayPackets.Parse(opcode, recordBody)
+                : null;
+            result.Add(new(opcode, relay, recordBody));
         }
         return result;
     }

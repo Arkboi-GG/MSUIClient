@@ -14,10 +14,12 @@ internal static class ChatClinicalChecks
               ChatFrameLaw.EditBoxRect ==
                   new ChatFrameLaw.LogicalRect(-5, 122, 440, 32),
             "ChatFrame bottom anchor, background, or edit-box geometry drift");
+        // Bottom clamp = 768 - frame 120 - edit drop 2 - edit 32 - BgBottom 6 = 608
+        // (was 611 before the background grew to vanilla's BOTTOMRIGHT -6).
         Check(ChatFrameLaw.ClampFrameOrigin(new Vector2(-100, -100), new Vector2(1024, 768)) ==
                   new Vector2(32, 45) &&
               ChatFrameLaw.ClampFrameOrigin(new Vector2(2000, 2000), new Vector2(1024, 768)) ==
-                  new Vector2(592, 611),
+                  new Vector2(592, 608),
             "ChatFrame movable origin no longer stays reachable");
         Check(ChatFrameLaw.MenuButtonRect ==
                   new ChatFrameLaw.LogicalRect(-32, -2, 32, 32) &&

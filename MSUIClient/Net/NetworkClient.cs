@@ -287,6 +287,16 @@ public sealed class NetworkClient : IDisposable
     public bool SuiForceRoster(uint requestId, uint zoneId, uint afterGuidLow,
         byte limit = RtsWire.MaximumForcePageSize) =>
         InWorld(s => s.SuiForceRoster(requestId, zoneId, afterGuidLow, limit));
+    public bool SuiMemberFacts(IReadOnlyList<ulong> subjects) =>
+        InWorld(s => s.SuiMemberFacts(subjects));
+    public bool SuiMemberItemMove(ulong from, ulong to, byte bag, byte slot) =>
+        InWorld(s => s.SuiMemberItemMove(from, to, bag, slot));
+    public bool SuiQuestFacts(IReadOnlyList<ulong> subjects) =>
+        InWorld(s => s.SuiQuestFacts(subjects));
+    public bool SuiPartyQuest(byte action, uint questId, ulong npcGuid,
+        IReadOnlyList<PartyQuestSubject> subjects) =>
+        InWorld(s => s.SuiPartyQuest(action, questId, npcGuid, subjects));
+    public bool PushQuestToParty(uint questId) => InWorld(s => s.PushQuestToParty(questId));
     public bool SuiPortalPrepare(uint requestId, ulong portalGuid, ushort requestFlags = 0) =>
         InWorld(s => s.SuiPortalPrepare(requestId, portalGuid, requestFlags));
     public bool SuiPortalPrepare(PortalPreparePacket packet) =>

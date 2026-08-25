@@ -127,6 +127,26 @@ public sealed partial class GameLoop
                         playerFrame ? "TOPLEFT" : "TOPRIGHT", playerFrame ? 18 : 3, -20));
         }
 
+        // TargetFrame_UpdateRaidTargetIcon: the reference shows the mark on the TARGET frame
+        // only — PlayerFrame and PartyMemberFrame have no raid-mark texture in build 5875.
+        byte raidMark = playerFrame
+            ? (byte)0 : GroupUiLaw.RaidTargetIndex(_partyRaidTargets, unit.Guid);
+        if (raidMark > 0)
+        {
+            RaidMarkerRect markRect = RaidMarkerUiLaw.TargetFrameRect(p, s);
+            uint markTexture = _gameplayArt.Handle(RaidMarkerUiLaw.Texture);
+            if (markTexture != 0)
+            {
+                RaidMarkerUv markUv = RaidMarkerUiLaw.AtlasUv(raidMark);
+                dl.AddImage((nint)markTexture, markRect.Min, markRect.Max, markUv.Min, markUv.Max);
+            }
+            if (_uiParityArmed && _uiParityPanel == parityPanel)
+                CollectUiParityDraw("TargetRaidTargetIcon", "Texture", markRect.Min,
+                    new Vector2(RaidMarkerUiLaw.TargetFrameSize) * s, root,
+                    new(RaidMarkerUiLaw.Texture, 0xffffffff, "ARTWORK", "CENTER", root,
+                        "TOPRIGHT", -73, -14));
+        }
+
         Vector2 nameCenter = p + new Vector2(playerFrame ? 166 : 66, 31) * s;
         uint nameColor = UiGoldU32();
         (Vector2 nameMin, Vector2 nameSize) = DrawUnitFrameText(dl, nameCenter, name, 10f * s, nameColor);
@@ -174,6 +194,9 @@ public sealed partial class GameLoop
             if (pvpPath is null)
                 ClassifyUiParity(playerFrame ? "PlayerPVPIcon" : "TargetPVPIcon",
                     "Texture", root, "NOT-DRAWN", "unit-is-not-pvp-flagged");
+            if (!playerFrame && raidMark == 0)
+                ClassifyUiParity("TargetRaidTargetIcon", "Texture", root, "NOT-DRAWN",
+                    "unit-carries-no-raid-mark");
             MarkUiParityFrameComplete();
         }
         ImGui.End();
@@ -281,13 +304,13 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// TargetFrameDropDown_Initialize's menu pick. The reference's non-player branch opens
-    /// RAID_TARGET_ICON, which rides the raid-marks arc — deferred, so no menu here.
+    /// RAID_TARGET_ICON and nothing else, which is how a mob gets marked at all.
     /// </summary>
     private UnitPopupWhich? UnitFrameMenuWhich(WorldEntity unit)
     {
         // ControlledGuid, not PlayerGuid: a possessed bot's own portrait is the SELF menu.
         if (_net is not null && unit.Guid == ControlledGuid) return UnitPopupWhich.Self;
-        if (!unit.IsPlayer) return null;
+        if (!unit.IsPlayer) return UnitPopupWhich.Target;
         return _partyMembers.Any(member => member.Guid == unit.Guid)
             ? UnitPopupWhich.Party : UnitPopupWhich.Player;
     }

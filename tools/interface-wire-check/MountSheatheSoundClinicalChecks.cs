@@ -13,8 +13,17 @@ internal static class MountSheatheSoundClinicalChecks
               catalog.TryGet(2, 2, 2, out SheatheSoundPair bow) &&
               bow == new SheatheSoundPair(697, 699) &&
               catalog.TryGet(4, 6, 6, out SheatheSoundPair shield) &&
-              shield == new SheatheSoundPair(696, 701),
+              shield == new SheatheSoundPair(696, 701) &&
+              catalog.TryGet(2, 18, 1, out SheatheSoundPair crossbow) &&
+              crossbow == new SheatheSoundPair(698, 700),
             "SheatheSoundLookups material/subclass/shield fallback drift");
+
+        // The cue keys on the item's real class/subclass/material. The local body was the one
+        // kit built without them — BuildEquipment supplies display id and inventory type only,
+        // leaving all three at zero, and the table has no class-zero row, so the lookup missed
+        // every time. SyncLiveEquipmentModel is what carries the ItemTemplate bytes across.
+        Check(!catalog.TryGet(0, 0, 0, out _),
+            "class-zero kit must not resolve a sheathe cue");
 
         string root = ClientConfig.FindRepoRoot();
         string worldSound = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
@@ -33,11 +42,37 @@ internal static class MountSheatheSoundClinicalChecks
             "M2Animator.cs"));
         string inventory = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Inventory.cs"));
-        Check(sheath.Contains("PlayCeremonialSheatheSounds(ceremonialState);", StringComparison.Ordinal) &&
+        // The cue is sounded by the TRANSITION, not by the animation. It used to hang off the
+        // $SHL/$SHR ceremony event alone, so a body whose rig has no complete hand-to-shoulder
+        // arm masks degraded to a silent snap and the combat draw never sounded at all. Every
+        // path that moves the pose goes through the one choke point, which is what these
+        // assertions pin. The ceremony itself is unchanged and still drives the placement.
+        Check(sheath.Contains("private void SetSheathVisualState(byte state, bool audible)",
+                  StringComparison.Ordinal) &&
+              sheath.Contains("if (audible && previous != state) PlaySheatheSounds(previous, state);",
+                  StringComparison.Ordinal) &&
+              sheath.Contains("SetSheathVisualState(ceremonialState, audible: true);",
+                  StringComparison.Ordinal) &&
+              sheath.Contains("SetSheathVisualState(next, audible: true);",
+                  StringComparison.Ordinal) &&
               !sheath.Contains("TriggerOneShot(animation)", StringComparison.Ordinal) &&
-              sheath.Contains("foreach (int equipmentSlot in new[] { 15, 16 })",
+              // Not quarantined: two voices on a pose change the player asked for is not the
+              // renderer-event burst AudioFeaturePolicy exists to hold back.
+              !sheath.Contains("AudioFeaturePolicy.ExpandedWorldAudioEnabled",
+                  StringComparison.Ordinal) &&
+              sheath.Contains("foreach (int equipmentSlot in ranged ? new[] { 17 } : new[] { 15, 16 })",
+                  StringComparison.Ordinal) &&
+              sheath.Contains("bool drawing = destinationState != 0;", StringComparison.Ordinal) &&
+              sheath.Contains("bool ranged = destinationState == 2 || previousState == 2;",
                   StringComparison.Ordinal) &&
               sheath.Contains("drawing ? pair.Unsheathe : pair.Sheathe",
+                  StringComparison.Ordinal) &&
+              // The resync adoption after a body hand-off is silent; combat outranks the
+              // server byte rather than fighting it frame by frame, and leaves state 2 alone.
+              sheath.Contains("bool resync = !_sheathSoundSynced;", StringComparison.Ordinal) &&
+              sheath.Contains("bool combatForcesDrawn = !_freeView && player.Engaged;",
+                  StringComparison.Ordinal) &&
+              sheath.Contains("combatForcesDrawn && _visualSheathState != 2",
                   StringComparison.Ordinal) &&
               sheath.Contains("_character.BeginSheathCeremony()", StringComparison.Ordinal) &&
               sheath.Contains("_character.ConsumeSheathSwap()", StringComparison.Ordinal) &&
@@ -47,10 +82,8 @@ internal static class MountSheatheSoundClinicalChecks
               animator.Contains("ResolveArmRoots", StringComparison.Ordinal) &&
               animator.Contains("ApplyOverlayChannels", StringComparison.Ordinal) &&
               inventory.Contains("existing.EquipmentSlot == piece.EquipmentSlot", StringComparison.Ordinal) &&
-              inventory.Contains("existing.Sheath == piece.Sheath", StringComparison.Ordinal) &&
-              !sheath.Contains("SetVisualSheath(byte state, bool volunteer = true)\n    {\n        PlayCeremonialSheatheSounds",
-                  StringComparison.Ordinal),
-            "ceremony-only per-arm sheathe sound routing drift");
+              inventory.Contains("existing.Sheath == piece.Sheath", StringComparison.Ordinal),
+            "transition-sounded per-arm sheathe routing drift");
     }
 
     private static void Check(bool condition, string message)

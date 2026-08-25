@@ -576,7 +576,15 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         if (_textures.TryGetValue(path, out Texture? cached)) return cached;
         long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
         byte[]? bytes = _mpq.ReadFile(path);
-        if (bytes is null) return _textures[path] = null;
+        if (bytes is null)
+        {
+            // Once per path: the null is cached above, so this cannot spam. Unlike GameplayArt
+            // this path does no ".blp" completion, and a silent null here is indistinguishable
+            // from "nothing wanted to draw" — which is how the raid-marker atlas went missing
+            // without a single line of evidence.
+            Console.WriteLine($"[fx-load] mesh-tex MISSING {path}");
+            return _textures[path] = null;
+        }
         try
         {
             byte[] pixels = BlpDecoder.GetPixels(bytes, 0, out int width, out int height);

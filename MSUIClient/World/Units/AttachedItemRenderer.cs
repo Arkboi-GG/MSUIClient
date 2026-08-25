@@ -873,8 +873,31 @@ public sealed class AttachedItemRenderer : IDisposable
             2 => mount.HeldSlot == 0 ? AttachBackLowerMain : AttachBackLowerOff,
             3 => mount.HeldSlot == 0 ? AttachHipMain : AttachHipOff,
             4 => AttachShieldBack,
-            _ => -1,
+            // 5/6 are the hip pair and 7 the shield in the client's sheathe enum. They were
+            // falling through to -1, and -1 does not mean "put it somewhere else" here, it
+            // means DRAW NOTHING: sheathing simply deleted the weapon. Sheathe byte 7 is
+            // present in real item data (four sightings across the captured dumps).
+            5 or 6 => mount.HeldSlot == 0 ? AttachHipMain : AttachHipOff,
+            7 => AttachShieldBack,
+            // Byte 0 or anything unmapped. An equipped weapon must stay on the body: a data
+            // gap is allowed to put it in the wrong place, never to make it disappear. The
+            // fallback is the over-the-shoulder pair, the commonest stow, and it is announced
+            // once per item so the real value shows up as evidence instead of a vanished model.
+            _ => ReportUnmappedSheath(mount),
         };
+    }
+
+    private static readonly HashSet<string> _reportedUnmappedSheaths = [];
+
+    private static int ReportUnmappedSheath(Mount mount)
+    {
+        string key = $"{mount.DisplayId}:{mount.ItemSheath}";
+        lock (_reportedUnmappedSheaths)
+            if (_reportedUnmappedSheaths.Add(key))
+                Console.WriteLine($"[attach] UNMAPPED sheathe byte {mount.ItemSheath} on " +
+                    $"{mount.Label} (display {mount.DisplayId}, inv {mount.InventoryType}); " +
+                    "stowing over the shoulder instead of hiding it");
+        return mount.HeldSlot == 0 ? AttachBackRight : AttachBackLeft;
     }
 
     private void ApplyBlendMode(int mode)

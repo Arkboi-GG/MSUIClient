@@ -28,6 +28,9 @@ public sealed partial class GameLoop
         public Dictionary<string, string> BotClasses { get; set; } = [];
         public Dictionary<string, string> BotRoles { get; set; } = [];   // Tank / Healer / DPS
         public Dictionary<string, bool> BotLinks { get; set; } = [];     // chain membership (absent = linked)
+        // Quick-slot AI policy per bot: "slotIndex" -> By tactics / Emergency only / Never.
+        // Client-authored today; the Phase B rotation integration is the consumer.
+        public Dictionary<string, Dictionary<string, string>> BotSlotPolicies { get; set; } = [];
     }
 
     private BotBarsDocument? _botBars;
@@ -189,6 +192,10 @@ public sealed partial class GameLoop
     private void SetPartyLink(PartyMember member, bool linked)
     {
         _net?.SuiOrder(6, [member.Guid], 0, linked ? 1f : 0f, 0, 0);
+        // Chaining is the driven body's gesture ("Follow me!"); unchaining is the
+        // member's acknowledgement that it will stand its ground.
+        if (linked) PlayCompanionEmoteVoice(ControlledGuid, CompanionVoiceLaw.EmoteFollowMe);
+        else PlayCompanionEmoteVoice(member.Guid, CompanionVoiceLaw.EmoteYes);
         BotBarsDocument doc = LoadBotBars();
         doc.BotLinks[member.Name] = linked;
         SaveBotBars();
@@ -216,25 +223,86 @@ public sealed partial class GameLoop
                mouse.Y >= min.Y && mouse.Y <= min.Y + size.Y;
     }
 
+    // ── Order-state chips ─────────────────────────────────────────────────────
+    // The wire has no per-order server acknowledgement yet (Phase B), so the
+    // chip is the client's own record of the last order each companion was
+    // given — the same optimism as the move markers, kept visible.
+    private readonly Dictionary<ulong, string> _rtsOrderChips = [];
+
+    /// <summary>Every companion order funnels here: stamp the visible order
+    /// chip for each subject, then play the voice acknowledgement.</summary>
+    private void NoteCompanionOrder(byte orderType, IReadOnlyList<ulong> subjects)
+    {
+        string? chip = orderType switch
+        {
+            0 => "moving", 1 => "attacking", 2 => "holding", 3 => "on waypoints",
+            4 => "patrolling", 5 => "regrouping", 8 => "forming line",
+            9 => "forming circle", _ => null,
+        };
+        foreach (ulong guid in subjects)
+        {
+            if (orderType == 12) _rtsOrderChips.Remove(guid);   // mustered out
+            else if (chip is not null) _rtsOrderChips[guid] = chip;
+        }
+        PlayCompanionOrderVoice(orderType, subjects);
+    }
+
+    /// <summary>
+    /// Corner-anchored role medallion, fully on the frame (the leader-crown
+    /// precedent): a filled disc at the portrait's lower-right corner carrying
+    /// shape, color AND letter, never color alone.
+    /// </summary>
+    private void DrawPartyRoleMedallion(int index, string role)
+    {
+        float s = GameplayUiScale();
+        Vector2 center = new Vector2(PartyFrameUiLaw.FirstX + 44,
+            PartyFrameUiLaw.MemberY(index) + 43) * s;
+        DrawRoleMedallion(ImGui.GetForegroundDrawList(), center, 8f * s, role, s);
+    }
+
+    /// <summary>The medallion disc itself — shape, color AND letter, never
+    /// color alone. Shared by the party frames and the commander console.</summary>
+    private static void DrawRoleMedallion(ImDrawListPtr dl, Vector2 center,
+        float radius, string role, float scale)
+    {
+        uint fill = role switch
+        {
+            "Tank" => 0xffcc7e4a,     // steel blue
+            "Healer" => 0xff57a73f,   // green
+            _ => 0xff4044c7,          // red
+        };
+        dl.AddCircleFilled(center, radius, fill);
+        dl.AddCircle(center, radius, 0xff10181f, 0, MathF.Max(1f, 1.5f * scale));
+        string glyph = RoleGlyph(role);
+        Vector2 half = ImGui.CalcTextSize(glyph) * 0.5f;
+        dl.AddText(center - half + new Vector2(1f, 1f) * scale, 0xd0000000, glyph);
+        dl.AddText(center - half, 0xffffffff, glyph);
+    }
+
     private void DrawRtsCommandStrips(PartyMember[] members)
     {
         if (!Settings.Controls.RtsCommands || _net is null) return;
         float scale = GameplayUiScale();
         BotBarsDocument doc = LoadBotBars();
+        PreparedSharedSpellTooltip? tooltip = null;
         for (int i = 0; i < members.Length; i++)
         {
             PartyMember member = members[i];
+            string role = doc.BotRoles.GetValueOrDefault(member.Name, "DPS");
+            DrawPartyRoleMedallion(i, role);
+
             Vector2 pos = new Vector2(
                 PartyFrameUiLaw.FirstX + PartyFrameUiLaw.FrameWidth + 6,
-                PartyFrameUiLaw.MemberY(i) + 12) * scale;
+                PartyFrameUiLaw.MemberY(i) + 4) * scale;
             ImGui.SetNextWindowPos(pos, ImGuiCond.Always);
             ImGui.SetNextWindowBgAlpha(0.35f);
             ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
                 ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.AlwaysAutoResize |
                 ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoFocusOnAppearing;
             if (!ImGui.Begin($"##rts-strip-{i}", flags)) { ImGui.End(); continue; }
+            _skin?.DrawBackdrop(ImGui.GetWindowDrawList(), ImGui.GetWindowPos(),
+                ImGui.GetWindowPos() + ImGui.GetWindowSize(), WowSkin.Tooltip);
 
-            string role = doc.BotRoles.GetValueOrDefault(member.Name, "DPS");
             if (ImGui.SmallButton($"{RoleGlyph(role)}##role{i}"))
             {
                 doc.BotRoles[member.Name] = role switch
@@ -246,25 +314,35 @@ public sealed partial class GameLoop
                 SaveBotBars();
             }
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip($"Role: {role} — click to cycle (feeds rotations later)");
+                HoverTip($"Preferred role: {role} — click to cycle. Client-side\n" +
+                    "until the server accepts an effective role (Phase B).");
+            ImGui.SameLine();
+            if (ImGui.SmallButton($"≡##tac{i}")) OpenPartyTactics(member.Guid);
+            if (ImGui.IsItemHovered())
+                HoverTip("Tactics: role, quick-slot AI policy, stances");
+
+            DrawPartyQuickSlots(member, i, scale, ref tooltip);
+
             ImGui.SameLine();
             if (ImGui.SmallButton($"Hold##rts{i}"))
             {
                 _net.SuiOrder(2, [member.Guid], 0, 0, 0, 0);
+                NoteCompanionOrder(2, [member.Guid]);
                 AddChatMessage($"{member.Name}: stand your ground.");
             }
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Stand your ground: stop and hold this spot");
+                HoverTip("Stand your ground: stop and hold this spot");
             ImGui.SameLine();
             if (ImGui.SmallButton($"Patrol##rts{i}") &&
                 _entities.TryGet(member.Guid, out WorldEntity unit))
             {
                 _net.SuiOrder(4, [member.Guid], 0,
                     unit.Position.X, unit.Position.Y, unit.Position.Z);
+                NoteCompanionOrder(4, [member.Guid]);
                 AddChatMessage($"{member.Name}: patrol the current route.");
             }
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Loop the waypoint chain (Shift+RightClick spots in free view\n" +
+                HoverTip("Loop the waypoint chain (Shift+RightClick spots in free view\n" +
                     "with the bot selected first); its current spot closes the loop.\n" +
                     "Move or Hold cancels the patrol.");
             bool linked = PartyMemberLinked(member.Name);
@@ -272,10 +350,106 @@ public sealed partial class GameLoop
             if (ImGui.SmallButton(linked ? $"chained##rtsl{i}" : $"loose##rtsl{i}"))
                 SetPartyLink(member, !linked);
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip(linked
+                HoverTip(linked
                     ? "Chained: follows whoever you drive. Click (or drag the portrait away) to unchain."
                     : "Unchained: stands its ground. Click (or drop the portrait on another) to re-chain.");
+
+            // Status line: enlistment plus the last order this client gave.
+            bool enlisted = RtsEnlisted(member.Guid);
+            bool hasChip = _rtsOrderChips.TryGetValue(member.Guid, out string? chipText);
+            if (enlisted || hasChip)
+            {
+                ImGui.TextDisabled(enlisted && hasChip
+                    ? $"enlisted · {chipText}"
+                    : enlisted ? "enlisted" : chipText!);
+                if (enlisted && ImGui.IsItemHovered())
+                    HoverTip("In a control group: the questing brain stands down\n" +
+                        "for this bot until it is dismissed from every group.");
+            }
             ImGui.End();
+        }
+        if (tooltip is { } prepared)
+            OfferPreservedSharedGameTooltipRenderer(prepared.Owner,
+                () => DrawSpellTooltip(prepared.Snapshot));
+    }
+
+    /// <summary>
+    /// The four quick-action slots (Drawing 1 of the party command design):
+    /// truthful icon buttons from this bot's known bar, cooldown swipe when the
+    /// client actually knows it, and an honest unknown state when it does not.
+    /// Casting them needs the Phase B server hook — until then a click says so.
+    /// </summary>
+    private void DrawPartyQuickSlots(PartyMember member, int memberIndex, float scale,
+        ref PreparedSharedSpellTooltip? tooltip)
+    {
+        PlayerActions store = ActionsFor(member.Guid);
+        if (store.OccupiedCount == 0) EnsureBotBarForViewing(member.Guid);
+        double now = NowSeconds();
+        float size = 22f * scale;
+        var side = new Vector2(size, size);
+        int drawn = 0;
+        for (int slot = 0; slot < 12 && drawn < 4; slot++)
+        {
+            // Kind 0x00 = spell (PlayerActions.ActionSlot packing).
+            if (store[slot] is not ActionSlot action || action.Kind != 0 ||
+                _spellCatalog?.TryGet(action.ActionId, out SpellInfo spell) != true)
+                continue;
+            drawn++;
+            ImGui.SameLine();
+            Vector2 min = ImGui.GetCursorScreenPos();
+            Vector2 max = min + side;
+            ImGui.InvisibleButton($"##pqs-{memberIndex}-{slot}", side);
+            ImDrawListPtr dl = ImGui.GetWindowDrawList();
+            // Same law as the action bars: Attack renders the member's weapon,
+            // never spell 6603's internal Temp-face DBC icon.
+            uint icon = PainterlyArt(ResolveSpellActionIcon(spell,
+                _entities.TryGet(member.Guid, out WorldEntity quickSlotOwner)
+                    ? quickSlotOwner : null));
+            if (icon != 0) dl.AddImage((nint)icon, min, max);
+            if (store.TryCooldownDisplay(action.ActionId, 0, spell, now,
+                    out CooldownDisplay cooldown) && cooldown.SweepFraction is float sweep)
+                DrawCooldownSwipe(dl, min, max, sweep);
+            dl.AddRect(min, max, ImGui.IsItemHovered() ? 0xffd0b060 : 0xff30404d,
+                0, ImDrawFlags.None, MathF.Max(1f, scale));
+            if (QuickSlotPolicy(member.Name, slot) != "Never")
+            {
+                // The pet bar's autocast language: gold corners mean the AI may
+                // use it on its own (policy set in the Tactics panel).
+                uint autocast = _gameplayArt?.Handle(
+                    @"Interface\Buttons\UI-AutoCastableOverlay") ?? 0;
+                var over = new Vector2(6f, 6f) * scale;
+                if (autocast != 0) dl.AddImage((nint)autocast, min - over, max + over);
+            }
+            if (ImGui.IsItemHovered())
+                tooltip = PrepareSharedSpellTooltip(
+                    new GameTooltipOwnerKey("party-quick", (ulong)(memberIndex * 16 + slot + 1)),
+                    spell.Id, scale, SpellTooltipPlacement.DefaultBottomRight);
+            if (ImGui.IsItemClicked())
+                ShowUiError($"{member.Name}'s quick casts need the companion-cast server " +
+                    "hook (Phase B) — Alt+click the bot in the free view to drive it directly.");
+        }
+        if (drawn > 0) return;
+
+        // Honest unknown: four dim wells. The client has never seen this
+        // companion's spells and refuses to invent them.
+        for (int k = 0; k < 4; k++)
+        {
+            ImGui.SameLine();
+            Vector2 min = ImGui.GetCursorScreenPos();
+            Vector2 max = min + side;
+            ImGui.InvisibleButton($"##pqs-unknown-{memberIndex}-{k}", side);
+            ImDrawListPtr dl = ImGui.GetWindowDrawList();
+            dl.AddRectFilled(min, max, 0x66141a20);
+            dl.AddRect(min, max, 0xff2a3640, 0, ImDrawFlags.None, MathF.Max(1f, scale));
+            Vector2 half = ImGui.CalcTextSize("?") * 0.5f;
+            dl.AddText((min + max) * 0.5f - half, 0x88aabbcc, "?");
+            if (ImGui.IsItemHovered())
+                HoverTip(_partyMemberFactsAvailable
+                    ? "Abilities unknown — the server syncs party spellbooks\n" +
+                      "automatically; this companion's have not arrived yet."
+                    : "Abilities unknown — possess this companion once to teach\n" +
+                      "the client its spells; a member-facts server pushes them\n" +
+                      "without possession.");
         }
     }
 

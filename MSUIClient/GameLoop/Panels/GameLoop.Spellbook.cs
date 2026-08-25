@@ -37,7 +37,8 @@ public sealed partial class GameLoop
         Vector2 DisplaySize,
         SpellTooltipPlacement Placement,
         Vector2 OwnerMin,
-        Vector2 OwnerMax);
+        Vector2 OwnerMax,
+        float BottomClearance = 0f);   // device px kept clear of the display's bottom edge
     private readonly record struct PreparedSharedSpellTooltip(
         GameTooltipOwnerKey Owner,
         SpellTooltipRenderSnapshot Snapshot);
@@ -659,9 +660,16 @@ public sealed partial class GameLoop
         uint casterLevel = _net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player)
             ? player.Level : 0;
         SpellTooltipView view = SpellTooltipLaw.Build(spell, _spellCatalog, casterLevel);
+        // The free view's bottom edge belongs to the commander console; the
+        // prepared clearance lifts the vanilla default anchor above that line
+        // (the minimap docks bottom-LEFT there, away from this corner).
+        // Normal play keeps the stock anchor.
+        float bottomClearance =
+            _freeView && placement == SpellTooltipPlacement.DefaultBottomRight
+                ? 134f * scale : 0f;
         return new PreparedSharedSpellTooltip(owner,
             new SpellTooltipRenderSnapshot(view, skin, scale, ImGui.GetIO().DisplaySize,
-                placement, ownerMin, ownerMax));
+                placement, ownerMin, ownerMax, bottomClearance));
     }
 
     private void DrawSpellTooltip(in SpellTooltipRenderSnapshot snapshot)
@@ -717,12 +725,20 @@ public sealed partial class GameLoop
         }
         Vector2 size = SpellTooltipLaw.FrameSize(contentWidth, rowStackHeight, s);
         Vector2 display = snapshot.DisplaySize;
-        Vector2 pos = placement == SpellTooltipPlacement.DefaultBottomRight
+        Vector2 pos;
+        if (placement == SpellTooltipPlacement.DefaultBottomRight)
+        {
             // GameTooltip_SetDefaultAnchor: BOTTOMRIGHT of UIParent at
             // (-CONTAINER_OFFSET_X - 13, CONTAINER_OFFSET_Y), defaults 0 and 70.
-            ? SpellTooltipLaw.ClampOrigin(
-                SpellTooltipLaw.DefaultBottomRightOrigin(display, size, s), size, display)
-            : SpellTooltipLaw.OwnerRightOrigin(ownerMin, ownerMax, size, display, s);
+            pos = SpellTooltipLaw.DefaultBottomRightOrigin(display, size, s);
+            // The prepared clearance keeps the default anchor above bottom-edge
+            // furniture (the free view's docked minimap); 0 = stock behavior.
+            if (snapshot.BottomClearance > 0f)
+                pos.Y = MathF.Min(pos.Y, display.Y - snapshot.BottomClearance - size.Y);
+            pos = SpellTooltipLaw.ClampOrigin(pos, size, display);
+        }
+        else
+            pos = SpellTooltipLaw.OwnerRightOrigin(ownerMin, ownerMax, size, display, s);
 
         ImGui.SetNextWindowPos(pos, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);

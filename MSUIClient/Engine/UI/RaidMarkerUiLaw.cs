@@ -8,7 +8,12 @@ public readonly record struct RaidMarkerRect(Vector2 Min, Vector2 Max);
 /// <summary>Current Benilla raid-target atlas, world-billboard and V-plate geometry.</summary>
 public static class RaidMarkerUiLaw
 {
-    public const string Texture = @"Interface\TargetingFrame\UI-RaidTargetingIcons";
+    // The extension is load-bearing. GameplayArt.Get appends ".blp" when it is missing, but the
+    // world-billboard path (SpellEffectMeshRenderer.ResolveTexture) hands the string straight to
+    // MpqMount.ReadFile, which only knows the real archive key —
+    // patch.MPQ Interface\TargetingFrame\UI-RaidTargetingIcons.blp. Without it every overhead
+    // raid mark silently resolved to a null texture and was never drawn.
+    public const string Texture = @"Interface\TargetingFrame\UI-RaidTargetingIcons.blp";
     public const float WorldSize = 1f;
     public const float NameplateIconGx = .02f;
 
@@ -30,6 +35,21 @@ public static class RaidMarkerUiLaw
         float centerY = (plateTop + plateBottom) * .5f;
         return new(new Vector2(plateLeft - size, centerY - size * .5f),
             new Vector2(plateLeft, centerY + size * .5f));
+    }
+
+    /// <summary>
+    /// TargetRaidTargetIcon (TargetFrame.xml): a 26x26 square whose CENTER is anchored to the
+    /// TOPRIGHT of the setAllPoints TargetFrameTextureFrame at offset (-73, -14). The root frame
+    /// is 232x100, so the centre lands at (159, 14) and the square's top-left at (146, 1) in
+    /// authored units. There is deliberately no party-frame equivalent: PartyFrameTemplates.xml
+    /// carries LeaderIcon, MasterIcon, PVPIcon and Disconnect, and no raid mark at all.
+    /// </summary>
+    public const float TargetFrameSize = 26f;
+
+    public static RaidMarkerRect TargetFrameRect(Vector2 frameTopLeft, float scale)
+    {
+        Vector2 min = frameTopLeft + new Vector2(146f, 1f) * scale;
+        return new(min, min + new Vector2(TargetFrameSize) * scale);
     }
 
     /// <summary>The overhead mark is a fixed one-world-unit, bottom-seated square.</summary>

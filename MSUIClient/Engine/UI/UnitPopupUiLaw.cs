@@ -2,7 +2,7 @@ using System.Numerics;
 
 namespace MSUIClient.Engine.UI;
 
-public enum UnitPopupWhich { Self, Pet, Party, Player, Friend, Guild }
+public enum UnitPopupWhich { Self, Pet, Party, Player, Friend, Guild, Target }
 
 public enum UnitPopupSubmenu { None, LootMethod, LootThreshold, RaidTargetIcon }
 
@@ -57,6 +57,11 @@ public static class UnitPopupUiLaw
     private static readonly UnitPopupRow[] LootThresholdMenu =
         [UnitPopupRow.Quality2, UnitPopupRow.Quality3, UnitPopupRow.Quality4,
          UnitPopupRow.Cancel];
+    // TargetFrameDropDown_Initialize's non-player branch. The reference opens RAID_TARGET_ICON
+    // and nothing else for a creature — no whisper, trade, follow or duel applies. Marking mobs
+    // is the whole point of raid icons, and without this menu there was no way to set one.
+    private static readonly UnitPopupRow[] TargetMenu =
+        [UnitPopupRow.RaidTargetIcon, UnitPopupRow.Cancel];
     private static readonly UnitPopupRow[] RaidTargetMenu =
         [UnitPopupRow.RaidTarget1, UnitPopupRow.RaidTarget2, UnitPopupRow.RaidTarget3,
          UnitPopupRow.RaidTarget4, UnitPopupRow.RaidTarget5, UnitPopupRow.RaidTarget6,
@@ -69,6 +74,7 @@ public static class UnitPopupUiLaw
         UnitPopupWhich.Party => PartyMenu,
         UnitPopupWhich.Friend => FriendMenu,
         UnitPopupWhich.Guild => GuildMenu,
+        UnitPopupWhich.Target => TargetMenu,
         _ => PlayerMenu,
     };
 
@@ -180,8 +186,12 @@ public static class UnitPopupUiLaw
         UnitPopupRow.Promote or UnitPopupRow.Uninvite => inParty && isLeader,
         UnitPopupRow.Leave or UnitPopupRow.LootMethod or UnitPopupRow.LootThreshold => inParty,
         UnitPopupRow.LootPromote => inParty && isLeader && lootMethod == 2 && !unitIsLootMaster,
+        // Leader-or-assistant matches the server exactly: HandleRaidTargetUpdateOpcode
+        // (GroupHandler.cpp:442) drops the update from anyone else, so a wider menu here would
+        // offer a row that silently does nothing. A creature never cooperates, so the Target
+        // menu has to be admitted the same way Self is.
         UnitPopupRow.RaidTargetIcon => inParty && (isLeader || isAssistant) &&
-            (which == UnitPopupWhich.Self || canCooperate),
+            (which is UnitPopupWhich.Self or UnitPopupWhich.Target || canCooperate),
         _ => true,
     };
 

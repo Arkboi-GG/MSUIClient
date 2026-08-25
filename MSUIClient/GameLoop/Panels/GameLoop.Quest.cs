@@ -131,6 +131,19 @@ public sealed partial class GameLoop
         if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
         var found = player.Fields.QuestLog().FirstOrDefault(q => q.QuestId == questId);
         bool present = found.QuestId != 0;
+        // CMSG_QUESTLOG_REMOVE_QUEST addresses a SLOT, so it structurally cannot
+        // reach a quest held without one. PLAN_20 P3's act wire is id-addressed
+        // and can; without it, name the real constraint rather than failing
+        // silently.
+        if (!present && IsOwnOverflowQuest(questId))
+        {
+            if (_partyQuestActsAvailable) return AbandonQuestById(questId);
+            ShowUiError("That quest is held past your quest-log slots — " +
+                "abandon a slotted quest first to free one.");
+            EmitInterface("quest", "abandon", "REFUSED_NO_LOG_SLOT", _net.PlayerGuid,
+                $"quest={questId}");
+            return false;
+        }
         bool sent = present && _net.QuestLogRemove(found.Slot);
         EmitInterface("quest", "abandon", sent ? "SENT" : "REFUSED_NOT_IN_LOG", _net.PlayerGuid,
             $"quest={questId};slot={(present ? found.Slot : 255)}");
@@ -322,7 +335,7 @@ public sealed partial class GameLoop
     {
         var value = QuestPackets.ParseItem(body);
         if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
-            foreach (uint questId in player.Fields.QuestLog().Select(q => q.QuestId))
+            foreach (uint questId in MergedOwnQuestLog().Select(q => q.QuestId))
                 if (_questTemplates.TryGetValue(questId, out QuestTemplate? template) &&
                     template.Objectives.Any(o => o.ItemId == value.ItemId && o.ItemCount > 0))
                 {
@@ -393,6 +406,10 @@ public sealed partial class GameLoop
         _questList = null; _questDetails = null; _questRequestItems = null; _questOffer = null;
         _questNpcScroll = 0; _questRewardChoice = -1;
         _questNpcContentHeight = QuestFrameUiLaw.ScrollHeight;
+        // The companion rail's picks belong to the offer that is closing. Leaking
+        // them into the next quest would silently hand someone a reward index
+        // chosen for a different one.
+        ResetQuestPartyRail();
         if (wasOpen && playSound) PlayUiSound("igQuestListClose");
     }
 
@@ -895,7 +912,9 @@ public sealed partial class GameLoop
 
     private void DrawQuestLogContent(ImDrawListPtr dl, Vector2 origin, float s, WorldEntity player)
     {
-        var quests = player.Fields.QuestLog().ToArray();
+        // Both halves of our own log: the twenty update-field slots plus any
+        // quest a quest-cap server says we hold without one (PLAN_20 P2).
+        var quests = MergedOwnQuestLog();
         EnsureQuestHeaderCatalogs();
         string[] headers = quests.Select(q => QuestHeaderName(
             _questTemplates.GetValueOrDefault(q.QuestId)?.ZoneOrSort ?? 0)).ToArray();
@@ -994,9 +1013,16 @@ public sealed partial class GameLoop
         else VanillaButton(dl, "##quest-abandon", "Abandon Quest",
             QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogAbandonRect),
             QuestFrameUiLaw.QuestLogAbandonRect.Size, s, false);
-        VanillaButton(dl, "##quest-push", "Share Quest",
-            QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogShareRect),
-            QuestFrameUiLaw.QuestLogShareRect.Size, s, false);
+        // Share Quest was drawn permanently disabled until PLAN_20 P3. The server
+        // does NOT gate the push on QUEST_FLAGS_SHARABLE — it forwards anything
+        // and then refuses every accept — so the sharable test has to live here.
+        uint shareQuest = _questLogSelectedQuestId;
+        bool canShare = shareQuest != 0 && _partyMembers.Count > 0 &&
+            _questTemplates.GetValueOrDefault(shareQuest)?.Sharable == true;
+        if (VanillaButton(dl, "##quest-push", "Share Quest",
+                QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogShareRect),
+                QuestFrameUiLaw.QuestLogShareRect.Size, s, canShare) && canShare)
+            ShareQuestWithParty(shareQuest);
         if (VanillaButton(dl, "##quest-exit", "Exit",
                 QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogExitRect),
                 QuestFrameUiLaw.QuestLogExitRect.Size, s)) _questLogOpen = false;
@@ -1012,7 +1038,7 @@ public sealed partial class GameLoop
         int questCount, IReadOnlyList<QuestLogHeaderGroup> groups)
     {
         string countLabel = "Quests:";
-        string countValue = $"{questCount}/20";
+        string countValue = $"{questCount}/{OwnQuestHeldCap}";
         float labelWidth = GameText.MeasureWidth("GameFontNormalSmall", countLabel, scale) / scale;
         float valueWidth = GameText.MeasureWidth("GameFontNormalSmall", countValue, scale) / scale;
         QuestLogicalRect pill = QuestFrameUiLaw.QuestLogCountPillRect(
@@ -1091,7 +1117,7 @@ public sealed partial class GameLoop
         ImGui.SetCursorScreenPos(trackMin);
         ImGui.InvisibleButton("##quest-track-indicator", trackSize);
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("Shift-click a quest to add or remove a quest from your quest watch list.");
+            HoverTip("Shift-click a quest to add or remove a quest from your quest watch list.");
     }
 
     private void DrawQuestLogDetailScrollBar(ImDrawListPtr dl, Vector2 origin, float scale)
@@ -1453,7 +1479,8 @@ public sealed partial class GameLoop
         ExpireAutomaticQuestWatches();
         if (_questWatches.Count == 0 || _net is null ||
             !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
-        var slots = player.Fields.QuestLog().ToDictionary(q => q.QuestId);
+        // Merged: a tracked quest may be held without an update-field slot.
+        var slots = MergedOwnQuestLog().ToDictionary(q => q.QuestId);
         var lines = new List<(string Text, bool Title, bool Finished)>(
             QuestFrameUiLaw.MaxQuestWatchLines);
         foreach (uint questId in _questWatches)
@@ -1515,7 +1542,7 @@ public sealed partial class GameLoop
         if (_questAbandonConfirmation is not { } confirmation || _skin is null) return;
         if (_net is not { IsInWorld: true } net ||
             !_entities.TryGet(net.PlayerGuid, out WorldEntity player) ||
-            !player.Fields.QuestLog().Any(q => q.QuestId == confirmation.QuestId))
+            !MergedOwnQuestLog().Any(q => q.QuestId == confirmation.QuestId))
         {
             _questAbandonConfirmation = null;
             return;

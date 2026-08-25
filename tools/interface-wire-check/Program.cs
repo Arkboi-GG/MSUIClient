@@ -1238,6 +1238,27 @@ if (args.Contains("--item-template-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--party-member-facts-only", StringComparer.Ordinal))
+{
+    PartyMemberFactsClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: PartyMemberFacts PASS");
+    return;
+}
+
+if (args.Contains("--party-quest-only", StringComparer.Ordinal))
+{
+    PartyQuestClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: PartyQuest PASS");
+    return;
+}
+
+if (args.Contains("--party-quest-acts-only", StringComparer.Ordinal))
+{
+    PartyQuestActsClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
+    return;
+}
+
 CharCreateClinicalChecks.Run();
 CharSelectCurrentClinicalChecks.Run();
 LoginClinicalChecks.Run();
@@ -4156,5 +4177,11 @@ ViewSubjectClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: ViewSubject PASS");
 ClientControlUpdateClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: ClientControlUpdate PASS");
+PartyMemberFactsClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: PartyMemberFacts PASS");
+PartyQuestClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: PartyQuest PASS");
+PartyQuestActsClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
 
 Console.WriteLine("interface wire checks passed: minimap projection/area/zone + action icons + gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + social + trade + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding + gameplay-text fence");

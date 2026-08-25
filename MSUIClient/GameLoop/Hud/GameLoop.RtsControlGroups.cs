@@ -39,8 +39,69 @@ public sealed partial class GameLoop
         return groups;
     }
 
+    // ── Conscription ─────────────────────────────────────────────────────────
+    // Control-group membership IS enlistment: any bot in a group is conscripted
+    // (ORDER_CONSCRIPT — the brain's planner stands down for it), and a bot
+    // dropped from its last group is dismissed (ORDER_DISMISS — the brain
+    // resumes questing it in place). The set is diffed after every group
+    // mutation; the server independently musters the army out on logout, so a
+    // session that dies without farewells leaks nothing.
+    private readonly HashSet<ulong> _rtsConscripted = [];
+    private const byte SuiOrderConscript = 11;
+    private const byte SuiOrderDismiss = 12;
+
+    /// <summary>Enlisted per this client's groups, or per the server roster bit
+    /// (0x04 — covers bots conscripted by another human in the party).</summary>
+    private bool RtsEnlisted(ulong guid)
+    {
+        if (_rtsConscripted.Contains(guid)) return true;
+        foreach ((ulong rosterGuid, byte flags) in _suiRoster)
+            if (rosterGuid == guid) return (flags & 0x04) != 0;
+        return false;
+    }
+
+    private void SyncRtsConscription()
+    {
+        if (_net is null) return;
+        var current = new HashSet<ulong>();
+        foreach (List<ulong> group in _rtsControlGroups)
+            foreach (ulong guid in group)
+                if (guid != LocalPlayerGuid)   // your own character never enlists
+                    current.Add(guid);
+
+        List<ulong> enlisted = [.. current.Where(guid => !_rtsConscripted.Contains(guid))];
+        List<ulong> dismissed = [.. _rtsConscripted.Where(guid => !current.Contains(guid))];
+        if (enlisted.Count == 0 && dismissed.Count == 0) return;
+
+        SendRtsConscriptionOrder(SuiOrderConscript, enlisted);
+        SendRtsConscriptionOrder(SuiOrderDismiss, dismissed);
+        _rtsConscripted.Clear();
+        foreach (ulong guid in current) _rtsConscripted.Add(guid);
+
+        if (enlisted.Count > 0)
+            AddChatMessage($"Enlisted {enlisted.Count} bot" +
+                (enlisted.Count == 1 ? "" : "s") + " — the questing brain stands down.");
+        if (dismissed.Count > 0)
+            AddChatMessage($"Dismissed {dismissed.Count} bot" +
+                (dismissed.Count == 1 ? "" : "s") + " — back to their own lives.");
+    }
+
+    private void SendRtsConscriptionOrder(byte orderType, List<ulong> guids)
+    {
+        for (int start = 0; start < guids.Count; start += RtsControlGroupLaw.MaximumWireSubjects)
+        {
+            List<ulong> chunk = guids.GetRange(start,
+                Math.Min(RtsControlGroupLaw.MaximumWireSubjects, guids.Count - start));
+            if (_net?.SuiOrder(orderType, chunk, 0, 0, 0, 0) == true)
+                NoteCompanionOrder(orderType, chunk);
+        }
+    }
+
     private void ResetRtsControlGroups()
     {
+        // Session teardown: no farewells on a dead wire — the server's logout
+        // hook musters the army out authoritatively.
+        _rtsConscripted.Clear();
         foreach (List<ulong> group in _rtsControlGroups) group.Clear();
         Array.Clear(_rtsControlGroupKeyWasDown);
         _rtsControlGroupCommandIndex = -1;
@@ -148,22 +209,49 @@ public sealed partial class GameLoop
 
     private void UpdateRtsControlGroupKeys(bool typing)
     {
+        // In the free view the numerals are WC3 group keys: plain number RECALLS
+        // the saved group, Shift+number SAVES the current selection. Outside the
+        // free view they stay action-bar keys.
         bool assign = _freeView && ShiftHeld() && !typing;
+        bool recall = _freeView && !ShiftHeld() && !typing;
         for (int i = 0; i < RtsControlGroupKeys.Length; i++)
         {
             bool down = InputKeyDown(RtsControlGroupKeys[i]);
-            if (assign && down && !_rtsControlGroupKeyWasDown[i])
-                AssignRtsControlGroup(i);
+            if (down && !_rtsControlGroupKeyWasDown[i])
+            {
+                if (assign) AssignRtsControlGroup(i);
+                else if (recall) RecallRtsControlGroup(i);
+            }
             // Track every physical edge, including typing/outside-Free-View frames,
             // so a held key can never become an assignment after the gate changes.
             _rtsControlGroupKeyWasDown[i] = down;
         }
     }
 
-    /// <summary>Does the Shift+number group chord own this remappable action binding?</summary>
+    /// <summary>Plain-number recall: select the saved group (and say so).</summary>
+    private void RecallRtsControlGroup(int index)
+    {
+        string number = RtsControlGroupLaw.DisplayNumber(index);
+        if ((uint)index >= (uint)_rtsControlGroups.Length || _rtsControlGroups[index].Count == 0)
+        {
+            SetRtsControlGroupStatus($"Group {number} is empty — Shift+{number} saves " +
+                "the current selection.");
+            return;
+        }
+        SelectRtsControlGroup(index, openCommands: false);
+        SetRtsControlGroupStatus($"Group {number} selected: " +
+            $"{RtsControlGroupVisibleCount(_rtsControlGroups[index])}/" +
+            $"{_rtsControlGroups[index].Count} nearby.");
+    }
+
+    /// <summary>
+    /// Do the free-view group keys own this remappable action binding? In the
+    /// free view every numeral belongs to the groups (plain = recall, Shift =
+    /// save) and never casts — the commanded body's bars are read-only there.
+    /// </summary>
     private bool RtsControlGroupClaimsBinding(GameBinding binding)
     {
-        if (!_freeView || !ShiftHeld()) return false;
+        if (!_freeView) return false;
         BindingPair bound = BoundKeys(binding);
         foreach (Key key in RtsControlGroupKeys)
             if (InputKeyDown(key) && bound.ContainsBase(key)) return true;
@@ -229,6 +317,7 @@ public sealed partial class GameLoop
         List<ulong> group = _rtsControlGroups[index];
         group.Clear();
         group.AddRange(members);
+        SyncRtsConscription();
         if (eligibleCount > members.Length)
             ShowUiError($"Group {number} is limited to " +
                 $"{RtsControlGroupLaw.MaximumWireSubjects} explicit bots by the order wire.");
@@ -251,6 +340,7 @@ public sealed partial class GameLoop
 
         _freecamSelection.Clear();
         _freecamSelection.AddRange(_rtsControlGroups[index]);
+        PlayCompanionSelectionVoice(_freecamSelection[0]);
         if (_freecamSelection.Count == 1) EnsureBotBarForViewing(_freecamSelection[0]);
         _rtsControlGroupCommandIndex = index;
         _rtsControlGroupMemberOffset = 0;
@@ -270,7 +360,9 @@ public sealed partial class GameLoop
         List<ulong> members = _rtsControlGroups[index];
         if (members.Count is 0 or > RtsControlGroupLaw.MaximumWireSubjects || _net is null)
             return false;
-        return _net.SuiOrder(orderType, members, 0, 0, 0, 0);
+        bool sent = _net.SuiOrder(orderType, members, 0, 0, 0, 0);
+        if (sent) NoteCompanionOrder(orderType, members);
+        return sent;
     }
 
     private bool SendRtsControlGroupPatrol(int index)
@@ -284,8 +376,12 @@ public sealed partial class GameLoop
         // origin when they still use the packet coordinate as a shared anchor.
         foreach (ulong guid in members)
             if (_entities.TryGet(guid, out WorldEntity unit) && !unit.IsDead)
-                return _net.SuiOrder(4, members, 0,
+            {
+                bool sent = _net.SuiOrder(4, members, 0,
                     unit.Position.X, unit.Position.Y, unit.Position.Z);
+                if (sent) NoteCompanionOrder(4, members);
+                return sent;
+            }
         return false;
     }
 
@@ -345,7 +441,7 @@ public sealed partial class GameLoop
                 if (ImGui.Button(label, new Vector2(cardWidth, 38f * scale)))
                     SelectRtsControlGroup(index, openCommands: true);
                 if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip("Select this session group and open its command palette.");
+                    HoverTip("Select this session group and open its command palette.");
                 if (position + 1 < active.Count && (position + 1) % perRow != 0)
                     ImGui.SameLine(0, gap);
             }
@@ -396,7 +492,7 @@ public sealed partial class GameLoop
                     RtsControlGroupLaw.FormationSummary(members.Count) + ".");
             if (!canAutoGroup) ImGui.EndDisabled();
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip(canAutoGroup
+                HoverTip(canAutoGroup
                     ? "Create real parties/raids: five per party, forty per raid.\n" +
                       "Protected real-player parties are never pulled apart."
                     : "This server has not advertised faction-control-groups-v1.");
@@ -478,6 +574,7 @@ public sealed partial class GameLoop
                 bool selectedThisGroup = SameRtsMembers(_freecamSelection, members);
                 bool routeForThisGroup = SameRtsMembers(_rtsWaypointSubjects, members);
                 members.Clear();
+                SyncRtsConscription();
                 if (selectedThisGroup) _freecamSelection.Clear();
                 _rtsControlGroupCommandOpen = false;
                 _rtsControlGroupCommandIndex = -1;

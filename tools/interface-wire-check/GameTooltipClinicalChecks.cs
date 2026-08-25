@@ -1284,7 +1284,11 @@ internal static class GameTooltipClinicalChecks
               spellbook.Contains("WowSkin Skin,", StringComparison.Ordinal) &&
               spellbook.Contains("Vector2 DisplaySize,", StringComparison.Ordinal) &&
               spellbook.Contains("Vector2 OwnerMin,", StringComparison.Ordinal) &&
-              spellbook.Contains("Vector2 OwnerMax);", StringComparison.Ordinal) &&
+              spellbook.Contains("Vector2 OwnerMax,", StringComparison.Ordinal) &&
+              // Bottom clearance is PREPARED into the immutable snapshot (free
+              // view lifts the default anchor above the docked minimap); the
+              // renderer must keep reading it from the snapshot alone.
+              spellbook.Contains("float BottomClearance = 0f);", StringComparison.Ordinal) &&
               spellbook.Contains("SpellTooltipView view = SpellTooltipLaw.Build(",
                   StringComparison.Ordinal) &&
               !adapters.Contains("_hoveredSpellId", StringComparison.Ordinal) &&
@@ -1313,6 +1317,7 @@ internal static class GameTooltipClinicalChecks
               spellRenderer.Contains("SpellTooltipLaw.FrameSize", StringComparison.Ordinal) &&
               spellRenderer.Contains("SpellTooltipLaw.DefaultBottomRightOrigin",
                   StringComparison.Ordinal) &&
+              spellRenderer.Contains("snapshot.BottomClearance", StringComparison.Ordinal) &&
               spellRenderer.Contains("SpellTooltipLaw.ClampOrigin", StringComparison.Ordinal) &&
               spellRenderer.Contains("SpellTooltipLaw.OwnerRightOrigin", StringComparison.Ordinal) &&
               spellRenderer.Contains("##spell-tooltip", StringComparison.Ordinal) &&

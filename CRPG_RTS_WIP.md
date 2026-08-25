@@ -30,6 +30,398 @@
 > newest-first). This Tier-1 result is not Tier-2 R1 validation. Owner decisions
 > in here are binding — do not redesign them.
 
+## 2026-08-25 (late) — PARTY QUESTING & VENDORING: plan + P1 (quest facts) BUILT
+
+New authority: [`docs/plans/PLAN_20_PARTY_QUESTING_AND_VENDORING.md`](docs/plans/PLAN_20_PARTY_QUESTING_AND_VENDORING.md).
+
+The gap it closes: a bot in your control group was the ONLY bot in the world
+that could not quest or vendor. Conscription (order 11) fences the C# brain out
+by design, and nothing replaced it — while the client's whole quest/vendor
+stack is hard-bound to your own character, so you could not even SEE what your
+companions held. Meanwhile the server already has the mechanics: the bridge
+handlers `QUEST_INTERACT` (accept/turn-in with spec-aware reward pick +
+auto-equip), `SELL_ITEMS`, `REPAIR_AT_NPC`, `TRAIN_AT_NPC` are live and the
+fleet runs them daily.
+
+**Owner decisions (binding, 2026-08-25):** (1) vendoring is PER BOT, driven like
+your own character — sweeps are a convenience on top, not the mechanism;
+(2) quest rewards are per bot, chosen by you, with every member's picker visible
+at once on a group turn-in; (3) real per-character quest logs, MERGED in the
+view; (4) junk policy exposed, each service auto-complete or you-choose;
+(5) world markers keep the vanilla `!` art with a parenthesised numeral over it
+— `(4)` when four of five are eligible; (6) remove the 20-quest cap, ~100 held.
+
+**P1 BUILT (client compiled + guard-checked; core compiled on the box, NOT
+installed).** `CMSG_SUI_QUEST_FACTS` 854 / `SMSG_SUI_QUEST_LOG` 855,
+capability bit 5, `NUM_MSG_TYPES` 856; roster-edge push + rate-limited pull
+(limited SEPARATELY from the bag pull); new Party Quest Log panel — one row per
+distinct quest across the party, one column per member, `L` in the free view.
+Implementation record and file table in the plan §5b.
+
+**The cap probe (this is the useful part for P2).** `MAX_QUEST_LOG_SIZE 20`
+governs UPDATE-FIELD SLOTS, not storage: `mQuestStatus` is already a map,
+`character_queststatus` is quest-id keyed, and `_LoadQuestStatus` ALREADY
+tolerates `slot >= 20` (loads the status, skips the field write) — persistence
+needs zero changes. One gate (`SatisfyQuestLog`). The real work is nine loops in
+`Player.cpp` that iterate slots instead of the map — `KilledMonsterCredit`,
+`ItemAddedQuestCheck`, `CastedCreatureOrGO`, `TalkedToCreature`,
+`MoneyChanged`, `ReputationChanged`, `HasQuestForItem`, `HasQuestForGO`,
+`ItemRemovedQuestCheck` — and in every one the slot index is used ONLY to fetch
+the quest id.
+
+**Correction to the first write-up of this (it said "undefined behaviour"):**
+`mQuestStatus` is an ordered `std::map`, so insertion does NOT invalidate
+iterators or references — iterating it directly is not UB. The real hazards are
+smaller but still real: a key inserted mid-pass that sorts AFTER the cursor gets
+visited in the same pass, and `operator[]` on a stale id silently creates a
+NONE-status row. Snapshotting the ids is still the right move; the reason is
+determinism, not UB.
+
+Two more facts pinned from source, both for P3: `m_rewarded` — not `m_status` —
+is what means "turned in" (VMaNGOS leaves the status at COMPLETE forever), and
+**no bot AI answers any quest opcode** (`CombatBotBaseAI::OnPacketReceived`
+handles seven cases, none of them quest; `AiBotAI` adds three, none of them
+quest), so a vanilla shared quest to a companion dies silently today.
+
+**P2 BUILT same session** (core compiled on the box, NOT installed). The cap is
+now `Quests.MaxHeld` (config, default 100, floor 20); `MAX_QUEST_LOG_SIZE` stays
+20 as the field layout. The mechanism is `Player::m_questsHeld` — the
+authoritative list of held quest ids, slotted and slotless alike — which all
+nine credit scans now iterate instead of the twenty slots. Slot promotion pulls
+the oldest slotless quest up whenever a slot frees (reward, abandon), so the
+stock client's twenty-quest view stays full. Persistence needed nothing:
+`character_queststatus` is quest-id keyed and `_LoadQuestStatus` already
+tolerated slotless rows.
+
+**The real trap was not the one predicted.** `ItemRemovedQuestCheck` has NO
+status check of its own — the slot loop's implicit "owns a slot" filter was
+doing that job. Iterating held quests without stating the filter would have let
+`IncompleteQuest` drag a finished DELIVER quest back to INCOMPLETE every time
+one of its items left the bags. Also found and fixed in passing: a
+**pre-existing out-of-range field write** in `SendQuestUpdateAddItem`, which
+added the objective count to the SLOT index instead of the COUNTER index —
+for a quest in a high slot that wrote past `PLAYER_QUEST_LOG_20_1` into
+`PLAYER_VISIBLE_ITEM_1_CREATOR`, corrupting a GUID field. Raising the cap makes
+high slots common, so it would have gone from rare to routine.
+
+Because the held list is hand-maintained derived state, `ValidateHeldQuests()`
+reconciles it against `mQuestStatus` on every save: a missing entry is REPAIRED
+and logged at ERROR (`[QUEST-HELD]`), because a quest that silently stops
+earning credit is the one failure mode play-testing would never surface. **If
+that line ever appears in the log, a mutation path is not calling
+`QuestHeldAdd`/`Remove` — find it, do not just enjoy the repair.**
+
+## 2026-08-25 (late) — PLAN_20 P3: PARTY QUEST ACTS + shared quests BUILT
+
+Client compiled + guard green (new `PartyQuestActs` clinical check); core
+compiled on the box, NOT installed. Opcodes 856/857, capability bit 6,
+`NUM_MSG_TYPES` 858.
+
+**What it does.** Standing at a questgiver with companions, a rail appears
+beside the quest frame: tick who comes along, "Accept for party (4)". On a
+turn-in the rail becomes a reward BOARD — one column per companion, one row per
+choice, every member's picker visible at once (owner decision 2). Members with
+no explicit pick go as "auto", which is the fleet's own spec-aware
+`ChooseQuestReward`. Refusals are reported per member BY NAME, never as "some of
+your party could not do that". Action 3 addressed at yourself is the id-keyed
+abandon that closes the P2 overflow gap. And the dead **Share Quest** button is
+finally live.
+
+**Design calls worth remembering.** (1) The act wire has NO whole-party
+shorthand — the facts wire's empty list means "everyone", but acting on
+someone's behalf must always name them. (2) Range: the requester answers to
+INTERACTION_DISTANCE (5 yd, they are the one talking to the NPC), companions to
+QUEST_SHARE_DISTANCE (14 yd) FROM THE REQUESTER — vanilla's own share rule. Five
+bodies cannot stand within 5 yards of one NPC, and the bridge's 15.0f has no
+authority. (3) The rail is a separate window at x=390 in the SuperUI skin, so
+the 384-wide quest frame's parity tree is untouched and no parity claim is
+invited; it does not draw while a parity proof is armed.
+
+**Two of my own premises were wrong, both corrected in the plan.** Bot sessions
+DO receive SMSGs — `WorldSession::SendPacket` diverts a socket-less session into
+`GetBot()->ai->OnPacketReceived`. And the share hook belongs on
+`SMSG_QUESTGIVER_QUEST_DETAILS`, not `SMSG_QUEST_CONFIRM_ACCEPT` (that one only
+fires for escort quests). The reply must be QUEUED, not a direct handler call:
+`HandlePushQuestToParty` sets the share info AFTER sending, so an inline accept
+would kill the sharer's confirmation and strand the bot at BUSY forever.
+
+**Bug found by copying carefully:** the bot bridge's accept path never casts a
+quest's SOURCE SPELL. The real handler does. The party accept mirrors the real
+handler, so it does too — the bridge path is still wrong and is worth a
+follow-up for the unattended fleet.
+
+Also: the client's `QuestTemplate` was discarding the quest flags word, so it
+could not tell a sharable quest from any other. It now keeps it — the Share
+Quest button owns that gate, because `HandlePushQuestToParty` does NOT check
+`QUEST_FLAGS_SHARABLE` and will happily forward a quest it then refuses.
+
+## 2026-08-25 (night) — fleet bots silently killed by Blizzard NAME DBCs (found + fixed)
+
+Owner report after live deploy: 12 bots (all the Mister*/Uber* set,
+Wafflesqueen, Keyboardking, and party member Barrensqueen) logged out 3s
+after "load all bots". Probe (not theory) found the chain: SuperUI bot
+CREATION never runs name validation, but `Player::LoadFromDB` does — and its
+name-check branch is the ONLY silent early-return in the function. The names
+tripped the client's own NamesReserved/NamesProfanity DBC regexes
+(`\<mister`, `\<uber`, `queen\>`, and `king\>` on the profanity list), each
+character got stamped CHARACTER_FLAG_RENAME (0x4000 — the forensic
+fingerprint that proved the path), and the session was kicked with no log.
+First load-from-DB after creation = first death; today's binary was
+innocent. The gorilla/bear "missing players as animals" were unrelated: the
+new bot-spec code gives spec-less hunters random exotic pets and shapeshifts
+feral druids.
+
+FIX (core, compiled on box, deploy = owner): `Player::LoadFromDB` name check
+now carries the same `!IsBot()` waiver the account check two lines above
+always had (fleet names are owner policy, not realm policy), and the
+real-player failure path LOGS before refusing (no more silent kills).
+Cleanup: the 12 rows need `character_flags & ~0x4000` (SQL handed to owner).
+
+**Pet/shapeshift follow-up (owner: "that's wrong")**, same build:
+1. Spec-less hunters (`spec_tab=255`, every migrated bot) no longer roll the
+   17-beast world zoo — they tame RACE-PLAUSIBLE homeland fauna (orc:
+   wolf/boar/scorpid/raptor, troll: raptor/cat/spider/bat, tauren:
+   strider/wolf/boar, forsaken: spider/bat/wolf, dwarf+gnome:
+   bear/boar/wolf/owl, night elf: cat/owl/spider/bear; wolf/cat/boar
+   fallback). Spec'd hunters keep their doctrine pets (wolf/cat/boar).
+2. Druid bots read as PEOPLE between fights: bear/dire-bear/cat/moonkin
+   drop 8s after combat ends (`m_lastCombatMs` grace in
+   `AiBotAI::UpdateOutOfCombatAI`); Travel/Aquatic are journey tools and
+   stay; the next fight re-shifts per role/spec as before.
+3. The `CastSpell: unknown spell id 0` log spam (Feararrow/Ragerogue): the
+   bridge QUEST_CAST path cast a raw planner-sent spell id unchecked — now
+   refused with a `QUEST_CAST_FAIL reason=bad_spell` event when the id is 0
+   or unknown to the DBCs. (Slate/rotation casts were already entry-guarded;
+   if the spam survives deploy, the source is elsewhere — re-probe then.)
+4. **Ranged-bot pull LIVELOCK** (owner: "sitting in combat pose doing
+   nothing for minutes"): every legacy class OOC routine ends with the
+   load-bearing bridge `if (GetVictim()) UpdateInCombatAI_X()` — what fires
+   a ranged OPENER at an armed victim during the pull window (attack intent
+   set, combat flag not yet). The new `UpdateSpecOutOfCombatAI` returned
+   true after buffs, short-circuiting BEFORE that bridge, so spec-profile
+   casters armed the attack, parked at caster-chase distance, and nothing
+   ever started the fight — a silent per-tick rescan/BeginPull/Attack-false
+   loop (the "objective rescan hit … every second" signature) until the mob
+   wandered into melee reach. FIXED: the same victim-bridge now ends the
+   spec OOC path (fires `UpdateSpecCombatAI`). Compiled on box with the
+   rest; deploy = owner.
+
+## 2026-08-25 (evening) — RTS layout, panels v3, INSTANT PARTY TRADE (Phase C v1)
+
+Owner feedback round from creator mode; everything client-side built + guard
+tools green, server compiled on box (deploy gates unchanged).
+
+1. **Free-view layout** (owner ask): the minimap is SQUARE and docks
+   bottom-LEFT (WC3 furniture); the chat frame lifts 124 logical px above it;
+   the spell-tooltip default anchor now clears the commander console (134px)
+   instead of the moved map. **B in the free view opens Party Inventory**
+   (everyone's bags) instead of the hidden body bags.
+2. **Party Tactics layout fix** (owner: "ImGui stuff is weird, clipping the
+   top"): the raw SmallButton flow (staircasing over the chrome) replaced
+   with explicit-position vanilla buttons + GameText labels in the clipped,
+   scrolling child; role pick shown as a gold ring.
+3. **Party Inventory v3** (owner ask): each member column is now a MINIFIED
+   CRPG character sheet — paper-doll rails (vanilla arrangement) around the
+   member's baked portrait (the self column uses the own-portrait booth),
+   weapons row beneath — then bags in SMALL icons (20px) with per-column
+   vertical scroll. Columns are CENTERED with equal widths/gaps/margins
+   derived from the live window width (owner: "fill with margin from both
+   sides, equal spacing for the number of people") — resize reflows them and
+   the bags-per-row count; a 150px logical floor falls back to horizontal
+   scroll. DRAG AND DROP: drag a bag item onto any cell, the portrait, or
+   the column of another member to hand it over (ImGui native DnD, empty
+   typed payload + stamped fields); right-click "Give to …" remains.
+4. **INSTANT PARTY TRADE — Phase C v1 (owner ask "move things between party
+   members realtime")**: right-click a bag item in Party Inventory → "Give
+   to <member>". New wire pair `CMSG_SUI_MEMBER_ITEM_MOVE = 852` /
+   `SMSG_SUI_MEMBER_ITEM_MOVE_RESULT = 853` (`NUM_MSG_TYPES = 854`),
+   capability bit 4 (party-item-move-v1), exact-length parsing, endpoints =
+   own character or party AiBot (party line; faction never suffices), same
+   map, no trade window open, binding deliberately not a gate (the CRPG
+   shared backpack), conjured items refused. Mechanics mirror the proven
+   trade-completion sequence (CanStoreItem → MoveItemFromInventory →
+   MoveItemToInventory). After an accepted move the server re-pushes BOTH
+   endpoints' snapshots to every real SUI group member — columns update from
+   pushes, never optimism. Box `docs/SUI_WIRE_PROTOCOL.md` updated;
+   `interface-wire-check` extended (builder/parser round-trips, opcodes
+   852/853, capability bit 4, give-menu wire mapping law).
+
+## 2026-08-25 (later still) — Attack icon fix; WC3 console v2 (CREATOR-MODE review)
+
+The owner reviewed the console in CREATOR MODE (offline sandbox) — "Yes that
+works" refers to the console shell there. Member-facts live proof (SuperUI
+bots on the real server, never-possessed bags/spells) is STILL PENDING the
+usual deploy gates; nothing in this entry changes the deploy-state table
+below.
+
+1. **Attack icon fix** (owner caught it in creator mode): the console card and party quick
+   slots drew spell 6603's raw DBC icon — the internal Temp face. Both now
+   route through the existing `ActionIconLaw` (weapon-icon substitution), and
+   `ResolveEquippedItemIcon` falls back to PUBLIC visible-item entries so a
+   never-possessed bot's weapon still resolves (no inventory-guid wiring
+   needed).
+2. **Hover tips no longer fight the cursor** (owner report: the hardware
+   cursor draws over the stock mouse-anchored ImGui tooltip): new `HoverTip`
+   helper (`GameLoop.VanillaUi.cs`) anchors gameplay hover tips ABOVE the
+   cursor's space (bottom-left pivot at the hotspot, display-clamped,
+   TextUnformatted so literal '%' never hits printf). All 25 player-facing
+   sites across the HUD + panels route through it; dev/creator tooling keeps
+   stock behavior; the minimap resource-dot tooltip keeps its clinically
+   frozen SetTooltip seat (B4/B5 fence — approved anchor + fade lifecycle).
+3. **Console card polish**: role medallion on the portrait corner (shared
+   `DrawRoleMedallion` with the party rows), `enlisted · <last order>` state
+   on the level/class line, and a right-aligned `Route · N pts` readout on
+   the scope row when the selection has an authored waypoint chain.
+4. **Spell tooltips clear the docked minimap** (owner report: hovering a card
+   ability parked the tooltip over the map): the prepared spell-tooltip
+   snapshot now carries a bottom clearance — in free view the vanilla
+   default bottom-right anchor lifts above the minimap dock (206 logical px);
+   normal play keeps the stock anchor. B2 fence extended with the new
+   snapshot field (renderer still reads the snapshot alone).
+5. **Bags & Tactics live on the console** (the free view hides the bag bar
+   and micro menu): a utility row under the squad grid opens Party Inventory
+   / Party Tactics for the whole party, and the unit card carries per-member
+   Bags/Tactics buttons (party privilege — disabled with the reason for
+   non-party units).
+6. **Patrol is a mode now** (owner ask): click Patrol → the button arms (gold
+   border) and right-clicks chain COLD waypoints — nothing is ordered while
+   drafting (gold dashed route + bright dots, "Drafting route · N pts" on the
+   scope row); click Patrol again → every leg is queued (order 3) and the
+   loop engages (order 4), the draft becoming the standing chain (same
+   retirement machinery). Escape cancels the draft ahead of every menu layer
+   (pre-gate beside the dev-edit one, per the doc's Escape order); leaving
+   the free view or losing the session cancels silently. Subjects freeze at
+   arm time; attack picks are swallowed while drafting. The legacy
+   Shift+RightClick chain still works and Patrol still engages it directly.
+7. **WC3 commander console v2** (`GameLoop.CommandShelf.cs` rewritten): the
+   plain auto-sizing shelf became a fixed three-region console — SQUAD grid
+   (all ten wells: click recall, Shift+click save, matching the 1-0 keys),
+   INFO panel (scope line; portrait unit card — party-frame 3-D bake, level/
+   class, vitals, read-only ability row — for one unit; baked-portrait chips
+   for a group), and the icon COMMAND CARD carrying the same seven verbs,
+   orders/voices/chat lines unchanged. Art per the owner's design language:
+   pet-bar idiom from the shipped FrameXML via mpqpeek (Focus=
+   Ability_GhoulFrenzy, Regroup=Ability_Tracking, Hold=Spell_Nature_TimeStop),
+   Patrol=Ability_Hunter_Pathfinding, Line=INV_Banner_01,
+   Circle=Spell_Holy_PrayerofHealing, Sheathe/Draw=Ability_Warrior_Disarm/
+   INV_Sword_04 — every path archive-verified before use.
+
+## 2026-08-25 (later) — PARTY MEMBER FACTS BUILT (both sides; deploy pending)
+
+The owner decision below (party = full facts, faction = orders) is now
+implemented end to end; the handoff doc
+`docs/current/ui/CRPG_PARTY_MEMBER_FACTS_NEXT_AGENT_PROMPT.md` carries the
+full build record in its status header.
+
+1. **Server** (`~/vmangos`, compiled clean on box, NOT installed/restarted):
+   new opcodes `CMSG_SUI_MEMBER_FACTS = 850` / `SMSG_SUI_MEMBER_SPELLS = 851`
+   (848/849 left reserved for the rotation pair; `NUM_MSG_TYPES = 852`),
+   capability bit 3 in the control-ACK trailer, roster-edge push
+   (`BroadcastRoster → PushMemberFactsTo`: every party AiBot's
+   `SendSnapshot` + new `SendMemberSpells` per real SUI member), exact-length
+   pull handler with a 1/s per-session rate limit. Authorization: real player
+   session + AiBot subject + SAME group/raid; faction authority insufficient.
+   Box `docs/SUI_WIRE_PROTOCOL.md` updated.
+2. **Client** (compiles clean): `ApplySuiSnapshot` possession-era fence
+   lifted — party/raid members accepted (`IsPartyMemberFactsSubject`),
+   non-party still dropped honestly, `ApplyControlledCharacter` stays
+   controlled-only; new `GameLoop.MemberFacts.cs` (capability latch,
+   roster-fingerprint auto-pull, panel-open pulls, member-spells handler
+   seeding `ActionsFor` + `PopulateBotBar` + the `botbars.json BotSpells`
+   cache); `Net/MemberFactsWire.cs` wire law; "possess once to sync" /
+   "?"-well texts retire for party members under the capability.
+3. **Verification:** all four guard tools green;
+   `interface-wire-check --party-member-facts-only` added (wire round-trips,
+   exact-length refusals, opcode/capability constants, snapshot-gate law).
+   Inventory dirty-hook re-send deferred by the handoff's own allowance
+   (age stamps + pulls cover staleness).
+
+Deploy state unchanged in kind: mangosd compiled on box NOT
+installed/restarted; MangosSuperUI built NOT published (deploy the two
+TOGETHER — the brain is untouched by member facts but the conscription fence
+still requires the pair); client rebuild after closing the running instance.
+Live proof is owner-run with SuperUI bots: party with never-possessed bots →
+quick slots + Party Inventory columns populate with nobody possessed.
+
+## 2026-08-25 — Phase A UI shell complete + free-view console; NEXT: party member facts
+
+Continuation of the 2026-08-24 session (below). Everything client-side, all
+built and guard-tools green; nothing deployed anywhere this round.
+
+1. **Phase A comprehension shell BUILT** (the full ledger lives in
+   `docs/current/ui/CRPG_RTS_MMO_PARTY_COMMAND_UI.md` "Build state"): party-row
+   quick slots (truthful, honest "?" wells) + corner role medallions +
+   order-state chips; command shelf with the full verb set
+   (Regroup/Hold/Focus/Patrol/Line/Circle/Sheathe) and SQUAD-aware scope;
+   free-view number keys (1-0 pick, Shift+1-0 save; bars never eat numerals in
+   free view); Party Tactics panel (role + quick-slot AI policy in
+   botbars.json `BotSlotPolicies`; stances disabled with reason); Party
+   Inventory in BG3 columns; vanilla skin pass (UI-Panel-Button verbs, tooltip
+   backdrops, dialog chrome, pet-bar autocast corners); WC3 selection chips;
+   mockup HTML re-skinned to the vanilla idiom.
+2. **Free View is a costume change now** (owner ask): body chrome — action,
+   multi, stance, pet bars, bag bar, micro menu — hides in free view; the
+   commander console owns the bottom edge (always present: squads row + hint
+   when empty; WC3 unit card with vitals + read-only abilities on single
+   selection); the minimap docks to the bottom corner.
+3. **Snapshot RETENTION** (owner pushback, correct): possession was always
+   full access one-bot-at-a-time; the client was purging the snapshot on
+   release. Now kept per-bot with age stamps — sync each companion once and
+   the BG3 inventory view shows the whole party, honestly aged.
+4. **OWNER DECISION + NEXT WORK ITEM — party = full facts, faction = orders:**
+   party/raid members get bags + skills pushed WITHOUT possession; faction
+   bots stay command-only; Tier-2 RTS rules come later. Implementation handoff
+   (server seams, wire format, triggers, authorization, capability bit, client
+   gate to lift, verification):
+   `docs/current/ui/CRPG_PARTY_MEMBER_FACTS_NEXT_AGENT_PROMPT.md`.
+
+Deploy state: mangosd compiled on box NOT installed/restarted; MangosSuperUI
+built NOT published (deploy the two TOGETHER); client compiles clean (rebuild
+after closing the running client — bin lock).
+
+## 2026-08-24 — mass-move fix, companion voice, formations, conscription (client built, core compiled NOT deployed)
+
+Five changes from the owner's 20-bot free-view session:
+
+0. **Conscription — "assign a group = the questing brain is off" (core + client +
+   brain, all built, NONE deployed):** control-group membership IS enlistment.
+   Assigning bots to a group sends additive order 11 (`ORDER_CONSCRIPT`);
+   dropping them from their last group sends 12 (`ORDER_DISMISS`, resume
+   questing in place — owner decision). Three walls: STATE `conscripted:1` parks
+   the brain planner at `why=conscripted` (objective preserved, wedge/stuck
+   clocks kept warm, enlisted deaths never shelve a quest), the C++ bridge fence
+   drops planner lines (`CONSCRIPTED_DROP`; PING/COMBAT_DIRECTIVE/LOAD_ROTATION/
+   LOAD_RAID_PLAN pass — conscripts keep combat AI and stay raid-plannable), and
+   `BotExecutor` refuses planner traffic client-of-the-brain-side. Commander
+   logout musters the army out server-side. Roster flag 0x04 + "enlisted" chip
+   on the party strip. Contract: `SYSTEM_CRPG_CONTROL_GROUPS.md` §5c.
+   **Deploy mangosd and MangosSuperUI together** (an old brain would churn
+   against the new fence). MangosSuperUI deploy: `dotnet publish -c Release`
+   (linux-x64 profile) → scp to `/tmp/mangossuperui-deploy/` → `~/deploy.sh`.
+
+1. **Mass-move parse spam FIXED (client):** vmangos batches `SMSG_MONSTER_MOVE`
+   splines into `SMSG_COMPRESSED_MOVES` under load (rate gate in
+   `WorldSession::SendMovementPacket`); the client treated any non-relay record
+   as fatal and dropped the REST of the batch — so ordering many bots at once
+   spammed `[net] parse error` and lost their walk splines. Records now parse
+   individually: monster-moves and spline-speeds route to their standalone
+   handlers, unknown opcodes skip with a log-once. `interface-wire-check` updated.
+2. **Voice chorus (client):** an order to 4+ bots answers with 2 voices, 10+
+   with 3, cascading 0.4 s apart, randomized speakers, distinct race/gender
+   voices preferred (`CompanionVoiceLaw.ChorusSize`).
+3. **RTS discipline (core, compiled on box, mangosd restart pending):** every
+   `CMSG_SUI_ORDER` sets `m_suiRtsHold`; `DoRandomWander`/`DoGrindPatrol` stand
+   down until `SuiAbandonJourney`. Hold previously re-armed the stroll.
+4. **Formations + sheath (core + client, additive orders 8/9/10; 7 stays
+   reserved for auto-group):** LINE ranks-of-five facing the commander, CIRCLE
+   outward ring, SHEATH toggle overriding the AI auto-arm until combat draws
+   steel. New Free View bottom-center command shelf (Hold/Line/Circle/Sheathe)
+   orders the current selection. Contract details:
+   `docs/systems/SYSTEM_CRPG_CONTROL_GROUPS.md` §5b. Old server ignores 8–10
+   silently, so client and core need not deploy in lockstep — but formations
+   only work after the new mangosd is installed+restarted (owner's call:
+   `cd ~/vmangos/build && make install && sudo systemctl restart mangosd`).
+
 ## 2026-08-11 session summary (read this first)
 
 The day started with "possession doesn't move the character and nobody follows"

@@ -230,6 +230,82 @@ An empty/stale temporary card never sends an order. The client normalizes and
 caps every explicit world-click subject list before serialization, and the
 network serializer independently rejects counts above 255.
 
+### 5b. Formation, sheath, and RTS discipline (added 2026-08-24)
+
+Three additive order types share the frozen body (order 7 stays reserved for
+the client's auto-group verb):
+
+| orderType | Meaning |
+|---|---|
+| 8 `ORDER_FORMATION_LINE` | Standing army: ranks of five, 2.5 yd files / 3 yd ranks, all facing the commander. `x,y,z` is the anchor; `(0,0,0)` = form up on the squad's centroid. |
+| 9 `ORDER_FORMATION_CIRCLE` | Evenly spaced ring around the anchor (radius grows with the count, ~3 yd arc spacing), everyone facing outward. |
+| 10 `ORDER_SHEATH` | `x >= 0.5` draws weapons; else sheathes. The bot AI's auto-arm is overridden until combat, which always draws steel. |
+
+Formation slots ride the normal `MoveToDestination` path (chunked pathfinding,
+in-combat deferral); the slot facing is applied by `MovementInform` on arrival
+and cleared by any newer order. Cross-map subjects are dropped from the
+formation set. An old server ignores 8–10 silently (`default:` case); an old
+client simply never sends them — the change is additive, not lockstep.
+
+**RTS discipline:** every accepted `CMSG_SUI_ORDER` now sets `m_suiRtsHold` on
+the subject, which suppresses `DoRandomWander` and `DoGrindPatrol` until
+`SuiAbandonJourney` (doctrine change or possession) clears it. Before this, a
+held or formation-parked bot outside PlayerParty doctrine strolled up to 15 yd
+every 10–20 s.
+
+The Free View also has a bottom-center **command shelf**
+(`GameLoop.CommandShelf.cs`) that orders the current selection: Hold, Line,
+Circle, and the Draw/Sheathe toggle, always led by the selected count. It sits
+140 logical px above the screen bottom — the bar art (main bar to −78, multi
+bars to −131) draws after ImGui windows, so the shelf must clear it entirely.
+
+**Free-view number keys (2026-08-25):** in the free view the numerals are WC3
+group keys — plain `1-0` RECALLS the saved group (status line reports
+nearby/total; an empty slot explains Shift+number), `Shift+1-0` SAVES the
+current selection. `RtsControlGroupClaimsBinding` claims every numeral from the
+action bars while the free view is up (the commanded body's bars are read-only
+there); outside the free view the numbers stay bar casts, exactly as before.
+
+### 5c. Conscription — group membership turns the brain off (added 2026-08-24)
+
+| orderType | Meaning |
+|---|---|
+| 11 `ORDER_CONSCRIPT` | Enlist the explicit subjects: the C# brain planner stands down for them. |
+| 12 `ORDER_DISMISS` | Muster out: the brain resumes questing each bot in place. |
+
+**The law: control-group membership IS enlistment.** The client diffs the union
+of its ten groups after every assign/clear and sends conscript/dismiss for the
+changes (`SyncRtsConscription`, `GameLoop.RtsControlGroups.cs`). Ad-hoc orders
+to un-grouped bots stay a temporary nudge; the empty-subject party expansion is
+explicitly barred from enrolling anyone. Your own character never enlists.
+
+Server state is `AiBotAI::m_suiConscriptedBy` (commander GUID) plus a
+commander→bots registry in `SuiPossess.cpp`. Three walls keep the planner out:
+
+1. **STATE carries `conscripted:1`** (beside `possessed`); the brain's
+   `BotBrain.TickAsync` parks the bot at `Goal.Idle` with `why=conscripted`,
+   preserving the held objective and keeping the wedge/stuck clocks warm so
+   dismissal never trips a stale no-progress verdict or teleport.
+2. **The C++ bridge fence drops brain lines** to a conscripted bot
+   (`CONSCRIPTED_DROP` event) — except `PING`, `COMBAT_DIRECTIVE`,
+   `LOAD_ROTATION`, `LOAD_RAID_PLAN`: conscripts keep their combat AI and remain
+   raid-plannable. Commander-injected RTS orders pass via
+   `SuiInjectCommandLine`.
+3. **`BotExecutor` refuses planner traffic** for conscripted contexts
+   (belt-and-braces for the one-STATE propagation window).
+
+Enlisted deaths never bump a quest-fail streak or shelve the quest
+(`MaintenancePlanner`), and the brain's `GroupCoordinator` skips enlisted bots.
+Lifecycle: commander logout musters the whole army out server-side (groups are
+session-local, so the server owns the release edge); dismissal clears the
+hold/sheath latches and the brain re-tasks from wherever the war ended.
+`SMSG_SUI_CONTROL_ROSTER` gains flag `0x04 ROSTER_CONSCRIPTED`; the party strip
+shows an "enlisted" chip. Voice: enlistment answers "Yes", dismissal a farewell.
+
+Deploy note: all changes are additive (old peers ignore unknown orders/fields),
+but an OLD brain against a NEW core would keep planning conscripted bots into
+the fence — deploy mangosd and MangosSuperUI together.
+
 ---
 
 ## 6. Patrol authoring

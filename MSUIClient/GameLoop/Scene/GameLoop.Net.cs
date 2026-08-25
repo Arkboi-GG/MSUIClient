@@ -1073,15 +1073,31 @@ public sealed partial class GameLoop
                         parseStarted = true;
                         break;
                     case Op.SMSG_COMPRESSED_MOVES:
-                        foreach (CompressedMovementRelay compressed in
+                        foreach (CompressedMovementRecord compressed in
                                  CompressedMovementPackets.Parse(body))
                         {
-                            MovementRelay relay = compressed.Relay;
-                            if (relay.Guid == ControlledGuid && ControllerOwnsControlledBodyPose)
-                                ApplyServerAuthoredSelfMove(relay);
-                            else
-                                _entities.ApplyRemotePlayerMove(
-                                    relay.Guid, relay.Movement, MovementInfo.ClientUptimeMs());
+                            if (compressed.Relay is MovementRelay relay)
+                            {
+                                if (relay.Guid == ControlledGuid && ControllerOwnsControlledBodyPose)
+                                    ApplyServerAuthoredSelfMove(relay);
+                                else
+                                    _entities.ApplyRemotePlayerMove(
+                                        relay.Guid, relay.Movement, MovementInfo.ClientUptimeMs());
+                            }
+                            // Mass bot movement batches creature splines and spline speeds
+                            // into the same envelope; route them to their standalone handlers.
+                            else if (compressed.Opcode == Op.SMSG_MONSTER_MOVE)
+                                ApplyMonsterMovePacket(compressed.Body);
+                            else if (compressed.Opcode is Op.SMSG_SPLINE_SET_WALK_SPEED
+                                     or Op.SMSG_SPLINE_SET_RUN_SPEED
+                                     or Op.SMSG_SPLINE_SET_RUN_BACK_SPEED
+                                     or Op.SMSG_SPLINE_SET_SWIM_SPEED
+                                     or Op.SMSG_SPLINE_SET_SWIM_BACK_SPEED
+                                     or Op.SMSG_SPLINE_SET_TURN_RATE)
+                                ApplyObserverSpeedChange(net, compressed.Opcode, compressed.Body);
+                            else if (_compressedMoveSkippedOps.Add(compressed.Opcode))
+                                Console.WriteLine("[net] compressed-moves record " +
+                                    $"{compressed.Opcode} has no handler - skipped (logged once)");
                         }
                         break;
                     case Op.SMSG_DESTROY_OBJECT:
@@ -1097,17 +1113,7 @@ public sealed partial class GameLoop
                         }
                         break;
                     case Op.SMSG_MONSTER_MOVE:
-                        {
-                            // Creature locomotion: attach the server spline so this NPC walks.
-                            var mm = MonsterMoveParser.Parse(body);
-                            if (mm is not null)
-                            {
-                                ObserveServerRideSpline(mm);
-                                _entities.ApplyMonsterMove(mm, MovementInfo.ClientUptimeMs());
-                                // Dev window: observed-path history (no-op while it is closed).
-                                RecordDevObservedPath(mm);
-                            }
-                        }
+                        ApplyMonsterMovePacket(body);
                         break;
                     case Op.SMSG_AI_REACTION:
                         // Dev window: the server's own aggro moment (no-op while closed).
@@ -1141,6 +1147,21 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_SUI_FORCE_ROSTER:
                         ApplySuiForceRoster(body);
+                        break;
+                    case Op.SMSG_SUI_MEMBER_SPELLS:
+                        ApplySuiMemberSpells(body);
+                        break;
+                    case Op.SMSG_SUI_MEMBER_ITEM_MOVE_RESULT:
+                        ApplySuiMemberItemMoveResult(body);
+                        break;
+                    case Op.SMSG_SUI_QUEST_LOG:
+                        ApplySuiQuestLog(body);
+                        break;
+                    case Op.SMSG_SUI_PARTY_QUEST_RESULT:
+                        ApplySuiPartyQuestResult(body);
+                        break;
+                    case Op.MSG_QUEST_PUSH_RESULT:
+                        ApplyQuestPushResult(body);
                         break;
                     case Op.SMSG_SUI_PORTAL_DESCRIPTOR:
                         {
@@ -1766,9 +1787,18 @@ public sealed partial class GameLoop
 
         bool sameBody = race.Equals(_character.Race, StringComparison.OrdinalIgnoreCase) &&
                         gender.Equals(_character.Gender, StringComparison.OrdinalIgnoreCase);
-        uint playerFlags = _entities.TryGet(c.Guid, out WorldEntity player) && player.IsPlayer
-            ? player.Fields.PlayerFlags : c.Flags;
-        CharacterEquipment equipment = BuildEquipment(c, playerFlags);
+        bool streamed = _entities.TryGet(c.Guid, out WorldEntity player) && player.IsPlayer;
+        uint playerFlags = streamed ? player.Fields.PlayerFlags : c.Flags;
+        // Once the body is in the world it is built the same way every other body is. The
+        // roster-only kit survives strictly for the pre-entity case: glue and character select.
+        CharacterEquipment equipment = streamed
+            ? BuildVisibleItemKit(player, c)
+            : BuildEquipment(c, playerFlags);
+        ReportLocalKit(streamed ? "visible-items" : "roster", equipment);
+        // SyncLiveEquipmentModel is keyed on a signature these fields do not move, so without
+        // this it would early-out forever after any path through here. Every exit below either
+        // installs this kit or leaves an older one in place; invalidating covers all of them.
+        InvalidateLiveEquipment();
         bool sameAppearance = sameBody &&
                               _character.SkinId == c.Skin &&
                               _character.FaceId == c.Face &&
@@ -1990,7 +2020,82 @@ public sealed partial class GameLoop
         return true;
     }
 
-    /// <summary>Turn the roster's 19 visible-item display ids into a dressable equipment set.</summary>
+    /// <summary>
+    /// The one way an in-world body's kit is built, local or remote: public visible-item entries
+    /// resolved through ItemTemplate, so every piece carries the sheath/class/subclass/material
+    /// bytes that the attachment point and the sheathe cue are both read from.
+    ///
+    /// The local body used to be the exception. <see cref="BuildEquipment"/> knows only display
+    /// ids and inventory types, leaving all four of those bytes at zero. Zero sheath resolves to
+    /// attachment -1, which does not mean "somewhere else", it means DRAW NOTHING, so stowing a
+    /// weapon deleted it; and the cue table has no class-zero row, so the same gap silenced the
+    /// sound. One builder, one set of bytes, both symptoms gone.
+    ///
+    /// A slot whose template is still in flight falls back to <paramref name="rosterFallback"/>
+    /// display ids where there are any: display-only and still sheath-blind, but never worse
+    /// than the roster kit it replaces, and upgraded on the next rebuild.
+    /// </summary>
+    private CharacterEquipment BuildVisibleItemKit(WorldEntity unit, Character? rosterFallback)
+    {
+        var kit = new CharacterEquipment();
+        uint flags = unit.Fields.PlayerFlags;
+        for (int slot = 0; slot < 19; slot++)
+        {
+            // Hoisted above BOTH branches. Slot-keyed and inventory-type-keyed forms of this
+            // law say the same thing (head/cloak), and checking it only on the template branch
+            // would let a hidden helm reappear through the roster fallback.
+            if (!EquipmentDisplayPreferenceLaw.EquipmentSlotShown(slot, flags)) continue;
+            uint entry = unit.Fields.PlayerVisibleItemEntry(slot);
+            if (entry != 0 && _items is not null)
+            {
+                if (_net is not null) _items.Require(entry, unit.Guid, _net);
+                if (_items.TryGet(entry, out ItemTemplate? t) && t is not null &&
+                    t.DisplayInfoId != 0)
+                {
+                    kit.Add(t.Name, t.DisplayInfoId, (int)t.InventoryType, slot,
+                        (byte)t.Class, (byte)t.Subclass, (byte)t.Material, (byte)t.Sheath,
+                        Enumerable.Range(0, 7)
+                            .Select(enchantSlot =>
+                                unit.Fields.PlayerVisibleItemEnchant(slot, enchantSlot))
+                            .ToArray());
+                    continue;
+                }
+            }
+            if (rosterFallback is null || slot >= rosterFallback.Equipment.Length) continue;
+            var eq = rosterFallback.Equipment[slot];
+            if (eq.DisplayId == 0) continue;
+            kit.Add($"slot{slot}", eq.DisplayId, eq.InventoryType, slot);
+        }
+        return kit;
+    }
+
+    private string _reportedLocalKit = "";
+
+    /// <summary>
+    /// What the local body is wearing in its weapon slots and which builder produced it,
+    /// printed only when the answer changes. A sheath of 0 on a real weapon here is the
+    /// signature of the roster kit having won, and is exactly why a stowed weapon vanished.
+    /// </summary>
+    private void ReportLocalKit(string source, CharacterEquipment kit)
+    {
+        string hands = string.Join(" | ", new[] { 15, 16, 17 }
+            .Select(slot => kit.Pieces.FirstOrDefault(piece => piece.EquipmentSlot == slot))
+            .Where(piece => piece is not null)
+            .Select(piece => $"slot{piece!.EquipmentSlot} [{piece.Name}] display={piece.DisplayId}" +
+                $" sheath={piece.Sheath} class={piece.ItemClass}/{piece.ItemSubclass}" +
+                $" material={piece.Material}"));
+        string line = $"[equip] local kit from {source}: " +
+            (hands.Length == 0 ? "no weapon slots" : hands);
+        if (line == _reportedLocalKit) return;
+        _reportedLocalKit = line;
+        Console.WriteLine(line);
+    }
+
+    /// <summary>
+    /// Roster-only kit: display ids and inventory types, nothing else. Correct ONLY before the
+    /// body has streamed in (glue and character select). Once there is an entity, every caller
+    /// goes through <see cref="BuildVisibleItemKit"/> instead.
+    /// </summary>
     private static CharacterEquipment BuildEquipment(Character c, uint playerFlags)
     {
         var kit = new CharacterEquipment();
@@ -2016,6 +2121,7 @@ public sealed partial class GameLoop
         if (_character is null) return;
         ulong guid = ControlledGuid;
         _controlledBodyPending = false;
+        ResetSheathMirror();
         RefreshControlledCharacterScale();
         if (guid == LocalPlayerGuid)
         {
@@ -2036,22 +2142,9 @@ public sealed partial class GameLoop
         string raceFolder = RaceFolder(race);
         string genderName = gender == 1 ? "Female" : "Male";
 
-        var kit = new CharacterEquipment();
-        for (int slot = 0; slot < 19; slot++)
-        {
-            uint entry = bot.Fields.PlayerVisibleItemEntry(slot);
-            if (entry == 0 || _items is null) continue;
-            if (_net is not null) _items.Require(entry, guid, _net);
-            if (!EquipmentDisplayPreferenceLaw.EquipmentSlotShown(
-                    slot, bot.Fields.PlayerFlags)) continue;
-            if (!_items.TryGet(entry, out ItemTemplate? t) || t is null || t.DisplayInfoId == 0)
-                continue;   // template still in flight: partial gear until the next rebuild
-            kit.Add($"slot{slot}", t.DisplayInfoId, (int)t.InventoryType, slot,
-                (byte)t.Class, (byte)t.Subclass, (byte)t.Material, (byte)t.Sheath,
-                Enumerable.Range(0, 7)
-                    .Select(enchantSlot => bot.Fields.PlayerVisibleItemEnchant(slot, enchantSlot))
-                    .ToArray());
-        }
+        // The possessed bot has no roster entry to fall back on; a slot whose template is
+        // still in flight waits for the next rebuild, exactly as it always did.
+        CharacterEquipment kit = BuildVisibleItemKit(bot, rosterFallback: null);
 
         if (!raceFolder.Equals(_character.Race, StringComparison.OrdinalIgnoreCase) ||
             !genderName.Equals(_character.Gender, StringComparison.OrdinalIgnoreCase))
@@ -3294,6 +3387,21 @@ public sealed partial class GameLoop
         if (_net is not null && !string.IsNullOrWhiteSpace(_net.RealmName)) return _net.RealmName;
         if (!string.IsNullOrWhiteSpace(_config.Server.Realm)) return _config.Server.Realm!;
         return $"{_config.RealmdHost}:{_config.RealmdPort}";
+    }
+
+    // Compressed-moves record opcodes without a handler, each logged exactly once.
+    private readonly HashSet<Op> _compressedMoveSkippedOps = [];
+
+    /// <summary>Creature locomotion: attach the server spline so this body walks. Serves the
+    /// standalone SMSG_MONSTER_MOVE case and the records batched inside SMSG_COMPRESSED_MOVES.</summary>
+    private void ApplyMonsterMovePacket(byte[] body)
+    {
+        var mm = MonsterMoveParser.Parse(body);
+        if (mm is null) return;
+        ObserveServerRideSpline(mm);
+        _entities.ApplyMonsterMove(mm, MovementInfo.ClientUptimeMs());
+        // Dev window: observed-path history (no-op while it is closed).
+        RecordDevObservedPath(mm);
     }
 
     private static string RaceName(byte r) => r switch

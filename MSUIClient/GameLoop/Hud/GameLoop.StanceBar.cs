@@ -55,6 +55,7 @@ public sealed partial class GameLoop
     private void DrawStanceBar()
     {
         if ((_net is not { IsInWorld: true } && !HudPreview) || _gameplayArt is null) return;
+        if (_freeView) return;   // commander console: no body chrome
         IReadOnlyList<SpellInfo> forms = CurrentStanceForms();
         if (forms.Count == 0) return;
         float scale = GameplayUiScale();

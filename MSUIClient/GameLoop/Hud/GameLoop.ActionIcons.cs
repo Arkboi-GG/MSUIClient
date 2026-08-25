@@ -33,9 +33,18 @@ public sealed partial class GameLoop
         subclass = null;
         if (player is null || _items is null || _net is null) return null;
         ulong guid = player.Fields.PlayerInventorySlot(equipmentSlot);
-        if (guid == 0 || !_entities.TryGet(guid, out WorldEntity item)) return null;
-        _items.Require(item.Entry, item.Guid, _net);
-        if (!_items.TryGet(item.Entry, out ItemTemplate? template) || template is null) return null;
+        uint entry = guid != 0 && _entities.TryGet(guid, out WorldEntity item) ? item.Entry : 0;
+        if (entry == 0)
+        {
+            // A non-owned body has no inventory-slot guid wiring until a
+            // snapshot lands, but equipment ENTRIES are public wire data on
+            // every streamed player — enough to resolve the weapon icon.
+            entry = player.Fields.PlayerVisibleItemEntry(equipmentSlot);
+            guid = 0;
+        }
+        if (entry == 0) return null;
+        _items.Require(entry, guid, _net);
+        if (!_items.TryGet(entry, out ItemTemplate? template) || template is null) return null;
         subclass = template.Subclass;
         return template.IconPath;
     }

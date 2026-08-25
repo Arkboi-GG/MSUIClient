@@ -280,6 +280,7 @@ public sealed partial class GameLoop
     private void DrawPetFrameAndActionBar()
     {
         if (_gameplayArt is null) return;
+        if (_freeView) return;   // commander console: no body chrome
         float s = GameplayUiScale();
         if (TryGetControlledPet(out WorldEntity framePet))
             DrawPetFrame(framePet, s); // Existing MSUI portrait/frame is intentionally preserved.

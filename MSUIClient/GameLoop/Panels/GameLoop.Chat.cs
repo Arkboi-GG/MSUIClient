@@ -469,6 +469,9 @@ public sealed partial class GameLoop
         Vector2 logicalDisplay = ImGui.GetIO().DisplaySize / s;
         Settings.HudLayout ??= new GameSettings.HudLayoutSettings();
         Vector2 authoredRoot = ChatFrameLaw.FrameOrigin(logicalDisplay);
+        // The free view docks the SQUARE minimap to the bottom-left corner the
+        // chat normally owns — the chat frame lifts above that furniture.
+        if (_freeView) authoredRoot.Y -= 124f;
         Vector2 savedOffset = new(Settings.HudLayout.ChatOffsetX, Settings.HudLayout.ChatOffsetY);
         Vector2 root = ChatFrameLaw.ClampFrameOrigin(authoredRoot + savedOffset, logicalDisplay);
         DrawChatMover(ref root, authoredRoot, logicalDisplay, s);

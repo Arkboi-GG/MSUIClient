@@ -178,6 +178,9 @@ public enum Op : ushort
     SMSG_QUESTUPDATE_COMPLETE      = 0x0198,
     SMSG_QUESTUPDATE_ADD_KILL      = 0x0199,
     SMSG_QUESTUPDATE_ADD_ITEM      = 0x019A,
+    CMSG_QUEST_CONFIRM_ACCEPT      = 0x019B,
+    CMSG_PUSHQUESTTOPARTY          = 0x019D,
+    MSG_QUEST_PUSH_RESULT          = 0x0276,
 
     // --- Vendor ---
     CMSG_LIST_INVENTORY           = 0x019E,
@@ -552,4 +555,22 @@ public enum Op : ushort
     SMSG_SUI_PORTAL_DESCRIPTOR   = 0x034D,
     CMSG_SUI_PORTAL_READY        = 0x034E,
     SMSG_SUI_PORTAL_STATE        = 0x034F,
+
+    // 0x0350/0x0351 (848/849) are provisionally spoken for by the dynamic-combat
+    // rotation pair (docs/plans/DYNAMIC_COMBAT_RULES_AND_ENCOUNTER_INTELLIGENCE.md);
+    // PARTY_MEMBER_FACTS therefore starts one audited pair later.
+    CMSG_SUI_MEMBER_FACTS        = 0x0352,
+    SMSG_SUI_MEMBER_SPELLS       = 0x0353,
+    CMSG_SUI_MEMBER_ITEM_MOVE    = 0x0354,
+    SMSG_SUI_MEMBER_ITEM_MOVE_RESULT = 0x0355,
+
+    // PLAN_20 party questing & vendoring. P1 claims the facts pair; 0x0358-0x035B
+    // are RESERVED here rather than left blank so the later phases (quest acts,
+    // vendor) cannot be renumbered out from under a half-deployed server.
+    CMSG_SUI_QUEST_FACTS         = 0x0356,
+    SMSG_SUI_QUEST_LOG           = 0x0357,
+    CMSG_SUI_PARTY_QUEST         = 0x0358,
+    SMSG_SUI_PARTY_QUEST_RESULT  = 0x0359,
+    // CMSG_SUI_PARTY_VENDOR     = 0x035A,   (P4)
+    // SMSG_SUI_PARTY_VENDOR_RESULT = 0x035B,(P4)
 }

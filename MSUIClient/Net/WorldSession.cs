@@ -351,6 +351,47 @@ public sealed class WorldSession : IDisposable
         uint afterGuidLow, byte limit = RtsWire.MaximumForcePageSize) =>
         RtsWire.BuildForceRosterRequestBody(requestId, zoneId, afterGuidLow, limit);
 
+    /// <summary>
+    /// Pull party member facts (bags + known spells) for party/raid AiBots —
+    /// explicit subjects, or empty = every AiBot in the group. Only sent once
+    /// the control-ACK trailer advertised party-member-facts-v1.
+    /// </summary>
+    public void SuiMemberFacts(IReadOnlyList<ulong> subjects) =>
+        SendPacket((ushort)Op.CMSG_SUI_MEMBER_FACTS,
+            MemberFactsWire.BuildMemberFactsBody(subjects));
+
+    /// <summary>Instant party item move (Phase C v1); only sent once the
+    /// control-ACK trailer advertised party-item-move-v1.</summary>
+    public void SuiMemberItemMove(ulong from, ulong to, byte bag, byte slot) =>
+        SendPacket((ushort)Op.CMSG_SUI_MEMBER_ITEM_MOVE,
+            MemberFactsWire.BuildMemberItemMoveBody(from, to, bag, slot));
+
+    /// <summary>Pull party quest logs (PLAN_20 P1); an empty list means the whole
+    /// group AND our own character — the latter is how overflow quests arrive.
+    /// Only sent once the control-ACK trailer advertised party-quest-facts-v1.</summary>
+    public void SuiQuestFacts(IReadOnlyList<ulong> subjects) =>
+        SendPacket((ushort)Op.CMSG_SUI_QUEST_FACTS,
+            QuestFactsWire.BuildQuestFactsBody(subjects));
+
+    /// <summary>Accept / turn in / abandon a quest for an explicit set of party
+    /// members (PLAN_20 P3). There is deliberately no whole-party shorthand: who
+    /// acts must always be visible. Only sent once the control-ACK trailer
+    /// advertised party-quest-acts-v1.</summary>
+    public void SuiPartyQuest(byte action, uint questId, ulong npcGuid,
+        IReadOnlyList<PartyQuestSubject> subjects) =>
+        SendPacket((ushort)Op.CMSG_SUI_PARTY_QUEST,
+            PartyQuestWire.BuildPartyQuestBody(action, questId, npcGuid, subjects));
+
+    /// <summary>Vanilla quest sharing. Ordinary 1.12 traffic, not a SuperUI
+    /// extension: real party members get the real confirmation dialog, and
+    /// AiBot companions answer it through their own AI.</summary>
+    public void PushQuestToParty(uint questId)
+    {
+        var w = new PacketWriter(4);
+        w.WriteU32(questId);
+        SendPacket((ushort)Op.CMSG_PUSHQUESTTOPARTY, w.ToArray());
+    }
+
     /// <summary>Request a correlated REAL_PORTALS descriptor for a nearby portal GO.</summary>
     public void SuiPortalPrepare(uint requestId, ulong portalGuid, ushort requestFlags = 0) =>
         SuiPortalPrepare(PortalWire.Prepare(requestId, portalGuid, requestFlags));

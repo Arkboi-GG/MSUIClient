@@ -102,6 +102,20 @@ public static class SuiCapabilityWire
     public const uint RealPortalsV1 = 1u << 0;
     public const uint PortalPrewarmCatalogV1 = 1u << 1;
     public const uint FactionControlGroupsV1 = 1u << 2;
+    // Party/raid AiBot bags + known spells pushed without possession
+    // (owner rule: party = full facts, faction = orders).
+    public const uint PartyMemberFactsV1 = 1u << 3;
+    // Phase C v1: instant item moves between party members (BG3-style party
+    // logistics); both endpoints re-snapshot after every accepted move.
+    public const uint PartyItemMoveV1 = 1u << 4;
+    // PLAN_20 P1: party/raid quest logs pushed without possession, and the
+    // requester's OWN quests held past the twenty update-field slots. Both ride
+    // SMSG_SUI_QUEST_LOG — the subject guid says which.
+    public const uint PartyQuestFactsV1 = 1u << 5;
+    // PLAN_20 P3: accept / turn in / abandon on behalf of party members, with
+    // the reward chosen per member. Also the id-addressed abandon the vanilla
+    // slot-indexed opcode cannot express.
+    public const uint PartyQuestActsV1 = 1u << 6;
     public const int TrailerLength = 8;
 
     public const byte PrewarmCatalogVersion = 1;

@@ -11,36 +11,42 @@ internal static class CompressedMovementClinicalChecks
         byte[] second = RelayBody(9, new Vector3(4, 5, 6), MovementFlags.None);
         var records = new PacketWriter();
         WriteRecord(records, Op.MSG_MOVE_START_FORWARD, first);
+        // Mass bot movement batches non-relay records between relays: they must ride
+        // through with raw bodies (a null Relay) and never abort the rest of the batch.
+        WriteRecord(records, Op.SMSG_MONSTER_MOVE, [0xAA, 0xBB, 0xCC]);
+        WriteRecord(records, Op.SMSG_WEATHER, [0x01]);
         WriteRecord(records, Op.MSG_MOVE_STOP, second);
-        IReadOnlyList<CompressedMovementRelay> parsed =
+        IReadOnlyList<CompressedMovementRecord> parsed =
             CompressedMovementPackets.Parse(Envelope(records.ToArray()));
-        Check(parsed.Count == 2 &&
+        Check(parsed.Count == 4 &&
               parsed[0].Opcode == Op.MSG_MOVE_START_FORWARD &&
-              parsed[0].Relay.Guid == 8 &&
-              parsed[0].Relay.Movement.Position == new Vector3(1, 2, 3) &&
-              parsed[1].Opcode == Op.MSG_MOVE_STOP && parsed[1].Relay.Guid == 9,
-            "compressed movement batch did not preserve record order/opcodes/relays");
+              parsed[0].Relay is { Guid: 8 } firstRelay &&
+              firstRelay.Movement.Position == new Vector3(1, 2, 3) &&
+              parsed[1].Opcode == Op.SMSG_MONSTER_MOVE && parsed[1].Relay is null &&
+              parsed[1].Body is [0xAA, 0xBB, 0xCC] &&
+              parsed[2].Opcode == Op.SMSG_WEATHER && parsed[2].Relay is null &&
+              parsed[3].Opcode == Op.MSG_MOVE_STOP && parsed[3].Relay is { Guid: 9 },
+            "compressed movement batch did not preserve record order/opcodes/relays/bodies");
 
         ExpectInvalid(() => CompressedMovementPackets.Parse(Envelope([1, 0])));
         var nested = new PacketWriter();
         nested.WriteU8(2);
         nested.WriteU16((ushort)Op.SMSG_COMPRESSED_MOVES);
         ExpectInvalid(() => CompressedMovementPackets.Parse(Envelope(nested.ToArray())));
-        var foreign = new PacketWriter();
-        foreign.WriteU8(2);
-        foreign.WriteU16((ushort)Op.SMSG_WEATHER);
-        ExpectInvalid(() => CompressedMovementPackets.Parse(Envelope(foreign.ToArray())));
 
         string root = ClientConfig.FindRepoRoot();
         string dispatch = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
             "GameLoop.Net.cs"));
         Check(dispatch.Contains("case Op.SMSG_COMPRESSED_MOVES:", StringComparison.Ordinal) &&
               dispatch.Contains("CompressedMovementPackets.Parse(body)", StringComparison.Ordinal) &&
-              dispatch.Contains("compressed.Relay", StringComparison.Ordinal) &&
+              dispatch.Contains("compressed.Relay is MovementRelay relay", StringComparison.Ordinal) &&
               dispatch.Contains("relay.Guid == ControlledGuid && ControllerOwnsControlledBodyPose",
                   StringComparison.Ordinal) &&
-              dispatch.Contains("ApplyServerAuthoredSelfMove(relay)", StringComparison.Ordinal),
-            "compressed movement dispatch or self/observer split drift");
+              dispatch.Contains("ApplyServerAuthoredSelfMove(relay)", StringComparison.Ordinal) &&
+              dispatch.Contains("ApplyMonsterMovePacket(compressed.Body)", StringComparison.Ordinal) &&
+              dispatch.Contains("ApplyObserverSpeedChange(net, compressed.Opcode, compressed.Body)",
+                  StringComparison.Ordinal),
+            "compressed movement dispatch, self/observer split, or batched-spline routing drift");
     }
 
     private static byte[] RelayBody(ulong guid, Vector3 position, MovementFlags flags)

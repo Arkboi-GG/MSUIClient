@@ -158,7 +158,18 @@ public sealed partial class GameLoop
         {
             bool down = BindingDown(bindings[i].Binding);
             if (down && !_microBindingWasDown[i] && !typing && _net is { IsInWorld: true })
-                ActivateMicroMenuButton(bindings[i].Button);
+            {
+                // Commander view (PLAN_20 P1): L is the party questing key —
+                // everyone's log merged, the same way B became party bags. The
+                // fork lives here, not in ActivateMicroMenuButton, which the
+                // micro-menu mouse clicks also route through.
+                if (_freeView && bindings[i].Button == MicroMenuButtonId.QuestLog)
+                {
+                    if (_partyQuestLogOpen) _partyQuestLogOpen = false;
+                    else OpenPartyQuestLog();
+                }
+                else ActivateMicroMenuButton(bindings[i].Button);
+            }
             _microBindingWasDown[i] = down;
         }
     }
@@ -477,6 +488,10 @@ public sealed partial class GameLoop
     private void DrawActionBars()
     {
         if ((_net is not { IsInWorld: true } && !HudPreview) || _gameplayArt is null) return;
+        // The free view is the commander console (Ctrl+F is a costume change):
+        // body-driving chrome stands down. The selected unit's abilities show on
+        // the console's unit card instead, and the numerals are group keys there.
+        if (_freeView) return;
         _hoveredActionSpellTooltip = null;
         _hoveredActionSlot = -1;
         _actionCursorChangedThisFrame = false;
@@ -791,6 +806,7 @@ public sealed partial class GameLoop
     private void DrawMultiActionBars()
     {
         if ((_net is not { IsInWorld: true } && !HudPreview) || _gameplayArt is null) return;
+        if (_freeView) return;   // commander console: no body chrome
         Vector2 display = ImGui.GetIO().DisplaySize;
         float scale = GameplayUiScale();
         Vector2 barMin = GameplayBarMin(display, scale);

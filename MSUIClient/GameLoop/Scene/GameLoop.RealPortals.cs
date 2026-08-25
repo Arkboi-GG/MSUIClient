@@ -420,8 +420,16 @@ public sealed partial class GameLoop
         bool isProbeReply = guid == 0 && (_config.Server.RealPortals || factionProbeReply);
         bool trailerValid = SuiCapabilityWire.TryRead(
             reader, out uint capabilities, out PortalPrewarmHint[] prewarmCatalog);
+        // Braces are load-bearing: without them the member-facts apply below ran
+        // unconditionally, so a trailerless ACK (an old core, or any future ACK
+        // that omits the suffix) silently cleared capabilities the client had
+        // already been told about. Latent against a current core — SendAck always
+        // writes the trailer — but a trap for every capability added after it.
         if (trailerValid || capabilities != 0 || factionProbeReply)
+        {
             ApplyFactionControlGroupsCapability(capabilities, factionProbeReply);
+            ApplyPartyMemberFactsCapability(capabilities);
+        }
         if (trailerValid || capabilities != 0)
         {
             bool available = (capabilities & SuiCapabilityWire.RealPortalsV1) != 0;

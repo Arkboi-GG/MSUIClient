@@ -17,6 +17,54 @@ not the separate Tier-2 RTS world or its worldstate/economy interface.
   — interactive four-screen interface drawing. Open this file in a browser and
   use the tabs across the top.
 
+## Build state (2026-08-25)
+
+| Piece | State |
+|---|---|
+| Command voice + chorus | BUILT (client) |
+| Free View command shelf: scope label, Regroup/Hold/Focus/Patrol/Line/Circle/Sheathe | SUPERSEDED 2026-08-25 by the WC3 console below (same verbs/orders, new dress) |
+| WC3 commander console v2: fixed three-region dock — SQUAD grid (all ten wells, click recall / Shift+click save), INFO panel (scope; portrait unit card with level/class/vitals/abilities for one unit, baked-portrait chips for a group), COMMAND CARD (icon grid; art from the vanilla pet-bar idiom read out of the shipped FrameXML: Focus=Ability_GhoulFrenzy, Regroup=Ability_Tracking, Hold=Spell_Nature_TimeStop; Patrol/Line/Circle/Sheathe archive-verified) | BUILT 2026-08-25 |
+| Attack icon law on companion surfaces: console card + party quick slots route through ActionIconLaw, so Attack shows the member's weapon (public visible-item entries), never spell 6603's internal Temp face | FIXED 2026-08-25 (owner caught it in CREATOR MODE) |
+| Formations, sheath, wander discipline, conscription | BUILT (core+brain compiled, deploy pending) |
+| Free-view number keys: 1-0 recall, Shift+1-0 save | BUILT |
+| Four quick-action icon slots per party row (truthful; honest unknown wells) | BUILT — display+tooltip only; casting needs Phase B |
+| Role medallion (corner-anchored disc, shape+color+letter) | BUILT — client preferred role only |
+| Order-state chips (client-tracked last order + enlisted) | BUILT |
+| Party inventory browser (`GameLoop.PartyInventory.cs`): owner rail, public equipment for every streamed member, possessed-bot bags, honest possession-boundary notice | BUILT — mutation waits for Phase C |
+| Tactics panel (`GameLoop.PartyTactics.cs`): member rail, preferred role, quick-slot AI policy (persisted in botbars.json `BotSlotPolicies`), stances disabled with reason | BUILT — Phase B makes role/stance authoritative |
+| Vanilla skinning: UI-Panel-Button shelf verbs, tooltip backdrops on shelf/strips, dialog backdrop + header plaque + close on both panels, autocast gold corners on AI-enabled quick slots | BUILT |
+| WC3 free-view console: selection chips (click = solo, Shift+click = drop) in the shelf; order ping (shrinking ring + chevrons) predates this round | BUILT |
+| Free View costume change: body chrome (action/multi/stance/pet bars, bag bar, micro menu) hidden; console owns the bottom edge, always present (squads row + hint when empty) with a WC3 unit card (name, vitals, read-only abilities) for single selections | BUILT 2026-08-25 |
+| Free View minimap docks to the bottom corner (WC3 console furniture); top-right in normal play | BUILT 2026-08-25 |
+| Snapshot RETENTION: possession is the sync gesture — a bot's inventory snapshot now survives release, per-bot with an age stamp (re-possess replaces; session teardown purges) | BUILT 2026-08-25 |
+| Party Inventory v2, BG3-style: one column per member — equipment (public, always current) + bags (live for you/the driven body, "synced Xs ago" for retained snapshots, "possess once to sync" otherwise) | BUILT 2026-08-25 |
+| Mockup HTML re-skin to the vanilla idiom, reflecting the built UI | BUILT |
+| PARTY MEMBER FACTS: server pushes every party/raid AiBot's inventory snapshot + known spells WITHOUT possession (roster-edge push + rate-limited client pull, capability bit 3, opcodes 850/851); client gate lifted, labels retired for party members | BUILT 2026-08-25 (client compiled + guard-checked; core compiled on box, deploy pending) |
+| INSTANT PARTY TRADE (Phase C v1): right-click a bag item in Party Inventory → "Give to <member>" — opcodes 852/853, capability bit 4; endpoints = own character or party AiBot, same map, binding not a gate, conjured refused; server re-snapshots both ends to every SUI group member | BUILT 2026-08-25 evening |
+| Party Inventory v3: minified CRPG character sheet per column (paper-doll rails around the baked portrait), small bag icons, per-column scroll, resizable panel; B in the free view opens it | BUILT 2026-08-25 evening |
+| PARTY QUEST FACTS (PLAN_20 P1): every party member's quest log pushed without possession — opcodes 854/855, capability bit 5, roster-edge push + separately rate-limited pull; new Party Quest Log panel (merged rows × member columns, per-member objective detail), `L` in the free view. Own-guid subjects carry quests held past the twenty update-field slots, ready for the P2 cap removal | BUILT 2026-08-25 late (client compiled + guard-checked; core compiled on box, deploy pending) |
+| HELD-QUEST CAP LIFTED (PLAN_20 P2): `Quests.MaxHeld` config (default 100, floor 20); `MAX_QUEST_LOG_SIZE` stays 20 as the field layout; `m_questsHeld` drives all nine credit scans; slot promotion on reward/abandon | BUILT 2026-08-25 late (core compiled on box, deploy pending) |
+| PARTY QUEST ACTS (PLAN_20 P3): opcodes 856/857, capability bit 6 — companion rail beside the questgiver frame ("Accept for party (N)"), per-member reward board on turn-in, id-addressed abandon, per-member refusals by name; vanilla Share Quest button lit up with AiBots answering shared quests | BUILT 2026-08-25 late (client compiled + guard-checked; core compiled on box, deploy pending) |
+| Party vendoring, numbered `!` markers | PLANNED — `docs/plans/PLAN_20_PARTY_QUESTING_AND_VENDORING.md` P4-P5 |
+
+**Honesty correction (owner pushback, 2026-08-25):** possession already grants
+full per-bot inventory + bars, one bot at a time — the owner was right that
+"Phase B needed" overstated the gap. What Phase B genuinely adds is
+*without-possession* freshness (live spells/cooldowns for never-possessed bots,
+real-time updates) and *remote one-shot casts*; Phase C adds mutation. Retention
+closes the simultaneity gap client-side: sync each companion once by possessing
+it and the browser shows the whole party at once, honestly aged.
+
+**Owner decision (2026-08-25): party = full facts, faction = orders.** Party
+and raid members must have bags + skills available to the client WITHOUT
+possession — the server pushes their inventory snapshots and known spells to
+their party's humans. Non-party faction bots stay command-only. The Tier-2 RTS
+world will define its own rules separately. **BUILT 2026-08-25** (same day,
+follow-up session): both sides implemented and compile-verified, deploy
+pending on the usual gates. Implementation record in
+[`CRPG_PARTY_MEMBER_FACTS_NEXT_AGENT_PROMPT.md`](./CRPG_PARTY_MEMBER_FACTS_NEXT_AGENT_PROMPT.md)
+(now carrying a build-status header).
+
 ## Executive decision
 
 The interface should feel like the normal MMO HUD growing a tactical party
@@ -200,6 +248,11 @@ Escape unwinds temporary interaction state in this order:
 
 ### Bottom-middle command shelf
 
+**Status 2026-08-24:** a first slice ships in `GameLoop/Hud/GameLoop.CommandShelf.cs` —
+Free View only, current selection, scope count first, with Hold plus the
+formation/sheath verbs (orders 8/9/10, see
+`SYSTEM_CRPG_CONTROL_GROUPS.md` §5b). The full shelf below remains the target.
+
 The shelf always begins with scope and count:
 
 - `All linked (3)`
@@ -343,6 +396,65 @@ The recommended server decision priority is:
 
 Only one current manual intent should exist per companion. New intent replaces
 stale intent; requests have a short TTL and identical spam is coalesced.
+
+## Command voice feedback (BUILT 2026-08-24, client-only)
+
+Warcraft III's primary command feedback is the unit's voice, and vanilla already
+ships a complete acknowledgement vocabulary: `EmotesTextSound.dbc` maps
+(text-emote, race, sex) to the player vocal kits, and the StandardNPC pissed
+kits cover the click-me-again lines. The client speaks them for companion
+commands — no new asset, no wire change, no server work:
+
+| Gesture | Speaker | Line |
+|---|---|---|
+| Plain select / marquee / group-card recall | first selected companion | Hello (emote 55) |
+| Move, hold, waypoint, patrol order | first ordered companion | Yes (emote 67) |
+| Attack order | first ordered companion | Charge (305) melee, Open fire (327) ranged |
+| Chain-link a member | the driven body | Follow me (324) |
+| Unchain a member | that member | Yes (67) |
+| Server refuses control of a bot | the refusing bot | No (66) |
+| Selecting the same companion once too often | that companion | Its race's StandardNPC pissed kit |
+
+Implementation: `Net/CompanionVoiceLaw.cs` (pure gesture-to-vocal law),
+`GameLoop/Scene/GameLoop.CompanionVoice.cs` (state, throttling, playback), call
+sites beside every `SuiOrder` dispatch. The selection cycle reuses
+`NpcGreetingLaw.SelectLine` — five hello takes, then the pissed variants, then
+wrap — which is the vanilla NPC click law applied to the party. Lines are flat
+interface voice at the effects volume (never distance-culled), one mouth at a
+time, minimum 1.2 s spacing, dropped not queued. Gated by
+`Settings.Controls.CompanionVoice` (default on, Options → Interface → CRPG/RTS).
+
+Group orders answer as a **chorus** (owner request 2026-08-24): four or more
+subjects get two voices, ten or more get three, cascading 0.4 s apart with
+randomized speakers and distinct race/gender voices preferred — an army sounds
+like an army, never like an echo.
+`tools/companion-voice-clinical-check` proves every race/gender resolves every
+line against the live archives (321 voice files).
+
+When Phase B adds real rejection reasons, the per-reason spoken error lines in
+`Sound\Character\<Race>\<Sex>ErrorMessages\` (out of range, no target, cooldown,
+invalid attack target) are the natural escalation past the generic "No".
+
+## Design language (owner-agreed direction, 2026-08-24)
+
+The HTML mockup is a wireframe, not a visual spec. The shipped look follows:
+
+- **Skin from vanilla WoW, command grammar from Warcraft III, keyed by mode.**
+  The normal HUD must read as the 1.12 UI growing a tactical layer; Free View
+  (`Ctrl+F`) is the costume change and may go full RTS console.
+- **The pet bar is the native idiom** for commanding an AI companion:
+  Attack/Follow/Stay map to Focus/Regroup/Hold, its stances map to
+  Guard/Defensive/Passive, and quick-slot AI policy uses the autocast
+  treatment (gold corner overlay for "may use", animated shine for "on") —
+  not a colored dot. Verify exact assets via mpqpeek before building.
+- **Role markers are corner-anchored icons fully on the frame** (leader-crown
+  precedent), not half-off medallions; shape + letter, never color alone.
+- **Order state is an icon with a tooltip**, not inline text.
+- **Party inventory extends the vanilla Inspect frame** precedent; the command
+  shelf stays bottom-center styled as a pet/shapeshift-bar sibling.
+- **WC3 borrowings for Free View:** command-card styling, order-confirmation
+  ping on the move marker, selection shown as mini portrait chips, and the
+  voice channel above.
 
 ## Multiplayer, lifecycle, and edge cases
 

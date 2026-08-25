@@ -17,6 +17,27 @@ public sealed partial class GameLoop
     private Vector2 VanillaPanelOrigin(float scale, float x = 0, float y = 104) =>
         new(x * scale, y * scale);
 
+    /// <summary>
+    /// Hover tip anchored ABOVE the cursor's space. The hardware cursor draws
+    /// on top of anything at its hotspot, so the stock mouse-anchored ImGui
+    /// tooltip sits under the arrow — every gameplay hover tip routes through
+    /// here instead (dev/creator tooling keeps stock behavior). Bottom-left
+    /// pivot just above the hotspot, clamped to the display; TextUnformatted
+    /// so literal '%' in health readouts never hits printf formatting.
+    /// </summary>
+    private static void HoverTip(string text)
+    {
+        Vector2 mouse = ImGui.GetIO().MousePos;
+        Vector2 display = ImGui.GetIO().DisplaySize;
+        Vector2 size = ImGui.CalcTextSize(text) + ImGui.GetStyle().WindowPadding * 2f;
+        float x = Math.Clamp(mouse.X, 4f, MathF.Max(4f, display.X - size.X - 4f));
+        float y = MathF.Max(size.Y + 4f, mouse.Y - 6f);
+        ImGui.SetNextWindowPos(new Vector2(x, y), ImGuiCond.Always, new Vector2(0f, 1f));
+        ImGui.BeginTooltip();
+        ImGui.TextUnformatted(text);
+        ImGui.EndTooltip();
+    }
+
     private bool BeginVanillaWindow(string id, Vector2 logicalOrigin, Vector2 logicalSize,
         out ImDrawListPtr draw, out Vector2 origin, out float scale,
         float? scaleOverride = null)

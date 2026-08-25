@@ -46,6 +46,11 @@ public sealed partial class GameLoop
     // SMSG_GROUP_LIST or session reset clears it, so synthetic rows can never outrank the wire.
     private bool _partyTestSandbox;
     private int _partyRosterRevision;
+    // False until the first roster of a session has been seen. That first one is a relog into a
+    // group you were already in, not a join, and must not sound the drum. Every later roster is a
+    // real membership change — including the one you caused by accepting an invite, because
+    // ResetParty (and therefore this flag) only runs on session teardown, never mid-session.
+    private bool _partyRosterCueArmed;
     private StaticPopupCoordinatorLaw.Slots _staticPopupSlots =
         StaticPopupCoordinatorLaw.Slots.Empty;
     private long _staticPopupLastUpdateTicks = Stopwatch.GetTimestamp();
@@ -75,7 +80,11 @@ public sealed partial class GameLoop
             .Where(member => (member.Subgroup & 0x7f) == (_partyOwnFlags & 0x7f));
 
         ulong driven = ControlledGuid;
-        if (driven != LocalPlayerGuid)
+        // _partyInGroup, not _partyMembers.Count: the roster above is already subgroup-filtered,
+        // so a raid subgroup empty of others would still pass a count check and draw a lone self
+        // row. Without any gate an emptied roster kept one frame alive for the session character,
+        // which read as "still in a group after leaving".
+        if (driven != LocalPlayerGuid && _partyInGroup)
             roster = OwnCharacterPartyRow().Concat(roster.Where(member => member.Guid != driven));
 
         return roster.Take(PartyFrameUiLaw.MemberCount).ToArray();
@@ -127,6 +136,7 @@ public sealed partial class GameLoop
         _partyLootThreshold = 0;
         if (_partyTestSandbox) ClearPartyTestNames();
         _partyTestSandbox = false;
+        _partyRosterCueArmed = false;
         if (rosterChanged) _partyRosterRevision++;
         // PartyMemberFrame objects retain flashTimer while their unit token is absent. Session
         // teardown pauses the four slot timers; it does not recreate the frames.
@@ -180,6 +190,17 @@ public sealed partial class GameLoop
                 !_entities.TryGet(member.Guid, out _))
                 _net?.RequestPartyMemberStats(member.Guid);
         foreach (string line in systemLines) AddChatMessage(line);
+
+        bool anyoneJoined = wire.Members.Any(member =>
+            !previous.Any(old => old.Guid == member.Guid));
+        if (_partyRosterCueArmed && !leaving && anyoneJoined)
+            PlayUiSound(PartyFrameUiLaw.MemberJoinedSound, "ui.party");
+        _partyRosterCueArmed = true;
+
+        // Icons set before this client joined are never re-announced; the board only ever fills
+        // from a live delta. iconId 0xFF is the server's pull (GroupHandler.cpp:438 ->
+        // Group::SendTargetIconList), and it is the only way to learn the existing marks.
+        if (!leaving) _net?.RequestRaidTargets();
     }
 
     private void ApplyPartyTestRoster(bool lead)

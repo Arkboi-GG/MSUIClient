@@ -56,7 +56,12 @@ public sealed partial class GameLoop
 
         float s = GameplayUiScale();
         Vector2 logicalDisplay = ImGui.GetIO().DisplaySize / s;
-        Vector2 root = new(logicalDisplay.X - 192f, 0f);
+        // WC3 console law (owner 2026-08-25): in the free view the minimap is
+        // command furniture — SQUARE, docked to the bottom-LEFT corner (the
+        // chat frame lifts above it); top-right belongs to normal body play.
+        Vector2 root = _freeView
+            ? new(8f, logicalDisplay.Y - 200f)
+            : new(logicalDisplay.X - 192f, 0f);
         Vector2 rootPx = root * s;
         ImDrawListPtr dl = ImGui.GetBackgroundDrawList();
 
@@ -85,7 +90,7 @@ public sealed partial class GameLoop
         // corners. It is not — FrameXML declares `<Minimap name="Minimap">`, a widget type the
         // engine crops to a disc, and the ring's corners are transparent. DrawMovingMinimap
         // does the crop itself now; without it the tile plane leaked past the ornament.)
-        bool squareMap = PainterlyUi;
+        bool squareMap = PainterlyUi || _freeView;
         Vector2 mapMin = (root + (squareMap ? new Vector2(12, 26) : new Vector2(35, 22))) * s;
         Vector2 mapMax = mapMin + new Vector2(squareMap ? 168 : 140) * s;
         // Local movement is client-authoritative in 1.12. The controller is the
@@ -313,7 +318,7 @@ public sealed partial class GameLoop
             if (pvp.IsArena) lines.Add(MinimapUiLaw.ArenaText);
             string prepared = string.Join('\n', lines);
             OfferPreservedSharedGameTooltipRenderer(new("minimap-zone", leafArea),
-                () => ImGui.SetTooltip(prepared));
+                () => HoverTip(prepared));
             if (ImGui.IsMouseClicked(ImGuiMouseButton.Left)) SetMinimapVisible(false);
         }
         if (_uiParityArmed && _uiParityPanel == "minimap")
@@ -350,7 +355,7 @@ public sealed partial class GameLoop
         {
             string prepared = trackingSpell.Name;
             OfferPreservedSharedGameTooltipRenderer(new("minimap-tracking", trackingSpell.Id),
-                () => ImGui.SetTooltip(prepared));
+                () => HoverTip(prepared));
             if (ImGui.IsMouseClicked(ImGuiMouseButton.Right))
                 CancelPlayerAura(active, "MINIMAP_TRACKING_RIGHT_CLICK");
         }
@@ -372,7 +377,7 @@ public sealed partial class GameLoop
         {
             string prepared = MinimapUiLaw.UnreadMailText;
             OfferPreservedSharedGameTooltipRenderer(new("minimap-mail", 1),
-                () => ImGui.SetTooltip(prepared));
+                () => HoverTip(prepared));
         }
     }
 

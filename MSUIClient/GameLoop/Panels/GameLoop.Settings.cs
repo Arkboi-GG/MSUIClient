@@ -157,6 +157,14 @@ public sealed partial class GameLoop
             _escapeKeyDown = escape;
             return;
         }
+        // An armed Patrol route draft unwinds before every menu layer — the
+        // documented Escape order puts an unfinished route draft second, right
+        // after targeting (CRPG_RTS_MMO_PARTY_COMMAND_UI.md "Escape behavior").
+        if (escape && !_escapeKeyDown && ConsumeRtsPatrolDraftEscape())
+        {
+            _escapeKeyDown = escape;
+            return;
+        }
         if (escape && !_escapeKeyDown)
         {
             GameMenuEscapePlan plan = GameMenuUiLaw.ResolveEscape(new(
@@ -750,7 +758,7 @@ public sealed partial class GameLoop
                 center + direction * (rim + side * .16f), color, stroke);
         }
 
-        if (hovered) ImGui.SetTooltip("Resize and scale Escape menus only");
+        if (hovered) HoverTip("Resize and scale Escape menus only");
         if (clicked)
         {
             PlayUiSound(GameMenuUiLaw.PopupOpenSound);
@@ -930,7 +938,7 @@ public sealed partial class GameLoop
                             InteractionState:"highlighted",Strata:"DIALOG"));
             }
             if (pressed) onClick();
-            if (tip is not null && ImGui.IsItemHovered()) ImGui.SetTooltip(tip);
+            if (tip is not null && ImGui.IsItemHovered()) HoverTip(tip);
         }
 
         Row("GameMenuButtonOptions", "Video Options", GameMenuUiLaw.ButtonTop(0), "CENTER", "", "TOP", "-37",
@@ -2077,6 +2085,12 @@ public sealed partial class GameLoop
                     "A command strip beside each party portrait: role (Tank/Healer/DPS,\n" +
                     "feeds rotations later), Hold (stand your ground) and Patrol (loop the\n" +
                     "current waypoint chain).");
+                Check("Companions acknowledge orders aloud", () => s.Controls.CompanionVoice,
+                    v => s.Controls.CompanionVoice = v,
+                    "Warcraft-style voice feedback in each companion's own vanilla voice:\n" +
+                    "hello when picked, yes on an order, charge or open fire on an attack,\n" +
+                    "no on a refusal — and a companion clicked one time too many gets\n" +
+                    "properly annoyed.");
                 Check("Cut buildings away in the free view", () => s.Controls.FreeViewCutaway,
                     v => s.Controls.FreeViewCutaway = v,
                     "Divinity-style: while you command a toon that is indoors, its\n" +
@@ -2321,7 +2335,7 @@ public sealed partial class GameLoop
             _settingsStatus = "adopted the values the renderers are actually using";
         }
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip(
+            HoverTip(
                 "Pull whatever the renderers are set to RIGHT NOW into these settings.\n" +
                 "This is the bridge from a DevTools tuning session to a saved preference:\n" +
                 "dial it in on the HUD, adopt, Okay. It is what replaces hand-copying a\n" +
@@ -2437,7 +2451,7 @@ public sealed partial class GameLoop
 
     private static void Tip(string? tip)
     {
-        if (tip is not null && ImGui.IsItemHovered()) ImGui.SetTooltip(tip);
+        if (tip is not null && ImGui.IsItemHovered()) HoverTip(tip);
     }
 
     private static void Restart()

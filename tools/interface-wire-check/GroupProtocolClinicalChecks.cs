@@ -118,6 +118,29 @@ internal static class GroupProtocolClinicalChecks
               PartyFrameUiLaw.IsLeaveRoster(empty),
             "14-byte leave roster shape drift");
 
+        // What vmangos actually sends when you stop being in a group: a fixed 24-byte all-zero
+        // body from Group::RemoveMember (Group.cpp:506) and Group::Disband (:602). The 14-byte
+        // shape above is the client-side minimum, never a packet observed on the wire. Rejecting
+        // the real one dropped the only packet that clears the roster, so the party frame kept
+        // showing a group after leaving while the chat line (SMSG_PARTY_COMMAND_RESULT) arrived.
+        byte[] serverLeaveBody = new byte[24];
+        PartyRosterWire serverLeave = PartyFramePacketLaw.ParseRoster(serverLeaveBody);
+        Check(serverLeave.Members.Length == 0 && serverLeave.LeaderGuid == 0 &&
+              serverLeave.GroupType == 0 && serverLeave.OwnFlags == 0 &&
+              PartyFrameUiLaw.IsLeaveRoster(serverLeave),
+            "24-byte vmangos leave roster must parse");
+
+        // The tail is padding, not fields: only all-zero is a leave. Anything else is corruption
+        // or a shape this parser does not know, and must still be refused.
+        byte[] dirtyPadding = new byte[24];
+        dirtyPadding[20] = 0xa5;
+        ExpectReject(() => _ = PartyFramePacketLaw.ParseRoster(dirtyPadding),
+            "leave roster with non-zero padding must be rejected");
+        ExpectReject(() => _ = PartyFramePacketLaw.ParseRoster(new byte[15]),
+            "leave roster of the wrong length must be rejected");
+        ExpectReject(() => _ = PartyFramePacketLaw.ParseRoster(new byte[25]),
+            "leave roster with an extra trailing byte must be rejected");
+
         PartyRosterWire first = new(0, 0,
             [new("Alice", 1, 1, 0), new("Bob", 2, 1, 0)], 99, 3, 0, 2);
         Check(GroupUiLaw.RosterLines(0, [], first).SequenceEqual(

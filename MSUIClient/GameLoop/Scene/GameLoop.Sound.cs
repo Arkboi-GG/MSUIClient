@@ -58,6 +58,8 @@ public sealed partial class GameLoop
         // system's per-frame tick, which meant a music track could only be noticed
         // as finished on frames where spell audio happened to be ticked.
         _audioMixer.PollFinished();
+        // A multi-companion order answers as a cascade; the tail plays from here.
+        UpdateCompanionVoicePending();
         if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled && !_audioCompatibilityAnnounced)
         {
             _audioCompatibilityAnnounced = true;

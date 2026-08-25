@@ -79,6 +79,7 @@ public sealed partial class GameLoop
     {
         if (_freeView == up) return;
         _freeView = up;
+        ResetSheathMirror();
         RefreshLootKneel();
         _freeViewExitRequested = false;
         // A vanilla world map left open would hijack the whole HUD via its
@@ -260,9 +261,14 @@ public sealed partial class GameLoop
         _freeViewExitRequested = false;
         _freecamSelection.Clear();
         ClearRtsWaypointChain();
+        CancelRtsPatrolAuthoring(silent: true);
         _suiRoster.Clear();
         ClearRtsForceTakeControl();
         ResetRtsControlGroups();
+        ResetCompanionVoiceState();
+        ResetPartyMemberFacts();
+        ResetPartyQuestFacts();
+        ResetPartyQuestActs();
         PurgeSuiSnapshot();
         _movementSender.Parked = false;
         // Session loss has no later seating edge from which to adopt a body.
@@ -299,6 +305,12 @@ public sealed partial class GameLoop
     private readonly List<(Vector3 Pos, double Born, Vector3 Tint)> _rtsMoveMarkers = [];
     private readonly List<Vector3> _rtsWaypointChain = [];   // Shift+RightClick chain dots
     private readonly List<ulong> _rtsWaypointSubjects = [];  // who the chain was issued to
+    // Patrol button flow (owner 2026-08-25): Patrol ARMS a draft, right-clicks
+    // chain COLD waypoints (nothing ordered yet), Patrol again queues every leg
+    // and engages the loop; Escape cancels. Subjects freeze at arm time.
+    private bool _rtsPatrolAuthoring;
+    private readonly List<Vector3> _rtsPatrolDraft = [];
+    private readonly List<ulong> _rtsPatrolDraftSubjects = [];
     private double _rtsWaypointProgressAt;                   // last leg consumed / chain issued
     private const float RtsWaypointReachedYards = 3.5f;
     private const double RtsWaypointStaleSeconds = 45.0;
@@ -406,7 +418,8 @@ public sealed partial class GameLoop
             _movementSender.Parked = false;       // the Flying branch parks it from here
             if (_controller is not null) _controller.Flying = true;
             EnterPlayerAuraWorld(LocalPlayerGuid);
-            PurgeSuiSnapshot();
+            // Snapshots survive the free view: possession synced them, the
+            // Party Inventory browser keeps reading them with an age stamp.
             AddChatMessage("Free view: click or drag to select faction bots, Shift+click adds, " +
                 "RightClick moves/attacks, Alt+click directly controls one, " +
                 "Shift+RightClick chains waypoints, Ctrl+F returns.");
@@ -437,7 +450,7 @@ public sealed partial class GameLoop
             SeatControllerOnControlled(x, y, z, o);
             _net?.SetActiveMover(LocalPlayerGuid);
             EnterPlayerAuraWorld(LocalPlayerGuid);
-            PurgeSuiSnapshot();
+            // Retention: the released bot's snapshot stays for the browser.
             ApplyControlledCharacter();
             if (wasPossessing)
                 AddChatMessage(result switch
@@ -479,6 +492,7 @@ public sealed partial class GameLoop
         }
         _controlSwitchQueued = 0;
         if (_rtsForceTakeControlGuid == guid) ClearRtsForceTakeControl();
+        PlayCompanionEmoteVoice(guid, CompanionVoiceLaw.EmoteNo);
         ShowUiError(result switch
         {
             2 => "That character is not a controllable bot.",
@@ -562,12 +576,23 @@ public sealed partial class GameLoop
         }
     }
 
-    // ── SMSG_SUI_SNAPSHOT: read-only bags/talents for the possessed bot (M4) ──────────────────
+    // ── SMSG_SUI_SNAPSHOT: read-only bags/talents (M4; member-facts widened) ──────────────────
     // The wire never streams owner-only fields to a non-owner; the snapshot is injected into
     // the bot's local WorldEntity fields + synthetic item entities so the already-parameterized
-    // inventory/talent UI renders it unchanged. Purged on release.
+    // inventory/talent UI renders it unchanged. Originally possession-only; a member-facts
+    // server also pushes it for non-possessed party/raid AiBots (GameLoop.MemberFacts.cs).
 
-    private readonly List<ulong> _suiSnapshotItemGuids = [];
+    // [SUI] Inventory snapshots are RETAINED per bot after release: possession is
+    // the sync gesture, and the Party Inventory browser shows every synced
+    // companion side-by-side stamped with its age. Re-possessing a bot replaces
+    // its snapshot (its old synthetic items are purged first); session teardown
+    // purges everything.
+    private readonly Dictionary<ulong, List<ulong>> _suiSnapshotItemsByBot = [];
+    private readonly Dictionary<ulong, double> _suiSnapshotAtByBot = [];
+
+    /// <summary>Seconds since this bot's last inventory snapshot; null = never synced.</summary>
+    private double? SuiSnapshotAgeSeconds(ulong bot) =>
+        _suiSnapshotAtByBot.TryGetValue(bot, out double at) ? NowSeconds() - at : null;
 
     private void ApplySuiSnapshot(byte[] body)
     {
@@ -577,20 +602,27 @@ public sealed partial class GameLoop
         uint talentPoints = r.ReadU32();
         uint coinage = r.ReadU32();
         int count = r.ReadU16();
-        // The snapshot is the ONLY way a possessed bot's bags/gold/talents can exist client
-        // side (the wire never streams owner-only fields to a non-owner), so a silent drop
+        // The snapshot is the ONLY way a bot's bags/gold/talents can exist client side
+        // (the wire never streams owner-only fields to a non-owner), so a silent drop
         // here is indistinguishable from "the bot has nothing". Say which it was.
-        if (source != ControlledGuid || !_entities.TryGet(source, out WorldEntity bot))
+        // Accepted sources: the possessed bot (the original M4 wire) and, since the
+        // member-facts law (party = full facts, faction = orders), any party/raid
+        // member the server pushes without possession. Everything else still drops.
+        bool forControlled = source == ControlledGuid;
+        if ((!forControlled && !IsPartyMemberFactsSubject(source)) ||
+            !_entities.TryGet(source, out WorldEntity bot))
         {
             Console.WriteLine($"[sui] snapshot DROPPED for 0x{source:X} " +
-                $"(controlled=0x{ControlledGuid:X}, resident={_entities.TryGet(source, out _)}), " +
+                $"(controlled=0x{ControlledGuid:X}, party={IsPartyMemberFactsSubject(source)}, " +
+                $"resident={_entities.TryGet(source, out _)}), " +
                 $"{count} items, {coinage} copper");
             return;
         }
         Console.WriteLine($"[sui] snapshot for {ResolveUnitName(source)}: {count} items, " +
             $"{coinage / 10000}g{coinage % 10000 / 100}s{coinage % 100}c, {talentPoints} talent pts");
 
-        PurgeSuiSnapshot();
+        PurgeSuiSnapshotFor(source);
+        List<ulong> snapshotItems = _suiSnapshotItemsByBot[source] = [];
         bot.Fields.SetU32(ObjectFields.PLAYER_CHARACTER_POINTS1, talentPoints);
         bot.Fields.SetU32(ObjectFields.PLAYER_COINAGE, coinage);
         int containersSized = 0;
@@ -629,7 +661,7 @@ public sealed partial class GameLoop
                 Entry = entry,
                 Fields = fields,
             });
-            _suiSnapshotItemGuids.Add(itemGuid);
+            snapshotItems.Add(itemGuid);
 
             if (bag == 255)
             {
@@ -679,15 +711,29 @@ public sealed partial class GameLoop
         Console.WriteLine($"[sui] snapshot v2: stats={(statsApplied ? "applied" : "ABSENT")}, " +
             $"containers sized={containersSized}");
 
-        // Gear templates may have just resolved — rebuild the possessed body once more.
-        ApplyControlledCharacter();
+        _suiSnapshotAtByBot[source] = NowSeconds();
+
+        // Gear templates may have just resolved — rebuild the possessed body once
+        // more. A member-facts snapshot for a non-possessed party member never
+        // touches the driven body.
+        if (forControlled) ApplyControlledCharacter();
     }
 
     private void PurgeSuiSnapshot()
     {
-        foreach (ulong guid in _suiSnapshotItemGuids)
+        foreach (List<ulong> items in _suiSnapshotItemsByBot.Values)
+            foreach (ulong guid in items)
+                _entities.RemoveSynthetic(guid);
+        _suiSnapshotItemsByBot.Clear();
+        _suiSnapshotAtByBot.Clear();
+    }
+
+    private void PurgeSuiSnapshotFor(ulong bot)
+    {
+        if (!_suiSnapshotItemsByBot.Remove(bot, out List<ulong>? items)) return;
+        foreach (ulong guid in items)
             _entities.RemoveSynthetic(guid);
-        _suiSnapshotItemGuids.Clear();
+        _suiSnapshotAtByBot.Remove(bot);
     }
 
     /// <summary>
@@ -1026,6 +1072,8 @@ public sealed partial class GameLoop
         RefreshControlledCharacterScale();
         UpdateRtsForceTakeControl();
         UpdateRtsControlGroups(typing);
+        UpdatePartyMemberFacts();
+        UpdatePartyQuestFacts();
 
         // Pending-state watchdog: never strand the movement stream parked.
         if (_controlState is ControlState.PossessPending or ControlState.ReleasePending &&
@@ -1087,6 +1135,7 @@ public sealed partial class GameLoop
             _freecamMarqueeConsumedClick = false;
             _freecamSelection.Clear();
             ClearRtsWaypointChain();
+            CancelRtsPatrolAuthoring(silent: true);
             _commanderMapOpen = false;      // the commander map is a free-view surface only
             _freecamPanAt = 0;
             if (_controller is not null)
@@ -1221,6 +1270,79 @@ public sealed partial class GameLoop
         _rtsWaypointProgressAt = 0;
     }
 
+    // ── Patrol draft (the armed Patrol button) ────────────────────────────────
+
+    private void BeginRtsPatrolAuthoring(List<ulong> subjects)
+    {
+        _rtsPatrolAuthoring = true;
+        _rtsPatrolDraft.Clear();
+        _rtsPatrolDraftSubjects.Clear();
+        _rtsPatrolDraftSubjects.AddRange(subjects);
+        SetRtsControlGroupStatus("Patrol armed: right-click ground to chain waypoints — " +
+            "Patrol again engages the loop, Escape cancels.");
+    }
+
+    private void CancelRtsPatrolAuthoring(bool silent = false)
+    {
+        if (!_rtsPatrolAuthoring) return;
+        _rtsPatrolAuthoring = false;
+        _rtsPatrolDraft.Clear();
+        _rtsPatrolDraftSubjects.Clear();
+        if (!silent) SetRtsControlGroupStatus("Patrol draft canceled.");
+    }
+
+    /// <summary>Escape pre-gate (the doc's unwind order puts an unfinished
+    /// route draft ahead of every menu layer): an armed draft spends the press.</summary>
+    private bool ConsumeRtsPatrolDraftEscape()
+    {
+        if (!_rtsPatrolAuthoring) return false;
+        CancelRtsPatrolAuthoring();
+        return true;
+    }
+
+    /// <summary>The armed Patrol button's second click: queue every drafted leg
+    /// cold (the bots stood still while it was authored), then close the loop.</summary>
+    private void EngageRtsPatrolDraft()
+    {
+        List<ulong> subjects = [.. _rtsPatrolDraftSubjects];
+        if (_rtsPatrolDraft.Count == 0 || _net is null)
+        {
+            CancelRtsPatrolAuthoring();
+            return;
+        }
+        foreach (Vector3 leg in _rtsPatrolDraft)
+            _net.SuiOrder(3, subjects, 0, leg.X, leg.Y, leg.Z);
+        bool engaged = false;
+        foreach (ulong guid in subjects)
+            if (_entities.TryGet(guid, out WorldEntity unit) && !unit.IsDead)
+            {
+                engaged = _net.SuiOrder(4, subjects, 0,
+                    unit.Position.X, unit.Position.Y, unit.Position.Z);
+                break;
+            }
+
+        // The engaged draft becomes the standing chain: same dots, same dashed
+        // route, same arrival retirement as a Shift+RightClick route.
+        _rtsWaypointSubjects.Clear();
+        _rtsWaypointSubjects.AddRange(subjects);
+        _rtsWaypointChain.Clear();
+        _rtsWaypointChain.AddRange(_rtsPatrolDraft);
+        _rtsWaypointProgressAt = NowSeconds();
+        int points = _rtsPatrolDraft.Count;
+        _rtsPatrolDraft.Clear();
+        _rtsPatrolDraftSubjects.Clear();
+        _rtsPatrolAuthoring = false;
+
+        if (engaged)
+        {
+            NoteCompanionOrder(4, subjects);
+            AddChatMessage($"{OrderSubjectLabel(subjects)}: patrol the route " +
+                $"({points} point{(points == 1 ? "" : "s")}).");
+        }
+        else
+            SetRtsControlGroupStatus("Patrol loop not engaged — no living subject.");
+    }
+
     /// <summary>
     /// RTS edge scroll: the pointer within a few pixels of a screen edge slides the fly rig
     /// that way, camera-relative, so the free view is drivable without touching the keyboard.
@@ -1320,8 +1442,18 @@ public sealed partial class GameLoop
             EncounterRaidPuppetKey(_freecamSelection[0]) is null)
             EnsureBotBarForViewing(_freecamSelection[0]);
         if (_freecamSelection.Count > 0)
+        {
+            // The marquee's spokesman is the first swept COMPANION — the own body
+            // enumerates first in FreeCamSelectableGuids and would mute the hello.
+            foreach (ulong swept in _freecamSelection)
+                if (swept != ControlledGuid)
+                {
+                    PlayCompanionSelectionVoice(swept);
+                    break;
+                }
             AddChatMessage($"Selected {_freecamSelection.Count}: RightClick the ground to move, " +
                 "a hostile to attack, Shift+RightClick to chain waypoints.");
+        }
         else if (!CanUseFactionForceRoster() && _partyMembers.Count == 0)
             // The silent empty marquee was the confusing half of the closed gate: bots
             // stand right there, the box sweeps them, nothing selects, no word why.
@@ -1405,6 +1537,7 @@ public sealed partial class GameLoop
                         {
                             _freecamSelection.Clear();
                             _freecamSelection.Add(guid);
+                            PlayCompanionSelectionVoice(guid);
                         }
                         if (_freecamSelection.Count == 1)
                             EnsureBotBarForViewing(_freecamSelection[0]);
@@ -1425,6 +1558,21 @@ public sealed partial class GameLoop
         // server — the whole gesture routes there and stops. Sim orders land at
         // the scrub head and the fight replays around them instantly.
         if (HandleEncounterRtsOrder(click)) return;
+
+        // An armed Patrol draft owns right-clicks: ground picks CHAIN cold
+        // waypoints (nothing is ordered until the second Patrol click), and
+        // attack picks are swallowed so a stray click cannot break the flow.
+        if (_rtsPatrolAuthoring)
+        {
+            if (TryPickGround(click.Position, out System.Numerics.Vector3 draftPoint))
+            {
+                _rtsPatrolDraft.Add(draftPoint);
+                _rtsMoveMarkers.Add((draftPoint, NowSeconds(), RtsNeutralTint));
+                SetRtsControlGroupStatus($"Patrol draft: {_rtsPatrolDraft.Count} point" +
+                    $"{(_rtsPatrolDraft.Count == 1 ? "" : "s")} — Patrol engages, Escape cancels.");
+            }
+            return;
+        }
 
         // SHIFT, not Ctrl, queues waypoints: Ctrl is the control-chord modifier (Ctrl+F,
         // Ctrl+Tab), so entering the free view with Ctrl still down turned the very first
@@ -1450,6 +1598,7 @@ public sealed partial class GameLoop
         {
             if (subjects.Count == 0 && !queue) return;   // nothing highlighted, no accidental orders
             _net?.SuiOrder(1, subjects, picked, 0, 0, 0);
+            NoteCompanionOrder(1, subjects);
             _rtsMoveMarkers.Add((target.Position, NowSeconds(), RtsHostileTint));
             ClearRtsWaypointChain();
             AddChatMessage($"{OrderSubjectLabel(subjects)}: attack {ResolveWorldUnitName(picked)}!");
@@ -1463,6 +1612,7 @@ public sealed partial class GameLoop
                     !SameRtsMembers(_rtsWaypointSubjects, subjects))
                     ClearRtsWaypointChain();
                 _net?.SuiOrder(3, subjects, 0, point.X, point.Y, point.Z);
+                NoteCompanionOrder(3, subjects);
                 // Re-anchor the chain's ownership on every leg: the highlighted set can change
                 // between clicks, and the route belongs to whoever was last told to walk it.
                 _rtsWaypointSubjects.Clear();
@@ -1478,6 +1628,7 @@ public sealed partial class GameLoop
                 if (subjects.Count == 0) return;   // plain move needs a highlighted set
                 BeginRtsMovePresentation(subjects, point);
                 _net?.SuiOrder(0, subjects, 0, point.X, point.Y, point.Z);
+                NoteCompanionOrder(0, subjects);
                 _rtsMoveMarkers.Add((point, NowSeconds(), RtsFriendlyTint));
                 ClearRtsWaypointChain();
                 AddChatMessage($"{OrderSubjectLabel(subjects)}: move to ({point.X:F0}, {point.Y:F0}).");
@@ -1592,6 +1743,19 @@ public sealed partial class GameLoop
             }
         }
 
+        // The armed Patrol draft draws in gold: authored, not yet ordered.
+        if (_rtsPatrolDraft.Count > 1)
+        {
+            Vector2? previous = null;
+            foreach (Vector3 waypoint in _rtsPatrolDraft)
+            {
+                if (!_window.Camera.TryWorldToScreen(waypoint, display, out Vector2 screen))
+                { previous = null; continue; }
+                if (previous is Vector2 from) DrawDashedLine(draw, from, screen, 0xAA00D1FF, 10f, 7f);
+                previous = screen;
+            }
+        }
+
         if (!_freecamDragActive || _freecamDragOrigin is not Vector2 origin) return;
         Vector2 mouse = _window.MousePosition;
         Vector2 min = Vector2.Min(origin, mouse);
@@ -1670,6 +1834,9 @@ public sealed partial class GameLoop
             // Waypoint-chain dots: small persistent rings until a plain move/stop replaces them.
             foreach (Vector3 waypoint in _rtsWaypointChain)
                 rings.Add(new(waypoint, 0.40f, RtsNeutralTint, 0.55f));
+            // Patrol-draft dots pulse brighter: authored, awaiting the engage click.
+            foreach (Vector3 waypoint in _rtsPatrolDraft)
+                rings.Add(new(waypoint, 0.40f, RtsNeutralTint, 0.90f));
 
             if (rings.Count > 0)
                 _spellEffectMeshes.RenderSelectionRings(_window.Camera, rings);
@@ -1688,6 +1855,7 @@ public sealed partial class GameLoop
     private void DrawControlBanner()
     {
         DrawRtsControlGroups();
+        DrawRtsCommandShelf();
 
         // The free view is a camera mode, so it prefixes rather than replaces: you can be
         // in the sky AND commanding a toon, and the banner has to say both.
@@ -1697,10 +1865,10 @@ public sealed partial class GameLoop
             string who = _controlState == ControlState.Possessing
                 ? $"commanding {ResolveUnitName(_controlTargetGuid)}"
                 : BarsReadOnly
-                    ? $"{ResolveUnitName(BarsGuid)}'s bars (read-only)"
+                    ? $"{ResolveUnitName(BarsGuid)} selected — abilities on the console"
                     : "click/drag: select · Shift+click: add · Alt+click: direct control";
             text = $"Free view — {who} · RightClick: move/attack · " +
-                "Shift+RightClick: chain waypoints · Shift+1-0: groups · Ctrl+F: land";
+                "Shift+RightClick: chain waypoints · 1-0: pick group · Shift+1-0: save group · Ctrl+F: land";
         }
         else text = _controlState switch
         {

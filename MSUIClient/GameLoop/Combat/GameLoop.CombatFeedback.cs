@@ -198,6 +198,9 @@ public sealed partial class GameLoop
             DrawStanceBar();
             DrawPartyFrames();
             DrawControlBanner();
+            DrawPartyTacticsPanel();
+            DrawPartyInventoryPanel();
+            DrawPartyQuestLogPanel();
             DrawFreeCamSelectionOverlay();
             DrawUnitPopup();
             DrawPlayerAuraBar();
@@ -220,6 +223,7 @@ public sealed partial class GameLoop
             DrawVendorFrame();
             DrawTrainerFrame();
             DrawQuestFrame();
+            DrawQuestPartyRail();
             DrawBankFrame();
             DrawMailFrame();
             DrawAuctionFrame();

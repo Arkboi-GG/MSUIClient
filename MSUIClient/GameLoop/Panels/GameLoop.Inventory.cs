@@ -44,6 +44,15 @@ public sealed partial class GameLoop
     private double _itemPushStartedAt = double.NegativeInfinity;
     private readonly Dictionary<int, Vector2> _bagButtonPositions = [];
     private int _liveEquipmentSignature;
+
+    /// <summary>
+    /// Force the next SyncLiveEquipmentModel pass to rebuild. Every roster-built kit
+    /// (ApplyServerCharacter / ApplyControlledCharacter) reinstalls sheath 0 on the local body
+    /// without touching the inventory GUIDs the signature is taken over, so without this the
+    /// sync early-returns and the good sheath bytes never come back — which is what made a
+    /// free-view or possession round trip snap the weapons back into the hands.
+    /// </summary>
+    private void InvalidateLiveEquipment() => _liveEquipmentSignature = 0;
     private InventoryTransition? _pendingInventoryTransition;
     private long _pendingBagOperation;
     private readonly Dictionary<string, string> _inventoryGlobalStrings = [];
@@ -100,11 +109,22 @@ public sealed partial class GameLoop
         bool down = BindingDown(GameBinding.OpenBackpack);
         if (down && !_backpackKeyWasDown && !typing && _net is { IsInWorld: true })
         {
-            bool shift = InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight);
-            if (InventoryUiLaw.BindingAction(shift) == InventoryUiLaw.BagBindingAction.ToggleAllBags)
-                ToggleAllBags();
+            if (_freeView)
+            {
+                // Commander view (owner 2026-08-25): B is the party logistics
+                // key — everyone's bags side by side, not the hidden body bags.
+                if (_partyInventoryOpen) _partyInventoryOpen = false;
+                else OpenPartyInventory(_freecamSelection.Count == 1
+                    ? _freecamSelection[0] : LocalPlayerGuid);
+            }
             else
-                ToggleBackpack();
+            {
+                bool shift = InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight);
+                if (InventoryUiLaw.BindingAction(shift) == InventoryUiLaw.BagBindingAction.ToggleAllBags)
+                    ToggleAllBags();
+                else
+                    ToggleBackpack();
+            }
         }
         _backpackKeyWasDown = down;
     }
@@ -239,8 +259,13 @@ public sealed partial class GameLoop
 
     private void SyncLiveEquipmentModel()
     {
+        // The session character only. Every field this pass reads — PLAYER_FIELD_INV_SLOT_*
+        // and the item objects it points at — is private and exists for no one else, so run
+        // against a possessed bot it would resolve nineteen empty slots and install a naked
+        // kit over the good one ApplyControlledCharacter built from the bot's public entries.
         if (_net is null || _items is null || _character is not { Loaded: true } ||
-            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
+            ControlledGuid != LocalPlayerGuid ||
+            !_entities.TryGet(LocalPlayerGuid, out WorldEntity player)) return;
         var resolved = new List<(int Slot, ItemTemplate Item)>();
         var hash = new HashCode();
         for (int slot = 0; slot < 19; slot++)
@@ -248,13 +273,21 @@ public sealed partial class GameLoop
             ulong guid = player.Fields.PlayerInventorySlot(slot);
             hash.Add(guid);
             if (guid == 0) continue;
-            if (!_entities.TryGet(guid, out WorldEntity instance)) return;
+            // A slot whose item object or template has not landed yet skips itself; it must not
+            // abort the pass. These were whole-pass `return`s, and one unresolved slot out of
+            // nineteen was enough to leave the local body on BuildEquipment's kit indefinitely.
+            // Every piece there carries sheath 0, which ResolveAttachment maps to -1 — so a
+            // sheathed weapon was not moved to the back, it was not drawn at all.
+            if (!_entities.TryGet(guid, out WorldEntity instance)) continue;
             for (int enchantSlot = 0; enchantSlot < 7; enchantSlot++)
                 hash.Add(instance.Fields.ItemEnchantmentId(enchantSlot));
             _items.Require(instance.Entry, instance.Guid, _net);
-            if (!_items.TryGet(instance.Entry, out ItemTemplate? item) || item is null) return;
+            if (!_items.TryGet(instance.Entry, out ItemTemplate? item) || item is null) continue;
             resolved.Add((slot, item));
         }
+        // Part of the signature so an incomplete pass retries exactly once per slot that lands,
+        // instead of either rebuilding every frame or never upgrading again.
+        hash.Add(resolved.Count);
         int signature = hash.ToHashCode();
         if (signature == _liveEquipmentSignature) return;
         var equipment = new CharacterEquipment { GuildEmblem = _tabardDesign };
@@ -283,6 +316,7 @@ public sealed partial class GameLoop
             _liveEquipmentSignature = signature;
             return;
         }
+        ReportLocalKit("inventory-objects", equipment);
         _character.Equipment = equipment;
         _character.ApplyEquipment();
         _liveEquipmentSignature = signature;
@@ -409,6 +443,7 @@ public sealed partial class GameLoop
 
     private void DrawBagBar()
     {
+        if (_freeView) return;   // commander console: no body chrome
         if (_net is not { IsInWorld: true } || _gameplayArt is null || _items is null ||
             !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
         float s = GameplayUiScale();
