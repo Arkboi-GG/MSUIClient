@@ -423,6 +423,10 @@ public sealed class NetworkClient : IDisposable
         try { _session.RandomRoll(minimum, maximum); return true; } catch { return false; }
     }
     public void SetSheathed(byte state) { try { _session?.SetSheathed(state); } catch { } }
+
+    /// <summary>/sit, /kneel, /sleep, /stand: the actual pose change, not the
+    /// chat line. See WorldSession.SendStandStateChange's doc comment.</summary>
+    public void SendStandStateChange(UnitStandState state) { try { _session?.SendStandStateChange(state); } catch { } }
     public bool CastSpell(uint spellId, ulong targetGuid)
     {
         if (State != NetState.InWorld || _session is null) return false;

@@ -518,6 +518,13 @@ public enum Op : ushort
     SMSG_CHAT_WRONG_FACTION      = 0x0219,
     SMSG_CHAT_PLAYER_NOT_FOUND   = 0x02A9,
     SMSG_NOTIFICATION            = 0x01CB,
+    // Confirmed via vmangos/core (WorldSession::HandleStandStateChangeOpcode,
+    // Handlers/MiscHandler.cpp; the numeric value from its own
+    // Opcodes_1_12_1.h). That same header's CMSG_EMOTE/SMSG_EMOTE/
+    // CMSG_TEXT_EMOTE/SMSG_TEXT_EMOTE entries land exactly on this project's
+    // own long-confirmed 0x0102-0x0105 values, so the adjacent 0x0101 here
+    // carries that same cross-checked confidence, not a fresh guess.
+    CMSG_STANDSTATECHANGE        = 0x0101,
     SMSG_EMOTE                   = 0x0103,
     // Not directly confirmed by the wiki's C++ index (Misc.h's TextEmote gave the
     // struct fields but not the enum value) - standard across every 1.12 server

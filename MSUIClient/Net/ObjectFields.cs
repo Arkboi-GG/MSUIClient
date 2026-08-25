@@ -14,6 +14,26 @@ namespace MSUIClient.Net;
 // create-seeded set an absent field reads 0. A bare VALUES delta carries only
 // changed fields, so an absent field there means "untouched" (null), and a merge
 // must not clobber it.
+/// <summary>UnitStandStateType, confirmed via vmangos/core's Unit.h - the value
+/// UNIT_FIELD_BYTES_1 byte 0 carries, and what CMSG_STANDSTATECHANGE sends. The
+/// client may only request Stand/Sit/Sleep/Kneel (vmangos's own
+/// WorldSession::HandleStandStateChangeOpcode rejects anything else from a
+/// player packet); the SitChair family is server-only, set by GameObject-use
+/// (a chair), never something the client asks for directly.</summary>
+public enum UnitStandState : byte
+{
+    Stand = 0,
+    Sit = 1,
+    SitChair = 2,
+    Sleep = 3,
+    SitLowChair = 4,
+    SitMediumChair = 5,
+    SitHighChair = 6,
+    Dead = 7,
+    Kneel = 8,
+    Custom = 9,
+}
+
 public sealed class ObjectFields
 {
     // --- field indices (build 5875) ---
@@ -60,7 +80,15 @@ public sealed class ObjectFields
     public const ushort UNIT_MAXDAMAGE = 135;
     public const ushort UNIT_MINOFFHANDDAMAGE = 136;
     public const ushort UNIT_MAXOFFHANDDAMAGE = 137;
-    public const ushort UNIT_FIELD_BYTES_1 = 138;      // byte0: stand state
+    // byte0: UnitStandStateType (see that enum below). Not in the original
+    // build-5875 sweep that seeded this file - read out of vmangos/core's
+    // UpdateFields.h directly (0x84 relative to OBJECT_END, i.e. exactly one
+    // past MAXOFFHANDDAMAGE and one before PETNUMBER below), cross-checked
+    // against the same header's CMSG/SMSG_EMOTE and CMSG/SMSG_TEXT_EMOTE
+    // entries, which land on this project's own already-confirmed 0x0102-0x0105
+    // values exactly - so the neighbouring 0x8A/138 here carries that same
+    // confidence rather than being a fresh guess.
+    public const ushort UNIT_FIELD_BYTES_1 = 138;
     public const ushort UNIT_FIELD_PETNUMBER = 139; // nonzero for a permanent pet/charm
     public const ushort UNIT_FIELD_PETEXPERIENCE = 141;
     public const ushort UNIT_FIELD_PETNEXTLEVELEXP = 142;
@@ -69,6 +97,18 @@ public sealed class ObjectFields
     public const ushort UNIT_CREATED_BY_SPELL = 146;
     public const ushort UNIT_BASE_MANA = 162;        // PRIVATE+OWNER_ONLY: only our own descriptor
     public const ushort UNIT_NPC_FLAGS = 147;
+    // Confirmed the same way as UNIT_FIELD_BYTES_1 above: read directly out of
+    // vmangos/core's UpdateFields_1_12_1.h (OBJECT_END+0x8E), cross-checked
+    // against CHANNEL_SPELL/NPC_FLAGS in that same header landing exactly on
+    // this project's own already-confirmed 144/147. This is the field
+    // Unit::HandleEmoteState writes for a "state" emote (EmoteType 1 or 2 in
+    // Emotes.dbc) instead of the SMSG_EMOTE one-shot packet - Dance included:
+    // /dance's EmotesText.dbc row targets Emotes.dbc id 10 (STATE_DANCE,
+    // EmoteType 2), so it NEVER sends SMSG_EMOTE at all, confirmed by reading
+    // dumps/EmotesText.dbc's own EmoteID column directly. Holds a raw Emotes.dbc
+    // id (0 = no state emote active), not an AnimationData id - resolve it
+    // through EmoteAnimationLaw same as SMSG_EMOTE's payload.
+    public const ushort UNIT_NPC_EMOTESTATE = 148;
     public const ushort UNIT_FIELD_TRAINING_POINTS = 149;
     public const ushort UNIT_STAT0 = 150;
     public const ushort UNIT_RESISTANCES = 155;
@@ -293,6 +333,11 @@ public sealed class ObjectFields
     public uint FactionTemplate => GetU32(UNIT_FACTIONTEMPLATE) ?? 0;
     public uint UnitFlags => GetU32(UNIT_FLAGS) ?? 0;
     public uint NpcFlags => GetU32(UNIT_NPC_FLAGS) ?? 0;
+    /// <summary>Raw Emotes.dbc id of the active "state" emote (Dance, ...), or 0.
+    /// Resolve through EmoteAnimationLaw, same as SMSG_EMOTE's payload - see
+    /// UNIT_NPC_EMOTESTATE's doc comment for why this and not SMSG_EMOTE is
+    /// what carries Dance.</summary>
+    public uint NpcEmoteState => GetU32(UNIT_NPC_EMOTESTATE) ?? 0;
     public ulong? Target => GetGuid(UNIT_TARGET) is { } g && g != 0 ? g : null;
     public ulong? Charm => GetGuid(UNIT_FIELD_CHARM) is { } g && g != 0 ? g : null;
     public ulong? Summon => GetGuid(UNIT_FIELD_SUMMON) is { } g && g != 0 ? g : null;
@@ -322,6 +367,11 @@ public sealed class ObjectFields
     /// <summary>UNIT_FIELD_BYTES_1 byte three bit 0x2: the archived CREEP/stealth gate.</summary>
     public bool UnitIsStealthed => (((GetU32(UNIT_FIELD_BYTES_1) ?? 0) >> 24) & 0x02u) != 0;
     public byte SheathState => (byte)(GetU32(UNIT_BYTES_2) ?? 0);
+
+    /// <summary>UnitStandStateType from UNIT_FIELD_BYTES_1 byte 0 - confirmed via
+    /// vmangos/core's Unit::SetStandState (UNIT_BYTES_1_OFFSET_STAND_STATE == 0).
+    /// See <see cref="UnitStandState"/>.</summary>
+    public byte StandState => (byte)(GetU32(UNIT_FIELD_BYTES_1) ?? 0);
 
     /// <summary>`UNIT_DYNAMIC_FLAGS` — per-viewer dynamic state. Absent counts as 0.</summary>
     public uint DynamicFlags => GetU32(UNIT_DYNAMIC_FLAGS) ?? 0;
