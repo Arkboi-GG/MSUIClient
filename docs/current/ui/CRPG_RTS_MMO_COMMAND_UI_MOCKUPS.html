@@ -1,0 +1,882 @@
+<div id="msui-crpg-concepts" aria-label="Four interface concepts for CRPG and RTS controls inside the MMO world">
+  <style>
+    #msui-crpg-concepts {
+      --msui-ink: light-dark(#2b2115, #f2e6c9);
+      --msui-muted: light-dark(#6b5b43, #b8aa8d);
+      --msui-gold: light-dark(#75530f, #d9b764);
+      --msui-gold-soft: light-dark(rgba(117,83,15,.16), rgba(217,183,100,.16));
+      --msui-cyan: light-dark(#096a78, #67d6e6);
+      --msui-cyan-soft: light-dark(rgba(9,106,120,.16), rgba(103,214,230,.16));
+      --msui-red: light-dark(#9a2e24, #ee756b);
+      --msui-green: light-dark(#2c6f42, #72ce8b);
+      --msui-blue: light-dark(#2f5f9e, #75a8ef);
+      --msui-purple: light-dark(#6b438e, #bb8be2);
+      --msui-panel: light-dark(#eee1c2, #17140f);
+      --msui-panel-strong: light-dark(#e2d1ab, #0e0c09);
+      --msui-panel-glass: light-dark(rgba(238,225,194,.94), rgba(23,20,15,.94));
+      --msui-panel-soft: light-dark(rgba(238,225,194,.78), rgba(23,20,15,.78));
+      --msui-line: light-dark(rgba(67,51,28,.32), rgba(226,202,150,.30));
+      --msui-line-strong: light-dark(rgba(67,51,28,.58), rgba(226,202,150,.58));
+      --msui-world-top: light-dark(#9cc8ca, #253747);
+      --msui-world-mid: light-dark(#7aa17d, #294a3e);
+      --msui-world-ground: light-dark(#766b42, #2f3024);
+      --msui-shadow: light-dark(rgba(66,44,19,.22), rgba(0,0,0,.55));
+      color-scheme: light dark;
+      color: var(--msui-ink);
+      font-family: Georgia, "Times New Roman", serif;
+      width: 100%;
+    }
+    #msui-crpg-concepts * { box-sizing: border-box; }
+    #msui-crpg-concepts button { font: inherit; color: inherit; }
+    #msui-crpg-concepts .msui-concept-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      margin: 0 0 10px;
+    }
+    #msui-crpg-concepts .msui-concept-tab {
+      min-height: 40px;
+      border: 1px solid var(--msui-line);
+      border-radius: 6px;
+      background: var(--msui-panel);
+      padding: 8px 6px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    #msui-crpg-concepts .msui-concept-tab[aria-pressed="true"] {
+      background: var(--msui-gold-soft);
+      border-color: var(--msui-gold);
+      color: var(--msui-gold);
+    }
+    #msui-crpg-concepts .msui-concept-screen { display: none; }
+    #msui-crpg-concepts .msui-concept-screen.is-active { display: block; }
+    #msui-crpg-concepts .msui-screen-title {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 2px 8px;
+    }
+    #msui-crpg-concepts .msui-screen-title strong { color: var(--msui-gold); font-weight: 500; }
+    #msui-crpg-concepts .msui-screen-title span { color: var(--msui-muted); font-size: 12px; text-align: right; }
+    #msui-crpg-concepts .msui-world {
+      position: relative;
+      min-height: 560px;
+      overflow: hidden;
+      border: 1px solid var(--msui-line-strong);
+      border-radius: 8px;
+      background:
+        radial-gradient(ellipse at 70% 28%, var(--msui-gold-soft) 0 8%, transparent 24%),
+        linear-gradient(180deg, var(--msui-world-top) 0 42%, var(--msui-world-mid) 43% 66%, var(--msui-world-ground) 67% 100%);
+      box-shadow: 0 12px 28px var(--msui-shadow);
+    }
+    #msui-crpg-concepts .msui-world::before,
+    #msui-crpg-concepts .msui-world::after {
+      content: "";
+      position: absolute;
+      pointer-events: none;
+    }
+    #msui-crpg-concepts .msui-world::before {
+      left: -5%; right: -5%; bottom: 26%; height: 24%;
+      background:
+        radial-gradient(ellipse at 12% 100%, var(--msui-panel-soft) 0 12%, transparent 13%),
+        radial-gradient(ellipse at 34% 100%, var(--msui-panel-soft) 0 16%, transparent 17%),
+        radial-gradient(ellipse at 74% 100%, var(--msui-panel-soft) 0 18%, transparent 19%),
+        radial-gradient(ellipse at 91% 100%, var(--msui-panel-soft) 0 13%, transparent 14%);
+      opacity: .22;
+    }
+    #msui-crpg-concepts .msui-world::after {
+      left: 0; right: 0; bottom: 0; height: 34%;
+      background: repeating-linear-gradient(162deg, transparent 0 38px, var(--msui-line) 39px 40px);
+      opacity: .3;
+    }
+    #msui-crpg-concepts .msui-top-target {
+      position: absolute;
+      z-index: 4;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      min-width: 220px;
+      max-width: 45%;
+      padding: 7px 12px;
+      border: 1px solid var(--msui-line-strong);
+      border-radius: 7px;
+      background: var(--msui-panel-glass);
+      text-align: center;
+      box-shadow: 0 5px 16px var(--msui-shadow);
+    }
+    #msui-crpg-concepts .msui-top-target b { display: block; color: var(--msui-red); font-weight: 500; }
+    #msui-crpg-concepts .msui-top-target small { color: var(--msui-muted); font-size: 11px; }
+    #msui-crpg-concepts .msui-party-stack {
+      position: absolute;
+      z-index: 6;
+      top: 16px;
+      left: 14px;
+      width: min(338px, 46%);
+      display: grid;
+      gap: 6px;
+    }
+    #msui-crpg-concepts .msui-party-member {
+      position: relative;
+      display: grid;
+      grid-template-columns: 50px minmax(78px, 1fr) repeat(4, 38px);
+      align-items: center;
+      gap: 4px;
+      min-height: 59px;
+      padding: 5px 5px 5px 6px;
+      border: 1px solid var(--msui-line);
+      border-radius: 7px;
+      background: var(--msui-panel-soft);
+      box-shadow: 0 4px 12px var(--msui-shadow);
+    }
+    #msui-crpg-concepts .msui-party-member.is-command-selected {
+      border-color: var(--msui-cyan);
+      box-shadow: inset 0 0 0 1px var(--msui-cyan), 0 4px 12px var(--msui-shadow);
+    }
+    #msui-crpg-concepts .msui-portrait-wrap { position: relative; width: 46px; height: 46px; }
+    #msui-crpg-concepts .msui-portrait {
+      width: 46px;
+      height: 46px;
+      border: 2px solid var(--msui-gold);
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle at 35% 30%, var(--msui-gold-soft), var(--msui-panel-strong));
+      color: var(--msui-gold);
+      font-weight: 500;
+      font-size: 15px;
+    }
+    #msui-crpg-concepts .msui-role-badge {
+      position: absolute;
+      right: -10px;
+      bottom: -3px;
+      width: 25px;
+      height: 25px;
+      display: grid;
+      place-items: center;
+      border: 2px solid var(--msui-panel-strong);
+      border-radius: 50%;
+      background: var(--msui-gold);
+      color: var(--msui-panel-strong);
+      cursor: pointer;
+      padding: 0;
+    }
+    #msui-crpg-concepts .msui-role-badge[data-role="tank"] { background: var(--msui-blue); }
+    #msui-crpg-concepts .msui-role-badge[data-role="healer"] { background: var(--msui-green); }
+    #msui-crpg-concepts .msui-role-badge[data-role="damage"] { background: var(--msui-red); }
+    #msui-crpg-concepts .msui-role-badge[data-role="support"] { background: var(--msui-purple); }
+    #msui-crpg-concepts .msui-member-state { min-width: 0; padding-left: 3px; }
+    #msui-crpg-concepts .msui-member-name { display: flex; justify-content: space-between; gap: 5px; font-weight: 500; font-size: 13px; }
+    #msui-crpg-concepts .msui-member-level { color: var(--msui-muted); font-size: 11px; }
+    #msui-crpg-concepts .msui-meter { height: 6px; margin-top: 4px; border-radius: 3px; background: var(--msui-panel-strong); overflow: hidden; }
+    #msui-crpg-concepts .msui-meter > span { display: block; height: 100%; background: var(--msui-green); }
+    #msui-crpg-concepts .msui-meter.power > span { background: var(--msui-blue); }
+    #msui-crpg-concepts .msui-member-order { margin-top: 3px; color: var(--msui-cyan); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #msui-crpg-concepts .msui-quick-action {
+      position: relative;
+      min-width: 0;
+      height: 39px;
+      border: 1px solid var(--msui-line-strong);
+      border-radius: 5px;
+      background: var(--msui-panel-strong);
+      color: var(--msui-gold);
+      padding: 3px 2px;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+    }
+    #msui-crpg-concepts .msui-quick-action span { display: block; font-size: 11px; color: var(--msui-muted); line-height: 1; }
+    #msui-crpg-concepts .msui-quick-action.is-pending { border-color: var(--msui-cyan); box-shadow: inset 0 0 0 1px var(--msui-cyan); }
+    #msui-crpg-concepts .msui-auto-dot {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--msui-green);
+    }
+    #msui-crpg-concepts .msui-command-dock {
+      position: absolute;
+      z-index: 8;
+      left: 50%;
+      bottom: 63px;
+      transform: translateX(-50%);
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 5px;
+      width: min(690px, calc(100% - 24px));
+      padding: 7px;
+      border: 1px solid var(--msui-line-strong);
+      border-radius: 8px;
+      background: var(--msui-panel-glass);
+      box-shadow: 0 6px 18px var(--msui-shadow);
+    }
+    #msui-crpg-concepts .msui-command-scope {
+      display: inline-flex;
+      align-items: center;
+      padding: 5px 9px;
+      border: 1px solid var(--msui-cyan);
+      border-radius: 5px;
+      background: var(--msui-cyan-soft);
+      color: var(--msui-cyan);
+      font-size: 12px;
+      font-weight: 500;
+    }
+    #msui-crpg-concepts .msui-command-button,
+    #msui-crpg-concepts .msui-small-button,
+    #msui-crpg-concepts .msui-choice-button,
+    #msui-crpg-concepts .msui-owner-button {
+      border: 1px solid var(--msui-line);
+      border-radius: 5px;
+      background: var(--msui-panel);
+      padding: 5px 8px;
+      cursor: pointer;
+    }
+    #msui-crpg-concepts .msui-command-button { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+    #msui-crpg-concepts .msui-command-button[aria-pressed="true"],
+    #msui-crpg-concepts .msui-choice-button[aria-pressed="true"],
+    #msui-crpg-concepts .msui-owner-button[aria-pressed="true"] {
+      border-color: var(--msui-gold);
+      background: var(--msui-gold-soft);
+      color: var(--msui-gold);
+    }
+    #msui-crpg-concepts .msui-command-result {
+      flex-basis: 100%;
+      min-height: 16px;
+      color: var(--msui-muted);
+      text-align: center;
+      font-size: 11px;
+    }
+    #msui-crpg-concepts .msui-player-bar {
+      position: absolute;
+      z-index: 7;
+      left: 50%;
+      bottom: 13px;
+      transform: translateX(-50%);
+      display: grid;
+      grid-template-columns: repeat(12, 35px);
+      gap: 3px;
+      padding: 6px 10px;
+      border: 1px solid var(--msui-line-strong);
+      border-radius: 8px;
+      background: var(--msui-panel-glass);
+    }
+    #msui-crpg-concepts .msui-player-slot {
+      height: 35px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--msui-line);
+      border-radius: 4px;
+      background: var(--msui-panel-strong);
+      color: var(--msui-muted);
+      font-size: 11px;
+    }
+    #msui-crpg-concepts .msui-annotation {
+      position: absolute;
+      z-index: 10;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      max-width: 180px;
+      padding: 4px 7px;
+      border: 1px solid var(--msui-gold);
+      border-radius: 12px;
+      background: var(--msui-panel-glass);
+      color: var(--msui-gold);
+      font-size: 11px;
+      box-shadow: 0 4px 12px var(--msui-shadow);
+    }
+    #msui-crpg-concepts .msui-annotation b {
+      min-width: 17px;
+      height: 17px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--msui-gold);
+      color: var(--msui-panel-strong);
+      font-weight: 500;
+    }
+    #msui-crpg-concepts .msui-annotation.role { left: 310px; top: 82px; }
+    #msui-crpg-concepts .msui-annotation.dock { left: 50%; bottom: 125px; transform: translateX(-50%); }
+
+    #msui-crpg-concepts .msui-freeview .msui-party-stack { width: min(244px, 34%); top: 82px; }
+    #msui-crpg-concepts .msui-freeview .msui-party-member {
+      grid-template-columns: 42px minmax(70px, 1fr);
+      min-height: 49px;
+    }
+    #msui-crpg-concepts .msui-freeview .msui-portrait-wrap,
+    #msui-crpg-concepts .msui-freeview .msui-portrait { width: 38px; height: 38px; }
+    #msui-crpg-concepts .msui-freeview .msui-role-badge { width: 22px; height: 22px; }
+    #msui-crpg-concepts .msui-group-rail {
+      position: absolute;
+      z-index: 8;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 5px;
+      max-width: calc(100% - 28px);
+    }
+    #msui-crpg-concepts .msui-group-card {
+      border: 1px solid var(--msui-line);
+      border-radius: 6px;
+      background: var(--msui-panel-glass);
+      padding: 6px 9px;
+      min-width: 118px;
+      color: var(--msui-ink);
+      cursor: pointer;
+    }
+    #msui-crpg-concepts .msui-group-card strong { color: var(--msui-cyan); font-weight: 500; }
+    #msui-crpg-concepts .msui-group-card span { display: block; color: var(--msui-muted); font-size: 11px; }
+    #msui-crpg-concepts .msui-free-banner {
+      position: absolute;
+      z-index: 5;
+      top: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 5px 10px;
+      border-radius: 5px;
+      background: var(--msui-panel-soft);
+      color: var(--msui-cyan);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    #msui-crpg-concepts .msui-marquee {
+      position: absolute;
+      z-index: 3;
+      left: 48%;
+      top: 30%;
+      width: 29%;
+      height: 24%;
+      border: 1px dashed var(--msui-cyan);
+      background: var(--msui-cyan-soft);
+    }
+    #msui-crpg-concepts .msui-world-unit {
+      position: absolute;
+      z-index: 4;
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border: 2px solid var(--msui-line-strong);
+      border-radius: 50% 50% 42% 42%;
+      background: var(--msui-panel-strong);
+      color: var(--msui-gold);
+      font-size: 12px;
+      font-weight: 500;
+    }
+    #msui-crpg-concepts .msui-world-unit::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -14px;
+      width: 66px;
+      height: 24px;
+      transform: translateX(-50%);
+      border: 3px solid var(--msui-cyan);
+      border-radius: 50%;
+    }
+    #msui-crpg-concepts .msui-world-unit.tank { left: 52%; top: 39%; }
+    #msui-crpg-concepts .msui-world-unit.damage { left: 68%; top: 46%; }
+    #msui-crpg-concepts .msui-world-unit.healer { left: 60%; top: 58%; }
+    #msui-crpg-concepts .msui-world-unit.enemy { left: 82%; top: 33%; color: var(--msui-red); }
+    #msui-crpg-concepts .msui-world-unit.enemy::after { border-color: var(--msui-red); }
+    #msui-crpg-concepts .msui-move-marker {
+      position: absolute;
+      z-index: 4;
+      left: 77%;
+      top: 64%;
+      width: 52px;
+      height: 22px;
+      border: 3px solid var(--msui-green);
+      border-radius: 50%;
+      color: var(--msui-green);
+      text-align: center;
+      font-size: 11px;
+    }
+    #msui-crpg-concepts .msui-order-line {
+      position: absolute;
+      z-index: 3;
+      left: 58%;
+      top: 52%;
+      width: 23%;
+      border-top: 2px dashed var(--msui-green);
+      transform: rotate(18deg);
+      transform-origin: left center;
+    }
+    #msui-crpg-concepts .msui-annotation.selection { right: 9%; top: 14%; }
+
+    #msui-crpg-concepts .msui-panel-window {
+      border: 1px solid var(--msui-line-strong);
+      border-radius: 8px;
+      background: var(--msui-panel);
+      box-shadow: 0 10px 24px var(--msui-shadow);
+      overflow: hidden;
+    }
+    #msui-crpg-concepts .msui-window-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--msui-line);
+      background: var(--msui-panel-strong);
+      color: var(--msui-gold);
+      font-weight: 500;
+    }
+    #msui-crpg-concepts .msui-window-heading small { color: var(--msui-muted); font-size: 11px; font-weight: 400; text-align: right; }
+    #msui-crpg-concepts .msui-tactics-layout {
+      display: grid;
+      grid-template-columns: 180px minmax(0, 1fr) 220px;
+      min-height: 500px;
+    }
+    #msui-crpg-concepts .msui-member-picker,
+    #msui-crpg-concepts .msui-tactics-main,
+    #msui-crpg-concepts .msui-behavior-panel { padding: 12px; }
+    #msui-crpg-concepts .msui-member-picker { border-right: 1px solid var(--msui-line); background: var(--msui-panel-soft); }
+    #msui-crpg-concepts .msui-behavior-panel { border-left: 1px solid var(--msui-line); background: var(--msui-panel-soft); }
+    #msui-crpg-concepts .msui-picker-row {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      padding: 7px;
+      border: 1px solid var(--msui-line);
+      border-radius: 6px;
+      background: var(--msui-panel);
+      text-align: left;
+      cursor: pointer;
+    }
+    #msui-crpg-concepts .msui-picker-row.is-active { border-color: var(--msui-cyan); background: var(--msui-cyan-soft); }
+    #msui-crpg-concepts .msui-picker-face { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--msui-panel-strong); color: var(--msui-gold); }
+    #msui-crpg-concepts .msui-picker-row span { display: block; color: var(--msui-muted); font-size: 11px; }
+    #msui-crpg-concepts .msui-section-label { margin: 3px 0 8px; color: var(--msui-gold); font-weight: 500; }
+    #msui-crpg-concepts .msui-role-choices,
+    #msui-crpg-concepts .msui-owner-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+    #msui-crpg-concepts .msui-choice-button[disabled] { cursor: not-allowed; opacity: .45; }
+    #msui-crpg-concepts .msui-effective-role {
+      margin: 9px 0 16px;
+      padding: 7px 9px;
+      border-left: 3px solid var(--msui-green);
+      background: var(--msui-gold-soft);
+      color: var(--msui-muted);
+      font-size: 12px;
+    }
+    #msui-crpg-concepts .msui-slot-editor {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 7px;
+    }
+    #msui-crpg-concepts .msui-edit-slot {
+      min-height: 112px;
+      padding: 9px 6px;
+      border: 1px solid var(--msui-line);
+      border-radius: 7px;
+      background: var(--msui-panel-strong);
+      text-align: center;
+    }
+    #msui-crpg-concepts .msui-edit-slot i { color: var(--msui-gold); }
+    #msui-crpg-concepts .msui-edit-slot strong { display: block; margin-top: 7px; font-size: 12px; font-weight: 500; }
+    #msui-crpg-concepts .msui-edit-slot span { display: block; margin-top: 3px; color: var(--msui-muted); font-size: 11px; }
+    #msui-crpg-concepts .msui-auto-policy { margin-top: 7px; color: var(--msui-green); font-size: 11px; }
+    #msui-crpg-concepts .msui-tactics-note { margin-top: 14px; color: var(--msui-muted); font-size: 12px; }
+    #msui-crpg-concepts .msui-field { margin-bottom: 12px; }
+    #msui-crpg-concepts .msui-field label { display: block; margin-bottom: 4px; color: var(--msui-muted); font-size: 11px; }
+    #msui-crpg-concepts .msui-field select {
+      width: 100%;
+      border: 1px solid var(--msui-line);
+      border-radius: 5px;
+      background: var(--msui-panel);
+      color: var(--msui-ink);
+      padding: 6px;
+      font: inherit;
+    }
+    #msui-crpg-concepts .msui-server-law {
+      margin-top: 18px;
+      padding: 9px;
+      border: 1px solid var(--msui-cyan);
+      border-radius: 6px;
+      background: var(--msui-cyan-soft);
+      color: var(--msui-cyan);
+      font-size: 11px;
+    }
+
+    #msui-crpg-concepts .msui-inventory-body {
+      display: grid;
+      grid-template-columns: 175px minmax(0, 1fr) 210px;
+      min-height: 465px;
+    }
+    #msui-crpg-concepts .msui-inventory-owners,
+    #msui-crpg-concepts .msui-bag-browser,
+    #msui-crpg-concepts .msui-paper-doll { padding: 12px; }
+    #msui-crpg-concepts .msui-inventory-owners { border-right: 1px solid var(--msui-line); background: var(--msui-panel-soft); }
+    #msui-crpg-concepts .msui-paper-doll { border-left: 1px solid var(--msui-line); background: var(--msui-panel-soft); }
+    #msui-crpg-concepts .msui-owner-tabs { flex-direction: column; }
+    #msui-crpg-concepts .msui-owner-button { display: flex; justify-content: space-between; text-align: left; }
+    #msui-crpg-concepts .msui-owner-button small { color: var(--msui-muted); font-size: 11px; }
+    #msui-crpg-concepts .msui-bag-header { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+    #msui-crpg-concepts .msui-bag-header span { color: var(--msui-muted); font-size: 11px; }
+    #msui-crpg-concepts .msui-bag-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 6px;
+    }
+    #msui-crpg-concepts .msui-item-slot {
+      min-height: 54px;
+      border: 1px solid var(--msui-line);
+      border-radius: 5px;
+      background: var(--msui-panel-strong);
+      color: var(--msui-gold);
+      padding: 5px 3px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      cursor: pointer;
+    }
+    #msui-crpg-concepts .msui-item-slot span { display: block; color: var(--msui-muted); font-size: 11px; }
+    #msui-crpg-concepts .msui-item-slot.is-empty { opacity: .48; cursor: default; }
+    #msui-crpg-concepts .msui-transfer-tray {
+      margin-top: 12px;
+      padding: 9px;
+      border: 1px dashed var(--msui-cyan);
+      border-radius: 6px;
+      background: var(--msui-cyan-soft);
+      color: var(--msui-cyan);
+      font-size: 11px;
+    }
+    #msui-crpg-concepts .msui-doll {
+      position: relative;
+      height: 270px;
+      margin: 8px 0 14px;
+      border: 1px solid var(--msui-line);
+      border-radius: 90px 90px 20px 20px;
+      background: radial-gradient(ellipse at 50% 25%, var(--msui-gold-soft), var(--msui-panel-strong));
+    }
+    #msui-crpg-concepts .msui-doll-person {
+      position: absolute;
+      left: 50%; top: 40px;
+      transform: translateX(-50%);
+      width: 70px; height: 185px;
+      border-radius: 38px 38px 24px 24px;
+      background: var(--msui-panel);
+      border: 1px solid var(--msui-line-strong);
+      display: grid;
+      place-items: center;
+      color: var(--msui-gold);
+    }
+    #msui-crpg-concepts .msui-gear-slot {
+      position: absolute;
+      width: 37px; height: 37px;
+      border: 1px solid var(--msui-line);
+      border-radius: 5px;
+      background: var(--msui-panel);
+      display: grid;
+      place-items: center;
+      color: var(--msui-muted);
+    }
+    #msui-crpg-concepts .msui-gear-slot.head { left: 13px; top: 34px; }
+    #msui-crpg-concepts .msui-gear-slot.chest { left: 13px; top: 84px; }
+    #msui-crpg-concepts .msui-gear-slot.hands { left: 13px; top: 134px; }
+    #msui-crpg-concepts .msui-gear-slot.main { right: 13px; top: 84px; }
+    #msui-crpg-concepts .msui-gear-slot.off { right: 13px; top: 134px; }
+    #msui-crpg-concepts .msui-inventory-law {
+      padding: 8px;
+      border-left: 3px solid var(--msui-gold);
+      background: var(--msui-gold-soft);
+      color: var(--msui-muted);
+      font-size: 11px;
+    }
+
+    @media (max-width: 700px) {
+      #msui-crpg-concepts .msui-concept-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #msui-crpg-concepts .msui-world { min-height: 650px; }
+      #msui-crpg-concepts .msui-party-stack { width: min(310px, calc(100% - 28px)); top: 70px; }
+      #msui-crpg-concepts .msui-top-target { left: auto; right: 12px; transform: none; max-width: 42%; min-width: 0; }
+      #msui-crpg-concepts .msui-party-member { grid-template-columns: 46px minmax(70px, 1fr) repeat(4, 34px); }
+      #msui-crpg-concepts .msui-quick-action { height: 35px; }
+      #msui-crpg-concepts .msui-player-bar { grid-template-columns: repeat(6, 32px); }
+      #msui-crpg-concepts .msui-player-slot:nth-child(n+7) { display: none; }
+      #msui-crpg-concepts .msui-annotation.role { display: none; }
+      #msui-crpg-concepts .msui-freeview .msui-party-stack { width: 190px; top: 104px; }
+      #msui-crpg-concepts .msui-free-banner { top: 78px; max-width: calc(100% - 20px); white-space: normal; text-align: center; }
+      #msui-crpg-concepts .msui-group-rail { justify-content: center; flex-wrap: wrap; }
+      #msui-crpg-concepts .msui-world-unit.tank { left: 52%; top: 42%; }
+      #msui-crpg-concepts .msui-world-unit.damage { left: 72%; top: 50%; }
+      #msui-crpg-concepts .msui-world-unit.healer { left: 56%; top: 61%; }
+      #msui-crpg-concepts .msui-world-unit.enemy { left: 77%; top: 31%; }
+      #msui-crpg-concepts .msui-annotation.selection { display: none; }
+      #msui-crpg-concepts .msui-tactics-layout,
+      #msui-crpg-concepts .msui-inventory-body { grid-template-columns: 1fr; }
+      #msui-crpg-concepts .msui-member-picker,
+      #msui-crpg-concepts .msui-inventory-owners { border-right: 0; border-bottom: 1px solid var(--msui-line); }
+      #msui-crpg-concepts .msui-behavior-panel,
+      #msui-crpg-concepts .msui-paper-doll { border-left: 0; border-top: 1px solid var(--msui-line); }
+      #msui-crpg-concepts .msui-member-picker { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; }
+      #msui-crpg-concepts .msui-picker-row { margin: 0; }
+      #msui-crpg-concepts .msui-owner-tabs { flex-direction: row; }
+      #msui-crpg-concepts .msui-owner-button { flex: 1 1 42%; }
+      #msui-crpg-concepts .msui-doll { max-width: 300px; margin-inline: auto; }
+    }
+    @media (max-width: 470px) {
+      #msui-crpg-concepts .msui-screen-title { align-items: flex-start; flex-direction: column; gap: 3px; }
+      #msui-crpg-concepts .msui-screen-title span { text-align: left; }
+      #msui-crpg-concepts .msui-world { min-height: 720px; }
+      #msui-crpg-concepts .msui-party-stack { top: 86px; }
+      #msui-crpg-concepts .msui-top-target { left: 12px; right: 12px; max-width: none; }
+      #msui-crpg-concepts .msui-party-member { grid-template-columns: 46px minmax(62px, 1fr) repeat(2, 35px); }
+      #msui-crpg-concepts .msui-party-member .msui-quick-action:nth-last-child(-n+2) { display: none; }
+      #msui-crpg-concepts .msui-command-dock { bottom: 65px; }
+      #msui-crpg-concepts .msui-annotation.dock { display: none; }
+      #msui-crpg-concepts .msui-slot-editor { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      #msui-crpg-concepts .msui-bag-grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
+      #msui-crpg-concepts .msui-freeview .msui-party-stack { display: none; }
+      #msui-crpg-concepts .msui-world-unit { width: 42px; height: 42px; }
+      #msui-crpg-concepts .msui-world-unit.tank { left: 25%; top: 41%; }
+      #msui-crpg-concepts .msui-world-unit.damage { left: 58%; top: 48%; }
+      #msui-crpg-concepts .msui-world-unit.healer { left: 36%; top: 60%; }
+      #msui-crpg-concepts .msui-world-unit.enemy { left: 70%; top: 31%; }
+    }
+  </style>
+
+  <nav class="msui-concept-tabs" aria-label="Interface drawings">
+    <button type="button" class="msui-concept-tab" data-screen-button="hud" aria-pressed="true">1 · MMO party HUD</button>
+    <button type="button" class="msui-concept-tab" data-screen-button="freeview" aria-pressed="false">2 · Free View</button>
+    <button type="button" class="msui-concept-tab" data-screen-button="tactics" aria-pressed="false">3 · Roles &amp; quick slots</button>
+    <button type="button" class="msui-concept-tab" data-screen-button="inventory" aria-pressed="false">4 · Party inventory</button>
+  </nav>
+
+  <section class="msui-concept-screen is-active" data-screen="hud">
+    <div class="msui-screen-title"><strong>Normal MMO view</strong><span>Classic party frames grow sideways; the main action bar still belongs to the body you directly control.</span></div>
+    <div class="msui-world">
+      <div class="msui-top-target"><b>Scarlet Necromancer</b><small>MMO target · unchanged by party command selection</small></div>
+      <div class="msui-party-stack">
+        <div class="msui-party-member">
+          <div class="msui-portrait-wrap"><div class="msui-portrait">BR</div><button type="button" class="msui-role-badge" data-role="tank" aria-label="Brann role: Tank"><i data-lucide="shield" aria-hidden="true"></i></button></div>
+          <div class="msui-member-state"><div class="msui-member-name">Brann <span class="msui-member-level">46</span></div><div class="msui-meter"><span style="width:92%"></span></div><div class="msui-meter power"><span style="width:64%"></span></div><div class="msui-member-order">Guarding Nico</div></div>
+          <button type="button" class="msui-quick-action" aria-label="Brann quick action 1 Taunt"><i data-lucide="shield-alert" aria-hidden="true"></i><span>Taunt</span><b class="msui-auto-dot" aria-label="AI may use"></b></button>
+          <button type="button" class="msui-quick-action" aria-label="Brann quick action 2 Bash"><i data-lucide="hammer" aria-hidden="true"></i><span>Bash</span></button>
+          <button type="button" class="msui-quick-action" aria-label="Brann quick action 3 Shield Wall"><i data-lucide="brick-wall" aria-hidden="true"></i><span>Wall</span></button>
+          <button type="button" class="msui-quick-action" aria-label="Brann quick action 4 Intercept"><i data-lucide="move-right" aria-hidden="true"></i><span>Guard</span></button>
+        </div>
+        <div class="msui-party-member">
+          <div class="msui-portrait-wrap"><div class="msui-portrait">LY</div><button type="button" class="msui-role-badge" data-role="healer" aria-label="Lyra role: Healer"><i data-lucide="heart-pulse" aria-hidden="true"></i></button></div>
+          <div class="msui-member-state"><div class="msui-member-name">Lyra <span class="msui-member-level">45</span></div><div class="msui-meter"><span style="width:76%"></span></div><div class="msui-meter power"><span style="width:58%"></span></div><div class="msui-member-order">Casting Greater Heal</div></div>
+          <button type="button" class="msui-quick-action is-pending" aria-label="Lyra quick action 1 Heal pending"><i data-lucide="heart-plus" aria-hidden="true"></i><span>Heal</span><b class="msui-auto-dot" aria-label="AI may use"></b></button>
+          <button type="button" class="msui-quick-action" aria-label="Lyra quick action 2 Cleanse"><i data-lucide="sparkles" aria-hidden="true"></i><span>Cleanse</span></button>
+          <button type="button" class="msui-quick-action" aria-label="Lyra quick action 3 Shield"><i data-lucide="shield-plus" aria-hidden="true"></i><span>Shield</span></button>
+          <button type="button" class="msui-quick-action" aria-label="Lyra quick action 4 Fear Ward"><i data-lucide="sun" aria-hidden="true"></i><span>Ward</span></button>
+        </div>
+        <div class="msui-party-member">
+          <div class="msui-portrait-wrap"><div class="msui-portrait">VE</div><button type="button" class="msui-role-badge" data-role="damage" aria-label="Vex role: Damage"><i data-lucide="swords" aria-hidden="true"></i></button></div>
+          <div class="msui-member-state"><div class="msui-member-name">Vex <span class="msui-member-level">46</span></div><div class="msui-meter"><span style="width:88%"></span></div><div class="msui-meter power"><span style="width:81%"></span></div><div class="msui-member-order">Focusing your target</div></div>
+          <button type="button" class="msui-quick-action" aria-label="Vex quick action 1 Burst"><i data-lucide="zap" aria-hidden="true"></i><span>Burst</span></button>
+          <button type="button" class="msui-quick-action" aria-label="Vex quick action 2 Kick"><i data-lucide="circle-slash" aria-hidden="true"></i><span>Kick</span><b class="msui-auto-dot" aria-label="AI may use"></b></button>
+          <button type="button" class="msui-quick-action" aria-label="Vex quick action 3 Crowd control"><i data-lucide="moon" aria-hidden="true"></i><span>CC</span></button>
+          <button type="button" class="msui-quick-action" aria-label="Vex quick action 4 Escape"><i data-lucide="wind" aria-hidden="true"></i><span>Escape</span></button>
+        </div>
+        <div class="msui-party-member">
+          <div class="msui-portrait-wrap"><div class="msui-portrait">MI</div><button type="button" class="msui-role-badge" data-role="support" aria-label="Mira role: Support"><i data-lucide="wand-sparkles" aria-hidden="true"></i></button></div>
+          <div class="msui-member-state"><div class="msui-member-name">Mira <span class="msui-member-level">44</span></div><div class="msui-meter"><span style="width:95%"></span></div><div class="msui-meter power"><span style="width:70%"></span></div><div class="msui-member-order">In soft formation</div></div>
+          <button type="button" class="msui-quick-action" aria-label="Mira quick action 1 Polymorph"><i data-lucide="rabbit" aria-hidden="true"></i><span>Sheep</span></button>
+          <button type="button" class="msui-quick-action" aria-label="Mira quick action 2 Counterspell"><i data-lucide="badge-x" aria-hidden="true"></i><span>Counter</span></button>
+          <button type="button" class="msui-quick-action" aria-label="Mira quick action 3 Nova"><i data-lucide="snowflake" aria-hidden="true"></i><span>Nova</span></button>
+          <button type="button" class="msui-quick-action" aria-label="Mira quick action 4 Blink"><i data-lucide="fast-forward" aria-hidden="true"></i><span>Blink</span></button>
+        </div>
+      </div>
+      <div class="msui-annotation role"><b>1</b> Role medallion sits half on / half off</div>
+      <div class="msui-annotation dock"><b>2</b> Scope is always explicit before group orders</div>
+      <div class="msui-command-dock">
+        <span class="msui-command-scope">ALL LINKED · 4 BOTS</span>
+        <button type="button" class="msui-command-button" data-command="Regroup" aria-pressed="false"><i data-lucide="users" aria-hidden="true"></i>Regroup</button>
+        <button type="button" class="msui-command-button" data-command="Hold" aria-pressed="false"><i data-lucide="anchor" aria-hidden="true"></i>Hold</button>
+        <button type="button" class="msui-command-button" data-command="Focus target" aria-pressed="false"><i data-lucide="crosshair" aria-hidden="true"></i>Focus</button>
+        <button type="button" class="msui-command-button" data-command="Guard" aria-pressed="false"><i data-lucide="shield-check" aria-hidden="true"></i>Guard</button>
+        <button type="button" class="msui-command-button" data-command="Formation: Standard" aria-pressed="false"><i data-lucide="layout-grid" aria-hidden="true"></i>Formation ▾</button>
+        <button type="button" class="msui-command-button" data-command="Cancel overrides" aria-pressed="false"><i data-lucide="rotate-ccw" aria-hidden="true"></i>Reset</button>
+        <div class="msui-command-result" aria-live="polite">Group commands affect controllable bots; human party members are never driven.</div>
+      </div>
+      <div class="msui-player-bar" aria-label="Existing controlled-body action bar">
+        <div class="msui-player-slot">1</div><div class="msui-player-slot">2</div><div class="msui-player-slot">3</div><div class="msui-player-slot">4</div><div class="msui-player-slot">5</div><div class="msui-player-slot">6</div><div class="msui-player-slot">7</div><div class="msui-player-slot">8</div><div class="msui-player-slot">9</div><div class="msui-player-slot">0</div><div class="msui-player-slot">−</div><div class="msui-player-slot">=</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="msui-concept-screen" data-screen="freeview">
+    <div class="msui-screen-title"><strong>Ctrl+F Free View</strong><span>Keep the existing marquee, right-click orders, waypoint queue, body possession, and session control groups.</span></div>
+    <div class="msui-world msui-freeview">
+      <div class="msui-group-rail">
+        <button type="button" class="msui-group-card"><strong>1 · Brann +2</strong><span>3/3 nearby · click selects</span></button>
+        <button type="button" class="msui-group-card"><strong>2 · Mira +1</strong><span>2/2 nearby · click selects</span></button>
+      </div>
+      <div class="msui-free-banner">FREE VIEW · commanding no body · 3 selected</div>
+      <div class="msui-party-stack">
+        <div class="msui-party-member is-command-selected"><div class="msui-portrait-wrap"><div class="msui-portrait">BR</div><button type="button" class="msui-role-badge" data-role="tank" aria-label="Tank"><i data-lucide="shield" aria-hidden="true"></i></button></div><div class="msui-member-state"><div class="msui-member-name">Brann</div><div class="msui-meter"><span style="width:92%"></span></div><div class="msui-member-order">Selected · Hold anchor clear</div></div></div>
+        <div class="msui-party-member is-command-selected"><div class="msui-portrait-wrap"><div class="msui-portrait">VE</div><button type="button" class="msui-role-badge" data-role="damage" aria-label="Damage"><i data-lucide="swords" aria-hidden="true"></i></button></div><div class="msui-member-state"><div class="msui-member-name">Vex</div><div class="msui-meter"><span style="width:88%"></span></div><div class="msui-member-order">Selected · Focus ready</div></div></div>
+        <div class="msui-party-member is-command-selected"><div class="msui-portrait-wrap"><div class="msui-portrait">LY</div><button type="button" class="msui-role-badge" data-role="healer" aria-label="Healer"><i data-lucide="heart-pulse" aria-hidden="true"></i></button></div><div class="msui-member-state"><div class="msui-member-name">Lyra</div><div class="msui-meter"><span style="width:76%"></span></div><div class="msui-member-order">Selected · healing priority</div></div></div>
+      </div>
+      <div class="msui-marquee" aria-hidden="true"></div>
+      <div class="msui-world-unit tank">TANK</div>
+      <div class="msui-world-unit damage">DPS</div>
+      <div class="msui-world-unit healer">HEAL</div>
+      <div class="msui-world-unit enemy">FOE</div>
+      <div class="msui-order-line" aria-hidden="true"></div>
+      <div class="msui-move-marker">MOVE</div>
+      <div class="msui-annotation selection"><b>3</b> Cyan selection and red MMO target remain different</div>
+      <div class="msui-command-dock">
+        <span class="msui-command-scope">SELECTED · 3 BOTS</span>
+        <button type="button" class="msui-command-button" data-command="Move with right-click" aria-pressed="false"><i data-lucide="mouse-pointer-2" aria-hidden="true"></i>Move</button>
+        <button type="button" class="msui-command-button" data-command="Hold selected" aria-pressed="false"><i data-lucide="anchor" aria-hidden="true"></i>Hold</button>
+        <button type="button" class="msui-command-button" data-command="Focus hostile target" aria-pressed="false"><i data-lucide="crosshair" aria-hidden="true"></i>Focus</button>
+        <button type="button" class="msui-command-button" data-command="Queue waypoint" aria-pressed="false"><i data-lucide="route" aria-hidden="true"></i>Waypoint</button>
+        <button type="button" class="msui-command-button" data-command="Formation: Spread" aria-pressed="false"><i data-lucide="move-diagonal-2" aria-hidden="true"></i>Spread</button>
+        <button type="button" class="msui-command-button" data-command="Take control of focused bot" aria-pressed="false"><i data-lucide="person-standing" aria-hidden="true"></i>Control</button>
+        <div class="msui-command-result" aria-live="polite">LMB/drag selects · Shift+LMB edits · RMB moves/attacks · Shift+RMB queues · Alt+LMB controls.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="msui-concept-screen" data-screen="tactics">
+    <div class="msui-screen-title"><strong>Party tactics setup</strong><span>Role selection is explicit and server-confirmed; the four buttons are shortcuts, not the whole AI rotation.</span></div>
+    <div class="msui-panel-window">
+      <div class="msui-window-heading">PARTY TACTICS <small>Out of combat · edits do not pause the MMO world</small></div>
+      <div class="msui-tactics-layout">
+        <div class="msui-member-picker">
+          <button type="button" class="msui-picker-row is-active"><span class="msui-picker-face">BR</span><b>Brann<span>Warrior · Tank</span></b></button>
+          <button type="button" class="msui-picker-row"><span class="msui-picker-face">LY</span><b>Lyra<span>Priest · Healer</span></b></button>
+          <button type="button" class="msui-picker-row"><span class="msui-picker-face">VE</span><b>Vex<span>Rogue · Damage</span></b></button>
+          <button type="button" class="msui-picker-row"><span class="msui-picker-face">MI</span><b>Mira<span>Mage · Support</span></b></button>
+        </div>
+        <div class="msui-tactics-main">
+          <div class="msui-section-label">Effective role</div>
+          <div class="msui-role-choices" role="group" aria-label="Choose Brann role">
+            <button type="button" class="msui-choice-button" data-role-choice="Tank" aria-pressed="true"><i data-lucide="shield" aria-hidden="true"></i> Tank</button>
+            <button type="button" class="msui-choice-button" data-role-choice="Damage" aria-pressed="false"><i data-lucide="swords" aria-hidden="true"></i> Damage</button>
+            <button type="button" class="msui-choice-button" disabled aria-pressed="false"><i data-lucide="heart-pulse" aria-hidden="true"></i> Healer unavailable</button>
+            <button type="button" class="msui-choice-button" data-role-choice="Auto" aria-pressed="false">Auto</button>
+          </div>
+          <div class="msui-effective-role" aria-live="polite">Server confirmed: <b data-effective-role>Tank</b>. This changes threat, target, and positioning priorities—not class, talents, or gear.</div>
+          <div class="msui-section-label">Four quick commands</div>
+          <div class="msui-slot-editor">
+            <button type="button" class="msui-edit-slot"><i data-lucide="shield-alert" aria-hidden="true"></i><strong>1 · Taunt</strong><span>Current hostile target</span><div class="msui-auto-policy">AI: emergency</div></button>
+            <button type="button" class="msui-edit-slot"><i data-lucide="circle-slash" aria-hidden="true"></i><strong>2 · Shield Bash</strong><span>Interrupt if legal</span><div class="msui-auto-policy">AI: by tactics</div></button>
+            <button type="button" class="msui-edit-slot"><i data-lucide="brick-wall" aria-hidden="true"></i><strong>3 · Shield Wall</strong><span>Self · reserved</span><div class="msui-auto-policy">AI: never</div></button>
+            <button type="button" class="msui-edit-slot"><i data-lucide="shield-check" aria-hidden="true"></i><strong>4 · Protect</strong><span>Selected friendly</span><div class="msui-auto-policy">AI: by tactics</div></button>
+          </div>
+          <div class="msui-tactics-note">Normal click commands one cast. A targeted ability uses the current MMO target only when valid; otherwise the cursor asks for an enemy, ally, or ground point. Right-click configures automatic use.</div>
+        </div>
+        <div class="msui-behavior-panel">
+          <div class="msui-section-label">Soft behavior</div>
+          <div class="msui-field"><label for="msui-protect">Protect</label><select id="msui-protect"><option>Nico (controlled body)</option><option>Lyra (healer)</option><option>Party leader</option></select></div>
+          <div class="msui-field"><label for="msui-engage">Engage</label><select id="msui-engage"><option>My focused target</option><option>Threatening party</option><option>Never without order</option></select></div>
+          <div class="msui-field"><label for="msui-leash">Chase leash</label><select id="msui-leash"><option>Near · 12 yd</option><option>Standard · 25 yd</option><option>Loose · 40 yd</option></select></div>
+          <div class="msui-field"><label for="msui-formation">Formation preference</label><select id="msui-formation"><option>Tank ahead</option><option>Compact</option><option>Spread</option></select></div>
+          <div class="msui-server-law">Server law: human control &gt; safety &gt; manual order/quick cast &gt; engagement &gt; rotation &gt; fallback. A role badge never becomes client authority.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="msui-concept-screen" data-screen="inventory">
+    <div class="msui-screen-title"><strong>Party inventory browser</strong><span>One window, separate owners. No magical shared bag unless the server later creates a real shared container.</span></div>
+    <div class="msui-panel-window">
+      <div class="msui-window-heading">PARTY INVENTORY <small>Inspect now · transfer/equip only after a GUID-scoped server hook</small></div>
+      <div class="msui-inventory-body">
+        <div class="msui-inventory-owners">
+          <div class="msui-section-label">Whose bags?</div>
+          <div class="msui-owner-tabs" role="group" aria-label="Inventory owner">
+            <button type="button" class="msui-owner-button" data-owner="Nico" aria-pressed="true">Nico <small>31 / 48</small></button>
+            <button type="button" class="msui-owner-button" data-owner="Brann" aria-pressed="false">Brann <small>18 / 32</small></button>
+            <button type="button" class="msui-owner-button" data-owner="Lyra" aria-pressed="false">Lyra <small>26 / 40</small></button>
+            <button type="button" class="msui-owner-button" data-owner="Vex" aria-pressed="false">Vex <small>12 / 28</small></button>
+            <button type="button" class="msui-owner-button" data-owner="Mira" aria-pressed="false">Mira <small>22 / 36</small></button>
+          </div>
+          <div class="msui-transfer-tray">Drag an owned item onto a portrait to stage “Give to…”. The server checks distance, combat, binding, bag space, class, level, and unique-item rules.</div>
+        </div>
+        <div class="msui-bag-browser">
+          <div class="msui-bag-header"><b><span data-owner-label>Nico</span> · Backpack</b><span>Personal ownership remains visible</span></div>
+          <div class="msui-bag-grid" aria-label="Example bag slots">
+            <button type="button" class="msui-item-slot"><i data-lucide="flask-conical" aria-hidden="true"></i><span>Healing Potion</span></button>
+            <button type="button" class="msui-item-slot"><i data-lucide="sword" aria-hidden="true"></i><span>Steel Blade</span></button>
+            <button type="button" class="msui-item-slot"><i data-lucide="shirt" aria-hidden="true"></i><span>Mail Vest</span></button>
+            <button type="button" class="msui-item-slot"><i data-lucide="scroll-text" aria-hidden="true"></i><span>Quest Note</span></button>
+            <button type="button" class="msui-item-slot"><i data-lucide="gem" aria-hidden="true"></i><span>Azerothian Diamond</span></button>
+            <button type="button" class="msui-item-slot"><i data-lucide="leaf" aria-hidden="true"></i><span>Fadeleaf ×7</span></button>
+            <button type="button" class="msui-item-slot"><i data-lucide="drum" aria-hidden="true"></i><span>Armor Kit</span></button>
+            <button type="button" class="msui-item-slot"><i data-lucide="cookie" aria-hidden="true"></i><span>Food ×12</span></button>
+            <button type="button" class="msui-item-slot is-empty" aria-label="Empty slot">—</button>
+            <button type="button" class="msui-item-slot is-empty" aria-label="Empty slot">—</button>
+            <button type="button" class="msui-item-slot"><i data-lucide="key-round" aria-hidden="true"></i><span>Key</span></button>
+            <button type="button" class="msui-item-slot"><i data-lucide="coins" aria-hidden="true"></i><span>Token ×4</span></button>
+            <button type="button" class="msui-item-slot is-empty" aria-label="Empty slot">—</button>
+            <button type="button" class="msui-item-slot is-empty" aria-label="Empty slot">—</button>
+            <button type="button" class="msui-item-slot is-empty" aria-label="Empty slot">—</button>
+          </div>
+          <div class="msui-transfer-tray"><b>Staged transfer:</b> Steel Blade · Nico → Brann &nbsp; <button type="button" class="msui-small-button">Request Give</button></div>
+        </div>
+        <div class="msui-paper-doll">
+          <div class="msui-section-label">Selected member gear</div>
+          <div class="msui-doll">
+            <div class="msui-doll-person"><i data-lucide="person-standing" aria-hidden="true"></i></div>
+            <div class="msui-gear-slot head"><i data-lucide="crown" aria-hidden="true"></i></div>
+            <div class="msui-gear-slot chest"><i data-lucide="shirt" aria-hidden="true"></i></div>
+            <div class="msui-gear-slot hands"><i data-lucide="hand" aria-hidden="true"></i></div>
+            <div class="msui-gear-slot main"><i data-lucide="sword" aria-hidden="true"></i></div>
+            <div class="msui-gear-slot off"><i data-lucide="shield" aria-hidden="true"></i></div>
+          </div>
+          <div class="msui-inventory-law">Loot remains MMO-authoritative. “Give” happens only after ownership is awarded; bound, quest, currency, vendor, and Need/Greed rules are never bypassed.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    (() => {
+      const root = document.getElementById('msui-crpg-concepts');
+      if (!root) return;
+
+      const tabButtons = [...root.querySelectorAll('[data-screen-button]')];
+      const screens = [...root.querySelectorAll('[data-screen]')];
+      tabButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          const target = button.getAttribute('data-screen-button');
+          tabButtons.forEach((candidate) => candidate.setAttribute('aria-pressed', String(candidate === button)));
+          screens.forEach((screen) => screen.classList.toggle('is-active', screen.getAttribute('data-screen') === target));
+        });
+      });
+
+      root.querySelectorAll('[data-command]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const dock = button.closest('.msui-command-dock');
+          if (!dock) return;
+          dock.querySelectorAll('[data-command]').forEach((candidate) => candidate.setAttribute('aria-pressed', String(candidate === button)));
+          const result = dock.querySelector('.msui-command-result');
+          const scope = dock.querySelector('.msui-command-scope')?.textContent ?? 'current scope';
+          if (result) result.textContent = `${button.getAttribute('data-command')} requested for ${scope.toLowerCase()} · awaiting server acknowledgement.`;
+        });
+      });
+
+      root.querySelectorAll('[data-role-choice]').forEach((button) => {
+        button.addEventListener('click', () => {
+          root.querySelectorAll('[data-role-choice]').forEach((candidate) => candidate.setAttribute('aria-pressed', String(candidate === button)));
+          const value = button.getAttribute('data-role-choice') ?? 'Auto';
+          const output = root.querySelector('[data-effective-role]');
+          if (output) output.textContent = value;
+        });
+      });
+
+      root.querySelectorAll('[data-owner]').forEach((button) => {
+        button.addEventListener('click', () => {
+          root.querySelectorAll('[data-owner]').forEach((candidate) => candidate.setAttribute('aria-pressed', String(candidate === button)));
+          const owner = button.getAttribute('data-owner') ?? 'Party member';
+          const label = root.querySelector('[data-owner-label]');
+          if (label) label.textContent = owner;
+        });
+      });
+    })();
+  </script>
+</div>
+
+
