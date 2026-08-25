@@ -479,6 +479,12 @@ public sealed partial class CharacterRenderer : IDisposable
     /// <summary>Fresh Stand animation frozen at time zero, used by the portrait booth.</summary>
     public bool FrozenStandPose { get; set; }
 
+    /// <summary>
+    /// A caller-owned Stand clock used for a live UI model. It changes only the pose evaluated
+    /// by <see cref="Render"/>; the world locomotion and action clocks remain untouched.
+    /// </summary>
+    public float? StandPreviewTime { get; set; }
+
     /// <summary>Client-local held Loot-50 pose; locomotion still outranks it.</summary>
     public bool LootKneel { get; set; }
 
@@ -3334,7 +3340,9 @@ public sealed partial class CharacterRenderer : IDisposable
         if (MountSeat is { } seat) return Matrix4x4.CreateScale(ModelScale) * seat;
 
         bool bodyTurns = Strafe is StrafeStyle.Split or StrafeStyle.WholeBody;
-        float bodyYaw = bodyTurns && !BindPose && !FrozenStandPose ? _moveYaw : 0f;
+        float bodyYaw = bodyTurns && !BindPose && !FrozenStandPose && StandPreviewTime is null
+            ? _moveYaw
+            : 0f;
 
         float heading = state.Yaw + HeadingOffsetDegrees * MathF.PI / 180f + bodyYaw;
         var position = state.Position + new Vector3(0f, 0f, ZOffset);
@@ -3368,7 +3376,8 @@ public sealed partial class CharacterRenderer : IDisposable
             // Mounted takes the same exit as bind/frozen: the seated pose is authored whole,
             // and twisting its hips against a saddle it is parented to only breaks it.
             _animator.LowerBodyYaw =
-                BindPose || FrozenStandPose || Mounted || Strafe != StrafeStyle.LowerBody
+                BindPose || FrozenStandPose || StandPreviewTime is not null || Mounted ||
+                Strafe != StrafeStyle.LowerBody
                     ? 0f
                     : Math.Clamp(_moveYaw, -maxTwist, maxTwist);
 
@@ -3376,9 +3385,14 @@ public sealed partial class CharacterRenderer : IDisposable
             // lag between aim and whole-body heading; its slower release catch-up is handled
             // by StandingBodyStep, while sparse shuffle shoulders inherit Stand in M2Animator.
             _animator.TorsoYaw = CharacterPoseLaw.TorsoCounterYaw(
-                BindPose || Mounted, FrozenStandPose, Strafe == StrafeStyle.Split,
+                BindPose || StandPreviewTime is not null || Mounted, FrozenStandPose,
+                Strafe == StrafeStyle.Split,
                 state.Moving, ForceAngleDegrees != 0f, TorsoFollow, _moveYaw);
-            if (BindPose)
+            if (StandPreviewTime is float standTime)
+            {
+                _animator.Evaluate(_animator.Find(0), standTime, _globalTime, _skin);
+            }
+            else if (BindPose)
             {
                 _animator.Evaluate(null, 0f, _globalTime, _skin);
             }

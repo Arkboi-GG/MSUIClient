@@ -79,6 +79,8 @@ string hud = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Hud"
     "GameLoop.RtsControlGroups.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
 string control = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
     "GameLoop.Control.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
+string targeting = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Combat",
+    "GameLoop.Targeting.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
 string actionBars = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
     "GameLoop.ActionBars.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
 string settings = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
@@ -92,10 +94,11 @@ Check(hud.Contains("Key.Number1, Key.Number2, Key.Number3", StringComparison.Ord
       hud.Contains("Key.Number9, Key.Number0", StringComparison.Ordinal) &&
       hud.Contains("Shift+1-0: save selected faction bots", StringComparison.Ordinal),
     "the physical 1-9,0 chord or Free-View-only group rail is no longer wired");
-Check(hud.Contains("_freecamSelection.Where(IsRtsControllableBot)", StringComparison.Ordinal) &&
+Check(hud.Contains("_freecamSelection.Where(IsRtsGroupableBot)", StringComparison.Ordinal) &&
+      hud.Contains("IsRtsDirectlyControllableBot", StringComparison.Ordinal) &&
       hud.Contains("_rtsForces.TryGetValue", StringComparison.Ordinal) &&
-      control.Contains("CanUseFactionForceRoster()", StringComparison.Ordinal),
-    "temporary groups stopped deriving membership from the authoritative faction roster");
+      control.Contains("force.Alive && force.SameMapAndInstance", StringComparison.Ordinal),
+    "temporary groups and direct control stopped using their distinct server-roster gates");
 Check(control.Contains("ResetRtsControlGroups();", StringComparison.Ordinal) &&
       !hud.Contains("Settings.", StringComparison.Ordinal) &&
       !hud.Contains("File.Write", StringComparison.Ordinal) &&
@@ -107,6 +110,17 @@ Check(actionBars.Contains("RtsControlGroupClaimsBinding(ActionBinding(i))", Stri
     "Shift+number stopped suppressing a colliding main/multi action-bar binding");
 Check(control.Contains("bool queue = click.ShiftDown;", StringComparison.Ordinal),
     "queued waypoints stopped using the gesture-captured Shift state");
+Check(targeting.Contains("HandleFreeCamWorldClick(click, pressPick);", StringComparison.Ordinal) &&
+      control.Contains("pressPick.Armed", StringComparison.Ordinal) &&
+      control.Contains("if (click.ShiftDown)", StringComparison.Ordinal) &&
+      control.Contains("_freecamSelection.Remove(guid)", StringComparison.Ordinal) &&
+      control.Contains("if (click.AltDown)", StringComparison.Ordinal) &&
+      control.Contains("RTS selection and direct body possession are separate operations",
+          StringComparison.Ordinal),
+    "Free View lost stable/additive selection or conflated selection with possession again");
+Check(hud.Contains("zoneId = _minimapReportedZoneId", StringComparison.Ordinal) &&
+      hud.Contains("zoneId = _net.Player?.Zone", StringComparison.Ordinal),
+    "detached-camera faction census lost its session-zone startup fallback");
 Check(control.Contains("NormalizeMembers(_freecamSelection)", StringComparison.Ordinal) &&
       session.Contains("subjects.Count > byte.MaxValue", StringComparison.Ordinal),
     "explicit orders lost their client-side wire bound");

@@ -133,6 +133,12 @@ public sealed partial class GameLoop
 
         uint zoneId = _areas?.ParentZoneId(_minimapAreaId) ?? 0;
         if (zoneId == 0) zoneId = _minimapAreaId;
+        // Detached-camera startup can precede the first ADT/minimap area sample. The
+        // session already has an authoritative zone at that point; use it so the faction
+        // census does not remain closed merely because Benilla's minimap surface has not
+        // published its first leaf area yet.
+        if (zoneId == 0) zoneId = _minimapReportedZoneId;
+        if (zoneId == 0) zoneId = _net.Player?.Zone ?? 0;
         if (zoneId == 0) return;
 
         if (!_rtsForceLoading &&
@@ -164,7 +170,24 @@ public sealed partial class GameLoop
         return false;
     }
 
-    private bool IsRtsControllableBot(ulong guid)
+    /// <summary>
+    /// A server-authenticated bot that may be retained in a temporary tactical group.
+    /// Availability is deliberately not required: cards survive a busy/possessed/off-map
+    /// interval and the server revalidates every eventual order.
+    /// </summary>
+    private bool IsRtsGroupableBot(ulong guid)
+    {
+        if (guid == 0 || guid == LocalPlayerGuid) return false;
+        if (guid == _controlTargetGuid && _controlState == ControlState.Possessing) return true;
+        if (_rtsForces.TryGetValue(guid, out RtsForceUnitWire force) && force.Alive)
+            return true;
+        foreach ((ulong rosterGuid, _) in _suiRoster)
+            if (rosterGuid == guid) return true;
+        return false;
+    }
+
+    /// <summary>The stricter, instantaneous direct-possession affordance.</summary>
+    private bool IsRtsDirectlyControllableBot(ulong guid)
     {
         if (guid == 0 || guid == LocalPlayerGuid) return false;
         if (guid == _controlTargetGuid && _controlState == ControlState.Possessing) return true;
@@ -181,9 +204,9 @@ public sealed partial class GameLoop
     private void AssignRtsControlGroup(int index)
     {
         string number = RtsControlGroupLaw.DisplayNumber(index);
-        int eligibleCount = _freecamSelection.Count(IsRtsControllableBot);
+        int eligibleCount = _freecamSelection.Count(IsRtsGroupableBot);
         ulong[] members = RtsControlGroupLaw.NormalizeMembers(
-            _freecamSelection.Where(IsRtsControllableBot));
+            _freecamSelection.Where(IsRtsGroupableBot));
         if (members.Length == 0)
         {
             // Name the ACTUAL closed gate — "select faction bots" blamed the user for a
@@ -412,7 +435,7 @@ public sealed partial class GameLoop
                 {
                     ulong guid = members[memberIndex];
                     bool resident = _entities.TryGet(guid, out WorldEntity unit) && !unit.IsDead;
-                    bool controllable = resident && IsRtsControllableBot(guid);
+                    bool controllable = resident && IsRtsDirectlyControllableBot(guid);
                     ImGui.TextUnformatted(CommanderForceName(guid, request: true));
                     if (controllable)
                     {

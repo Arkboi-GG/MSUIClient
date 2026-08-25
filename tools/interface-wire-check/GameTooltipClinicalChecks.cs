@@ -1546,7 +1546,10 @@ internal static class GameTooltipClinicalChecks
               character.Contains("ImmutableArray<string> preparedLines", StringComparison.Ordinal) &&
               character.Contains("!_shoppingTooltipParityCompletionPending",
                   StringComparison.Ordinal) &&
-              Count(character, "OfferPreparedItemTooltip(tooltipOwner, body)") == 2 &&
+              Count(character, "OfferPreparedItemTooltip(tooltipOwner, body)") == 1 &&
+              character.Contains(
+                  "OfferPreparedItemTooltip(tooltipOwner, body, tooltipSeat.Position,",
+                  StringComparison.Ordinal) &&
               Count(character, "OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>") >= 3,
             "B3 character item/ammo/empty/stat fixed-owner or deferred completion drift");
 

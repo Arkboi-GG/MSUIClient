@@ -1466,7 +1466,10 @@ Check(PaperDollUiLaw.IconTint(true, true) == PaperDollUiLaw.Locked &&
       PaperDollUiLaw.IsBroken(0, 0, 40) && PaperDollUiLaw.IsBroken(0x10, 40, 40) &&
       !PaperDollUiLaw.IsBroken(0x08, 0, 40) && !PaperDollUiLaw.IsBroken(0, 0, 0) &&
       MathF.Abs(PaperDollUiLaw.ClickFacing(0, true) + .12f) < .0001f &&
-      MathF.Abs(PaperDollUiLaw.HeldFacing(0, true, 1) - MathF.PI) < .0001f,
+      MathF.Abs(PaperDollUiLaw.HeldFacing(0, true, 1) - MathF.PI) < .0001f &&
+      PaperDollUiLaw.LiveAnimationStep(10.01, 10.0) > .009f &&
+      PaperDollUiLaw.LiveAnimationStep(11.0, 10.0) == PaperDollUiLaw.LiveAnimationMaxStep &&
+      PaperDollUiLaw.LiveAnimationStep(10.0, 0) == 0f,
     "paper-doll lock/broken/cursor tint or rotation law drift");
 Check(PaperDollUiLaw.ModifierTextColor(1, 0) == 0xff20ff20u &&
       PaperDollUiLaw.ModifierTextColor(1, -1) == PaperDollUiLaw.Broken,
@@ -1567,6 +1570,22 @@ int backgroundDraw = characterPageSource.IndexOf("DrawPaperDollBackground(dl, or
     StringComparison.Ordinal);
 Check(portraitDraw >= 0 && backgroundDraw > portraitDraw,
     "CharacterFrame portrait must paint before the page background's authored round aperture");
+Check(characterPageSource.Contains("InventoryUiLaw.ItemTooltipSeat(", StringComparison.Ordinal) &&
+      characterPageSource.Contains("nextWindowPivot: tooltipSeat.Pivot", StringComparison.Ordinal),
+    "equipped-item hover must use the same positioned skinned tooltip seat as bag items");
+string portraitSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.Portraits.cs"));
+string rendererSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "World", "Units", "CharacterRenderer.cs"));
+Check(portraitSource.Contains("_paperDollAnimationTime += PaperDollUiLaw.LiveAnimationStep(",
+          StringComparison.Ordinal) &&
+      portraitSource.Contains("_character.StandPreviewTime = _paperDollAnimationTime;",
+          StringComparison.Ordinal) &&
+      portraitSource.Contains("_character.MountSeat = null;", StringComparison.Ordinal) &&
+      rendererSource.Contains("if (StandPreviewTime is float standTime)",
+          StringComparison.Ordinal),
+    "CharacterFrame model must rebake a live Stand loop without mutating world animation clocks");
+
 int rangedAttackHit = characterPageSource.IndexOf(
     "DrawCharacterStatTooltipHit(\"CharacterRangedAttackFrame\"", StringComparison.Ordinal);
 int rangedPowerGate = characterPageSource.IndexOf(

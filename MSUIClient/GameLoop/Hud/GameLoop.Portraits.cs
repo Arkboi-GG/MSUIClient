@@ -45,6 +45,8 @@ public sealed partial class GameLoop
     private bool _playerPortraitFailureDumped;
     private bool _targetPortraitFailureDumped;
     private float _paperDollRotation;
+    private float _paperDollAnimationTime;
+    private double _paperDollLastUpdate;
     private ulong _portraitTargetGuid;
     private ulong _portraitTargetAppearance;
     private ulong _portraitRequestAppearance;
@@ -391,12 +393,12 @@ public sealed partial class GameLoop
         // The reference's body-model widgets are live while an item/enchant effect is present.
         // One final bake after an effect disappears clears it; then the ordinary appearance-edge
         // cache takes over again. Round unit portraits deliberately remain one-shot stills.
-        if (_paperDollGlow?.Active == true) _paperDollDirty = true;
         if (_inspectPaperDollGlow?.Active == true) _inspectPaperDollDirty = true;
         if (_dressUpOpen) _dressUpDirty = true;
         if (_characterOpen && _characterTab == 1) _petPaperDollDirty = true;
         else _petPaperDollLastUpdate = 0;
 
+        if (!_characterOpen || _characterTab != 0) _paperDollLastUpdate = 0;
         if (_playerPortraitDirty && NowSeconds() >= _playerPortraitRetryAt &&
             _playerPortrait is not null && _character is { Loaded: true, Enabled: true })
         {
@@ -541,28 +543,59 @@ public sealed partial class GameLoop
             }
         }
 
-        if (_characterOpen && _paperDollDirty && _paperDoll is not null &&
+        if (_characterOpen && _characterTab == 0 &&
+            (_paperDollDirty || _paperDollLastUpdate > 0) && _paperDoll is not null &&
             _character is { Loaded: true, Enabled: true })
         {
             CharacterRenderer.UnitState state = BuildUnitState();
             float scale = MathF.Max(0.1f, _character.ModelScale);
+            state.Position = Vector3.Zero;
+            state.Yaw = 0f;
+            state.Grounded = true;
+            state.VerticalVelocity = 0f;
+            state.Flying = false;
+            state.Swimming = false;
+            state.Engaged = false;
+            state.StandState = 0;
+            state.FreezePose = false;
+            state.Forward = 0f;
+            state.Strafe = 0f;
+            state.Speed = 0f;
+            state.Steering = false;
+            state.HasIntent = true;
+            double paperDollNow = NowSeconds();
+            _paperDollAnimationTime += PaperDollUiLaw.LiveAnimationStep(
+                paperDollNow, _paperDollLastUpdate);
+            _paperDollLastUpdate = paperDollNow;
             float distance = 4.15f * scale;
             Camera camera = PortraitCamera(state.Position, state.Yaw + _paperDollRotation,
                 1.25f * scale, distance);
             camera.FieldOfViewDegrees = 43f;
             camera.AspectRatio = 233f / 224f;
-            WithPortraitLighting(() => _paperDoll.Bake(() =>
+            float? savedStandPreviewTime = _character.StandPreviewTime;
+            Matrix4x4? savedMountSeat = _character.MountSeat;
+            _character.StandPreviewTime = _paperDollAnimationTime;
+            _character.MountSeat = null;
+            try
             {
-                _character.Render(camera, state);
-                RenderPortraitItemGlows(ref _paperDollGlow, "paper-doll", camera,
-                    _character.ItemGlowPlacements);
-            }, transparent: true));
+                WithPortraitLighting(() => _paperDoll.Bake(() =>
+                {
+                    _character.Render(camera, state);
+                    RenderPortraitItemGlows(ref _paperDollGlow, "paper-doll", camera,
+                        _character.ItemGlowPlacements);
+                }, transparent: true));
+            }
+            finally
+            {
+                _character.StandPreviewTime = savedStandPreviewTime;
+                _character.MountSeat = savedMountSeat;
+            }
             // Painted like every other character surface when the mode is on.
             // Safe on a cut-out bake: the style pass writes the SOURCE alpha
             // back, so the transparent background survives styling and the doll
             // does not gain a painted rectangle behind it.
             if (PainterlyUi) StylePortrait(_paperDoll);
-            _paperDollDirty = _paperDollGlow?.Active == true;
+            _paperDollDirty = false;
         }
 
         if (_dressUpOpen && _dressUpDirty && _dressUpTarget is not null &&

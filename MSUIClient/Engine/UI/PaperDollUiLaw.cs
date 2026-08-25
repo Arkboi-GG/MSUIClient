@@ -21,6 +21,7 @@ public static class PaperDollUiLaw
     public const int FrameHeight = 512;
     public const int MaxContainerSlots = 36;
     public const float TooltipWrapWidth = 260f;
+    public const float LiveAnimationMaxStep = .05f;
 
     public static readonly LogicalRect PortraitRect = new(7, 6, 60, 60);
     public static readonly LogicalRect ModelRect = new(65, 78, 233, 224);
@@ -77,6 +78,13 @@ public static class PaperDollUiLaw
         19 => zeroBasedSlot == 18,
         _ => false,
     };
+
+    /// <summary>Advance only while the character page is visibly rendering, without
+    /// replaying wall time accumulated while it was closed or on another tab.</summary>
+    public static float LiveAnimationStep(double now, double previous) =>
+        previous > 0 && now > previous
+            ? (float)Math.Clamp(now - previous, 0, LiveAnimationMaxStep)
+            : 0f;
 
     public static bool IsAmmo(uint inventoryType) => inventoryType == 24;
     public static bool IsBroken(uint itemFlags, uint durability, uint maxDurability) =>

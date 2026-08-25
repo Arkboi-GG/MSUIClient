@@ -219,7 +219,7 @@ public sealed partial class GameLoop
             // is still the sky, and its clicks are still orders.
             if (_freeView)
             {
-                HandleFreeCamWorldClick(click);
+                HandleFreeCamWorldClick(click, pressPick);
                 continue;
             }
             if (_groundCastSpell != 0)
@@ -558,7 +558,7 @@ public sealed partial class GameLoop
             // 1.12 behavior, not an exception. Only NOT_SELECTABLE and the player skip.
             // The controlled-unit skip lifts in the FREE VIEW: the controller is a
             // detached camera there and that body is just another toon on the field —
-            // clicking it is how you take command and get the control halo.
+            // it remains selectable for RTS orders and explicit Alt+click direct control.
             if ((entity.Guid == ControlledGuid && !_freeView) ||
                 (entity.Fields.UnitFlags & NotSelectable) != 0)
                 continue;

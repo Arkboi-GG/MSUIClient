@@ -821,7 +821,10 @@ public sealed partial class GameLoop
                     instance?.Fields.ItemMaxDurability ?? 0,
                     instanceFlags: instance?.Fields.ItemFlags,
                     liveInstance: instance);
-                OfferPreparedItemTooltip(tooltipOwner, body);
+                InventoryUiLaw.TooltipSeat tooltipSeat = InventoryUiLaw.ItemTooltipSeat(
+                    min, max, ImGui.GetIO().DisplaySize.X);
+                OfferPreparedItemTooltip(tooltipOwner, body, tooltipSeat.Position,
+                    nextWindowPivot: tooltipSeat.Pivot);
             }
             else
             {

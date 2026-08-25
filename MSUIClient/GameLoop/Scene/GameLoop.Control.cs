@@ -407,8 +407,9 @@ public sealed partial class GameLoop
             if (_controller is not null) _controller.Flying = true;
             EnterPlayerAuraWorld(LocalPlayerGuid);
             PurgeSuiSnapshot();
-            AddChatMessage("Free view: drag-select eligible faction bots, click one to command it, " +
-                "RightClick to move/attack, Shift+RightClick chains waypoints, Ctrl+F returns.");
+            AddChatMessage("Free view: click or drag to select faction bots, Shift+click adds, " +
+                "RightClick moves/attacks, Alt+click directly controls one, " +
+                "Shift+RightClick chains waypoints, Ctrl+F returns.");
             return;
         }
 
@@ -796,9 +797,8 @@ public sealed partial class GameLoop
     }
 
     /// <summary>
-    /// Ask the server for control of a bot (portrait Alt+click / cycle key / a
-    /// Free View click on a server-advertised same-faction bot — click a character,
-    /// you drive it).
+    /// Ask the server for control of a bot (portrait Alt+click / cycle key /
+    /// explicit Free View Alt+click on a server-advertised same-faction bot).
     /// </summary>
     internal void RequestPossess(ulong guid)
     {
@@ -1296,8 +1296,7 @@ public sealed partial class GameLoop
             yield return _controlTargetGuid;
         if (CanUseFactionForceRoster())
             foreach ((ulong guid, RtsForceUnitWire force) in _rtsForces)
-                if (guid != 0 && force.Alive && !force.Busy &&
-                    force.ControlEligibleNow && force.SameMapAndInstance && seen.Add(guid))
+                if (guid != 0 && force.Alive && force.SameMapAndInstance && seen.Add(guid))
                     yield return guid;
     }
 
@@ -1339,7 +1338,7 @@ public sealed partial class GameLoop
     /// Shift+RightClick appends a waypoint for that exact selection; an empty explicit
     /// list retains the legacy whole-real-party meaning.
     /// </summary>
-    private void HandleFreeCamWorldClick(WorldMouseClick click)
+    private void HandleFreeCamWorldClick(WorldMouseClick click, TargetPressPick pressPick = default)
     {
         // A live waypoint-orient spin: the next click of ANY button sets the facing and
         // ends the session (the grab began on an earlier Shift+Right-click on the dot).
@@ -1357,7 +1356,13 @@ public sealed partial class GameLoop
                 _freecamMarqueeConsumedClick = false;
                 return;
             }
-            ulong pickedUnit = PickUnit(click.Position);
+            // Benilla targeting freezes the hovered subject on mouse-down. Free View shares
+            // that gesture law: the normal target router has already consumed the press pick,
+            // so re-picking here on release would lose moving bots and units whose posed mesh
+            // changed while the button was held.
+            ulong pickedUnit = pressPick.Armed
+                ? pressPick.UnitGuid
+                : PickUnit(click.Position);
             // NPC dev window focus set: Ctrl+LeftClick multi-selects creatures for the
             // "Selected only" overlay scope and consumes the click (ahead of the
             // take-command and marquee-clear behaviour below).
@@ -1374,19 +1379,35 @@ public sealed partial class GameLoop
             // Encounter Lab raid puppet: clicking a sim body SELECTS it for orders,
             // never takes command — there is no character behind it to command.
             if (HandleEncounterPuppetSelect(pickedUnit)) return;
-            // CRPG rule: clicking an eligible toon in the free view IS taking command of it —
-            // its bars, bags and spells become the live HUD, the same as Ctrl+Tab. The
-            // CAMERA does not move: you stay in the sky until Ctrl+F says otherwise.
+            // RTS selection and direct body possession are separate operations. Plain click
+            // selects, Shift+click edits the set, and Alt+click explicitly takes control.
             if (pickedUnit != 0)
                 foreach (ulong guid in FreeCamSelectableGuids())
                     if (guid == pickedUnit)
                     {
-                        SwitchControlTo(guid);
-                        // Ringed as well as commanded: one click gives you the halo, the bars
-                        // and the order target, which is the whole point of the free view.
-                        _freecamSelection.Clear();
-                        _freecamSelection.Add(guid);
-                        EnsureBotBarForViewing(guid);
+                        if (click.AltDown)
+                        {
+                            _freecamSelection.Clear();
+                            _freecamSelection.Add(guid);
+                            EnsureBotBarForViewing(guid);
+                            if (guid != LocalPlayerGuid && IsRtsDirectlyControllableBot(guid))
+                                SwitchControlTo(guid);
+                            else if (guid != LocalPlayerGuid)
+                                ShowUiError("That faction bot is selectable but cannot be directly controlled right now.");
+                            return;
+                        }
+                        if (click.ShiftDown)
+                        {
+                            if (!_freecamSelection.Remove(guid))
+                                _freecamSelection.Add(guid);
+                        }
+                        else
+                        {
+                            _freecamSelection.Clear();
+                            _freecamSelection.Add(guid);
+                        }
+                        if (_freecamSelection.Count == 1)
+                            EnsureBotBarForViewing(_freecamSelection[0]);
                         return;
                     }
             CommitSelection(pickedUnit, beginAttack: false);
@@ -1421,7 +1442,9 @@ public sealed partial class GameLoop
             ShowUiError($"Orders are limited to {RtsControlGroupLaw.MaximumWireSubjects} " +
                 "explicit bots; this order uses the first entries in the selection.");
 
-        ulong picked = PickUnit(click.Position);
+        ulong picked = pressPick.Armed
+            ? pressPick.UnitGuid
+            : PickUnit(click.Position);
         if (picked != 0 && _entities.TryGet(picked, out WorldEntity target) &&
             !target.IsDead && CanAttack(target))
         {
@@ -1675,7 +1698,7 @@ public sealed partial class GameLoop
                 ? $"commanding {ResolveUnitName(_controlTargetGuid)}"
                 : BarsReadOnly
                     ? $"{ResolveUnitName(BarsGuid)}'s bars (read-only)"
-                    : "drag: select · click a toon to command it";
+                    : "click/drag: select · Shift+click: add · Alt+click: direct control";
             text = $"Free view — {who} · RightClick: move/attack · " +
                 "Shift+RightClick: chain waypoints · Shift+1-0: groups · Ctrl+F: land";
         }
