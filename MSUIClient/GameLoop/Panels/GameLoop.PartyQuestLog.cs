@@ -31,9 +31,14 @@ public sealed partial class GameLoop
     /// re-derive which of the two sources applies — getting that wrong reads
     /// another quest's counters, which is exactly what it did before.
     /// </summary>
+    /// <param name="KillProgress">Per index, creature/GO progress.</param>
+    /// <param name="ItemProgress">Per index, required-item progress. SEPARATE from
+    /// KillProgress on purpose: vanilla's two objective arrays are independent and
+    /// the same index may carry one of each, so a single bank per index silently
+    /// discarded whichever came second.</param>
     private readonly record struct PartyQuestCell(
         bool Held, bool Complete, bool Failed, bool Overflow,
-        uint[] Progress, int ObjectivesDone, int ObjectivesTotal);
+        uint[] KillProgress, uint[] ItemProgress, int ObjectivesDone, int ObjectivesTotal);
 
     private void OpenPartyQuestLog()
     {
@@ -166,11 +171,21 @@ public sealed partial class GameLoop
             foreach ((ulong guid, _) in owners)
             {
                 PartyQuestCell cell = PartyQuestCellFor(guid, questId);
-                GameText.Draw(dl, "GameFontNormalSmall", PartyQuestCellLabel(cell),
-                    c0 + new Vector2(x, y) * scale, scale, PartyQuestCellColor(cell));
+                GameText.Draw(dl, "GameFontNormalSmall", PartyQuestCellLabel(guid, cell),
+                    c0 + new Vector2(x, y) * scale, scale, PartyQuestCellColor(guid, cell));
                 x += PartyQuestMemberColumnWidth;
             }
             y += PartyQuestRowHeight + 2f;
+        }
+
+        // Name the gap rather than letting a column of "?" imply an empty log.
+        bool anyUntold = owners.Any(o => o.Guid != LocalPlayerGuid && !HasMemberQuestFacts(o.Guid));
+        if (anyUntold)
+        {
+            GameText.Draw(dl, "GameFontNormalSmall",
+                "?  the server does not report this member's quests",
+                c0 + new Vector2(0, y + 4f) * scale, scale, 0xff9aa4ab);
+            y += 18f;
         }
         return y + 6f;
     }
@@ -262,15 +277,21 @@ public sealed partial class GameLoop
             }
         }
 
-        var progress = new uint[QuestFactsWire.ObjectivesPerQuest];
+        var killProgress = new uint[QuestFactsWire.ObjectivesPerQuest];
+        var itemProgress = new uint[QuestFactsWire.ObjectivesPerQuest];
         int done = 0, total = 0;
         if (held && _questTemplates.TryGetValue(questId, out QuestTemplate? template))
         {
             for (int i = 0; i < template.Objectives.Count && i < QuestFactsWire.ObjectivesPerQuest; i++)
             {
                 QuestLogObjective objective = template.Objectives[i];
+                // Vanilla's creature and item objective arrays are INDEPENDENT:
+                // the same index can carry a kill AND a collect objective, and
+                // 89 quest/index pairs in the shipped world DB do. Treating the
+                // index as either/or threw away the item counter the server had
+                // already sent and counted the quest as one objective short.
                 bool kill = objective.CreatureOrGo != 0 && objective.RequiredCount > 0;
-                bool collect = !kill && objective.ItemId != 0 && objective.ItemCount > 0;
+                bool collect = objective.ItemId != 0 && objective.ItemCount > 0;
                 if (!kill && !collect) continue;
 
                 // Which source applies is a property of WHOSE column this is,
@@ -279,20 +300,27 @@ public sealed partial class GameLoop
                 // for items — vanilla never stores item progress in the log.
                 // A companion's: the wire, which carries the server-side counter
                 // and is therefore neither capped at 63 nor bag-derived.
-                if (guid == LocalPlayerGuid && hasLocal)
-                    progress[i] = kill
+                bool own = guid == LocalPlayerGuid && hasLocal;
+                if (kill)
+                {
+                    killProgress[i] = own
                         ? (localCounters >> (6 * i)) & 0x3f
-                        : CarriedCount(objective.ItemId);
-                else
-                    progress[i] = kill
-                        ? (i < entry.ObjectiveCounts.Length ? entry.ObjectiveCounts[i] : 0u)
+                        : (i < entry.ObjectiveCounts.Length ? entry.ObjectiveCounts[i] : 0u);
+                    total++;
+                    if (killProgress[i] >= objective.RequiredCount) done++;
+                }
+                if (collect)
+                {
+                    itemProgress[i] = own
+                        ? CarriedCount(objective.ItemId)
                         : (i < entry.ItemCounts.Length ? entry.ItemCounts[i] : 0u);
-
-                total++;
-                if (progress[i] >= (kill ? objective.RequiredCount : objective.ItemCount)) done++;
+                    total++;
+                    if (itemProgress[i] >= objective.ItemCount) done++;
+                }
             }
         }
-        return new PartyQuestCell(held, complete, failed, overflow, progress, done, total);
+        return new PartyQuestCell(held, complete, failed, overflow,
+            killProgress, itemProgress, done, total);
     }
 
     private IEnumerable<string> PartyQuestObjectiveLines(PartyQuestCell cell, QuestTemplate template)
@@ -303,7 +331,7 @@ public sealed partial class GameLoop
             QuestLogObjective objective = template.Objectives[i];
             if (objective.CreatureOrGo != 0 && objective.RequiredCount > 0)
             {
-                uint current = Math.Min(cell.Progress.Length > i ? cell.Progress[i] : 0u,
+                uint current = Math.Min(cell.KillProgress.Length > i ? cell.KillProgress[i] : 0u,
                     objective.RequiredCount);
                 string label = objective.Text.Length > 0 ? objective.Text
                     : _creatureNames.GetValueOrDefault(objective.CreatureOrGo & 0x7fff_ffff,
@@ -311,9 +339,10 @@ public sealed partial class GameLoop
                 any = true;
                 yield return $"{label}: {current}/{objective.RequiredCount}";
             }
-            else if (objective.ItemId != 0 && objective.ItemCount > 0)
+            // NOT else-if: one index can carry a kill and a collect objective.
+            if (objective.ItemId != 0 && objective.ItemCount > 0)
             {
-                uint current = Math.Min(cell.Progress.Length > i ? cell.Progress[i] : 0u,
+                uint current = Math.Min(cell.ItemProgress.Length > i ? cell.ItemProgress[i] : 0u,
                     objective.ItemCount);
                 string label = objective.Text.Length > 0 ? objective.Text
                     : _items?.TryGet(objective.ItemId, out ItemTemplate? proto) == true &&
@@ -326,9 +355,16 @@ public sealed partial class GameLoop
             yield return cell.Complete ? "Ready to turn in." : "No counted objectives.";
     }
 
-    private static string PartyQuestCellLabel(in PartyQuestCell cell)
+    /// <summary>
+    /// The cell label. "not told" and "told, holds nothing" are DIFFERENT facts
+    /// and used to render as the same em-dash — which meant a human party member,
+    /// whom the server never describes (the push is AiBot-only), read exactly like
+    /// a companion holding no quests. The panel now says only what it knows.
+    /// </summary>
+    private string PartyQuestCellLabel(ulong guid, in PartyQuestCell cell)
     {
-        if (!cell.Held) return "—";
+        if (!cell.Held)
+            return guid == LocalPlayerGuid || HasMemberQuestFacts(guid) ? "—" : "?";
         if (cell.Failed) return "failed";
         if (cell.Complete) return "done";
         return cell.ObjectivesTotal > 0
@@ -336,9 +372,10 @@ public sealed partial class GameLoop
             : "on it";
     }
 
-    private static uint PartyQuestCellColor(in PartyQuestCell cell)
+    private uint PartyQuestCellColor(ulong guid, in PartyQuestCell cell)
     {
-        if (!cell.Held) return 0xff5a646b;
+        if (!cell.Held)
+            return guid == LocalPlayerGuid || HasMemberQuestFacts(guid) ? 0xff5a646b : 0xff3f4750;
         if (cell.Failed) return 0xff4040ff;      // ABGR — red
         if (cell.Complete) return VanillaGold;
         return 0xffd8e0e6;

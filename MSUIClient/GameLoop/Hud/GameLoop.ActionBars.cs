@@ -1540,7 +1540,13 @@ public sealed partial class GameLoop
                 break;
             case MicroMenuButtonId.QuestLog:
                 _questLogOpen = !_questLogOpen;
-                if (_questLogOpen) CloseQuestNpcFrame(playSound: true);
+                if (_questLogOpen)
+                {
+                    CloseQuestNpcFrame(playSound: true);
+                    // The overflow half of the log lives only on the wire, so the
+                    // panel that displays it has to ask. Rate-limited.
+                    RequestPartyQuestFacts("quest log opened");
+                }
                 break;
             case MicroMenuButtonId.Social:
                 if (_socialOpen) _socialOpen = false; else OpenSocial();

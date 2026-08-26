@@ -116,6 +116,27 @@ internal static class PartyQuestActsClinicalChecks
             "closing the questgiver frame must clear the rail's per-member reward " +
             "picks, or they leak into the next quest");
 
+        // The three wiring lines that, deleted, kill P3 completely while every
+        // assertion above still passes. The audit found all three unpinned.
+        string capability = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
+            "GameLoop.MemberFacts.cs"));
+        Check(capability.Contains("ApplyPartyQuestActsCapability(capabilities);",
+                  StringComparison.Ordinal),
+            "the acts capability has exactly one apply site; without it the bit is " +
+            "never observed, the rail never draws and every act is refused");
+
+        string dispatch = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
+            "GameLoop.Net.cs"));
+        Check(dispatch.Contains("case Op.SMSG_SUI_PARTY_QUEST_RESULT:", StringComparison.Ordinal) &&
+              dispatch.Contains("ApplySuiPartyQuestResult(body);", StringComparison.Ordinal),
+            "without the result dispatch every per-member outcome is silently discarded");
+
+        string draws = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Combat",
+            "GameLoop.CombatFeedback.cs"));
+        Check(draws.Contains("DrawQuestPartyRail();", StringComparison.Ordinal) &&
+              draws.Contains("DrawPartyQuestLogPanel();", StringComparison.Ordinal),
+            "both new panels have exactly one draw call each; neither was pinned");
+
         string rail = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.QuestPartyRail.cs"));
         Check(rail.Contains("if (_uiParityArmed) return;", StringComparison.Ordinal),
@@ -123,6 +144,18 @@ internal static class PartyQuestActsClinicalChecks
         Check(rail.Contains("QuestFrameUiLaw.Width + QuestRailGap", StringComparison.Ordinal),
             "the rail must sit BESIDE the 384-wide quest frame — overlapping it would " +
             "move vanilla elements and break the frame's parity element tree");
+        Check(rail.Contains("ulong giver = _questOffer?.GiverGuid ?? _questRequestItems?.GiverGuid ??",
+                  StringComparison.Ordinal) &&
+              !rail.Contains("_questDetails?.GiverGuid ?? _questRequestItems?.GiverGuid ?? 0;",
+                  StringComparison.Ordinal),
+            "the questgiver must be resolved from ALL THREE panel records in one place — " +
+            "reading only two yields 0 on the reward panel and the server then refuses " +
+            "every companion with NO_QUEST");
+        Check(rail.Contains("bool acting = accepting || panel == QuestNpcPanel.Reward;",
+                  StringComparison.Ordinal),
+            "the Progress panel must not offer a party turn-in — it forces auto-pick for " +
+            "everyone and makes the per-member reward board skippable");
+
         Check(rail.Contains("WowSkin.Dialog", StringComparison.Ordinal) &&
               !rail.Contains("UI-QuestBackground", StringComparison.Ordinal),
             "the rail is SuperUI furniture and must wear the SuperUI skin, not " +

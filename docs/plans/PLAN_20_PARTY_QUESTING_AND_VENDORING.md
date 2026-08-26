@@ -146,23 +146,27 @@ Continues the frozen numbering after `SMSG_SUI_MEMBER_ITEM_MOVE_RESULT = 0x0355`
 | Opcode | Dir | Body |
 |---|---|---|
 | `CMSG_SUI_QUEST_FACTS = 0x0356` | C→S | `u8 flags`, `u8 count`, `u64 subjects[count]` (count 0 = whole party **and self**) |
-| `SMSG_SUI_QUEST_LOG = 0x0357` | S→C | `u64 subject`, `u8 flags`, `u16 count`, then per entry: `u32 questId`, `u8 status`, `u8 entryFlags` (complete / failed / **overflow**), `u8 slot` (255 = no UF slot), `u8 objCount[4]`, `u16 itemCount[4]` |
+| `SMSG_SUI_QUEST_LOG = 0x0357` | S→C | `u64 subject`, `u8 flags`, `u16 heldCap`, `u16 count` (**13-byte header**), then per entry (**19-byte stride**): `u32 questId`, `u8 status`, `u8 entryFlags` (complete / failed / **overflow**), `u8 slot` (255 = no UF slot), `u8 objCount[4]`, `u16 itemCount[4]` |
 | `CMSG_SUI_PARTY_QUEST = 0x0358` | C→S | `u8 action` (1 accept, 2 turn-in, 3 abandon), `u32 questId`, `u64 npcGuid`, `u8 count`, then per subject: `u64 guid`, `u8 rewardChoice` (255 = auto) |
 | `SMSG_SUI_PARTY_QUEST_RESULT = 0x0359` | S→C | `u8 action`, `u32 questId`, `u8 count`, then per subject: `u64 guid`, `u8 result` |
 | `CMSG_SUI_PARTY_VENDOR = 0x035A` | C→S | `u8 action`, `u64 npcGuid`, `u64 subject`, `u8 bag`, `u8 slot`, `u32 entry`, `u32 count`, `u8 keepQuality`, `u8 sweepCount`, `u64 sweep[sweepCount]` |
 | `SMSG_SUI_PARTY_VENDOR_RESULT = 0x035B` | S→C | `u8 action`, `u8 count`, then per subject: `u64 guid`, `u8 result`, `i32 copperDelta`, `u16 itemsAffected` |
 
-`NUM_MSG_TYPES = 0x035C`. Vendor actions: 1 `SELL_ITEM`, 2 `BUY_ITEM`,
+`NUM_MSG_TYPES` is **858** as built (P1+P3 shipped 854-857); P4 raises it to 860
+when it claims 858/859. Vendor actions: 1 `SELL_ITEM`, 2 `BUY_ITEM`,
 3 `SELL_JUNK` (sweep), 4 `REPAIR` (sweep). Buyback deferred past v1.
 
 Capability bits (`SuiCapabilityWire`, continuing bit 4):
 
-| Bit | Name |
-|---|---|
-| 5 | `party-quest-facts-v1` |
-| 6 | `party-quest-acts-v1` |
-| 7 | `party-vendor-v1` |
-| 8 | `extended-quest-log-v1` |
+| Bit | Name | State |
+|---|---|---|
+| 5 | `party-quest-facts-v1` | BUILT (P1) |
+| 6 | `party-quest-acts-v1` | BUILT (P3) |
+| 7 | `party-vendor-v1` | reserved for P4 |
+
+There is no `extended-quest-log-v1` bit and there will not be one: P2 shipped the
+cap as the config key `Quests.MaxHeld`, and the client learns the live value from
+the `heldCap` word in the quest-log header (0 = the server did not say).
 
 **One wire, two jobs.** `SMSG_SUI_QUEST_LOG` addressed to *your own* guid carries
 your overflow quests (§4.4); addressed to a companion it carries their log. The
@@ -180,10 +184,17 @@ client merges by subject. This is why the facts phase lands before the cap phase
   gains a companion strip: portrait, eligibility verdict, and a checkbox. The accept
   button reads **"Accept for party (4)"**.
 - **Turn-in shows every reward picker at once.** Per decision 2, the offer frame
-  renders one reward column per member turning in, each pre-highlighted by the
-  server's `ChooseQuestReward` verdict (shipped in the facts push), each overridable.
+  renders one reward column per member turning in, each overridable.
   `rewardChoice = 255` means "use the server's pick" — that is the *auto-complete*
   half of decision 4.
+  **Not built, and the wire cannot currently support it:** this section originally
+  promised each column *pre-highlighted by the server's `ChooseQuestReward`
+  verdict*. `SMSG_SUI_QUEST_LOG` carries no reward field, so the board draws no
+  default and a member with no click is shown as "on auto-pick" and resolved
+  server-side at turn-in. The player therefore never sees which reward the server
+  will choose before committing — which is the affordance decision 2 actually
+  asked for. Closing it needs a reward-verdict field on the facts wire; tracked
+  as a P3 follow-up, not silently dropped.
 - **Server side** validates the party line, range and eligibility per subject, then
   runs the same code `BridgeHandleQuestInteract` runs (directly, or by injecting the
   bridge line through `SuiInjectCommandLine` — pick whichever keeps one code path),
@@ -264,7 +275,7 @@ interface-wire-check suite green):
 |---|---|
 | Opcodes 0x0356/0x0357, 0x0358-0x035B reserved in comments | `Net/Opcodes.cs` |
 | Capability bit 5 `PartyQuestFactsV1` | `Net/PortalWire.cs` |
-| Wire codec, 11-byte header + 19-byte stride, exact-length parse | `Net/QuestFactsWire.cs` |
+| Wire codec, 13-byte header + 19-byte stride, exact-length parse (11 at P1; P2 added `u16 heldCap`) | `Net/QuestFactsWire.cs` |
 | `SuiQuestFacts` send path | `Net/WorldSession.cs`, `Net/NetworkClient.cs` |
 | Capability apply, pull, roster-hash trigger, store, `RequireQuestTemplate` | `GameLoop/Scene/GameLoop.QuestFacts.cs` |
 | Inbound dispatch | `GameLoop/Scene/GameLoop.Net.cs` |
@@ -315,7 +326,7 @@ instead of the twenty slots.
 | Predicate | `Player::IsHeldQuestStatus` — `m_rewarded` is what means finished, not `m_status` |
 | Cap gate | `SatisfyQuestLog` counts held quests, not free slots |
 | Accept | `AddQuest` no longer asserts on a full slot array; the slot write is guarded, the quest is always held |
-| Credit | all nine scans iterate a snapshot of `m_questsHeld` |
+| Credit | seven scans iterate a snapshot of `m_questsHeld`; the two `const` ones (`HasQuestForItem`, `HasQuestForGO`) read it live, which is safe because they only `find` |
 | Abandon | new id-keyed `RemoveQuestById`; `RemoveQuest`/`RemoveQuestAtSlot`/`FailQuest`/the bot bridge all route through it |
 | Fail | `SetQuestStatus(FAILED)` hoisted out of the slot guard — a slotless quest could never be marked failed |
 | Promotion | `PopulateQuestSlot` + `PromoteOverflowQuestToSlot`; a freed slot pulls up the oldest slotless quest (reward, abandon) |
@@ -422,6 +433,39 @@ all while a UI-parity proof is armed.
 `QUEST_FLAGS_SHARABLE` — it forwards anything and then refuses every accept — so
 the Share Quest button owns that test. The client's `QuestTemplate` was
 discarding the flags word; it now keeps it.
+
+## 5e. Audit remediation (2026-08-25)
+
+A five-auditor adversarial pass over P1-P3 returned FAIL on P2 and P3. Twelve
+distinct defects after deduplication; the three criticals were re-verified by
+hand in source before being accepted. All twelve are now fixed. Core recompiled
+clean, client builds clean, full interface-wire-check suite green.
+
+| # | Defect | Fix |
+|---|---|---|
+| D1 | Reward-panel party turn-in sent `npcGuid = 0` — the roster branch read only two of the three panel records, and both are null by construction there. Every companion refused with NO_QUEST on the most common quest shape. | The giver is resolved **once**, from all three records, before the branch; both branches take it as a parameter. A zero giver now returns early instead of reaching the wire. |
+| D2 | `IsHeldQuestStatus` treated `m_rewarded` as final, but `AddQuest` never clears it, so a re-accepted REPEATABLE quest was pruned from `m_questsHeld` on the next save and silently stopped earning credit. | The predicate now takes the quest id and mirrors `_LoadQuestStatus`'s condition exactly (`!m_rewarded \|\| IsRepeatable()`), and the load path was changed to **call the shared predicate** so the two cannot drift apart again. |
+| D3 | `AreaExploredOrEventHappens` wrote `m_explored` inside the slot guard, so an exploration/event quest held past slot 20 could never satisfy `CanCompleteQuest`. | Only the field mirror is slot-gated now; the status write is not. Uses `find()` rather than `operator[]` so a quest the character does not hold cannot be conjured into existence. |
+| D4 | The P2 "bug fix" to `SendQuestUpdateAddItem` moved the objective count onto the counter index, which reaches 7 — index 4 clobbers the state byte and 5+ shifts off the word. `PopulateQuestSlot` copied it. | **Both item-counter mirrors removed.** A quest slot has four counter indices and the creature/GO objectives own them; vanilla's own load path writes no item counters for that reason, and the 1.12 client reads item progress from the player's bags. |
+| D5 | Nothing refreshed the self-addressed half of the facts wire, so a quest accepted past slot 20 was invisible in the player's own log until an unrelated roster edge. | Rate-limited pulls added on ordinary accept, ordinary turn-in, and opening the quest log. |
+| D6 | Only the requester was liveness-checked; a companion needed only same-map and distance, so a corpse was a legal subject and `RewardQuest` would hand it XP and items. | `IsPartyQuestInRange` now requires companions to be alive and not in flight. |
+| D7 | The Progress panel offered "Turn in all", which forced auto-pick for everyone — making the per-member reward board skippable via a button shown first. | Progress is no longer a turn-in surface; it shows the roster and says "Turn in on the reward page." |
+| D8 | The acts capability apply site, the acts dispatch and both panels' draw calls were unpinned — deleting any one killed P3 with both guards still green. The rate-limit assertion pinned a symbol name, not the behaviour. | All four wiring lines pinned; the rate-limit assertion now pins the comparison expression. D1's giver resolution and D7's rule are pinned too. |
+| D9 | `ValidateHeldQuests` ran *before* the `QUEST_DELETED` erase, leaving dangling ids for a save cycle that `operator[]` then resurrected; the prune path logged at DETAIL, which this box suppresses. | Reconcile moved to the end of `_SaveQuestStatus`; the prune logs at ERROR with a message that says what it means. |
+| D10 | Human party members are never described by the server (the push is AiBot-only), but the panel drew them a column whose em-dash was indistinguishable from "holds no quests". | "Not told" renders as `?` in a dimmer tint, with a one-line legend under the grid. The panel no longer asserts a fact the server never sent. |
+| D11 | Kill and collect objectives share an index in vanilla, and 89 quest/index pairs in the shipped DB use both — the panel treated the index as either/or and discarded the item counter the server had sent. | Two independent progress banks per cell; the objective list emits both lines; the objective total counts both. |
+| D12 | Plan doc drift: an 11-byte quest-log header (13 as built), a stale `NUM_MSG_TYPES` and capability table, and a promised server-supplied reward pre-highlight that was never built. | Tables corrected. The reward pre-highlight is now recorded as **not built, with the reason** — the facts wire carries no reward field — rather than left reading as delivered. |
+
+**Two mistakes I made while fixing, caught before they compiled:** the D1 edit
+first called `ImGui.End()` on a path where `Begin` had not run, which would have
+unbalanced the ImGui stack; and the D11 edit was anchored in the wrong file. Both
+corrected in place.
+
+**The honest read on the guard suite:** it is stronger than it was, but it is
+still a client-side round trip. It cannot catch a server/client wire divergence,
+because it builds its fixture with the client's own writer. The byte agreement
+recorded in §5b and §5d was established by hand. A fixture generated from the
+server's field order is the real fix and is not built.
 
 ## 6. Test protocol
 

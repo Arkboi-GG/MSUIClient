@@ -95,6 +95,11 @@ public sealed partial class GameLoop
         bool sent = QuestGate(giver, "accept", n => n.QuestgiverAccept(giver, quest));
         // Build 5875 closes on the click itself; it does not wait for an accept response.
         CloseQuestNpcFrame(playSound: true);
+        // PLAN_20 P2/P3: a quest accepted past the twenty update-field slots has no
+        // field change to observe, so without this the client would not learn it
+        // exists until an unrelated roster edge. Rate-limited; harmless when the
+        // quest did get a slot.
+        if (sent) RequestPartyQuestFacts("quest accepted");
         return sent;
     }
 
@@ -122,8 +127,10 @@ public sealed partial class GameLoop
     {
         if (_questOffer is null || choice >= Math.Max(1, _questOffer.ChoiceRewards.Count)) return false;
         SnapshotQuestEconomy();
-        return QuestGate(_questOffer.GiverGuid, "reward-choice",
+        bool rewarded = QuestGate(_questOffer.GiverGuid, "reward-choice",
             n => n.QuestgiverChooseReward(_questOffer.GiverGuid, _questOffer.QuestId, choice));
+        if (rewarded) RequestPartyQuestFacts("quest turned in");
+        return rewarded;
     }
 
     private bool AbandonQuest(uint questId)

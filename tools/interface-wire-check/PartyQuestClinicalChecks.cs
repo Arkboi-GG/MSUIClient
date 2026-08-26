@@ -101,9 +101,23 @@ internal static class PartyQuestClinicalChecks
 
         Check(questFacts.Contains("if (!_partyQuestFactsAvailable || _net is not { IsInWorld: true }) return false;",
                   StringComparison.Ordinal) &&
-              questFacts.Contains("PartyQuestFactsPullMinIntervalSeconds", StringComparison.Ordinal) &&
+              // Pin the COMPARISON, not the constant's name. Deleting the actual
+              // rate-limit test left an unused private const behind, which C#
+              // accepts without a warning — so the old assertion could not fail
+              // on the one behaviour it claimed to protect.
+              questFacts.Contains("if (now - _partyQuestFactsPulledAt < PartyQuestFactsPullMinIntervalSeconds)",
+                  StringComparison.Ordinal) &&
               questFacts.Contains("_net.SuiQuestFacts([]);", StringComparison.Ordinal),
             "quest-facts pull must stay capability-gated and rate-limited");
+
+        // The overflow half of the log only refreshes if something asks.
+        string questPanel = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Quest.cs"));
+        Check(questPanel.Contains("RequestPartyQuestFacts(\"quest accepted\")", StringComparison.Ordinal) &&
+              questPanel.Contains("RequestPartyQuestFacts(\"quest turned in\")", StringComparison.Ordinal),
+            "an ordinary accept or turn-in must re-pull quest facts — a quest held past " +
+            "the update-field slots produces no field change to observe, so without this " +
+            "it stays invisible in the player's own log");
 
         // The pull must NOT bail on an empty party: a solo player still needs to
         // ask about their own overflow quests. This is the one place the quest

@@ -82,6 +82,12 @@ public sealed partial class GameLoop
         int choices = reward
             ? Math.Min(_questOffer?.ChoiceRewards.Count ?? 0, QuestFrameUiLaw.MaxItems) : 0;
         int included = QuestRailSubjects(withRewards: false).Count;
+        // ONE resolution point for the questgiver. The four panel states are
+        // mutually exclusive and each nulls the others, so reading only two of
+        // the three records silently yielded 0 on the reward panel.
+        ulong giver = _questOffer?.GiverGuid ?? _questRequestItems?.GiverGuid ??
+            _questDetails?.GiverGuid ?? 0;
+        if (giver == 0) return;                  // nothing to act on, and no window open yet
         float width = reward && choices > 0
             ? 2 * QuestRewardBoardPad + Math.Max(1, included) * QuestRewardColumnWidth
             : QuestRailWidth;
@@ -109,18 +115,23 @@ public sealed partial class GameLoop
         Vector2 c0 = min + new Vector2(8f, 8f) * s;
 
         if (reward && choices > 0)
-            DrawQuestRewardBoard(dl, c0, s, members, choices, questId);
+            DrawQuestRewardBoard(dl, c0, s, members, choices, questId, giver);
         else
-            DrawQuestRailRoster(dl, c0, s, members, panel, questId);
+            DrawQuestRailRoster(dl, c0, s, members, panel, questId, giver);
 
         ImGui.End();
     }
 
     /// <summary>Greeting/Detail/Progress: who comes along, and one act button.</summary>
     private void DrawQuestRailRoster(ImDrawListPtr dl, Vector2 c0, float s,
-        List<(ulong Guid, string Name)> members, QuestNpcPanel panel, uint questId)
+        List<(ulong Guid, string Name)> members, QuestNpcPanel panel, uint questId,
+        ulong giver)
     {
         bool accepting = panel == QuestNpcPanel.Detail;
+        // Progress is a waypoint, not a turn-in surface. Offering "Turn in all"
+        // here forced auto-pick for every member and made the reward board --
+        // the whole point of the phase -- skippable by the button shown first.
+        bool acting = accepting || panel == QuestNpcPanel.Reward;
         GameText.Draw(dl, "GameFontNormalSmall",
             accepting ? "Send with you" : "Turning in with you",
             c0, s, VanillaGold);
@@ -160,15 +171,19 @@ public sealed partial class GameLoop
         int count = QuestRailSubjects(withRewards: false).Count;
         Vector2 buttonMin = c0 + new Vector2(0, y + 4f) * s;
         var buttonSize = new Vector2(QuestRailWidth - 16f, 22f);
+        if (!acting)
+        {
+            GameText.Draw(dl, "GameFontNormalSmall", "Turn in on the reward page.",
+                buttonMin, s, 0xff9aa4ab);
+            return;
+        }
         string caption = accepting ? $"Accept for party ({count})" : $"Turn in all ({count})";
         if (VanillaButton(dl, "##quest-party-act", caption, buttonMin, buttonSize, s,
                 enabled: count > 0) && count > 0)
         {
-            List<PartyQuestSubject> subjects = QuestRailSubjects(withRewards: false);
-            ulong giver = _questDetails?.GiverGuid ?? _questRequestItems?.GiverGuid ?? 0;
             RequestPartyQuestAct(
                 accepting ? PartyQuestWire.ActionAccept : PartyQuestWire.ActionTurnIn,
-                questId, giver, subjects);
+                questId, giver, QuestRailSubjects(withRewards: false));
         }
     }
 
@@ -178,7 +193,7 @@ public sealed partial class GameLoop
     /// Your own picker stays exactly where vanilla puts it, untouched.
     /// </summary>
     private void DrawQuestRewardBoard(ImDrawListPtr dl, Vector2 c0, float s,
-        List<(ulong Guid, string Name)> members, int choices, uint questId)
+        List<(ulong Guid, string Name)> members, int choices, uint questId, ulong giver)
     {
         GameText.Draw(dl, "GameFontNormalSmall", "Their rewards", c0, s, VanillaGold);
 
@@ -236,8 +251,8 @@ public sealed partial class GameLoop
         var buttonSize = new Vector2(Math.Max(90f, included.Count * QuestRewardColumnWidth), 22f);
         if (VanillaButton(dl, "##quest-party-turnin", $"Turn in all ({included.Count})",
                 buttonMin, buttonSize, s, enabled: included.Count > 0) && included.Count > 0)
-            RequestPartyQuestAct(PartyQuestWire.ActionTurnIn, questId,
-                _questOffer!.GiverGuid, QuestRailSubjects(withRewards: true));
+            RequestPartyQuestAct(PartyQuestWire.ActionTurnIn, questId, giver,
+                QuestRailSubjects(withRewards: true));
     }
 
     private string QuestRewardIconPath(in QuestRewardItem row)
