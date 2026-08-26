@@ -559,7 +559,10 @@ public sealed partial class GameLoop
             // The controlled-unit skip lifts in the FREE VIEW: the controller is a
             // detached camera there and that body is just another toon on the field —
             // it remains selectable for RTS orders and explicit Alt+click direct control.
+            // The free view's own streaming eye is the CAMERA, not a body on the field:
+            // it must never be clickable, marquee-selectable, or orderable.
             if ((entity.Guid == ControlledGuid && !_freeView) ||
+                IsViewAnchorUnit(entity.Guid) ||
                 (entity.Fields.UnitFlags & NotSelectable) != 0)
                 continue;
 

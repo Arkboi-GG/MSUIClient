@@ -1230,6 +1230,8 @@ public sealed partial class GameLoop
 
             BeginBox("display", "Display");
             {
+                ResolutionRow(s);
+
                 Check("Fullscreen", () => s.Display.Fullscreen,
                     v => { s.Display.Fullscreen = v; _window.Fullscreen = v; },
                     "True fullscreen at the desktop resolution. Alt+Enter toggles it any time.");
@@ -1248,16 +1250,31 @@ public sealed partial class GameLoop
                     v => { s.Display.TexturedFrame = v; if (_skin is not null) _skin.Textured = v; },
                     "Off draws a plain panel instead of the Interface\\ BLPs.");
 
+                // The cap is shown, not silently applied: above it the HUD would push the main
+                // menu bar's end caps off the screen, so InterfaceScaleLaw refuses to follow the
+                // slider any higher. Reading the ceiling from the LIVE framebuffer means the hint
+                // stays true when the window is resized or the client goes fullscreen.
+                float uiScaleCeiling = InterfaceScaleLaw.MaximumPreferenceForFramebuffer(
+                    _window.FramebufferSize.X, _window.FramebufferSize.Y);
                 if (Slider("uiscale", "Interface scale", () => s.Display.UiScale,
-                        v => s.Display.UiScale = v, 0.5f, 3f, "x{0:F2}"))
+                        v => s.Display.UiScale = v, 0.5f, 3f, "x{0:F2}",
+                        "Sizes the gameplay HUD - action bars, unit frames, bags. This\n" +
+                        "window has its own scale, on the gear beside the menu title,\n" +
+                        "so it does not resize while you drag.\n" +
+                        $"At this resolution the HUD stops growing past x{uiScaleCeiling:F2}:\n" +
+                        "beyond that the action bar would run off the screen."))
                 {
                     // Through the window's law, NOT a raw FontGlobalScale assignment:
                     // the atlas is supersampled and overwriting its compensation scales
                     // this very menu off the screen. See ClientWindow.ApplyUiFontScale.
+                    //
+                    // WowSkin.Scale is not written here either, for the reason spelled out in
+                    // ApplySettings: this runs mid-draw, and this is the slider where the
+                    // collapse was worst - the menu re-scaled itself out from under the very
+                    // thumb being dragged. Gui() picks the new value up next frame.
                     float v = Math.Clamp(s.Display.UiScale, 0.5f, 4f);
                     _window.ApplyUiFontScale(v,
                         Math.Clamp(s.MenuLayout?.TextScale ?? 1f, 0.5f, 3f));
-                    if (_skin is not null) _skin.Scale = v;
                 }
 
                 Slider("cursor-scale", "Mouse cursor scale", () => s.Display.CursorScale,
@@ -1272,10 +1289,6 @@ public sealed partial class GameLoop
                 if (ImGui.TreeNode("Advanced##display"))
                 {
                     Restart();
-                    IntSlider("winw", "Window width", () => s.Display.WindowWidth,
-                        v => s.Display.WindowWidth = v, 640, 3840);
-                    IntSlider("winh", "Window height", () => s.Display.WindowHeight,
-                        v => s.Display.WindowHeight = v, 480, 2160);
                     IntSlider("msaa", "Multisample count", () => s.Display.MsaaSamples,
                         v => s.Display.MsaaSamples = v, 1, 16);
                     Slider("aniso", "Anisotropic filtering", () => s.Display.Anisotropy,
@@ -2537,6 +2550,49 @@ public sealed partial class GameLoop
         return true;
     }
 
+    /// <summary>
+    /// The window size, as an enumerated list of the monitor's own modes.
+    ///
+    /// Replaces two continuous drag sliders (width 640-3840, height 480-2160) that could not be
+    /// typed into at all under the skinned slider, and whose caps also sat below the 7680x4320
+    /// that Program.ApplyStartupSettings is willing to restore - so a 5K or 8K panel's native mode
+    /// was reachable only by hand-editing settings.json, and was dragged back down the moment
+    /// anyone touched the slider. Reported by a tester, 2026-08-26.
+    ///
+    /// Restart-scoped, like the sliders were: the window size is decided at window creation
+    /// (see DisplaySettings' own summary), so this writes the setting and says so rather than
+    /// pretending to apply it.
+    /// </summary>
+    private bool ResolutionRow(GameSettings s)
+    {
+        (int Width, int Height) current = (s.Display.WindowWidth, s.Display.WindowHeight);
+        (int Width, int Height) native = _window.NativeResolution;
+
+        IReadOnlyList<(int Width, int Height)> modes = _window.AvailableVideoModes();
+        if (modes.Count == 0) modes = ResolutionUiLaw.Fallback;
+
+        IReadOnlyList<ResolutionOption> options = ResolutionUiLaw.Build(modes, native, current);
+        if (options.Count == 0) return false;
+
+        int selected = ResolutionUiLaw.IndexOf(options, current);
+        if (selected < 0) selected = 0;
+        string[] labels = [.. options.Select(o => ResolutionUiLaw.Label(o))];
+
+        ImGui.SetNextItemWidth(ControlWidth());
+        bool changed = ImGui.Combo("Resolution##display-resolution", ref selected,
+            labels, labels.Length);
+        Tip("The window size, applied on the next launch. Fullscreen ignores it and\n" +
+            "always uses the desktop mode, so change this for windowed play.");
+        if (!changed) return false;
+
+        ResolutionOption pick = options[selected];
+        s.Display.WindowWidth = pick.Width;
+        s.Display.WindowHeight = pick.Height;
+        ApplySettings(s);
+        _settingsStatus = $"resolution {pick.Width}x{pick.Height} - applies on the next launch";
+        return true;
+    }
+
     private bool CameraFollowStyleRow(GameSettings.ControlSettings controls)
     {
         IReadOnlyList<CameraFollowStyle> order = CameraFollowLaw.DisplayOrder;
@@ -2598,10 +2654,24 @@ public sealed partial class GameLoop
         // where the settings say it is. Without this the slider's live effect
         // outlived a Cancel: the scale reverted in the file and stayed changed
         // on screen, which reads as "I can no longer change it".
+        //
+        // WowSkin.Scale is deliberately NOT written here, though it used to be.
+        // ApplySettings runs from inside the widget helpers, which means it runs while the
+        // Escape menu is halfway through drawing itself at its own independent scale (S, from
+        // MenuLayout.Scale). Assigning the GAMEPLAY scale at that moment re-scaled every widget
+        // below the one being dragged for the rest of the frame - a 2.17 menu snapping to a 1.12
+        // HUD scale and back, every frame the value changed, which read as the options window
+        // collapsing and rebuilding under the cursor. Reported while dragging Sound sliders,
+        // 2026-08-26, and it happened on every page because ApplySettings is generic.
+        //
+        // Nothing is lost by dropping it: WowSkin.Scale has two per-frame owners already, and
+        // both re-derive it from these same settings. Gui() assigns GameplayUiScale() before the
+        // HUD draws (Program.cs), and DrawSettings assigns S before the menu draws. A Cancel is
+        // therefore still honoured on the very next frame, which is what the paragraph above
+        // actually needs.
         float uiScale = Math.Clamp(s.Display.UiScale, 0.5f, 4f);
         _window.ApplyUiFontScale(uiScale,
             Math.Clamp(s.MenuLayout?.TextScale ?? 1f, 0.5f, 3f));
-        if (_skin is not null) _skin.Scale = uiScale;
 
         if (_painterly is not null)
         {

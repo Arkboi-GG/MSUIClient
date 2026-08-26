@@ -186,6 +186,16 @@ public sealed partial class GameLoop
                 _creatureVoices = CreatureVoiceCatalog.Load(_mpq);
                 _npcGreetings = NpcGreetingCatalog.Load(_mpq);
                 _gameObjectSounds = GameObjectSoundCatalog.Load(_mpq);
+
+                // THE PERSISTED MIX HAS TO BE PUSHED HERE, because this is the first moment a
+                // mixer exists to receive it. InitSettings runs before InitNet and calls
+                // ApplySettings -> ApplyAudioSettings, which quietly early-returns on the null
+                // mixer; nothing re-applied it afterwards, so the client booted on AudioMixer's
+                // own field initialisers until the player happened to touch a settings widget.
+                // Invisible while those initialisers matched the shipped defaults, and plainly
+                // wrong the moment anyone saved "music off" and relaunched: the sliders read zero
+                // while the mixer played at 0.4. Reported as "the music comes back on its own".
+                ApplyAudioSettings(Settings);
             }
             WireFootstepPlayback();
             WireCreatureAnimationVoices();

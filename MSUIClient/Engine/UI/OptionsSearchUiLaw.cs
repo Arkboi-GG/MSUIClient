@@ -77,7 +77,7 @@ public static class OptionsSearchUiLaw
         "Texture scale (tiling)", "Textured frame (Blizzard UI art)", "Time-of-day lighting",
         "Unit contact shadows", "Value flattening", "View distance", "VSync", "Walking wake",
         "Water detail", "Wave amplitude", "Wave speed", "Wind speed", "Wind strength",
-        "Window height", "Window width", "World canvas height",
+        "Resolution", "Mouse cursor scale", "World canvas height",
     ];
 
     private static readonly string[] InterfaceLabels =

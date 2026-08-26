@@ -209,11 +209,24 @@ public sealed partial class GameLoop
 
     private void UpdateRtsControlGroupKeys(bool typing)
     {
-        // In the free view the numerals are WC3 group keys: plain number RECALLS
-        // the saved group, Shift+number SAVES the current selection. Outside the
-        // free view they stay action-bar keys.
-        bool assign = _freeView && ShiftHeld() && !typing;
-        bool recall = _freeView && !ShiftHeld() && !typing;
+        // In the free view the numerals are RTS group keys: plain number RECALLS the saved
+        // group, Ctrl+number SAVES the current selection. Outside the free view they stay
+        // action-bar keys.
+        //
+        // Ctrl, not Shift, since 2026-08-26: Shift was originally chosen because Ctrl+digit was
+        // already the vanilla pet bar (BonusActionButton1-10, see ResetBindingsToDefaults), but
+        // every RTS the free view is modelled on binds Ctrl+digit to "set group" and testers read
+        // Shift as wrong. The owner's call is that inside the free view the numerals belong to
+        // the groups outright and the pet bar stands down there until a later control scheme
+        // gives it somewhere else to live - so RtsControlGroupClaimsBinding now suppresses the
+        // pet bar too, and the modifier is free to follow the convention.
+        //
+        // The partition is EXPLICIT rather than "not Shift". The old `recall = !ShiftHeld()` also
+        // fired on Ctrl+digit and Alt+digit; recall must mean the bare key, or the assign chord
+        // recalls the group on its way to overwriting it.
+        bool modifierFree = !CtrlHeld() && !ShiftHeld() && !AltHeld();
+        bool assign = _freeView && CtrlHeld() && !ShiftHeld() && !AltHeld() && !typing;
+        bool recall = _freeView && modifierFree && !typing;
         for (int i = 0; i < RtsControlGroupKeys.Length; i++)
         {
             bool down = InputKeyDown(RtsControlGroupKeys[i]);
@@ -234,7 +247,7 @@ public sealed partial class GameLoop
         string number = RtsControlGroupLaw.DisplayNumber(index);
         if ((uint)index >= (uint)_rtsControlGroups.Length || _rtsControlGroups[index].Count == 0)
         {
-            SetRtsControlGroupStatus($"Group {number} is empty — Shift+{number} saves " +
+            SetRtsControlGroupStatus($"Group {number} is empty — Ctrl+{number} saves " +
                 "the current selection.");
             return;
         }
@@ -246,8 +259,13 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// Do the free-view group keys own this remappable action binding? In the
-    /// free view every numeral belongs to the groups (plain = recall, Shift =
+    /// free view every numeral belongs to the groups (plain = recall, Ctrl =
     /// save) and never casts — the commanded body's bars are read-only there.
+    ///
+    /// Deliberately modifier-blind: it claims the numeral on ANY chord, so the pet bar's
+    /// Ctrl+digit and the main bar's bare digit both stand down together. The free view is a
+    /// commander console, not a body, and the pet bar has no home there until a later control
+    /// scheme gives it one.
     /// </summary>
     private bool RtsControlGroupClaimsBinding(GameBinding binding)
     {
@@ -408,7 +426,7 @@ public sealed partial class GameLoop
         Vector2 display = ImGui.GetIO().DisplaySize;
         if (active.Count == 0)
         {
-            const string hint = "Shift+1-0: save selected faction bots";
+            const string hint = "Ctrl+1-0: save selected faction bots";
             Vector2 size = ImGui.CalcTextSize(hint);
             ImGui.GetForegroundDrawList().AddText(
                 new Vector2((display.X - size.X) * 0.5f, 54f * scale), 0xCCB8C8D8u, hint);

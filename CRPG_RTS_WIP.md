@@ -2,7 +2,7 @@
 
 > **2026-08-15 MMO FACTION CONTROL-GROUP UPDATE:** source now includes
 > capability-gated same-faction Free View control/orders, ten session-only
-> `Shift+1` through `Shift+0` groups, sticky Free View cards, a command palette,
+> `Ctrl+1` through `Ctrl+0` groups, sticky Free View cards, a command palette,
 > per-bot patrol closure, and explicit real party/raid auto-formation (5 per
 > party, raids above 5, 40 per raid). The paired authority and verification
 > contract is `docs/systems/SYSTEM_CRPG_CONTROL_GROUPS.md`. Dynamic combat rules
@@ -353,7 +353,7 @@ built and guard-tools green; nothing deployed anywhere this round.
    quick slots (truthful, honest "?" wells) + corner role medallions +
    order-state chips; command shelf with the full verb set
    (Regroup/Hold/Focus/Patrol/Line/Circle/Sheathe) and SQUAD-aware scope;
-   free-view number keys (1-0 pick, Shift+1-0 save; bars never eat numerals in
+   free-view number keys (1-0 pick, Ctrl+1-0 save; bars never eat numerals in
    free view); Party Tactics panel (role + quick-slot AI policy in
    botbars.json `BotSlotPolicies`; stances disabled with reason); Party
    Inventory in BG3 columns; vanilla skin pass (UI-Panel-Button verbs, tooltip

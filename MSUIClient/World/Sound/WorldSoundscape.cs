@@ -182,6 +182,15 @@ public sealed class WorldSoundscape
         _ = areaAmbience;
         uint desired = InteriorZoneMusicId != 0 ? InteriorZoneMusicId : areaMusic;
 
+        // MUTE IS A TRANSPORT GATE, NOT ONLY A GAIN GATE. PlayKit asks for StartWhenSilent, which
+        // defeats the mixer's own "never open a device for an inaudible request" rule - so with
+        // music off the client still resolved a kit, decoded the whole mp3 and burned the track at
+        // gain 0, then scheduled another multi-minute silence behind it. Unchecking the box
+        // therefore appeared to do nothing until the cycle happened to come round again, which is
+        // most of what "Enable Music is inconsistent" was. SpellSoundSystem already retires its
+        // looping voices at zero gain; this is the same rule for the music lane.
+        bool musicAudible = _mixer.CategoryAmp("music") > 0f;
+
         if (desired != _currentZoneMusicId)
         {
             // Zone change: old track fades over 4 s, new starts NOW, full.
@@ -198,8 +207,16 @@ public sealed class WorldSoundscape
             _musicKit = 0;
             if (desired != 0)
             {
-                uint intro = InteriorIntroSoundId != 0 ? InteriorIntroSoundId : areaIntro;
-                if (!TryStartIntro(intro, now)) StartZoneTrack(now);
+                // Zone identity is tracked even while muted, so unmuting starts the track for the
+                // zone you are actually standing in. The intro is NOT consumed here when muted:
+                // TryStartIntro stamps a per-row throttle that would otherwise be spent on a
+                // performance nobody heard.
+                if (musicAudible)
+                {
+                    uint intro = InteriorIntroSoundId != 0 ? InteriorIntroSoundId : areaIntro;
+                    if (!TryStartIntro(intro, now)) StartZoneTrack(now);
+                }
+                else _nextTrackAt = now;
             }
         }
 
@@ -219,8 +236,23 @@ public sealed class WorldSoundscape
             }
         }
 
-        if (_currentZoneMusicId == 0) return;
+        // Muted: retire the transport outright and hold the next start at NOW, so unmuting is
+        // audible immediately instead of landing wherever the silence cycle had drifted to.
+        if (!musicAudible)
+        {
+            StopVoice(ref _musicVoice);
+            _musicKit = 0;
+            _musicSentVolume = -1;
+            if (_currentZoneMusicId != 0) _nextTrackAt = now;
+            Status = "music muted";
+            return;
+        }
 
+        // The live-gain push sits ABOVE the zone-id guard on purpose. PlayServerMusic puts a kit
+        // on this same slot without setting _currentZoneMusicId, so in an area with no ZoneMusic
+        // row the old ordering skipped the refresh entirely: a server-pushed track ignored the
+        // Music slider and could never be retired. Any live music voice is refreshed here now,
+        // whatever put it there.
         if (_musicVoice != 0)
         {
             if (_mixer.IsLive(_musicVoice))
@@ -231,9 +263,14 @@ public sealed class WorldSoundscape
                 return;
             }
 
-            // Natural end: schedule the next track after the authored silence.
+            // The voice is gone. That is USUALLY a natural end, but it is also what a failed
+            // start looks like from here - Play registers the id at request time and every worker
+            // failure path (missing file, undecodable mp3, waveOut refusal) removes it again. The
+            // two are indistinguishable at this point, so say so rather than reporting silence as
+            // if the track had played.
             _musicVoice = 0;
-            if (_zoneMusic?.TryGet(_currentZoneMusicId, out ZoneMusicEntry set) == true)
+            if (_currentZoneMusicId != 0 &&
+                _zoneMusic?.TryGet(_currentZoneMusicId, out ZoneMusicEntry set) == true)
             {
                 uint minMs = set.SilenceMinMs(DayPhase);
                 uint maxMs = Math.Max(set.SilenceMaxMs(DayPhase), minMs);
@@ -244,13 +281,23 @@ public sealed class WorldSoundscape
             return;
         }
 
+        if (_currentZoneMusicId == 0) return;
+
         if (now >= _nextTrackAt) StartZoneTrack(now);
     }
 
     private void StartZoneTrack(double now)
     {
         _nextTrackAt = double.MaxValue;
-        if (_zoneMusic?.TryGet(_currentZoneMusicId, out ZoneMusicEntry set) != true) return;
+        if (_zoneMusic?.TryGet(_currentZoneMusicId, out ZoneMusicEntry set) != true)
+        {
+            // Parking is correct here - this zone id has no ZoneMusic row, so there is nothing to
+            // retry - but it used to happen mutely, leaving "this zone has no music" and "the
+            // music system is wedged" looking identical from the console.
+            Status = $"music has no ZoneMusic row for set {_currentZoneMusicId}";
+            Console.WriteLine($"[soundscape] {Status}");
+            return;
+        }
         StartMusicKit(set.Sound(DayPhase), $"zone set {set.Id} '{set.SetName}'");
         _ = now;
     }
@@ -270,12 +317,31 @@ public sealed class WorldSoundscape
     private void StartMusicKit(uint kit, string why)
     {
         if (kit == 0) return;
+        // The single choke point for every music start - zone track, zone intro, and the
+        // server's own PlayServerMusic push. UpdateMusic already refuses to start a track while
+        // the category is silent, but PlayServerMusic arrives from the packet handler and would
+        // otherwise still resolve a kit and decode an mp3 that nobody can hear, for the one frame
+        // before the transport retired it again.
+        if (_mixer.CategoryAmp("music") <= 0f)
+        {
+            Status = $"music kit {kit} suppressed while muted ({why})";
+            return;
+        }
         _musicEntryVolume = _library.TryGet(kit, out SoundEntry entry)
             ? Math.Clamp(entry.Volume, 0f, 1f) : 1f;
         float gain = _musicEntryVolume * _mixer.CategoryAmp("music");
         _musicVoice = PlayKit(kit, "music", forceLoop: false, gain);
         _musicKit = kit;
         _musicSentVolume = (int)Math.Clamp(gain * 1000f, 0, 1000);
+        if (_musicVoice == 0)
+        {
+            // PlayKit refused outright: no SoundEntries row, or a row with no variants. The line
+            // used to be printed as a success either way, so a zone whose music never resolved
+            // read exactly like a zone whose music was playing.
+            Status = $"music kit {kit} UNRESOLVED ({why})";
+            Console.WriteLine($"[soundscape] {Status}");
+            return;
+        }
         Status = $"music kit {kit} ({why})";
         Console.WriteLine($"[soundscape] {Status}");
     }

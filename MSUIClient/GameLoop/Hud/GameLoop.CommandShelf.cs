@@ -85,8 +85,12 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// All ten WC3 group slots as a fixed 5×2 grid. A filled well recalls its
-    /// squad on click; Shift+click on ANY well saves the current selection
-    /// there (the keys 1-0 / Shift+1-0 do the same).
+    /// squad on click; Ctrl+click on ANY well saves the current selection
+    /// there (the keys 1-0 / Ctrl+1-0 do the same).
+    ///
+    /// Shift+click still saves as well. The keyboard chord moved to Ctrl for RTS convention
+    /// (2026-08-26), but no other binding competes for a modified click on a well, so the old
+    /// gesture keeps working rather than becoming a silent no-op in muscle memory.
     /// </summary>
     private void DrawRtsSquadGrid(ImDrawListPtr dl, Vector2 origin, float scale)
     {
@@ -123,14 +127,14 @@ public sealed partial class GameLoop
             if (hovered)
                 HoverTip(count > 0
                     ? $"Squad {number} — {count} member(s)\nClick: select (key {number}) · " +
-                      $"Shift+click: save current selection here"
-                    : $"Squad {number} is empty — Shift+click (or Shift+{number}) " +
+                      $"Ctrl+click: save current selection here"
+                    : $"Squad {number} is empty — Ctrl+click (or Ctrl+{number}) " +
                       "saves the current selection");
             if (ImGui.IsItemClicked())
             {
-                if (ImGui.GetIO().KeyShift) AssignRtsControlGroup(i);
+                if (ImGui.GetIO().KeyCtrl || ImGui.GetIO().KeyShift) AssignRtsControlGroup(i);
                 else if (count > 0) RecallRtsControlGroup(i);
-                else SetRtsControlGroupStatus($"Group {number} is empty — Shift+{number} " +
+                else SetRtsControlGroupStatus($"Group {number} is empty — Ctrl+{number} " +
                     "saves the current selection.");
             }
         }

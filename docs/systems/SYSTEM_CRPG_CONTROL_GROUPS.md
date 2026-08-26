@@ -31,8 +31,8 @@ groups:
 
 | Chord | Tactical slot |
 |---|---:|
-| `Shift+1` through `Shift+9` | 1 through 9 |
-| `Shift+0` | 0 |
+| `Ctrl+1` through `Ctrl+9` | 1 through 9 |
+| `Ctrl+0` | 0 |
 
 These groups:
 
@@ -99,14 +99,30 @@ palette from leaking through into world selection/orders.
 ### 2.1 Input collision law
 
 `UpdateActionBarInput` runs before the control input loop. Therefore merely
-adding a later `Shift+number` handler would also cast the numbered action-bar or
-multi-action-bar slot. The implementation makes the chord claim any action
+adding a later `Ctrl+number` handler would also cast the numbered action-bar,
+multi-action-bar, or pet slot. The implementation makes the chord claim any action
 binding containing its physical number key and suppresses that activation while
 maintaining the normal edge state. Typing/chat input suppresses both assignment
 and gameplay actions.
 
 Group assignment is edge-triggered. Holding a number before entering Free View
 or while typing cannot become a delayed assignment when the gate changes.
+
+**Shift → Ctrl (2026-08-26).** Assignment was originally `Shift+number`, because
+`Ctrl+number` was already the vanilla pet bar (`BonusActionButton1-10`, given
+`Control:true` for the whole `ShapeshiftButton1..BonusActionButton10` enum range
+by `ResetBindingsToDefaults`). Testers read Shift as wrong — every RTS the free
+view is modelled on uses Ctrl — so the owner's call is that inside the free view
+the numerals belong to the groups outright and **the pet bar stands down there**
+until a later control scheme gives it somewhere else to live. Two consequences:
+
+- `RtsControlGroupClaimsBinding` is modifier-blind and now also suppresses
+  `BonusActionBinding(i)`. Before this, `Ctrl+1` in the free view saved a group
+  *and* fired pet action 1 in the same frame — the pet loop was the one action
+  loop that never consulted the claim helper.
+- The assign/recall partition is an exact modifier match on both sides. The old
+  `recall = !ShiftHeld()` also fired on `Ctrl+number`, which after the move would
+  have recalled a group on its way to overwriting it.
 
 ---
 
@@ -261,7 +277,7 @@ bars to −131) draws after ImGui windows, so the shelf must clear it entirely.
 
 **Free-view number keys (2026-08-25):** in the free view the numerals are WC3
 group keys — plain `1-0` RECALLS the saved group (status line reports
-nearby/total; an empty slot explains Shift+number), `Shift+1-0` SAVES the
+nearby/total; an empty slot explains Ctrl+number), `Ctrl+1-0` SAVES the
 current selection. `RtsControlGroupClaimsBinding` claims every numeral from the
 action bars while the free view is up (the commanded body's bars are read-only
 there); outside the free view the numbers stay bar casts, exactly as before.
@@ -465,7 +481,7 @@ that is done through the owner's normal workflow, validate:
 3. Free View loads same-zone faction bots that are not in the real party.
 4. Click and marquee can directly command/order eligible same-faction bots, but
    cannot command an enemy, human, busy bot, or different-instance bot.
-5. `Shift+1`, `Shift+9`, and `Shift+0` create the expected cards without using
+5. `Ctrl+1`, `Ctrl+9`, and `Ctrl+0` create the expected cards without using
    the action bar; cards hide on landing, return on takeoff, and clear after a
    full logout/reconnect.
 6. RightClick move/attack and Hold affect the explicit card selection, not the

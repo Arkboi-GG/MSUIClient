@@ -26,7 +26,7 @@ not the separate Tier-2 RTS world or its worldstate/economy interface.
 | WC3 commander console v2: fixed three-region dock — SQUAD grid (all ten wells, click recall / Shift+click save), INFO panel (scope; portrait unit card with level/class/vitals/abilities for one unit, baked-portrait chips for a group), COMMAND CARD (icon grid; art from the vanilla pet-bar idiom read out of the shipped FrameXML: Focus=Ability_GhoulFrenzy, Regroup=Ability_Tracking, Hold=Spell_Nature_TimeStop; Patrol/Line/Circle/Sheathe archive-verified) | BUILT 2026-08-25 |
 | Attack icon law on companion surfaces: console card + party quick slots route through ActionIconLaw, so Attack shows the member's weapon (public visible-item entries), never spell 6603's internal Temp face | FIXED 2026-08-25 (owner caught it in CREATOR MODE) |
 | Formations, sheath, wander discipline, conscription | BUILT (core+brain compiled, deploy pending) |
-| Free-view number keys: 1-0 recall, Shift+1-0 save | BUILT |
+| Free-view number keys: 1-0 recall, Ctrl+1-0 save | BUILT |
 | Four quick-action icon slots per party row (truthful; honest unknown wells) | BUILT — display+tooltip only; casting needs Phase B |
 | Role medallion (corner-anchored disc, shape+color+letter) | BUILT — client preferred role only |
 | Order-state chips (client-tracked last order + enlisted) | BUILT |
@@ -232,7 +232,7 @@ small status chip or icon can show:
 - Shift+right-click: queue waypoints.
 - Alt+left-click: take direct control of a party member.
 - `Ctrl+Tab`: cycle direct control.
-- `Shift+1` through `Shift+0`: tactical control groups.
+- `Ctrl+1` through `Ctrl+0`: tactical control groups.
 
 This follows familiar Warcraft selection, contextual-order, queuing, and
 control-group conventions without displacing normal MMO controls.

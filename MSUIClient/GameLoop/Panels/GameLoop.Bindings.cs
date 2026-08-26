@@ -20,7 +20,10 @@ public sealed partial class GameLoop
         ChatPageUp, ChatPageDown, ChatBottom, Reply,
         CameraZoomIn, CameraZoomOut, MinimapZoomIn, MinimapZoomOut,
         ToggleMusic, ToggleSound, MasterVolumeUp, MasterVolumeDown,
-        OpenBackpack, OpenCharacter, OpenSkills,
+        // OpenBags must stay OUTSIDE the ShapeshiftButton1..BonusActionButton10 run:
+        // ResetBindingsToDefaults applies Control:true to that whole enum RANGE, so a member
+        // landing inside it would silently default to Ctrl+I instead of I.
+        OpenBackpack, OpenBags, OpenCharacter, OpenSkills,
         OpenSpellbook, OpenPetSpellbook, OpenTalents, OpenQuestLog, OpenSocial,
         OpenSocialFriends, OpenSocialWho, OpenSocialGuild, OpenWorldMap, ToggleMinimap,
         Sheath, ToggleUi,
@@ -117,6 +120,7 @@ public sealed partial class GameLoop
         ("Targeting", GameBinding.PetAttack, "Pet Attack", Key.T),
         ("Interface", GameBinding.OpenCharacter, "Character Info", Key.C),
         ("Interface", GameBinding.OpenBackpack, "Open Backpack", Key.B),
+        ("Interface", GameBinding.OpenBags, "Open All Bags", Key.I),
         ("Interface", GameBinding.OpenSkills, SkillFrameUiLaw.BindingLabel, Key.K),
         ("Interface", GameBinding.OpenPetSpellbook, "Pet Spellbook", Key.P),
         ("Interface", GameBinding.OpenSpellbook, "Spellbook", Key.P),

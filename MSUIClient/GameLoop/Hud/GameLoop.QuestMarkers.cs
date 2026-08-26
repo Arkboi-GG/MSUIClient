@@ -87,6 +87,7 @@ public sealed partial class GameLoop
     private bool QuestMarkerRaised(WorldEntity unit)
     {
         if (SettingsModalOpen || unit.Guid == ControlledGuid || unit.IsDead ||
+            IsViewAnchorUnit(unit.Guid) ||
             (unit.Fields.UnitFlags & NotSelectable) != 0 ||
             !Settings.Controls.ShowNpcNames ||
             !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;

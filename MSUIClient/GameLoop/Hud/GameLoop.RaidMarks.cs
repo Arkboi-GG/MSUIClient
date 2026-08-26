@@ -25,6 +25,7 @@ public sealed partial class GameLoop
             if (guid == 0 || !_entities.TryGet(guid, out WorldEntity unit)) continue;
 
             bool hasLiveVplate = unit.Guid != ControlledGuid && !unit.IsDead &&
+                !IsViewAnchorUnit(unit.Guid) &&
                 (unit.Fields.UnitFlags & NotSelectable) == 0 &&
                 NameplateUiLaw.ModeAllows(ReactionTargetTowardPlayer(unit),
                     _enemyNameplatesVisible, _friendlyNameplatesVisible) &&

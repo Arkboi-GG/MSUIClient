@@ -31,6 +31,7 @@ internal sealed class WaveOutVoice : IDisposable
     private bool _prepared;
     private float _gain;
     private float _pan;
+    private bool _volumeRefusalLogged;
 
     public bool Looping { get; private init; }
 
@@ -112,7 +113,17 @@ internal sealed class WaveOutVoice : IDisposable
         (float left, float right) = SpatialAudioLaw.StereoLevels(_gain, _pan);
         uint leftLevel = (uint)Math.Clamp(left * 0xFFFF, 0f, 0xFFFF);
         uint rightLevel = (uint)Math.Clamp(right * 0xFFFF, 0f, 0xFFFF);
-        waveOutSetVolume(_device, (rightLevel << 16) | leftLevel);
+        int result = waveOutSetVolume(_device, (rightLevel << 16) | leftLevel);
+        // Not every driver supports per-stream volume (winmm advertises it as WAVECAPS_VOLUME and
+        // is permitted to answer MMSYSERR_NOTSUPPORTED). Discarding this return made that case
+        // present as "the volume sliders do nothing" with no way to tell it from a bug in ours.
+        // Once per voice, because a fade would otherwise print every frame.
+        if (result != 0 && !_volumeRefusalLogged)
+        {
+            _volumeRefusalLogged = true;
+            Console.WriteLine($"[audio] waveOutSetVolume refused by the driver (mmsyserr {result}) " +
+                              "- this stream will play at the device's own volume");
+        }
     }
 
     /// <summary>True once the driver is done with the buffer. Always false while

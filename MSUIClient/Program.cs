@@ -2152,8 +2152,14 @@ public sealed partial class GameLoop : IDisposable
         // transitions.
         // A scripted probe run is not the user's session: never persist display
         // state from it (a probe boot clobbered Fullscreen back to false once).
+        // ...and an ALT-TAB is not a transition either. A backgrounded fullscreen window can
+        // report windowed while it is not the foreground app, which is the same false reading the
+        // boot guard above already exists to survive - it just arrives later, when the watcher is
+        // armed and willing to persist it. Requiring focus keeps the observation to moments the
+        // window state actually means something; Alt+Enter is always taken while focused, so the
+        // gesture this watcher exists for is unaffected.
         bool fullscreenNow = _window.Fullscreen;
-        if (ProbeSpec is not null) { }
+        if (ProbeSpec is not null || !_window.IsFocused) { }
         else if (_observedFullscreen is null)
         {
             if (fullscreenNow == Settings.Display.Fullscreen) _observedFullscreen = fullscreenNow;

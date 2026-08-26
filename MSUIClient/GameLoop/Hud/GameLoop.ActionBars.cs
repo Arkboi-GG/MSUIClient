@@ -127,8 +127,12 @@ public sealed partial class GameLoop
         for (int i = 0; i < _bonusActionKeyWasDown.Length; i++)
         {
             bool down = BindingDown(BonusActionBinding(i));
+            // The pet bar defaults to Ctrl+1..0, which in the free view is the control-group
+            // ASSIGN chord. Yield the numerals there exactly as the main and multi bars do:
+            // without this, Ctrl+1 saved a group and fired pet action 1 in the same frame.
             MultiActionKeyTransition transition = MultiActionBarUiLaw.AdvanceKey(
-                _bonusActionKeyArmed[i], _bonusActionKeyWasDown[i], down, typing, inWorld);
+                _bonusActionKeyArmed[i], _bonusActionKeyWasDown[i], down,
+                typing || RtsControlGroupClaimsBinding(BonusActionBinding(i)), inWorld);
             _bonusActionKeyArmed[i] = transition.Armed;
             _bonusActionKeyWasDown[i] = down;
             if (transition.Fire)
@@ -1250,6 +1254,8 @@ public sealed partial class GameLoop
     }
 
     private bool ShiftHeld() => InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight);
+    private bool CtrlHeld() => InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
+    private bool AltHeld() => InputKeyDown(Key.AltLeft) || InputKeyDown(Key.AltRight);
 
     private bool HasActionBarCursor => _actionCursor is not null || _draggingSpellId != 0 ||
         _draggingMacroId != 0 || _draggingPetAction.HasValue;

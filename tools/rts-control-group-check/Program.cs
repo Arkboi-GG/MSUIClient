@@ -92,7 +92,7 @@ string session = File.ReadAllText(Path.Combine(root, "MSUIClient", "Net",
 
 Check(hud.Contains("Key.Number1, Key.Number2, Key.Number3", StringComparison.Ordinal) &&
       hud.Contains("Key.Number9, Key.Number0", StringComparison.Ordinal) &&
-      hud.Contains("Shift+1-0: save selected faction bots", StringComparison.Ordinal),
+      hud.Contains("Ctrl+1-0: save selected faction bots", StringComparison.Ordinal),
     "the physical 1-9,0 chord or Free-View-only group rail is no longer wired");
 Check(hud.Contains("_freecamSelection.Where(IsRtsGroupableBot)", StringComparison.Ordinal) &&
       hud.Contains("IsRtsDirectlyControllableBot", StringComparison.Ordinal) &&
@@ -106,8 +106,18 @@ Check(control.Contains("ResetRtsControlGroups();", StringComparison.Ordinal) &&
     "session-only groups gained persistence or lost their terminal session reset");
 Check(actionBars.Contains("RtsControlGroupClaimsBinding(ActionBinding(i))", StringComparison.Ordinal) &&
       actionBars.Contains("RtsControlGroupClaimsBinding(MultiActionBinding(bar, i))",
+          StringComparison.Ordinal) &&
+      actionBars.Contains("RtsControlGroupClaimsBinding(BonusActionBinding(i))",
           StringComparison.Ordinal),
-    "Shift+number stopped suppressing a colliding main/multi action-bar binding");
+    "a free-view numeral stopped suppressing a colliding main/multi/pet action-bar binding");
+
+// The assign chord must be an EXACT modifier match on both sides. `recall = !ShiftHeld()` used to
+// fire on Ctrl+digit as well, which after the 2026-08-26 move to Ctrl would have recalled a group
+// on the way to overwriting it.
+Check(hud.Contains("bool assign = _freeView && CtrlHeld() && !ShiftHeld() && !AltHeld() && !typing;",
+          StringComparison.Ordinal) &&
+      hud.Contains("bool recall = _freeView && modifierFree && !typing;", StringComparison.Ordinal),
+    "free-view group assign/recall stopped discriminating every modifier exactly");
 Check(control.Contains("bool queue = click.ShiftDown;", StringComparison.Ordinal),
     "queued waypoints stopped using the gesture-captured Shift state");
 Check(targeting.Contains("HandleFreeCamWorldClick(click, pressPick);", StringComparison.Ordinal) &&

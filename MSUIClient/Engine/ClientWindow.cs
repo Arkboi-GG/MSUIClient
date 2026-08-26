@@ -126,6 +126,44 @@ public sealed class ClientWindow : IDisposable
         }
     }
 
+    /// <summary>
+    /// The monitor's current desktop mode, or (0,0) when there is no monitor to ask. This is the
+    /// same value the Fullscreen setter sizes to, so the Video page and the fullscreen flip agree
+    /// about what "native" means.
+    /// </summary>
+    public (int Width, int Height) NativeResolution
+    {
+        get
+        {
+            var resolution = _window?.Monitor?.VideoMode.Resolution;
+            return resolution is { X: > 0, Y: > 0 } native ? (native.X, native.Y) : (0, 0);
+        }
+    }
+
+    /// <summary>
+    /// Every video mode the current monitor reports, as plain pairs. Wrapped because this is the
+    /// one place the client asks the driver a question it is allowed to refuse: a backend with no
+    /// monitor (headless/scripted runs) or a driver that declines enumeration must degrade to the
+    /// caller's own fallback list rather than take the settings page down with it.
+    /// </summary>
+    public IReadOnlyList<(int Width, int Height)> AvailableVideoModes()
+    {
+        try
+        {
+            var monitor = _window?.Monitor;
+            if (monitor is null) return [];
+            var modes = new List<(int, int)>();
+            foreach (var mode in monitor.GetAllVideoModes())
+                if (mode.Resolution is { X: > 0, Y: > 0 } size) modes.Add((size.X, size.Y));
+            return modes;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[display] video mode enumeration unavailable: {ex.Message}");
+            return [];
+        }
+    }
+
     public bool VSync
     {
         get => _window is not null ? _window.VSync : _config.Window.VSync;
@@ -552,6 +590,14 @@ public sealed class ClientWindow : IDisposable
         _window.FocusChanged += focused =>
         {
             IsFocused = focused;
+            // DROP EVERY HELD KEY ON THE WAY OUT. The window is told a key went down and up by
+            // events, and no KeyUp is delivered for a key that was still held when focus left -
+            // so an Alt+Tab used to leave Alt (and Tab) latched down in _held for the rest of the
+            // session, until those keys happened to be pressed and released again. Everything
+            // downstream that asks "is Ctrl/Shift/Alt down" then answered wrongly: chords
+            // resolved to the wrong binding, and the free view's modifier-sensitive number keys
+            // were the most visible casualty.
+            if (!focused) _held.Clear();
             Console.WriteLine($"[window] focus {(focused ? "gained" : "lost")}");
         };
         _window.Closing += HandleClosing;

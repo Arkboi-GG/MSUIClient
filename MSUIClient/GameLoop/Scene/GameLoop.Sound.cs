@@ -241,14 +241,27 @@ public sealed partial class GameLoop
             _glueMusicFadeStartedAt = -1;
             if (_glueMusicVoice == 0 || !_audioMixer.IsLive(_glueMusicVoice))
             {
-                _glueMusicVoice = _audioMixer.Play(new AudioPlayRequest(
-                    GlueAudioLaw.MusicPath,
-                    GlueAudioLaw.MusicCategory,
-                    _audioMixer.CategoryAmp(GlueAudioLaw.MusicCategory),
-                    Looping: false,
-                    RequestedCue: "glue-title-theme",
-                    StartWhenSilent: true,
-                    Announce: true));
+                // Mute is a transport gate here too. The theme is Looping:false, so with
+                // StartWhenSilent the client re-read and re-decoded the whole 27 MB mp3 every
+                // time it ended, at gain 0, for as long as anyone sat at character select. Same
+                // defect the world music lane carried, in the one place a player is most likely
+                // to be sitting when they turn music off.
+                if (_audioMixer.CategoryAmp(GlueAudioLaw.MusicCategory) > 0f)
+                    _glueMusicVoice = _audioMixer.Play(new AudioPlayRequest(
+                        GlueAudioLaw.MusicPath,
+                        GlueAudioLaw.MusicCategory,
+                        _audioMixer.CategoryAmp(GlueAudioLaw.MusicCategory),
+                        Looping: false,
+                        RequestedCue: "glue-title-theme",
+                        StartWhenSilent: true,
+                        Announce: true));
+            }
+            else if (_audioMixer.CategoryAmp(GlueAudioLaw.MusicCategory) <= 0f)
+            {
+                // Muted while it was already playing: retire it rather than leaving a silent
+                // 27 MB voice resident for the rest of the glue session.
+                _audioMixer.Stop(_glueMusicVoice);
+                _glueMusicVoice = 0;
             }
             else
                 _audioMixer.SetVoiceGain(_glueMusicVoice,

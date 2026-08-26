@@ -19,6 +19,7 @@ public sealed partial class GameLoop
     private uint? _previousCoinage;
     private bool _backpackOpen;
     private bool _backpackKeyWasDown;
+    private bool _openBagsKeyWasDown;
     private int _carriedContainer = InventoryUiLaw.EmptyContainer;
     private int _carriedSlot = -1;
     private int? _carriedCount;
@@ -127,6 +128,15 @@ public sealed partial class GameLoop
             }
         }
         _backpackKeyWasDown = down;
+
+        // I opens YOUR OWN bags, and is the only route to them in the free view: B is the
+        // commander's party-logistics key there and the bag bar is suppressed as body chrome,
+        // which between them left the free view with no way into your own backpack at all.
+        // Bound in both modes so the key means one thing wherever you press it.
+        bool bagsDown = BindingDown(GameBinding.OpenBags);
+        if (bagsDown && !_openBagsKeyWasDown && !typing && _net is { IsInWorld: true })
+            ToggleAllBags();
+        _openBagsKeyWasDown = bagsDown;
     }
 
     private void DiscoverItemTemplates()

@@ -131,6 +131,7 @@ public sealed partial class GameLoop
                 Settings.Controls.ShowNpcNames;
             if (own || !namesEnabled || unit.IsDead ||
                 HasLiveChatBubble(unit.Guid) ||
+                IsViewAnchorUnit(unit.Guid) ||
                 (unit.Fields.UnitFlags & NotSelectable) != 0 ||
                 Vector3.DistanceSquared(selfPosition, UnitWorldPosition(unit)) >
                     NameplateUiLaw.RangeYards * NameplateUiLaw.RangeYards)
@@ -249,6 +250,7 @@ public sealed partial class GameLoop
         bool namesEnabled = own ? Settings.Controls.ShowOwnName :
             unit.IsPlayer ? Settings.Controls.ShowPlayerNames : Settings.Controls.ShowNpcNames;
         if (own || !namesEnabled || unit.IsDead ||
+            IsViewAnchorUnit(unit.Guid) ||
             (unit.Fields.UnitFlags & NotSelectable) != 0 ||
             !NameplateUiLaw.ModeAllows(ReactionTargetTowardPlayer(unit),
                 _enemyNameplatesVisible, _friendlyNameplatesVisible))

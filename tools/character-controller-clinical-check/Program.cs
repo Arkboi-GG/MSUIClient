@@ -26,9 +26,69 @@ VerifyContinuousInteriorEntryRetainsTerrainShell(CreateTerrain(height: 100f));
 VerifyGlobalWmoFall(CreateEmptyTerrain(), collision);
 VerifyWalkableTriangleGather();
 VerifyCameraTerrainShellClassification();
+VerifyFlyFloorClearanceSpareInterior(CreateTerrain(height: 100f));
+VerifyFlyFloorClearanceStillLiftsOutdoors(CreateTerrain(height: 100f));
 
 Console.WriteLine("character-controller clinical checks passed");
 return 0;
+
+// IRONFORGE. The free view sets FlyFloorClearance so an RTS camera cannot sink beneath the map,
+// but the clamp read the outdoor ADT height field as "the floor" - and every great interior
+// (Ironforge, Undercity, Blackrock, the Deeprun Tram, any cave) sits BELOW it. Raising the free
+// view inside one teleported the rig from the city floor onto the mountain surface overhead.
+// Reported 2026-08-26.
+static void VerifyFlyFloorClearanceSpareInterior(TerrainRenderer terrain)
+{
+    // A room under the mountain: floor at 10, ceiling at 40, terrain shell at 100.
+    var collision = new CollisionWorld();
+    AddFloor(collision, -10f, 10f, -10f, 10f, 10f);
+    AddFloor(collision, -10f, 10f, -10f, 10f, 40f);
+    collision.Build();
+
+    CharacterController controller = CreateController(terrain, collision);
+
+    // Walk in the ordinary way, so the shell is established exactly as it is in play: land
+    // outdoors first, then cross into the interior.
+    controller.Teleport(0f, 0f, 100f);
+    controller.Update(1f / 60f, default);
+    controller.Position = new Vector3(0f, 0f, 10f);
+    controller.Update(1f / 60f, default);
+    Require(controller.GroundSource == "collision",
+        $"interior setup selected {controller.GroundSource}, expected collision");
+
+    // Ctrl+F: the free view raises the rig where it stands and clamps it off the floor.
+    controller.Flying = true;
+    controller.FlyFloorClearance = 2f;
+    controller.Update(1f / 60f, default);
+
+    Require(controller.Position.Z < 50f,
+        $"the fly floor clamp lifted the free view onto the terrain shell at Z=" +
+        $"{controller.Position.Z:F3}; it must stay in the room (was 10, shell is 100)");
+
+    // And it must still be inert as the rig flies around inside the room.
+    for (int frame = 0; frame < 30; frame++) controller.Update(1f / 60f, default);
+    Require(controller.Position.Z < 50f,
+        $"the fly floor clamp lifted the free view onto the terrain shell after " +
+        $"{30} frames at Z={controller.Position.Z:F3}");
+}
+
+// The clamp must not be defeated wholesale - outdoors, with nothing overhead, sinking under the
+// height field is still the jank FlyFloorClearance exists to prevent.
+static void VerifyFlyFloorClearanceStillLiftsOutdoors(TerrainRenderer terrain)
+{
+    CharacterController controller = CreateController(terrain, new CollisionWorld());
+    controller.Teleport(0f, 0f, 100f);
+    controller.Update(1f / 60f, default);
+
+    controller.Flying = true;
+    controller.FlyFloorClearance = 2f;
+    controller.Position = new Vector3(0f, 0f, 60f);   // sunk under the map, no roof above
+    controller.Update(1f / 60f, default);
+
+    Require(MathF.Abs(controller.Position.Z - 102f) < 0.001f,
+        $"the fly floor clamp stopped lifting an unroofed rig back to the surface: Z=" +
+        $"{controller.Position.Z:F3}, expected 102");
+}
 
 static void VerifyTeleportLanding(TerrainRenderer terrain, CollisionWorld collision)
 {

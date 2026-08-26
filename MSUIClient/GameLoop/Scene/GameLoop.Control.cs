@@ -1187,8 +1187,13 @@ public sealed partial class GameLoop
         float wheel = _window.TakeFreeFlightScroll();
         if (wheel != 0f && !_commanderMapOpen && _controller is not null)
         {
+            // Under a terrain shell (Ironforge, Undercity, a cave) the height field is OVERHEAD,
+            // so "Z minus terrain" is a negative number and this collapsed to its 2-yard floor -
+            // the wheel crawled the moment you raised the free view indoors. Keep the mid-altitude
+            // fallback there, exactly as when the sample misses entirely.
             float altitude = 10f;
-            if (_terrain?.SampleHeight(_controller.Position.X, _controller.Position.Y) is float floor)
+            if (!_controller.UnderTerrainShell &&
+                _terrain?.SampleHeight(_controller.Position.X, _controller.Position.Y) is float floor)
                 altitude = MathF.Max(2f, _controller.Position.Z - floor);
             float step = Math.Clamp(altitude * 0.30f, 2.5f, 40f);
             _controller.FlyMove(_window.Camera.Forward * (wheel * step));
@@ -1398,7 +1403,8 @@ public sealed partial class GameLoop
         // Off-map or unloaded terrain returns null; fall back to a mid-altitude rate rather
         // than crawling because the height sample happened to miss.
         float altitude = 10f;
-        if (_terrain?.SampleHeight(_controller.Position.X, _controller.Position.Y) is float ground)
+        if (!_controller.UnderTerrainShell &&
+            _terrain?.SampleHeight(_controller.Position.X, _controller.Position.Y) is float ground)
             altitude = MathF.Max(2f, _controller.Position.Z - ground);
         float speed = _config.Movement.FlySpeed * Math.Clamp(altitude / 12f, 0.45f, 3.0f);
 
@@ -1880,7 +1886,7 @@ public sealed partial class GameLoop
                     ? $"{ResolveUnitName(BarsGuid)} selected — abilities on the console"
                     : "click/drag: select · Shift+click: add · Alt+click: direct control";
             text = $"Free view — {who} · RightClick: move/attack · " +
-                "Shift+RightClick: chain waypoints · 1-0: pick group · Shift+1-0: save group · Ctrl+F: land";
+                "Shift+RightClick: chain waypoints · 1-0: pick group · Ctrl+1-0: save group · Ctrl+F: land";
         }
         else text = _controlState switch
         {

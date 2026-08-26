@@ -106,6 +106,79 @@ static void CheckInterfaceScaleLaw()
               "Points spent in Arms Talents: ",
         "Gameplay Interface scale must grow proportionally with the live window");
 
+    // THE MAIN MENU BAR MUST FIT, AT EVERY RESOLUTION AND EVERY ASPECT. The bar spans 1216
+    // logical units (1024 strip + 96 of end cap each side) and is centred, so the fit test is
+    // span * effectiveScale <= width. Because ResolveForFramebuffer follows the LIMITING
+    // dimension, the usable logical width for any aspect at or below 16:9 collapses to
+    // ReferenceFramebufferWidth / preference - identical at 1600x900, 1920x1080 and 2560x1440 -
+    // which is why the shipped 1.8 preference clipped the caps on every 16:9 panel while a wide
+    // enough ultrawide cleared them. Reported by a tester, 2026-08-26.
+    static bool BarFits(float width, float height, float preference) =>
+        InterfaceScaleLaw.ResolveForFramebuffer(width, height, preference) *
+        InterfaceScaleLaw.MainMenuBarSpanWidth <= width + .01f;
+
+    Check(BarFits(1600f, 900f, 1.8f) && BarFits(1920f, 1080f, 1.8f) &&
+          BarFits(2560f, 1440f, 1.8f) && BarFits(1366f, 768f, 1.8f) &&
+          BarFits(1280f, 1024f, 1.8f) && BarFits(1920f, 1200f, 1.8f) &&
+          BarFits(3440f, 1440f, 1.8f) && BarFits(5120f, 1440f, 1.8f) &&
+          BarFits(1600f, 900f, 3f) && BarFits(2560f, 1440f, 4f),
+        "The main menu bar must never be scaled wider than the framebuffer");
+
+    // The ceiling must BITE only where it has to. Below the fit threshold the proportional law is
+    // untouched, so an ultrawide keeps the larger HUD it already had.
+    Check(MathF.Abs(InterfaceScaleLaw.ResolveForFramebuffer(1600f, 900f, 1.3f) - 1.3f) < .0001f &&
+          MathF.Abs(InterfaceScaleLaw.ResolveForFramebuffer(5120f, 1440f, 1.8f) - 2.88f) < .0001f &&
+          InterfaceScaleLaw.ResolveForFramebuffer(1600f, 900f, 1.8f) < 1.8f,
+        "The main menu bar fit ceiling must clamp only the configurations that overflow");
+
+    // The slider's advertised ceiling is the same rule expressed in preference units.
+    Check(MathF.Abs(InterfaceScaleLaw.MaximumPreferenceForFramebuffer(1600f, 900f) - 1.3158f) < .001f &&
+          MathF.Abs(InterfaceScaleLaw.MaximumPreferenceForFramebuffer(2560f, 1440f) - 1.3158f) < .001f &&
+          InterfaceScaleLaw.MaximumPreferenceForFramebuffer(5120f, 1440f) > 1.8f,
+        "The Interface scale ceiling shown to the player must match the applied ceiling");
+
+    CheckResolutionUiLaw();
+}
+
+static void CheckResolutionUiLaw()
+{
+    (int, int)[] modes = [(1920, 1080), (1920, 1080), (1280, 720), (800, 600), (3840, 2160)];
+
+    // Deduplicated by size (one mode per refresh rate arrives), sorted by area, and never
+    // offering a size larger than the panel - a window created off-screen cannot be undone from
+    // a menu the player can no longer reach.
+    var options = ResolutionUiLaw.Build(modes, native: (1920, 1080), current: (1600, 900));
+    Check(options.Count == 4 &&
+          options[0] is { Width: 800, Height: 600 } &&
+          options[1] is { Width: 1280, Height: 720 } &&
+          options[2] is { Width: 1600, Height: 900 } &&
+          options[3] is { Width: 1920, Height: 1080, IsNative: true },
+        $"Resolution list must dedupe, sort by area, drop above-native and flag native: " +
+        $"[{string.Join(", ", options.Select(o => $"{o.Width}x{o.Height}{(o.IsNative ? "*" : "")}"))}]");
+
+    // The saved size survives even when the monitor does not report it - a value carried over
+    // from another display must stay selectable rather than silently snapping the player.
+    Check(ResolutionUiLaw.IndexOf(options, (1600, 900)) == 2 &&
+          ResolutionUiLaw.IndexOf(options, (1234, 567)) == -1,
+        "Resolution list must retain and locate the saved size");
+
+    // Aspect is the number that actually decides whether the HUD fits, so it has to be right.
+    Check(ResolutionUiLaw.AspectLabel(1920, 1080) == "16:9" &&
+          ResolutionUiLaw.AspectLabel(1600, 900) == "16:9" &&
+          ResolutionUiLaw.AspectLabel(1280, 800) == "16:10" &&
+          ResolutionUiLaw.AspectLabel(1600, 1200) == "4:3" &&
+          ResolutionUiLaw.AspectLabel(3440, 1440) == "21:9" &&
+          ResolutionUiLaw.AspectLabel(5120, 1440) == "32:9",
+        $"Resolution aspect naming drift: 1280x800={ResolutionUiLaw.AspectLabel(1280, 800)}, " +
+        $"3440x1440={ResolutionUiLaw.AspectLabel(3440, 1440)}, " +
+        $"5120x1440={ResolutionUiLaw.AspectLabel(5120, 1440)}");
+
+    // With no monitor to ask, the page still has to offer something usable.
+    var fallback = ResolutionUiLaw.Build(ResolutionUiLaw.Fallback, native: (0, 0), current: (1600, 900));
+    Check(fallback.Count == ResolutionUiLaw.Fallback.Length &&
+          fallback.All(option => !option.IsNative),
+        "Resolution fallback list must survive an unavailable monitor");
+
     string root = ClientConfig.FindRepoRoot();
     string gameplaySource = SourceText.Read(Path.Combine(root,
         "MSUIClient", "GameLoop", "Hud", "GameLoop.GameplayLayout.cs"));
@@ -147,6 +220,18 @@ static void CheckOptionsSearch()
     string root = ClientConfig.FindRepoRoot();
     string settings = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
         "GameLoop.Settings.cs"));
+
+    // WOWSKIN.SCALE HAS EXACTLY TWO PER-FRAME OWNERS: Gui() assigns the gameplay scale before
+    // the HUD draws, DrawSettings assigns S before the menu draws. Nothing may write it from
+    // inside a widget helper, because those run MID-DRAW - ApplySettings assigning the gameplay
+    // scale from the Slider/Check helpers re-scaled every widget below the one being dragged for
+    // the rest of the frame, and the options window appeared to collapse and rebuild under the
+    // cursor on every page. Reported 2026-08-26.
+    Check(settings.Contains("_skin.Scale = S;", StringComparison.Ordinal) &&
+          !settings.Contains("_skin.Scale = uiScale;", StringComparison.Ordinal) &&
+          !settings.Contains("_skin.Scale = v;", StringComparison.Ordinal),
+        "the options menu writes WowSkin.Scale mid-draw again; the per-frame owners must keep it");
+
     Check(settings.Contains("DrawOptionsSearch(dl, min, size);", StringComparison.Ordinal) &&
           settings.Contains("OptionsSearchUiLaw.Find(_optionsSearch)", StringComparison.Ordinal) &&
           settings.Contains("DrawVanillaInputBorder(draw, boxMin, box.Size, S);",

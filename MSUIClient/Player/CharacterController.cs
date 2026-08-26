@@ -258,6 +258,16 @@ public sealed class CharacterController
     /// </summary>
     private bool _underTerrainShell;
 
+    /// <summary>
+    /// True while the controller is known to be beneath the outdoor height field and supported by
+    /// WMO collision instead — inside Ironforge, Undercity, Blackrock, a cave, the Deeprun Tram.
+    ///
+    /// Exposed so callers stop deriving "altitude" from the terrain sample while it is overhead:
+    /// Position.Z minus a shell 90 yards above you is not an altitude, and anything that scales
+    /// off it (fly speed, wheel step) collapses to its floor the moment you step indoors.
+    /// </summary>
+    public bool UnderTerrainShell => _underTerrainShell;
+
     public bool Flying
     {
         get => _flying;
@@ -631,8 +641,33 @@ public sealed class CharacterController
         Grounded = false;
         FallTimeMs = 0;
         GroundZ = _terrain.SampleHeight(Position.X, Position.Y);
+
+        // THE FLOOR CLEARANCE MUST NOT LIFT THE RIG THROUGH A MOUNTAIN.
+        //
+        // Ironforge, Undercity, Blackrock, the Deeprun Tram and every cave sit BELOW the outdoor
+        // ADT height field, so a bare "you are under the terrain, rise to it" clamp teleported the
+        // free view from the city floor onto the mountain surface overhead the instant it was
+        // raised. Reported in Ironforge, 2026-08-26.
+        //
+        // This is the same terrain-shell problem the walking path solves at UpdateGrounded, and
+        // it uses the same two signals, in the same order: is the terrain meaningfully OVERHEAD,
+        // and have we proven we are underneath it rather than sunk under the world? The proof is
+        // a single upward ray - a ceiling between the rig and the height field means we are
+        // inside something and the shell is not a floor. Retained afterwards like the walking
+        // path retains it, so a gap in that ceiling (Ironforge's own gate tunnel, a chimney, a
+        // collision seam) cannot re-arm the clamp for the one frame it takes to fire.
+        bool terrainOverhead = GroundZ is float overhead &&
+                               overhead - Position.Z > UndergroundSlack;
+        if (terrainOverhead)
+        {
+            if (!_underTerrainShell && HasGeometryCollision && GroundZ is float roofSearch &&
+                RaycastGeometry(Position, Vector3.UnitZ, roofSearch - Position.Z) is not null)
+                _underTerrainShell = true;
+        }
+        else if (GroundZ is not null) _underTerrainShell = false;
+
         if (FlyFloorClearance is float clearance && GroundZ is float ground &&
-            Position.Z < ground + clearance)
+            Position.Z < ground + clearance && !(terrainOverhead && _underTerrainShell))
             Position = new Vector3(Position.X, Position.Y, ground + clearance);
         NoGroundBelow = false;
     }
