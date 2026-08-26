@@ -369,7 +369,6 @@ public enum Op : ushort
     CMSG_SET_SELECTION           = 0x013D,
     CMSG_ATTACKSWING             = 0x0141,
     CMSG_ATTACKSTOP              = 0x0142,
-    CMSG_STANDSTATECHANGE        = 0x0101,
     CMSG_SETSHEATHED             = 0x01E0,
     SMSG_ATTACKSTART             = 0x0143,
     SMSG_ATTACKSTOP              = 0x0144,

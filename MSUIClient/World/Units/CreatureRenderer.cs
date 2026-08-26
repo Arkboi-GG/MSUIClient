@@ -6,7 +6,6 @@ using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
-using MSUIClient.Engine.UI;
 using Shader = MSUIClient.Engine.Shader;
 using Texture = MSUIClient.Engine.Texture;
 
