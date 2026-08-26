@@ -1282,10 +1282,6 @@ public sealed partial class GameLoop
                     "Multiplies the cursor after Interface scale, so it follows the HUD but can be tuned independently.");
 
                 s.HudLayout ??= new GameSettings.HudLayoutSettings();
-                Check("Unlock chat frame", () => s.HudLayout.ChatUnlocked,
-                    v => s.HudLayout.ChatUnlocked = v,
-                    "Shows a drag handle above chat. Its position is saved in logical UI units.");
-
                 if (ImGui.TreeNode("Advanced##display"))
                 {
                     Restart();
@@ -1294,6 +1290,33 @@ public sealed partial class GameLoop
                     Slider("aniso", "Anisotropic filtering", () => s.Display.Anisotropy,
                         v => s.Display.Anisotropy = v, 1f, 16f, "{0:F0}x");
                     ImGui.TreePop();
+                }
+            }
+            EndBox();
+
+            // ITS OWN SECTION, not the eighth control inside "Display". Buried there it was
+            // effectively undiscoverable - and it was missing from the options search too, so
+            // neither looking nor searching found the switch that moves the chat window.
+            BeginBox("chat-frame", "Chat frame");
+            {
+                Check("Unlock chat frame", () => s.HudLayout.ChatUnlocked,
+                    v => s.HudLayout.ChatUnlocked = v,
+                    "Puts a 'Drag chat' handle just above the chat frame's TOP-RIGHT corner -\n" +
+                    "not the top-left, which is where people look for it. Drag that to move\n" +
+                    "chat; the position saves on release, in logical UI units.\n" +
+                    "In the free view chat sits higher on purpose, clearing the square minimap.");
+                if (s.HudLayout.ChatOffsetX != 0f || s.HudLayout.ChatOffsetY != 0f)
+                {
+                    // Only offered once it can do something. Until this existed a dragged chat
+                    // frame had no route back: the offsets are written by the drag handle alone.
+                    if (Button("Reset chat position", new Vector2(ControlWidth() * .5f,
+                            WowSkin.ButtonArt.Y * S * 1.1f)))
+                    {
+                        s.HudLayout.ChatOffsetX = 0f;
+                        s.HudLayout.ChatOffsetY = 0f;
+                        ApplySettings(s);
+                        _settingsStatus = "chat frame returned to its authored corner";
+                    }
                 }
             }
             EndBox();
@@ -2425,6 +2448,11 @@ public sealed partial class GameLoop
             case MenuPage.Video:
                 s.Display = d.Display; s.View = d.View; s.Detail = d.Detail;
                 s.Clutter = d.Clutter; s.Water = d.Water; s.Lighting = d.Lighting;
+                // HudLayout too: this page DISPLAYS "Unlock chat frame", which lives there, so
+                // leaving it out made Defaults silently skip a control it was showing. It also
+                // left the dragged chat position with no way back at all - the offsets are only
+                // ever written by the drag handle, and nothing else in the UI touches them.
+                s.HudLayout = d.HudLayout;
                 break;
             case MenuPage.Controls:
                 s.Controls = d.Controls;

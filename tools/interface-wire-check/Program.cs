@@ -368,6 +368,32 @@ static void CheckOptionsSearch()
     // scale from the Slider/Check helpers re-scaled every widget below the one being dragged for
     // the rest of the frame, and the options window appeared to collapse and rebuild under the
     // cursor on every page. Reported 2026-08-26.
+    // The chat-frame controls must be REACHABLE. They were absent from the catalog entirely,
+    // so searching "chat" in the options page never offered the switch that moves the chat
+    // window - and the checkbox itself sat eighth inside the Display box. Reported 2026-08-26.
+    OptionsSearchGroup[] chat = OptionsSearchUiLaw.Find("chat");
+    Check(chat.Any(g => g.Page == OptionsSearchPage.Video &&
+              g.Entries.Any(e => e.Label == "Unlock chat frame")),
+        "options search cannot find 'Unlock chat frame' on the Video page");
+
+    // The Escape menu's layout gear must sit in the frame's INTERIOR. GameMenuFrame.xml declares
+    // a Backdrop with EdgeSize 32, and WowSkin.Dialog carries the same 32 (drawn at
+    // EdgeSize * Scale), so the outer 32 logical units are border art. The gear was inset 8 -
+    // a quarter of the band - and sat on the corner ornament, half lost. Reported 2026-08-26.
+    foreach (float menuScale in new[] { 1f, 1.8f, 2.17f, 3f })
+    foreach (float frameW in new[] { 195f, 400f, 660f })
+    {
+        var frameSize = new Vector2(frameW * menuScale, 300f * menuScale);
+        Vector2 gear = GameMenuUiLaw.LayoutGearMinimum(Vector2.Zero, frameSize, menuScale);
+        float side = GameMenuUiLaw.LayoutGearSide(menuScale);
+        float band = GameMenuUiLaw.BackdropEdgeSize * GameMenuUiLaw.ResolveMenuScale(menuScale);
+        Check(gear.X >= band - .01f && gear.Y >= band - .01f &&
+              gear.X + side <= frameSize.X - band + .01f,
+            $"Escape-menu gear sits on the border art at scale {menuScale}, frame {frameW}: " +
+            $"gear x {gear.X:F1}..{gear.X + side:F1}, y {gear.Y:F1}, band {band:F1}, " +
+            $"frame width {frameSize.X:F1}");
+    }
+
     CheckVanillaWindowsAlwaysEnd();
     CheckKeyBindingsFrameFitsItsArt();
     CheckNoWheelCatcherButtons();

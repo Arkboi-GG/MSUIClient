@@ -135,11 +135,34 @@ public static class GameMenuUiLaw
         Vector2.Max(Vector2.Zero, (display - physicalSize) * .5f);
 
     /// <summary>Top-right header seat for the always-reachable menu-only layout gear.</summary>
+    /// <summary>
+    /// The frame's nine-sliced border band, in logical units. GameMenuFrame.xml declares
+    /// &lt;EdgeSize&gt;32&lt;/EdgeSize&gt; on its Backdrop and WowSkin.Dialog carries the same 32,
+    /// drawn at EdgeSize * Scale - so the outer 32 logical units on every side are decorative
+    /// border, not usable surface. Anything seated inside that band lands on the corner
+    /// ornament.
+    /// </summary>
+    public const float BackdropEdgeSize = 32f;
+
+    /// <summary>Breathing room between the border band and whatever sits next to it.</summary>
+    public const float GearGap = 6f;
+
+    /// <summary>
+    /// Seat the layout gear INSIDE the frame's interior, clear of the border art.
+    ///
+    /// It used to be inset 8 from the top-right corner - a quarter of the 32-unit border band -
+    /// so it sat on the corner ornament with roughly half of it lost against the decoration.
+    /// Reported 2026-08-26. The inset is now taken from the backdrop's own edge size, so it
+    /// stays correct if the frame's border art ever changes.
+    /// </summary>
     public static Vector2 LayoutGearMinimum(Vector2 frameMinimum, Vector2 frameSize, float scale)
     {
         scale = ResolveMenuScale(scale);
-        float side = Math.Clamp(14f * scale, 12f, 24f);
-        return frameMinimum + new Vector2(frameSize.X - side - 8f * scale, 8f * scale);
+        float side = LayoutGearSide(scale);
+        float inset = (BackdropEdgeSize + GearGap) * scale;
+        // Never let a very narrow frame push the gear off its own left edge.
+        float x = MathF.Max(inset, frameSize.X - side - inset);
+        return frameMinimum + new Vector2(x, inset);
     }
 
     public static float LayoutGearSide(float scale) =>

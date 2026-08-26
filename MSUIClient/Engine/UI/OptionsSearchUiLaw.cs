@@ -78,6 +78,9 @@ public static class OptionsSearchUiLaw
         "Unit contact shadows", "Value flattening", "View distance", "VSync", "Walking wake",
         "Water detail", "Wave amplitude", "Wave speed", "Wind speed", "Wind strength",
         "Resolution", "Mouse cursor scale", "World canvas height",
+        // The chat-frame controls were absent entirely, so the one discovery tool the
+        // options page offers could not find the switch that moves the chat window.
+        "Chat frame", "Unlock chat frame", "Reset chat position", "Move chat",
     ];
 
     private static readonly string[] InterfaceLabels =
