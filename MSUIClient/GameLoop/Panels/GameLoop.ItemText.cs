@@ -226,9 +226,12 @@ public sealed partial class GameLoop
         _itemTextScroll = Math.Clamp(_itemTextScroll, 0, maximum);
         Vector2 bodyMin = origin + ItemTextFrameUiLaw.Body.Min * scale;
         Vector2 bodyMax = bodyMin + ItemTextFrameUiLaw.Body.Size * scale;
-        ImGui.SetCursorScreenPos(origin + ItemTextFrameUiLaw.Scroll.Min * scale);
-        ImGui.InvisibleButton("##item-text-scroll", ItemTextFrameUiLaw.Scroll.Size * scale);
-        if (ImGui.IsItemHovered() && ImGui.GetIO().MouseWheel != 0)
+        // Rect test, not a button - see GameLoop.Keybindings.cs: a full-area InvisibleButton
+        // takes ActiveId and makes anything inside it unclickable.
+        Vector2 scrollMin = origin + ItemTextFrameUiLaw.Scroll.Min * scale;
+        if (ImGui.IsMouseHoveringRect(scrollMin,
+                scrollMin + ItemTextFrameUiLaw.Scroll.Size * scale, false) &&
+            ImGui.GetIO().MouseWheel != 0)
             _itemTextScroll = Math.Clamp(_itemTextScroll - ImGui.GetIO().MouseWheel * 3f *
                 GameText.LinePitch("ItemTextFontNormal", 1f), 0, maximum);
         draw.PushClipRect(bodyMin, bodyMax, true);

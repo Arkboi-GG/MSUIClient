@@ -1,17 +1,28 @@
+﻿using System.Numerics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ImGuiNET;
+using MSUIClient.Net;
 
 namespace MSUIClient;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The spell SESSION: the design-phase product of creator mode. Each tuned spell
-// is given a temp name and appended to one ongoing JSON file in the directory
-// MSUIClient was launched from; the file accumulates one or more fully-specified
-// spells (complete tuning metadata PLUS the patched M2 bytes, tinted BLPs and
-// custom audio, base64-embedded, so nothing depends on this machine's archives). That file is
-// then uploaded to MangosSuperUI's Spell Completer page, where the data phase
-// happens: real name, class, damage, ranks - and the unified patch build.
+// is fully specified here - complete tuning metadata PLUS the patched M2 bytes,
+// tinted BLPs and custom audio, base64-embedded, so nothing downstream depends
+// on this machine's archives. MangosSuperUI's Spell Completer takes it from
+// there for the data phase: real name, class, damage, ranks - and the unified
+// patch build.
+//
+// A finished design leaves here two ways, and BOTH produce the same document:
+//
+//   PUSH  - POST straight to MangosSuperUI (/SpellCompleter/Push), where it lands
+//           in the Completer's inbox ready to be named and costed. The direct
+//           path, and the only one that carries the custom audio all the way.
+//   FILE  - appended to one ongoing spell-session.json in the directory
+//           MSUIClient was launched from. The offline record and the fallback
+//           when this machine cannot reach the web app; the Completer still
+//           accepts it by hand.
 //
 // Design phase lives here; data phase lives in MangosSuperUI.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -27,6 +38,9 @@ public sealed partial class GameLoop
 
     private readonly byte[] _creatorSessionNameBuf = new byte[48];
     private List<(string Name, int Models, int Audio)>? _creatorSessionEntries;   // null = reload
+
+    private SpellPushClient? _spellPush;
+    private SpellPushClient SpellPush => _spellPush ??= new SpellPushClient();
 
     private static string CreatorSessionPath => Path.Combine(CreatorSessionDir, CreatorSessionFileName);
 
@@ -78,16 +92,53 @@ public sealed partial class GameLoop
     // ── the export itself ────────────────────────────────────────────────────
 
     /// <summary>Append (or replace, when the temp name already exists) one fully
-    /// specified spell into the session file. Carries EVERYTHING: the tuning
-    /// metadata per model AND the patched M2 bytes AND the tinted BLPs AND the
-    /// custom phase audio - the authoritative product of the design phase.</summary>
+    /// specified spell into the session file - the offline record of the design.</summary>
     private void AddCreatorSpellToSession(CreatorSpellDoc doc, string tempName)
+    {
+        if (BuildCreatorSpellEntry(doc, tempName) is not { } spellEntry) return;
+
+        JsonObject session = LoadCreatorSession();
+        session["version"] = CreatorSessionFormatVersion;
+        var spells = (JsonArray)session["spells"]!;
+        int existing = IndexOfSessionSpell(spells, tempName);
+        if (existing >= 0) spells[existing] = spellEntry;
+        else spells.Add(spellEntry);
+        SaveCreatorSession(session);
+
+        _creatorExportStatus = $"{(existing >= 0 ? "Replaced" : "Added")} '{tempName}' " +
+            $"({CountOf(spellEntry, "models")} model(s), {CountOf(spellEntry, "tintedBlps")} tinted BLP(s), " +
+            $"{CountOf(spellEntry, "audio")} audio track(s)) in {CreatorSessionPath}";
+        Console.WriteLine($"[creator] {_creatorExportStatus}");
+    }
+
+    /// <summary>Send this design straight to MangosSuperUI's Spell Completer, where
+    /// it becomes a card on the page instead of a file someone has to carry. The
+    /// SAME document the session file would have received - so a spell that was
+    /// pushed and a spell that was uploaded are indistinguishable downstream.</summary>
+    private void PushCreatorSpell(CreatorSpellDoc doc, string tempName)
+    {
+        if (BuildCreatorSpellEntry(doc, tempName) is not { } spellEntry) return;
+
+        string url = Settings.DevWindow.SuiBaseUrl;
+        SpellPush.BeginPush(url, spellEntry);
+        _creatorExportStatus = $"Pushing '{tempName}' to {url}…";
+        Console.WriteLine($"[creator] {_creatorExportStatus}");
+    }
+
+    private static int CountOf(JsonObject entry, string key) => (entry[key] as JsonArray)?.Count ?? 0;
+
+    /// <summary>Build one fully specified spell: the tuning metadata per model AND
+    /// the patched M2 bytes AND the tinted BLPs AND the custom phase audio - the
+    /// authoritative product of the design phase, and the single document both the
+    /// session file and the push send onward. Null when there is nothing to send,
+    /// with the reason already in the status line.</summary>
+    private JsonObject? BuildCreatorSpellEntry(CreatorSpellDoc doc, string tempName)
     {
         var modified = doc.Models.Values.Where(m => m.Modified).ToList();
         if (modified.Count == 0 && doc.Audio.Count == 0)
         {
             _creatorExportStatus = "Nothing modified - tune the look or audio before adding it.";
-            return;
+            return null;
         }
 
         var models = new JsonArray();
@@ -190,7 +241,7 @@ public sealed partial class GameLoop
             }
         }
 
-        var spellEntry = new JsonObject
+        return new JsonObject
         {
             ["tempName"] = tempName,
             ["sourceSpellId"] = doc.Info.Id,
@@ -201,19 +252,6 @@ public sealed partial class GameLoop
             ["tintedBlps"] = blps,
             ["audio"] = audio,
         };
-
-        JsonObject session = LoadCreatorSession();
-        session["version"] = CreatorSessionFormatVersion;
-        var spells = (JsonArray)session["spells"]!;
-        int existing = IndexOfSessionSpell(spells, tempName);
-        if (existing >= 0) spells[existing] = spellEntry;
-        else spells.Add(spellEntry);
-        SaveCreatorSession(session);
-
-        _creatorExportStatus = $"{(existing >= 0 ? "Replaced" : "Added")} '{tempName}' " +
-            $"({models.Count} model(s), {blps.Count} tinted BLP(s), {audio.Count} audio track(s)) " +
-            $"in {CreatorSessionPath}";
-        Console.WriteLine($"[creator] {_creatorExportStatus}");
     }
 
     private void RemoveCreatorSessionSpell(string tempName)
@@ -257,13 +295,17 @@ public sealed partial class GameLoop
     {
         float cs = CreatorUiScale;
         ImGui.Spacing();
-        ImGui.TextDisabled("SESSION (the file the Spell Completer uploads)");
-        CreatorHelp("The design-phase product: give this tuned spell a TEMP name and add " +
-            "it to the ongoing session file. The file accumulates every spell you add " +
-            "(same temp name = replace) and carries the complete design - tuning data, " +
-            "patched models, recolored images and custom audio - so a session-v2-aware " +
-            "Spell Completer can build the real spell from it: proper name, class, damage, ranks, " +
-            "and the final patch.\n\nFile: " + CreatorSessionPath);
+        ImGui.TextDisabled("SESSION (hand this spell to the Spell Completer)");
+        CreatorHelp("The design-phase product: give this tuned spell a TEMP name, then " +
+            "PUSH it to MangosSuperUI - it appears on the Spell Completer page under " +
+            "Gameplay Tuning > Spells, ready for the data phase: proper name, class, " +
+            "damage, ranks, and the final patch.\n\n" +
+            "'Add to session' writes the same design to a local file instead, for when " +
+            "this machine cannot reach the web app - the Completer still accepts that " +
+            "file by hand, but only a PUSH carries the custom audio through.\n\n" +
+            "Either way the design is complete: tuning data, patched models, recolored " +
+            "images and custom audio. Same temp name = replace.\n\n" +
+            "Push: " + Settings.DevWindow.SuiBaseUrl + "\nFile: " + CreatorSessionPath);
 
         ImGui.SetNextItemWidth(180f * cs);
         ImGui.InputText("##session-name", _creatorSessionNameBuf,
@@ -272,14 +314,45 @@ public sealed partial class GameLoop
         ImGui.SameLine();
         string tempName = BufToString(_creatorSessionNameBuf).Trim();
         bool nameOk = tempName.Length > 0;
+        bool pushing = SpellPush.Pushing;
+        if (!nameOk || pushing) ImGui.BeginDisabled();
+        if (CreatorButton("Push to Completer"))
+            PushCreatorSpell(doc, tempName);
+        if (!nameOk || pushing) ImGui.EndDisabled();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip($"Send this design to {Settings.DevWindow.SuiBaseUrl}\n" +
+                "It shows up under Gameplay Tuning > Spells > Spell Completer.");
+
+        ImGui.SameLine();
         if (!nameOk) ImGui.BeginDisabled();
         if (CreatorButton("Add to session"))
             AddCreatorSpellToSession(doc, tempName);
         if (!nameOk) ImGui.EndDisabled();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Write it to the local session file instead (no audio downstream)");
+
         if (!nameOk)
         {
             ImGui.SameLine();
             ImGui.TextDisabled("name it first");
+        }
+
+        // The push outcome, held until the next push replaces it. A failure names
+        // the server, because the usual cause is that this machine cannot reach it.
+        if (pushing)
+        {
+            ImGui.TextDisabled($"pushing to {Settings.DevWindow.SuiBaseUrl}…");
+        }
+        else if (SpellPush.Result is { } push)
+        {
+            if (push.Ok)
+                ImGui.TextColored(new Vector4(0.45f, 0.85f, 0.45f, 1f),
+                    $"'{push.TempName}' is waiting in the Spell Completer.");
+            else
+                ImGui.TextColored(new Vector4(0.9f, 0.45f, 0.45f, 1f),
+                    $"Push of '{push.TempName}' failed: {push.Error}");
+            ImGui.SameLine();
+            if (ImGui.SmallButton("dismiss")) SpellPush.ClearResult();
         }
 
         var entries = CreatorSessionEntries();

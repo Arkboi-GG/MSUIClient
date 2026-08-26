@@ -140,6 +140,147 @@ static void CheckInterfaceScaleLaw()
     CheckResolutionUiLaw();
 }
 
+// ImGui's Begin() contract is UNCONDITIONAL: every call needs a matching End(), including the
+// one that returned false. Two panels took the false branch with a bare `return;`, which left the
+// window stack unbalanced for the remainder of the frame - the Key Bindings frame lost its
+// backdrop, unit frames drew over it, and the free-view banner was emitted twice. Reported
+// 2026-08-26. Textual because the fault is a missing statement, which no runtime check reaches
+// until that exact frame happens.
+static void CheckVanillaWindowsAlwaysEnd()
+{
+    string root = ClientConfig.FindRepoRoot();
+    string client = Path.Combine(root, "MSUIClient");
+    var offenders = new List<string>();
+
+    foreach (string file in Directory.EnumerateFiles(client, "*.cs", SearchOption.AllDirectories))
+    {
+        if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
+                StringComparison.Ordinal) ||
+            file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}",
+                StringComparison.Ordinal)) continue;
+
+        string text = File.ReadAllText(file).Replace("\r\n", "\n", StringComparison.Ordinal);
+        int at = 0;
+        while ((at = text.IndexOf("BeginVanillaWindow(", at, StringComparison.Ordinal)) >= 0)
+        {
+            // The helper's own declaration is not a call site.
+            int lineStart = text.LastIndexOf('\n', at) + 1;
+            string line = text[lineStart..text.IndexOf('\n', at)];
+            if (line.Contains("private bool BeginVanillaWindow", StringComparison.Ordinal))
+            { at += 19; continue; }
+
+            // Look at the guarded branch: everything up to the end of the statement that closes
+            // this call. A false-return branch must say ImGui.End() before it returns.
+            int window = Math.Min(text.Length, at + 400);
+            string tail = text[at..window];
+            int ret = tail.IndexOf(") return;", StringComparison.Ordinal);
+            if (ret >= 0 && !tail[..ret].Contains("ImGui.End();", StringComparison.Ordinal))
+                offenders.Add($"{Path.GetFileName(file)} @ {line.Trim()}");
+            at += 19;
+        }
+    }
+
+    Check(offenders.Count == 0,
+        "a vanilla window returns from a false Begin without ImGui.End(): " +
+        string.Join(" | ", offenders));
+}
+
+// THE KEY BINDINGS FRAME MUST FIT INSIDE ITS OWN ARTWORK.
+//
+// UI-KeyBindingFrame-*.blp is a 640x512 canvas whose art does NOT fill it. Decoded alpha:
+//   left  solid border x 6..17,   interior fill from x 18
+//   top   solid border y 7..52,   interior fill from y 53
+//   right interior fill ends 561, border to 593, LAST OPAQUE PIXEL x 597
+//   bottom                                        last opaque pixel y 500
+// So anything past x=597 is drawn on empty padding and reads as "outside the window", and
+// anything above y=53 is drawn on the frame's own border. Both happened at once: the scroll bar
+// ran 584..616 and Cancel ran 490..620, while the search box sat at y=8..30. Reported 2026-08-26.
+// A WHEEL CATCHER MUST NEVER BE A BUTTON.
+//
+// The pattern is: submit a full-area ImGui.InvisibleButton over a list so the mouse wheel can be
+// read from IsItemHovered. It works for the wheel and silently kills the list. The catcher spans
+// everything and is submitted FIRST, so on the press frame it takes ActiveId, and every item
+// inside it then fails ItemHoverable ("g.ActiveId != 0 && g.ActiveId != id") - the panel draws
+// perfectly and responds to nothing. It cost the Key Bindings frame every click (category +/-
+// headers, both key buttons per row) and the Talent frame every point spend. Reported
+// 2026-08-26. ImGui.IsMouseHoveringRect reads the same wheel while claiming no id at all.
+static void CheckNoWheelCatcherButtons()
+{
+    string client = Path.Combine(ClientConfig.FindRepoRoot(), "MSUIClient");
+    var offenders = new List<string>();
+    foreach (string file in Directory.EnumerateFiles(client, "*.cs", SearchOption.AllDirectories))
+    {
+        if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ||
+            file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)) continue;
+        string[] lines = File.ReadAllLines(file);
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (!lines[i].Contains("InvisibleButton(", StringComparison.Ordinal)) continue;
+            if (!lines[i].Contains("wheel", StringComparison.OrdinalIgnoreCase) &&
+                !lines[i].Contains("scroll", StringComparison.OrdinalIgnoreCase)) continue;
+            // A catcher is one whose only purpose is the wheel: the next couple of lines read
+            // MouseWheel off IsItemHovered rather than acting on a click.
+            string next = string.Join(" ", lines.Skip(i + 1).Take(2));
+            if (next.Contains("MouseWheel", StringComparison.Ordinal) &&
+                next.Contains("IsItemHovered", StringComparison.Ordinal))
+                offenders.Add($"{Path.GetFileName(file)}:{i + 1}");
+        }
+    }
+    Check(offenders.Count == 0,
+        "a full-area InvisibleButton is being used as a wheel catcher (it steals ActiveId and " +
+        "makes everything inside it unclickable); use ImGui.IsMouseHoveringRect: " +
+        string.Join(" | ", offenders));
+}
+
+static void CheckKeyBindingsFrameFitsItsArt()
+{
+    const float interiorLeft = 18f, interiorTop = 53f, lastOpaqueX = 597f, lastOpaqueY = 500f;
+    var bad = new List<string>();
+
+    void Fits(string what, float x, float y, float w, float h, bool interior = true)
+    {
+        if (x < (interior ? interiorLeft : 0f)) bad.Add($"{what} left {x} < {interiorLeft}");
+        if (interior && y < interiorTop) bad.Add($"{what} top {y} < {interiorTop} (on the border)");
+        if (x + w > lastOpaqueX) bad.Add($"{what} right {x + w} > {lastOpaqueX} (past the art)");
+        if (y + h > lastOpaqueY) bad.Add($"{what} bottom {y + h} > {lastOpaqueY} (past the art)");
+    }
+
+    Fits("Search", KeyBindingsUiLaw.Search.X, KeyBindingsUiLaw.Search.Y,
+        KeyBindingsUiLaw.Search.Width, KeyBindingsUiLaw.Search.Height);
+    Fits("Rows", KeyBindingsUiLaw.Rows.X, KeyBindingsUiLaw.Rows.Y,
+        KeyBindingsUiLaw.Rows.Width, KeyBindingsUiLaw.Rows.Height);
+    Fits("ScrollBar", KeyBindingsUiLaw.ScrollMinimum.X, KeyBindingsUiLaw.ScrollMinimum.Y,
+        16f, KeyBindingsUiLaw.ScrollHeight);
+    foreach ((string name, KeyBindingsUiLaw.Rect r) in new[]
+             {
+                 ("Defaults", KeyBindingsUiLaw.Defaults), ("Unbind", KeyBindingsUiLaw.Unbind),
+                 ("Okay", KeyBindingsUiLaw.Okay), ("Cancel", KeyBindingsUiLaw.Cancel),
+             })
+        Fits(name, r.X, r.Y, r.Width, r.Height, interior: false);
+
+    // The row band drawn at RowPitch must not run into the button row.
+    float rowsEnd = KeyBindingsUiLaw.Rows.Y + KeyBindingsUiLaw.VisibleRows * KeyBindingsUiLaw.RowPitch;
+    if (rowsEnd > KeyBindingsUiLaw.Defaults.Y)
+        bad.Add($"rows end {rowsEnd} overlaps the button row at {KeyBindingsUiLaw.Defaults.Y}");
+    if (KeyBindingsUiLaw.ScrollHeight > KeyBindingsUiLaw.Rows.Height + 0.01f)
+        bad.Add("scroll bar is taller than the row band it scrolls");
+
+    Check(bad.Count == 0, "Key Bindings frame does not fit its own artwork: " + string.Join(" | ", bad));
+
+    // Values that come straight from Blizzard's XML rather than from the art.
+    Check(KeyBindingsUiLaw.FrameSize == new Vector2(640, 512) &&
+          Math.Abs(KeyBindingsUiLaw.FrameTop - 100f) < .01f &&
+          KeyBindingsUiLaw.Cancel.X == 460f && KeyBindingsUiLaw.Okay.X == 330f &&
+          KeyBindingsUiLaw.Defaults.X == 10f && KeyBindingsUiLaw.Cancel.Y == 469f,
+        "Key Bindings geometry drifted from KeyBindingFrame.xml (640x512, TOP -100, " +
+        "BOTTOMRIGHT -50/21, BOTTOMLEFT 10/21)");
+
+    // TOP-anchored means centred, never flush left.
+    Check(KeyBindingsUiLaw.WindowOrigin(1600f).X == (1600f - 640f) * .5f &&
+          KeyBindingsUiLaw.WindowOrigin(640f).X == 0f,
+        "Key Bindings frame must centre horizontally like its TOP anchor, not sit at x=0");
+}
+
 static void CheckResolutionUiLaw()
 {
     (int, int)[] modes = [(1920, 1080), (1920, 1080), (1280, 720), (800, 600), (3840, 2160)];
@@ -227,6 +368,24 @@ static void CheckOptionsSearch()
     // scale from the Slider/Check helpers re-scaled every widget below the one being dragged for
     // the rest of the frame, and the options window appeared to collapse and rebuild under the
     // cursor on every page. Reported 2026-08-26.
+    CheckVanillaWindowsAlwaysEnd();
+    CheckKeyBindingsFrameFitsItsArt();
+    CheckNoWheelCatcherButtons();
+
+    // Scroll bars are authored by Blizzard, not by eye. Interface\FrameXML\UIPanelTemplates.xml:
+    // the up/down buttons and the knob are all 16 x 16, and all three inherit UIPanelScrollBarButton,
+    // whose TexCoords are 0.25 .. 0.75 - only the centre half of each texture is drawn. Drawing
+    // them 32 x 32 with full UVs made the glyph four times its authored size inside its own
+    // padding, which is what put fat blobs against the Key Bindings frame border.
+    string vanillaUi = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
+        "GameLoop.VanillaUi.cs"));
+    Check(vanillaUi.Contains("const float ButtonLogical = 16f;", StringComparison.Ordinal) &&
+          vanillaUi.Contains("new Vector2(0.25f, 0.25f)", StringComparison.Ordinal) &&
+          vanillaUi.Contains("new Vector2(0.75f, 0.75f)", StringComparison.Ordinal) &&
+          !vanillaUi.Contains("Vector2 buttonSize = new Vector2(32) * scale;", StringComparison.Ordinal) &&
+          !vanillaUi.Contains("Vector2 knobSize = new Vector2(24, 32) * scale;", StringComparison.Ordinal),
+        "scroll bar geometry drifted from UIPanelTemplates.xml (16x16 buttons, TexCoords .25-.75)");
+
     Check(settings.Contains("_skin.Scale = S;", StringComparison.Ordinal) &&
           !settings.Contains("_skin.Scale = uiScale;", StringComparison.Ordinal) &&
           !settings.Contains("_skin.Scale = v;", StringComparison.Ordinal),

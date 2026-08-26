@@ -252,9 +252,12 @@ public sealed partial class GameLoop
         _talentScroll = TalentFrameUiLaw.ClampScroll(_talentScroll);
         Vector2 clipMin = origin + TalentFrameUiLaw.ScrollFrame.Min * s;
         Vector2 clipMax = clipMin + TalentFrameUiLaw.ScrollFrame.Size * s;
-        ImGui.SetCursorScreenPos(clipMin);
-        ImGui.InvisibleButton("##talent-scroll-wheel", clipMax - clipMin);
-        if (ImGui.IsItemHovered() && ImGui.GetIO().MouseWheel != 0)
+        // A rect test, NOT an InvisibleButton. This spans the whole talent tree and is submitted
+        // before the per-talent buttons below, so as a button it claimed ActiveId on the press
+        // frame and every talent inside it failed ImGui's ItemHoverable check - the tree drew
+        // correctly and no talent could be spent. Same defect found in the Key Bindings frame,
+        // 2026-08-26; the skill list has always used this pattern for the same reason.
+        if (ImGui.IsMouseHoveringRect(clipMin, clipMax, false) && ImGui.GetIO().MouseWheel != 0)
             _talentScroll = TalentFrameUiLaw.WheelScroll(
                 _talentScroll, ImGui.GetIO().MouseWheel);
 

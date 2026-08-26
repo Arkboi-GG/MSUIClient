@@ -1,0 +1,502 @@
+{
+  "MoveForward": [
+    "W",
+    "UP"
+  ],
+  "MoveBackward": [
+    "S",
+    "DOWN"
+  ],
+  "TurnLeft": [
+    "A",
+    "LEFT"
+  ],
+  "TurnRight": [
+    "D",
+    "RIGHT"
+  ],
+  "StrafeLeft": [
+    "Q",
+    "0"
+  ],
+  "StrafeRight": [
+    "E",
+    "0"
+  ],
+  "Jump": [
+    "SPACE",
+    "NUMPAD0"
+  ],
+  "SitOrStand": [
+    "X",
+    "0"
+  ],
+  "ToggleRun": [
+    "NUMPADDIVIDE",
+    "0"
+  ],
+  "Sheath": [
+    "Z",
+    "0"
+  ],
+  "ToggleAutorun": [
+    "NUMLOCK",
+    "BUTTON4"
+  ],
+  "FollowTarget": [
+    "0",
+    "0"
+  ],
+  "OpenChat": [
+    "ENTER",
+    "0"
+  ],
+  "OpenChatSlash": [
+    "/",
+    "0"
+  ],
+  "ChatPageUp": [
+    "PAGEUP",
+    "0"
+  ],
+  "ChatPageDown": [
+    "PAGEDOWN",
+    "0"
+  ],
+  "ChatBottom": [
+    "SHIFT-PAGEDOWN",
+    "0"
+  ],
+  "Reply": [
+    "R",
+    "0"
+  ],
+  "Action1": [
+    "1",
+    "0"
+  ],
+  "Action2": [
+    "2",
+    "0"
+  ],
+  "Action3": [
+    "3",
+    "0"
+  ],
+  "Action4": [
+    "4",
+    "0"
+  ],
+  "Action5": [
+    "5",
+    "0"
+  ],
+  "Action6": [
+    "6",
+    "0"
+  ],
+  "Action7": [
+    "7",
+    "0"
+  ],
+  "Action8": [
+    "8",
+    "0"
+  ],
+  "Action9": [
+    "9",
+    "0"
+  ],
+  "Action10": [
+    "0",
+    "0"
+  ],
+  "Action11": [
+    "-",
+    "0"
+  ],
+  "Action12": [
+    "=",
+    "0"
+  ],
+  "ShapeshiftButton1": [
+    "CTRL-F1",
+    "0"
+  ],
+  "ShapeshiftButton2": [
+    "CTRL-F2",
+    "0"
+  ],
+  "ShapeshiftButton3": [
+    "CTRL-F3",
+    "0"
+  ],
+  "ShapeshiftButton4": [
+    "CTRL-F4",
+    "0"
+  ],
+  "ShapeshiftButton5": [
+    "CTRL-F5",
+    "0"
+  ],
+  "ShapeshiftButton6": [
+    "CTRL-F6",
+    "0"
+  ],
+  "ShapeshiftButton7": [
+    "CTRL-F7",
+    "0"
+  ],
+  "ShapeshiftButton8": [
+    "CTRL-F8",
+    "0"
+  ],
+  "ShapeshiftButton9": [
+    "CTRL-F9",
+    "0"
+  ],
+  "ShapeshiftButton10": [
+    "CTRL-F10",
+    "0"
+  ],
+  "BonusActionButton1": [
+    "CTRL-1",
+    "0"
+  ],
+  "BonusActionButton2": [
+    "CTRL-2",
+    "0"
+  ],
+  "BonusActionButton3": [
+    "CTRL-3",
+    "0"
+  ],
+  "BonusActionButton4": [
+    "CTRL-4",
+    "0"
+  ],
+  "BonusActionButton5": [
+    "CTRL-5",
+    "0"
+  ],
+  "BonusActionButton6": [
+    "CTRL-6",
+    "0"
+  ],
+  "BonusActionButton7": [
+    "CTRL-7",
+    "0"
+  ],
+  "BonusActionButton8": [
+    "CTRL-8",
+    "0"
+  ],
+  "BonusActionButton9": [
+    "CTRL-9",
+    "0"
+  ],
+  "BonusActionButton10": [
+    "CTRL-0",
+    "0"
+  ],
+  "ToggleActionBarLock": [
+    "0",
+    "0"
+  ],
+  "TargetNearestEnemy": [
+    "TAB",
+    "0"
+  ],
+  "TargetPreviousEnemy": [
+    "SHIFT-TAB",
+    "0"
+  ],
+  "TargetSelf": [
+    "F1",
+    "0"
+  ],
+  "TargetPartyMember1": [
+    "F2",
+    "0"
+  ],
+  "TargetPartyMember2": [
+    "F3",
+    "0"
+  ],
+  "TargetPartyMember3": [
+    "F4",
+    "0"
+  ],
+  "TargetPartyMember4": [
+    "F5",
+    "0"
+  ],
+  "TargetPet": [
+    "SHIFT-F1",
+    "0"
+  ],
+  "TargetPartyPet1": [
+    "SHIFT-F2",
+    "0"
+  ],
+  "TargetPartyPet2": [
+    "SHIFT-F3",
+    "0"
+  ],
+  "TargetPartyPet3": [
+    "SHIFT-F4",
+    "0"
+  ],
+  "TargetPartyPet4": [
+    "SHIFT-F5",
+    "0"
+  ],
+  "ToggleEnemyNameplates": [
+    "V",
+    "0"
+  ],
+  "ToggleFriendlyNameplates": [
+    "SHIFT-V",
+    "0"
+  ],
+  "ToggleAllNameplates": [
+    "CTRL-V",
+    "0"
+  ],
+  "AttackTarget": [
+    "T",
+    "0"
+  ],
+  "PetAttack": [
+    "SHIFT-T",
+    "0"
+  ],
+  "OpenCharacter": [
+    "C",
+    "0"
+  ],
+  "OpenBackpack": [
+    "B",
+    "0"
+  ],
+  "OpenBags": [
+    "I",
+    "0"
+  ],
+  "OpenSkills": [
+    "K",
+    "0"
+  ],
+  "OpenPetSpellbook": [
+    "SHIFT-P",
+    "0"
+  ],
+  "OpenSpellbook": [
+    "P",
+    "0"
+  ],
+  "OpenTalents": [
+    "N",
+    "0"
+  ],
+  "OpenQuestLog": [
+    "L",
+    "0"
+  ],
+  "ToggleMinimap": [
+    "0",
+    "0"
+  ],
+  "OpenWorldMap": [
+    "M",
+    "0"
+  ],
+  "OpenSocial": [
+    "O",
+    "0"
+  ],
+  "OpenSocialFriends": [
+    "0",
+    "0"
+  ],
+  "OpenSocialWho": [
+    "0",
+    "0"
+  ],
+  "OpenSocialGuild": [
+    "0",
+    "0"
+  ],
+  "MinimapZoomIn": [
+    "NUMPADPLUS",
+    "0"
+  ],
+  "MinimapZoomOut": [
+    "NUMPADMINUS",
+    "0"
+  ],
+  "ToggleMusic": [
+    "CTRL-M",
+    "0"
+  ],
+  "ToggleSound": [
+    "CTRL-S",
+    "0"
+  ],
+  "MasterVolumeUp": [
+    "CTRL-=",
+    "0"
+  ],
+  "MasterVolumeDown": [
+    "CTRL--",
+    "0"
+  ],
+  "ToggleUi": [
+    "ALT-Z",
+    "0"
+  ],
+  "Screenshot": [
+    "PRINTSCREEN",
+    "0"
+  ],
+  "CameraZoomIn": [
+    "MOUSEWHEELUP",
+    "0"
+  ],
+  "CameraZoomOut": [
+    "MOUSEWHEELDOWN",
+    "0"
+  ],
+  "MultiActionBar1Button1": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar1Button2": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar1Button3": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar1Button4": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar1Button5": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar1Button6": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar1Button7": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar1Button8": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar1Button9": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar1Button10": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar1Button11": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar1Button12": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar2Button1": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar2Button2": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar2Button3": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar2Button4": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar2Button5": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar2Button6": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar2Button7": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar2Button8": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar2Button9": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar2Button10": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar2Button11": [
+    "0",
+    "0"
+  ],
+  "MultiActionBar2Button12": [
+    "0",
+    "0"
+  ],
+  "RaidTarget1": [
+    "0",
+    "0"
+  ],
+  "RaidTarget2": [
+    "0",
+    "0"
+  ],
+  "RaidTarget3": [
+    "0",
+    "0"
+  ],
+  "RaidTarget4": [
+    "0",
+    "0"
+  ],
+  "RaidTarget5": [
+    "0",
+    "0"
+  ],
+  "RaidTarget6": [
+    "0",
+    "0"
+  ],
+  "RaidTarget7": [
+    "0",
+    "0"
+  ],
+  "RaidTarget8": [
+    "0",
+    "0"
+  ],
+  "RaidTargetNone": [
+    "0",
+    "0"
+  ]
+}

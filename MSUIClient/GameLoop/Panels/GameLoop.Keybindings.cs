@@ -42,9 +42,14 @@ public sealed partial class GameLoop
         EnsureBindingsLoaded();
         _bindingSnapshot ??= new Dictionary<GameBinding, BindingPair>(_bindings);
         float s = GameplayUiScale();
-        if (!BeginVanillaWindow("##keybindings", KeyBindingsUiLaw.WindowMinimum,
+        // Vanilla anchors this frame TOP to UIParent - centred, 100 down - not against the left
+        // edge. The origin is in LOGICAL units, so divide the framebuffer back through the scale
+        // before centring, or the frame drifts right as the window grows.
+        float logicalWidth = s > 0f ? ImGui.GetIO().DisplaySize.X / s : KeyBindingsUiLaw.FrameSize.X;
+        if (!BeginVanillaWindow("##keybindings", KeyBindingsUiLaw.WindowOrigin(logicalWidth),
                 KeyBindingsUiLaw.FrameSize, out ImDrawListPtr dl,
-                out Vector2 origin, out s)) return;
+                out Vector2 origin, out s, movable: true))
+        { ImGui.End(); return; }
 
         foreach (KeyBindingsUiLaw.ArtSlice piece in KeyBindingsUiLaw.Art)
             DrawArt(dl, piece.Path, origin + piece.Offset * s, piece.Size, s);
@@ -79,10 +84,18 @@ public sealed partial class GameLoop
                 (false, row.Category, row.Binding, row.Label)));
         }
         _bindingScroll = KeyBindingsUiLaw.ClampScroll(_bindingScroll, visibleRows.Count);
+
+        // THE WHEEL CATCHER MUST NOT BE A BUTTON. It spans the whole row band and was submitted
+        // BEFORE the rows, so on the press frame it took ActiveId first; every item inside it -
+        // the category +/- headers and both key buttons on every row - then failed ItemHoverable
+        // ("ActiveId != 0 && ActiveId != id") and could never be clicked. The panel drew
+        // correctly and did nothing, which is exactly how it was reported. A plain rect test
+        // scrolls the same way while claiming no id at all - the pattern the skill list already
+        // uses for the same reason (GameLoop.CharacterPage.cs). Reported 2026-08-26.
         Vector2 wheelMin = origin + KeyBindingsUiLaw.Rows.Min * s;
-        ImGui.SetCursorScreenPos(wheelMin);
-        ImGui.InvisibleButton("##binding-wheel", KeyBindingsUiLaw.Rows.Size * s);
-        if (_bindingCapture is null && ImGui.IsItemHovered() && ImGui.GetIO().MouseWheel != 0)
+        Vector2 wheelMax = wheelMin + KeyBindingsUiLaw.Rows.Size * s;
+        if (_bindingCapture is null && ImGui.IsMouseHoveringRect(wheelMin, wheelMax, false) &&
+            ImGui.GetIO().MouseWheel != 0)
             _bindingScroll = KeyBindingsUiLaw.ClampScroll(
                 _bindingScroll - Math.Sign(ImGui.GetIO().MouseWheel), visibleRows.Count);
 

@@ -86,6 +86,31 @@ public static class InventoryUiLaw
         ? BagBindingAction.ToggleAllBags
         : BagBindingAction.ToggleBackpack;
 
+    /// <summary>
+    /// The rule for MSUI's OWN dedicated all-bags key (default I). Open every bag the character
+    /// actually carries; close them only once every one of them is already open.
+    ///
+    /// Deliberately NOT <see cref="ShouldOpenAllBags"/>. Vanilla's Shift+B closes everything the
+    /// moment ANY window is open, which is coherent for a modifier on the backpack key but wrong
+    /// for a key whose whole job is "show me my inventory": with the backpack already open from B,
+    /// the first press of the dedicated key CLOSED it instead of opening the rest, so B looked
+    /// like the full-inventory key and I looked like it only ever managed the backpack. Reported
+    /// 2026-08-26.
+    ///
+    /// <paramref name="equippedExists"/> is what keeps that honest - an empty bag slot must not
+    /// count as "not yet open", or a character carrying no bags could never satisfy the close
+    /// condition and the key would never toggle off.
+    /// </summary>
+    public static bool ShouldOpenEveryCarriedBag(bool backpackOpen,
+        IReadOnlyList<bool> equippedOpen, IReadOnlyList<bool> equippedExists)
+    {
+        if (!backpackOpen) return true;
+        int count = Math.Min(equippedOpen.Count, equippedExists.Count);
+        for (int bag = 0; bag < count; bag++)
+            if (equippedExists[bag] && !equippedOpen[bag]) return true;
+        return false;
+    }
+
     public static SlotClickAction ClickAction(bool left, bool right, bool shift, bool hasCarried,
         bool hasInstance, uint stackCount, bool locked, bool tradePlacement) =>
         left && tradePlacement ? SlotClickAction.TradePlace :

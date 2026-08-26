@@ -1460,9 +1460,12 @@ public sealed partial class GameLoop
         const int visibleRows = 15;
         _reputationScroll = Math.Clamp(_reputationScroll, 0, Math.Max(0, display.Count - visibleRows));
         Vector2 listMin = p + new Vector2(24, 80) * s;
-        ImGui.SetCursorScreenPos(listMin);
-        ImGui.InvisibleButton("##reputation-scroll", new Vector2(300, 360) * s);
-        if (ImGui.IsItemHovered() && ImGui.GetIO().MouseWheel != 0)
+        // Rect test, not a button: a full-area InvisibleButton claims ActiveId on the press
+        // frame and makes everything drawn inside it unclickable. Harmless here today (the
+        // reputation rows are display-only) but it is the same shape that silently killed the
+        // Key Bindings and Talent frames, so it does not stay in the tree.
+        if (ImGui.IsMouseHoveringRect(listMin, listMin + new Vector2(300, 360) * s, false) &&
+            ImGui.GetIO().MouseWheel != 0)
             _reputationScroll = Math.Clamp(_reputationScroll - Math.Sign(ImGui.GetIO().MouseWheel), 0, Math.Max(0, display.Count - visibleRows));
 
         uint repFrame = _gameplayArt?.Handle(@"Interface\PaperDollInfoFrame\UI-Character-ReputationBar") ?? 0;

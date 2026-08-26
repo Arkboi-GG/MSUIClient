@@ -24,6 +24,28 @@ Require(InventoryUiLaw.BindingAction(false) == InventoryUiLaw.BagBindingAction.T
         InventoryUiLaw.BindingAction(true) == InventoryUiLaw.BagBindingAction.ToggleAllBags,
     "B/Shift+B bag binding split drift");
 
+// MSUI's dedicated all-bags key (default I) does NOT follow vanilla's Shift+B rule. THE CASE
+// THAT MATTERS is the second one: the backpack is already open because the player pressed B, and
+// the dedicated key must open the REST rather than close what is up. Under ShouldOpenAllBags that
+// press closed everything, so B read as the full-inventory key and I as a backpack-only key -
+// exactly backwards from their labels. Reported 2026-08-26.
+Require(InventoryUiLaw.ShouldOpenEveryCarriedBag(false, [false, false, false, false],
+            [true, true, false, false]),
+    "the all-bags key must open from a fully closed inventory");
+Require(InventoryUiLaw.ShouldOpenEveryCarriedBag(true, [false, false, false, false],
+            [true, true, false, false]),
+    "the all-bags key must open the remaining bags when only the backpack is up (B then I)");
+Require(InventoryUiLaw.ShouldOpenEveryCarriedBag(true, [true, false, false, false],
+            [true, true, false, false]),
+    "the all-bags key must still open a carried bag that is not yet showing");
+Require(!InventoryUiLaw.ShouldOpenEveryCarriedBag(true, [true, true, false, false],
+            [true, true, false, false]),
+    "the all-bags key must close once every carried bag is already open");
+// An empty bag slot is not an unopened bag: a character carrying none must still toggle shut.
+Require(!InventoryUiLaw.ShouldOpenEveryCarriedBag(true, [false, false, false, false],
+            [false, false, false, false]),
+    "an empty bag slot must not keep the all-bags key from ever closing");
+
 byte[] aperture = Enumerable.Repeat((byte)255, 9 * 9 * 4).ToArray();
 IconApertureMask.ApplyCircularBgra(aperture, 9, 9);
 int ApertureAlpha(int x, int y) => aperture[(y * 9 + x) * 4 + 3];

@@ -110,32 +110,36 @@ public sealed partial class GameLoop
         bool down = BindingDown(GameBinding.OpenBackpack);
         if (down && !_backpackKeyWasDown && !typing && _net is { IsInWorld: true })
         {
+            // B IS ALWAYS YOUR OWN BAGS, in both modes. It was the commander's party-logistics
+            // key in the free view (owner, 2026-08-25), which put the two inventory keys the
+            // wrong way round once I existed: the small personal key opened everyone, and the
+            // big "inventory" key opened one body. Swapped on the owner's call, 2026-08-26.
+            bool shift = InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight);
+            if (InventoryUiLaw.BindingAction(shift) == InventoryUiLaw.BagBindingAction.ToggleAllBags)
+                ToggleAllBags();
+            else
+                ToggleBackpack();
+        }
+        _backpackKeyWasDown = down;
+
+        // I IS THE INVENTORY KEY, and what that means follows the camera. Under the commander
+        // camera the thing you actually want is everyone's bags side by side, so I is the party
+        // logistics view there; on a body there is no party pane to open, so it falls back to
+        // opening all of your own bags.
+        //
+        // The personal path uses its own open/close rule, not vanilla's Shift+B one:
+        // see ShouldOpenEveryCarriedBag.
+        bool bagsDown = BindingDown(GameBinding.OpenBags);
+        if (bagsDown && !_openBagsKeyWasDown && !typing && _net is { IsInWorld: true })
+        {
             if (_freeView)
             {
-                // Commander view (owner 2026-08-25): B is the party logistics
-                // key — everyone's bags side by side, not the hidden body bags.
                 if (_partyInventoryOpen) _partyInventoryOpen = false;
                 else OpenPartyInventory(_freecamSelection.Count == 1
                     ? _freecamSelection[0] : LocalPlayerGuid);
             }
-            else
-            {
-                bool shift = InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight);
-                if (InventoryUiLaw.BindingAction(shift) == InventoryUiLaw.BagBindingAction.ToggleAllBags)
-                    ToggleAllBags();
-                else
-                    ToggleBackpack();
-            }
+            else ToggleEveryCarriedBag();
         }
-        _backpackKeyWasDown = down;
-
-        // I opens YOUR OWN bags, and is the only route to them in the free view: B is the
-        // commander's party-logistics key there and the bag bar is suppressed as body chrome,
-        // which between them left the free view with no way into your own backpack at all.
-        // Bound in both modes so the key means one thing wherever you press it.
-        bool bagsDown = BindingDown(GameBinding.OpenBags);
-        if (bagsDown && !_openBagsKeyWasDown && !typing && _net is { IsInWorld: true })
-            ToggleAllBags();
         _openBagsKeyWasDown = bagsDown;
     }
 
@@ -2634,6 +2638,22 @@ public sealed partial class GameLoop
     {
         if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
         bool open = InventoryUiLaw.ShouldOpenAllBags(_backpackOpen, _equippedBagOpen);
+        return SetAllNormalBagWindows(player, open);
+    }
+
+    /// <summary>
+    /// The dedicated all-bags key. Same windows as <see cref="ToggleAllBags"/>, different
+    /// open/close decision — it opens the rest instead of closing what is already up.
+    /// </summary>
+    private bool ToggleEveryCarriedBag()
+    {
+        if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
+        // Slot 18+container is the equipped-bag slot, matching SetAllNormalBagWindows' own test.
+        var carried = new bool[4];
+        for (int container = 1; container <= 4; container++)
+            carried[container - 1] = player.Fields.PlayerInventorySlot(18 + container) != 0;
+        bool open = InventoryUiLaw.ShouldOpenEveryCarriedBag(
+            _backpackOpen, _equippedBagOpen, carried);
         return SetAllNormalBagWindows(player, open);
     }
 

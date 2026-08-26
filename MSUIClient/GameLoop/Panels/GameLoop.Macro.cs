@@ -326,7 +326,7 @@ public sealed partial class GameLoop
         float s = GameplayUiScale();
         if (!BeginVanillaWindow("##macro", UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[15]),
                 MacroFrameUiLaw.FrameSize, out ImDrawListPtr dl,
-                out Vector2 origin, out s)) return;
+                out Vector2 origin, out s)) { ImGui.End(); return; }
         foreach (MacroFrameUiLaw.ArtPiece piece in MacroFrameUiLaw.FrameArt)
             DrawArt(dl, piece.Path, piece.Rect.Minimum(origin, s),
                 piece.Rect.LogicalSize, s);

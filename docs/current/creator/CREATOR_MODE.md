@@ -1,4 +1,4 @@
-# Creator Mode
+﻿# Creator Mode
 
 An offline sandbox built into MSUIClient for dressing characters and tuning
 spell visuals in realtime. Selected from the login screen's **Launch Options**
@@ -9,10 +9,12 @@ menu (red glue buttons); the choice persists in `settings.json`
 
 | Piece | Where |
 |---|---|
-| Launch mode + login front door | `MSUIClient/Program.Creator.cs`, login changes in `Program.Net.cs` (`DrawLoginScreen`, `NetHud`, `InitNet`) |
-| Menu bar + Character/Gear panels + item search | `MSUIClient/Program.Creator.Ui.cs` |
-| Teleport presets + world-map picker + target dummy | `MSUIClient/Program.Creator.World.cs` |
-| Spell workshop (loop + tuning + session) | `MSUIClient/Program.Creator.Spells.cs` |
+| Launch mode + login front door | `MSUIClient/GameLoop/CreatorMode/GameLoop.Creator.cs`, login changes in `GameLoop.Net.cs` (`DrawLoginScreen`, `NetHud`, `InitNet`) |
+| Menu bar + Character/Gear panels + item search | `MSUIClient/GameLoop/CreatorMode/GameLoop.Creator.Ui.cs` |
+| Teleport presets + world-map picker + target dummy | `MSUIClient/GameLoop/CreatorMode/GameLoop.Creator.World.cs` |
+| Spell workshop (loop + tuning) | `MSUIClient/GameLoop/CreatorMode/GameLoop.Creator.Spells.cs` |
+| Session: build the design, push it or file it | `MSUIClient/GameLoop/CreatorMode/GameLoop.Creator.Session.cs` |
+| Push transport to MangosSuperUI | `MSUIClient/Net/SpellPushClient.cs` |
 | Ported MangosSuperUI write stack | `MSUIClient/Creator/` (see below) |
 | Tier sets T0–T3 (generated from tier-sets.js) | `MSUIClient/Formats/CreatorTierSets.cs` |
 | Item catalogue loader | `MSUIClient/Formats/CreatorItemTable.cs` + repo-root `creator-items.tsv` |
@@ -49,29 +51,47 @@ multipliers never compound.
 
 The tuned design leaves creator mode through the **spell session** alone (below):
 the in-client patch-MPQ and tuning-JSON exports were removed — MangosSuperUI's
-Spell Completer builds the finished patch from the session file.
+Spell Completer builds the finished patch.
 
 ### The spell session (the design→data handoff)
 
-The **Session** section is the product path: give the tuned
-spell a temp name and **Add to session** — it lands in `spell-session.json` in
-the directory MSUIClient was launched from (`Program.Creator.Session.cs`).
-The file accumulates spells (same temp name = replace) and each entry carries
-the COMPLETE design: full tuning metadata (dials, per-BLP hues/tints/swaps,
-per-emitter edits, disabled emitters, added emitters) plus the patched M2
-bytes, recolored BLPs, and custom per-phase WAV/MP3 audio, base64-embedded.
-Whole-model hue on mesh/ribbon art
-(keyframed color tracks the byte patcher can't reach) is baked as hue-mapped
-BLP copies riding along like tints.
+The **Session** section is the product path: give the tuned spell a temp name,
+then send it one of two ways (`GameLoop/CreatorMode/GameLoop.Creator.Session.cs`).
+Both produce the SAME document, so a spell that was pushed and one that was
+uploaded are indistinguishable downstream:
 
-Upload the file to MangosSuperUI's **Spell Completer** page (sidebar → Spells)
-for the data phase: real name, class/skill tab, damage, mana, levels, ranks.
+- **Push to Completer** — POSTs it to `{SuiBaseUrl}/SpellCompleter/Push`, where
+  it lands in the Completer's inbox and appears on the page immediately. The
+  direct path, and the only one that carries the custom audio all the way. The
+  URL is `Settings.DevWindow.SuiBaseUrl` (the same base the NPC dev window uses).
+  Transport lives in `Net/SpellPushClient.cs` — background task, immutable
+  published result, nothing touching the game thread.
+- **Add to session** — appends it to `spell-session.json` in the directory
+  MSUIClient was launched from. The offline record, and the fallback when this
+  machine cannot reach the web app; the Completer still accepts the file by hand
+  under "Upload a session file instead". The file accumulates spells (same temp
+  name = replace).
+
+Either way the entry carries the COMPLETE design: full tuning metadata (dials,
+per-BLP hues/tints/swaps, per-emitter edits, disabled emitters, added emitters)
+plus the patched M2 bytes, recolored BLPs, and custom per-phase WAV/MP3 audio,
+base64-embedded. Whole-model hue on mesh/ribbon art (keyframed color tracks the
+byte patcher can't reach) is baked as hue-mapped BLP copies riding along like
+tints.
+
+The data phase happens on MangosSuperUI's **Spell Completer** page (sidebar →
+Gameplay Tuning → Spells): real name, class/skill tab, damage, mana, levels, ranks.
 Completing a spell creates the SQL rows (40000+ clone, skill_line_ability,
 spell_chain, optional rank chain), persists the design bytes under the spell's
 texture-cache dir (`completer_*` files, consumed by every unified patch
-rebuild via `SpellPatchRequest.PerPathPatchedM2s` / `ExtraMpqFiles`), and
-saves the `custom_spell_meta` config. Rebuild produces `patch-3.MPQ` with the
-visuals exactly as designed. Design phase lives here; data phase lives there.
+rebuild via `SpellPatchRequest.PerPathPatchedM2s` / `ExtraMpqFiles` /
+`CustomAudio`), and saves the `custom_spell_meta` config. Rebuild produces
+`patch-3.MPQ` with the visuals exactly as designed. Design phase lives here;
+data phase lives there.
+
+A pushed design is completed by ID: the page posts the form plus a `pendingId`
+and the server reads the bytes off its own disk, so the megabytes never round-trip
+through the browser. A dropped file still has to hand its base64 back up.
 
 ### Workshop niceties
 
@@ -159,7 +179,21 @@ so no dial combination clips a label.
   host M2 bytes.
 - Authored multi-file weighted sound variants cannot yet be assembled in the
   workshop; the first audio slice imports one custom file per spell phase.
-- Custom audio is carried by session schema v2. The downstream Spell Completer
-  must consume each entry's `audio` array before its final unified patch can
-  reproduce those tracks.
+- Custom audio reaches the game only through a PUSH. The Completer's file
+  drop-zone parses the session in the browser and has never forwarded the `audio`
+  array; only the push path stores it. On completion each track gets its own
+  `SoundEntries.dbc` row and is attached to this spell's own cloned visual kit
+  (kit field 13), so vanilla spells sharing the original sound are untouched.
+- The **area** cue is the one phase that cannot be wired: `SpellVisualCloner`
+  clones the six stage kits but not the area kit (SpellVisual field 13), and
+  patching the source's area kit would change every spell sharing it. The
+  Completer drops that track with a warning rather than storing bytes that do
+  nothing.
+- ⚠️ `MangosSuperUI/Services/SpellServices/SpellVisualCloner.cs` documents a
+  DIFFERENT DBC field map than `Formats/SpellVisualCatalog.cs` here — it calls
+  SpellVisual[5] StateDone and [6] Channel (the client parses [5] as channel and
+  [6] as the never-read missile gate), and puts the kit sound at [11] (which is
+  actually the ninth effect slot). This file's map is byte-verified against build
+  5875 and checked by `tools/spellvis/spellvis.py`; the audio wiring follows it,
+  not the cloner's comments.
 - Animation kits are cloned, never edited (same as SuperUI today).

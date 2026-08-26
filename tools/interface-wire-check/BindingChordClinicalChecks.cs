@@ -62,12 +62,18 @@ internal static class BindingChordClinicalChecks
               wheel.Pointer == BindingPointerKey.WheelUp && wheel.Key == Key.Unknown,
             "mouse button/wheel canonical codec or display drifted");
         Check(KeyBindingsUiLaw.FrameSize == new System.Numerics.Vector2(640, 512) &&
-              KeyBindingsUiLaw.WindowMinimum == new System.Numerics.Vector2(0, 104) &&
-              KeyBindingsUiLaw.Search == new KeyBindingsUiLaw.Rect(18, 8, 180, 22) &&
+              // Re-pinned 2026-08-26 to the MEASURED layout. These previously enshrined the
+              // broken values - x=0 (flush left, not TOP-anchored/centred), a search box at
+              // y=8 sitting on the frame's own top border (solid to y=52), and a 17-row band
+              // that left no interior room for MSUI's extra chrome. A guard that asserts the
+              // defect is worse than no guard: it is why none of this was caught.
+              KeyBindingsUiLaw.WindowOrigin(1600f) ==
+                  new System.Numerics.Vector2(480, 100) &&
+              KeyBindingsUiLaw.Search == new KeyBindingsUiLaw.Rect(26, 58, 180, 22) &&
               KeyBindingsUiLaw.SearchPlaceholderOffset ==
                   new System.Numerics.Vector2(7, 5) &&
-              KeyBindingsUiLaw.Rows == new KeyBindingsUiLaw.Rect(27, 53, 535, 390) &&
-              KeyBindingsUiLaw.VisibleRows == 17 && KeyBindingsUiLaw.RowPitch == 23 &&
+              KeyBindingsUiLaw.Rows == new KeyBindingsUiLaw.Rect(27, 104, 535, 345) &&
+              KeyBindingsUiLaw.VisibleRows == 15 && KeyBindingsUiLaw.RowPitch == 23 &&
               KeyBindingsUiLaw.TitleFont == "GameFontNormal" &&
               KeyBindingsUiLaw.CategoryFont == "GameFontNormal" &&
               KeyBindingsUiLaw.CommandFont == "GameFontNormalSmall" &&
@@ -76,7 +82,7 @@ internal static class BindingChordClinicalChecks
                   new KeyBindingsUiLaw.Rect(2, 3.5f, 16, 16) &&
               KeyBindingsUiLaw.HeaderTextOffset == new System.Numerics.Vector2(24, 5.5f) &&
               KeyBindingsUiLaw.RowMinimum(3) ==
-                  new System.Numerics.Vector2(27, 122) &&
+                  new System.Numerics.Vector2(27, 104 + 3 * 23) &&
               KeyBindingsUiLaw.RowHitSize == new System.Numerics.Vector2(535, 23) &&
               KeyBindingsUiLaw.PrimaryKey == new KeyBindingsUiLaw.Rect(175, 1, 180, 22) &&
               KeyBindingsUiLaw.SecondaryKey == new KeyBindingsUiLaw.Rect(355, 1, 180, 22) &&

@@ -38,17 +38,31 @@ public sealed partial class GameLoop
         ImGui.EndTooltip();
     }
 
+    /// <summary>
+    /// Open one authored vanilla frame. EVERY caller must call ImGui.End(), including on the
+    /// false return - Begin's contract is unconditional, and skipping it leaves the window stack
+    /// unbalanced for the rest of the frame (which showed up as missing backdrops, panels
+    /// drawing over each other, and duplicated HUD text).
+    ///
+    /// <paramref name="movable"/> lets a frame be dragged. Position then seeds once instead of
+    /// being re-asserted every frame, so ImGui keeps wherever the player put it for the session.
+    /// The authored origin is still the starting point, so nothing moves until it is dragged.
+    /// </summary>
     private bool BeginVanillaWindow(string id, Vector2 logicalOrigin, Vector2 logicalSize,
         out ImDrawListPtr draw, out Vector2 origin, out float scale,
-        float? scaleOverride = null)
+        float? scaleOverride = null, bool movable = false)
     {
         scale = scaleOverride ?? GameplayUiScale();
         origin = logicalOrigin * scale;
-        ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
+        ImGui.SetNextWindowPos(origin, movable ? ImGuiCond.FirstUseEver : ImGuiCond.Always);
         ImGui.SetNextWindowSize(logicalSize * scale, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
-        bool open = ImGui.Begin(id, VanillaWindowFlags);
+        bool open = ImGui.Begin(id,
+            movable ? VanillaWindowFlags & ~ImGuiWindowFlags.NoMove : VanillaWindowFlags);
         draw = ImGui.GetWindowDrawList();
+        // A dragged frame's art must follow it. The authored origin is only the seed; everything
+        // inside is laid out from this, so read back where the window actually is.
+        if (movable && open) origin = ImGui.GetWindowPos();
         return open;
     }
 
@@ -411,11 +425,25 @@ public sealed partial class GameLoop
     private void DrawVanillaScrollBar(ImDrawListPtr draw, string id, Vector2 min,
         float logicalHeight, float scale, int value, int maximum, Action<int> changed)
     {
-        Vector2 buttonSize = new Vector2(32) * scale;
+        // MEASURED OFF BLIZZARD'S OWN TEMPLATES, not by eye. Interface\FrameXML\UIPanelTemplates.xml:
+        //   UIPanelScrollUpButtonTemplate / ...DownButtonTemplate  Size 16 x 16
+        //   UIPanelScrollBarTemplate                               Size 16 wide
+        //   $parentThumbTexture (UI-ScrollBar-Knob)                Size 16 x 16
+        //   UIPanelScrollBarButton (inherited by all three)        TexCoords 0.25 .. 0.75
+        //
+        // Both halves of that were wrong here: the buttons were drawn 32 x 32, and the whole
+        // texture was blitted instead of its centre half. Those compound - the visible glyph came
+        // out four times its authored size, ringed by the padding the TexCoords exist to crop -
+        // which is why the arrows read as fat blobs jammed against the frame's inner border
+        // rather than small arrows in the gutter. Reported 2026-08-26.
+        const float ButtonLogical = 16f;
+        var uv0 = new Vector2(0.25f, 0.25f);
+        var uv1 = new Vector2(0.75f, 0.75f);
+        Vector2 buttonSize = new Vector2(ButtonLogical) * scale;
         bool canUp = value > 0;
         bool canDown = value < maximum;
         Vector2 upMin = min;
-        Vector2 downMin = min + new Vector2(0, logicalHeight - 32) * scale;
+        Vector2 downMin = min + new Vector2(0, logicalHeight - ButtonLogical) * scale;
         void Arrow(string suffix, Vector2 at, bool enabled, Action click)
         {
             ImGui.SetCursorScreenPos(at);
@@ -436,26 +464,29 @@ public sealed partial class GameLoop
                 _ => "Up",
             };
             uint tex = _gameplayArt?.Handle($@"Interface\Buttons\{stem}-{state}") ?? 0;
-            if (tex != 0) draw.AddImage((nint)tex, at, at + buttonSize);
+            if (tex != 0) draw.AddImage((nint)tex, at, at + buttonSize, uv0, uv1);
             if (visual.HighlightVisible)
             {
                 uint hi = _gameplayArt?.AdditiveHandle($@"Interface\Buttons\{stem}-Highlight") ?? 0;
-                if (hi != 0) draw.AddImage((nint)hi, at, at + buttonSize);
+                if (hi != 0) draw.AddImage((nint)hi, at, at + buttonSize, uv0, uv1);
             }
             if (clicked) click();
         }
         Arrow("-up", upMin, canUp, () => changed(value - 1));
         Arrow("-down", downMin, canDown, () => changed(value + 1));
 
-        float trackTop = 30f;
-        float trackHeight = MathF.Max(1f, logicalHeight - 60f);
+        // The track is what the two 16-tall buttons leave between them, and the thumb is the
+        // same 16 x 16 centre-cropped art as they are.
+        float trackTop = ButtonLogical;
+        float trackHeight = MathF.Max(1f, logicalHeight - ButtonLogical * 2f);
         float fraction = maximum <= 0 ? 0f : Math.Clamp((float)value / maximum, 0f, 1f);
-        Vector2 knobMin = min + new Vector2(3, trackTop + fraction * MathF.Max(0, trackHeight - 32)) * scale;
-        Vector2 knobSize = new Vector2(24, 32) * scale;
+        Vector2 knobSize = new Vector2(ButtonLogical) * scale;
+        Vector2 knobMin = min + new Vector2(0,
+            trackTop + fraction * MathF.Max(0, trackHeight - ButtonLogical)) * scale;
         uint knob = _gameplayArt?.Handle(@"Interface\Buttons\UI-ScrollBar-Knob") ?? 0;
-        if (knob != 0) draw.AddImage((nint)knob, knobMin, knobMin + knobSize);
-        ImGui.SetCursorScreenPos(min + new Vector2(3, trackTop) * scale);
-        ImGui.InvisibleButton(id + "-track", new Vector2(24, trackHeight) * scale);
+        if (knob != 0) draw.AddImage((nint)knob, knobMin, knobMin + knobSize, uv0, uv1);
+        ImGui.SetCursorScreenPos(min + new Vector2(0, trackTop) * scale);
+        ImGui.InvisibleButton(id + "-track", new Vector2(ButtonLogical, trackHeight) * scale);
         if (maximum > 0 && ImGui.IsItemActive())
         {
             float y = ImGui.GetIO().MousePos.Y - (min.Y + trackTop * scale) - knobSize.Y * .5f;

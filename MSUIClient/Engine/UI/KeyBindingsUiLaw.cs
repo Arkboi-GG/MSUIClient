@@ -22,18 +22,41 @@ public static class KeyBindingsUiLaw
         public Vector2 Size => new(Width, Height);
     }
 
-    public const float FrameTop = 104f;
-    public static Vector2 WindowMinimum => new(0, FrameTop);
+    // -- measured, not remembered --------------------------------------------
+    // Every number below comes from Blizzard's own data rather than from the look of it:
+    //   Interface\FrameXML\KeyBindingFrame.xml   frame 640x512, anchored TOP (0,-100)
+    //   Interface\FrameXML\UIPanelTemplates.xml  scroll bar 16 wide, TOPRIGHT +(6,-16)
+    //   Interface\KeyBindingFrame\UI-KeyBindingFrame-*.blp, decoded alpha:
+    //       left   solid border x 6..17,  interior fill from x 18
+    //       top    solid border y 7..52,  interior fill from y 53
+    //       right  interior fill ends x 561, border to x 593, LAST OPAQUE PIXEL x 597
+    //       bottom last opaque pixel y 500
+    // The art therefore does NOT fill its 640x512 canvas - x 598..639 is empty padding. That is
+    // what put the old scroll bar (584..616) and Cancel button (490..620) outside the visible
+    // window: inside the canvas, but past the artwork. Reported 2026-08-26.
+    public const float FrameTop = 100f;              // KeyBindingFrame.xml TOP offset y=-100
+    public const float VisibleRightEdge = 597f;      // last opaque pixel, measured
     public static Vector2 FrameSize => new(640, 512);
-    public static Vector2 TitleCenter => new(290, 24);
-    public static Vector2 CommandTitle => new(26, 35);
-    public static Vector2 KeyOneCenter => new(290, 41);
-    public static Vector2 KeyTwoCenter => new(470, 41);
-    public static Rect Search => new(18, 8, 180, 22);
+
+    /// <summary>
+    /// Vanilla anchors this frame TOP to UIParent, so it is CENTRED horizontally - it does not
+    /// sit against the left edge. Needs the live display width, hence a method.
+    /// </summary>
+    public static Vector2 WindowOrigin(float logicalDisplayWidth) =>
+        new(MathF.Max(0f, (logicalDisplayWidth - FrameSize.X) * 0.5f), FrameTop);
+
+    public static Vector2 TitleCenter => new(320, 26);
+    // MSUI adds a search box and a character-specific toggle that vanilla has no room for, so
+    // both live in the INTERIOR (y >= 53) and the row band starts below them. In the top band
+    // they were drawn on the frame's own border decoration.
+    public static Rect Search => new(26, 58, 180, 22);
     public static Vector2 SearchPlaceholderOffset => new(7, 5);
-    public static Rect Rows => new(27, 53, 535, 390);
-    public const float RowPitch = 23f;
-    public const int VisibleRows = 17;
+    public static Vector2 CommandTitle => new(26, 88);
+    public static Vector2 KeyOneCenter => new(292, 92);
+    public static Vector2 KeyTwoCenter => new(472, 92);
+    public static Rect Rows => new(27, 104, 535, 345);
+    public const float RowPitch = 23f;               // template 25 tall, anchored -2 = 23 pitch
+    public const int VisibleRows = 15;               // 104 + 15*23 = 449, clear of the buttons
     public static Vector2 RowMinimum(int visibleIndex) =>
         Rows.Min + new Vector2(0, Math.Max(0, visibleIndex) * RowPitch);
     public static Vector2 RowHitSize => new(Rows.Width, RowPitch);
@@ -42,14 +65,18 @@ public static class KeyBindingsUiLaw
     public static Vector2 CommandTextOffset => new(0, 6.5f);
     public static Rect PrimaryKey => new(175, 1, 180, 22);
     public static Rect SecondaryKey => new(355, 1, 180, 22);
-    public static Vector2 ScrollMinimum => new(584, 52);
-    public const float ScrollHeight = 390f;
-    public static Vector2 FeedbackCenter => new(320, 455);
-    public static Vector2 CharacterSpecificMinimum => new(395, 10);
+    // Scroll frame right edge is 562 (2 + 560); UIPanelScrollFrameTemplate hangs the bar at
+    // TOPRIGHT +6 with width 16, so 568..584 - on the border decoration, inside the artwork.
+    public static Vector2 ScrollMinimum => new(568, 104);
+    public const float ScrollHeight = 345f;
+    public static Vector2 FeedbackCenter => new(320, 458);
+    public static Vector2 CharacterSpecificMinimum => new(360, 60);
+    // BOTTOMLEFT (10,21) and BOTTOMRIGHT (-50,21) with 130x22 buttons: y = 512-21-22 = 469,
+    // Cancel 460..590, Okay abuts its LEFT at 330..460. Unbind is MSUI's, abutting Okay.
     public static Rect Defaults => new(10, 469, 130, 22);
-    public static Rect Unbind => new(230, 469, 130, 22);
-    public static Rect Okay => new(360, 469, 130, 22);
-    public static Rect Cancel => new(490, 469, 130, 22);
+    public static Rect Unbind => new(200, 469, 130, 22);
+    public static Rect Okay => new(330, 469, 130, 22);
+    public static Rect Cancel => new(460, 469, 130, 22);
 
     public readonly record struct ArtSlice(string Path, Vector2 Offset, Vector2 Size);
 
