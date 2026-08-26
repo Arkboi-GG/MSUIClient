@@ -151,6 +151,15 @@ internal static class PartyQuestActsClinicalChecks
             "the questgiver must be resolved from ALL THREE panel records in one place — " +
             "reading only two yields 0 on the reward panel and the server then refuses " +
             "every companion with NO_QUEST");
+        Check(rail.Contains("_items?.IconForDisplay(row.DisplayId)", StringComparison.Ordinal) &&
+              !rail.Contains("if (row.DisplayId != 0) return \"\";", StringComparison.Ordinal),
+            "the rail's reward icon must resolve through IconForDisplay exactly as the " +
+            "vanilla reward row does — SMSG_QUESTGIVER_OFFER_REWARD always carries a " +
+            "display id, so bailing out on a non-zero one drew a blank box for EVERY reward");
+        Check(rail.Contains("QuestRewardNameColumnWidth", StringComparison.Ordinal) &&
+              rail.Contains("QuestRewardName(labelRow)", StringComparison.Ordinal),
+            "every choice row must be NAMED in the board's left gutter; an icon grid with " +
+            "no names is not a reward picker, it is five identical squares");
         Check(rail.Contains("bool acting = accepting || panel == QuestNpcPanel.Reward;",
                   StringComparison.Ordinal),
             "the Progress panel must not offer a party turn-in — it forces auto-pick for " +

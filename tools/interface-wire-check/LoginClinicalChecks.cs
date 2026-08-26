@@ -27,14 +27,16 @@ internal static class LoginClinicalChecks
 
         LoginUiLaw.LaunchOptionsLayout launch =
             LoginUiLaw.LaunchOptions(new Vector2(1024f, 768f), 1f);
-        Check(launch.Frame.Min == new Vector2(302f, 259f) &&
-              launch.Frame.Size == new Vector2(420f, 250f) &&
-              launch.PromptCenter == new Vector2(512f, 303f) &&
-              launch.ClientButton.Min == new Vector2(387f, 333f) &&
+        Check(launch.Frame.Min == new Vector2(302f, 234f) &&
+              launch.Frame.Size == new Vector2(420f, 300f) &&
+              launch.PromptCenter == new Vector2(512f, 278f) &&
+              launch.ConfigurationCombo.Min == new Vector2(387f, 302f) &&
+              launch.ConfigurationCombo.Size == new Vector2(250f, 30f) &&
+              launch.ClientButton.Min == new Vector2(387f, 346f) &&
               launch.ClientButton.Size == new Vector2(250f, 40f) &&
-              launch.ClientActiveLabel == new Vector2(645f, 347f) &&
-              launch.CreatorButton.Min == new Vector2(387f, 383f) &&
-              launch.OkayButton.Min == new Vector2(452f, 463f) &&
+              launch.ClientActiveLabel == new Vector2(645f, 360f) &&
+              launch.CreatorButton.Min == new Vector2(387f, 396f) &&
+              launch.OkayButton.Min == new Vector2(452f, 488f) &&
               launch.OkayButton.Size == new Vector2(120f, 34f),
             "launch-options modal authored geometry drift");
 
@@ -43,6 +45,8 @@ internal static class LoginClinicalChecks
             "GameLoop.Net.cs"));
         string creator = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "CreatorMode",
             "GameLoop.Creator.cs"));
+        string profiles = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
+            "GameLoop.LoginProfiles.cs"));
         Check(runtime.Contains("LoginUiLaw.Dialog(disp, s", StringComparison.Ordinal) &&
               runtime.Contains("LoginUiLaw.Host(disp)", StringComparison.Ordinal) &&
               runtime.Contains("LoginUiLaw.TuningWindow", StringComparison.Ordinal) &&
@@ -56,7 +60,42 @@ internal static class LoginClinicalChecks
         Check(runtime.Contains("Settings.SavedAccountName", StringComparison.Ordinal) &&
               runtime.Contains("SettingsFile?.Save()", StringComparison.Ordinal),
             "Remember Account Name must persist through the settings store");
+        Check(runtime.Contains("GlueButton(\"Manage Connection\"", StringComparison.Ordinal) &&
+              runtime.Contains("GlueButton(\"Launch Configurations\"",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("new Vector2(176f * s, small.Y)",
+                  StringComparison.Ordinal) &&
+              !runtime.Contains("GlueMenuButton(\"Manage Account\"", StringComparison.Ordinal) &&
+              !runtime.Contains("GlueMenuButton(\"Community Site\"", StringComparison.Ordinal),
+            "login connection/configuration menu replacement drift");
+        Check(profiles.Contains("class GameLoop", StringComparison.Ordinal) &&
+              profiles.Contains("EnsureLoginProfilesInitialized", StringComparison.Ordinal) &&
+              profiles.Contains("_config.RealmdHost = connection.RealmdHost.Trim()",
+                  StringComparison.Ordinal) &&
+              profiles.Contains("launch.SavePassword ? launch.Password : \"\"",
+                  StringComparison.Ordinal) &&
+              profiles.Contains("Enter world automatically", StringComparison.Ordinal) &&
+              profiles.Contains("Save & Use", StringComparison.Ordinal) &&
+              profiles.Contains("WowSkin.Dialog", StringComparison.Ordinal) &&
+              profiles.Contains("WowSkin.GlueEditBox", StringComparison.Ordinal) &&
+              profiles.Contains("_skin.HeaderPlaque", StringComparison.Ordinal) &&
+              profiles.Contains("_skin.GlueButton", StringComparison.Ordinal) &&
+              profiles.Contains("_skin!.CheckBox", StringComparison.Ordinal) &&
+              profiles.Contains("dl.AddRectFilled(frameMin + fillInset",
+                  StringComparison.Ordinal) &&
+              profiles.Contains("dl.AddRectFilled(min + inset",
+                  StringComparison.Ordinal) &&
+              profiles.Contains("\"scroll.dn.dn\"", StringComparison.Ordinal) &&
+              profiles.Contains("_skin.GlueImageUv", StringComparison.Ordinal) &&
+              profiles.Contains("boxMin.X + 11f * s", StringComparison.Ordinal) &&
+              !profiles.Contains("ImGui.Combo", StringComparison.Ordinal) &&
+              !profiles.Contains("ImGui.SetWindowFontScale(s)",
+                  StringComparison.Ordinal) &&
+              !profiles.Contains("ImGuiWindowFlags.NoCollapse", StringComparison.Ordinal) &&
+              !profiles.Contains("ImGui.Selectable", StringComparison.Ordinal),
+            "connection/launch profile runtime wiring drift");
         Check(creator.Contains("LoginUiLaw.LaunchOptions(disp, s)", StringComparison.Ordinal) &&
+              creator.Contains("UseLaunchConfiguration(", StringComparison.Ordinal) &&
               !creator.Contains("float w = 420f * s", StringComparison.Ordinal) &&
               !creator.Contains("var bSize = new Vector2(250f * s", StringComparison.Ordinal),
             "launch-options modal geometry must stay in LoginUiLaw");
@@ -67,10 +106,34 @@ internal static class LoginClinicalChecks
         {
             SettingsStore store = SettingsStore.Load(root, settingsPath);
             store.Settings.SavedAccountName = "RememberedAccount";
+            store.LoginProfiles.ActiveConnectionId = "home";
+            store.LoginProfiles.ActiveLaunchConfigurationId = "raid";
+            store.LoginProfiles.Connections.Add(new ConnectionProfileSetting
+            {
+                Id = "home", Name = "Home Server", RealmdHost = "192.168.0.2",
+                RealmdPort = 3724, Realm = "Barrens Chat", WorldPortFallback = 8085,
+                WorldUsesRealmdHost = true, TimeoutMs = 9000, RealPortals = true,
+            });
+            store.LoginProfiles.LaunchConfigurations.Add(new LaunchConfigurationSetting
+            {
+                Id = "raid", Name = "Raid Night", ConnectionId = "home", Mode = "Client",
+                AutoLogin = true, Account = "NICO", SavePassword = true,
+                Password = "local-home-password", AutoEnterWorld = true,
+                Character = "Testwar",
+            });
             store.Save();
             SettingsStore restored = SettingsStore.Load(root, settingsPath);
             Check(restored.Settings.SavedAccountName == "RememberedAccount",
                 "Remember Account Name settings round-trip drift");
+            Check(restored.LoginProfiles.ActiveConnectionId == "home" &&
+                  restored.LoginProfiles.ActiveLaunchConfigurationId == "raid" &&
+                  restored.LoginProfiles.Connections is
+                      [{ Name: "Home Server", RealmdHost: "192.168.0.2", RealmdPort: 3724 }] &&
+                  restored.LoginProfiles.LaunchConfigurations is
+                      [{ Name: "Raid Night", AutoLogin: true, SavePassword: true,
+                         Password: "local-home-password", AutoEnterWorld: true,
+                         Character: "Testwar" }],
+                "connection/launch profiles or optional local password round-trip drift");
         }
         finally
         {

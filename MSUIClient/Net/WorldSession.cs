@@ -366,6 +366,22 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_SUI_MEMBER_ITEM_MOVE,
             MemberFactsWire.BuildMemberItemMoveBody(from, to, bag, slot));
 
+    /// <summary>Take group leadership (PLAN_20 P4a). The server only ever grants
+    /// this when the current leader is an AiBot in the requester's own group.
+    /// Only sent once the control-ACK trailer advertised party-lead-v1.</summary>
+    public void SuiPartyLead(byte action, ulong subject) =>
+        SendPacket((ushort)Op.CMSG_SUI_PARTY_LEAD,
+            PartyLeadWire.BuildPartyLeadBody(action, subject));
+
+    /// <summary>Ask what every party member would see over these questgivers'
+    /// heads (PLAN_20 P5). The giver list is exactly what we are drawing markers
+    /// for — there is no whole-zone shorthand, because the server's work is
+    /// proportional to what it is asked about. Only sent once the control-ACK
+    /// trailer advertised party-giver-status-v1.</summary>
+    public void SuiGiverStatus(IReadOnlyList<ulong> givers) =>
+        SendPacket((ushort)Op.CMSG_SUI_GIVER_STATUS,
+            GiverStatusWire.BuildGiverStatusBody(givers));
+
     /// <summary>Pull party quest logs (PLAN_20 P1); an empty list means the whole
     /// group AND our own character — the latter is how overflow quests arrive.
     /// Only sent once the control-ACK trailer advertised party-quest-facts-v1.</summary>

@@ -2,6 +2,18 @@ namespace MSUIClient.Engine.UI;
 
 public readonly record struct QuestMarkerStyle(string ModelPath);
 
+/// <summary>
+/// Which kind of business a member has at a questgiver. Vanilla's eight dialog
+/// statuses collapse to three for the purpose of counting a party: you can pick
+/// something up here, you can hand something in here, or you cannot act here.
+/// </summary>
+public enum QuestMarkerFamily
+{
+    None,
+    Take,
+    TurnIn,
+}
+
 /// <summary>Build-5875 dialog-status to TalkToMe marker mapping.</summary>
 public static class QuestMarkerUiLaw
 {
@@ -17,4 +29,61 @@ public static class QuestMarkerUiLaw
         6 or 7 => new(@"Interface\Buttons\TalkToMeQuestionMark.m2"),
         _ => null,
     };
+
+    // ── PLAN_20 P5: the party numeral ────────────────────────────────────────
+    //
+    // Owner decision 5: keep the exact vanilla art, font and yellow, and hang a
+    // parenthesised numeral over it — (4) when four of your group can take what
+    // this NPC offers, and the same for turn-ins.
+
+    /// <summary>The vanilla quest font and yellow, unmodified — decision 5.</summary>
+    public const string NumeralFontObject = "GameFontNormalLarge";
+
+    /// <summary>
+    /// Yards of clearance above the head anchor, so the numeral clears the
+    /// TalkToMe M2 rather than sitting inside it.
+    /// </summary>
+    public const float NumeralClearanceYards = 1.35f;
+
+    public static QuestMarkerFamily FamilyOf(uint status) => status switch
+    {
+        // REWARD_REP (4) is drawn as a blue question mark but MEANS "there is
+        // something here you may take" — a repeatable quest you are eligible for.
+        // It belongs with AVAILABLE for counting, not with the turn-ins it
+        // resembles.
+        4 or 5 => QuestMarkerFamily.Take,
+        6 or 7 => QuestMarkerFamily.TurnIn,
+        _ => QuestMarkerFamily.None,
+    };
+
+    /// <summary>
+    /// Which family this NPC's numeral should count, given our own status there
+    /// and what the group can do. Ours decides when we have business here; when
+    /// we do not (a grey marker), the numeral speaks for whoever does — which is
+    /// the case where it earns its keep, because walking past is the alternative.
+    /// </summary>
+    public static QuestMarkerFamily NumeralFamily(uint ownStatus, int takers, int finishers)
+    {
+        QuestMarkerFamily own = FamilyOf(ownStatus);
+        if (own != QuestMarkerFamily.None) return own;
+        if (takers > 0) return QuestMarkerFamily.Take;
+        return finishers > 0 ? QuestMarkerFamily.TurnIn : QuestMarkerFamily.None;
+    }
+
+    /// <summary>
+    /// Whether a numeral is worth drawing at all.
+    ///
+    /// One member who is us is what vanilla already says by drawing the marker,
+    /// so "(1)" over our own available quest is pure noise — and drawing nothing
+    /// there keeps solo play pixel-identical to vanilla, which is the whole
+    /// reason this is additive. A count of one that is NOT us is worth saying,
+    /// because nothing else on screen would tell us.
+    /// </summary>
+    public static bool ShowNumeral(uint ownStatus, QuestMarkerFamily family, int count)
+    {
+        if (family == QuestMarkerFamily.None || count <= 0) return false;
+        return count >= 2 || FamilyOf(ownStatus) != family;
+    }
+
+    public static string NumeralText(int count) => $"({count})";
 }

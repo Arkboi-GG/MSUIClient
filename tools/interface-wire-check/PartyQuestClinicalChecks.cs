@@ -113,11 +113,55 @@ internal static class PartyQuestClinicalChecks
         // The overflow half of the log only refreshes if something asks.
         string questPanel = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Quest.cs"));
+        string partyPanel = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.PartyQuestLog.cs"));
         Check(questPanel.Contains("RequestPartyQuestFacts(\"quest accepted\")", StringComparison.Ordinal) &&
               questPanel.Contains("RequestPartyQuestFacts(\"quest turned in\")", StringComparison.Ordinal),
             "an ordinary accept or turn-in must re-pull quest facts — a quest held past " +
             "the update-field slots produces no field change to observe, so without this " +
             "it stays invisible in the player's own log");
+
+        // The limiter must DELAY a pull, never swallow one. Nothing on the server
+        // pushes after an ordinary accept/turn-in/abandon, so a dropped pull is a
+        // quest that stays wrong on screen until an unrelated roster edge.
+        Check(questFacts.Contains("_partyQuestFactsPullPending = true;", StringComparison.Ordinal) &&
+              questFacts.Contains("RequestPartyQuestFacts(_partyQuestFactsPendingReason + \" (deferred)\")",
+                  StringComparison.Ordinal),
+            "a throttled quest-facts pull must be deferred and flushed, not dropped");
+
+        Check(questPanel.Contains("ForgetOwnQuestFact(questId);", StringComparison.Ordinal) &&
+              questPanel.Contains("RequestPartyQuestFacts(\"quest abandoned\")", StringComparison.Ordinal),
+            "an ordinary abandon must drop the cached row AND re-pull — MergedOwnQuestLog " +
+            "re-adds any cached entry lacking a slot, so a stale row reappears as a " +
+            "phantom overflow quest whose Abandon button bounces with NO_QUEST");
+
+        // Companion credit produces NO server push of any kind.
+        Check(questFacts.Contains("private void RefreshPartyQuestFactsWhileWatched()",
+                  StringComparison.Ordinal) &&
+              questFacts.Contains("RefreshPartyQuestFactsWhileWatched();", StringComparison.Ordinal),
+            "the facts must refresh while a surface is displaying them; without it a " +
+            "companion's counters are frozen for as long as you watch them");
+        Check(partyPanel.Contains("MemberQuestLogAge(guid)", StringComparison.Ordinal),
+            "the party quest log must state how old its facts are — the age helper " +
+            "existed with no consumer at all, so the grid presented stale counters as live");
+
+        // Kill and collect objectives SHARE an index in vanilla and 89 quest/index
+        // pairs across 83 quests in the shipped world DB carry both. This was fixed
+        // in the party grid and left broken in the player's own log and watch frame,
+        // where it also miscounted completion — because nothing pinned it anywhere.
+        Check(questPanel.Contains("private IEnumerable<(string Text, bool Finished)> QuestObjectiveLines(",
+                  StringComparison.Ordinal) &&
+              !questPanel.Contains("private string? QuestObjectiveLine(", StringComparison.Ordinal),
+            "the self quest log must emit EVERY objective line an index produces — a " +
+            "single-return QuestObjectiveLine drops the collect objective whenever a " +
+            "kill shares its index");
+        Check(questPanel.Contains("// NOT else-if. See the summary.", StringComparison.Ordinal),
+            "the collect branch must not be else-if'd onto the kill branch");
+        foreach (string mixedLabelSite in new[] { questPanel, partyPanel })
+            Check(mixedLabelSite.Contains("kill ? \"\" : objective.Text", StringComparison.Ordinal),
+                "ObjectiveText[i] is the CREATURE objective's text; when an index carries " +
+                "both objectives the collect line must fall back to the item name instead " +
+                "of repeating the kill's label");
 
         // The pull must NOT bail on an empty party: a solo player still needs to
         // ask about their own overflow quests. This is the one place the quest

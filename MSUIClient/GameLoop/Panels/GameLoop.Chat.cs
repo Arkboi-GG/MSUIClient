@@ -1093,6 +1093,11 @@ public sealed partial class GameLoop
             TrySetLocalStandState(standState);
             return true;
         }
+        if (args.Length == 0 && PartyLeadCommandLaw.IsClaimLead(command))
+        {
+            RequestPartyLeadClaim();
+            return true;
+        }
         if (GroupSlashCommandLaw.Resolve(command) is { } groupCommand)
         {
             string? name = ResolveGroupSlashTarget(args);

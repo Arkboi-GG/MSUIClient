@@ -1168,6 +1168,46 @@ public sealed class SettingsPreset
 }
 
 /// <summary>
+/// Login-front-door profiles are persisted beside GameSettings rather than inside it.
+/// Settings presets may replace graphics/input/audio preferences, but must never replace
+/// connections, accounts, or locally saved passwords as a side effect.
+/// </summary>
+public sealed class LoginProfileSettings
+{
+    public string ActiveConnectionId { get; set; } = "";
+    public string ActiveLaunchConfigurationId { get; set; } = "";
+    public List<ConnectionProfileSetting> Connections { get; set; } = [];
+    public List<LaunchConfigurationSetting> LaunchConfigurations { get; set; } = [];
+}
+
+public sealed class ConnectionProfileSetting
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "Home Server";
+    public string RealmdHost { get; set; } = "127.0.0.1";
+    public int RealmdPort { get; set; } = 3724;
+    public string Realm { get; set; } = "";
+    public int WorldPortFallback { get; set; } = 8085;
+    public bool WorldUsesRealmdHost { get; set; } = true;
+    public int TimeoutMs { get; set; } = 10000;
+    public bool RealPortals { get; set; } = true;
+}
+
+public sealed class LaunchConfigurationSetting
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "Default";
+    public string ConnectionId { get; set; } = "";
+    public string Mode { get; set; } = "Client";
+    public bool AutoLogin { get; set; }
+    public string Account { get; set; } = "";
+    public bool SavePassword { get; set; }
+    public string Password { get; set; } = "";
+    public bool AutoEnterWorld { get; set; }
+    public string Character { get; set; } = "";
+}
+
+/// <summary>
 /// The file itself. Same shape and same promises as <see cref="VantageStore"/>:
 /// repo-root JSON, human-readable, hand-editable, and it NEVER throws on read -
 /// a missing or malformed file logs a line and starts from defaults, because
@@ -1179,21 +1219,25 @@ public sealed class SettingsStore
     {
         public GameSettings Settings { get; set; } = new();
         public List<SettingsPreset> Presets { get; set; } = new();
+        public LoginProfileSettings LoginProfiles { get; set; } = new();
     }
 
     private readonly string _path;
 
     public GameSettings Settings { get; private set; }
     public List<SettingsPreset> Presets { get; }
+    public LoginProfileSettings LoginProfiles { get; }
 
     /// <summary>True when the file did not exist and the defaults are in play.</summary>
     public bool IsFresh { get; private set; }
 
-    private SettingsStore(string path, GameSettings settings, List<SettingsPreset> presets, bool fresh)
+    private SettingsStore(string path, GameSettings settings, List<SettingsPreset> presets,
+        LoginProfileSettings loginProfiles, bool fresh)
     {
         _path = path;
         Settings = settings;
         Presets = presets;
+        LoginProfiles = loginProfiles;
         IsFresh = fresh;
     }
 
@@ -1227,7 +1271,8 @@ public sealed class SettingsStore
                     Console.WriteLine($"[settings] {path}  " +
                                       $"preset '{parsed.Settings.ActivePreset}', " +
                                       $"{parsed.Presets.Count} saved preset(s)");
-                    return new SettingsStore(path, parsed.Settings, parsed.Presets, false);
+                    return new SettingsStore(path, parsed.Settings, parsed.Presets,
+                        parsed.LoginProfiles ?? new LoginProfileSettings(), false);
                 }
             }
             else
@@ -1242,7 +1287,8 @@ public sealed class SettingsStore
 
         var fresh = GameSettings.Defaults();
         fresh.ResolveComposites();
-        return new SettingsStore(path, fresh, new List<SettingsPreset>(), true);
+        return new SettingsStore(path, fresh, new List<SettingsPreset>(),
+            new LoginProfileSettings(), true);
     }
 
     /// <summary>
@@ -1464,7 +1510,12 @@ public sealed class SettingsStore
     {
         try
         {
-            var shape = new FileShape { Settings = Settings, Presets = Presets };
+            var shape = new FileShape
+            {
+                Settings = Settings,
+                Presets = Presets,
+                LoginProfiles = LoginProfiles,
+            };
             File.WriteAllText(_path, JsonSerializer.Serialize(shape, GameSettings.Json));
             IsFresh = false;
         }

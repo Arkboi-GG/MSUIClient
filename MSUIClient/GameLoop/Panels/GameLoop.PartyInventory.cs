@@ -259,7 +259,7 @@ public sealed partial class GameLoop
                 continue;
             int slots = (int)Math.Min(bagEntity.Fields.ContainerNumSlots, 36);
             for (int s = 0; s < slots; s++)
-                DrawPartyBagCell(dl, owner, guid, bag + 1, s, bagsOrigin, ref drawn, perRow,
+                DrawPartyBagCell(dl, bagEntity, guid, bag + 1, s, bagsOrigin, ref drawn, perRow,
                     cell, gapCell, scale);
         }
         int rows = (drawn + perRow - 1) / perRow;
@@ -307,8 +307,13 @@ public sealed partial class GameLoop
 
     /// <summary>One small bag cell: icon, stack count, tooltip, drag-drop
     /// source, and the right-click "Give to …" menu (container 0 = backpack,
-    /// 1-4 = equipped bags).</summary>
-    private void DrawPartyBagCell(ImDrawListPtr dl, WorldEntity owner, ulong ownerGuid,
+    /// 1-4 = equipped bags). slotSource is the entity the slot guid is
+    /// READ from: the player for the backpack, the equipped BAG entity for
+    /// 1-4. CONTAINER_SLOT_* lives on the container -- off a player those
+    /// indices land in UNIT_AURA, so every cell resolved to nothing and the
+    /// bags drew empty at exactly the right slot count. ownerGuid stays the
+    /// member either way: it addresses the wire, the tooltips and the drops.</summary>
+    private void DrawPartyBagCell(ImDrawListPtr dl, WorldEntity slotSource, ulong ownerGuid,
         int container, int slot, Vector2 origin, ref int drawn, int perRow, float cell,
         float gap, float scale)
     {
@@ -322,7 +327,7 @@ public sealed partial class GameLoop
             ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
         bool hovered = ImGui.IsItemHovered();
 
-        ulong itemGuid = ResolveSlotGuid(owner, container, slot);
+        ulong itemGuid = ResolveSlotGuid(slotSource, container, slot);
         WorldEntity? instance = itemGuid != 0 && _entities.TryGet(itemGuid, out WorldEntity found)
             ? found : null;
         ItemTemplate? item = null;

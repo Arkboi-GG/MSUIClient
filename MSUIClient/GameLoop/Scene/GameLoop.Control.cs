@@ -268,6 +268,8 @@ public sealed partial class GameLoop
         ResetCompanionVoiceState();
         ResetPartyMemberFacts();
         ResetPartyQuestFacts();
+        ResetPartyGiverStatus();
+        ResetPartyLead();
         ResetPartyQuestActs();
         PurgeSuiSnapshot();
         _movementSender.Parked = false;
@@ -626,6 +628,7 @@ public sealed partial class GameLoop
         bot.Fields.SetU32(ObjectFields.PLAYER_CHARACTER_POINTS1, talentPoints);
         bot.Fields.SetU32(ObjectFields.PLAYER_COINAGE, coinage);
         int containersSized = 0;
+        int baggedItems = 0, orphanedBagItems = 0;
         bool statsApplied = false;
 
         for (int i = 0; i < count && r.Remaining >= 19; i++)
@@ -671,10 +674,16 @@ public sealed partial class GameLoop
             }
             else
             {
-                // Contents of an equipped bag; the bag row itself came earlier in the stream.
+                // Contents of an equipped bag; the bag row itself came earlier in the
+                // stream. If it did NOT, the item cannot be filed anywhere and simply
+                // vanishes -- indistinguishable from "the bag is empty", so count it.
                 ulong bagGuid = bot.Fields.PlayerInventorySlot(bag);
                 if (bagGuid != 0 && _entities.TryGet(bagGuid, out WorldEntity bagEntity))
+                {
                     bagEntity.Fields.SetGuid((ushort)(ObjectFields.CONTAINER_SLOT_1 + slot * 2), itemGuid);
+                    baggedItems++;
+                }
+                else orphanedBagItems++;
             }
             if (_net is not null) _items?.Require(entry, itemGuid, _net);
         }
@@ -709,7 +718,10 @@ public sealed partial class GameLoop
         // Version marker: this line existing at all proves the round-13 client is
         // running; its numbers say whether the wire carried the v2 payloads.
         Console.WriteLine($"[sui] snapshot v2: stats={(statsApplied ? "applied" : "ABSENT")}, " +
-            $"containers sized={containersSized}");
+            $"containers sized={containersSized}, bag items filed={baggedItems}" +
+            (orphanedBagItems > 0
+                ? $", ORPHANED={orphanedBagItems} (contents arrived before the bag row)"
+                : ""));
 
         _suiSnapshotAtByBot[source] = NowSeconds();
 

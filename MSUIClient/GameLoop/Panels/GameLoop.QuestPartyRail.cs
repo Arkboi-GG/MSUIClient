@@ -27,6 +27,11 @@ public sealed partial class GameLoop
 
     private const float QuestRewardBoardPad = 10f;
     private const float QuestRewardColumnWidth = 47f;
+    /// <summary>Left gutter naming each choice row's item. Every member is being
+    /// offered the SAME choice list, so the name belongs once per row rather than
+    /// crammed into every cell — and without it the board was five identical
+    /// unlabelled boxes.</summary>
+    private const float QuestRewardNameColumnWidth = 116f;
     private const float QuestRewardHeadHeight = 16f;
     private const float QuestRewardMemberHeight = 32f;
 
@@ -89,7 +94,8 @@ public sealed partial class GameLoop
             _questDetails?.GiverGuid ?? 0;
         if (giver == 0) return;                  // nothing to act on, and no window open yet
         float width = reward && choices > 0
-            ? 2 * QuestRewardBoardPad + Math.Max(1, included) * QuestRewardColumnWidth
+            ? 2 * QuestRewardBoardPad + QuestRewardNameColumnWidth +
+              Math.Max(1, included) * QuestRewardColumnWidth
             : QuestRailWidth;
         float height = QuestRailHeaderHeight + members.Count * QuestRailRowPitch + 30f;
         if (reward && choices > 0)
@@ -198,7 +204,25 @@ public sealed partial class GameLoop
         GameText.Draw(dl, "GameFontNormalSmall", "Their rewards", c0, s, VanillaGold);
 
         var included = members.Where(m => QuestRailIncluded(m.Guid)).ToList();
-        float colX = QuestRewardBoardPad - 8f;
+
+        // Name every choice row down the left gutter. The vanilla reward panel
+        // beside us queries these same templates, but the rail must not depend on
+        // another panel's draw order for its own labels to resolve.
+        for (int k = 0; k < choices; k++)
+        {
+            QuestRewardItem labelRow = _questOffer!.ChoiceRewards[k];
+            if (_items is not null && _net is not null)
+                _items.Require(labelRow.ItemId, giver, _net);
+            (string rewardName, uint rewardColor) = QuestRewardName(labelRow);
+            float labelY = QuestRewardHeadHeight + QuestRewardMemberHeight +
+                k * QuestRewardColumnWidth + (QuestFrameUiLaw.ItemIcon - 10f) / 2f;
+            GameText.Draw(dl, "GameFontNormalSmall",
+                GameText.EllipsizeToBox("GameFontNormalSmall", rewardName,
+                    QuestRewardNameColumnWidth - 10f, 11f, s),
+                c0 + new Vector2(0f, labelY) * s, s, rewardColor);
+        }
+
+        float colX = QuestRewardNameColumnWidth + QuestRewardBoardPad - 8f;
         foreach ((ulong guid, string name) in included)
         {
             DrawQuestRailPortrait(dl, guid,
@@ -233,7 +257,13 @@ public sealed partial class GameLoop
                     picked ? VanillaGold : 0xff2a343d, 0f, ImDrawFlags.None,
                     MathF.Max(1f, (picked ? 2f : 1f) * s));
                 if (ImGui.IsItemHovered())
-                    HoverTip(picked ? "Their pick" : "Choose this for them");
+                {
+                    // Name the item, not just the verb. "Choose this for them" over
+                    // a blank square told the player nothing about what "this" was.
+                    (string hoverName, _) = QuestRewardName(row);
+                    HoverTip(hoverName + (picked ? "  —  their pick"
+                        : "  —  choose for " + name));
+                }
             }
             colX += QuestRewardColumnWidth;
         }
@@ -255,11 +285,29 @@ public sealed partial class GameLoop
                 QuestRailSubjects(withRewards: true));
     }
 
+    /// <summary>
+    /// Exactly the resolution order the vanilla reward row uses
+    /// (<see cref="DrawQuestItemRow"/>): the display id the OFFER carried wins,
+    /// the item template's own icon is the fallback, and the question mark is the
+    /// floor. This used to return "" whenever the display id was non-zero — which
+    /// SMSG_QUESTGIVER_OFFER_REWARD always sets — so the board drew a grey box for
+    /// every reward and the player could not tell the choices apart.
+    /// </summary>
     private string QuestRewardIconPath(in QuestRewardItem row)
     {
-        if (row.DisplayId != 0) return "";      // the offer named its own art
+        string? fromDisplay = _items?.IconForDisplay(row.DisplayId);
+        if (!string.IsNullOrEmpty(fromDisplay)) return fromDisplay;
         return _items?.TryGet(row.ItemId, out ItemTemplate? item) == true && item is not null
-            ? item.IconPath : "";
+            ? item.IconPath : @"Interface\Icons\INV_Misc_QuestionMark.blp";
+    }
+
+    /// <summary>The reward's name and quality colour, or a placeholder while the
+    /// item query is still in flight.</summary>
+    private (string Name, uint Color) QuestRewardName(in QuestRewardItem row)
+    {
+        if (_items?.TryGet(row.ItemId, out ItemTemplate? item) == true && item is not null)
+            return (item.Name, ImGui.ColorConvertFloat4ToU32(ItemQualityColor(item.Quality)));
+        return ("...", 0xffd8e0e6);
     }
 
     private void DrawQuestRailPortrait(ImDrawListPtr dl, ulong guid, Vector2 min, float size)

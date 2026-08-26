@@ -1,3 +1,4 @@
+using MSUIClient.Engine.UI;
 using MSUIClient.Net;
 
 namespace MSUIClient;
@@ -20,6 +21,10 @@ public sealed partial class GameLoop
     private ulong _partyQuestFactsRosterHash;
     private const double PartyQuestFactsPullMinIntervalSeconds = 2.0;
 
+    /// <summary>Refresh cadence while a panel is actually DISPLAYING the facts.
+    /// Deliberately above the pull floor so the limiter never eats it.</summary>
+    private const double PartyQuestFactsLiveRefreshSeconds = 2.5;
+
     /// <summary>Per-subject quest logs as last pushed. Never cleared on a miss —
     /// an absent subject means "not told yet", which the panel renders honestly
     /// instead of drawing an empty log the server never claimed.</summary>
@@ -33,6 +38,13 @@ public sealed partial class GameLoop
     /// </summary>
     private ushort _ownQuestHeldCap = VanillaQuestLogSlots;
 
+    /// <summary>A pull the rate limiter deferred, and why. Throttling must DELAY a
+    /// pull, never swallow it: the server pushes nothing on an ordinary accept,
+    /// turn-in or abandon, so a dropped pull is a quest that stays wrong on screen
+    /// until an unrelated roster edge happens to fire.</summary>
+    private bool _partyQuestFactsPullPending;
+    private string _partyQuestFactsPendingReason = "";
+
     /// <summary>MAX_QUEST_LOG_SIZE. Frozen forever: it is the update-field layout.</summary>
     public const int VanillaQuestLogSlots = 20;
 
@@ -41,6 +53,8 @@ public sealed partial class GameLoop
         _partyQuestFactsAvailable = false;
         _partyQuestFactsPulledAt = 0;
         _partyQuestFactsRosterHash = 0;
+        _partyQuestFactsPullPending = false;
+        _partyQuestFactsPendingReason = "";
         _memberQuestLogs.Clear();
         _memberQuestLogAges.Clear();
         _ownQuestHeldCap = VanillaQuestLogSlots;
@@ -79,6 +93,23 @@ public sealed partial class GameLoop
         return [.. merged];
     }
 
+    /// <summary>
+    /// Drop one quest from our OWN cached facts after we have asked the server to
+    /// remove it. Not a guess about unknown state: MergedOwnQuestLog re-adds any
+    /// cached entry that has no update-field slot, so leaving the row cached makes
+    /// a just-abandoned quest reappear as a phantom overflow row whose Abandon
+    /// button then bounces off the server with NO_QUEST. The next push is still
+    /// the authority and restores the row if the abandon was refused.
+    /// </summary>
+    private void ForgetOwnQuestFact(uint questId)
+    {
+        if (questId == 0 ||
+            !_memberQuestLogs.TryGetValue(LocalPlayerGuid, out MemberQuestEntry[]? entries))
+            return;
+        MemberQuestEntry[] kept = [.. entries.Where(e => e.QuestId != questId)];
+        if (kept.Length != entries.Length) _memberQuestLogs[LocalPlayerGuid] = kept;
+    }
+
     /// <summary>How many quests this character may hold, per the server.</summary>
     private int OwnQuestHeldCap => Math.Max(VanillaQuestLogSlots, (int)_ownQuestHeldCap);
 
@@ -109,9 +140,45 @@ public sealed partial class GameLoop
             hash ^= member.Guid;
             hash *= 1099511628211UL;
         }
-        if (hash == _partyQuestFactsRosterHash) return;
-        if (RequestPartyQuestFacts("roster changed"))
-            _partyQuestFactsRosterHash = hash;
+        if (hash != _partyQuestFactsRosterHash)
+        {
+            if (RequestPartyQuestFacts("roster changed"))
+                _partyQuestFactsRosterHash = hash;
+            return;
+        }
+
+        // Flush whatever the limiter deferred, the moment the window allows it.
+        if (_partyQuestFactsPullPending &&
+            NowSeconds() - _partyQuestFactsPulledAt >= PartyQuestFactsPullMinIntervalSeconds)
+        {
+            RequestPartyQuestFacts(_partyQuestFactsPendingReason + " (deferred)");
+            return;
+        }
+
+        RefreshPartyQuestFactsWhileWatched();
+    }
+
+    /// <summary>
+    /// Keep the facts moving while something is looking at them.
+    ///
+    /// The server pushes on its roster edge and after a party quest act, and
+    /// NOWHERE else — a companion earning ordinary kill or collect credit
+    /// produces no push at all. So a panel left open sat on a frozen counter, and
+    /// PLAN_20 §6's "kill a bot's mob and watch the pushed counter move" could
+    /// not pass however long you watched.
+    ///
+    /// This is a poll, not a push, and it is scoped honestly: it costs one small
+    /// packet every few seconds and ONLY while a surface that renders these facts
+    /// is actually on screen — the party quest log, or the companion rail at a
+    /// questgiver, where a stale "on it" verdict for a companion who has already
+    /// finished is what would send you to the wrong NPC.
+    /// </summary>
+    private void RefreshPartyQuestFactsWhileWatched()
+    {
+        bool watched = _partyQuestLogOpen || QuestNpcPanelNow() != QuestNpcPanel.None;
+        if (!watched) return;
+        if (NowSeconds() - _partyQuestFactsPulledAt < PartyQuestFactsLiveRefreshSeconds) return;
+        RequestPartyQuestFacts("panel watching");
     }
 
     /// <summary>
@@ -124,7 +191,16 @@ public sealed partial class GameLoop
         if (!_partyQuestFactsAvailable || _net is not { IsInWorld: true }) return false;
         double now = NowSeconds();
         if (now - _partyQuestFactsPulledAt < PartyQuestFactsPullMinIntervalSeconds)
+        {
+            // Deferred, NOT dropped -- UpdatePartyQuestFacts flushes it. The
+            // sequence "turn in a quest, accept the follow-up from the same NPC"
+            // lands inside this window every single time, and that accept is
+            // exactly the one that may have overflowed past the twenty slots.
+            _partyQuestFactsPullPending = true;
+            _partyQuestFactsPendingReason = reason;
             return false;
+        }
+        _partyQuestFactsPullPending = false;
         _partyQuestFactsPulledAt = now;
         _net.SuiQuestFacts([]);
         Console.WriteLine($"[quest-facts] pulled party quest logs ({reason})");

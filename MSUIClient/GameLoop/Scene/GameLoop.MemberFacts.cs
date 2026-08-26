@@ -44,6 +44,8 @@ public sealed partial class GameLoop
                 : "[quest-facts] server has no party-quest-facts-v1 advertisement");
         _partyQuestFactsAvailable = questFacts;
         ApplyPartyQuestActsCapability(capabilities);
+        ApplyPartyGiverStatusCapability(capabilities);
+        ApplyPartyLeadCapability(capabilities);
     }
 
     private void ResetPartyMemberFacts()

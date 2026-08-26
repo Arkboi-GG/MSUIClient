@@ -76,7 +76,8 @@ public sealed partial class GameLoop
     private int _pendingObjectUpdateIndex;
     private long _pendingObjectReceivedStamp;
 
-    // Login-screen input buffers (password is never persisted anywhere).
+    // Login-screen input buffers. A launch configuration may explicitly persist
+    // its password locally; otherwise this buffer remains session-only.
     private readonly byte[] _acctBuf = new byte[64];
     private readonly byte[] _passBuf = new byte[128];
     private bool _loginInit;
@@ -95,6 +96,9 @@ public sealed partial class GameLoop
     private void InitNet(GL gl)
     {
         _gl = gl;
+
+        EnsureLoginProfilesInitialized();
+        ApplyActiveLoginProfiles(applyLaunchMode: true);
 
         // The Launch Options choice is the user's declared intent and wins over the
         // legacy server.enabled master switch. Before this, picking "SuperUI Client
@@ -1159,6 +1163,12 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_SUI_PARTY_QUEST_RESULT:
                         ApplySuiPartyQuestResult(body);
+                        break;
+                    case Op.SMSG_SUI_GIVER_STATUS:
+                        ApplySuiGiverStatus(body);
+                        break;
+                    case Op.SMSG_SUI_PARTY_LEAD_RESULT:
+                        ApplySuiPartyLeadResult(body);
                         break;
                     case Op.MSG_QUEST_PUSH_RESULT:
                         ApplyQuestPushResult(body);
@@ -2284,6 +2294,7 @@ public sealed partial class GameLoop
         if (GlueFrontDoorActive)
         {
             DrawLoginScreen();
+            DrawLoginProfileWindows();
             DrawGlueTuning();
             DrawScreenshotStatus();
             return;
@@ -2309,6 +2320,7 @@ public sealed partial class GameLoop
         if (st is NetState.Idle or NetState.Failed or NetState.Disconnected)
         {
             DrawLoginScreen();
+            DrawLoginProfileWindows();
             DrawGlueTuning();
             DrawScreenshotStatus();
             return;
@@ -2345,10 +2357,14 @@ public sealed partial class GameLoop
 
         if (!_loginInit)
         {
-            string savedAccount = string.IsNullOrWhiteSpace(Settings.SavedAccountName)
-                ? _config.Server.Account ?? ""
-                : Settings.SavedAccountName;
+            LaunchConfigurationSetting? launch = ActiveLaunchConfiguration();
+            string savedAccount = !string.IsNullOrWhiteSpace(launch?.Account)
+                ? launch.Account
+                : string.IsNullOrWhiteSpace(Settings.SavedAccountName)
+                    ? _config.Server.Account ?? ""
+                    : Settings.SavedAccountName;
             WriteBuf(_acctBuf, savedAccount);
+            if (launch is { SavePassword: true }) WriteBuf(_passBuf, launch.Password);
             _rememberAccount = !string.IsNullOrEmpty(savedAccount);
             _loginInit = true;
         }
@@ -2405,7 +2421,7 @@ public sealed partial class GameLoop
             // button covers it (the separate offline viewer was redundant).
             // Hidden while the Launch Options modal is up — its top edge pokes
             // into the modal's bottom border and would steal those clicks.
-            if (!_launchMenuOpen)
+            if (!LoginConfigurationModalOpen)
             {
                 var bigSize = new Vector2(230f * s, 45f * s * GlueTune.ButtonHeightMul);
                 ImGui.SetCursorScreenPos(new Vector2(cx - bigSize.X * 0.5f, 505f * s));
@@ -2418,7 +2434,7 @@ public sealed partial class GameLoop
         }
         else if (creatorMode)
         {
-            if (!_launchMenuOpen)   // the Launch Options modal sits over this spot
+            if (!LoginConfigurationModalOpen)   // login configuration modals sit over this spot
             {
                 GlueText(dl, "Creator Mode", cx, disp.Y - 320f * s, 15f * s, WowSkin.GlueGold, 1);
                 GlueText(dl, "The offline sandbox: spells, characters, gear and world tools.",
@@ -2429,7 +2445,7 @@ public sealed partial class GameLoop
             if (_skin?.GlueButton("Enter Creator Mode", bigSize) ?? ImGui.Button("Enter Creator Mode", bigSize))
                 EnterOfflineWorld();
         }
-        else if (!_launchMenuOpen)
+        else if (!LoginConfigurationModalOpen)
         {
             // The account/password fields and Login button sit exactly where the Launch
             // Options modal draws. They are real ImGui items: left visible under the
@@ -2458,6 +2474,7 @@ public sealed partial class GameLoop
                         Settings.SavedAccountName = savedAccount;
                         SettingsFile?.Save();
                     }
+                    PersistManualLogin(a, p);
                     _net.Login(a, p);
                 }
             }
@@ -2472,23 +2489,35 @@ public sealed partial class GameLoop
                            GlueTune.CheckBoxUnits, GlueTune.CheckLabelUnits * s);
         }
 
-        // The cosmetic main-menu buttons. Positions are by eye (benilla cut these) - screenshot pass.
+        // The main-menu buttons. Positions are by eye (benilla cut these) - screenshot pass.
         // Left column sits ABOVE the Remember checkbox (canvas top 653) so it never clips it:
-        // Manage Account 565, Community Site 607 -> Community's bottom (~641) clears the checkbox.
+        // Manage Connection 565, Launch Configurations 607 -> bottom (~641) clears the checkbox.
         var small = new Vector2(150f * s, 34f * s * GlueTune.ButtonHeightMul);
+        var connectionMenuSize = new Vector2(176f * s, small.Y);
         float gap = small.Y + 6f * s;
         float rightX = disp.X - 24f * s - small.X;
         GlueMenuButton("Cinematics", new Vector2(rightX, 300f * s), small);
         GlueMenuButton("Credits", new Vector2(rightX, 300f * s + gap), small);
         GlueMenuButton("Terms of Use", new Vector2(rightX, 300f * s + 2f * gap), small);
         float leftX = 17f * s;
-        GlueMenuButton("Manage Account", new Vector2(leftX, 565f * s), small);
-        GlueMenuButton("Community Site", new Vector2(leftX, 607f * s), small);
+        ImGui.SetCursorScreenPos(new Vector2(leftX, 565f * s));
+        if (_skin?.GlueButton("Manage Connection", connectionMenuSize) == true)
+            OpenConnectionManager();
+        ImGui.SetCursorScreenPos(new Vector2(leftX, 607f * s));
+        if (_skin?.GlueButton("Launch Configurations", connectionMenuSize) == true)
+            OpenLaunchConfigurationManager();
 
         // Launch Options - the one wired menu button: what does this client boot into?
         ImGui.SetCursorScreenPos(new Vector2(rightX, 300f * s + 3f * gap));
         if (_skin?.GlueButton("Launch Options", small) == true)
+        {
             _launchMenuOpen = !_launchMenuOpen;
+            if (_launchMenuOpen)
+            {
+                _manageConnectionsOpen = false;
+                _launchConfigurationsOpen = false;
+            }
+        }
 
         // The realm line (opens the realm modal in Stage B) and Quit (150x38, BOTTOMRIGHT 5,29).
         var quitSize = new Vector2(150f * s, 38f * s * GlueTune.ButtonHeightMul);

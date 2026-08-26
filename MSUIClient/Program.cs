@@ -2463,7 +2463,7 @@ public sealed partial class GameLoop : IDisposable
         bool stagedLoadWarmup = _worldLoading &&
                                 _loadPhase == WorldLoadPhase.Fade &&
                                 _loadCurtainAlpha >= 1f &&
-                                _loadFadeWarmStage < 6;
+                                _loadFadeWarmStage < LoadLayerWarmStageCount;
         bool WarmStage(int stage) => !stagedLoadWarmup || _loadFadeWarmStage == stage;
 
         ApplyAtmosphere();
@@ -3020,6 +3020,11 @@ public sealed partial class GameLoop : IDisposable
 
     public void Gui()
     {
+        // Enter World is clicked during this GUI pass, after Render has already run.
+        // Remember whether a native curtain existed at entry so a newly armed one can
+        // cover this otherwise-unavoidable handoff frame with an ImGui veil below.
+        bool curtainOwnedAtGuiEntry = _worldLoading || _loadScreen is not null;
+
         // The gameplay text atlases must track the scale actually being rendered - a maximise
         // or a UI-scale change retargets the em sizes and ClientWindow rebuilds the atlas
         // between frames. Without this, gameplay text silently upscales the nearest bake and
@@ -3047,6 +3052,16 @@ public sealed partial class GameLoop : IDisposable
             if (preWorldPrime) _preWorldHudPrimed = true;
         }
         finally { if (hiddenPrime) ImGui.PopStyleVar(); }
+
+        // ArmEnterWorldCurtain runs from DrawCharacterSelect, too late for this frame's
+        // native GL pass. Cover everything already submitted to ImGui for exactly this
+        // one frame; the next Render draws the real loading art as the exclusive screen.
+        if (!curtainOwnedAtGuiEntry && _loadScreen is not null)
+        {
+            ImGui.GetForegroundDrawList().AddRectFilled(
+                Vector2.Zero, ImGui.GetIO().DisplaySize,
+                ImGui.ColorConvertFloat4ToU32(new Vector4(0f, 0f, 0f, 1f)));
+        }
     }
 
     private void BuildGui()

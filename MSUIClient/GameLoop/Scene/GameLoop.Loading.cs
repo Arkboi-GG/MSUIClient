@@ -103,6 +103,19 @@ public sealed partial class GameLoop
     /// <summary>Curtain fade-out length once the world is ready.</summary>
     private const float LoadFadeSeconds = 0.5f;
 
+    /// <summary>One alpha-1 render frame for each independently warmed render family.</summary>
+    private const int LoadLayerWarmStageCount = 6;
+
+    /// <summary>
+    /// Consecutive complete scene passes required behind the opaque curtain before reveal.
+    /// First-touch WMO/doodad adoption can settle across frame boundaries even after its
+    /// isolated warm pass; requiring a short composed run prevents terrain from appearing
+    /// alone during the first visible fade frame.
+    /// </summary>
+    private const int LoadCompositePrimeFrames = 3;
+    private const int LoadFadePrimeStageLimit =
+        LoadLayerWarmStageCount - 1 + LoadCompositePrimeFrames;
+
     /// <summary>Force-advance a phase after this long so a hang never sticks on the curtain.</summary>
     private const float LoadPhaseWatchdogSeconds = 30f;
 
@@ -783,8 +796,8 @@ public sealed partial class GameLoop
                 // complete world pass is then cache-hot and cannot stack WMO,
                 // doodad, player, and creature first touches into one reveal
                 // hitch. Stages: terrain/sky, WMO, doodads, player, creatures,
-                // translucent/debug, then one complete verification pass.
-                if (_loadFadeWarmStage < 6)
+                // translucent/debug, then consecutive complete verification passes.
+                if (_loadFadeWarmStage < LoadFadePrimeStageLimit)
                 {
                     _loadFadeWarmStage++;
                     break;

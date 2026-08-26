@@ -4,6 +4,7 @@ using System.Numerics;
 using Silk.NET.OpenGL;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Spells;
 using MSUIClient.World.Units;
 
 namespace MSUIClient.Engine;
@@ -68,6 +69,8 @@ public sealed class GlueBooth : IDisposable
     private CharacterRenderer? _createChar;
     private byte _createRace = 0xFF, _createSex = 0xFF;
     private string _createLookKey = "";
+    private ItemEffectLane? _itemEffects;
+    private bool _itemEffectsUnavailable;
 
     // The portrait camera the character is framed by (Z-up, independent of the world camera).
     private readonly Camera _cam = new();
@@ -233,6 +236,7 @@ public sealed class GlueBooth : IDisposable
             _createChar.HairColorId = hairColor;
             _createChar.FacialHairId = facialHair;
             _createChar.Equipment = equip;   // the (race,class,sex) starting outfit (CharStartOutfit.dbc)
+            _createChar.SheathState = 1;     // the select mannequin holds melee gear, never ranged
             _createChar.Reload();
             _createChar.Enabled = true;
             _createLookKey = key;
@@ -312,6 +316,7 @@ public sealed class GlueBooth : IDisposable
             r.HairColorId = c.HairColor;
             r.FacialHairId = c.FacialHair;
             r.Equipment = BuildEquipment(c);
+            r.SheathState = 1; // glue-select forces the melee-held arm; ranged slot 17 stays hidden
             r.Reload();
             r.Enabled = true;
 
@@ -340,7 +345,10 @@ public sealed class GlueBooth : IDisposable
             int inv = eq.InventoryType;
             if (inv == CharacterEquipment.Slot.Head && (c.Flags & HideHelm) != 0) continue;
             if (inv == CharacterEquipment.Slot.Cloak && (c.Flags & HideCloak) != 0) continue;
-            kit.Add($"slot{i}", eq.DisplayId, inv);
+            // The enum array index is the equipment slot. Preserve it: attached-item placement
+            // distinguishes main hand (15), off hand (16), and ranged (17) by this value. Dropping
+            // it made all three fall through to the generic right-hand attachment simultaneously.
+            kit.Add($"slot{i}", eq.DisplayId, inv, equipmentSlot: i);
         }
         return kit;
     }
@@ -444,6 +452,93 @@ public sealed class GlueBooth : IDisposable
 
         _char.Update(dt, state);
         _char.Render(_cam, state);
+        RenderItemEffects(dt);
+    }
+
+    /// <summary>
+    /// CharacterRenderer publishes held-item ItemVisual models plus particle/ribbon effects
+    /// authored by the equipped M2s themselves. The world and paper-doll views already consume
+    /// that feed; glue owns an isolated lane so selecting a character cannot retire world effects
+    /// or inherit their particle history.
+    /// </summary>
+    private void RenderItemEffects(float dt)
+    {
+        if (_char is null || _itemEffectsUnavailable) return;
+        IReadOnlyList<ItemGlowPlacement> placements = _char.ItemGlowPlacements;
+        if (placements.Count == 0)
+        {
+            _itemEffects?.Source.SyncItemGlows(Array.Empty<ItemGlowPlacement>(),
+                _clock.Elapsed.TotalSeconds);
+            return;
+        }
+
+        if (_itemEffects is null)
+        {
+            try
+            {
+                string shaderDir = Path.Combine(AppContext.BaseDirectory, "Shaders");
+                if (!File.Exists(Path.Combine(shaderDir, "spell_particle.vert")))
+                    shaderDir = Path.Combine(_config.RepoRoot, "MSUIClient", "Shaders");
+                _itemEffects = new ItemEffectLane(_gl, _config, _mpq, shaderDir);
+            }
+            catch (Exception e)
+            {
+                _itemEffectsUnavailable = true;
+                Console.WriteLine($"[booth-item-fx] renderer unavailable: {e.Message}");
+                return;
+            }
+        }
+
+        string owner = _charGuid == 0 ? "create" : _charGuid.ToString();
+        ItemGlowPlacement[] scoped = placements.Select(p => new ItemGlowPlacement(
+            $"booth:{owner}:{p.Key}", p.Path, p.Transform, p.RenderMesh)).ToArray();
+        double now = _clock.Elapsed.TotalSeconds;
+        _itemEffects.Source.SyncItemGlows(scoped, now);
+        _itemEffects.Particles.FarClip = _cam.FarPlane;
+        _itemEffects.Particles.Simulate(dt, _cam.Position,
+            _itemEffects.Source.EmitterInstances(now, static _ => SpellUnitPose.Missing,
+                cameraWorld: _cam.Position, cameraForwardWorld: _cam.Forward));
+
+        _itemEffects.Meshes.SunDirection = _char.SunDirection;
+        _itemEffects.Meshes.SunColor = _char.SunColor;
+        _itemEffects.Meshes.SunIntensity = _char.SunIntensity;
+        _itemEffects.Meshes.AmbientColor = _char.AmbientColor;
+        _itemEffects.Meshes.AmbientIntensity = _char.AmbientIntensity;
+        _itemEffects.Meshes.FarClip = _cam.FarPlane;
+        _itemEffects.Meshes.Render(_cam, _itemEffects.Source.MeshInstances(
+            now, static _ => SpellUnitPose.Missing).Concat(
+                _itemEffects.Particles.GeometryInstances()));
+
+        _itemEffects.Ribbons.FarClip = _cam.FarPlane;
+        _itemEffects.Ribbons.Render(_cam, _itemEffects.Source.RibbonInstances(
+            now, static _ => SpellUnitPose.Missing));
+        _itemEffects.Particles.Render(_cam);
+    }
+
+    private sealed class ItemEffectLane : IDisposable
+    {
+        public readonly SpellEffectSource Source;
+        public readonly SpellParticleSystem Particles;
+        public readonly SpellEffectMeshRenderer Meshes;
+        public readonly SpellRibbonRenderer Ribbons;
+
+        public ItemEffectLane(GL gl, ClientConfig config, MpqMount mpq, string shaderDir)
+        {
+            Source = new SpellEffectSource(mpq);
+            Particles = new SpellParticleSystem(gl, config, mpq) { FogEnabled = false };
+            Meshes = new SpellEffectMeshRenderer(gl, mpq) { FogEnabled = false };
+            Ribbons = new SpellRibbonRenderer(gl, mpq) { FogEnabled = false };
+            Particles.LoadShaders(shaderDir);
+            Meshes.LoadShaders(shaderDir);
+            Ribbons.LoadShaders();
+        }
+
+        public void Dispose()
+        {
+            Particles.Dispose();
+            Meshes.Dispose();
+            Ribbons.Dispose();
+        }
     }
 
     // glTF Y-up -> WoW Z-up (R = RotX+90): (x, y, z) -> (x, -z, y). Sends +Y (up) to +Z (up).
@@ -472,6 +567,8 @@ public sealed class GlueBooth : IDisposable
         _createChar?.Dispose();
         _createChar = null;
         _char = null;
+        _itemEffects?.Dispose();
+        _itemEffects = null;
         _scene?.Dispose();
         _scene = null;
     }

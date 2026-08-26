@@ -39,12 +39,19 @@ internal static class GlueAudioClinicalChecks
             "GameLoop.Net.cs"));
         string create = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.CharCreate.cs"));
+        int glueStart = sound.IndexOf("private void UpdateGlueAudio()", StringComparison.Ordinal);
+        int glueEnd = sound.IndexOf("private void ObserveDismountSoundTransitions", glueStart,
+            StringComparison.Ordinal);
+        string glueUpdate = glueStart >= 0 && glueEnd > glueStart
+            ? sound[glueStart..glueEnd]
+            : "";
         Check(sound.Contains("UpdateGlueAudio();", StringComparison.Ordinal) &&
               sound.Contains("GlueAudioLaw.ShouldPlayMusic", StringComparison.Ordinal) &&
               sound.Contains("new AudioPlayRequest(", StringComparison.Ordinal) &&
               sound.Contains("GlueAudioLaw.FadeEnvelope", StringComparison.Ordinal) &&
               sound.Contains("GlueAudioLaw.FadeFinished", StringComparison.Ordinal) &&
-              sound.Contains("_audioMixer.Stop(_glueMusicVoice)", StringComparison.Ordinal),
+              sound.Contains("_audioMixer.Stop(_glueMusicVoice)", StringComparison.Ordinal) &&
+              !glueUpdate.Contains("ExpandedWorldAudioEnabled", StringComparison.Ordinal),
             "glue title-theme start/restart/fade handoff drift");
         Check(select.Contains("PlayUiSound(CharSelectUiLaw.DeleteSound",
                   StringComparison.Ordinal) &&

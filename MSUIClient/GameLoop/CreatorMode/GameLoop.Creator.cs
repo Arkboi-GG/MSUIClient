@@ -150,6 +150,8 @@ public sealed partial class GameLoop
     {
         if (Settings.LaunchMode == mode) return;
         Settings.LaunchMode = mode;
+        SetActiveLaunchModeOnProfile(mode);
+        ApplyActiveLoginProfiles(applyLaunchMode: true);
         SettingsFile?.Save();
         Console.WriteLine($"[creator] launch mode -> {mode} (saved to {SettingsFile?.FilePath})");
 
@@ -210,6 +212,16 @@ public sealed partial class GameLoop
 
         GlueText(dl, "What am I launching?", layout.PromptCenter.X, layout.PromptCenter.Y,
                  14f * s, WowSkin.GlueGold, 1);
+
+        string[] configurationNames = LoginProfiles.LaunchConfigurations
+            .Select(p => p.Name).ToArray();
+        int configurationIndex = Math.Max(0, LoginProfiles.LaunchConfigurations.FindIndex(
+            p => p.Id == LoginProfiles.ActiveLaunchConfigurationId));
+        ImGui.SetCursorScreenPos(layout.ConfigurationCombo.Min);
+        ImGui.SetNextItemWidth(layout.ConfigurationCombo.Size.X);
+        if (configurationNames.Length > 0 && ImGui.Combo("##launch-configuration-quick",
+                ref configurationIndex, configurationNames, configurationNames.Length))
+            UseLaunchConfiguration(LoginProfiles.LaunchConfigurations[configurationIndex].Id);
 
         bool creatorActive = Settings.LaunchMode == LaunchModeCreator;
 

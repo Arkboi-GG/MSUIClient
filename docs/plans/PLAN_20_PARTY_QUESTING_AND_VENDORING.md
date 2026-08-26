@@ -1,8 +1,24 @@
 # Plan 20 — Party questing & vendoring in the CRPG/RTS MMO world
 
-**Status:** Plan written 2026-08-25. **P1 + P2 + P3 BUILT 2026-08-25** (client
-compiled + guard-checked; core compiled on the box, deploy pending on the usual
-owner gates). P4-P5 not started.
+**Status:** Plan written 2026-08-25. **P1 + P2 + P3 + P4a + P5 BUILT AND
+DEPLOYED, NOT SIGNED OFF.** P4b and P4c not started.
+
+Two adversarial audit rounds have run over P1-P3 (§5e, §5f) and both found real
+defects — 21 between them, every one live while the full guard suite reported
+green. "Built" is the honest word and "complete" is not: the §5 phase gates are
+acceptance tests that need the fleet, and **not one of them has been run.**
+
+**Deploy state (verified 2026-08-25 23:30, not assumed).** Earlier revisions of
+this line said "compiled on the box, never installed, never run live." That was
+**wrong**, and it was repeated across several sessions. Checked directly:
+`~/vmangos/run/bin/mangosd` carries the `SUI-LEAD` and `QUEST-HELD` markers, and
+the vmangos `mangosd` process restarted at 23:25:21 running that binary — so
+every phase above, P4a included, is live right now. The lesson is the one the
+box memory already records: **verify the installed binary, never infer it from
+whether you personally deployed.** `ls -l` build vs run, `ps` for start time, and
+`strings | grep` a marker unique to the change in question.
+
+Deployed is still not gate-verified. §6 remains the separate, unmet question.
 **Class:** Addition (measured against owner intent, not against the 1.12 client).
 **Scope:** Player-led questing and vendoring for a party of AiBot companions inside
 the persistent MMO world, plus removal of the 20-quest log cap.
@@ -151,9 +167,14 @@ Continues the frozen numbering after `SMSG_SUI_MEMBER_ITEM_MOVE_RESULT = 0x0355`
 | `SMSG_SUI_PARTY_QUEST_RESULT = 0x0359` | S→C | `u8 action`, `u32 questId`, `u8 count`, then per subject: `u64 guid`, `u8 result` |
 | `CMSG_SUI_PARTY_VENDOR = 0x035A` | C→S | `u8 action`, `u64 npcGuid`, `u64 subject`, `u8 bag`, `u8 slot`, `u32 entry`, `u32 count`, `u8 keepQuality`, `u8 sweepCount`, `u64 sweep[sweepCount]` |
 | `SMSG_SUI_PARTY_VENDOR_RESULT = 0x035B` | S→C | `u8 action`, `u8 count`, then per subject: `u64 guid`, `u8 result`, `i32 copperDelta`, `u16 itemsAffected` |
+| `CMSG_SUI_GIVER_STATUS = 0x035C` | C→S | `u8 flags`, `u8 count` (1-64; **no whole-zone shorthand**), `u64 givers[count]` |
+| `SMSG_SUI_GIVER_STATUS = 0x035D` | S→C | `u8 flags`, `u16 count` (**3-byte header**), then per entry (**17-byte stride**): `u64 giverGuid`, `u64 memberGuid`, `u8 status` (vanilla `DIALOG_STATUS_*`) |
 
-`NUM_MSG_TYPES` is **858** as built (P1+P3 shipped 854-857); P4 raises it to 860
-when it claims 858/859. Vendor actions: 1 `SELL_ITEM`, 2 `BUY_ITEM`,
+`NUM_MSG_TYPES` is **862** as built (P1+P3 shipped 854-857; P5 shipped 860/861).
+**858/859 stay reserved for P4 even though P5 shipped first** — they are named
+here and in the client's `Opcodes.cs`, and renumbering a frozen wire to save two
+indices is how a client and a core quietly stop agreeing; the two indices carry
+`INVALID_PACKET` rows until P4 claims them. Vendor actions: 1 `SELL_ITEM`, 2 `BUY_ITEM`,
 3 `SELL_JUNK` (sweep), 4 `REPAIR` (sweep). Buyback deferred past v1.
 
 Capability bits (`SuiCapabilityWire`, continuing bit 4):
@@ -162,7 +183,8 @@ Capability bits (`SuiCapabilityWire`, continuing bit 4):
 |---|---|---|
 | 5 | `party-quest-facts-v1` | BUILT (P1) |
 | 6 | `party-quest-acts-v1` | BUILT (P3) |
-| 7 | `party-vendor-v1` | reserved for P4 |
+| 7 | `party-vendor-v1` | reserved for P4 (unclaimed; P5 skipped it) |
+| 8 | `party-giver-status-v1` | BUILT (P5) |
 
 There is no `extended-quest-log-v1` bit and there will not be one: P2 shipped the
 cap as the config key `Quests.MaxHeld`, and the client learns the live value from
@@ -194,7 +216,10 @@ client merges by subject. This is why the facts phase lands before the cap phase
   server-side at turn-in. The player therefore never sees which reward the server
   will choose before committing — which is the affordance decision 2 actually
   asked for. Closing it needs a reward-verdict field on the facts wire; tracked
-  as a P3 follow-up, not silently dropped.
+  as a P3 follow-up, not silently dropped. *(§5f E1: the board does now draw the
+  correct icon and name for every choice, so the player can at least identify
+  what they are picking — which it could not do as first shipped. The
+  server-verdict pre-highlight is still not built.)*
 - **Server side** validates the party line, range and eligibility per subject, then
   runs the same code `BridgeHandleQuestInteract` runs (directly, or by injecting the
   bridge line through `SuiInjectCommandLine` — pick whichever keeps one code path),
@@ -206,22 +231,63 @@ client merges by subject. This is why the facts phase lands before the cap phase
   `SMSG_QUESTGIVER_QUEST_DETAILS`, not `SMSG_QUEST_CONFIRM_ACCEPT` — the latter
   fires only for `QUEST_FLAGS_PARTY_ACCEPT` escort quests. See §5d.)*
 
-### 4.3 Party vendoring (decisions 1, 4)
+### 4.3 Party services (decision 1 — MECHANISM REVISED 2026-08-25)
 
-Per decision 1 the vendor frame gains a **member selector**: pick a companion and
-the bag grid becomes *their* bags, their purse in the money frame, and every
-sell/buy/repair acts on them. It should feel exactly like vendoring your own
-character, because mechanically it is — `SELL_ITEM`/`BUY_ITEM` mirror the proven
-`CMSG_SUI_MEMBER_ITEM_MOVE` validation (party line, same map, no trade window,
-conjured refused) and the server re-snapshots the subject afterwards.
+**The member-selector design below the line is superseded.** It was written to
+avoid possession, and the owner has since chosen the opposite: *"I want to be
+able to interact, when I'm in direct control of party/raid bot — their vendor
+interaction. In reality this also ends up being trainers, crafting, etc."* The
+mechanism is now **direct control**, not a selector on your own frame.
 
-On top of that, two sweeps: **Sell junk (all)** and **Repair all**, with a party
-strip showing per member junk value / repair cost / purse before you commit.
-`keepQuality` is surfaced as a party setting in the Tactics panel (decision 4) with
-the brain's constant as its default.
+**Why it does not already work, probed not assumed.** `SuiPossess` re-points the
+session's **mover** at the bot (its own header says so) and proxies owner-only
+data back for display — but `WorldSession::_player` remains your real character.
+So while controlling a bot you can move it and *see* its bags (M4's snapshot),
+every action opcode — `CMSG_SELL_ITEM`, `CMSG_BUY_ITEM`,
+`CMSG_TRAINER_BUY_SPELL`, `CMSG_REPAIR_ITEM`, gossip — is handled with `_player`
+and acts on your own character, standing wherever you left it. Owner-confirmed
+symptom: *"I do see the bots bag, but I can't actually do anything since the
+vendor interface currently belongs to my actual logged in char."*
 
-Each bot pays from its own purse. If a repair is refused for funds, the result row
-says so per member; moving coin between members is a later verb, not v1.
+The fix is **not** swapping `_player` — saving, loading, chat, social, map,
+logout and anticheat all assume it. It is a `GetSuiActingPlayer()` that returns
+the controlled bot while control is held and the bot passes the established party
+authorization, applied to an enumerated, deliberately small set of handlers:
+`GossipHello` / `GossipSelectOption` (the entry point), `TrainerList` /
+`TrainerBuySpell`, `RepairItem`, `SellItem` / `BuyItem` / `BuyItemInSlot` /
+`BuybackItem`, and `CMSG_LIST_INVENTORY`. **This needs no new wire at all** — the
+client already sends these opcodes; only the subject is wrong.
+
+**Crafting is NOT in that set.** Crafting is `CMSG_CAST_SPELL` with a trade
+skill and runs through the whole spell system, not the NPC handlers. It is a
+separate, larger slice with its own verification, recorded here so it is not
+mistaken for something P4 delivers.
+
+**Dropped from scope by the owner (2026-08-25), not deferred silently:**
+party-wide auto-sell, the exposed junk policy, the sell/repair sweeps, and the
+shared-heuristic refactor. Two findings behind that call are worth keeping:
+
+- **`keepQuality` is not the junk policy.** In `AiBotAI::BridgeHandleSellItems`
+  it is consulted in exactly ONE branch — misc/trade goods/recipes/lockboxes.
+  Bags go by upgrade test, consumables by `AIBOT_CONSUMABLE_STALE_LEVELS`, and
+  gear is *quality-blind by design* (the code says so). Surfacing it as a
+  rarity slider would have been misleading UI: "keep greens" would still vendor
+  a green non-upgrade sword.
+- **The number 2 is hardcoded in five places** with no config key —
+  `MaintenancePlanner.SellKeepQuality`, `QuestPlanner.GroupVendorSellKeepQuality`,
+  an inline literal in `HubErrandPlanner`, `BotBridgeService`'s default
+  parameter, and the core's own `if (keepQuality <= 0) keepQuality = 2;`.
+- **`BridgeHandleSellItems` has a hard wall** refusing any unit whose session has
+  a live client (`SELL_FAIL reason=real_account_protected`), and it is the ONLY
+  bridge verb with one — repair, train and quest-interact have no such check.
+  Whatever P4b does must leave that wall intact: it is what guarantees the brain
+  can never vendor a real character.
+
+Each bot still pays from its own purse. **P4c** adds a money-move verb between
+party members — confirmed to have no existing plumbing anywhere in the core (no
+`GIVE_MONEY`/`SEND_MONEY`/`TRANSFER_MONEY`; the item-move wire 852/853 moves
+items only; snapshot coinage is read-only) — which is the primitive a
+"pay from party funds" prompt would later compose.
 
 ### 4.4 Removing the quest cap (decision 6)
 
@@ -257,11 +323,13 @@ separate held-quest cap:
 
 | Phase | Content | Gate |
 |---|---|---|
-| **P1** ✅ | Quest facts wire (0x0356/0x0357, bit 5); Party Quest Log panel; merged self+companion view | You can see every companion's log without possessing |
-| **P2** ✅ | Quest cap (§4.4) — shipped as config `Quests.MaxHeld`, no capability bit needed | 40+ quests held, kill/item/talk/cast credit all still land, relog clean |
-| **P3** ✅ | Quest acts (0x0358/0x0359, bit 6): accept-for-party, turn-in-all with per-member reward pickers, id-based abandon; vanilla Share Quest lit up | A five-hand quest chain runs start to finish without possession |
-| **P4** | Vendor (0x035A/0x035B, bit 7): per-member vendor drive, sell/buy/repair, sweeps, exposed `keepQuality` | You can clear and repair the whole party at one vendor |
-| **P5** | World markers: parenthesised numeral over the vanilla `!`/`?` art | `(4)` reads correctly at nameplate range |
+| **P1** built | Quest facts wire (0x0356/0x0357, bit 5); Party Quest Log panel; merged self+companion view | You can see every companion's log without possessing |
+| **P2** built | Quest cap (§4.4) — shipped as config `Quests.MaxHeld`, no capability bit needed | 40+ quests held, kill/item/talk/cast credit all still land, relog clean |
+| **P3** built | Quest acts (0x0358/0x0359, bit 6): accept-for-party, turn-in-all with per-member reward pickers, id-based abandon; vanilla Share Quest lit up | A five-hand quest chain runs start to finish without possession |
+| **P4a** built | Claim party lead from a bot leader (0x035E/0x035F, bit 9) | `/claimlead` in a bot-led group makes you leader; refused by name when the leader is a real player |
+| **P4b** | Acting-player redirection for gossip / vendor / trainer / repair while controlling a bot. **No new wire** | Driving a companion, you vendor and train as them, exactly as if they were your own character |
+| **P4c** | Money move between party members (0x035A/0x035B or later, bit 7) | A member who cannot afford a repair can be funded without a trade window |
+| **P5** built | World markers: parenthesised numeral over the vanilla `!`/`?` art (0x035C/0x035D, bit 8) | `(4)` reads correctly at nameplate range |
 
 P1 before P2 so the overflow quests have somewhere to be seen. P5 is cheap and can
 jump the queue once P1 lands.
@@ -363,14 +431,20 @@ success message** — it means some mutation path is not calling
   id-addressed act opcode. An alternative exists — slot values ≥ 20 are
   unreachable for a stock client, so the existing opcode could carry an overflow
   index from a SUI session only — deliberately not taken without owner sign-off.
-- **A timed quest accepted while all twenty slots are full** shows no countdown
-  in either client (the deadline word lives in the slot). It still expires
-  correctly: the server owns `m_timer` and never reads the field back. Only one
-  timed quest can be held at a time (`SatisfyQuestTimed`), so this needs twenty
-  slotted quests plus a timed accept to occur.
+- ~~**A timed quest accepted while all twenty slots are full** shows no
+  countdown in either client.~~ **Fixed in §5f.** This was written up as a
+  deliberate limitation; it was not one — §4.4(7) specifies refusing such a
+  quest and that had simply not been implemented. `CanAddQuest` now refuses a
+  timed quest with no free slot, with the ordinary log-full message.
 - **`SetSkill`'s quest-invalidation path** frees a slot without promoting into
   it. Rare (a skill loss invalidating a quest); the slot fills on the next
   reward or abandon.
+- **"Oldest overflow first" does not survive a relog.** `m_questsHeld` is
+  rebuilt from `character_queststatus`, which has no acceptance-order column to
+  sort by, so after a login the promotion order is *lowest quest id* rather than
+  *oldest accepted*. §5f adds `ORDER BY quest` so it is at least deterministic
+  instead of storage-engine dependent. Restoring true "oldest" needs a schema
+  column and is not worth one.
 
 ## 5d. P3 implementation record (2026-08-25)
 
@@ -467,6 +541,171 @@ because it builds its fixture with the client's own writer. The byte agreement
 recorded in §5b and §5d was established by hand. A fixture generated from the
 server's field order is the real fix and is not built.
 
+## 5f. Second audit round — remediation (2026-08-25)
+
+An independent auditor re-reviewed P1-P3 after §5e and declined to sign off. Nine
+findings; all nine were re-verified from source before being accepted (client
+locally, core on the box, and the objective-overlap count re-run against the
+shipped world DB), and all nine are fixed. Core recompiles clean, client compiles
+clean, full interface-wire-check suite green.
+
+| # | Defect | Fix |
+|---|---|---|
+| E1 | The per-member reward board drew a **blank grey box for every reward and named none of them**. `QuestRewardIconPath` returned an empty path whenever the offer carried a display id — which `SMSG_QUESTGIVER_OFFER_REWARD` always does — and did the exact opposite of the comment at its own call site. With no icon, no name and only a generic hover tip, owner decision 2's picker was undifferentiated squares. | Icon resolution now mirrors `DrawQuestItemRow` exactly (display id, then the item's own icon, then the question mark). The board grew a left gutter that **names each choice row once** — every member is offered the same list, so the name belongs to the row, not to 5x6 cells — and each cell's tooltip names the item and who it is for. |
+| E2 | `SendMemberQuests` skipped every `m_rewarded` quest unconditionally, while `IsHeldQuestStatus` (post-§5e) holds a re-accepted **repeatable** quest. A third copy of a predicate whose own comment forbids copies: the quest earned credit server-side and was structurally unshowable to the client. | The sender now calls `Player::IsHeldQuestStatus` — the shared predicate, which already owns both halves of the rule. Three copies collapse to one. |
+| E3 | §5e's D11 was fixed **only in the party grid**. `QuestObjectiveLine` returned out of the kill branch, so in the player's own quest log *and quest watch frame* a collect objective sharing an index with a kill was dropped — and the watch frame derives its objectives/complete tally from the same loop, so it **coloured a quest title complete while an unfinished objective was outstanding**. Re-run against the shipped DB: 89 mixed pairs across 83 quests. | Replaced with `QuestObjectiveLines`, which yields every line an index produces. Both consumers iterate it; the watch frame's line budget is now counted per line. Also: `ObjectiveText[i]` belongs to the *creature* objective, so when an index carries both, the collect line falls back to the item's name instead of repeating the kill's label — corrected in the party grid too. |
+| E4 | §5e's D5 was lossy. A throttled `RequestPartyQuestFacts` returned false and was **forgotten**, and nothing on the server pushes after an ordinary accept or turn-in — so "turn in, then accept the follow-up from the same NPC", which lands inside the 2s window every time, silently lost its refresh. Ordinary abandon had no refresh at all, and `MergedOwnQuestLog` re-adds any cached entry lacking a slot, so the abandoned quest **reappeared as a phantom overflow row** whose Abandon button bounced with `NO_QUEST`. | The limiter now *defers* rather than drops: a pending pull is recorded and flushed by `UpdatePartyQuestFacts` the moment the window allows. Abandon drops the cached row (`ForgetOwnQuestFact`) and re-pulls. |
+| E5 | Nothing pushes companion quest progress. `SendMemberQuests` is reached only by roster edges, explicit pulls and party acts — so §6 step 2, "kill a bot's mob and watch the pushed counter move", could not pass however long you watched. `MemberQuestLogAge` existed **with no consumer at all**, so the grid presented arbitrarily stale counters as if they were live. | A poll, scoped honestly and labelled as one: the facts refresh every 2.5s **only while a surface that renders them is on screen** (the party quest log, or the companion rail at a giver, where a stale "on it" verdict sends you to the wrong NPC). The panel now prints how old its facts are. A true credit-driven push needs a core hook and is recorded below as not built. |
+| E6 | P3 carried a completion mark while decision 2's server-supplied reward pre-highlight was explicitly unbuilt. | Phase marks now read "built", and §5 says plainly that no gate has been run. E1 closes the *identification* half of decision 2; the pre-highlight half remains not built and is still recorded as such in §4.2. |
+| E7 | P2 carried a completion mark while §4.4(7) — refuse a timed quest when no slot is free — was unimplemented and written up in §5c as a "deliberate limitation". It is not deliberate; it is the spec, skipped. The player-facing failure is a quest counting down with no countdown in any client, discoverable only by failing it. | `CanAddQuest` refuses a timed quest with no free update-field slot, with the ordinary log-full message. §5c's bullet is struck. |
+| E8 | The party turn-in validated the reward index against the **array bound** (`QUEST_REWARD_CHOICES_COUNT`) and not against the quest, so an index inside the array but past this quest's real choice count reached `RewardQuest`, where a zero `RewChoiceItemId[reward]` rewards the quest and silently hands over nothing. | Now also rejected when the index is past `GetRewChoiceItemsCount()`. Note this is **stricter than vanilla's own handler**, which has the same array-bound-only check at `QuestHandler.cpp:411` — so this is hardening, not a P3 regression being repaired. |
+| E9 | "Oldest overflow first" does not survive a relog: `character_queststatus` has no acceptance-order column and the login query had no `ORDER BY`, leaving promotion order at the storage engine's discretion. | `ORDER BY quest` added, making it deterministic (lowest quest id). True "oldest" would need a schema column; §5c now states what the order actually is instead of promising what it is not. |
+
+**Every one of these was live while both party-quest guards and the full suite
+reported green** — the same blind spot §5e named, now with five more instances.
+Each fix above is pinned, and each pin was **negative-tested**: the fix was
+mutated in a way that still compiles, the suite was confirmed to fail on that
+specific assertion, and the mutation reverted. D11 had never been pinned at all,
+which is exactly why it survived a round as a half-fix.
+
+**Still not built, deliberately and on the record:**
+
+- **The server-supplied reward pre-highlight** (decision 2). Unchanged from §5e:
+  `SMSG_SUI_QUEST_LOG` carries no reward field. E1 means the player can now *see
+  and identify* every choice; they still cannot see which one the server would
+  pick on auto. Needs a reward-verdict field on the facts wire.
+- **A credit-driven server push.** E5 ships a scoped client poll, which is what
+  makes §6 step 2 pass. The push-shaped fix — a dirty flag on quest progress,
+  coalesced out of the bot's existing AI tick — is the architecturally correct
+  one under §3.3's law, and it is not built. The poll is labelled as a poll in
+  the code and the panel states its own staleness, so nothing here claims to be
+  a push.
+- **A server-generated wire fixture.** §5e's closing caveat stands untouched: the
+  suite still builds its fixture with the client's own writer and cannot catch a
+  server/client wire divergence.
+
+## 5g. P5 implementation record (2026-08-25)
+
+Core compiled clean on the box, **not installed**. Client compiles clean; new
+`PartyGiverStatus` clinical check, full interface-wire-check suite green.
+
+| Piece | Where |
+|---|---|
+| Opcodes 860/861, `NUM_MSG_TYPES` 862, 858/859 left reserved | `Server/Protocol/Opcodes_1_12_1.h`, `Opcodes.cpp`, client `Net/Opcodes.cs` |
+| Capability bit 8 (bit 7 left unclaimed for P4) | `SuiPortal.{h,cpp}`, client `Net/PortalWire.cs` |
+| Wire codec, 3-byte header + 17-byte stride, exact-length parse | `Net/GiverStatusWire.cs` |
+| `GiverStatus` ClientPacket, 1-64 givers, exact-length | `Server/Packets/SuiControl.h` |
+| `GiverStatusFor` + `HandleGiverStatus` + session shim | `SuiWorld/CRPG/SuiPossess.{h,cpp}` |
+| Capability apply, store, marker-driven pull, dispatch, count law | `GameLoop/Scene/GameLoop.GiverStatus.cs` |
+| Family / numeral law | `Engine/UI/QuestMarkerUiLaw.cs` |
+| The draw | `GameLoop/Hud/GameLoop.QuestMarkers.cs` |
+| Guard | `tools/interface-wire-check/PartyGiverStatusClinicalChecks.cs` (registered at both sites) |
+
+**§5 called this phase cheap. It is not, and the reason is worth recording.**
+The estimate assumed the client could count eligible members itself. It
+structurally cannot: vanilla's `SMSG_QUESTGIVER_STATUS` answers for the asking
+session and nobody else; eligibility turns on level, prerequisites, race, class
+and exclusive groups the client never receives for a companion; and the client is
+never told which quests an NPC offers or ends, so it cannot even derive the
+turn-in half from the P1 facts it already holds. A guessed numeral would be a
+wrong number over an NPC's head, which is worse than no number — so P5 is a full
+wire phase, the same shape as P1.
+
+**The verdict is vanilla's own, per member.** `GiverStatusFor` walks exactly the
+path `CMSG_QUESTGIVER_STATUS_QUERY` walks — the `sScriptMgr` hook first, the core
+`WorldSession::GetDialogStatus` as the fallback when the script returns
+`DIALOG_STATUS_UNDEFINED`, and the same hostility gate — so a scripted
+questgiver answers identically for a companion and for you. This works only
+because `GetDialogStatus` takes an explicit `Player*` rather than reading
+`_player`; it was checked, not assumed.
+
+**Counting rules, and why.**
+
+- `DIALOG_STATUS_REWARD_REP` (4) draws as a blue question mark but *means*
+  "available to take". It counts with `AVAILABLE` (5), not with the turn-ins it
+  resembles. Counting by appearance would put a wrong number over every
+  repeatable questgiver in the game.
+- Our own verdict is read from the vanilla `_questStatuses` we already hold, not
+  from this wire, so the numeral and the marker beneath it can never disagree
+  about us. The server still emits our own row — as the marker that says "this
+  giver was answered for", without which a giver whose whole party dropped to
+  NONE would be absent from the reply and the client would show the previous
+  answer forever.
+- A grey marker still gets a numeral when someone else has business there. That
+  is the case that earns the feature: the alternative is walking past.
+
+**Additive by construction.** The numeral only ever appears above a marker
+vanilla already drew. It never adds a marker, never moves or restyles one, and
+`(1)` — a count that is only us — draws nothing, because that is what vanilla
+already says by drawing the marker at all. Solo play is therefore pixel-identical,
+and the numeral does not draw while a UI-parity proof is armed.
+
+**Known limitation, deliberate:** where your own dialog status is
+`DIALOG_STATUS_NONE`, vanilla draws no marker, so there is nothing to hang a
+numeral on — a questgiver only your companions can use is still invisible to
+you. Fixing that means *creating* world markers vanilla does not draw, which is
+a different feature from decision 5's "keep the exact vanilla art and hang a
+numeral over it", and is not taken without owner sign-off.
+
+**Byte agreement** across the P5 pair was established by hand, as for 854-857:
+the request is `2 + 8n` on both sides (the same shape P1 already proves on the
+wire), and the answer is `3 + 17n`. §5f's caveat is unchanged — the guard suite
+builds its fixture with the client's own writer and cannot catch a divergence
+here. Each new assertion was negative-tested (mutate compile-cleanly, confirm the
+specific assertion fails, revert).
+
+**Not verified live.** Like P1-P3, this has never run against a running server.
+
+## 5h. P4a implementation record (2026-08-25)
+
+Core compiled clean on the box, **not installed**. Client compiles clean; new
+`PartyLead` clinical check, full interface-wire-check suite green.
+
+| Piece | Where |
+|---|---|
+| Opcodes 862/863, `NUM_MSG_TYPES` 864, 858/859 still reserved | `Opcodes_1_12_1.h`, `Opcodes.cpp`, client `Net/Opcodes.cs` |
+| Capability bit 9 | `SuiPortal.{h,cpp}`, client `Net/PortalWire.cs` |
+| Wire codec, 9-byte request / 10-byte result, exact-length | `Net/PartyLeadWire.cs` |
+| `PartyLead` ClientPacket | `Server/Packets/SuiControl.h` |
+| `HandlePartyLead` + session shim | `SuiWorld/CRPG/SuiPossess.{h,cpp}` |
+| Capability apply, claim, result reporting | `GameLoop/Scene/GameLoop.PartyLead.cs` |
+| `/claimlead` alias law + dispatch | `Engine/UI/PartyLeadCommandLaw.cs`, `GameLoop/Panels/GameLoop.Chat.cs` |
+| Guard | `tools/interface-wire-check/PartyLeadClinicalChecks.cs` (registered at both sites) |
+
+**The problem was real and had no existing way out.** `BridgeHandleFormGroup`
+has bots create their *own* groups — `Group::Create` with the bot as leader, then
+`AddMember` — so "an AiBot holds the lead" is a state the fleet produces by
+design. Vanilla then offers no exit: `HandleGroupSetLeaderOpcode` gates on
+`group->IsLeader(GetPlayer()->GetObjectGuid())` before promoting anyone, and
+refuses `player == GetPlayer()` outright. Nothing in `SuperUiContent/` has ever
+called `ChangeLeader`. A commander in a bot-led group could neither promote
+themselves nor rearrange the party.
+
+**Only ever from a bot.** The claim is refused when the current leader is a real
+player, by name (`the leader is a real player — ask them`). A verb that seizes
+lead from a human is a griefing verb whatever the intent behind it. The test is
+`IsMemberFactsSubject` — the established "an AiBot in my group I may act on"
+predicate, *reused rather than restated*, because a second copy of an
+authorization rule is how the two quietly stop agreeing (§5f E2 is that mistake
+twice over).
+
+**v1 claims for yourself only.** Promoting one bot over another has its own
+failure modes and is not smuggled in; the wire carries an explicit subject so
+that stays expressible later without a format change.
+
+**Vanilla's handler is untouched**, and the verb is a SuperUI slash command with
+its own alias law. It is deliberately NOT in `GroupSlashCommandLaw` (a parity
+surface listing vanilla's own GlobalStrings aliases) and NOT a row in the unit
+popup (which mirrors Benilla's `UnitPopup.xml` exactly) — either would make a
+parity table assert a command the 1.12 client never had. Both exclusions are
+pinned by the guard.
+
+Every refusal carries a reason the player can read; the guard asserts that no
+result code falls through to "unknown". Each new assertion was negative-tested
+(mutate compile-cleanly, confirm the specific assertion fails, revert).
+
+**Not verified live**, like everything else in this plan.
+
 ## 6. Test protocol
 
 Written before the change, per the plan law. This needs a live server and the real
@@ -487,17 +726,36 @@ fleet — **never vmangos partybots**.
 4. **P3:** accept-for-party at a giver with one member ineligible — the ineligible
    member must be refused *by name*, not silently dropped. Turn in with three
    different reward choices and verify each bot equips its own pick.
-5. **P4:** sell one item from a companion's bag, buy one for another, repair all with
-   one bot deliberately broke — the funds refusal must surface per member.
+5. **P4a:** in a bot-led group, `/claimlead` makes you leader and the party frame
+   updates; you can then uninvite and rearrange. In a group led by a REAL player it
+   is refused by name, not silently. Solo, it says you are not in a group.
+   **P4b:** take control of a companion, open a vendor, and sell/buy/repair — every
+   act must land on the COMPANION and none on your own character (check both
+   inventories and both purses). Release control mid-vendor and confirm the frame
+   closes rather than silently re-pointing at you.
+   **P4c:** fund a broke companion from another member and repair.
 6. **P5:** stand at a hub with five members; the numeral must track eligibility as
-   members join, leave and accept.
+   members join, leave and accept. Specifically: (a) a giver only some can take
+   reads the right count, (b) a repeatable giver counts as *take*, not turn-in,
+   (c) accepting for the party drops the `!` numeral and raises the `?` one,
+   (d) solo — or with the capability absent — no numeral is drawn anywhere,
+   (e) a member walking out of the party is dropped from the count on the next
+   pull, not left stale.
 
 ## 7. Definition of done
 
 You can walk a five-hand party into a quest hub, see everything all five hold,
-accept and turn in for all of them with rewards you chose per member, clear their
-bags and repair their gear at the vendor, and hold a hundred quests doing it —
-without possessing anyone.
+accept and turn in for all of them with rewards you chose per member, hold a
+hundred quests doing it, and take the lead back from a bot whenever you want to
+rearrange the group — **without possessing anyone**. That clause still holds for
+everything in P1-P3 and P5, which is the questing half and is where it mattered.
+
+**It no longer holds for services, and that is a deliberate owner change**
+(2026-08-25), not an unmet goal: vendoring, training and crafting are now reached
+by *taking direct control of the companion and playing it as your own*, which is
+the simpler mechanism and the one the owner asked for. §4.3's member-selector was
+the design that existed to satisfy the old clause; it is superseded. Anyone
+auditing this plan should not record the selector as still-owed work.
 
 ## 8. Risks and open questions
 
@@ -513,5 +771,33 @@ without possessing anyone.
   accept quests from you. If a conscripted bot's log fills, the planner's shelving
   logic (`MaintenancePlanner`) may fight the commander's picks after dismissal.
   Worth a look during P3; not a v1 blocker.
-- Deploy gates are unchanged: nothing here installs, restarts, or mutates the live
-  DB. Owner runs those.
+- **Deploy gates:** this plan's work does not install, restart or mutate the live
+  DB — the owner runs those, and does so often. See the status header: assuming
+  "not installed" because you did not install it yourself was wrong twice.
+- **OPEN (2026-08-25, unresolved — owner raised, agent guessed wrong):** P4a's
+  verb is `/claimlead`, an MSUIClient slash command, so **a stock 1.12 client
+  cannot reach it.** The owner asked for something a 1.12 player can *say in
+  chat* — "give me lead" — "like the other stuff I put in chat".
+
+  Two candidate mechanisms were found; the owner has confirmed neither, and the
+  reference they meant was **not located**:
+
+  1. **Natural-language party chat.** `AiBotAIMain.cpp:353` already intercepts
+     `SMSG_MESSAGECHAT` for SAY / WHISPER / PARTY, filters the bot's own echo,
+     and forwards every message to the C# brain as a `CHAT_RECV` event with
+     sender name and guid. Bots therefore already *hear* everything said in
+     party chat; only the parsing side would be new. This is the reading that
+     best fits "a chat message they can say".
+  2. **A GM dot-command** — `.sui lead`, beside the existing
+     `possess` / `release` / `worldstate` / `rts` entries in `suiCommandTable`
+     (`Chat/Chat.cpp:95`, registered at 1247, `SEC_ADMINISTRATOR`). This is what
+     the agent assumed and started toward; the owner stopped it.
+
+  **What was searched and did not turn it up:** `BotLogic/Core/Chat/` in the
+  brain mirror is the LLM persona/conversation system (`ChatCoordinator`,
+  `PersonaService`, `UrgeScorer`) and holds no command vocabulary; greps for
+  obvious command phrases across the brain and the client found nothing. Either
+  it lives outside `~/botwatch/src-mirror`, or on the client side, or it is a
+  pattern not yet written down. **Ask the owner for one concrete example of a
+  phrase they type that a bot reacts to, and find the handler from that** —
+  rather than inventing a third mechanism.

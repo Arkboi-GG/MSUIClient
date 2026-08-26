@@ -152,6 +152,15 @@ public sealed partial class GameLoop
             return false;
         }
         bool sent = present && _net.QuestLogRemove(found.Slot);
+        if (sent)
+        {
+            // Abandoning frees a slot, which the server fills by promoting an
+            // overflow quest — a change with no update-field signal we can read
+            // for the promoted quest and no server push of its own. Without both
+            // of these the log kept showing the abandoned quest as an overflow row.
+            ForgetOwnQuestFact(questId);
+            RequestPartyQuestFacts("quest abandoned");
+        }
         EmitInterface("quest", "abandon", sent ? "SENT" : "REFUSED_NOT_IN_LOG", _net.PlayerGuid,
             $"quest={questId};slot={(present ? found.Slot : 255)}");
         return sent;
@@ -1250,15 +1259,14 @@ public sealed partial class GameLoop
             }
             for (int i = 0; i < template.Objectives.Count; i++)
             {
-                QuestLogObjective objective = template.Objectives[i];
-                string? line = QuestObjectiveLine(player, selectedSlot.Counters, i, objective,
-                    out bool finished);
-                if (line is null) continue;
-                if (finished) line += " (Complete)";
-                y += DrawWrappedText(dl, line,
-                    QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s),
-                    QuestFrameUiLaw.QuestLogDetailTextWidth, 10f * s, s,
-                    finished ? 0xff333333 : 0xff000000, 3) / s + 2f;
+                foreach ((string text, bool finished) in QuestObjectiveLines(
+                    player, selectedSlot.Counters, i, template.Objectives[i]))
+                {
+                    y += DrawWrappedText(dl, finished ? text + " (Complete)" : text,
+                        QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s),
+                        QuestFrameUiLaw.QuestLogDetailTextWidth, 10f * s, s,
+                        finished ? 0xff333333 : 0xff000000, 3) / s + 2f;
+                }
             }
             y += 8f;
             GameText.Draw(dl, "QuestTitleFont", "Description",
@@ -1377,33 +1385,50 @@ public sealed partial class GameLoop
     private long? QuestSecondsLeft(uint deadline, byte state) =>
         QuestSignedSecondsLeft(deadline, state) is { } seconds ? Math.Max(0, seconds) : null;
 
-    private string? QuestObjectiveLine(WorldEntity player, uint packedCounters, int index,
-        QuestLogObjective objective, out bool finished)
+    /// <summary>
+    /// Every objective line this index produces — which may be TWO. Vanilla's
+    /// creature array and item array are independent and share an index, and 89
+    /// quest/index pairs across 83 quests in the shipped world DB carry a kill
+    /// AND a collect at the same one. This used to return after the kill branch,
+    /// so on those quests the collect objective was invisible in the quest log
+    /// and — worse — uncounted by the watch frame, which then coloured the quest
+    /// title complete while an unfinished objective was still outstanding.
+    ///
+    /// The objective TEXT belongs to the creature objective (it is
+    /// ObjectiveText[i] from the quest query, which vanilla pairs with
+    /// ReqCreatureOrGO[i]); when the index carries both, the collect line falls
+    /// back to the item's own name rather than repeating the kill's label.
+    /// </summary>
+    private IEnumerable<(string Text, bool Finished)> QuestObjectiveLines(
+        WorldEntity player, uint packedCounters, int index, QuestLogObjective objective)
     {
-        finished = false;
-        if (objective.CreatureOrGo != 0 && objective.RequiredCount > 0)
+        bool kill = objective.CreatureOrGo != 0 && objective.RequiredCount > 0;
+        bool collect = objective.ItemId != 0 && objective.ItemCount > 0;
+
+        if (kill)
         {
             uint current = (packedCounters >> (6 * index)) & 0x3f;
             current = Math.Min(current, objective.RequiredCount);
-            finished = current >= objective.RequiredCount;
             bool gameObject = (objective.CreatureOrGo & 0x8000_0000) != 0;
             string label = objective.Text.Length > 0 ? objective.Text
                 : gameObject ? "Objective"
                 : _creatureNames.GetValueOrDefault(objective.CreatureOrGo,
                     $"Creature {objective.CreatureOrGo}") + " slain";
-            return $"{label}: {current}/{objective.RequiredCount}";
+            yield return ($"{label}: {current}/{objective.RequiredCount}",
+                current >= objective.RequiredCount);
         }
-        if (objective.ItemId != 0 && objective.ItemCount > 0)
+
+        // NOT else-if. See the summary.
+        if (collect)
         {
             uint current = Math.Min(CarriedCount(objective.ItemId), objective.ItemCount);
-            finished = current >= objective.ItemCount;
-            string label = objective.Text;
+            string label = kill ? "" : objective.Text;
             if (label.Length == 0)
                 label = _items?.TryGet(objective.ItemId, out ItemTemplate? item) == true && item is not null
                     ? item.Name : $"Item {objective.ItemId}";
-            return $"{label}: {current}/{objective.ItemCount}";
+            yield return ($"{label}: {current}/{objective.ItemCount}",
+                current >= objective.ItemCount);
         }
-        return null;
     }
 
     private void HandleQuestLogShiftClick(uint questId, string title)
@@ -1500,12 +1525,15 @@ public sealed partial class GameLoop
             for (int i = 0; i < template.Objectives.Count &&
                 lines.Count < QuestFrameUiLaw.MaxQuestWatchLines; i++)
             {
-                string? text = QuestObjectiveLine(player, slot.Counters, i,
-                    template.Objectives[i], out bool finished);
-                if (text is null) continue;
-                lines.Add((" - " + text, false, finished));
-                objectives++;
-                if (finished) complete++;
+                foreach ((string text, bool finished) in QuestObjectiveLines(
+                    player, slot.Counters, i, template.Objectives[i]))
+                {
+                    // The line budget is per LINE, and one index can now emit two.
+                    if (lines.Count >= QuestFrameUiLaw.MaxQuestWatchLines) break;
+                    lines.Add((" - " + text, false, finished));
+                    objectives++;
+                    if (finished) complete++;
+                }
             }
             if (objectives == 0) lines.RemoveAt(titleAt);
             else lines[titleAt] = (lines[titleAt].Text, true, complete == objectives);

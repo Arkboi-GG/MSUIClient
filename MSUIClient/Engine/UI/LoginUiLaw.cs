@@ -16,6 +16,7 @@ public static class LoginUiLaw
     public readonly record struct LaunchOptionsLayout(
         ScreenRect Frame,
         Vector2 PromptCenter,
+        ScreenRect ConfigurationCombo,
         ScreenRect ClientButton,
         Vector2 ClientActiveLabel,
         ScreenRect CreatorButton,
@@ -32,12 +33,15 @@ public static class LoginUiLaw
     public const float ButtonBottom = 16f;
     public const float MinimumHeight = 108f;
     public const float LaunchWidth = 420f;
-    public const float LaunchHeight = 250f;
+    public const float LaunchHeight = 300f;
     public const float LaunchPromptTop = 44f;
+    public const float LaunchConfigurationTop = 68f;
+    public const float LaunchConfigurationWidth = 250f;
+    public const float LaunchConfigurationHeight = 30f;
     public const float LaunchModeButtonWidth = 250f;
     public const float LaunchModeButtonHeight = 40f;
-    public const float LaunchClientTop = 74f;
-    public const float LaunchCreatorTop = 124f;
+    public const float LaunchClientTop = 112f;
+    public const float LaunchCreatorTop = 162f;
     public const float LaunchActiveGap = 8f;
     public const float LaunchActiveBaselineLift = 6f;
     public const float LaunchOkayWidth = 120f;
@@ -84,6 +88,7 @@ public static class LoginUiLaw
         Vector2 frameSize = new Vector2(LaunchWidth, LaunchHeight) * s;
         Vector2 origin = (display - frameSize) * .5f;
         float buttonX = (LaunchWidth - LaunchModeButtonWidth) * .5f;
+        float configurationX = (LaunchWidth - LaunchConfigurationWidth) * .5f;
         ScreenRect LocalRect(Vector2 min, Vector2 size) => new(origin + min * s, size * s);
         ScreenRect client = LocalRect(new(buttonX, LaunchClientTop),
             new(LaunchModeButtonWidth, LaunchModeButtonHeight));
@@ -94,6 +99,8 @@ public static class LoginUiLaw
         return new(
             new(origin, frameSize),
             origin + new Vector2(LaunchWidth * .5f, LaunchPromptTop) * s,
+            LocalRect(new(configurationX, LaunchConfigurationTop),
+                new(LaunchConfigurationWidth, LaunchConfigurationHeight)),
             client,
             new Vector2(client.Max.X, client.Min.Y) + activeOffset,
             creator,

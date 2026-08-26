@@ -293,6 +293,12 @@ public sealed class NetworkClient : IDisposable
         InWorld(s => s.SuiMemberItemMove(from, to, bag, slot));
     public bool SuiQuestFacts(IReadOnlyList<ulong> subjects) =>
         InWorld(s => s.SuiQuestFacts(subjects));
+
+    public bool SuiGiverStatus(IReadOnlyList<ulong> givers) =>
+        InWorld(s => s.SuiGiverStatus(givers));
+
+    public bool SuiPartyLead(byte action, ulong subject) =>
+        InWorld(s => s.SuiPartyLead(action, subject));
     public bool SuiPartyQuest(byte action, uint questId, ulong npcGuid,
         IReadOnlyList<PartyQuestSubject> subjects) =>
         InWorld(s => s.SuiPartyQuest(action, questId, npcGuid, subjects));

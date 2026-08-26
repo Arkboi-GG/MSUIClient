@@ -573,4 +573,14 @@ public enum Op : ushort
     SMSG_SUI_PARTY_QUEST_RESULT  = 0x0359,
     // CMSG_SUI_PARTY_VENDOR     = 0x035A,   (P4)
     // SMSG_SUI_PARTY_VENDOR_RESULT = 0x035B,(P4)
+    // P5 lands before P4 but does NOT take P4's numbers: 0x035A/0x035B are named
+    // in the plan and reserved on the server, and renumbering a frozen wire to
+    // save two indices is how a client and a core quietly stop agreeing.
+    CMSG_SUI_GIVER_STATUS        = 0x035C,
+    SMSG_SUI_GIVER_STATUS        = 0x035D,
+    // P4a. 0x035A/0x035B stay reserved: the owner has narrowed P4's vendor slice
+    // but not abandoned it, and re-using a pair a live design still names is the
+    // ambiguity the P5 note above exists to avoid.
+    CMSG_SUI_PARTY_LEAD          = 0x035E,
+    SMSG_SUI_PARTY_LEAD_RESULT   = 0x035F,
 }

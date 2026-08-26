@@ -187,6 +187,25 @@ public sealed partial class GameLoop
                 c0 + new Vector2(0, y + 4f) * scale, scale, 0xff9aa4ab);
             y += 18f;
         }
+
+        // State our own freshness. These facts arrive on a roster edge, after a
+        // party act, and on the poll this panel runs while it is open -- none of
+        // which is a guarantee, and MemberQuestLogAge existed for exactly this
+        // and had no consumer at all, so the grid silently presented arbitrarily
+        // old counters as if they were live.
+        double oldest = -1.0;
+        foreach ((ulong guid, _) in owners)
+        {
+            double age = MemberQuestLogAge(guid);
+            if (age >= 0.0 && age > oldest) oldest = age;
+        }
+        if (oldest >= 0.0)
+        {
+            GameText.Draw(dl, "GameFontNormalSmall",
+                oldest < 5.0 ? "updated just now" : $"updated {(int)oldest}s ago",
+                c0 + new Vector2(0, y + 4f) * scale, scale, 0xff7f888f);
+            y += 18f;
+        }
         return y + 6f;
     }
 
@@ -329,7 +348,8 @@ public sealed partial class GameLoop
         for (int i = 0; i < template.Objectives.Count && i < QuestFactsWire.ObjectivesPerQuest; i++)
         {
             QuestLogObjective objective = template.Objectives[i];
-            if (objective.CreatureOrGo != 0 && objective.RequiredCount > 0)
+            bool kill = objective.CreatureOrGo != 0 && objective.RequiredCount > 0;
+            if (kill)
             {
                 uint current = Math.Min(cell.KillProgress.Length > i ? cell.KillProgress[i] : 0u,
                     objective.RequiredCount);
@@ -344,8 +364,12 @@ public sealed partial class GameLoop
             {
                 uint current = Math.Min(cell.ItemProgress.Length > i ? cell.ItemProgress[i] : 0u,
                     objective.ItemCount);
-                string label = objective.Text.Length > 0 ? objective.Text
-                    : _items?.TryGet(objective.ItemId, out ItemTemplate? proto) == true &&
+                // ObjectiveText[i] belongs to the CREATURE objective at this index
+                // (that is the pairing the quest query uses), so when the index
+                // carries both, the collect line must not repeat the kill's label.
+                string label = kill ? "" : objective.Text;
+                if (label.Length == 0)
+                    label = _items?.TryGet(objective.ItemId, out ItemTemplate? proto) == true &&
                       proto is not null ? proto.Name : $"Item {objective.ItemId}";
                 any = true;
                 yield return $"{label}: {current}/{objective.ItemCount}";

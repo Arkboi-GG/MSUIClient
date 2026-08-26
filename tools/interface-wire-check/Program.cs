@@ -1255,6 +1255,8 @@ if (args.Contains("--party-quest-only", StringComparer.Ordinal))
 if (args.Contains("--party-quest-acts-only", StringComparer.Ordinal))
 {
     PartyQuestActsClinicalChecks.Run();
+    PartyGiverStatusClinicalChecks.Run();
+    PartyLeadClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
     return;
 }
@@ -4182,6 +4184,8 @@ Console.WriteLine("interface-wire-check: PartyMemberFacts PASS");
 PartyQuestClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: PartyQuest PASS");
 PartyQuestActsClinicalChecks.Run();
+PartyGiverStatusClinicalChecks.Run();
+PartyLeadClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
 
 Console.WriteLine("interface wire checks passed: minimap projection/area/zone + action icons + gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + social + trade + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding + gameplay-text fence");

@@ -116,6 +116,18 @@ public static class SuiCapabilityWire
     // the reward chosen per member. Also the id-addressed abandon the vanilla
     // slot-indexed opcode cannot express.
     public const uint PartyQuestActsV1 = 1u << 6;
+    // Bit 7 is reserved for PLAN_20 P4 (party-vendor-v1) and deliberately left
+    // unclaimed even though P5 shipped first.
+    // PLAN_20 P5: per-member questgiver dialog status, so a world marker can
+    // wear an honest "(4)". The client cannot compute this — eligibility needs
+    // level, prerequisites, race, class and exclusive groups it never receives
+    // for a companion, and it is never told which quests an NPC offers at all.
+    public const uint PartyGiverStatusV1 = 1u << 8;
+    // PLAN_20 P4a: take group leadership back from a companion bot. The fleet's
+    // own grouping makes a bot the leader, and vanilla requires you to ALREADY
+    // lead in order to promote anyone — so without this the commander cannot
+    // rearrange or break up their own party.
+    public const uint PartyLeadV1 = 1u << 9;
     public const int TrailerLength = 8;
 
     public const byte PrewarmCatalogVersion = 1;

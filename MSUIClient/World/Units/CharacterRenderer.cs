@@ -279,6 +279,7 @@ public sealed partial class CharacterRenderer : IDisposable
     private ItemDisplayTable? _itemDisplay;
     private CharSectionsTable? _charSections;
     private CharHairGeosetsTable? _charHairGeosets;
+    private CharacterGeosets? _characterGeosets;
 
     /// <summary>
     /// Character-creation appearance choices. In a real login these arrive in
@@ -1975,16 +1976,24 @@ public sealed partial class CharacterRenderer : IDisposable
 
     private void LoadCharHairGeosets()
     {
-        if (_charHairGeosets is not null) return;
+        if (_characterGeosets is not null) return;
 
-        var bytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, CharHairGeosetsTable.MpqPath);
-        if (bytes is null)
+        var hairBytes = AdtTerrainReader.ReadFileFromMpqs(
+            _config.ClientDataPath, CharHairGeosetsTable.MpqPath);
+        if (hairBytes is null)
         {
             Console.WriteLine($"[dbc] {CharHairGeosetsTable.MpqPath} not found - hairstyle mesh will use a fallback");
-            return;
         }
+        else _charHairGeosets = CharHairGeosetsTable.Parse(hairBytes);
 
-        _charHairGeosets = CharHairGeosetsTable.Parse(bytes);
+        var facialBytes = AdtTerrainReader.ReadFileFromMpqs(
+            _config.ClientDataPath, CharacterFacialHairTable.MpqPath);
+        var helmetBytes = AdtTerrainReader.ReadFileFromMpqs(
+            _config.ClientDataPath, HelmetGeosetVisTable.MpqPath);
+        _characterGeosets = new CharacterGeosets(
+            _charHairGeosets,
+            facialBytes is null ? null : CharacterFacialHairTable.Parse(facialBytes),
+            helmetBytes is null ? null : HelmetGeosetVisTable.Parse(helmetBytes));
     }
 
     private static IEnumerable<string> SkinPathCandidates(string race, string gender)
@@ -2251,14 +2260,40 @@ public sealed partial class CharacterRenderer : IDisposable
     /// </summary>
     private void ApplyGeosetVisibility()
     {
+        uint raceId = CharSectionsTable.RaceId(Race);
+        uint sexId = Gender.Equals("Female", StringComparison.OrdinalIgnoreCase) ? 1u : 0u;
+
+        // Use the same byte-faithful visibility engine as streamed players and humanoid NPCs.
+        // In particular, robes remove boot/knee/leg groups and HelmetGeosetVisData selects the
+        // base scalp/facial/ear variants hidden by this race's helm. The old category override
+        // table could not express either rule: it left boots showing through a robe and removed
+        // the hair geoset altogether for a closed helm, opening a hole in the scalp.
+        HashSet<int>? visibleGeosets = _characterGeosets?.Visible(
+            raceId, sexId, HairStyleId, FacialHairId, BuildEquipGeosets());
+        if (visibleGeosets is not null)
+        {
+            // CharacterRenderer historically exposes this always-on face helper. It is outside
+            // the 16 character-region slots governed by GeosRenderPrep, so preserve it here.
+            visibleGeosets.Add(3201);
+            foreach (Piece piece in _pieces)
+            {
+                bool show = visibleGeosets.Contains(piece.GeosetId);
+                if (HideHair && piece.Category == 0 && piece.Variant > 0) show = false;
+                if (HiddenCategories.Contains(piece.Category)) show = false;
+                piece.Visible = show;
+            }
+
+            ApplySoloGeoset();
+            FinishGeosetDiagnostics(raceId, sexId);
+            return;
+        }
+
         var hairVariants = _pieces
             .Where(p => p.Category == 0 && p.Variant > 0)
             .Select(p => p.Variant)
             .Distinct()
             .ToList();
 
-        uint raceId = CharSectionsTable.RaceId(Race);
-        uint sexId = Gender.Equals("Female", StringComparison.OrdinalIgnoreCase) ? 1u : 0u;
         int mappedHair = _charHairGeosets?.Find(raceId, sexId, HairStyleId) ?? -1;
 
         // The DBC is authoritative. style+1 is only a last-resort convention
@@ -2294,37 +2329,75 @@ public sealed partial class CharacterRenderer : IDisposable
             piece.Visible = show;
         }
 
-        if (SoloGeoset >= 0)
-        {
-            var geosets = _pieces
-                .Where(p => p.Visible)
-                .Select(p => (p.Category, p.Variant))
-                .Distinct()
-                .OrderBy(x => x.Category)
-                .ThenBy(x => x.Variant)
-                .ToList();
+        ApplySoloGeoset();
+        FinishGeosetDiagnostics(raceId, sexId);
+    }
 
-            if (SoloGeoset < geosets.Count)
+    private EquipGeosets BuildEquipGeosets()
+    {
+        var equip = new EquipGeosets();
+        foreach (CharacterEquipment.Piece piece in Equipment.Pieces)
+        {
+            if (piece.Row is null) continue;
+            switch (piece.InventoryType)
             {
-                var selectedGeoset = geosets[SoloGeoset];
-                foreach (var piece in _pieces)
-                {
-                    if (!piece.Visible) continue;
-                    if ((piece.Category, piece.Variant) != selectedGeoset)
-                        piece.Visible = false;
-                }
+                case CharacterEquipment.Slot.Shirt: equip.Bodyslots[0] = piece.Row; break;
+                case CharacterEquipment.Slot.Chest:
+                case CharacterEquipment.Slot.Robe: equip.Bodyslots[1] = piece.Row; break;
+                case CharacterEquipment.Slot.Waist: equip.Bodyslots[2] = piece.Row; break;
+                case CharacterEquipment.Slot.Legs: equip.Bodyslots[3] = piece.Row; break;
+                case CharacterEquipment.Slot.Feet: equip.Bodyslots[4] = piece.Row; break;
+                case CharacterEquipment.Slot.Wrists: equip.Bodyslots[5] = piece.Row; break;
+                case CharacterEquipment.Slot.Hands: equip.Bodyslots[6] = piece.Row; break;
+                case CharacterEquipment.Slot.Tabard: equip.Bodyslots[7] = piece.Row; break;
+                case CharacterEquipment.Slot.Cloak:
+                    equip.HasCloak = true;
+                    equip.CloakGroup = piece.Row.GeosetGroup.Length > 0
+                        ? piece.Row.GeosetGroup[0] : 0;
+                    break;
+                case CharacterEquipment.Slot.Head:
+                    equip.HelmVis = (piece.Row.HelmetGeosetVis1,
+                        piece.Row.HelmetGeosetVis2);
+                    break;
             }
         }
+        return equip;
+    }
 
+    private void ApplySoloGeoset()
+    {
+        if (SoloGeoset < 0) return;
+        var geosets = _pieces
+            .Where(p => p.Visible)
+            .Select(p => (p.Category, p.Variant))
+            .Distinct()
+            .OrderBy(x => x.Category)
+            .ThenBy(x => x.Variant)
+            .ToList();
+        if (SoloGeoset >= geosets.Count) return;
+        var selectedGeoset = geosets[SoloGeoset];
+        foreach (Piece piece in _pieces)
+            if (piece.Visible && (piece.Category, piece.Variant) != selectedGeoset)
+                piece.Visible = false;
+    }
+
+    private void FinishGeosetDiagnostics(uint raceId, uint sexId)
+    {
         ReportOverlaps();
+
+        int mappedHair = _charHairGeosets?.Find(raceId, sexId, HairStyleId) ?? -1;
+        int hair = _pieces.Where(p => p.Visible && p.Category == 0 && p.Variant > 0)
+            .Select(p => p.Variant).DefaultIfEmpty(-1).First();
 
         // Head/hair/ear diagnostic - surfaced LIVE in the HUD + a Capture-to-file button,
         // so "is the head right?" is a colour you read, not console lines you scrape.
         _headDiag.Clear();
-        ScalpCovered = hair >= 0 && hair == mappedHair && !HideHair;   // green only on a real DBC-matched hair
+        ScalpCovered = hair >= 0 && !HideHair;
         HairResolution = hair >= 0
             ? $"hair style {HairStyleId}/{HairColorId} -> geoset variant {hair} " +
-              (hair == mappedHair ? "(DBC match)" : "(fallback - may not cover the scalp)")
+              (hair == mappedHair ? "(DBC match)"
+                  : hair == 1 ? "(base scalp selected by helm visibility)"
+                  : "(fallback - may not cover the scalp)")
             : "NO hair geoset selected -> the bald base-body scalp shows the dressed atlas";
         foreach (var hp in _pieces.Where(p => p.Visible && (p.Category == 0 || p.Category == 7)))
         {

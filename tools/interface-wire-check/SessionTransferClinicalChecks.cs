@@ -35,6 +35,7 @@ internal static class SessionTransferClinicalChecks
             "GameLoop.Net.cs"));
         string loading = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
             "GameLoop.Loading.cs"));
+        string program = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.cs"));
         Check(dispatch.Contains("SessionTransferPackets.ParsePending(body)", StringComparison.Ordinal) &&
               dispatch.Contains("if (!transfer.RidingTransport)", StringComparison.Ordinal) &&
               dispatch.Contains("ArmEnterWorldCurtain(_gl", StringComparison.Ordinal) &&
@@ -45,6 +46,18 @@ internal static class SessionTransferClinicalChecks
               loading.Contains("private void ArmEnterWorldCurtain", StringComparison.Ordinal) &&
               loading.Contains("private void CancelPendingWorldCurtain", StringComparison.Ordinal),
             "transfer early-curtain/abort wiring drift");
+        Check(program.Contains("bool curtainOwnedAtGuiEntry", StringComparison.Ordinal) &&
+              program.Contains("!curtainOwnedAtGuiEntry && _loadScreen is not null",
+                  StringComparison.Ordinal) &&
+              program.Contains("ImGui.GetForegroundDrawList().AddRectFilled(",
+                  StringComparison.Ordinal),
+            "enter-world same-frame GUI veil drift");
+        Check(loading.Contains("LoadCompositePrimeFrames = 3", StringComparison.Ordinal) &&
+              loading.Contains("_loadFadeWarmStage < LoadFadePrimeStageLimit",
+                  StringComparison.Ordinal) &&
+              program.Contains("_loadFadeWarmStage < LoadLayerWarmStageCount",
+                  StringComparison.Ordinal),
+            "opaque complete-scene priming drift");
     }
 
     private static void CheckThrows(Action action, string message)

@@ -233,13 +233,6 @@ public sealed partial class GameLoop
     private void UpdateGlueAudio()
     {
         if (_audioMixer is null) return;
-        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
-        {
-            if (_glueMusicVoice != 0) _audioMixer.Stop(_glueMusicVoice);
-            _glueMusicVoice = 0;
-            _glueMusicFadeStartedAt = -1;
-            return;
-        }
         double now = NowSeconds();
         bool glueActive = GlueAudioLaw.ShouldPlayMusic(
             GlueFrontDoorActive, CreatorInWorld, _net?.State);

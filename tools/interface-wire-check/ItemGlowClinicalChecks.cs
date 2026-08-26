@@ -129,6 +129,10 @@ internal static class ItemGlowClinicalChecks
             "CreatureRenderer.cs"));
         string portraits = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
             "GameLoop.Portraits.cs"));
+        string glueBooth = SourceText.Read(Path.Combine(root, "MSUIClient", "Engine",
+            "GlueBooth.cs"));
+        string character = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Units",
+            "CharacterRenderer.cs"));
         string attachedVertex = SourceText.Read(Path.Combine(root, "MSUIClient", "Shaders",
             "attached.vert"));
         string characterFragment = SourceText.Read(Path.Combine(root, "MSUIClient", "Shaders",
@@ -211,7 +215,68 @@ internal static class ItemGlowClinicalChecks
                   StringComparison.Ordinal),
             "cached round unit portraits must not inherit live item-glow simulation");
 
+        Check(glueBooth.Contains("equipmentSlot: i", StringComparison.Ordinal) &&
+              glueBooth.Contains("r.SheathState = 1", StringComparison.Ordinal) &&
+              glueBooth.Contains("private sealed class ItemEffectLane", StringComparison.Ordinal) &&
+              glueBooth.Contains("_itemEffects.Source.SyncItemGlows", StringComparison.Ordinal) &&
+              glueBooth.Contains("_itemEffects.Particles.Render(_cam)", StringComparison.Ordinal) &&
+              glueBooth.Contains("_itemEffects.Ribbons.Render", StringComparison.Ordinal),
+            "character-select melee-slot/ranged-skip or isolated item-effect lane drift");
+        Check(character.Contains("_characterGeosets?.Visible(", StringComparison.Ordinal) &&
+              character.Contains("BuildEquipGeosets()", StringComparison.Ordinal) &&
+              character.Contains("HelmetGeosetVisTable.Parse", StringComparison.Ordinal),
+            "booth character must share the faithful robe/helm geoset engine");
+
+        CheckCharacterGeosetParity();
+
         CheckActualDataIfPresent(root);
+    }
+
+    private static void CheckCharacterGeosetParity()
+    {
+        CharHairGeosetsTable hair = CharHairGeosetsTable.Parse(Dbc([1, 1, 0, 7, 5])) ??
+            throw new InvalidDataException("synthetic CharHairGeosets did not parse");
+        HelmetGeosetVisTable helmet = HelmetGeosetVisTable.Parse(
+            Dbc([42, 1u << 1, 0, 0, 0, 0])) ??
+            throw new InvalidDataException("synthetic HelmetGeosetVisData did not parse");
+        var geosets = new CharacterGeosets(hair, null, helmet);
+
+        HashSet<int> helmed = geosets.Visible(1, 0, 7, 0,
+            new EquipGeosets { HelmVis = (42, 42) });
+        Check(helmed.Contains(1) && !helmed.Contains(5),
+            "HelmetGeosetVisData must select the base scalp, not delete hair geometry");
+
+        var robe = new ItemDisplayRow { GeosetGroup = [0, 0, 1] };
+        var boots = new ItemDisplayRow { GeosetGroup = [2, 0, 0] };
+        var tabard = new ItemDisplayRow { GeosetGroup = [1, 0, 0] };
+        var equip = new EquipGeosets();
+        equip.Bodyslots[1] = robe;
+        equip.Bodyslots[4] = boots;
+        equip.Bodyslots[7] = tabard;
+        HashSet<int> robed = geosets.Visible(1, 0, 7, 0, equip);
+        Check(robed.Contains(1302) &&
+              !robed.Any(id => id is >= 501 and <= 599) &&
+              robed.Contains(1201) && !robed.Contains(1202),
+            "robe must hide boot and tabard geometry while selecting its skirt");
+    }
+
+    private static byte[] Dbc(params uint[][] rows)
+    {
+        int fields = rows.Length == 0 ? 0 : rows[0].Length;
+        byte[] data = new byte[20 + rows.Length * fields * 4 + 1];
+        data[0] = (byte)'W'; data[1] = (byte)'D'; data[2] = (byte)'B'; data[3] = (byte)'C';
+        BitConverter.GetBytes(rows.Length).CopyTo(data, 4);
+        BitConverter.GetBytes(fields).CopyTo(data, 8);
+        BitConverter.GetBytes(fields * 4).CopyTo(data, 12);
+        BitConverter.GetBytes(1).CopyTo(data, 16);
+        int offset = 20;
+        foreach (uint[] row in rows)
+            foreach (uint value in row)
+            {
+                BitConverter.GetBytes(value).CopyTo(data, offset);
+                offset += 4;
+            }
+        return data;
     }
 
     private static void CheckActualDataIfPresent(string root)
