@@ -879,6 +879,7 @@ public sealed partial class GameLoop : IDisposable
         {
             _character = new CharacterRenderer(gl, _config, _assetWorkers, _uploads);
             _character.AnimationResolved = CaptureAnimationChoice;
+            _character.EmoteAnimResolver = ResolveEmoteAnim;
             _character.LoadShaders(shaderDir);
 
             if (!_character.Load("Human", "Male"))

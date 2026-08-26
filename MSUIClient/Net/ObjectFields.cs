@@ -107,7 +107,7 @@ public sealed class ObjectFields
     // EmoteType 2), so it NEVER sends SMSG_EMOTE at all, confirmed by reading
     // dumps/EmotesText.dbc's own EmoteID column directly. Holds a raw Emotes.dbc
     // id (0 = no state emote active), not an AnimationData id - resolve it
-    // through EmoteAnimationLaw same as SMSG_EMOTE's payload.
+    // through EmoteCatalog (the live Emotes.dbc) same as SMSG_EMOTE's payload.
     public const ushort UNIT_NPC_EMOTESTATE = 148;
     public const ushort UNIT_FIELD_TRAINING_POINTS = 149;
     public const ushort UNIT_STAT0 = 150;
@@ -334,9 +334,9 @@ public sealed class ObjectFields
     public uint UnitFlags => GetU32(UNIT_FLAGS) ?? 0;
     public uint NpcFlags => GetU32(UNIT_NPC_FLAGS) ?? 0;
     /// <summary>Raw Emotes.dbc id of the active "state" emote (Dance, ...), or 0.
-    /// Resolve through EmoteAnimationLaw, same as SMSG_EMOTE's payload - see
-    /// UNIT_NPC_EMOTESTATE's doc comment for why this and not SMSG_EMOTE is
-    /// what carries Dance.</summary>
+    /// Resolve through EmoteCatalog (the live Emotes.dbc), same as SMSG_EMOTE's
+    /// payload - see UNIT_NPC_EMOTESTATE's doc comment for why this and not
+    /// SMSG_EMOTE is what carries Dance.</summary>
     public uint NpcEmoteState => GetU32(UNIT_NPC_EMOTESTATE) ?? 0;
     public ulong? Target => GetGuid(UNIT_TARGET) is { } g && g != 0 ? g : null;
     public ulong? Charm => GetGuid(UNIT_FIELD_CHARM) is { } g && g != 0 ? g : null;

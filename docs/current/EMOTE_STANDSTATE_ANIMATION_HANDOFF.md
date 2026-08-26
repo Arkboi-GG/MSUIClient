@@ -114,25 +114,87 @@ was visually confirmed before the session ended, only compiled.
 
 ---
 
-## 3. Eat/drink auto-sit asymmetry - NOT a client bug, don't chase it here
+## 3. Eat/drink seated animation - FIXED (was misdiagnosed here as server-side)
 
-Cam reports eating sits the character but drinking stands them, and says both
-should sit (from real 1.12 play memory). Confirmed by grep this session:
-`SendStandStateChange` (`WorldSession.cs`) is called **only** from the
-`/sit`/`/kneel`/`/sleep`/`/stand` slash-command handler in `GameLoop.Chat.cs`.
-Nothing in `MSUIClient` touches stand-state for item consumption - whatever
-sits/stands the player on eating/drinking is a server-side spell/item effect
-(SuperUI-Core / VMaNGOS-fork territory, `SetStandState` calls in
-`SpellAuras.cpp` or similar), arriving over the same generic
-`UNIT_FIELD_BYTES_1` field update this session's rendering code already
-displays faithfully for anything the server sends. **Not fixable in this
-repo.** If it needs fixing, it's a conversation with Yaf/Nico about the
-SuperUI-Core item/spell config, not a client change.
+**This section's original conclusion was WRONG and has been corrected.** It
+claimed the eat/drink stand-state was server-side and "not fixable in this
+repo," reasoning only from the SEND side (`SendStandStateChange` is only called
+by the slash commands). It never watched the actual fields arrive. It was a
+real client bug and is now fixed.
 
-(Found a real Blizzard forum thread specifically about this exact asymmetry -
-retail's actual rule was apparently "standing→sit to eat, sitting→stand to
-drink," which doesn't cleanly match either what Cam is seeing or remembers.
-Not worth chasing further from the client side either way.)
+**Empirical wire capture (2026-08-25, temporary `[diag:posefield]`/`[diag:emote]`
+logging on the local player, since removed):**
+- The server sends `UNIT_FIELD_BYTES_1` StandState = **Sit (1) for BOTH food
+  (spell 434) and drink (spell 431)** - the auto-sit asymmetry Cam originally
+  reported did not exist; both sit. On closer look the real symptom was that
+  BOTH flickered: seated between animation loops, standing during them.
+- `UNIT_NPC_EMOTESTATE` is **never set** for either (stays 0) - so this is not
+  the EmoteState/Dance path.
+- The consume animation arrives as **periodic `SMSG_EMOTE` one-shots**, emoteId
+  **7 (ONESHOT_EAT → AnimationData 61) for BOTH** food and drink. Vanilla has
+  no separate DRINK body animation (confirmed against `dumps/Emotes.dbc`); food
+  and drink share the eat animation and differ only in the held item model.
+
+**The bug:** `SMSG_EMOTE` → `ApplyEmote` → `_character.TriggerOneShot` sets
+`_combatAction`, which `ChooseClip` returned **first**, over a standing pose,
+before the `StandState`→sit branch ever ran. Each consume tick played a
+full-body standing eat over the seated pose; between ticks the sit showed
+through - the flicker.
+
+**The fix (this repo, `CharacterRenderer` + `M2Animator`):** the SEATED half of
+the Benilla `route_oneshot` committed_lower rule that ChooseClip's big "KNOWN
+WRONG" comment already documented. While the server holds a ground stand-state
+(sit/sleep/kneel, `SeatedMaskState`), `_combatAction` is no longer handed back
+as the whole body; the seated pose is the base and the emote is layered onto the
+**SpineLow (`TorsoBone`) subtree** as an upper-body mask via the existing
+`EvaluateWithArmOverlays` machinery (new `torsoOverlay` param), on its own clock
+(`_actionOverlayTime`). Legs stay seated, upper body eats/drinks. Cam
+verified live (2026-08-25). See §4 - the MOVING/turning/swimming half of the
+same rule is still tabled.
+
+**Remote players (mirror) - DONE and verified (2026-08-25).** The same torso mask
+is now wired in `CreatureRenderer` (per-guid: resolve+expire the seated action,
+render it via `EvaluateWithArmOverlays`'s `torsoOverlay`, gated on
+`SeatedLoopAnimId(StandState) != 0 && !remoteMoving`). Verified live against a
+second character eating in view. One extra remote-only fix was needed: the server
+**double-fires** the eat emote ~0.1-0.2s apart (confirmed on the wire), which
+restarted the animation from frame 0 each tick; `CreatureRenderer.TriggerOneShot`
+now preserves the existing `StartedAt` on a same-animation re-trigger so the clip
+stays continuous (the local player was already immune - `Resolve` hands back a
+cached clip and its overlay clock resets only on clip identity). The chosen feel
+is to KEEP the ~5s server bite rhythm (settle between bites), only killing the
+double-fire restart - not to force a continuous loop.
+
+---
+
+## 3b. Sit -> run transition (stand-up while moving) - FIXED (2026-08-26)
+
+Cam: walking out of a sit played the full stand-up before the run - a ~2s stall.
+The real 1.12 client (watched live on the reference client, char "Testmage") does
+NOT play the stand-up clip when you move out of a sit: it blends the seated pose
+**straight into the gait**, "very clipped, quick but smooth." A stationary `/stand`
+still plays the full deliberate rise.
+
+Two dead ends first (both rejected by Cam): playing the authored `SitGroundUp`
+(anim 98) to completion (~2s stall), then **compressing** it to ~0.2-0.45s - which
+looked like the character sliding forward in the seated pose and then a sped-up
+full stand-up. Compressing the stand-up clip is simply the wrong model.
+
+**The fix (`CharacterRenderer.ChooseClip` + `SwitchClip`):** while `state.Moving`,
+the seated Up bracket is **not armed at all** (and an in-progress stationary
+stand-up is dropped); ChooseClip falls straight through to locomotion, and a
+one-shot `_forceNextBlendSeconds = SeatedRunBlendSeconds` (0.18s, tunable) makes
+`SwitchClip` cross-fade the seated pose directly into the run at a fixed smooth
+length regardless of the run clip's own authored blendTime. Cam: indistinguishable
+from the official client.
+
+NOTE for the tabled masking work (§4): trying to capture the reference animation
+by screen-grabbing the foreground official client failed - GPU readback contends
+with the game's own rendering, so grabs drop to ~0.8s each while the scene is in
+motion (fast ~16ms only when static/backgrounded). Driving it with synthesized
+scancodes (SetForegroundWindow + keybd_event, X=sit W=move) works fine; the
+capture is the bottleneck. Reference behavior came from Cam's direct observation
+instead.
 
 ---
 
@@ -156,7 +218,8 @@ Not worth chasing further from the client side either way.)
   `UnitStandState` 2/4/5/6). Driven by GameObject-use, not the `/sit` command;
   needs per-chair seat-offset math this client doesn't have. `ChooseClip`'s
   seated-pose switch only handles Sit(1)/Sleep(3)/Kneel(8).
-- Eat/drink item-triggered stand-state (§3, server-side, not this repo).
+- Eat/drink seated masking is now DONE for the local player (§3); the
+  remote-player (`CreatureRenderer`) mirror of it is still pending.
 
 ---
 
@@ -195,7 +258,11 @@ Not worth chasing further from the client side either way.)
   `C:\VanillaWoWPrivate\WoW Vanilla\Data` (pass `--data` before the
   subcommand, not after) - same recipe as the pre-existing `EmotesText.dbc`
   dump. `dumps/emote-animation-table.cs.txt` has the full 78-row Emotes.dbc
-  dump if the table in `EmoteAnimationLaw.cs` ever needs re-deriving.
+  dump for reference. NOTE (2026-08-26): the hand-transcribed `EmoteAnimationLaw`
+  table was DELETED - both the state-emote (Dance) path and the SMSG_EMOTE
+  one-shot path now resolve Emotes.dbc id -> AnimationData id through the single
+  live `EmoteCatalog` (reads the real DBC), so there is no static table to
+  re-derive or drift. See §3b's closing note and §6.
 
 ---
 
@@ -203,8 +270,8 @@ Not worth chasing further from the client side either way.)
 
 | Concern | File |
 |---|---|
-| Emotes.dbc id → AnimationData id table | `MSUIClient/Engine/UI/EmoteAnimationLaw.cs` (new) |
-| SMSG_EMOTE dispatch + handler | `GameLoop/Scene/GameLoop.Net.cs` (case added), `GameLoop/Panels/GameLoop.Chat.cs` (`HandleEmoteReceive`) |
+| Emotes.dbc id → AnimationData id (+ EventSoundId), LIVE from the DBC | `MSUIClient/Formats/EmoteCatalog.cs` (Yaf's); resolver `GameLoop.ResolveEmoteAnim` wires it onto both renderers' `EmoteAnimResolver`. (The old static `EmoteAnimationLaw.cs` was deleted - see §5.) |
+| SMSG_EMOTE dispatch + handler | `GameLoop/Scene/GameLoop.Net.cs` (`ApplyEmote` case), `GameLoop/Combat/GameLoop.Emotes.cs` (`ApplyEmote`) |
 | `/sit /kneel /sleep /stand` send + toggle + movement gate | `GameLoop/Panels/GameLoop.Chat.cs` (`TrySubmitTextEmote`, `SubmitStandStateChange`, `MovementGatedCommands`, `StandStateCommands`, `IsMoving`) |
 | `CMSG_STANDSTATECHANGE` opcode | `Net/Opcodes.cs` |
 | `UNIT_FIELD_BYTES_1`/`UNIT_NPC_EMOTESTATE` field indices + accessors + `UnitStandState` enum | `Net/ObjectFields.cs` |
