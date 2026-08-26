@@ -264,14 +264,25 @@ public sealed partial class GameLoop
             var saved = JsonSerializer.Deserialize<Dictionary<string, string[]>>(json);
             if (saved is not null)
             {
+                // One-time repair of files written while an unbound slot canonicalised as "0".
+                // "0" is the number-zero key's token, so those files came back with the whole
+                // command table sharing that key - one press fired 119 commands at once. The
+                // poisoned slots are dropped here and keep the default ResetBindingsToDefaults
+                // already seeded, which is why this reads slot by slot instead of replacing the
+                // pair wholesale. See BindingChordLaw.HasZeroKeyPoison. Reported 2026-08-26.
+                bool poisoned = BindingChordLaw.HasZeroKeyPoison(saved.Values);
                 foreach ((string name, string[] keys) in saved)
                     if (Enum.TryParse(name, out GameBinding binding))
                     {
-                        BindingChord primary = keys.Length > 0 &&
-                            BindingChordLaw.TryParse(keys[0], out BindingChord p) ? p : default;
-                        BindingChord secondary = keys.Length > 1 &&
-                            BindingChordLaw.TryParse(keys[1], out BindingChord s) ? s : default;
-                        _bindings[binding] = new(primary, secondary);
+                        BindingPair pair = _bindings.GetValueOrDefault(binding);
+                        for (int slot = 0; slot < 2; slot++)
+                        {
+                            if (poisoned && BindingChordLaw.IsZeroKeyPoison(keys, slot)) continue;
+                            pair = pair.With(slot + 1, slot < keys.Length &&
+                                BindingChordLaw.TryParse(keys[slot], out BindingChord chord)
+                                    ? chord : default);
+                        }
+                        _bindings[binding] = pair;
                     }
                 return;
             }

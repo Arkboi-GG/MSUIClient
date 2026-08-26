@@ -94,11 +94,22 @@ Check(hud.Contains("Key.Number1, Key.Number2, Key.Number3", StringComparison.Ord
       hud.Contains("Key.Number9, Key.Number0", StringComparison.Ordinal) &&
       hud.Contains("Ctrl+1-0: save selected faction bots", StringComparison.Ordinal),
     "the physical 1-9,0 chord or Free-View-only group rail is no longer wired");
-Check(hud.Contains("_freecamSelection.Where(IsRtsGroupableBot)", StringComparison.Ordinal) &&
+Check(hud.Contains("_freecamSelection.Where(IsRtsGroupMember)", StringComparison.Ordinal) &&
       hud.Contains("IsRtsDirectlyControllableBot", StringComparison.Ordinal) &&
       hud.Contains("_rtsForces.TryGetValue", StringComparison.Ordinal) &&
       control.Contains("force.Alive && force.SameMapAndInstance", StringComparison.Ordinal),
     "temporary groups and direct control stopped using their distinct server-roster gates");
+
+// YOU MAY BE IN A GROUP, AND YOU ARE NEVER CONSCRIPTED. A group is a selection; every RTS lets
+// the commander band themselves with their units, and FreeCamSelectableGuids already yields
+// LocalPlayerGuid so the body can join marquee orders. Only the group filter disagreed, and it
+// silently dropped the player - three selected, "saved: 2 bots". Reported 2026-08-26. The
+// conscription guard is what keeps the server from ever being asked to order the player.
+Check(hud.Contains("guid == LocalPlayerGuid || IsRtsGroupableBot(guid)", StringComparison.Ordinal),
+    "the local player must be eligible for a control group (selection), not filtered out of it");
+Check(hud.Contains("if (guid != LocalPlayerGuid)   // your own character never enlists",
+          StringComparison.Ordinal),
+    "conscription must still skip the local player: group membership is selection, not enlistment");
 Check(control.Contains("ResetRtsControlGroups();", StringComparison.Ordinal) &&
       !hud.Contains("Settings.", StringComparison.Ordinal) &&
       !hud.Contains("File.Write", StringComparison.Ordinal) &&

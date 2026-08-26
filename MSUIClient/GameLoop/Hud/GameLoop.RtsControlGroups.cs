@@ -307,12 +307,27 @@ public sealed partial class GameLoop
         return false;
     }
 
+    /// <summary>
+    /// May this selected unit go into a control group? Your OWN character may - a group is a
+    /// selection, and every RTS lets the commander band themselves with their units.
+    ///
+    /// The rest of the system already assumed this: FreeCamSelectableGuids yields LocalPlayerGuid
+    /// first so the body "can still join marquee orders", and SyncRtsConscription carries an
+    /// explicit `guid != LocalPlayerGuid // your own character never enlists` guard, which only
+    /// means anything if the player can be a member. Only IsRtsGroupableBot disagreed, and it
+    /// silently dropped you from the save - three selected, "Group 1 saved: 2 bots". Reported
+    /// 2026-08-26. Conscription still skips you: you are in the group for SELECTION, and the
+    /// server is never asked to order you around.
+    /// </summary>
+    private bool IsRtsGroupMember(ulong guid) =>
+        guid != 0 && (guid == LocalPlayerGuid || IsRtsGroupableBot(guid));
+
     private void AssignRtsControlGroup(int index)
     {
         string number = RtsControlGroupLaw.DisplayNumber(index);
-        int eligibleCount = _freecamSelection.Count(IsRtsGroupableBot);
+        int eligibleCount = _freecamSelection.Count(IsRtsGroupMember);
         ulong[] members = RtsControlGroupLaw.NormalizeMembers(
-            _freecamSelection.Where(IsRtsGroupableBot));
+            _freecamSelection.Where(IsRtsGroupMember));
         if (members.Length == 0)
         {
             // Name the ACTUAL closed gate — "select faction bots" blamed the user for a
@@ -339,8 +354,12 @@ public sealed partial class GameLoop
         if (eligibleCount > members.Length)
             ShowUiError($"Group {number} is limited to " +
                 $"{RtsControlGroupLaw.MaximumWireSubjects} explicit bots by the order wire.");
-        _rtsControlGroupStatus = $"Group {number} saved: {members.Length} bot" +
-            (members.Length == 1 ? "." : "s.");
+        // Count YOU separately: "2 bots" when three were selected read as a silent failure.
+        int bots = members.Count(guid => guid != LocalPlayerGuid);
+        bool withSelf = members.Length != bots;
+        _rtsControlGroupStatus = $"Group {number} saved: " +
+            (bots == 0 ? "you." : $"{(withSelf ? "you and " : "")}{bots} bot" +
+                (bots == 1 ? "." : "s."));
         _rtsControlGroupStatusAt = NowSeconds();
         AddChatMessage(_rtsControlGroupStatus);
     }

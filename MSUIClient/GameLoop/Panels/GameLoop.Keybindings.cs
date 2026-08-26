@@ -45,8 +45,9 @@ public sealed partial class GameLoop
         // Vanilla anchors this frame TOP to UIParent - centred, 100 down - not against the left
         // edge. The origin is in LOGICAL units, so divide the framebuffer back through the scale
         // before centring, or the frame drifts right as the window grows.
-        float logicalWidth = s > 0f ? ImGui.GetIO().DisplaySize.X / s : KeyBindingsUiLaw.FrameSize.X;
-        if (!BeginVanillaWindow("##keybindings", KeyBindingsUiLaw.WindowOrigin(logicalWidth),
+        Vector2 logicalDisplay = s > 0f ? ImGui.GetIO().DisplaySize / s : KeyBindingsUiLaw.FrameSize;
+        if (!BeginVanillaWindow("##keybindings",
+                KeyBindingsUiLaw.WindowOrigin(logicalDisplay.X, logicalDisplay.Y),
                 KeyBindingsUiLaw.FrameSize, out ImDrawListPtr dl,
                 out Vector2 origin, out s, movable: true))
         { ImGui.End(); return; }

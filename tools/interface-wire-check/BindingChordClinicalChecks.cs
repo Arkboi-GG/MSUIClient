@@ -7,6 +7,8 @@ internal static class BindingChordClinicalChecks
     public static void Run()
     {
         CheckCodecAndFallback();
+        CheckUnboundIsNotTheZeroKey();
+        CheckZeroKeyPoisonRepair();
         CheckRuntimeSourceFence();
     }
 
@@ -86,13 +88,75 @@ internal static class BindingChordClinicalChecks
               KeyBindingsUiLaw.RowHitSize == new System.Numerics.Vector2(535, 23) &&
               KeyBindingsUiLaw.PrimaryKey == new KeyBindingsUiLaw.Rect(175, 1, 180, 22) &&
               KeyBindingsUiLaw.SecondaryKey == new KeyBindingsUiLaw.Rect(355, 1, 180, 22) &&
-              KeyBindingsUiLaw.MaximumScroll(20) == 3 &&
-              KeyBindingsUiLaw.ClampScroll(9, 20) == 3 &&
+              // 20 rows less the 15 that fit. These still asserted 3 - the 17-row band's
+              // answer - after VisibleRows was re-pinned to 15, so this check threw on a clean
+              // tree and nobody saw it: it only runs behind --binding-chord-only.
+              KeyBindingsUiLaw.MaximumScroll(20) == 5 &&
+              KeyBindingsUiLaw.ClampScroll(9, 20) == 5 &&
               KeyBindingsUiLaw.MatchesSearch("Action Bar", "Action Button 1", "button") &&
               !KeyBindingsUiLaw.MatchesSearch("Movement", "Jump", "spell"),
             "keybindings shell/search/collapse geometry law drifted");
     }
 
+    /// <summary>
+    /// UNBOUND MUST NOT BE THE ZERO KEY. Silk.NET puts Key.Unknown at -1 and names nothing at 0,
+    /// so default(BindingChord) - what BindingPair.Without, the Unbind button and every seeded
+    /// second slot produce - carries a key the enum cannot name. While IsBound only asked
+    /// "Key != Key.Unknown" that chord read as BOUND: it drew as "0", saved as "0", and came back
+    /// from disk as the real number-zero key, collecting 119 of 125 commands onto one press.
+    /// Reported 2026-08-26. These assert the behaviour, not the defect.
+    /// </summary>
+    private static void CheckUnboundIsNotTheZeroKey()
+    {
+        BindingChord unbound = default;
+        Check(!unbound.IsBound && !new BindingChord(Key.Unknown).IsBound &&
+              !new BindingChord(Key.Unknown, Alt: true, Control: true, Shift: true).IsBound,
+            "default/Key.Unknown chord reads as bound again - unbound is a phantom key");
+        Check(BindingChordLaw.Canonical(unbound).Length == 0 &&
+              BindingChordLaw.Canonical(new BindingChord(Key.Unknown)).Length == 0,
+            "an unbound slot canonicalises to a key token again - saving poisons the file");
+        Check(BindingChordLaw.Display(unbound, key => key.ToString()) == "Not Bound",
+            "an unbound slot no longer displays Not Bound");
+        Check(BindingChordLaw.TryParse(BindingChordLaw.Canonical(unbound),
+                  out BindingChord reloaded) && !reloaded.IsBound,
+            "an unbound slot does not survive a save/load round trip");
+        Check(reloadedIsNotZero(), "unbound and a real press of the 0 key are the same chord");
+
+        // ...and the number-zero key itself still works, which is the whole reason the two were
+        // confusable: Action Button 10 ships on it.
+        BindingChord zero = BindingChordLaw.Live(Key.Number0, false, false, false);
+        Check(zero.IsBound && BindingChordLaw.Canonical(zero) == "0" &&
+              BindingChordLaw.TryParse("0", out BindingChord parsedZero) && parsedZero == zero,
+            "the number-zero key stopped round-tripping");
+
+        static bool reloadedIsNotZero()
+        {
+            BindingChordLaw.TryParse(BindingChordLaw.Canonical(default), out BindingChord slot);
+            return slot != BindingChordLaw.Live(Key.Number0, false, false, false);
+        }
+    }
+
+    /// <summary>
+    /// The one-time repair for files ALREADY written with "0" for unbound. The marker is a
+    /// command with "0" in both slots, which the editor cannot produce.
+    /// </summary>
+    private static void CheckZeroKeyPoisonRepair()
+    {
+        string[][] poisoned = [["B", "0"], ["0", "0"], ["W", "UP"]];
+        string[][] clean = [["B", ""], ["0", ""], ["W", "UP"]];
+        Check(BindingChordLaw.HasZeroKeyPoison(poisoned) &&
+              !BindingChordLaw.HasZeroKeyPoison(clean),
+            "zero-key poison detection drifted");
+        Check(BindingChordLaw.IsZeroKeyPoison(["B", "0"], 1) &&
+              BindingChordLaw.IsZeroKeyPoison(["0", "0"], 0) &&
+              BindingChordLaw.IsZeroKeyPoison(["0", "0"], 1) &&
+              !BindingChordLaw.IsZeroKeyPoison(["B", "0"], 0) &&
+              !BindingChordLaw.IsZeroKeyPoison(["0", "NUMPAD0"], 0) &&
+              !BindingChordLaw.IsZeroKeyPoison(["W", "UP"], 1) &&
+              !BindingChordLaw.IsZeroKeyPoison(["B"], 1),
+            "zero-key poison slot selection drifted - a real 0 binding is being dropped, " +
+            "or a poisoned slot is being kept");
+    }
     private static void CheckRuntimeSourceFence()
     {
         string root = ClientConfig.FindRepoRoot();
@@ -113,6 +177,10 @@ internal static class BindingChordClinicalChecks
               bindings.Contains("BindingChordLaw.Canonical(x.Value.Primary)",
                   StringComparison.Ordinal) &&
               bindings.Contains("BindingChordLaw.TryParse", StringComparison.Ordinal) &&
+              bindings.Contains("BindingChordLaw.HasZeroKeyPoison(saved.Values)",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("BindingChordLaw.IsZeroKeyPoison(keys, slot)",
+                  StringComparison.Ordinal) &&
               bindings.Contains("Alt: row.Binding == GameBinding.ToggleUi",
                   StringComparison.Ordinal) &&
               bindings.Contains("GameBinding[] exact = _bindings",

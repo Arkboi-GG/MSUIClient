@@ -62,9 +62,15 @@ public sealed partial class GameLoop
         ImGui.SetNextWindowSize(new Vector2(ConsoleWidth, ConsoleHeight) * scale,
             ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
+        // NoBringToFrontOnFocus: the shelf is standing HUD furniture, so it must never rise above
+        // a panel the player opened. Without it the shelf was display-front while every vanilla
+        // panel frame is deliberately display-back, and the Key Bindings footer row landed inside
+        // the shelf's rect - FindHoveredWindow returned the shelf and Reset/Unbind/Okay/Cancel
+        // went dead in the free view while still drawing. Found by audit, 2026-08-26.
         ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoNav |
-            ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoScrollbar;
+            ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoScrollbar |
+            ImGuiWindowFlags.NoBringToFrontOnFocus;
         if (!ImGui.Begin("##rts-command-shelf", flags)) { ImGui.End(); return; }
 
         ImDrawListPtr dl = ImGui.GetWindowDrawList();

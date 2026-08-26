@@ -16,7 +16,26 @@ public enum BindingPointerKey
 public readonly record struct BindingChord(Key Key, bool Alt = false, bool Control = false,
     bool Shift = false, BindingPointerKey Pointer = BindingPointerKey.None)
 {
-    public bool IsBound => Key != Key.Unknown || Pointer != BindingPointerKey.None;
+    /// <summary>
+    /// Bound means NAMES A REAL INPUT - not merely "is not Key.Unknown".
+    ///
+    /// Silk.NET's Key.Unknown is -1 and the enum names nothing at 0, so default(Key) is a third
+    /// thing: neither Unknown nor a key. The old test was `Key != Key.Unknown`, which called
+    /// that third thing BOUND - and default(BindingChord) is exactly what every unbind path
+    /// produces: BindingPair.Without after a key is taken by another command, the Unbind
+    /// button's With(slot, default), and the second slot of every row ResetBindingsToDefaults
+    /// seeds. So "unbound" was a chord on a phantom key, which:
+    ///   - drew as "0" instead of "Not Bound" (FriendlyKey falls through to key.ToString(), and
+    ///     ((Key)0).ToString() is "0" because the enum has no name for it);
+    ///   - canonicalised to "0" and was SAVED that way, and "0" is the token for the number-zero
+    ///     key - so one save/load round trip bound 119 of the reporter's 125 commands to 0;
+    ///   - made "&lt;command&gt; Function is Now Unbound!" unreachable, because the cleared pair
+    ///     still answered IsBound, so nobody was told their key had been taken.
+    /// Reported 2026-08-26: rebinding the inventory key showed the displaced command sitting on
+    /// "0", and the client had to be restarted.
+    /// </summary>
+    public bool IsBound => Pointer != BindingPointerKey.None ||
+        (Key != Key.Unknown && Key != default);
 }
 
 public static class BindingChordLaw
@@ -41,6 +60,42 @@ public static class BindingChordLaw
         return null;
     }
 
+    /// <summary>The token a number-zero binding writes - and the token the pre-fix writer also
+    /// emitted for UNBOUND. See <see cref="HasZeroKeyPoison"/>.</summary>
+    private const string ZeroKeyToken = "0";
+
+    /// <summary>
+    /// Was this file written while default(BindingChord) still read as bound?
+    ///
+    /// Such a writer canonicalised every unbound slot as "0" - the number-zero key's own token -
+    /// so the next load bound the whole command table to 0 at once. The tell is a command with
+    /// "0" in BOTH slots, which the editor cannot produce: binding a chord first strips it from
+    /// every previous owner, the same command's other slot included, so a command's two slots are
+    /// never the same chord. Anything the fixed writer emits carries "" for unbound instead and
+    /// is left alone. Reported 2026-08-26.
+    /// </summary>
+    public static bool HasZeroKeyPoison(IEnumerable<string[]> savedSlots)
+    {
+        ArgumentNullException.ThrowIfNull(savedSlots);
+        return savedSlots.Any(keys => keys.Length > 1 &&
+            keys[0] == ZeroKeyToken && keys[1] == ZeroKeyToken);
+    }
+
+    /// <summary>
+    /// In a poisoned file, is THIS slot the writer's "unbound" rather than a real zero binding?
+    ///
+    /// A secondary "0" always is - nothing seeds a secondary zero. A primary "0" only is when the
+    /// secondary is "0" too, which is the impossible pair above; a lone primary "0" beside a real
+    /// secondary is a binding the player chose, and is kept. Poisoned slots fall back to the
+    /// DEFAULT rather than to unbound, so Action Button 10 keeps the 0 key it ships with.
+    /// </summary>
+    public static bool IsZeroKeyPoison(string[] savedKeys, int slotIndex)
+    {
+        ArgumentNullException.ThrowIfNull(savedKeys);
+        if (slotIndex < 0 || slotIndex >= savedKeys.Length ||
+            savedKeys[slotIndex] != ZeroKeyToken) return false;
+        return slotIndex > 0 || (savedKeys.Length > 1 && savedKeys[1] == ZeroKeyToken);
+    }
     public static string Canonical(in BindingChord chord)
     {
         if (!chord.IsBound) return "";

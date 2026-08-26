@@ -57,8 +57,15 @@ public sealed partial class GameLoop
         ImGui.SetNextWindowPos(origin, movable ? ImGuiCond.FirstUseEver : ImGuiCond.Always);
         ImGui.SetNextWindowSize(logicalSize * scale, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
-        bool open = ImGui.Begin(id,
-            movable ? VanillaWindowFlags & ~ImGuiWindowFlags.NoMove : VanillaWindowFlags);
+        // NoBringToFrontOnFocus has to go WITH NoMove. ImGui both push_fronts such a window to
+        // the bottom of the display order at creation and skips BringWindowToDisplayFront on
+        // focus - so a draggable frame that kept the flag could be parked over any HUD window
+        // and would sit UNDER it, where FindHoveredWindow returns the HUD and every button in
+        // the frame stops responding while still painting. Dragging must be able to raise it.
+        ImGuiWindowFlags flags = movable
+            ? VanillaWindowFlags & ~(ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoBringToFrontOnFocus)
+            : VanillaWindowFlags;
+        bool open = ImGui.Begin(id, flags);
         draw = ImGui.GetWindowDrawList();
         // A dragged frame's art must follow it. The authored origin is only the seed; everything
         // inside is laid out from this, so read back where the window actually is.

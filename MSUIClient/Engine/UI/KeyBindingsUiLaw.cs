@@ -43,7 +43,26 @@ public static class KeyBindingsUiLaw
     /// sit against the left edge. Needs the live display width, hence a method.
     /// </summary>
     public static Vector2 WindowOrigin(float logicalDisplayWidth) =>
-        new(MathF.Max(0f, (logicalDisplayWidth - FrameSize.X) * 0.5f), FrameTop);
+        WindowOrigin(logicalDisplayWidth, float.PositiveInfinity);
+
+    /// <summary>
+    /// Centred like the TOP anchor, and kept ON SCREEN vertically.
+    ///
+    /// The fit ceiling in InterfaceScaleLaw is width-only by design - the main menu bar runs out
+    /// of room sideways, never downward - so on a wide-but-short display the derived scale can
+    /// put this frame's 512 logical units past the bottom of the framebuffer. At 3440x1440 with
+    /// the shipped preference the footer row landed below the screen entirely, which no amount
+    /// of dragging recovers because the seat is only applied on first use. Clamp the seat
+    /// instead of trusting the scale. Found by audit, 2026-08-26.
+    /// </summary>
+    public static Vector2 WindowOrigin(float logicalDisplayWidth, float logicalDisplayHeight)
+    {
+        float x = MathF.Max(0f, (logicalDisplayWidth - FrameSize.X) * 0.5f);
+        float y = float.IsFinite(logicalDisplayHeight)
+            ? Math.Clamp(FrameTop, 0f, MathF.Max(0f, logicalDisplayHeight - FrameSize.Y))
+            : FrameTop;
+        return new Vector2(x, y);
+    }
 
     public static Vector2 TitleCenter => new(320, 26);
     // MSUI adds a search box and a character-specific toggle that vanilla has no room for, so
