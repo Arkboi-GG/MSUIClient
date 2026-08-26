@@ -729,17 +729,26 @@ public sealed class M2Animator
                          Clip? previous, float previousTimeSeconds, float previousWeight,
                          float globalTimeSeconds, Matrix4x4[] skin)
         => EvaluateWithArmOverlays(clip, timeSeconds, previous, previousTimeSeconds,
-            previousWeight, null, 0f, null, 0f, globalTimeSeconds, skin);
+            previousWeight, null, 0f, null, 0f, null, 0f, globalTimeSeconds, skin);
 
     /// <summary>
     /// Evaluate the live base pose and replace only keyed channels inside the requested arm
     /// subtrees. This is the vanilla per-slot sheath composition: gait and jump legs continue
     /// while each occupied hand performs its own draw/stow one-shot.
+    ///
+    /// <paramref name="torsoOverlay"/> is the same idea rooted at <see cref="TorsoBone"/>
+    /// (SpineLow) instead of a shoulder: it replaces the keyed channels of the whole upper-body
+    /// subtree - spine, arms, head - over the base pose, leaving the legs on the base clip. This
+    /// is the Benilla <c>route_oneshot</c> "committed_lower" mask: while the lower body is
+    /// committed (seated today; moving/turning later), an emote/swing/cast plays on the torso
+    /// only rather than replacing the whole body. Applied BEFORE the arm overlays so an explicit
+    /// per-hand sheath one-shot still wins on its own arm bones if the two ever coincide.
     /// </summary>
     public void EvaluateWithArmOverlays(Clip? clip, float timeSeconds,
                          Clip? previous, float previousTimeSeconds, float previousWeight,
                          Clip? rightOverlay, float rightOverlayTime,
                          Clip? leftOverlay, float leftOverlayTime,
+                         Clip? torsoOverlay, float torsoOverlayTime,
                          float globalTimeSeconds, Matrix4x4[] skin)
     {
         if (skin.Length < _boneCount)
@@ -753,6 +762,8 @@ public sealed class M2Animator
         float previousBasePoseTime = ClipTime(previousBasePose, globalTimeSeconds);
         float rightTime = ClipTime(rightOverlay, rightOverlayTime);
         float leftTime = ClipTime(leftOverlay, leftOverlayTime);
+        float torsoTime = ClipTime(torsoOverlay, torsoOverlayTime);
+        bool torsoMasking = torsoOverlay is not null && TorsoBone >= 0 && TorsoBone < _boneCount;
 
         float weight = previous is null ? 0f : Math.Clamp(previousWeight, 0f, 1f);
         if (float.IsNaN(weight)) weight = 0f;
@@ -792,6 +803,11 @@ public sealed class M2Animator
                 scale = Vector3.Lerp(scale, outScale, weight);
             }
 
+            // Upper-body mask first, so a per-hand sheath overlay below still wins
+            // on its own arm bones if the two are ever active together.
+            if (torsoMasking && IsDescendant(i, TorsoBone))
+                ApplyOverlayChannels(torsoOverlay!, torsoTime, i,
+                    ref translation, ref rotation, ref scale);
             if (rightOverlay is not null && _rightArmRoot >= 0 && IsDescendant(i, _rightArmRoot))
                 ApplyOverlayChannels(rightOverlay, rightTime, i,
                     ref translation, ref rotation, ref scale);

@@ -540,6 +540,10 @@ public sealed partial class GameLoop : IDisposable
     private float _moveStrafe;
     private bool _steering;
 
+    /// <summary>Edge-detect for the movement/jump auto-stand correction below -
+    /// see where it's set for the full explanation.</summary>
+    private bool _wasStandTriggerActiveLastFrame;
+
     /// <summary>Whether the Tier 1 set is on. Toggling re-composites the atlas.</summary>
     private bool _dressed = true;
 
@@ -875,6 +879,7 @@ public sealed partial class GameLoop : IDisposable
         {
             _character = new CharacterRenderer(gl, _config, _assetWorkers, _uploads);
             _character.AnimationResolved = CaptureAnimationChoice;
+            _character.EmoteAnimResolver = ResolveEmoteAnim;
             _character.LoadShaders(shaderDir);
 
             if (!_character.Load("Human", "Male"))
@@ -1905,6 +1910,22 @@ public sealed partial class GameLoop : IDisposable
         _steering = !controllerIceBlockFrozen && !vanillaControlLocked &&
             (turn != 0f || mouseSteering);
 
+        // Cam confirmed from 1.12 play: a seated character only stands back up on
+        // one of three triggers - the sit/stand key (SubmitStandStateChange's own
+        // toggle handles that one), a jump, or starting to move. Edge-triggered on
+        // either signal so this fires once per sit, not every frame the key/stick
+        // stays held - the server round trip that actually clears StandState is
+        // slower than this, and CharacterRenderer.ChooseClip's own !state.Moving
+        // check already renders the stand-up locally without waiting for it; this
+        // is just keeping the server's copy honest.
+        bool standTriggerNow = translating || BindingDown(GameBinding.Jump);
+        if (standTriggerNow && !_wasStandTriggerActiveLastFrame &&
+            _entities.TryGet(LocalPlayerGuid, out WorldEntity selfSeated) &&
+            selfSeated.Fields.StandState is (byte)UnitStandState.Sit or (byte)UnitStandState.Kneel
+                or (byte)UnitStandState.Sleep)
+            _net?.SendStandStateChange(UnitStandState.Stand);
+        _wasStandTriggerActiveLastFrame = standTriggerNow;
+
         var input = new MovementInput
         {
             Forward = forward,
@@ -2322,6 +2343,8 @@ public sealed partial class GameLoop : IDisposable
         Engaged = _net is not null && _combat.IsEngaged(ControlledGuid),
         StandState = _entities.TryGet(ControlledGuid, out WorldEntity poseUnit)
             ? poseUnit.Fields.UnitStandState : (byte)0,
+        EmoteState = _entities.TryGet(ControlledGuid, out WorldEntity emoteUnit)
+            ? emoteUnit.Fields.NpcEmoteState : 0,
         FreezePose = _iceBlockFrozen || aura?.Frozen == true,
         ApplyBodyVisual = aura is not null,
         BodyAlpha = aura?.Alpha ?? 1f,

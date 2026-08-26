@@ -630,6 +630,20 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_SETSHEATHED, w.AsSpan());
     }
 
+    /// <summary>
+    /// CMSG_STANDSTATECHANGE: u32 UnitStandStateType. This, not CMSG_TEXT_EMOTE,
+    /// is what actually moves UNIT_FIELD_BYTES_1's StandState byte - confirmed
+    /// against vmangos/core: WorldSession::HandleTextEmoteOpcode explicitly
+    /// skips calling Unit::HandleEmote for the STATE_SLEEP/SIT/KNEEL/ONESHOT_NONE
+    /// text ids, so /sit and /kneel typed as chat commands only ever produced
+    /// the flavour text over that packet, never the pose.
+    /// </summary>
+    public void SendStandStateChange(UnitStandState state)
+    {
+        var w = new PacketWriter(4); w.WriteU32((uint)state);
+        SendPacket((ushort)Op.CMSG_STANDSTATECHANGE, w.AsSpan());
+    }
+
     public void CastSpell(uint spellId, ulong targetGuid)
     {
         byte[] body = BuildCastSpellBody(spellId, targetGuid);

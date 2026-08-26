@@ -3,9 +3,9 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
-using MSUIClient.Engine.UI;
 using Shader = MSUIClient.Engine.Shader;
 using Texture = MSUIClient.Engine.Texture;
 
@@ -81,6 +81,10 @@ public sealed partial class CreatureRenderer : IDisposable
     /// </summary>
     public HashSet<ulong> ProminentSelectedGuids { get; } = [];
     public Action<string, int, M2Animator.Resolution>? AnimationResolved { get; set; }
+    /// <summary>Emotes.dbc id (UNIT_NPC_EMOTESTATE space) -&gt; AnimationData id, 0 if none.
+    /// Wired to the live <see cref="Formats.EmoteCatalog"/> - same resolver the local
+    /// player uses, so remote Dance resolves from the real DBC, not a static table.</summary>
+    public Func<uint, int>? EmoteAnimResolver { get; set; }
     /// <summary>rider/root guid, event-source display id, world-space feet.</summary>
     public Action<ulong, int, Vector3, float>? FootstepAnimationEvent { get; set; }
     public Action<ulong, int, Vector3, string>? CreatureAnimationSoundEvent { get; set; }
@@ -152,6 +156,10 @@ public sealed partial class CreatureRenderer : IDisposable
     private readonly Dictionary<ulong, float> _animTime = new();
     private readonly Dictionary<ulong, (int Sequence, float Time)> _footstepTime = [];
     private readonly Dictionary<ulong, CombatAction> _combatActions = new();
+    /// <summary>Edge-detect for the _combatActions movement-break rule below - see
+    /// its comment (and CharacterRenderer.Update's matching one) for why this has
+    /// to be a change, not a level check. Pruned in PruneAnimState.</summary>
+    private readonly Dictionary<ulong, bool> _wasMovingByGuid = new();
     private readonly Dictionary<ulong, int> _spellHolds = new();
     private readonly HashSet<ulong> _lootKneeling = new();
     private readonly HashSet<ulong> _knownAlive = new();
@@ -185,7 +193,21 @@ public sealed partial class CreatureRenderer : IDisposable
 
     public void TriggerOneShot(ulong guid, int animationId)
     {
-        _combatActions[guid] = new CombatAction(animationId, _globalTime,
+        // The server double-fires the eat/drink emote ~0.1-0.2s apart (confirmed on
+        // the wire). A same-animation re-trigger while the previous one is still
+        // running keeps its StartedAt so the clip isn't snapped back to frame 0
+        // mid-play - only the expiry window is refreshed. A genuinely new emote (the
+        // previous already finished and was pruned) starts fresh, preserving the
+        // natural settle-between-bites rhythm. Unlike the local player (whose overlay
+        // clock survives a re-trigger because Resolve hands back a cached clip and its
+        // reset keys on clip identity), the remote clock is StartedAt-relative, so it
+        // needs this explicitly. TriggerOneShot is the emote-only path; swings/spells
+        // trigger elsewhere.
+        float startedAt = _combatActions.TryGetValue(guid, out CombatAction existing) &&
+                          existing.AnimationId == animationId
+            ? existing.StartedAt
+            : _globalTime;
+        _combatActions[guid] = new CombatAction(animationId, startedAt,
             _globalTime + 4f, AuthoredExact: true);
         CombatActionsTriggered++;
     }
@@ -531,6 +553,45 @@ public sealed partial class CreatureRenderer : IDisposable
                 bool frozen = e.AuraVisual.Frozen;
                 M2Animator.Clip? clip;
                 float rate;
+                // A movement-flag CHANGE (edge, not "currently moving" - see
+                // CharacterRenderer.Update's matching comment for why the earlier,
+                // continuous version of this was wrong) ends a one-shot immediately
+                // rather than waiting out its duration. EmoteState/seated-pose below
+                // stay on a continuous !remoteMoving guard deliberately - those are
+                // real vanilla states that cannot coexist with movement at all
+                // (confirmed: Cam's own account of standing up on movement start),
+                // unlike an ordinary one-shot swing/emote, which the real client
+                // would mask to the upper body and keep playing regardless of when
+                // it started (tabled - see the "KNOWN WRONG" comments).
+                bool remoteMoving = (e.Spline?.AverageSpeed ?? 0f) > MovingEpsilon;
+                bool remoteMovementChanged = remoteMoving != _wasMovingByGuid.GetValueOrDefault(e.Guid);
+                _wasMovingByGuid[e.Guid] = remoteMoving;
+                if (remoteMovementChanged) _combatActions.Remove(e.Guid);
+
+                // Seated remote unit + an active emote/swing one-shot (someone else
+                // eating/drinking): mask it to the SpineLow subtree over the held
+                // seated pose instead of hijacking the whole body - the per-guid
+                // mirror of CharacterRenderer's SeatedMaskState fix. Resolve and
+                // expire the action HERE so the seated-loop branch below is free to
+                // be the base clip; it renders as a torso overlay at Evaluate time.
+                M2Animator.Clip? torsoOverlay = null;
+                float torsoOverlayTime = 0f;
+                bool seatedMask = !remoteMoving && SeatedLoopAnimId(e.Fields.StandState) != 0;
+                if (seatedMask &&
+                    _combatActions.TryGetValue(e.Guid, out CombatAction seatedAction) &&
+                    ResolveCombatClip(model.Animator, unit, seatedAction) is { } seatedActionClip)
+                {
+                    float seatedActionTime = frozen ? at : _globalTime - seatedAction.StartedAt;
+                    if (!frozen && !seatedActionClip.Looping &&
+                        seatedActionTime >= seatedActionClip.DurationSeconds)
+                        _combatActions.Remove(e.Guid);   // one-shot done: plain seated pose
+                    else
+                    {
+                        torsoOverlay = seatedActionClip;
+                        torsoOverlayTime = seatedActionTime;
+                    }
+                }
+
                 if (e.IsDead)
                 {
                     clip = model.Animator.Resolve(unit, ActionAnimationTrack, 1, true, 6, 0);
@@ -541,13 +602,24 @@ public sealed partial class CreatureRenderer : IDisposable
                         : MathF.Min(deathAt + dt, clip?.DurationSeconds ?? deathAt + dt);
                     _deathTime[e.Guid] = at;
                 }
-                else if (_combatActions.TryGetValue(e.Guid, out CombatAction action) &&
+                // The SEATED half of the Benilla committed_lower rule is now handled
+                // above (torsoOverlay) - !seatedMask keeps this full-body branch for
+                // the standing case. The MOVING half is still KNOWN WRONG (2026-08-16):
+                // full-body floats a moving remote unit's whole body instead of masking
+                // the one-shot to the SpineLow subtree with the legs still striding. See
+                // CharacterRenderer.ChooseClip's comment (Benilla driver.rs:631-644/
+                // 1137-1178) - that moving mask still needs building here too.
+                else if (!seatedMask &&
+                    _combatActions.TryGetValue(e.Guid, out CombatAction action) &&
                     ResolveCombatClip(model.Animator, unit, action) is { } actionClip)
                 {
                     clip = actionClip;
                     rate = 1f;
                     float actionTime = frozen ? at : _globalTime - action.StartedAt;
-                    if (!frozen && actionTime >= actionClip.DurationSeconds)
+                    // See CharacterRenderer.Update's matching comment: a looping
+                    // clip (Dance) is a state, not a burst, and must keep cycling
+                    // past its own DurationSeconds until something else clears it.
+                    if (!frozen && !actionClip.Looping && actionTime >= actionClip.DurationSeconds)
                         _combatActions.Remove(e.Guid);
                     at = actionTime;
                 }
@@ -566,6 +638,27 @@ public sealed partial class CreatureRenderer : IDisposable
                     rate = 1f;
                     if (!frozen) at += dt;
                 }
+                else if (!remoteMoving && e.Fields.NpcEmoteState != 0 &&
+                    EmoteAnimResolver?.Invoke(e.Fields.NpcEmoteState) is int remoteStateAnimId &&
+                    remoteStateAnimId > 0 &&
+                    model.Animator.Resolve(unit, BaseAnimationTrack, remoteStateAnimId, true, 0) is { } stateClip)
+                {
+                    // Someone else dancing - see CharacterRenderer.ChooseClip's matching
+                    // comment for why this is UNIT_NPC_EMOTESTATE and not SMSG_EMOTE.
+                    clip = stateClip;
+                    rate = 1f;
+                    at += dt;
+                }
+                else if (!remoteMoving && SeatedLoopAnimId(e.Fields.StandState) is int seatedLoop && seatedLoop != 0)
+                {
+                    // Someone else sitting/kneeling/sleeping: just the held loop, no
+                    // Down/Up transition polish - that lives on CharacterRenderer
+                    // (the local player) only. See its ChooseClip comment for the
+                    // real AnimationData ids and why chair-sitting is out of scope.
+                    clip = model.Animator.Resolve(unit, BaseAnimationTrack, seatedLoop, true, 0);
+                    rate = 1f;
+                    at += dt;
+                }
                 else
                 {
                     _combatActions.Remove(e.Guid);
@@ -583,7 +676,11 @@ public sealed partial class CreatureRenderer : IDisposable
                         EmitFootstepEvents(e.Guid, e.DisplayId, e.Position,
                             e.Scale, model.Source, clip, at, mount: false);
                     boneCount = Math.Min(model.BoneCount, M2Animator.MaxBones);
-                    model.Animator.Evaluate(clip, at, _globalTime, _skin);
+                    if (torsoOverlay is not null)
+                        model.Animator.EvaluateWithArmOverlays(clip, at, null, 0f, 0f,
+                            null, 0f, null, 0f, torsoOverlay, torsoOverlayTime, _globalTime, _skin);
+                    else
+                        model.Animator.Evaluate(clip, at, _globalTime, _skin);
                     M2Animator.Pack(_skin, boneCount, _packed);
                     _shader.SetVec4Array("uBones", _packed, boneCount * 3);
                     AnimatedLastFrame++;
@@ -1182,6 +1279,18 @@ public sealed partial class CreatureRenderer : IDisposable
         return clip;
     }
 
+    /// <summary>The loop-only AnimationData id for a StandState this renderer
+    /// draws on remote units, or 0 if it's Stand/Dead/a chair variant/anything
+    /// else not covered here. Mirrors CharacterRenderer.ChooseClip's Down/Loop/Up
+    /// triplet's middle id - see there for the sourcing and the id table.</summary>
+    private static int SeatedLoopAnimId(byte standState) => (UnitStandState)standState switch
+    {
+        UnitStandState.Sit => 97,
+        UnitStandState.Sleep => 100,
+        UnitStandState.Kneel => 115,
+        _ => 0,
+    };
+
     private static M2Animator.Clip? ResolveCombatClip(
         M2Animator animator, string unit, in CombatAction action)
     {
@@ -1234,6 +1343,7 @@ public sealed partial class CreatureRenderer : IDisposable
             _observedDead.Remove(k);
             _deathTime.Remove(k);
             _footstepTime.Remove(k);
+            _wasMovingByGuid.Remove(k);
         }
 
         // A steed whose rider stopped drawing (left the world, walked out of range)

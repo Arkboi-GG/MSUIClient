@@ -2,7 +2,9 @@ using System.Numerics;
 using System.Diagnostics;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
+using MSUIClient.Net;
 using Shader = MSUIClient.Engine.Shader;
 using Texture = MSUIClient.Engine.Texture;
 
@@ -113,7 +115,14 @@ public sealed partial class CharacterRenderer : IDisposable
         public bool Swimming;
         public float SwimPitch;
         public bool Engaged;
+
+        /// <summary>UNIT_FIELD_BYTES_1's StandState byte (see UnitStandState) - the
+        /// server's own field, not client-guessed. Default 0 (Stand).</summary>
         public byte StandState;
+
+        /// <summary>UNIT_NPC_EMOTESTATE's raw Emotes.dbc id (Dance, ...), or 0. See
+        /// ObjectFields.UNIT_NPC_EMOTESTATE's doc comment.</summary>
+        public uint EmoteState;
 
         /// <summary>Hold the already-evaluated body pose and all of its animation clocks.</summary>
         public bool FreezePose;
@@ -319,6 +328,14 @@ public sealed partial class CharacterRenderer : IDisposable
     private float _clipRate = 1f;
     private M2Animator.Clip? _combatAction;
     private M2Animator.Clip? _spellHold;
+    // Upper-body action mask (seated eat/drink/emote). While the server holds us in a ground
+    // stand-state, _combatAction is layered onto the SpineLow subtree over the seated base
+    // (Render) instead of hijacking the whole body - the Benilla committed_lower rule, see
+    // ChooseClip's SeatedMaskState guard. It runs on its own clock because _clipTime then belongs
+    // to the seated pose; _actionOverlayArmedRef restarts that clock when a fresh action is armed.
+    private float _actionOverlayTime;
+    private M2Animator.Clip? _actionOverlayArmedRef;
+    private M2Animator.Clip? _torsoOverlayForRender;
     private M2Animator.Clip? _rightSheathOverlay;
     private M2Animator.Clip? _leftSheathOverlay;
     private float _sheathOverlayTime;
@@ -360,6 +377,10 @@ public sealed partial class CharacterRenderer : IDisposable
     private float _previousClipRate = 1f;
     private float _blendRemaining;
     private float _blendDuration;
+    // When set, overrides the cross-fade length for the very next clip switch only
+    // (the seated->run blend uses it to stay smooth regardless of the run clip's own
+    // authored blendTime). Consumed and cleared by SwitchClip.
+    private float? _forceNextBlendSeconds;
 
     private Vector3 _lastPosition;
     private bool _hasLastPosition;
@@ -386,6 +407,10 @@ public sealed partial class CharacterRenderer : IDisposable
     /// <summary>How far the body turned this frame, signed. Drives the turn-in-place shuffle.</summary>
     private float _bodyTurnStep;
 
+    /// <summary>Edge-detect for the _combatAction movement-break rule in Update -
+    /// see the comment there for why this has to be a change, not a level check.</summary>
+    private bool _wasMovingLastFrame;
+
     // ── landing ──────────────────────────────────────────────────────────────
     private M2Animator.Clip? _landClip;
     private float _landForward, _landStrafe;
@@ -394,6 +419,16 @@ public sealed partial class CharacterRenderer : IDisposable
     private bool _jumpArcActive;
     private bool _jumpHangShown;
     private M2Animator.Clip? _jumpStartClip;
+
+    // ── seated / kneeling / sleeping (UnitStandState) ──────────────────────────
+    // Same bracket idea as landing above: Down/Up are one-shot transitions either
+    // side of a held Loop, not something ChooseClip re-derives from scratch every
+    // frame. _seatedLoopAnimId is 0 whenever StandState isn't one of the three
+    // this client renders (chair-sitting is deferred - see ChooseClip).
+    private int _seatedLoopAnimId;
+    private int _seatedUpAnimId;
+    private M2Animator.Clip? _seatedDownClip;
+    private M2Animator.Clip? _seatedUpClip;
 
     /// <summary>Below this the character counts as standing still, in yards per second.</summary>
     private const float MoveThreshold = 0.3f;
@@ -715,6 +750,11 @@ public sealed partial class CharacterRenderer : IDisposable
     public float GroundSpeed => _groundSpeed;
     public string SkinTexturePath { get; private set; } = "";
     public Action<string, int, M2Animator.Resolution>? AnimationResolved { get; set; }
+    /// <summary>Emotes.dbc id (UNIT_NPC_EMOTESTATE / SMSG_EMOTE space) -&gt; AnimationData id,
+    /// 0 if none. Wired to the live <see cref="Formats.EmoteCatalog"/> so the state-emote
+    /// (Dance) path resolves from the real DBC, same source as the one-shot emote path -
+    /// no second hand-maintained table.</summary>
+    public Func<uint, int>? EmoteAnimResolver { get; set; }
     /// <summary>One callback per authored $FSD marker crossed by the live base clip.</summary>
     public Action? FootstepAnimationEvent { get; set; }
     public Action<string>? CreatureAnimationSoundEvent { get; set; }
@@ -725,6 +765,14 @@ public sealed partial class CharacterRenderer : IDisposable
     private const int BaseAnimationTrack = 0;
     private const int ActionAnimationTrack = 1;
     private const int SpellHoldAnimationTrack = 2;
+
+    // Walking out of a sit does NOT play the stand-up clip in the real 1.12 client -
+    // it blends the seated pose straight into the gait ("very clipped, basically just
+    // gets you sitting -> running", per reference-client observation). This is the
+    // cross-fade length for that one seated->run transition: quick, but long enough
+    // to read as smooth rather than a pop. A stationary /stand still plays the full
+    // authored stand-up. Tunable.
+    private const float SeatedRunBlendSeconds = 0.18f;
 
     public CharacterRenderer(GL gl, ClientConfig config,
         AssetWorkerPool? workers = null, GpuUploadWorker? uploads = null)
@@ -758,6 +806,7 @@ public sealed partial class CharacterRenderer : IDisposable
         StandingChaseCeilingDegrees = source.StandingChaseCeilingDegrees;
         StationaryChaseRate = source.StationaryChaseRate;
         AnimationResolved = source.AnimationResolved;
+        EmoteAnimResolver = source.EmoteAnimResolver;
         SunDirection = source.SunDirection;
         SunColor = source.SunColor;
         SunIntensity = source.SunIntensity;
@@ -2627,9 +2676,59 @@ public sealed partial class CharacterRenderer : IDisposable
 
         DriveBodyHeading(dt, state, airborne);
 
+        // A looping one-shot (Dance, AnimID 69) is a state, not a burst - it must
+        // keep cycling until something else interrupts it (movement, another
+        // action). Only a non-looping clip's own duration ends it here; the
+        // wrap-vs-clamp split already lives in M2Animator.ClipTime.
         if (_combatAction is not null && ReferenceEquals(_clip, _combatAction) &&
-            _clipTime >= _combatAction.DurationSeconds)
+            !_combatAction.Looping && _clipTime >= _combatAction.DurationSeconds)
             _combatAction = null;
+
+        // A movement-flag CHANGE is ALSO an end condition, not just the clip's own
+        // duration - confirmed against the Benilla trace (driver.rs:847-877: "when
+        // oneshot_finished(id) OR a movement-flag change, drv.mode = Mode::Gait").
+        // CHANGE, not "currently moving" - the first cut of this (2026-08-16,
+        // earlier this same session) used a continuous `state.Moving` check, which
+        // nulls _combatAction on literally the frame after it's armed whenever the
+        // player is already moving when the action triggers (the ordinary case:
+        // waving while walking, swinging mid-chase) - the one-shot would never be
+        // drawn even once. Edge-triggering on the false->true transition fixes
+        // that: an action armed while stationary still gets cut short the instant
+        // movement starts (Cam confirmed this from real 1.12 play), but one armed
+        // while already moving plays out its full duration, same as before this
+        // whole timing fix - which is a deliberate compromise, not the real
+        // behaviour (the real client masks it to the upper body and keeps playing
+        // regardless of when it started - tabled, see ChooseClip's "KNOWN WRONG"
+        // comment) but is honest about not being able to fake masking here.
+        // CastHold (_spellHold) is deliberately NOT touched - that one is a live
+        // server-cast pose, released by the real cast-cancel path
+        // (ReleaseSpellVisual/CancelSpellVisual), not a local movement heuristic.
+        if (_combatAction is not null && state.Moving != _wasMovingLastFrame)
+            _combatAction = null;
+        _wasMovingLastFrame = state.Moving;
+
+        // Upper-body action mask clock (seated eat/drink/emote). When ChooseClip
+        // masks _combatAction to the torso over a seated base (SeatedMaskState),
+        // _clip is the seated pose and _clipTime belongs to it - so the action
+        // advances on its OWN clock here and ends on its own duration. The
+        // whole-body expiry above only fires while the action IS _clip (standing).
+        // A freshly armed action (identity change) restarts the mask clock.
+        if (!ReferenceEquals(_combatAction, _actionOverlayArmedRef))
+        {
+            _actionOverlayArmedRef = _combatAction;
+            _actionOverlayTime = 0f;
+        }
+        bool seatedMask = _combatAction is not null && SeatedMaskState(state);
+        if (seatedMask)
+        {
+            _actionOverlayTime += dt;   // ChooseClip hands _combatAction back at rate 1
+            if (!_combatAction!.Looping && _actionOverlayTime >= _combatAction.DurationSeconds)
+            {
+                _combatAction = null;   // one-shot done: upper body falls back to the seated pose
+                seatedMask = false;
+            }
+        }
+        _torsoOverlayForRender = seatedMask ? _combatAction : null;
 
         var next = ChooseClip(state, out float rate);
 
@@ -2758,7 +2857,15 @@ public sealed partial class CharacterRenderer : IDisposable
     public float TriggerOneShot(int animationId)
     {
         if (_animator is null) return 0f;
-        _combatAction = _animator.Resolve("player", ActionAnimationTrack, animationId, false, 0);
+        // bakeOnDemand: true - unlike the combat ids in BakedAnimations, callers
+        // here (text-emote playback, the loot kneel) pass arbitrary
+        // AnimationData.dbc ids never pre-baked at load. Without on-demand
+        // baking this silently fell through to the fallback chain (id 0,
+        // Stand) every time, which - being the same cached clip already
+        // playing - just snapped _clipTime back to 0 (a visible idle "reset")
+        // while the requested animation never played. Mirrors the bakeOnDemand
+        // already used by BeginSpellVisual/ReleaseSpellVisual below.
+        _combatAction = _animator.Resolve("player", ActionAnimationTrack, animationId, true, 0);
         if (_combatAction is null) return 0f;
         CombatActionsTriggered++;
         RestartCombatAction();
@@ -2829,7 +2936,8 @@ public sealed partial class CharacterRenderer : IDisposable
             _clipTime = 0f;
         }
 
-        float blend = BlendSecondsFor(outgoing, next);
+        float blend = _forceNextBlendSeconds ?? BlendSecondsFor(outgoing, next);
+        _forceNextBlendSeconds = null;
         if (outgoing is null || blend <= 0f)
         {
             _previousClip = null;
@@ -3145,6 +3253,18 @@ public sealed partial class CharacterRenderer : IDisposable
         _landWalking = state.Walking;
     }
 
+    /// <summary>
+    /// The server holds us in a ground stand-state (sit/sleep/kneel) and we are not moving - a
+    /// Benilla committed_lower state where a one-shot (an eat/drink/emote SMSG_EMOTE) masks to the
+    /// SpineLow subtree over the held seated pose instead of replacing the whole body. Sit is the
+    /// case food and drink hit (server sets UNIT_FIELD_BYTES_1 StandState=Sit for both; verified
+    /// on the wire). Chair-sit stand-states aren't rendered as seated poses here (see ChooseClip)
+    /// so they are deliberately excluded.
+    /// </summary>
+    private static bool SeatedMaskState(in UnitState state) =>
+        !state.Moving &&
+        (UnitStandState)state.StandState is UnitStandState.Sit or UnitStandState.Sleep or UnitStandState.Kneel;
+
     private M2Animator.Clip? ChooseClip(in UnitState state, out float rate)
     {
         rate = 1f;
@@ -3157,7 +3277,30 @@ public sealed partial class CharacterRenderer : IDisposable
             return _animator.Resolve("player", BaseAnimationTrack,
                 CreatureRenderer.RiderAnimationId, true, 0);
 
-        if (_combatAction is not null) return _combatAction;
+        // KNOWN WRONG, not yet fixed (2026-08-16): this is full-body always, so
+        // an emote/cast while moving currently freezes the legs and floats the
+        // whole body across the ground. Cam confirmed from real 1.12 play (and
+        // it matches the Benilla reference trace, driver.rs:631-644/1137-1178,
+        // which was misread here earlier - it documents the opposite of what
+        // used to be claimed in this comment): the genuine client instead plays
+        // these as a MASKED overlay on the SpineLow subtree at ~8:1 weight
+        // ("ONESHOT_OVERLAY_WEIGHT") while the base gait keeps running
+        // untouched underneath - legs keep striding, torso plays the one-shot.
+        // Full-body replacement is still correct when standing still (Benilla's
+        // route_oneshot: masked only if committed_lower - moving/turning/
+        // swimming/seated - else full-body). The five stand-state commands
+        // (/sit /kneel /stand /dance /sleep) are the one exception and should
+        // outright refuse with "You cannot do this while moving!" instead of
+        // masking - see SubmitStandStateChange's gate in GameLoop.Chat.cs.
+        // M2Animator already resolves a SpineLow TorsoBone (ResolveTorsoBone)
+        // for the existing torso-yaw twist, which is most of the subtree-walk
+        // this needs. The SEATED half of that rule is now wired: while the server
+        // holds us in a ground stand-state, don't hand _combatAction back as the
+        // whole body - fall through to the seated pose below, and Render layers
+        // _combatAction onto the SpineLow subtree over it (the committed_lower
+        // mask, sit/sleep/kneel case). Moving/turning/swimming masking is still
+        // the tabled work above; those still play full-body here.
+        if (_combatAction is not null && !SeatedMaskState(state)) return _combatAction;
         if (_spellHold is not null) return _spellHold;
 
         if (state.Swimming)
@@ -3171,6 +3314,92 @@ public sealed partial class CharacterRenderer : IDisposable
             M2Animator.Clip? swim = _animator.Resolve("player", BaseAnimationTrack,
                 swimId, true, state.Moving ? 42 : 41, 0);
             return state.Moving ? LocomotionClip(swim, false, out rate) : swim;
+        }
+
+        // A "state" emote (Dance, ...) - UNIT_NPC_EMOTESTATE, not SMSG_EMOTE; see
+        // that field's doc comment for why. Unlike Sit/Kneel/Sleep below, the
+        // AnimationData ids these resolve to (Dance is 69) are themselves already
+        // looping sequences with no separate Down/Up bracket in the real data, so
+        // this needs no transition state machine - just hold the loop while the
+        // field is nonzero. !state.Moving is a client-side belt-and-braces cutoff:
+        // whether VMaNGOS itself clears UNIT_NPC_EMOTESTATE on movement is
+        // unconfirmed, and waiting on that round trip either way would reintroduce
+        // the same too-slow-to-break feel just fixed for _combatAction above.
+        if (state.EmoteState != 0 && !state.Moving &&
+            EmoteAnimResolver?.Invoke(state.EmoteState) is int stateAnimId && stateAnimId > 0)
+            return _animator.Resolve("player", BaseAnimationTrack, stateAnimId, true, 0);
+
+        // Ground-sit/sleep/kneel, driven by the server's own UNIT_FIELD_BYTES_1
+        // StandState byte (see UnitStandState) rather than anything client-guessed.
+        // Down->Loop->Up ids are the real AnimationData.dbc rows, read directly out
+        // of this client's own AnimationData.dbc (dumps/AnimationData.dbc) - not
+        // recalled. Chair-sitting (SitChair/SitLowChair/SitMediumChair/
+        // SitHighChair) is deliberately not handled here: it is driven by
+        // GameObject-use, not the /sit command this feature covers, and each
+        // chair height needs its own seat-offset math this client doesn't have yet.
+        (int down, int loop, int up) = (UnitStandState)state.StandState switch
+        {
+            UnitStandState.Sit => (96, 97, 98),      // SitGroundDown / SitGround / SitGroundUp
+            UnitStandState.Sleep => (99, 100, 101),  // SleepDown / Sleep / SleepUp
+            UnitStandState.Kneel => (114, 115, 116), // KneelStart / KneelLoop / KneelEnd
+            _ => (0, 0, 0),
+        };
+
+        // !state.Moving here too, for the same reason as the state-emote branch
+        // above: don't wait on the server's own reaction to standing up (or, per
+        // Cam's account of the real client, its own client-side auto-stand) when
+        // we already know movement just started. Whichever pose we were just in
+        // is still cached in _seatedLoopAnimId/_seatedUpAnimId below, so this
+        // falls straight into the Up bracket exactly like a real StandState
+        // revert would - SendStandStateChange(Stand) (Program.cs's movement
+        // handling) tells the server the same thing separately.
+        if (loop != 0 && !state.Moving)
+        {
+            _seatedUpClip = null;
+            if (_seatedLoopAnimId != loop)
+            {
+                // Entering this pose fresh, or switching straight from one seated
+                // pose to another without passing through Stand in between - either
+                // way the Down bracket (re)arms once against the NEW loop id.
+                _seatedDownClip = _animator.Resolve("player", BaseAnimationTrack, down, true, loop);
+                _seatedLoopAnimId = loop;
+                _seatedUpAnimId = up;
+            }
+            bool downPlaying = _seatedDownClip is not null &&
+                ReferenceEquals(_clip, _seatedDownClip) && _clipTime < _seatedDownClip.DurationSeconds;
+            return downPlaying
+                ? _seatedDownClip
+                : _animator.Resolve("player", BaseAnimationTrack, loop, true, 0);
+        }
+
+        if (_seatedLoopAnimId != 0)
+        {
+            // The seated pose just ended. Arm the authored Up bracket ONLY for a
+            // stationary stand-up (a plain /stand) - that plays the full, deliberate
+            // rise. Standing up BECAUSE movement started does NOT play the stand-up
+            // clip at all in the real 1.12 client: it blends the seated pose straight
+            // into the gait ("very clipped, basically only gets you from sitting to
+            // running; the full stand-up doesn't play"). So leave it unarmed when
+            // moving and force a short, smooth sit->run cross-fade instead.
+            _seatedUpClip = state.Moving
+                ? null
+                : _animator.Resolve("player", BaseAnimationTrack, _seatedUpAnimId, true, 0);
+            if (state.Moving) _forceNextBlendSeconds = SeatedRunBlendSeconds;
+            _seatedLoopAnimId = 0;
+        }
+        // Movement also cuts short a stationary stand-up already in progress: drop the
+        // Up clip and blend into the gait rather than finishing the rise.
+        if (state.Moving && _seatedUpClip is not null)
+        {
+            _seatedUpClip = null;
+            _forceNextBlendSeconds = SeatedRunBlendSeconds;
+        }
+        if (_seatedUpClip is not null)
+        {
+            bool upFinished = ReferenceEquals(_clip, _seatedUpClip) &&
+                _clipTime >= _seatedUpClip.DurationSeconds;
+            if (upFinished) _seatedUpClip = null;
+            else return _seatedUpClip;
         }
 
         if (state.Flying)
@@ -3485,6 +3714,7 @@ public sealed partial class CharacterRenderer : IDisposable
                                    _previousClip, _previousClipTime, BlendWeightNow(),
                                    rightOverlay, _sheathOverlayTime,
                                    leftOverlay, _sheathOverlayTime,
+                                   _torsoOverlayForRender, _actionOverlayTime,
                                    _globalTime, _skin);
             }
             M2Animator.Pack(_skin, Math.Min(bones, M2Animator.MaxBones), _packed);

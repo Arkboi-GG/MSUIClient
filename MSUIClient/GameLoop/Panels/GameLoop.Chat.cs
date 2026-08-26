@@ -1274,14 +1274,74 @@ public sealed partial class GameLoop
     private bool TrySubmitTextEmote(string raw)
     {
         if (!raw.StartsWith('/') || raw.Contains(' ')) return false;
-        if (EmoteCommandLaw.Resolve(raw.ToLowerInvariant()) is not { } id) return false;
+        string lower = raw.ToLowerInvariant();
+        if (EmoteCommandLaw.Resolve(lower) is not { } id) return false;
         if (!CanAuthorControlledGameplay)
         {
             ShowUiError("Cannot emote while in Free View.");
             return true;
         }
+
+        if (MovementGatedCommands.Contains(lower) && IsMoving())
+        {
+            // Real client rejects these outright client-side, no round trip -
+            // Cam confirmed from 1.12 play: /sit /kneel /stand /dance /sleep
+            // /lie all refuse while moving with this exact message, unlike
+            // ordinary emotes and instant casts, which DO play while moving
+            // (masked to the upper body - see CharacterRenderer.ChooseClip's
+            // "KNOWN WRONG, not yet fixed" comment for that still-unbuilt half).
+            // Nothing is sent: not the chat-text emote, not a stand-state change.
+            AddChatMessage("You cannot do this while moving.", ChatFrameLaw.MsgType.System);
+            return true;
+        }
+
         _net?.SendTextEmote((uint)id, _selectionGuid);
+        if (StandStateCommands.TryGetValue(lower, out UnitStandState requested))
+            SubmitStandStateChange(requested);
         return true;
+    }
+
+    /// <summary>Whether the local player currently has movement keys held - the
+    /// same intent signal BuildUnitState feeds the renderer, not a
+    /// server-confirmed velocity. Real client validation is instant and
+    /// client-only, so this matches it rather than waiting on a spline.</summary>
+    private bool IsMoving() => MathF.Abs(_moveForward) > 0.01f || MathF.Abs(_moveStrafe) > 0.01f;
+
+    /// <summary>The stand-state/state-emote commands the real client refuses
+    /// outright while moving ("You cannot do this while moving."), rather than
+    /// letting them fly and masking them to the upper body like ordinary
+    /// emotes. Laydown's aliases are included even though this client doesn't
+    /// render its pose yet (see StandStateCommands) - the refusal is real
+    /// regardless of whether the pose itself is built.</summary>
+    private static readonly HashSet<string> MovementGatedCommands = new()
+    {
+        "/sit", "/kneel", "/stand", "/dance", "/sleep",
+        "/lay", "/laydown", "/lie", "/liedown",
+    };
+
+    /// <summary>The text-emote commands that are ALSO a real pose change, not
+    /// just a chat line. See SubmitStandStateChange's doc comment for why the
+    /// text emote above can never carry this on its own.</summary>
+    private static readonly Dictionary<string, UnitStandState> StandStateCommands = new()
+    {
+        ["/sit"] = UnitStandState.Sit,
+        ["/kneel"] = UnitStandState.Kneel,
+        ["/sleep"] = UnitStandState.Sleep,
+        ["/stand"] = UnitStandState.Stand,
+    };
+
+    /// <summary>
+    /// /sit and /kneel toggle like the real client: asking for the state you
+    /// are already in stands you back up rather than restating it. /sleep and
+    /// /stand do not need that check - re-sleeping is a no-op server-side, and
+    /// /stand only ever means Stand regardless of current state.
+    /// </summary>
+    private void SubmitStandStateChange(UnitStandState requested)
+    {
+        UnitStandState current = _entities.TryGet(LocalPlayerGuid, out WorldEntity self)
+            ? (UnitStandState)self.Fields.StandState : UnitStandState.Stand;
+        bool togglesOff = requested is UnitStandState.Sit or UnitStandState.Kneel && current == requested;
+        _net?.SendStandStateChange(togglesOff ? UnitStandState.Stand : requested);
     }
 
     /// <summary>

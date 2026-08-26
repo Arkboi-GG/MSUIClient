@@ -147,6 +147,7 @@ public sealed partial class GameLoop
                     gl, _mpq, _config, _creatureLifecycle, _assetWorkers, _uploads);
                 _creatures.AnimationResolved = CaptureAnimationChoice;
                 _creatures.TuningFor = MountTuningFor;
+                _creatures.EmoteAnimResolver = ResolveEmoteAnim;
             }
         }
         catch (Exception ce) { Console.WriteLine($"[creature] init failed: {ce.Message}"); }
