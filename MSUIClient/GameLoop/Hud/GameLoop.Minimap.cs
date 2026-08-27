@@ -71,8 +71,16 @@ public sealed partial class GameLoop
         {
             DrawMinimapTexture(dl, root, Vector2.Zero, new(192, 32),
                 @"Interface\Minimap\UI-Minimap-Border", new(.25f, 0), new(1, .125f));
-            DrawMinimapButton(dl, root + new Vector2(161, -3),
-                @"Interface\Buttons\UI-Panel-MinimizeButton-Up", () => SetMinimapVisible(true));
+            // Keep the zone name on the collapsed strip so it stays a live readout, and make the
+            // whole strip the reopen handle: click the title to bring the map back. No X button
+            // here - X is a hide-only control in the open state, so you restore by clicking the
+            // strip (or the ToggleMinimap key), never by toggling the same button hide/unhide.
+            DrawMinimapZoneText(dl, root, player, s);
+            Vector2 stripMin = root * s;
+            Vector2 stripMax = (root + new Vector2(192, 32)) * s;
+            if (ImGui.IsMouseHoveringRect(stripMin, stripMax, false) &&
+                ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                SetMinimapVisible(true);
             UpdateAndQueueMinimapResourceTooltip(null);
             return;
         }
@@ -319,7 +327,9 @@ public sealed partial class GameLoop
             string prepared = string.Join('\n', lines);
             OfferPreservedSharedGameTooltipRenderer(new("minimap-zone", leafArea),
                 () => HoverTip(prepared));
-            if (ImGui.IsMouseClicked(ImGuiMouseButton.Left)) SetMinimapVisible(false);
+            // Display-only: hiding is the X button's job (open state), restoring is the
+            // collapsed strip's job. The label no longer swallows clicks to hide the map -
+            // a label that quietly closed the map was a third, non-obvious close path.
         }
         if (_uiParityArmed && _uiParityPanel == "minimap")
         {

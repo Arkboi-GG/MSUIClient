@@ -237,8 +237,11 @@ public sealed class GameSettings
         /// <summary>
         /// Escape/Options text size. This lives beside the menu's own chrome scale because the
         /// ImGui font is used by these menus, not by the exact-pixel gameplay frames.
+        /// Default 1.75: at a normal desktop distance the 1.0 menu font reads far too small
+        /// next to the 1.8 chrome, so fresh installs open with legible menu text. (Existing
+        /// settings.json files keep their stored value — no migration bumps this.)
         /// </summary>
-        public float TextScale { get; set; } = 1f;
+        public float TextScale { get; set; } = 1.75f;
 
         public float MainWidth { get; set; }
         public float MainHeight { get; set; }

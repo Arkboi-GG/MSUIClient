@@ -316,6 +316,17 @@ public sealed partial class GameLoop
     private double _rtsWaypointProgressAt;                   // last leg consumed / chain issued
     private const float RtsWaypointReachedYards = 3.5f;
     private const double RtsWaypointStaleSeconds = 45.0;
+    // Client-side coalesce for plain move (type 0) orders. Rapid right-click spam floods the
+    // server, where every move pays a pathfinding storm and each interrupt fakes an arrival
+    // (see the SuiPossess flood diagnosis), so a single unit "hangs up." A human dragging a
+    // destination never means more than a handful of distinct points per second, so we send at
+    // most one move per interval and let the newest destination win. Other order types
+    // (waypoint/attack/formation/hold) stay immediate - they are discrete, not spammed.
+    private const double RtsMoveOrderMinInterval = 0.12;     // seconds; ~8 move sends/sec ceiling
+    private List<ulong>? _pendingMoveSubjects;
+    private Vector3 _pendingMovePoint;
+    private bool _hasPendingMoveOrder;
+    private double _lastMoveOrderSentAt;
     private Vector3 _freecamCamSentPosition;                 // last CMSG_SUI_CAM position
     private double _freecamCamSentAt;                        // and when it went out
     private static readonly Vector3 RtsFriendlyTint = new(0.30f, 0.95f, 0.45f);
@@ -1105,6 +1116,7 @@ public sealed partial class GameLoop
             ApplyControlledCharacter();
 
         UpdateFreeCamSelection();
+        FlushPendingRtsMoveOrder();   // deliver the newest coalesced move once its throttle elapses
 
         bool ctrl = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
         bool tab = InputKeyDown(Key.Tab);
@@ -1185,7 +1197,17 @@ public sealed partial class GameLoop
         // the map's click-to-fly depends on it (TakeFreeFlightScroll still runs
         // so a wheel tick over the map is consumed, not banked for landing).
         float wheel = _window.TakeFreeFlightScroll();
-        if (wheel != 0f && !_commanderMapOpen && _controller is not null)
+        // Alt+wheel zooms the orbit boom instead of flying the rig. Free view otherwise freezes
+        // the boom at whatever distance it held on entry - plain wheel is spent on altitude, and
+        // the CAMERAZOOMIN/OUT binding is gated off while free view is up - so without this you
+        // can never pull in closer than the distance you toggled in at. Wheel up (positive) =
+        // zoom in, matching normal camera mode, under the same Min/MaxDistance clamp.
+        bool boomZoom = InputKeyDown(Key.AltLeft) || InputKeyDown(Key.AltRight);
+        if (wheel != 0f && !_commanderMapOpen && boomZoom)
+        {
+            _window.Camera.Zoom(wheel);
+        }
+        else if (wheel != 0f && !_commanderMapOpen && _controller is not null)
         {
             // Under a terrain shell (Ironforge, Undercity, a cave) the height field is OVERHEAD,
             // so "Z minus terrain" is a negative number and this collapsed to its 2-yard floor -
@@ -1285,6 +1307,60 @@ public sealed partial class GameLoop
         _rtsWaypointChain.Clear();
         _rtsWaypointSubjects.Clear();
         _rtsWaypointProgressAt = 0;
+    }
+
+    /// <summary>
+    /// Plain move (type 0) through the flood coalescer: at most one send per
+    /// <see cref="RtsMoveOrderMinInterval"/>, newest destination wins. A move to a different
+    /// subject set flushes the pending one first, so no unit's order is silently dropped. The
+    /// subjects list is a fresh per-click allocation, so stashing the reference is safe.
+    /// </summary>
+    private void IssueRtsMoveOrder(List<ulong> subjects, Vector3 point)
+    {
+        if (_hasPendingMoveOrder && _pendingMoveSubjects is not null &&
+            !SameRtsMembers(_pendingMoveSubjects, subjects))
+            FlushPendingRtsMoveOrder(force: true);
+
+        double now = NowSeconds();
+        if (now - _lastMoveOrderSentAt >= RtsMoveOrderMinInterval)
+            SendRtsMoveOrder(subjects, point, now);
+        else
+        {
+            _pendingMoveSubjects = subjects;
+            _pendingMovePoint = point;
+            _hasPendingMoveOrder = true;
+        }
+    }
+
+    /// <summary>
+    /// The actual move dispatch, run only for orders that clear the coalescer. Prediction,
+    /// wire send, chip label, ground marker and chat all fire together here so the client's
+    /// predicted lurch and the chat log match the order that was really sent, not the
+    /// intermediate clicks the throttle dropped.
+    /// </summary>
+    private void SendRtsMoveOrder(List<ulong> subjects, Vector3 point, double now)
+    {
+        BeginRtsMovePresentation(subjects, point);
+        _net?.SuiOrder(0, subjects, 0, point.X, point.Y, point.Z);
+        NoteCompanionOrder(0, subjects);
+        _rtsMoveMarkers.Add((point, now, RtsFriendlyTint));
+        ClearRtsWaypointChain();
+        AddChatMessage($"{OrderSubjectLabel(subjects)}: move to ({point.X:F0}, {point.Y:F0}).");
+        _lastMoveOrderSentAt = now;
+        _hasPendingMoveOrder = false;
+    }
+
+    /// <summary>
+    /// Send the coalesced move once its interval has elapsed (or immediately when forced by a
+    /// set change). Called every frame from <see cref="UpdateControlInput"/> so the newest
+    /// destination still lands if the player stops clicking mid-throttle.
+    /// </summary>
+    private void FlushPendingRtsMoveOrder(bool force = false)
+    {
+        if (!_hasPendingMoveOrder || _pendingMoveSubjects is null) return;
+        double now = NowSeconds();
+        if (!force && now - _lastMoveOrderSentAt < RtsMoveOrderMinInterval) return;
+        SendRtsMoveOrder(_pendingMoveSubjects, _pendingMovePoint, now);
     }
 
     // ── Patrol draft (the armed Patrol button) ────────────────────────────────
@@ -1644,12 +1720,9 @@ public sealed partial class GameLoop
             else
             {
                 if (subjects.Count == 0) return;   // plain move needs a highlighted set
-                BeginRtsMovePresentation(subjects, point);
-                _net?.SuiOrder(0, subjects, 0, point.X, point.Y, point.Z);
-                NoteCompanionOrder(0, subjects);
-                _rtsMoveMarkers.Add((point, NowSeconds(), RtsFriendlyTint));
-                ClearRtsWaypointChain();
-                AddChatMessage($"{OrderSubjectLabel(subjects)}: move to ({point.X:F0}, {point.Y:F0}).");
+                // Coalesced: rapid move-spam collapses to the newest destination (throttled in
+                // IssueRtsMoveOrder) instead of flooding the server one packet per click.
+                IssueRtsMoveOrder(subjects, point);
             }
         }
     }
