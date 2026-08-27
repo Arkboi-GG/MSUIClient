@@ -1139,8 +1139,10 @@ public sealed partial class GameLoop
             CycleRtsPrimary(ShiftHeld() ? -1 : +1);
         _primaryCycleWasDown = plainTab;
 
-        // Possess-on-cast: fire a command-card ability once control lands on the primary.
+        // Possess-on-cast / possess-on-use: fire a queued command-card ability or quick-slot item
+        // once control lands on the primary.
         TryFirePendingPrimaryCast();
+        TryFirePendingPrimaryUse();
 
         // Ctrl+F: free view toggle (plain F stays the local fly toggle). Works in
         // the creator sandbox too — there it is purely a camera decision, and it
@@ -1663,8 +1665,13 @@ public sealed partial class GameLoop
                             EnsureBotBarForViewing(_freecamSelection[0]);
                         return;
                     }
+            // Targeting an enemy (a unit that is not one of your commandable subjects) sets it as
+            // the focus target but must NOT drop the command selection — you keep control of your
+            // group so Focus/attack orders still have subjects, and the card can show who the
+            // primary is fighting. Only an empty-ground click, which has nothing to target, clears
+            // the group (deselect-all).
             CommitSelection(pickedUnit, beginAttack: false);
-            _freecamSelection.Clear();
+            if (pickedUnit == 0) _freecamSelection.Clear();
             return;
         }
         if (click.Button != MouseButton.Right) return;

@@ -162,6 +162,7 @@ public sealed partial class GameLoop
         // The saved control-group "squad" grid (DrawRtsSquadGrid) is shelved for the true-RTS mode.
         DrawRtsSelectionPortraits(dl, origin, scale);
         DrawRtsConsoleInfo(dl, origin, subjects, scale);
+        DrawQuickBackpackSlots(dl, origin, scale);
         DrawRtsCommandCard(dl, origin, subjects, scale);
         ImGui.End();
     }
@@ -480,6 +481,19 @@ public sealed partial class GameLoop
         if (_rtsOrderChips.TryGetValue(guid, out string? chipText)) detail += $" · {chipText}";
         dl.AddText(text + new Vector2(0f, 16f) * scale, 0xff9aa4ab, detail);
 
+        // Who the primary is fighting: selecting an individual surfaces its current target so you
+        // keep target awareness without stealing your own focus. On its own line under the vitals.
+        if ((unit.Fields.Target ?? unit.CombatTarget) is { } tgtGuid && tgtGuid != 0 &&
+            tgtGuid != guid && _entities.TryGet(tgtGuid, out WorldEntity tunit))
+        {
+            string tname = "▶ " + ResolveWorldUnitName(tgtGuid);
+            uint maxT = tunit.Fields.MaxHealth;
+            float thp = maxT > 0 ? Math.Clamp(tunit.Fields.Health / (float)maxT, 0f, 1f) : 0f;
+            dl.AddText(text + new Vector2(0f, 74f) * scale,
+                tunit.IsDead ? 0xff808890u : 0xffd07a6au,
+                maxT > 0 ? $"{tname} ({(int)(thp * 100)}%)" : tname);
+        }
+
         // Per-member panel shortcuts on the card's right edge.
         bool inParty = false;
         foreach (PartyMember member in _partyMembers)
@@ -558,6 +572,173 @@ public sealed partial class GameLoop
         if (drawn == 0)
             dl.AddText(rowMin + new Vector2(0f, 4f * scale), 0xff9aa4ab,
                 "abilities syncing…");
+    }
+
+    /// <summary>
+    /// Six quick-use slots mirroring the PRIMARY character's first six backpack slots, on the info
+    /// region's right — CRPG party-inventory style: Tab to a character, use its own consumables. A
+    /// non-own unit's bags come from its SMSG_SUI_SNAPSHOT (party members auto-sync; a faction bot
+    /// syncs on possession). Click USES the item via possess-on-use (UsePrimaryQuickSlot).
+    /// </summary>
+    private void DrawQuickBackpackSlots(ImDrawListPtr dl, Vector2 origin, float scale)
+    {
+        if (_net is null || _items is null) return;
+        GameText.Draw(dl, "GameFontNormalSmall", "Items",
+            origin + new Vector2(ConsoleInfoX + 256f, 8f) * scale, scale);
+        ulong primary = RtsPrimaryGuid;
+        WorldEntity? primaryEntity =
+            primary != 0 && _entities.TryGet(primary, out WorldEntity pe) ? pe : null;
+        const float size = 22f, gap = 2f;
+        double now = NowSeconds();
+        for (int i = 0; i < 6; i++)
+        {
+            Vector2 min = origin + new Vector2(
+                ConsoleInfoX + 256f + i % 3 * (size + gap), 26f + i / 3 * (size + gap)) * scale;
+            Vector2 max = min + new Vector2(size) * scale;
+            ImGui.SetCursorScreenPos(min);
+            ImGui.InvisibleButton($"##quickslot-{i}", new Vector2(size) * scale);
+            bool hovered = ImGui.IsItemHovered();
+
+            ItemTemplate? tpl = null;
+            uint stack = 0;
+            if (primaryEntity is { } self)
+            {
+                ulong g = self.Fields.PlayerBackpackSlot(i);
+                if (g != 0 && _entities.TryGet(g, out WorldEntity found))
+                {
+                    _items.Require(found.Entry, g, _net);
+                    _items.TryGet(found.Entry, out tpl);
+                    stack = found.Fields.ItemStackCount;
+                }
+            }
+
+            if (tpl is { } t)
+            {
+                uint icon = _gameplayArt?.Handle(t.IconPath) ?? 0;
+                if (icon != 0) dl.AddImage((nint)icon, min, max);
+                if (stack > 1)
+                    GameText.DrawRightAligned(dl, "NumberFontNormal", stack.ToString(),
+                        new Vector2(max.X - 3f * scale,
+                            max.Y - GameText.EmPixels("NumberFontNormal", scale) - 1f * scale), scale);
+                if (t.UseSpellId > 0 && ActionsFor(primary).TryCooldownDisplay(t.UseSpellId, t.Entry,
+                        t.UseSpellCategory, now, out CooldownDisplay cd) &&
+                        cd.SweepFraction is float sweep)
+                    DrawCooldownSwipe(dl, min, max, sweep);
+                if (hovered)
+                    HoverTip(t.InventoryType != 0
+                        ? $"{t.Name}\n(equip from the Bags panel — quick slots only use consumables)"
+                        : $"{t.Name}\nClick to use");
+                if (ImGui.IsItemClicked()) UsePrimaryQuickSlot(i);
+            }
+            else
+            {
+                dl.AddRectFilled(min, max, 0x66141a20);   // empty recess
+                if (hovered && primaryEntity is not null && primary != LocalPlayerGuid)
+                    HoverTip("Empty — or this companion's bags aren't synced yet (possess to sync).");
+            }
+
+            DrawBevel(dl, min, max, MathF.Max(1f, scale), PainterlyStoneTop, PainterlyFrameOuter);
+            dl.AddRect(min, max, hovered ? PainterlyFrameRule : PainterlyFrameOuter,
+                0, ImDrawFlags.None, MathF.Max(1f, scale));
+        }
+    }
+
+    // A quick-slot use queued while control of the primary is being handed over (possess-on-use).
+    private ulong _pendingUsePrimary;
+    private int _pendingUseSlot = -1;
+    private double _pendingUseAt;
+
+    /// <summary>
+    /// Use a quick backpack slot from the PRIMARY's bags — the item twin of CastPrimaryAbility. The
+    /// own character uses directly (you are its self-mover, and you cannot possess yourself). For a
+    /// bot primary it rides the possess wire: take control, then fire the use once its bags are live
+    /// (TryFirePendingPrimaryUse). The server resolves CMSG_USE_ITEM against the possessed unit
+    /// (GetSuiActor), so this pops the PRIMARY's item, not yours.
+    /// </summary>
+    private void UsePrimaryQuickSlot(int slot)
+    {
+        ulong primary = RtsPrimaryGuid;
+        if (primary == 0) return;
+        // Own character, or a bot already driven — use now.
+        if (primary == LocalPlayerGuid || (ControlledGuid == primary && CanAuthorControlledGameplay))
+        {
+            SendPrimaryItemUse(primary, slot);
+            return;
+        }
+        _pendingUsePrimary = primary;
+        _pendingUseSlot = slot;
+        _pendingUseAt = NowSeconds();
+        if (_controlState is ControlState.OwnChar or ControlState.FreeCam)
+            RequestPossess(primary);
+        else if (_controlState == ControlState.Possessing && _controlTargetGuid != primary)
+        {
+            _controlSwitchQueued = primary;
+            RequestControlRelease(toFreecam: true);
+        }
+    }
+
+    /// <summary>Fire a possess-on-use quick slot once control has landed on the primary bot. Runs
+    /// every frame from UpdateControlInput; times out so a denied/slow possession leaves nothing
+    /// armed.</summary>
+    private void TryFirePendingPrimaryUse()
+    {
+        if (_pendingUseSlot < 0) return;
+        if (NowSeconds() - _pendingUseAt > 2.5)
+        {
+            _pendingUseSlot = -1;
+            _pendingUsePrimary = 0;
+            return;
+        }
+        if (_controlState != ControlState.Possessing || _controlTargetGuid != _pendingUsePrimary ||
+            !CanAuthorControlledGameplay)
+            return;
+        // Only clear once the item actually RESOLVES — the possessed bot's inventory snapshot can
+        // land a few frames after control does, and firing before it arrived silently dropped the
+        // use (the "cast a spell first" symptom). Keep retrying until it resolves or times out.
+        if (SendPrimaryItemUse(_controlTargetGuid, _pendingUseSlot))
+        {
+            _pendingUseSlot = -1;
+            _pendingUsePrimary = 0;
+        }
+    }
+
+    /// <summary>
+    /// Send CMSG_USE_ITEM for a unit's backpack slot (bag 255 / slot 23+N). The server resolves it
+    /// against the possessed unit (GetSuiActor), or the own character when not possessing.
+    /// Consumables only; mirrors SendItemUse's cooldown gate on the unit's own store.
+    /// </summary>
+    /// <returns>true once the slot's item RESOLVED (whether it was used, refused, or on cooldown);
+    /// false only when the bags haven't synced yet, so the possess-on-use retry keeps waiting.</returns>
+    private bool SendPrimaryItemUse(ulong unit, int slot)
+    {
+        if (_net is null || _items is null || !_entities.TryGet(unit, out WorldEntity u)) return true;
+        ulong g = u.Fields.PlayerBackpackSlot(slot);
+        if (g == 0 || !_entities.TryGet(g, out WorldEntity instance) ||
+            !_items.TryGet(instance.Entry, out ItemTemplate? tplN) || tplN is not { } tpl)
+            return false;   // bags not synced yet — let the caller retry until they are
+        if (tpl.InventoryType != 0)
+        {
+            ShowUiError("Quick slots use consumables — equip gear from the Bags panel.");
+            return true;
+        }
+        ItemSpellTemplate useSpell = tpl.Spells[tpl.UseSpellIndex];
+        if (useSpell.SpellId == 0) return true;
+        double now = NowSeconds();
+        PlayerActions store = ActionsFor(unit);
+        SpellInfo? spell = _spellCatalog?.TryGet(useSpell.SpellId, out SpellInfo resolved) == true
+            ? resolved : null;
+        bool blocked = spell is { } info
+            ? store.IsOnCooldown(useSpell.SpellId, tpl.Entry, info, now)
+            : store.IsOnCooldown(useSpell.SpellId, tpl.Entry, useSpell.Category, now);
+        if (blocked)
+        {
+            ShowSpellError(useSpell.SpellId, "LOCAL_ITEM_COOLDOWN", "Item is not ready yet.", "LOCAL_GATE");
+            return true;
+        }
+        if (!_net.UseItem(255, (byte)(23 + slot), tpl.UseSpellIndex)) return true;
+        store.StartItemUseCooldown(instance.Entry, useSpell, spell, now);
+        if (spell is { } committed) store.StartGlobalCooldown(useSpell.SpellId, committed, now);
+        return true;
     }
 
     /// <summary>
