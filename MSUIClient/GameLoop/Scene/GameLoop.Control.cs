@@ -297,6 +297,7 @@ public sealed partial class GameLoop
     private ulong _controlSwitchQueued;      // cycle target waiting for the in-flight release ACK
     private bool _controlledBodyPending;     // possessed body rebuild waiting on entity stream-in
     private bool _controlCycleWasDown;
+    private bool _primaryCycleWasDown;       // edge latch for plain-Tab command-card primary cycle
 
     // ── Free-view marquee selection (party + advertised faction bots) ───────────────────────────
     private Vector2? _freecamDragOrigin;         // left button went down here, over the world
@@ -334,6 +335,11 @@ public sealed partial class GameLoop
     private static readonly Vector3 RtsNeutralTint = new(0.95f, 0.85f, 0.25f);
     private bool _freecamKeyWasDown;
     private bool _freecamRequested;          // the in-flight release asked for the free view
+    // Right-button camera-look latch: true when the current right-hold flew the camera by
+    // keyboard (WASD). The window's click-vs-drag test only measures MOUSE travel, so a
+    // stationary right-hold + WASD would otherwise read as a click and fire a phantom order.
+    private bool _freecamRightPanned;
+    private bool _freecamRightWasDown;
     private bool _freeViewExitRequested;     // ...and this one asks to LEAVE it
     private double _freecamPanAt;            // last edge-pan tick, for its own dt
     private const float FreecamEdgePanMargin = 14f;   // px from a screen edge that starts a pan
@@ -1125,6 +1131,17 @@ public sealed partial class GameLoop
             CycleControl(ShiftHeld() ? -1 : +1);
         _controlCycleWasDown = cyclePressed;
 
+        // Free view: plain Tab (Shift+Tab reverses) cycles the command-card PRIMARY through the
+        // current selection. Ctrl+Tab above still cycles which body you DRIVE; enemy tab-targeting
+        // is disabled in the free view (UpdateTargetBinding), so Tab is free for this.
+        bool plainTab = tab && !ctrl;
+        if (_freeView && plainTab && !_primaryCycleWasDown && !typing && _freecamSelection.Count > 0)
+            CycleRtsPrimary(ShiftHeld() ? -1 : +1);
+        _primaryCycleWasDown = plainTab;
+
+        // Possess-on-cast: fire a command-card ability once control lands on the primary.
+        TryFirePendingPrimaryCast();
+
         // Ctrl+F: free view toggle (plain F stays the local fly toggle). Works in
         // the creator sandbox too — there it is purely a camera decision, and it
         // is how the Encounter Lab's raid gets commanded.
@@ -1243,6 +1260,15 @@ public sealed partial class GameLoop
 
         bool leftDown = _window.MouseLeftDown;
         Vector2 mouse = _window.MousePosition;
+
+        // Right-hold + WASD flies the camera; the release must not become an order. The window
+        // only counts MOUSE travel for click-vs-drag, so latch a pan flag (reset on each fresh
+        // right-press) that HandleFreeCamWorldClick consults - the keyboard analogue of how a
+        // mouse-rotate already disqualifies the click by accumulating travel.
+        bool rightDown = _window.MouseRightDown;
+        if (rightDown && !_freecamRightWasDown) _freecamRightPanned = false;
+        if (rightDown && IsMoving()) _freecamRightPanned = true;
+        _freecamRightWasDown = rightDown;
 
         if (leftDown && _freecamDragOrigin is null && !_commanderMapOpen &&
             !_window.MouseCaptured && !ImGui.GetIO().WantCaptureMouse)
@@ -1642,6 +1668,11 @@ public sealed partial class GameLoop
             return;
         }
         if (click.Button != MouseButton.Right) return;
+
+        // A right-hold that flew the camera by keyboard (WASD, mouse still) is a camera gesture,
+        // not an order - suppress the whole right-click order path. Mouse-rotate already
+        // disqualifies itself through pixel travel; this is the keyboard-pan equivalent.
+        if (_freecamRightPanned) { _freecamRightPanned = false; return; }
 
         // Shift+Right-click ON a waypoint dot orients it (assign if none, else spin 45°) —
         // right-click because the left button is busy with selection/marquee, which was

@@ -22,6 +22,81 @@ public sealed partial class GameLoop
     // Shelf-level toggle; the next sheath order inverts it. Bots spawn armed.
     private bool _rtsWeaponsSheathed;
 
+    // The PRIMARY of the current selection (WC3-style): the unit whose card + ability row fill the
+    // console's middle panel, gold-bordered in the portrait grid. Set by single-clicking a portrait
+    // or Tab-cycling; resolves to selection[0] whenever it is unset or has left the selection.
+    private ulong _rtsPrimaryGuid;
+    private ulong RtsPrimaryGuid =>
+        _rtsPrimaryGuid != 0 && _freecamSelection.Contains(_rtsPrimaryGuid)
+            ? _rtsPrimaryGuid
+            : _freecamSelection.Count > 0 ? _freecamSelection[0] : 0;
+
+    /// <summary>Move the primary one slot through the current selection (Tab / Shift+Tab).</summary>
+    private void CycleRtsPrimary(int dir)
+    {
+        if (_freecamSelection.Count == 0) return;
+        int idx = _freecamSelection.IndexOf(RtsPrimaryGuid);
+        if (idx < 0) idx = 0;
+        int n = _freecamSelection.Count;
+        _rtsPrimaryGuid = _freecamSelection[((idx + dir) % n + n) % n];
+    }
+
+    // A cast queued while control of the primary is still being handed over (possess-on-cast).
+    private ulong _pendingCastPrimary;
+    private uint _pendingCastSpellId;
+    private double _pendingCastAt;
+
+    /// <summary>
+    /// Cast an ability from the PRIMARY's command card, riding the possess wire (step 2, no new
+    /// server hook): if you already drive the primary, cast now; otherwise take control of it —
+    /// releasing any other body first — and fire the cast the moment its bars are live. The
+    /// primary stays possessed afterwards, so further casts on it are instant.
+    /// </summary>
+    private void CastPrimaryAbility(ulong primary, uint spellId)
+    {
+        if (primary == 0 || spellId == 0) return;
+        if (ControlledGuid == primary && CanAuthorControlledGameplay)
+        {
+            TryCast(spellId);   // already driving it — instant
+            return;
+        }
+        _pendingCastPrimary = primary;
+        _pendingCastSpellId = spellId;
+        _pendingCastAt = NowSeconds();
+        if (_controlState is ControlState.OwnChar or ControlState.FreeCam)
+            RequestPossess(primary);
+        else if (_controlState == ControlState.Possessing && _controlTargetGuid != primary)
+        {
+            _controlSwitchQueued = primary;          // possess the primary once the release lands
+            RequestControlRelease(toFreecam: true);  // stay in the sky through the swap
+        }
+        // PossessPending / ReleasePending: the in-flight transition resolves on its own; the
+        // pending cast fires if it lands on the primary, else it times out.
+    }
+
+    /// <summary>
+    /// Fire a possess-on-cast ability once control has landed on the primary and its spellbook has
+    /// synced. Run every frame from UpdateControlInput; gives up after a short window so a denied
+    /// or slow possession does not leave a stale cast armed.
+    /// </summary>
+    private void TryFirePendingPrimaryCast()
+    {
+        if (_pendingCastSpellId == 0) return;
+        if (NowSeconds() - _pendingCastAt > 2.5)
+        {
+            _pendingCastSpellId = 0;
+            _pendingCastPrimary = 0;
+            return;
+        }
+        if (_controlState != ControlState.Possessing || _controlTargetGuid != _pendingCastPrimary ||
+            !CanAuthorControlledGameplay || !_actions.KnownSpells.Contains(_pendingCastSpellId))
+            return;   // control/spellbook not ready yet — keep waiting until the timeout
+        uint spellId = _pendingCastSpellId;
+        _pendingCastSpellId = 0;
+        _pendingCastPrimary = 0;
+        TryCast(spellId);
+    }
+
     private const byte SuiOrderFormationLine = 8;
     private const byte SuiOrderFormationCircle = 9;
     private const byte SuiOrderSheath = 10;
@@ -75,18 +150,171 @@ public sealed partial class GameLoop
 
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
         Vector2 origin = ImGui.GetWindowPos();
-        _skin?.DrawBackdrop(dl, origin, origin + ImGui.GetWindowSize(), WowSkin.Tooltip);
-        // Region dividers — thin console mullions.
-        uint mullion = 0x5a2a343d;
-        dl.AddLine(origin + new Vector2(ConsoleInfoX - 8f, 8f) * scale,
-            origin + new Vector2(ConsoleInfoX - 8f, ConsoleHeight - 8f) * scale, mullion);
-        dl.AddLine(origin + new Vector2(ConsoleCardX - 8f, 8f) * scale,
-            origin + new Vector2(ConsoleCardX - 8f, ConsoleHeight - 8f) * scale, mullion);
+        // Warcraft-3 carved-stone tablet in place of the flat tooltip skin: a dark stone body, a
+        // near-black ground edge, a gilt inlay that catches the light, and corner studs — the same
+        // painted-chrome idiom the square minimap/skill panels already wear.
+        DrawRtsConsoleBackdrop(dl, origin, origin + ImGui.GetWindowSize(), scale);
+        // Region dividers — carved grooves with a gilt catch, not hairline mullions.
+        DrawRtsConsoleDivider(dl, origin, ConsoleInfoX - 8f, scale);
+        DrawRtsConsoleDivider(dl, origin, ConsoleCardX - 8f, scale);
 
-        DrawRtsSquadGrid(dl, origin, scale);
+        // Left region: the WC3-style portrait grid of the CURRENT selection (primary gold-bordered).
+        // The saved control-group "squad" grid (DrawRtsSquadGrid) is shelved for the true-RTS mode.
+        DrawRtsSelectionPortraits(dl, origin, scale);
         DrawRtsConsoleInfo(dl, origin, subjects, scale);
         DrawRtsCommandCard(dl, origin, subjects, scale);
         ImGui.End();
+    }
+
+    /// <summary>The WC3 command console's carved-stone tablet: dark stone body graduating into
+    /// shadow, a near-black ground edge, a bevelled gilt inlay, and corner studs.</summary>
+    private void DrawRtsConsoleBackdrop(ImDrawListPtr dl, Vector2 min, Vector2 max, float scale)
+    {
+        float rule = MathF.Max(1f, scale);
+        float inset = MathF.Max(2f, 3f * scale);
+        // Carved stone body, top-lit → shadowed.
+        dl.AddRectFilledMultiColor(min, max,
+            PainterlyStoneMid, PainterlyStoneMid, PainterlyStoneLow, PainterlyStoneLow);
+        // Near-black ground so the stone has an edge against the world, and the outer bevel.
+        dl.AddRect(min, max, PainterlyFrameOuter, 0f, ImDrawFlags.None, rule * 2f);
+        DrawBevel(dl, min, max, rule, PainterlyStoneTop, PainterlyFrameOuter);
+        // Gilt inlay just inside, itself bevelled so it reads as inlaid metal.
+        Vector2 gMin = min + new Vector2(inset), gMax = max - new Vector2(inset);
+        dl.AddRect(gMin, gMax, PainterlyFrameRule, 0f, ImDrawFlags.None, rule);
+        DrawBevel(dl, gMin, gMax, MathF.Max(1f, rule * 0.5f), PainterlyGoldLit, PainterlyGoldShade);
+        DrawCornerStuds(dl, min, max, scale);
+    }
+
+    /// <summary>A carved groove between console regions: a shadowed cut with a gilt catch on its
+    /// lit side, replacing the old hairline mullion.</summary>
+    private void DrawRtsConsoleDivider(ImDrawListPtr dl, Vector2 origin, float x, float scale)
+    {
+        float rule = MathF.Max(1f, scale);
+        Vector2 a = origin + new Vector2(x, 12f) * scale;
+        Vector2 b = origin + new Vector2(x, ConsoleHeight - 12f) * scale;
+        dl.AddLine(a, b, PainterlyFrameOuter, rule * 2f);
+        dl.AddLine(a + new Vector2(rule, 0f), b + new Vector2(rule, 0f), PainterlyGoldShade, rule);
+    }
+
+    /// <summary>
+    /// WC3-style portrait grid of the CURRENT selection — the console's left region. Each cell is a
+    /// unit's portrait over a health bar; the PRIMARY (whose card + abilities fill the middle panel)
+    /// wears a gold border. Single-click makes a unit primary, double-click selects only it,
+    /// Shift+click drops it. Tab / Shift+Tab cycle the primary. The saved-group "squad" grid
+    /// (DrawRtsSquadGrid) is shelved for the true-RTS mode.
+    /// </summary>
+    private void DrawRtsSelectionPortraits(ImDrawListPtr dl, Vector2 origin, float scale)
+    {
+        // Scope header: name the matching saved squad, else a plain selected count (the count is
+        // the total even when more units are selected than the grid draws).
+        string scope = _freecamSelection.Count == 0 ? "Selection"
+            : $"Selection · {_freecamSelection.Count}";
+        for (int i = 0; i < _rtsControlGroups.Length; i++)
+            if (_rtsControlGroups[i].Count > 0 &&
+                SameRtsMembers(_rtsControlGroups[i], _freecamSelection))
+            { scope = $"Squad {RtsControlGroupLaw.DisplayNumber(i)} · {_freecamSelection.Count}"; break; }
+        GameText.Draw(dl, "GameFontNormalSmall", scope,
+            origin + new Vector2(ConsoleSquadsX, 8f) * scale, scale);
+
+        ulong primary = RtsPrimaryGuid;
+        var cell = new Vector2(21f, 19f) * scale;
+        float barH = 3f * scale, gap = 2f * scale;
+        const int cols = 6, maxCells = 12;
+        ulong primaryPick = 0, soloPick = 0, dropPick = 0;
+        int shown = 0;
+        for (int i = 0; i < _freecamSelection.Count && shown < maxCells; i++)
+        {
+            ulong guid = _freecamSelection[i];
+            if (!_entities.TryGet(guid, out WorldEntity unit)) continue;
+            Vector2 min = origin + new Vector2(ConsoleSquadsX, 26f) * scale +
+                new Vector2(shown % cols * (cell.X + gap), shown / cols * (cell.Y + gap));
+            shown++;
+            Vector2 max = min + cell;
+            ImGui.SetCursorScreenPos(min);
+            ImGui.InvisibleButton($"##sel-portrait-{i}", cell);
+            bool hovered = ImGui.IsItemHovered();
+
+            (_, byte classId, _, _) = unit.Fields.Bytes0;
+            var bodyMax = new Vector2(max.X, max.Y - barH);
+            uint baked = PartyPortraitHandle(guid);
+            if (baked != 0 && !unit.IsDead)
+                dl.AddImage((nint)baked, min, bodyMax, new Vector2(0, 1), new Vector2(1, 0));
+            else
+            {
+                dl.AddRectFilled(min, bodyMax, unit.IsDead ? 0xff40444a : ClassChipColor(classId));
+                string initial = ResolveUnitName(guid) is { Length: > 0 } name
+                    ? name[..1].ToUpperInvariant() : "?";
+                Vector2 half = ImGui.CalcTextSize(initial) * 0.5f;
+                dl.AddText(new Vector2((min.X + max.X) * 0.5f, (min.Y + bodyMax.Y) * 0.5f) - half,
+                    0xe0101418, initial);
+            }
+            uint maxHp = unit.Fields.MaxHealth;
+            float hp = maxHp > 0 ? Math.Clamp(unit.Fields.Health / (float)maxHp, 0f, 1f) : 0f;
+            dl.AddRectFilled(new Vector2(min.X, max.Y - barH), max, 0xff101418);
+            dl.AddRectFilled(new Vector2(min.X, max.Y - barH),
+                new Vector2(min.X + cell.X * hp, max.Y),
+                hp > 0.5f ? 0xff40c040u : hp > 0.2f ? 0xff40c0e0u : 0xff4040d0u);
+
+            // Carved slot: the PRIMARY wears a bevelled gilt inlay; others a stone-bevelled frame
+            // that takes a gilt edge on hover.
+            bool isPrimary = guid == primary;
+            if (isPrimary)
+            {
+                dl.AddRect(min, max, PainterlyFrameRule, 0, ImDrawFlags.None, MathF.Max(2f, 2f * scale));
+                DrawBevel(dl, min, max, MathF.Max(1f, scale), PainterlyGoldLit, PainterlyGoldShade);
+            }
+            else
+            {
+                DrawBevel(dl, min, max, MathF.Max(1f, scale), PainterlyStoneTop, PainterlyFrameOuter);
+                dl.AddRect(min, max, hovered ? PainterlyGoldLit : PainterlyFrameOuter,
+                    0, ImDrawFlags.None, MathF.Max(1f, scale));
+            }
+
+            if (hovered)
+                HoverTip($"{ResolveUnitName(guid)} — {(int)(hp * 100)}%\n" +
+                    "Click: make primary · Double-click: select only · Shift+click: drop");
+            if (hovered && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) soloPick = guid;
+            else if (ImGui.IsItemClicked())
+            {
+                if (ImGui.GetIO().KeyShift) dropPick = guid;
+                else primaryPick = guid;
+            }
+        }
+
+        // Mutations after the loop — never mutate the selection mid-iteration.
+        if (soloPick != 0)
+        {
+            _freecamSelection.Clear();
+            _freecamSelection.Add(soloPick);
+            _rtsPrimaryGuid = soloPick;
+            PlayCompanionSelectionVoice(soloPick);
+        }
+        else if (dropPick != 0)
+        {
+            _freecamSelection.Remove(dropPick);
+            if (_rtsPrimaryGuid == dropPick) _rtsPrimaryGuid = 0;   // resolver falls back to [0]
+        }
+        else if (primaryPick != 0)
+            _rtsPrimaryGuid = primaryPick;
+
+        // Utility row: the free view hides the bag bar and micro menu, so the console keeps the
+        // party panels reachable. Carried over from the shelved squad grid.
+        Vector2 rowPos = origin + new Vector2(ConsoleSquadsX, 74f) * scale;
+        if (VanillaButton(dl, "##console-bags", "Bags", rowPos, new Vector2(58f, 20f), scale))
+            OpenPartyInventory(_freecamSelection.Count == 1 ? _freecamSelection[0] : LocalPlayerGuid);
+        if (ImGui.IsItemHovered())
+            HoverTip("Party Inventory — everyone's bags and equipment, side by side");
+        ulong tacticsBot = _freecamSelection.FirstOrDefault(IsRtsGroupableBot);
+        if (tacticsBot == 0)
+            tacticsBot = _partyMembers.FirstOrDefault(m => IsRtsGroupableBot(m.Guid))?.Guid ?? 0;
+        if (VanillaButton(dl, "##console-tactics", "Tactics",
+                rowPos + new Vector2(64f, 0f) * scale, new Vector2(66f, 20f), scale,
+                tacticsBot != 0) && tacticsBot != 0)
+            OpenPartyTactics(tacticsBot);
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            HoverTip(tacticsBot != 0
+                ? "Party Tactics — roles and quick-slot AI policy"
+                : "Party Tactics needs a companion bot in the party");
     }
 
     /// <summary>
@@ -182,20 +410,9 @@ public sealed partial class GameLoop
             return;
         }
 
-        // Scope is always explicit: a selection that exactly matches a saved
-        // group is named as that squad, anything else is a plain count.
-        string scope = $"Selected · {subjects.Count}";
-        for (int i = 0; i < _rtsControlGroups.Length; i++)
-            if (_rtsControlGroups[i].Count > 0 &&
-                SameRtsMembers(_rtsControlGroups[i], _freecamSelection))
-            {
-                scope = $"Squad {RtsControlGroupLaw.DisplayNumber(i)} · {subjects.Count}";
-                break;
-            }
-        GameText.Draw(dl, "GameFontNormalSmall", scope, scopePos, scale);
-
-        // Route readout, right-aligned on the scope row: the Patrol draft while
-        // one is armed, else the standing chain this selection would patrol.
+        // The left portrait grid names the selection now; this panel is the PRIMARY's card.
+        // Route readout stays here, right-aligned on the top row: the Patrol draft while one is
+        // armed, else the standing chain this selection would patrol.
         string? route = _rtsPatrolAuthoring
             ? $"Drafting route · {_rtsPatrolDraft.Count} pt{(_rtsPatrolDraft.Count == 1 ? "" : "s")}"
             : _rtsWaypointChain.Count > 0 && SameRtsMembers(_rtsWaypointSubjects, subjects)
@@ -210,21 +427,17 @@ public sealed partial class GameLoop
 
         PreparedSharedSpellTooltip? cardTooltip = null;
         Vector2 content = origin + new Vector2(ConsoleInfoX, 26f) * scale;
-        if (subjects.Count == 1 && _entities.TryGet(subjects[0], out WorldEntity cardUnit))
-            DrawRtsConsoleUnitCard(subjects[0], cardUnit, content, scale, ref cardTooltip);
-        else
-        {
-            ImGui.SetCursorScreenPos(content);
-            DrawRtsSelectionChips(scale);
-        }
+        ulong primary = RtsPrimaryGuid;
+        if (primary != 0 && _entities.TryGet(primary, out WorldEntity cardUnit))
+            DrawRtsConsoleUnitCard(primary, cardUnit, content, scale, ref cardTooltip);
         if (cardTooltip is { } preparedCard)
             OfferPreservedSharedGameTooltipRenderer(preparedCard.Owner,
                 () => DrawSpellTooltip(preparedCard.Snapshot));
     }
 
-    /// <summary>Portrait, name, level/class, vitals, and read-only abilities of
-    /// the selected unit — the console's answer to WC3's info panel. Casting
-    /// from here still needs Phase B.</summary>
+    /// <summary>Portrait, name, level/class, vitals, and the primary's abilities — the console's
+    /// answer to WC3's info panel. Clicking an ability casts it: possess-on-cast takes control of
+    /// the primary (riding the possess wire) and fires the spell once its bars are live.</summary>
     private void DrawRtsConsoleUnitCard(ulong guid, WorldEntity unit, Vector2 content,
         float scale, ref PreparedSharedSpellTooltip? tooltip)
     {
@@ -306,7 +519,8 @@ public sealed partial class GameLoop
             });
         }
 
-        // Read-only ability row under the portrait — truthful icons only.
+        // The primary's ability row under the portrait — truthful icons; click casts via
+        // possess-on-cast (CastPrimaryAbility).
         PlayerActions store = ActionsFor(guid);
         if (store.OccupiedCount == 0) EnsureBotBarForViewing(guid);
         double now = NowSeconds();
@@ -331,15 +545,15 @@ public sealed partial class GameLoop
             if (store.TryCooldownDisplay(action.ActionId, 0, spell, now,
                     out CooldownDisplay cooldown) && cooldown.SweepFraction is float sweep)
                 DrawCooldownSwipe(dl, min, max, sweep);
-            dl.AddRect(min, max, ImGui.IsItemHovered() ? 0xffd0b060 : 0xff30404d,
+            DrawBevel(dl, min, max, MathF.Max(1f, scale), PainterlyStoneTop, PainterlyFrameOuter);
+            dl.AddRect(min, max, ImGui.IsItemHovered() ? PainterlyFrameRule : PainterlyFrameOuter,
                 0, ImDrawFlags.None, MathF.Max(1f, scale));
             if (ImGui.IsItemHovered())
                 tooltip = PrepareSharedSpellTooltip(
                     new GameTooltipOwnerKey("console-card", (ulong)slot + 1),
                     spell.Id, scale, SpellTooltipPlacement.DefaultBottomRight);
             if (ImGui.IsItemClicked())
-                ShowUiError("Remote casts need the Phase B server hook — " +
-                    "Alt+click the unit to drive it directly.");
+                CastPrimaryAbility(guid, action.ActionId);
         }
         if (drawn == 0)
             dl.AddText(rowMin + new Vector2(0f, 4f * scale), 0xff9aa4ab,
@@ -381,7 +595,8 @@ public sealed partial class GameLoop
             uint art = PainterlyArt(icon);
             if (art != 0) dl.AddImage((nint)art, min, max);
             if (!enabled) dl.AddRectFilled(min, max, 0xaa10141c);   // dimmed, WC3-gray
-            dl.AddRect(min, max, lit || (hovered && enabled) ? 0xffd0b060 : 0xff30404d,
+            DrawBevel(dl, min, max, MathF.Max(1f, scale), PainterlyStoneTop, PainterlyFrameOuter);
+            dl.AddRect(min, max, lit || (hovered && enabled) ? PainterlyFrameRule : PainterlyFrameOuter,
                 0, ImDrawFlags.None, MathF.Max(1f, scale));
             if (hovered) HoverTip(tooltip);
             return enabled && ImGui.IsItemClicked();

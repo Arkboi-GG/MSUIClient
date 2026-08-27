@@ -544,8 +544,10 @@ public sealed partial class GameLoop
         // Ctrl+Tab is the control-cycle chord (Program.Control.cs); with Ctrl held the
         // target binding must not also fire.
         bool ctrlHeld = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
-        bool down = BindingDown(GameBinding.TargetNearestEnemy) && !ctrlHeld;
-        bool previous = BindingDown(GameBinding.TargetPreviousEnemy) && !ctrlHeld;
+        // In the free view Tab / Shift+Tab drive the command-card PRIMARY instead (see
+        // UpdateControlInput); tab-targeting an enemy is pointless while commanding a group.
+        bool down = BindingDown(GameBinding.TargetNearestEnemy) && !ctrlHeld && !_freeView;
+        bool previous = BindingDown(GameBinding.TargetPreviousEnemy) && !ctrlHeld && !_freeView;
         if (!typing && _net is { IsInWorld: true } && _controller is not null)
         {
             if (previous && !_targetPreviousWasDown) CycleEnemyTarget(reverse: true);
