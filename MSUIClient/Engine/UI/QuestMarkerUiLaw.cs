@@ -36,14 +36,18 @@ public static class QuestMarkerUiLaw
     // parenthesised numeral over it — (4) when four of your group can take what
     // this NPC offers, and the same for turn-ins.
 
-    /// <summary>The vanilla quest font and yellow, unmodified — decision 5.</summary>
-    public const string NumeralFontObject = "GameFontNormalLarge";
+    /// <summary>The vanilla quest font and yellow. Owner 2026-08-28: the LARGE
+    /// face read as shouting from the sky and sat on top of the marker art —
+    /// the plain size is the label, not a headline.</summary>
+    public const string NumeralFontObject = "GameFontNormal";
 
     /// <summary>
-    /// Yards of clearance above the head anchor, so the numeral clears the
-    /// TalkToMe M2 rather than sitting inside it.
+    /// Yards of clearance above the head anchor, so the label clears the WHOLE
+    /// TalkToMe M2 (the ! / ? art tops out well above the head) instead of
+    /// printing across it. The draw additionally bottom-anchors the text at
+    /// this height, so no part of it ever overlaps the marker.
     /// </summary>
-    public const float NumeralClearanceYards = 1.35f;
+    public const float NumeralClearanceYards = 2.75f;
 
     public static QuestMarkerFamily FamilyOf(uint status) => status switch
     {
@@ -54,6 +58,19 @@ public static class QuestMarkerUiLaw
         4 or 5 => QuestMarkerFamily.Take,
         6 or 7 => QuestMarkerFamily.TurnIn,
         _ => QuestMarkerFamily.None,
+    };
+
+    /// <summary>
+    /// The marker art to draw for a questgiver our OWN character has no business
+    /// at, when a companion does — owner 2026-08-27. Take gets the yellow "!",
+    /// turn-in the yellow "?", exactly the vanilla art vanilla would draw for us
+    /// if we had that business ourselves.
+    /// </summary>
+    public static QuestMarkerStyle? StyleForFamily(QuestMarkerFamily family) => family switch
+    {
+        QuestMarkerFamily.Take => Style(5),
+        QuestMarkerFamily.TurnIn => Style(6),
+        _ => null,
     };
 
     /// <summary>

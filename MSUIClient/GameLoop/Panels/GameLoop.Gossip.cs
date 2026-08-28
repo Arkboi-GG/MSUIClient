@@ -45,7 +45,7 @@ public sealed partial class GameLoop
         WorldEntity? target = null;
         float distance = float.PositiveInfinity;
         if (_net is not { IsInWorld: true } ||
-            !TryGetSessionBodyPose(out WorldBodyPose sessionBody))
+            !TryGetInteractionBodyPose(out WorldBodyPose sessionBody))
         {
             outcome = "REFUSED_NOT_IN_WORLD";
             detail = "inWorld=false";
@@ -91,7 +91,7 @@ public sealed partial class GameLoop
     private bool UpdateGossipLifecycle()
     {
         if (_gossipMenu is null ||
-            !TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return false;
+            !TryGetInteractionBodyPose(out WorldBodyPose sessionBody)) return false;
         ulong sourceGuid = _gossipMenu.SourceGuid;
         bool sourceAvailable = _entities.TryGet(sourceGuid, out WorldEntity source);
         float distanceSquared = sourceAvailable

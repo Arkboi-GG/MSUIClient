@@ -37,6 +37,19 @@ public sealed partial class GameLoop
     private ulong _inspectPaperDollGuid;
     private ulong _inspectPaperDollAppearance;
     private bool _playerPortraitUsable;
+    private ulong _playerPortraitGuid;   // [SUI] the driven unit _playerPortrait last baked, so a possession change re-bakes
+
+    /// <summary>
+    /// Whether _playerPortrait is actually a bake OF the currently driven unit.
+    /// The bake needs the first-person rig (_character Loaded+Enabled), and the
+    /// free view tears that rig down — so after driving a bot into the free view
+    /// the dirty flag could never clear and the texture kept the LAST driven
+    /// face. Every read site must check THIS, not _playerPortraitUsable alone,
+    /// or that stale face is painted onto whoever holds the frame (owner report
+    /// 2026-08-27: every portrait wore the previous bot until re-embodying).
+    /// </summary>
+    private bool PlayerPortraitCurrent =>
+        _playerPortraitUsable && _playerPortraitGuid == ControlledGuid;
     private bool _targetPortraitUsable;
     private bool _petPortraitUsable;
     private ulong _petPortraitGuid;
@@ -134,6 +147,23 @@ public sealed partial class GameLoop
         _partyPortraits.TryGetValue(guid, out PartyPortrait? entry) &&
         entry is { Usable: true, Target: not null } ? entry.Target.CircularTextureHandle : 0;
 
+    /// <summary>
+    /// Baked face for a free-view CONSOLE portrait. The driven unit is skipped by
+    /// UpdatePartyPortraits (it owns the PLAYER frame and bakes through _playerPortrait, not
+    /// _partyPortraits), so PartyPortraitHandle(ControlledGuid) is 0 and the card fell back to a
+    /// generic race/gender stand-in — a real-looking but WRONG face. Prefer the driven unit's own
+    /// _playerPortrait bake; else the party bake. Same round render target, same V-flip draw.
+    /// </summary>
+    private uint ConsolePortraitHandle(ulong guid)
+    {
+        // A free-view surface: the streamed-body booth is the authority there.
+        // The rig bake is only the fallback while that booth is still baking.
+        uint party = PartyPortraitHandle(guid);
+        if (party != 0) return party;
+        return guid == ControlledGuid && PlayerPortraitCurrent && _playerPortrait is not null
+            ? _playerPortrait.CircularTextureHandle : 0;
+    }
+
     private void UpdatePartyPortraits()
     {
         if (_creatures is null || _gl is null) return;
@@ -142,16 +172,28 @@ public sealed partial class GameLoop
         // frame and the abandoned own character takes a party slot, so that is whose faces
         // need baking. Reap anyone no longer in it before their GL targets pile up.
         PartyMember[] framed = PartyFrameMembers();
+
+        // Whether the first-person rig OWNS the driven unit's face (the
+        // _playerPortrait booth). Owner decision 2026-08-28 after two failed
+        // guard rounds: in the FREE VIEW the rig owns NOBODY — every face there,
+        // the driven unit and the own character included, bakes HERE from its
+        // streamed body, the same pipeline as every party member. The rig booth
+        // serves only embodied play, where the body on screen IS the driven
+        // body and the bake cannot lie.
+        bool rigOwnsDriven = !_freeView && _character is { Loaded: true, Enabled: true };
+
+        var subjects = new List<ulong>(framed.Length + 1);
+        foreach (PartyMember member in framed)
+            if (member.Guid != ControlledGuid || !rigOwnsDriven)
+                subjects.Add(member.Guid);
+        if (!rigOwnsDriven && !subjects.Contains(ControlledGuid))
+            subjects.Add(ControlledGuid);
+
         if (_partyPortraits.Count > 0)
         {
             List<ulong>? stale = null;
             foreach (ulong guid in _partyPortraits.Keys)
-            {
-                bool present = false;
-                foreach (PartyMember member in framed)
-                    if (member.Guid == guid) { present = true; break; }
-                if (!present) (stale ??= []).Add(guid);
-            }
+                if (!subjects.Contains(guid)) (stale ??= []).Add(guid);
             if (stale is not null)
                 foreach (ulong guid in stale)
                 {
@@ -160,15 +202,13 @@ public sealed partial class GameLoop
                 }
         }
 
-        foreach (PartyMember member in framed)
+        foreach (ulong subjectGuid in subjects)
         {
-            // The driven unit owns the PLAYER frame and bakes through _playerPortrait.
-            if (member.Guid == ControlledGuid) continue;
-            if (!_entities.TryGet(member.Guid, out WorldEntity unit) || !unit.IsPlayer) continue;
+            if (!_entities.TryGet(subjectGuid, out WorldEntity unit) || !unit.IsPlayer) continue;
 
             ulong appearance = PlayerAppearanceSignature(unit);
-            if (!_partyPortraits.TryGetValue(member.Guid, out PartyPortrait? entry))
-                _partyPortraits[member.Guid] = entry = new PartyPortrait();
+            if (!_partyPortraits.TryGetValue(subjectGuid, out PartyPortrait? entry))
+                _partyPortraits[subjectGuid] = entry = new PartyPortrait();
             if (entry.Usable && entry.Appearance == appearance) continue;
             if (NowSeconds() < entry.RetryAt) continue;
             // Still streaming in: no target allocated, no backoff — retry next frame.
@@ -200,6 +240,9 @@ public sealed partial class GameLoop
                 entry.Target.UpdateCircularCopy();
                 entry.Appearance = appearance;
                 entry.RetryAt = 0;
+                Console.WriteLine(
+                    $"[portrait] party bake ready for {ResolveUnitName(subjectGuid)}" +
+                    $" (subject={bake.Stats.SubjectPixels})");
             }
             else
             {
@@ -399,8 +442,30 @@ public sealed partial class GameLoop
         else _petPaperDollLastUpdate = 0;
 
         if (!_characterOpen || _characterTab != 0) _paperDollLastUpdate = 0;
+        // [SUI] P4b: the PLAYER portrait bakes the DRIVEN body (_character). When
+        // possession changes the driven unit — releasing a bot back to your own
+        // character, or landing the free view from one — nothing marked it dirty,
+        // so the top-left / centre / mini frames kept the last driven face (the
+        // bot's) for everyone. Re-bake whenever the driven unit changed.
+        // Re-bake when the driven unit changed — but only mark it dirty, NOT reset the
+        // retry clock. Resetting it defeated the blank-bake backoff and re-rendered the
+        // shared _character model EVERY frame while the guid stayed mismatched (across
+        // a possess/release, or forever if the bake came back blank), each pass posing
+        // it into the frozen stand pose — enough churn to visibly displace an attached
+        // weapon. The normal dirty path re-bakes once and settles.
+        if (_playerPortraitGuid != ControlledGuid)
+            _playerPortraitDirty = true;
+        // NEVER photograph a body mid-swap. Releasing a bot back to your own
+        // character routes through QueueAppearanceUpdate, which is ASYNC — the
+        // rig keeps WEARING the bot for a few frames while the swap builds.
+        // Without this gate the bake fired in that window, photographed the
+        // BOT's face and stamped it with the OWN character's guid: a truthful-
+        // looking stamp over wrong pixels, which is why the bleed survived the
+        // guid guard ("enter Ctrl+F through anyone but myself"). Same-race
+        // characters hit this every time — that path is always the async diff.
         if (_playerPortraitDirty && NowSeconds() >= _playerPortraitRetryAt &&
-            _playerPortrait is not null && _character is { Loaded: true, Enabled: true })
+            _playerPortrait is not null &&
+            _character is { Loaded: true, Enabled: true, AppearanceReady: true })
         {
             CharacterRenderer.UnitState state = BuildUnitState();
             // Benilla/reference booth law: scale 1, origin-local, frozen pose. A portrait must not
@@ -520,6 +585,7 @@ public sealed partial class GameLoop
                     _playerPortraitDirty = false;
                     _playerPortraitRetryAt = 0;
                     _playerPortraitFailureDumped = false;
+                    _playerPortraitGuid = ControlledGuid;   // [SUI] remember whose face this bake is
                 }
                 else
                 {

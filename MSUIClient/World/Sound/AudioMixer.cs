@@ -386,6 +386,55 @@ public sealed class AudioMixer : IDisposable
     /// asset could not be found or decoded.</summary>
     private readonly record struct PreparedSource(byte[]? Pcm);
 
+    // ── decoded-source cache ─────────────────────────────────────────────────
+    // Zone music, ambience beds and busy cues are requested over and over — a
+    // doorway alone re-requests both beds — and each start used to pay the full
+    // MPQ read + MP3 decode again (tens of MB of LOH churn per start). The
+    // finished WAV bytes are immutable once prepared (WaveOutVoice only copies
+    // them out), so they are shared across voices and kept under a byte budget
+    // with oldest-use eviction. Custom (creator) files bypass the cache — they
+    // are replaceable at runtime.
+    private readonly object _preparedCacheLock = new();
+    private readonly Dictionary<string, (byte[] Wav, long UsedAt)> _preparedCache =
+        new(StringComparer.OrdinalIgnoreCase);
+    private long _preparedCacheBytes;
+    private long _preparedCacheUseClock;
+    private const long PreparedCacheCapBytes = 192L << 20;
+    private const long PreparedCacheMaxEntryBytes = 48L << 20;
+
+    private byte[]? PreparedCacheGet(string path)
+    {
+        lock (_preparedCacheLock)
+        {
+            if (!_preparedCache.TryGetValue(path, out (byte[] Wav, long UsedAt) hit))
+                return null;
+            _preparedCache[path] = (hit.Wav, ++_preparedCacheUseClock);
+            return hit.Wav;
+        }
+    }
+
+    private void PreparedCachePut(string path, byte[] wav)
+    {
+        if (wav.LongLength > PreparedCacheMaxEntryBytes) return;
+        lock (_preparedCacheLock)
+        {
+            if (_preparedCache.ContainsKey(path)) return;
+            while (_preparedCacheBytes + wav.LongLength > PreparedCacheCapBytes &&
+                   _preparedCache.Count > 0)
+            {
+                string? oldest = null;
+                long oldestUse = long.MaxValue;
+                foreach ((string key, (byte[], long UsedAt) entry) in _preparedCache)
+                    if (entry.UsedAt < oldestUse) { oldestUse = entry.UsedAt; oldest = key; }
+                if (oldest is null) break;
+                _preparedCacheBytes -= _preparedCache[oldest].Wav.LongLength;
+                _preparedCache.Remove(oldest);
+            }
+            _preparedCache[path] = (wav, ++_preparedCacheUseClock);
+            _preparedCacheBytes += wav.LongLength;
+        }
+    }
+
     /// <summary>
     /// Read and DECODE off the audio thread, so what the worker receives is
     /// already samples.
@@ -400,6 +449,8 @@ public sealed class AudioMixer : IDisposable
         {
             _ = voiceId;
             bool fromCustom = _customFiles.TryGetValue(path, out byte[]? custom);
+            if (!fromCustom && PreparedCacheGet(path) is { } cached)
+                return new PreparedSource(cached);
             byte[]? bytes = fromCustom ? custom : _mpq.ReadFile(path);
             if (bytes is null || bytes.Length == 0)
             {
@@ -407,13 +458,18 @@ public sealed class AudioMixer : IDisposable
                 return default;
             }
             if (Path.GetExtension(path).Equals(".mp3", StringComparison.OrdinalIgnoreCase))
-                return Mp3Decoder.TryDecode(bytes, path, out byte[] decoded)
-                    ? new PreparedSource(decoded) : default;
+            {
+                if (!Mp3Decoder.TryDecode(bytes, path, out byte[] decoded))
+                    return default;
+                if (!fromCustom) PreparedCachePut(path, decoded);
+                return new PreparedSource(decoded);
+            }
 
             // A custom preview's array is the caller's, held in _customFiles and
             // replayable; patch our own copy of it, never theirs.
             if (fromCustom) bytes = (byte[])bytes.Clone();
             SanitizeWavHeader(bytes);
+            if (!fromCustom) PreparedCachePut(path, bytes);
             return new PreparedSource(bytes);
         });
 
@@ -422,6 +478,20 @@ public sealed class AudioMixer : IDisposable
     {
         // Stopped before it ever started: do not open a device for a dead voice.
         if (!_live.ContainsKey(voiceId)) return;
+
+        // NEVER park the one audio thread behind a decode. While this file is
+        // still being prepared, re-arm the job as a continuation and return, so
+        // stops, volume drains and other voices keep flowing — a fade used to
+        // freeze mid-curve for the whole decode and then land in a lump. Per-voice
+        // stop-vs-play order is preserved by the _live check above; order BETWEEN
+        // voices is not load-bearing (each owns its own device).
+        if (!fileTask.IsCompleted)
+        {
+            fileTask.ContinueWith(_ => Enqueue(() => PlayOnWorker(
+                    voiceId, path, fileTask, looping, gain, pan, category, announce)),
+                TaskContinuationOptions.ExecuteSynchronously);
+            return;
+        }
 
         PreparedSource source;
         try

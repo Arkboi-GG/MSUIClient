@@ -31,6 +31,11 @@ public sealed partial class GameLoop
             ? _rtsPrimaryGuid
             : _freecamSelection.Count > 0 ? _freecamSelection[0] : 0;
 
+    /// <summary>A single character's OWN bag windows (the B route) are up — as opposed to the
+    /// shared, guid-addressed party-inventory browser. These windows follow ControlledGuid.</summary>
+    private bool SingleCharacterBagsOpen =>
+        !_partyInventoryOpen && (_backpackOpen || _keyringOpen || _equippedBagOpen.Any(x => x));
+
     /// <summary>Move the primary one slot through the current selection (Tab / Shift+Tab).</summary>
     private void CycleRtsPrimary(int dir)
     {
@@ -39,6 +44,102 @@ public sealed partial class GameLoop
         if (idx < 0) idx = 0;
         int n = _freecamSelection.Count;
         _rtsPrimaryGuid = _freecamSelection[((idx + dir) % n + n) % n];
+        // A single character's bag panel follows ControlledGuid, so when one is open Tab must hand
+        // control to the new primary too — otherwise you keep staring at the previous character's
+        // bags. The shared party browser is guid-addressed and needs no switch.
+        if (SingleCharacterBagsOpen && _rtsPrimaryGuid != ControlledGuid)
+            BeginControlHandover(_rtsPrimaryGuid);
+    }
+
+    /// <summary>Take control of a bot (possess-on-open/cast/use), switching from any other body.
+    /// No-op if you already drive it or it's your own character. Control lands asynchronously; the
+    /// bag windows and bars follow ControlledGuid the moment it does.</summary>
+    private void EnsurePossessingBot(ulong bot)
+    {
+        if (bot == 0 || _controlTargetGuid == bot) return;
+        BeginControlHandover(bot);
+    }
+
+    /// <summary>
+    /// Hand control to <paramref name="subject"/> so a queued primary action (cast / use / bag open)
+    /// can fire once control lands: possess a bot — releasing any OTHER bot first — or, when the
+    /// subject is your own character, release home. Releases go out toFreecam:FALSE so the release
+    /// ACK stays on the CHAINING path (ApplySuiControlAck consumes _controlSwitchQueued → possess the
+    /// next bot); toFreecam:true instead hit the "enter free view" early-return that dropped you on
+    /// yourself and never possessed the queued bot — the "hop to me, then click again" bug. The
+    /// camera stays in the sky either way (staysInFreeView).
+    /// </summary>
+    private void BeginControlHandover(ulong subject)
+    {
+        if (subject == LocalPlayerGuid)
+        {
+            // Come home to your own body — no possess needed; the release lands on you in the sky.
+            if (_controlState == ControlState.Possessing)
+            {
+                _controlSwitchQueued = 0;
+                RequestControlRelease(toFreecam: false);
+            }
+            return;
+        }
+        if (_controlState is ControlState.OwnChar or ControlState.FreeCam)
+            RequestPossess(subject);
+        else if (_controlState == ControlState.Possessing && _controlTargetGuid != subject)
+        {
+            _controlSwitchQueued = subject;          // possess the subject once the release lands
+            RequestControlRelease(toFreecam: false);
+        }
+    }
+
+    // A bag-open queued while control of the primary is handed over (possess-on-open). The bag panel
+    // targets ControlledGuid, so opening before control lands flashes your OWN bags; we wait until
+    // control reaches the subject, then open ITS bags. Twin of the possess-on-cast/use pending state.
+    private ulong _pendingBagsSubject;
+    private bool _pendingBagsAll;
+    private double _pendingBagsAt;
+    private bool _pendingBagsArmed;
+
+    /// <summary>
+    /// Open the PRIMARY's bags from the free view, handing control to it first if needed: possess a
+    /// bot, or release back to your own body when the primary is yourself. The window open is
+    /// deferred (<see cref="TryFirePendingPrimaryBags"/>) until control lands, so it shows the
+    /// subject's bags — never a flash of your own — and Tab-to-self + B returns you to your bags.
+    /// </summary>
+    private void OpenPrimaryBags(bool all)
+    {
+        ulong subject = RtsPrimaryGuid != 0 ? RtsPrimaryGuid : LocalPlayerGuid;
+        if (subject == ControlledGuid)
+        {
+            // Already on the subject's body — plain toggle (also how B closes the open bags).
+            _pendingBagsArmed = false;
+            if (all) ToggleAllBags(); else ToggleBackpack();
+            return;
+        }
+        EnsurePossessingBot(subject);   // possess a bot, or release to your own char (subject == you)
+        _pendingBagsSubject = subject;
+        _pendingBagsAll = all;
+        _pendingBagsAt = NowSeconds();
+        _pendingBagsArmed = true;
+    }
+
+    /// <summary>Open the queued possess-on-open bags once control has landed on the subject. Runs
+    /// every frame; times out so a denied/slow hand-over leaves nothing armed.</summary>
+    private void TryFirePendingPrimaryBags()
+    {
+        if (!_pendingBagsArmed) return;
+        if (NowSeconds() - _pendingBagsAt > 2.5)
+        {
+            _pendingBagsArmed = false;
+            _pendingBagsSubject = 0;
+            return;
+        }
+        if (ControlledGuid != _pendingBagsSubject) return;   // control not there yet — keep waiting
+        _pendingBagsArmed = false;
+        _pendingBagsSubject = 0;
+        // Explicit OPEN (not toggle): after the hand-over the panel is freshly on the subject.
+        if (_pendingBagsAll && _entities.TryGet(ControlledGuid, out WorldEntity player))
+            SetAllNormalBagWindows(player, true);
+        else
+            SetBagWindowOpen(0, true);
     }
 
     // A cast queued while control of the primary is still being handed over (possess-on-cast).
@@ -55,23 +156,21 @@ public sealed partial class GameLoop
     private void CastPrimaryAbility(ulong primary, uint spellId)
     {
         if (primary == 0 || spellId == 0) return;
-        if (ControlledGuid == primary && CanAuthorControlledGameplay)
+        // Already on the subject and able to author it — a driven bot, or your OWN character (which
+        // stays castable from the sky: the cast applies to _player, your own self-mover) → cast now.
+        // NB the self path requires ControlledGuid == you: if you're driving a bot while yourself is
+        // the primary, TryCast would cast as the BOT, so fall through to a release-home first.
+        if (ControlledGuid == primary && (CanAuthorControlledGameplay || primary == LocalPlayerGuid))
         {
-            TryCast(spellId);   // already driving it — instant
+            TryCast(spellId);
             return;
         }
+        // Otherwise hand control to the primary and fire the cast the moment it lands
+        // (TryFirePendingPrimaryCast): possess-on-cast for a bot, or release-home-then-cast for you.
         _pendingCastPrimary = primary;
         _pendingCastSpellId = spellId;
         _pendingCastAt = NowSeconds();
-        if (_controlState is ControlState.OwnChar or ControlState.FreeCam)
-            RequestPossess(primary);
-        else if (_controlState == ControlState.Possessing && _controlTargetGuid != primary)
-        {
-            _controlSwitchQueued = primary;          // possess the primary once the release lands
-            RequestControlRelease(toFreecam: true);  // stay in the sky through the swap
-        }
-        // PossessPending / ReleasePending: the in-flight transition resolves on its own; the
-        // pending cast fires if it lands on the primary, else it times out.
+        BeginControlHandover(primary);
     }
 
     /// <summary>
@@ -88,9 +187,11 @@ public sealed partial class GameLoop
             _pendingCastPrimary = 0;
             return;
         }
-        if (_controlState != ControlState.Possessing || _controlTargetGuid != _pendingCastPrimary ||
-            !CanAuthorControlledGameplay || !_actions.KnownSpells.Contains(_pendingCastSpellId))
-            return;   // control/spellbook not ready yet — keep waiting until the timeout
+        // Wait until control has reached the subject — a possessed bot, or your own body after a
+        // release-home — and its spellbook has synced. Own char authors without possession.
+        if (ControlledGuid != _pendingCastPrimary) return;
+        if (!CanAuthorControlledGameplay && _pendingCastPrimary != LocalPlayerGuid) return;
+        if (!ActionsFor(_pendingCastPrimary).KnownSpells.Contains(_pendingCastSpellId)) return;
         uint spellId = _pendingCastSpellId;
         _pendingCastSpellId = 0;
         _pendingCastPrimary = 0;
@@ -237,7 +338,7 @@ public sealed partial class GameLoop
 
             (_, byte classId, _, _) = unit.Fields.Bytes0;
             var bodyMax = new Vector2(max.X, max.Y - barH);
-            uint baked = PartyPortraitHandle(guid);
+            uint baked = ConsolePortraitHandle(guid);
             if (baked != 0 && !unit.IsDead)
                 dl.AddImage((nint)baked, min, bodyMax, new Vector2(0, 1), new Vector2(1, 0));
             else
@@ -302,7 +403,10 @@ public sealed partial class GameLoop
         // party panels reachable. Carried over from the shelved squad grid.
         Vector2 rowPos = origin + new Vector2(ConsoleSquadsX, 74f) * scale;
         if (VanillaButton(dl, "##console-bags", "Bags", rowPos, new Vector2(58f, 20f), scale))
-            OpenPartyInventory(_freecamSelection.Count == 1 ? _freecamSelection[0] : LocalPlayerGuid);
+        {
+            if (_partyInventoryOpen) _partyInventoryOpen = false;   // second press closes it
+            else OpenPartyInventory(_freecamSelection.Count == 1 ? _freecamSelection[0] : LocalPlayerGuid);
+        }
         if (ImGui.IsItemHovered())
             HoverTip("Party Inventory — everyone's bags and equipment, side by side");
         ulong tacticsBot = _freecamSelection.FirstOrDefault(IsRtsGroupableBot);
@@ -311,7 +415,10 @@ public sealed partial class GameLoop
         if (VanillaButton(dl, "##console-tactics", "Tactics",
                 rowPos + new Vector2(64f, 0f) * scale, new Vector2(66f, 20f), scale,
                 tacticsBot != 0) && tacticsBot != 0)
-            OpenPartyTactics(tacticsBot);
+        {
+            if (_partyTacticsOpen) _partyTacticsOpen = false;
+            else OpenPartyTactics(tacticsBot);
+        }
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
             HoverTip(tacticsBot != 0
                 ? "Party Tactics — roles and quick-slot AI policy"
@@ -448,7 +555,7 @@ public sealed partial class GameLoop
         // Portrait: the party frames' own live 3-D bake when it exists (V is
         // flipped — render target, not a BLP), the static stand-in otherwise.
         var portraitSize = new Vector2(44f) * scale;
-        uint baked = PartyPortraitHandle(guid);
+        uint baked = ConsolePortraitHandle(guid);
         if (baked != 0)
             dl.AddImage((nint)baked, content, content + portraitSize,
                 new Vector2(0, 1), new Vector2(1, 0));
@@ -494,25 +601,8 @@ public sealed partial class GameLoop
                 maxT > 0 ? $"{tname} ({(int)(thp * 100)}%)" : tname);
         }
 
-        // Per-member panel shortcuts on the card's right edge.
-        bool inParty = false;
-        foreach (PartyMember member in _partyMembers)
-            if (member.Guid == guid) { inParty = true; break; }
-        if (VanillaButton(dl, $"##card-bags-{guid}", "Bags",
-                content + new Vector2(196f, 0f) * scale, new Vector2(58f, 20f), scale,
-                inParty) && inParty)
-            OpenPartyInventory(guid);
-        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-            HoverTip(inParty ? "This member's bags and equipment (Party Inventory)"
-                : "Bags are a party privilege — this unit is not in your party");
-        if (VanillaButton(dl, $"##card-tactics-{guid}", "Tactics",
-                content + new Vector2(196f, 24f) * scale, new Vector2(58f, 20f), scale,
-                inParty) && inParty)
-            OpenPartyTactics(guid);
-        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-            HoverTip(inParty ? "This member's role and quick-slot AI policy (Party Tactics)"
-                : "Tactics are a party privilege — this unit is not in your party");
-
+        // Bags/Tactics live once, in the left Selection pane (owner 2026-08-27: the card's
+        // duplicate pair was removed).
         Vector2 vmin = text + new Vector2(0f, 31f) * scale;
         float barW = 130f * scale, barH = 5f * scale;
         uint maxHp = unit.Fields.MaxHealth;
@@ -659,8 +749,10 @@ public sealed partial class GameLoop
     {
         ulong primary = RtsPrimaryGuid;
         if (primary == 0) return;
-        // Own character, or a bot already driven — use now.
-        if (primary == LocalPlayerGuid || (ControlledGuid == primary && CanAuthorControlledGameplay))
+        // Already on the subject (a driven bot, or your own char) → use now. As with casting, the
+        // self path needs ControlledGuid == you, or the guid-less use would pop the possessed bot's
+        // item; otherwise fall through to a release-home first.
+        if (ControlledGuid == primary && (CanAuthorControlledGameplay || primary == LocalPlayerGuid))
         {
             SendPrimaryItemUse(primary, slot);
             return;
@@ -668,13 +760,7 @@ public sealed partial class GameLoop
         _pendingUsePrimary = primary;
         _pendingUseSlot = slot;
         _pendingUseAt = NowSeconds();
-        if (_controlState is ControlState.OwnChar or ControlState.FreeCam)
-            RequestPossess(primary);
-        else if (_controlState == ControlState.Possessing && _controlTargetGuid != primary)
-        {
-            _controlSwitchQueued = primary;
-            RequestControlRelease(toFreecam: true);
-        }
+        BeginControlHandover(primary);
     }
 
     /// <summary>Fire a possess-on-use quick slot once control has landed on the primary bot. Runs
@@ -689,13 +775,14 @@ public sealed partial class GameLoop
             _pendingUsePrimary = 0;
             return;
         }
-        if (_controlState != ControlState.Possessing || _controlTargetGuid != _pendingUsePrimary ||
-            !CanAuthorControlledGameplay)
-            return;
+        // Wait until control reaches the subject (a possessed bot, or your own body after a
+        // release-home). Own char authors without possession.
+        if (ControlledGuid != _pendingUsePrimary) return;
+        if (!CanAuthorControlledGameplay && _pendingUsePrimary != LocalPlayerGuid) return;
         // Only clear once the item actually RESOLVES — the possessed bot's inventory snapshot can
         // land a few frames after control does, and firing before it arrived silently dropped the
         // use (the "cast a spell first" symptom). Keep retrying until it resolves or times out.
-        if (SendPrimaryItemUse(_controlTargetGuid, _pendingUseSlot))
+        if (SendPrimaryItemUse(ControlledGuid, _pendingUseSlot))
         {
             _pendingUseSlot = -1;
             _pendingUsePrimary = 0;
@@ -736,6 +823,7 @@ public sealed partial class GameLoop
             return true;
         }
         if (!_net.UseItem(255, (byte)(23 + slot), tpl.UseSpellIndex)) return true;
+        ScheduleControlledInventoryRefresh(unit);   // re-sync a possessed bot's consumed item
         store.StartItemUseCooldown(instance.Entry, useSpell, spell, now);
         if (spell is { } committed) store.StartGlobalCooldown(useSpell.SpellId, committed, now);
         return true;

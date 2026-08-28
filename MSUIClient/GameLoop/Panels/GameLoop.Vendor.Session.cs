@@ -18,7 +18,7 @@ public sealed partial class GameLoop
     {
         vendor = null;
         distance = float.PositiveInfinity;
-        if (!TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
+        if (!TryGetInteractionBodyPose(out WorldBodyPose sessionBody) ||
             !_entities.TryGet(guid, out WorldEntity candidate) ||
             !candidate.IsCreature || candidate.IsDead ||
             (candidate.NpcFlags & NpcVendor) == 0)
@@ -47,7 +47,7 @@ public sealed partial class GameLoop
         _vendorSuppressRepairAllTooltipUntilLeave = false;
         Array.Clear(_vendorOpenedBags);
 
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player))   // [SUI] P4b: the driven bot's bags
         {
             for (int container = 0; container <= 4; container++)
             {
@@ -104,7 +104,7 @@ public sealed partial class GameLoop
         // The established session closes only when its actor is gone or moves beyond service
         // range. Opener-only type/death/service-bit gates must not tear down a live window, and a
         // temporarily unavailable player transform is not evidence of departure.
-        if (!TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return;
+        if (!TryGetInteractionBodyPose(out WorldBodyPose sessionBody)) return;
         bool sourceAvailable = _entities.TryGet(_vendor.VendorGuid, out WorldEntity vendor);
         float distanceSquared = sourceAvailable
             ? Vector3.DistanceSquared(sessionBody.Position, vendor.Position)

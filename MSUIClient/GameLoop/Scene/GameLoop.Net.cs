@@ -1178,6 +1178,9 @@ public sealed partial class GameLoop
                     case Op.SMSG_SUI_GIVER_STATUS:
                         ApplySuiGiverStatus(body);
                         break;
+                    case Op.SMSG_SUI_GIVER_QUESTS:
+                        ApplySuiGiverQuests(body);
+                        break;
                     case Op.SMSG_SUI_PARTY_LEAD_RESULT:
                         ApplySuiPartyLeadResult(body);
                         break;

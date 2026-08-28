@@ -291,11 +291,16 @@ public sealed class NetworkClient : IDisposable
         InWorld(s => s.SuiMemberFacts(subjects));
     public bool SuiMemberItemMove(ulong from, ulong to, byte bag, byte slot) =>
         InWorld(s => s.SuiMemberItemMove(from, to, bag, slot));
+    public bool SuiMemberItemRearrange(ulong owner, byte srcBag, byte srcSlot,
+        byte destBag, byte destSlot) =>
+        InWorld(s => s.SuiMemberItemRearrange(owner, srcBag, srcSlot, destBag, destSlot));
     public bool SuiQuestFacts(IReadOnlyList<ulong> subjects) =>
         InWorld(s => s.SuiQuestFacts(subjects));
 
     public bool SuiGiverStatus(IReadOnlyList<ulong> givers) =>
         InWorld(s => s.SuiGiverStatus(givers));
+
+    public bool SuiGiverQuests(ulong giver) => InWorld(s => s.SuiGiverQuests(giver));
 
     public bool SuiPartyLead(byte action, ulong subject) =>
         InWorld(s => s.SuiPartyLead(action, subject));

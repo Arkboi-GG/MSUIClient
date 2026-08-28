@@ -151,6 +151,18 @@ public sealed partial class GameLoop
         _controlState == ControlState.Possessing ||
         _controlState == ControlState.OwnChar && !_freeView;
 
+    /// <summary>
+    /// Author the unit in <see cref="ControlledGuid"/>: either you can author it as a driven body
+    /// (<see cref="CanAuthorControlledGameplay"/> — possessing, or your own char in first person),
+    /// OR it is your OWN logged-in character even from the free-view sky. The latter is always safe:
+    /// guid-less opcodes apply to <c>_player</c> = you, you remain your own self-mover, and the
+    /// server accepts it (confirmed: no self-mover guard on cast, GetSuiActor→_player). Only a
+    /// detached cursor commanding someone ELSE's body without possession is excluded. Use this for
+    /// the cast/item-use send gates so your own skills and bag items work in free view.
+    /// </summary>
+    private bool CanAuthorControlledOrSelf =>
+        CanAuthorControlledGameplay || ControlledGuid == LocalPlayerGuid;
+
     /// <summary>Inspection and observer bars display state but never author gameplay.</summary>
     private bool BarsReadOnly => BarsGuid != ControlledGuid || !CanAuthorControlledGameplay;
 
@@ -236,6 +248,19 @@ public sealed partial class GameLoop
         TryGetWorldBodyPose(LocalPlayerGuid, out pose);
 
     /// <summary>
+    /// The body a same-session NPC interaction (gossip / quest-giver range gate)
+    /// acts from. While driving a party bot that is the BOT, so the vanilla frames
+    /// open and their range checks pass at the bot's feet instead of the parked
+    /// commander's; unpossessed it is the session body, unchanged. [SUI] P4b — the
+    /// server runs these handlers as GetSuiActor() (the bot), so the client must
+    /// gate them at the same body or the accept/turn-in follow-ups refuse on range.
+    /// </summary>
+    private bool TryGetInteractionBodyPose(out WorldBodyPose pose) =>
+        _controlState == ControlState.Possessing
+            ? TryGetControlledBodyPose(out pose)
+            : TryGetSessionBodyPose(out pose);
+
+    /// <summary>
     /// The store the action-bar/spellbook/talent UI reads. Deliberately keeps the historical
     /// field name: every existing read of the single-character store now follows possession
     /// (and, in the free view, the inspected selection).
@@ -269,6 +294,7 @@ public sealed partial class GameLoop
         ResetPartyMemberFacts();
         ResetPartyQuestFacts();
         ResetPartyGiverStatus();
+        ResetPartyGiverQuests();
         ResetPartyLead();
         ResetPartyQuestActs();
         PurgeSuiSnapshot();
@@ -392,6 +418,13 @@ public sealed partial class GameLoop
             SyncDrivenEntityToController();
             _controlTargetGuid = guid;
             _controlState = ControlState.Possessing;
+            // [SUI] The server answers quest-giver status as GetSuiActor(), so every
+            // cached !/? became stale the instant control changed hands. Without this
+            // the world kept wearing the PREVIOUS character's markers until an
+            // unrelated quest packet forced a re-ask (in practice: the new bot's
+            // first kill). Same for the party overlay's pull throttle.
+            BumpQuestStatusReask();
+            PokePartyGiverStatus();
             // No-op on the camera while the free view is up (see SeatControllerOnControlled).
             SeatControllerOnControlled(x, y, z, o);
             _net?.SetActiveMover(guid);
@@ -466,6 +499,10 @@ public sealed partial class GameLoop
             if (!staysInFreeView) SetFreeView(false);
             _freeViewExitRequested = false;
             _controlState = staysInFreeView ? ControlState.FreeCam : ControlState.OwnChar;
+            // Same staleness on the way out: statuses answered for the released bot
+            // must be re-asked for whoever the session acts as now.
+            BumpQuestStatusReask();
+            PokePartyGiverStatus();
             SeatControllerOnControlled(x, y, z, o);
             _net?.SetActiveMover(LocalPlayerGuid);
             EnterPlayerAuraWorld(LocalPlayerGuid);
@@ -541,6 +578,10 @@ public sealed partial class GameLoop
         if (source == 0 || source == LocalPlayerGuid || source != ControlledGuid) return;
 
         PlayerActions store = ActionsFor(source);
+        // The main dispatch consults QuestStatusRefreshLaw for every DIRECT packet;
+        // proxied inner frames bypass that loop, so a quest completed AS the bot
+        // never invalidated the cached giver statuses without this.
+        if (QuestStatusRefreshLaw.PacketReasks(innerOp)) BumpQuestStatusReask();
         switch (innerOp)
         {
             case Op.SMSG_ACTION_BUTTONS:
@@ -589,6 +630,69 @@ public sealed partial class GameLoop
                     if (result.Status == 2)
                         EnqueueSpellPresentation(new SpellCastResultEvent(result.SpellId, result.Reason));
                 }
+                break;
+            // [SUI] P4b: NPC-interaction reply frames of the driven bot. The server
+            // runs the quest/gossip handler family as the bot and mirrors these
+            // (MirrorOwnerPacket); route them into the very parsers the direct
+            // dispatch uses so the vanilla quest/gossip frame opens for the commander
+            // driving the bot. The frame's own accept/query/turn-in follow-ups gate
+            // at the controlled body (TryGetInteractionBodyPose) and are redirected
+            // to the bot server-side, so the round trip stays on the bot end to end.
+            case Op.SMSG_GOSSIP_MESSAGE:
+                ApplyGossipMenu(inner);
+                break;
+            case Op.SMSG_GOSSIP_COMPLETE:
+                EmitInterface("gossip", "complete", "RECEIVED", source, "serverClosed=true;proxied=true");
+                ResetGossip();
+                CloseQuestNpcFrame(playSound: true);
+                break;
+            case Op.SMSG_QUESTGIVER_STATUS:
+                ApplyQuestStatus(inner);
+                break;
+            case Op.SMSG_QUESTGIVER_QUEST_LIST:
+                ApplyQuestList(inner);
+                break;
+            case Op.SMSG_QUESTGIVER_QUEST_DETAILS:
+                ApplyQuestDetails(inner);
+                break;
+            case Op.SMSG_QUESTGIVER_REQUEST_ITEMS:
+                ApplyQuestRequestItems(inner);
+                break;
+            case Op.SMSG_QUESTGIVER_OFFER_REWARD:
+                ApplyQuestOffer(inner);
+                break;
+            case Op.SMSG_QUESTGIVER_QUEST_COMPLETE:
+                ApplyQuestComplete(inner);
+                break;
+            case Op.SMSG_QUESTGIVER_QUEST_INVALID:
+                ApplyQuestError(Op.SMSG_QUESTGIVER_QUEST_INVALID, inner);
+                break;
+            // [SUI] P4b vendor/trainer/repair: the driven bot's shop and trainer reply
+            // frames, when the reply routed through the bot's socket (a gossip
+            // "browse goods" / "train" option, or an internal buy error). The direct
+            // vendor/trainer-frame requests already answer on the commander's own
+            // socket; either way these feed the same parsers. Bag/coin edits refresh
+            // via the bot's re-snapshot, not here.
+            case Op.SMSG_LIST_INVENTORY:
+                ApplyVendorList(inner);
+                break;
+            case Op.SMSG_SELL_ITEM:
+                ApplyVendorSellFailure(inner);
+                break;
+            case Op.SMSG_BUY_ITEM:
+                ApplyVendorStockUpdate(inner);
+                break;
+            case Op.SMSG_BUY_FAILED:
+                ApplyVendorBuyFailure(inner);
+                break;
+            case Op.SMSG_TRAINER_LIST:
+                ApplyTrainerList(inner);
+                break;
+            case Op.SMSG_TRAINER_BUY_SUCCEEDED:
+                ApplyTrainerSuccess(inner);
+                break;
+            case Op.SMSG_TRAINER_BUY_FAILED:
+                ApplyTrainerFailure(inner);
                 break;
             default:
                 break;
@@ -644,6 +748,17 @@ public sealed partial class GameLoop
         List<ulong> snapshotItems = _suiSnapshotItemsByBot[source] = [];
         bot.Fields.SetU32(ObjectFields.PLAYER_CHARACTER_POINTS1, talentPoints);
         bot.Fields.SetU32(ObjectFields.PLAYER_COINAGE, coinage);
+
+        // A snapshot REPLACES the carried inventory wholesale, so every slot guid
+        // must be cleared before re-filing. These are owner-only fields the wire
+        // never zeroes for a non-owner: a slot emptied server-side (an item SOLD
+        // from a possessed bot's bag) kept its stale guid here, and once the
+        // buyback section recreated that same item as a buyback entity, the
+        // "sold" item visibly stayed in the bag until the next control swap.
+        for (int slot = 0; slot <= 38; slot++)          // equipment, bag slots, backpack
+            bot.Fields.SetGuid((ushort)(ObjectFields.PLAYER_INV_SLOT_HEAD + slot * 2), 0);
+        for (int slot = 81; slot <= 96; slot++)         // keyring
+            bot.Fields.SetGuid((ushort)(ObjectFields.PLAYER_INV_SLOT_HEAD + slot * 2), 0);
         int containersSized = 0;
         int baggedItems = 0, orphanedBagItems = 0;
         bool statsApplied = false;
@@ -732,10 +847,58 @@ public sealed partial class GameLoop
             statsApplied = true;
         }
 
+        // ── Snapshot v3: the buyback shelf (optional trailing bytes). ──────────
+        // PLAYER_VENDOR_BUYBACK_SLOT/PRICE/TIMESTAMP are owner-only fields, and
+        // the items they point at live outside any bag — so a possessed bot's
+        // Merchant Buyback tab rendered empty while its bags worked. Zero all
+        // twelve first: a re-snapshot after a buyback must retire the row, not
+        // leave a ghost pointing at a repossessed item.
+        for (int i = 0; i < 12; i++)
+        {
+            bot.Fields.SetGuid((ushort)(ObjectFields.PLAYER_VENDOR_BUYBACK_SLOT_1 + i * 2), 0);
+            bot.Fields.SetU32((ushort)(ObjectFields.PLAYER_FIELD_BUYBACK_PRICE_1 + i), 0);
+            bot.Fields.SetU32((ushort)(ObjectFields.PLAYER_FIELD_BUYBACK_TIMESTAMP_1 + i), 0);
+        }
+        int buybackApplied = 0;
+        if (r.Remaining >= 1)
+        {
+            int buybackCount = r.ReadU8();
+            for (int i = 0; i < buybackCount && r.Remaining >= 25; i++)
+            {
+                byte index = r.ReadU8();
+                ulong itemGuid = r.ReadU64();
+                uint entry = r.ReadU32();
+                uint stack = r.ReadU32();
+                uint price = r.ReadU32();
+                uint timestamp = r.ReadU32();
+                if (index >= 12 || itemGuid == 0 || entry == 0) continue;
+                var fields = new ObjectFields().AsCreated();
+                fields.SetU32(ObjectFields.OBJECT_ENTRY, entry);
+                fields.SetU32(ObjectFields.ITEM_STACK_COUNT, stack);
+                _entities.AddSynthetic(new WorldEntity
+                {
+                    Guid = itemGuid,
+                    Type = ObjectTypeId.Item,
+                    Entry = entry,
+                    Fields = fields,
+                });
+                snapshotItems.Add(itemGuid);
+                bot.Fields.SetGuid(
+                    (ushort)(ObjectFields.PLAYER_VENDOR_BUYBACK_SLOT_1 + index * 2), itemGuid);
+                bot.Fields.SetU32(
+                    (ushort)(ObjectFields.PLAYER_FIELD_BUYBACK_PRICE_1 + index), price);
+                bot.Fields.SetU32(
+                    (ushort)(ObjectFields.PLAYER_FIELD_BUYBACK_TIMESTAMP_1 + index), timestamp);
+                if (_net is not null) _items?.Require(entry, itemGuid, _net);
+                buybackApplied++;
+            }
+        }
+
         // Version marker: this line existing at all proves the round-13 client is
-        // running; its numbers say whether the wire carried the v2 payloads.
+        // running; its numbers say whether the wire carried the v2/v3 payloads.
         Console.WriteLine($"[sui] snapshot v2: stats={(statsApplied ? "applied" : "ABSENT")}, " +
-            $"containers sized={containersSized}, bag items filed={baggedItems}" +
+            $"containers sized={containersSized}, bag items filed={baggedItems}, " +
+            $"buyback rows={buybackApplied}" +
             (orphanedBagItems > 0
                 ? $", ORPHANED={orphanedBagItems} (contents arrived before the bag row)"
                 : ""));
@@ -1139,10 +1302,12 @@ public sealed partial class GameLoop
             CycleRtsPrimary(ShiftHeld() ? -1 : +1);
         _primaryCycleWasDown = plainTab;
 
-        // Possess-on-cast / possess-on-use: fire a queued command-card ability or quick-slot item
-        // once control lands on the primary.
+        // Possess-on-cast / possess-on-use / possess-on-open: fire a queued command-card ability,
+        // quick-slot item, or bag window once control lands on the primary.
         TryFirePendingPrimaryCast();
         TryFirePendingPrimaryUse();
+        TryFirePendingPrimaryBags();
+        UpdateControlledInventoryRefresh();   // re-sync a possessed bot's bags after a consumable use
 
         // Ctrl+F: free view toggle (plain F stays the local fly toggle). Works in
         // the creator sandbox too — there it is purely a camera decision, and it
@@ -1725,6 +1890,38 @@ public sealed partial class GameLoop
         ulong picked = pressPick.Armed
             ? pressPick.UnitGuid
             : PickUnit(click.Position);
+        // [SUI] P4b: while DRIVING a party bot from the sky, a right-click on a
+        // service NPC is an INTERACTION as that bot (its quest giver / vendor /
+        // trainer / banker), not an RTS order — the same routing the grounded
+        // target handler uses, and gated at the bot by TryGetInteractionBodyPose.
+        // Only while possessing: a plain commander (not driving anyone) keeps the
+        // order behaviour below, because unpossessed the server would run the
+        // interaction on your own logged-in character.
+        if (_controlState == ControlState.Possessing && picked != 0 &&
+            _entities.TryGet(picked, out WorldEntity svcNpc) && svcNpc.IsCreature &&
+            !svcNpc.IsDead && WorldCursorServiceKind(svcNpc) is { } svcKind)
+        {
+            CommitSelection(picked, beginAttack: false);
+            if (svcKind == WorldCursorKind.Pickup) RequestVendor(picked);
+            else if (svcKind == WorldCursorKind.Taxi) RequestTaxiMap(picked);
+            else if (svcKind == WorldCursorKind.Buy && (svcNpc.NpcFlags & NpcBanker) != 0)
+                RequestBank(picked);
+            else RequestGossip(picked);
+            return;
+        }
+        // [SUI] Model B: NOT driving anyone — a right-click on a QUEST GIVER opens the
+        // commander quest window (per-member eligibility cards + accept-for-party),
+        // no possession needed. Move the party by right-clicking the ground beside it,
+        // the RTS convention; vendor/trainer stay possession-only and fall through.
+        if (_controlState != ControlState.Possessing && _partyGiverQuestsAvailable &&
+            picked != 0 && _entities.TryGet(picked, out WorldEntity giverNpc) &&
+            giverNpc.IsCreature && !giverNpc.IsDead &&
+            (giverNpc.NpcFlags & NpcQuestGiver) != 0)
+        {
+            CommitSelection(picked, beginAttack: false);
+            RequestGiverQuests(picked);
+            return;
+        }
         if (picked != 0 && _entities.TryGet(picked, out WorldEntity target) &&
             !target.IsDead && CanAttack(target))
         {

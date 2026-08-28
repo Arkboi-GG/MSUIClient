@@ -589,4 +589,6 @@ public enum Op : ushort
     // ambiguity the P5 note above exists to avoid.
     CMSG_SUI_PARTY_LEAD          = 0x035E,
     SMSG_SUI_PARTY_LEAD_RESULT   = 0x035F,
+    CMSG_SUI_GIVER_QUESTS        = 0x0360,   // Model B: a giver's quests + per-member eligibility
+    SMSG_SUI_GIVER_QUESTS        = 0x0361,
 }

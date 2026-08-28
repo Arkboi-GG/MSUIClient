@@ -201,6 +201,7 @@ public sealed partial class GameLoop
             DrawPartyTacticsPanel();
             DrawPartyInventoryPanel();
             DrawPartyQuestLogPanel();
+            DrawGiverQuestsWindow();
             DrawQuestMarkerNumerals();
             DrawFreeCamSelectionOverlay();
             DrawUnitPopup();
@@ -296,7 +297,10 @@ public sealed partial class GameLoop
             : ResolveUnitName(ControlledGuid);
         DrawVanillaUnitFrame(player, new Vector2(-19, 4), playerFrame: true,
             name, FactionReaction.Friendly,
-            UnitFramePortrait(_playerPortrait, _playerPortraitUsable),
+            // Free view hands 0 so the frame's fallback chain picks the
+            // streamed-body booth; embodied uses the rig bake, but only when it
+            // is actually a bake OF the driven unit.
+            UnitFramePortrait(_playerPortrait, PlayerPortraitCurrent && !_freeView),
             _playerCombatFlash);
     }
 

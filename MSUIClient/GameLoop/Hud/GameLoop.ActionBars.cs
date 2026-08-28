@@ -213,7 +213,11 @@ public sealed partial class GameLoop
             EmitCastVerdict(spellId, CastTargetReason.ProfessionWindow, 0, sent: false);
             return;
         }
-        if (!CanAuthorControlledGameplay)
+        // Your own logged-in character stays castable from the sky: a guid-less CMSG_CAST_SPELL
+        // applies to _player, and you remain its self-mover while not possessing a bot. Only a
+        // detached Free View cursor commanding someone else's body (ControlledGuid != you, no
+        // possession) is refused. A possessed bot is covered by CanAuthorControlledGameplay.
+        if (!CanAuthorControlledGameplay && ControlledGuid != LocalPlayerGuid)
         {
             EmitCastVerdict(spellId, CastTargetReason.UnavailableOrPassive, 0, sent: false);
             RefuseCast(spellId, "LOCAL_OBSERVER", "Cannot cast while in Free View.");
@@ -354,7 +358,10 @@ public sealed partial class GameLoop
         Vector3? ground, CastTargetReason reason)
     {
         if (_net is null || _actions is null) return;
-        if (!CanAuthorControlledGameplay)
+        // Your own logged-in character stays castable from the sky (server accepts it — GetSuiActor
+        // resolves to _player and there's no self-mover guard). Only a detached Free View cursor
+        // commanding someone else's body without possession is blocked. Mirrors the TryCast gate.
+        if (!CanAuthorControlledGameplay && ControlledGuid != LocalPlayerGuid)
         {
             EmitCastVerdict(spellId, CastTargetReason.UnavailableOrPassive, target, sent: false);
             return;
@@ -1575,7 +1582,9 @@ public sealed partial class GameLoop
         // Round copy: this is a crop of the bake laid over round button art, and
         // the crop's own corners fall OUTSIDE the inscribed circle - the square
         // bake shows booth black in them.
-        uint portrait = RoundAperturePortrait(_playerPortrait, _playerPortraitUsable);
+        uint portrait = _freeView
+            ? PartyPortraitHandle(ControlledGuid)
+            : RoundAperturePortrait(_playerPortrait, PlayerPortraitCurrent);
         if (portrait == 0) return;
 
         // MicroMenu.xml:161-199,244-257: this is a crop of the same player portrait bake,

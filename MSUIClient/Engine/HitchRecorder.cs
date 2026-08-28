@@ -722,20 +722,40 @@ public sealed class HitchRecorder
     public static void InstallConsoleTee(HitchRecorder recorder)
     {
         var original = Console.Out;
-        Console.SetOut(new TeeWriter(original, recorder));
+        // Every '['-tagged line also lands in msui-console.log next to the exe,
+        // truncated per session. The console scrollback dies with the terminal,
+        // and diagnosing a live-play report ("audio got choppy in the abbey")
+        // has repeatedly stalled on exactly that: the [soundscape]/[audio]
+        // evidence existed for a moment and nobody could read it afterwards.
+        StreamWriter? file = null;
+        try
+        {
+            file = new StreamWriter(
+                Path.Combine(AppContext.BaseDirectory, "msui-console.log"),
+                append: false) { AutoFlush = true };
+            file.WriteLine($"# MSUI console log - session {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        }
+        catch
+        {
+            file = null;   // diagnostics must never keep the game from starting
+        }
+        Console.SetOut(new TeeWriter(original, recorder, file));
     }
 
     private sealed class TeeWriter : TextWriter
     {
         private readonly TextWriter _inner;
         private readonly HitchRecorder _recorder;
+        private StreamWriter? _file;
         private readonly StringBuilder _line = new(256);
         private readonly object _gate = new();
+        private readonly object _fileGate = new();
 
-        public TeeWriter(TextWriter inner, HitchRecorder recorder)
+        public TeeWriter(TextWriter inner, HitchRecorder recorder, StreamWriter? file)
         {
             _inner = inner;
             _recorder = recorder;
+            _file = file;
         }
 
         public override Encoding Encoding => _inner.Encoding;
@@ -800,7 +820,21 @@ public sealed class HitchRecorder
             // Outside the lock: NoteEvent takes its own, and nesting them would
             // be a deadlock waiting for a worker thread to print.
             if (complete is not null && complete.Length > 0 && complete[0] == '[')
+            {
                 _recorder.NoteEvent(complete);
+                if (_file is not null)
+                {
+                    try
+                    {
+                        lock (_fileGate)
+                            _file?.WriteLine($"{DateTime.Now:HH:mm:ss.fff} {complete}");
+                    }
+                    catch
+                    {
+                        _file = null;   // disk trouble: stop trying, keep playing
+                    }
+                }
+            }
         }
     }
 }

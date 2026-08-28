@@ -142,15 +142,24 @@ public sealed partial class GameLoop
         ImGui.EndPopup();
     }
 
-    /// <summary>Accept a dragged party item on the LAST ImGui item; a delivered
-    /// payload moves it to <paramref name="ownerGuid"/> (server-validated).</summary>
-    private unsafe void PartyItemDropTarget(ulong ownerGuid)
+    /// <summary>Accept a dragged party item on the LAST ImGui item. A cross-owner
+    /// drop hands it to <paramref name="ownerGuid"/> (auto-stored). A same-owner
+    /// drop onto a bag cell rearranges it into THAT exact slot — but only when the
+    /// target carries a destination (<paramref name="hasDest"/>): equip cells and
+    /// column-wide drops omit it, so a same-owner drop there is a no-op (equipment
+    /// still needs an explicit dequip). Server-validated either way.</summary>
+    private unsafe void PartyItemDropTarget(ulong ownerGuid, byte destBag = 255,
+        byte destSlot = 255, bool hasDest = false)
     {
         if (_partyDragFrom == 0 || !ImGui.BeginDragDropTarget()) return;
         ImGuiPayloadPtr payload = ImGui.AcceptDragDropPayload("SUI_PARTY_ITEM");
-        if (payload.NativePtr != null && _partyDragFrom != 0 && _partyDragFrom != ownerGuid)
+        if (payload.NativePtr != null && _partyDragFrom != 0)
         {
-            RequestMemberItemMove(_partyDragFrom, ownerGuid, _partyDragBag, _partyDragSlot);
+            if (_partyDragFrom != ownerGuid)
+                RequestMemberItemMove(_partyDragFrom, ownerGuid, _partyDragBag, _partyDragSlot);
+            else if (hasDest)
+                RequestMemberItemRearrange(ownerGuid, _partyDragBag, _partyDragSlot,
+                    destBag, destSlot);
             _partyDragFrom = 0;
         }
         ImGui.EndDragDropTarget();
@@ -162,7 +171,13 @@ public sealed partial class GameLoop
     {
         uint baked = PartyPortraitHandle(guid);
         if (baked != 0) return baked;
-        if (guid == LocalPlayerGuid && _playerPortraitUsable && _playerPortrait is not null)
+        // [SUI] P4b: _playerPortrait bakes the DRIVEN unit, not the logged-in char —
+        // so while possessing a bot it holds the BOT's face. Hand it back only for the
+        // controlled unit's OWN column (matching ConsolePortraitHandle); the logged-in
+        // character, now an abandoned-own-char party slot, takes its party bake. Keyed
+        // on LocalPlayerGuid this painted the possessed bot's face onto your main in
+        // every party column and the quest rail.
+        if (guid == ControlledGuid && PlayerPortraitCurrent && _playerPortrait is not null)
             return _playerPortrait.CircularTextureHandle;
         return 0;
     }
@@ -388,6 +403,7 @@ public sealed partial class GameLoop
             dl.AddRectFilled(min, max, 0x44101418);
         dl.AddRect(min, max, hovered ? 0xffd0b060 : 0xff2a343d,
             0, ImDrawFlags.None, MathF.Max(1f, scale));
-        PartyItemDropTarget(ownerGuid);
+        // This cell is a concrete destination slot, so a same-owner drop rearranges into it.
+        PartyItemDropTarget(ownerGuid, wireBag, wireSlot, hasDest: true);
     }
 }

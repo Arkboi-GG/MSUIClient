@@ -70,6 +70,12 @@ public sealed partial class GameLoop
     {
         if (_uiParityArmed) return;              // never perturb a parity proof
         if (!_partyQuestActsAvailable) return;
+        // [SUI] P4b: while DRIVING one character the quest frame is that character's
+        // alone — the party "accept for (N)" rail belongs to the commander view, not
+        // direct control. Drawing it while possessing is what read as "why is it
+        // asking about Blackfel when I'm someone else". The commander-view flow
+        // (free view) is where the per-member board lives.
+        if (_controlState == ControlState.Possessing) return;
         QuestNpcPanel panel = QuestNpcPanelNow();
         if (panel is QuestNpcPanel.None or QuestNpcPanel.Greeting) return;
 

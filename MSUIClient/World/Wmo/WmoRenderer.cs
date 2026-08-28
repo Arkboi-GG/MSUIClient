@@ -846,6 +846,7 @@ public sealed class WmoRenderer : IDisposable
         foreach (var instance in _instances)
         {
             if (instance.Model.WmoId == 0 ||
+                !AreaProbeInsideBounds(probeWorld, instance) ||
                 !Matrix4x4.Invert(instance.Transform, out var worldToLocal)) continue;
             Vector3 probeLocal = Vector3.Transform(probeWorld, worldToLocal);
             float? terrainLocalZ = terrainWorldZ is float terrainZ
@@ -864,6 +865,27 @@ public sealed class WmoRenderer : IDisposable
             (bestGroup.GroupFlags & 0x08u) != 0) return null;
         return new AreaMinimapIdentity(
             bestInstance.Model.WmoId, bestInstance.NameSetId, bestGroup.GroupWmoId);
+    }
+
+    /// <summary>
+    /// Broad phase for the area/footstep probes: a placement whose world AABB the
+    /// probe is not even inside cannot own a walking face under it. Every caller
+    /// used to Invert the transform and triangle-scan EVERY placed WMO per probe —
+    /// per minimap blip, per footstep, per soundscape tick — which is most of what
+    /// made interiors (many instances, many groups) feel heavy. A face must be at
+    /// or below the probe, so a probe under the whole model (below WorldMin.Z) or
+    /// far above it has nothing to find either.
+    /// </summary>
+    private static bool AreaProbeInsideBounds(Vector3 probeWorld, Instance instance)
+    {
+        const float margin = 1.5f;
+        const float aboveRoofSlack = 5f;
+        return probeWorld.X >= instance.WorldMin.X - margin &&
+               probeWorld.X <= instance.WorldMax.X + margin &&
+               probeWorld.Y >= instance.WorldMin.Y - margin &&
+               probeWorld.Y <= instance.WorldMax.Y + margin &&
+               probeWorld.Z >= instance.WorldMin.Z - margin &&
+               probeWorld.Z <= instance.WorldMax.Z + aboveRoofSlack;
     }
 
     /// <summary>
@@ -905,7 +927,8 @@ public sealed class WmoRenderer : IDisposable
 
         foreach (var instance in _instances)
         {
-            if (!Matrix4x4.Invert(instance.Transform, out var worldToLocal)) continue;
+            if (!AreaProbeInsideBounds(probeWorld, instance) ||
+                !Matrix4x4.Invert(instance.Transform, out var worldToLocal)) continue;
             Vector3 probeLocal = Vector3.Transform(probeWorld, worldToLocal);
             float? terrainLocalZ = terrainWorldZ is float terrainZ
                 ? Vector3.Transform(
@@ -1076,7 +1099,11 @@ public sealed class WmoRenderer : IDisposable
             if (group.IsDistanceLod ||
                 probe.X < group.LocalMin.X || probe.X > group.LocalMax.X ||
                 probe.Y < group.LocalMin.Y || probe.Y > group.LocalMax.Y ||
-                group.LocalMin.Z > probe.Z)
+                group.LocalMin.Z > probe.Z ||
+                // A group whose TOP sits below the best floor found so far cannot
+                // hold a higher floor — skip its whole triangle list. Cuts the
+                // lower storeys and basements out of every probe in a tall root.
+                group.LocalMax.Z <= bestZ)
                 continue;
             var tris = group.CollisionTriangles;
             for (int i = 0; i + 2 < tris.Length; i += 3)

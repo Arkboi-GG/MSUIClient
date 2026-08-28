@@ -47,8 +47,12 @@ public sealed partial class GameLoop
                 new("", 0, "IMGUI_HOST", "ANCHOR:ABSOLUTE", "", "", 0, 8));
         }
 
+        // [SUI] P4b: follow possession exactly as the inventory panel does — while
+        // driving a party bot, the merchant page, buyback and purse are the BOT's,
+        // so what you see and sell matches the server-side vendor redirect. When not
+        // possessing, ControlledGuid IS your own guid, so the main is unchanged.
         WorldEntity? player = _net is not null &&
-                              _entities.TryGet(_net.PlayerGuid, out WorldEntity foundPlayer)
+                              _entities.TryGet(ControlledGuid, out WorldEntity foundPlayer)
             ? foundPlayer : null;
         DrawVendorPortrait(draw, origin, scale);
         DrawVendorShell(draw, origin, scale);

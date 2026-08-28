@@ -72,14 +72,39 @@ public sealed partial class GameLoop
             return;
         }
         DrawVanillaPanelChrome("Party Quest Log", scale, ref _partyQuestLogOpen);
-        ImGui.Dummy(new Vector2(1, 10 * scale));
+
+        // Drop the data clear of the header plaque (256x64 art hanging 12px above the
+        // frame top, so its lower edge sits ~52px down) with a real margin — it used
+        // to sit jammed a bare 10px under the title.
+        Vector2 wMin = ImGui.GetWindowPos();
+        Vector2 wMax = wMin + ImGui.GetWindowSize();
+        float plaqueBottom = wMin.Y + 52f * scale;
+        ImGui.Dummy(new Vector2(1, MathF.Max(6f * scale,
+            plaqueBottom + 8f * scale - ImGui.GetCursorScreenPos().Y)));
+        Vector2 gridTop = ImGui.GetCursorScreenPos();
+
+        // A denser scrim behind the data. DrawVanillaPanelChrome's Dialog backdrop is
+        // flat black at 60% alpha, which a bright outdoor scene reads straight through;
+        // this near-black fill inside the riveted border lifts the dim text off the
+        // world. Added after the chrome (so it layers over the translucent base) but
+        // kept below the plaque so it never paints over the title art.
+        float edge = 11f * scale;
+        ImGui.GetWindowDrawList().AddRectFilled(
+            new Vector2(wMin.X + edge, gridTop.Y - 4f * scale),
+            new Vector2(wMax.X - edge, wMax.Y - edge), 0xc00b0e12);
 
         ImGui.BeginChild("##pquest-grid", new Vector2(0, 0), false,
             ImGuiWindowFlags.HorizontalScrollbar);
         // Explicit-position layout under one captured origin — no SameLine flow,
         // so a long quest title can never staircase the member columns.
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
-        Vector2 c0 = ImGui.GetCursorScreenPos();
+        // Centre the fixed-width grid when the window is wider than it; when the party
+        // overflows that width, centre-pad collapses to zero and the horizontal
+        // scrollbar carries the grid, pinned left.
+        float contentWidth =
+            (PartyQuestTitleColumnWidth + owners.Count * PartyQuestMemberColumnWidth) * scale;
+        float centerPad = MathF.Max(0f, (ImGui.GetContentRegionAvail().X - contentWidth) * 0.5f);
+        Vector2 c0 = ImGui.GetCursorScreenPos() + new Vector2(centerPad, 0f);
         float y = 0f;
 
         y = DrawPartyQuestHeader(dl, c0, y, scale, owners);

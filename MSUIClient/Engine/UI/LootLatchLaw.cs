@@ -18,10 +18,11 @@ public static class LootLatchLaw
             : new(false, lootType != 0, 0);
     }
 
-    // The active player's reference predicate reads the client-local loot target itself. Target
-    // classification is relevant to remote descriptor-driven looting, not to this predicted latch.
+    // The active player's reference predicate reads the client-local loot target itself. A latched
+    // target kneels — EXCEPT opening a bag item (a clam / lockbox): that is a menu action with no
+    // world loot emote, unlike looting a corpse or ground object.
     public static bool ShouldKneel(ulong latch, TargetKind kind, uint gameObjectType,
-        uint unitHealth) => latch != 0;
+        uint unitHealth) => latch != 0 && kind != TargetKind.Item;
 
     public static ulong ClearFor(ulong latch, ulong guid) => latch == guid ? 0 : latch;
 }

@@ -22,6 +22,23 @@ public sealed partial class GameLoop
     private uint _soundscapeAreaId;
     private (uint Music, uint Ambience, uint Intro) _soundscapeInterior;
     private bool _soundscapeIndoors;
+    // Doorway hysteresis (owner 2026-08-27): the WMO containment verdict flaps
+    // at a threshold and every flip tore down and re-decoded the music and
+    // ambience beds. A CHANGED identity must repeat for consecutive samples
+    // before the audio is allowed to follow it; agreeing samples cost nothing.
+    //
+    // 2026-08-28, measured (msui-console.log): a one-second dwell was NOT
+    // enough — at the abbey door the verdict alternates in 1-2 SECOND blocks
+    // (23:23:50 indoors commit → sacred sting + room tone; 23:23:52 outdoors
+    // commit → forest resumed), so every threshold visit was a full musical
+    // whiplash — that is what "choppy in buildings" was; the audio worker
+    // never stalled once. Three seconds outlasts the observed alternation:
+    // lingering in a doorway now changes NOTHING, and a genuine entry pays a
+    // 3 s delay before the interior set starts, which a bed transition absorbs.
+    private (bool Indoors, (uint Music, uint Ambience, uint Intro) Interior, uint AreaId)
+        _soundscapePendingIdentity;
+    private int _soundscapePendingCount;
+    private const int SoundscapeIdentityDwellSamples = 12;   // 12 × 250 ms = 3 s
     private uint _weatherSoundKit;
     private readonly WeatherVisualLaw _weatherVisual = new();
     private WeatherPrecipitationRenderer? _weatherPrecipitation;
@@ -168,16 +185,16 @@ public sealed partial class GameLoop
             var probe = feet + new Vector3(0f, 0f, 1.7f);
             float? terrainZ = _terrain!.SampleHeight(probe.X, probe.Y);
             uint areaId = 0;
-            _soundscapeInterior = (0, 0, 0);
-            _soundscapeIndoors = false;
+            bool indoorsNow = false;
+            (uint Music, uint Ambience, uint Intro) interiorNow = (0, 0, 0);
 
             if (_wmo?.ResolveAreaMinimapIdentity(feet, terrainZ) is { } interior)
             {
-                _soundscapeIndoors = true;
+                indoorsNow = true;
                 if (_wmoAreas?.Resolve(interior.RootWmoId, interior.NameSetId,
                         interior.GroupWmoId) is { } row)
                 {
-                    _soundscapeInterior = (row.ZoneMusicId, row.AmbienceId, row.IntroSoundId);
+                    interiorNow = (row.ZoneMusicId, row.AmbienceId, row.IntroSoundId);
                     areaId = row.AreaTableId;
                 }
             }
@@ -188,7 +205,44 @@ public sealed partial class GameLoop
                 if (_adts?.TryPeek(projection.TileColumn, projection.TileRow, out var adt) == true)
                     areaId = projection.AreaId(adt);
             }
-            if (areaId != 0) _soundscapeAreaId = areaId;
+
+            // Commit through the doorway dwell: an identity that AGREES with what
+            // is playing resets the pending run; a changed one must hold for
+            // SoundscapeIdentityDwellSamples consecutive resolves first. The area
+            // id rides the same dwell because a doorway also flaps between the
+            // building's WMOAreaTable row and the terrain's, and a flapping area
+            // restarts the outdoor beds just as brutally.
+            var identityNow = (indoorsNow, interiorNow, areaId);
+            if (indoorsNow == _soundscapeIndoors && interiorNow == _soundscapeInterior &&
+                (areaId == 0 || areaId == _soundscapeAreaId))
+            {
+                _soundscapePendingCount = 0;
+            }
+            else if (_soundscapePendingIdentity == identityNow &&
+                     ++_soundscapePendingCount >= SoundscapeIdentityDwellSamples)
+            {
+                _soundscapeIndoors = indoorsNow;
+                _soundscapeInterior = interiorNow;
+                if (areaId != 0) _soundscapeAreaId = areaId;
+                _soundscapePendingCount = 0;
+                Console.WriteLine($"[soundscape] identity commit: indoors={indoorsNow}, " +
+                    $"music={interiorNow.Music}, ambience={interiorNow.Ambience}, " +
+                    $"intro={interiorNow.Intro}, area={areaId}");
+            }
+            else if (_soundscapePendingIdentity != identityNow)
+            {
+                _soundscapePendingIdentity = identityNow;
+                _soundscapePendingCount = 1;
+            }
+            // First fix ever (nothing committed yet): adopt immediately so login
+            // does not spend a silent second waiting out the dwell.
+            if (_soundscapeAreaId == 0 && areaId != 0)
+            {
+                _soundscapeIndoors = indoorsNow;
+                _soundscapeInterior = interiorNow;
+                _soundscapeAreaId = areaId;
+                _soundscapePendingCount = 0;
+            }
         }
 
         // Submerged means the HEAD is under a liquid surface - the same

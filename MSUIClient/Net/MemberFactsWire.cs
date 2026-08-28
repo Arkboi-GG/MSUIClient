@@ -27,21 +27,35 @@ public static class MemberFactsWire
         return w.ToArray();
     }
 
+    /// <summary>flags bit0: this move is an in-place rearrange within one owner
+    /// (from == to), and u8 destBag + u8 destSlot follow.</summary>
+    public const byte ItemMoveFlagInPlace = 0x01;
+
     /// <summary>
     /// Instant party item move (Phase C v1 — owner 2026-08-25: manage the
-    /// party's bags like a CRPG): u8 flags (reserved), u64 from, u64 to,
-    /// u8 bag (255 = character-held, 19-22 = equipped bag), u8 slot. The
-    /// server validates the party line and answers with
-    /// SMSG_SUI_MEMBER_ITEM_MOVE_RESULT plus fresh snapshots for both ends.
+    /// party's bags like a CRPG): u8 flags, u64 from, u64 to, u8 bag (255 =
+    /// character-held, 19-22 = equipped bag), u8 slot. flags bit0
+    /// (<see cref="ItemMoveFlagInPlace"/>) = IN-PLACE rearrange within a single
+    /// owner (from == to): two extra bytes u8 destBag, u8 destSlot follow and the
+    /// server swaps src↔dest on that owner (owner->SwapItem, no possession). flags
+    /// 0 = cross-member give (auto-store to the target's first free slot), 19
+    /// bytes, unchanged. Server answers SMSG_SUI_MEMBER_ITEM_MOVE_RESULT plus
+    /// fresh snapshots for the affected end(s).
     /// </summary>
-    public static byte[] BuildMemberItemMoveBody(ulong from, ulong to, byte bag, byte slot)
+    public static byte[] BuildMemberItemMoveBody(ulong from, ulong to, byte bag, byte slot,
+        bool inPlace = false, byte destBag = 0, byte destSlot = 0)
     {
-        var w = new PacketWriter(19);
-        w.WriteU8(0);
+        var w = new PacketWriter(inPlace ? 21 : 19);
+        w.WriteU8(inPlace ? ItemMoveFlagInPlace : (byte)0);
         w.WriteU64(from);
         w.WriteU64(to);
         w.WriteU8(bag);
         w.WriteU8(slot);
+        if (inPlace)
+        {
+            w.WriteU8(destBag);
+            w.WriteU8(destSlot);
+        }
         return w.ToArray();
     }
 

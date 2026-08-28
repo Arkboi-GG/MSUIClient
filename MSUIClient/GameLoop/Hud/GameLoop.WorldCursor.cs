@@ -75,14 +75,24 @@ public sealed partial class GameLoop
         // Loot, skinning and NPC services are session-character interactions. Attacks are
         // routed through the controlled combat body. Neither route ever measures from the
         // Free View camera rig.
-        bool sessionScoped = unit.IsDead || serviceKind is not null;
+        // [SUI] P4b: an NPC service (gossip / vendor / trainer) is now performed AS
+        // the driven bot, so its cursor must measure from the CONTROLLED body when
+        // possessing (the interaction body), not the parked main — otherwise the
+        // hand never turns into the gossip bubble while driving a bot up to an NPC.
+        // A corpse's loot/skin stays the session character's, and attacks route
+        // through the controlled combat body, both unchanged.
         WorldEntity actor = player;
-        bool hasActorPose = TryGetControlledBodyPose(out WorldBodyPose actorPose);
-        if (sessionScoped && _entities.TryGet(LocalPlayerGuid, out WorldEntity sessionPlayer))
+        WorldBodyPose actorPose;
+        bool hasActorPose;
+        if (serviceKind is not null)
+            hasActorPose = TryGetInteractionBodyPose(out actorPose);
+        else if (unit.IsDead && _entities.TryGet(LocalPlayerGuid, out WorldEntity sessionPlayer))
         {
             actor = sessionPlayer;
             hasActorPose = TryGetSessionBodyPose(out actorPose);
         }
+        else
+            hasActorPose = TryGetControlledBodyPose(out actorPose);
         float distanceSquared = hasActorPose
             ? Vector3.DistanceSquared(actorPose.Position, unit.Position)
             : float.PositiveInfinity;

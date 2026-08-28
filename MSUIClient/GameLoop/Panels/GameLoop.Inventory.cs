@@ -17,6 +17,7 @@ public sealed partial class GameLoop
     private ItemDisplayTable? _itemDisplays;
     private ItemGroupSoundsCatalog? _itemGroupSounds;
     private uint? _previousCoinage;
+    private ulong _previousCoinageGuid;
     private bool _backpackOpen;
     private bool _backpackKeyWasDown;
     private bool _openBagsKeyWasDown;
@@ -110,15 +111,18 @@ public sealed partial class GameLoop
         bool down = BindingDown(GameBinding.OpenBackpack);
         if (down && !_backpackKeyWasDown && !typing && _net is { IsInWorld: true })
         {
-            // B IS ALWAYS YOUR OWN BAGS, in both modes. It was the commander's party-logistics
-            // key in the free view (owner, 2026-08-25), which put the two inventory keys the
-            // wrong way round once I existed: the small personal key opened everyone, and the
-            // big "inventory" key opened one body. Swapped on the owner's call, 2026-08-26.
             bool shift = InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight);
-            if (InventoryUiLaw.BindingAction(shift) == InventoryUiLaw.BagBindingAction.ToggleAllBags)
-                ToggleAllBags();
-            else
-                ToggleBackpack();
+            bool all = InventoryUiLaw.BindingAction(shift) ==
+                InventoryUiLaw.BagBindingAction.ToggleAllBags;
+            // Free view: B / Shift+B opens the PRIMARY's bags — possess-on-open (owner 2026-08-27),
+            // editable because the server routes swaps/use via GetSuiActor. The open is DEFERRED
+            // until control actually reaches the subject (a bot possessed, or your own body released
+            // back to when the primary is yourself), so the panel shows the subject's bags instead
+            // of flashing your own before the hand-over lands — and Tab-to-self + B now returns you
+            // to your own bags. A body view keeps the plain vanilla toggle.
+            if (_freeView) OpenPrimaryBags(all);
+            else if (all) ToggleAllBags();
+            else ToggleBackpack();
         }
         _backpackKeyWasDown = down;
 
@@ -166,10 +170,21 @@ public sealed partial class GameLoop
 
     private void ObserveMoneySound()
     {
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        // [SUI] P4b: the purse that dings is the purse the UI shows — the driven
+        // bot's while possessing (its coinage arrives via re-snapshots after every
+        // buy/sell/repair), the session character's otherwise. Watching only the
+        // logged-in character left possessed vendoring silent. A body switch
+        // reseeds, so the hand-off itself never plays a phantom coin.
+        ulong subject = ControlledGuid;
+        if (_net is null || !_entities.TryGet(subject, out WorldEntity player))
         {
             _previousCoinage = null;
             return;
+        }
+        if (subject != _previousCoinageGuid)
+        {
+            _previousCoinageGuid = subject;
+            _previousCoinage = null;
         }
         uint money = player.Fields.Coinage;
         uint? previous = _previousCoinage;
@@ -817,10 +832,10 @@ public sealed partial class GameLoop
 
     private void PickupOrPlaceItem(int container, int slot, ulong guid, bool ignoreModifiers = false)
     {
-        // The inventory wire has no actor guid: every split/swap mutates the gameplay body.
-        // A detached Free View cursor may inspect bags, but it must never become that actor.
-        if (!CanAuthorControlledGameplay || _net is null) return;
-        if (!CanAuthorSessionInventory) return;
+        // Swap/split are threaded through GetSuiActor server-side (v1.1), so a possessed bot's bags
+        // are editable; CanAuthorControlledGameplay already allows possession (and blocks a detached
+        // Free View cursor that drives no body).
+        if (!CanAuthorControlledOrSelf || _net is null) return;
         if (!HasCarriedItem)
         {
             if (guid != 0 && !IsInventorySlotLocked(container, slot))
@@ -891,7 +906,11 @@ public sealed partial class GameLoop
 
     private void UseItemAction(uint entry)
     {
-        if (!CanAuthorSessionInventory || _net is null || _items is null ||
+        // CMSG_USE_ITEM is threaded through GetSuiActor server-side (HEAD "useable 6 slots"), so a
+        // possessed bot's own items are usable and the required-level gate is the BOT's — same
+        // relaxation as the drag path (line ~822). CanAuthorControlledGameplay allows possession
+        // and still blocks a detached Free View cursor. Delete/mail/bank stay on the strict gate.
+        if (!CanAuthorControlledOrSelf || _net is null || _items is null ||
             !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
 
         List<(byte Bag, byte Slot, WorldEntity Item, bool Worn)> all =
@@ -949,7 +968,9 @@ public sealed partial class GameLoop
     /// </summary>
     private bool SendItemUse(byte bag, byte slot, WorldEntity instance, ItemTemplate template)
     {
-        if (!CanAuthorSessionInventory || _net is null) return false;
+        // Possession-aware (server routes CMSG_USE_ITEM via GetSuiActor): a possessed bot uses its
+        // own item, gated by ITS level. Strict session gate only guarded the pre-threading server.
+        if (!CanAuthorControlledOrSelf || _net is null) return false;
         ItemSpellTemplate useSpell = template.Spells[template.UseSpellIndex];
         SpellInfo? spell = _spellCatalog?.TryGet(useSpell.SpellId, out SpellInfo resolved) == true
             ? resolved : null;
@@ -964,6 +985,7 @@ public sealed partial class GameLoop
             return false;
         }
         if (!_net.UseItem(bag, slot, template.UseSpellIndex)) return false;
+        ScheduleControlledInventoryRefresh(ControlledGuid);   // re-sync a possessed bot's consumed item
         if (useSpell.SpellId == 0) return true;
         _actions.StartItemUseCooldown(instance.Entry, useSpell, spell, now);
         if (spell is { } committed) _actions.StartGlobalCooldown(useSpell.SpellId, committed, now);
@@ -1006,7 +1028,8 @@ public sealed partial class GameLoop
 
     private void UseBackpackItem(int slot, ItemTemplate item)
     {
-        if (!CanAuthorSessionInventory || _net is null) return;
+        // Possession-aware use/equip (both opcodes threaded via GetSuiActor server-side).
+        if (!CanAuthorControlledOrSelf || _net is null) return;
         if (item.InventoryType != 0) _net.AutoEquipItem(255, (byte)(23 + slot));
         else if (ResolveInventoryItem(0, slot) is { } instance)
             SendItemUse(255, (byte)(23 + slot), instance, item);
@@ -1144,7 +1167,8 @@ public sealed partial class GameLoop
         uint maxDurability = 0,
         bool compact = false,
         uint? instanceFlags = null,
-        WorldEntity? liveInstance = null)
+        WorldEntity? liveInstance = null,
+        ulong ownerGuid = 0)
     {
         ArgumentNullException.ThrowIfNull(item);
         var operations = ImmutableArray.CreateBuilder<PreparedItemTooltipPaintOp>();
@@ -1194,13 +1218,22 @@ public sealed partial class GameLoop
             if (string.IsNullOrWhiteSpace(type)) type = null;
             if (slot is not null || type is not null)
             {
-                bool canDualWield = _spellCatalog is not null && OwnActions.KnownSpells.Any(id =>
-                    _spellCatalog.TryGet(id, out SpellInfo spell) &&
-                    spell.EffectIds is { Length: > 0 } && spell.EffectIds[0] == 40);
-                InventoryUiLaw.ProficiencyColors proficiency =
-                    InventoryUiLaw.ItemProficiencyColors(item.Class, item.Subclass,
+                // Weapon/armor proficiency red is judged against WHOSE bags are shown, but we only
+                // have the LOGIN character's proficiencies client-side (streamed on the session
+                // wire; a possessed bot's are not). So for anyone else we do NOT paint the type as
+                // unusable — the server still enforces equip, and level/class/race above are already
+                // owner-correct. Fixes gear reading red on a bot you can actually equip it to.
+                bool ownerIsLocal = ownerGuid == 0 || ownerGuid == LocalPlayerGuid;
+                InventoryUiLaw.ProficiencyColors proficiency = default;
+                if (ownerIsLocal)
+                {
+                    bool canDualWield = _spellCatalog is not null && OwnActions.KnownSpells.Any(id =>
+                        _spellCatalog.TryGet(id, out SpellInfo spell) &&
+                        spell.EffectIds is { Length: > 0 } && spell.EffectIds[0] == 40);
+                    proficiency = InventoryUiLaw.ItemProficiencyColors(item.Class, item.Subclass,
                         item.InventoryType, _itemProficiencies,
                         subclassInfo.ProficiencyAlternative, canDualWield);
+                }
                 if (slot is not null && type is not null)
                     operations.Add(PreparedItemTooltipPair(slot,
                         proficiency.SlotRed ? red : Vector4.One, type,
@@ -1307,9 +1340,14 @@ public sealed partial class GameLoop
                 $"Durability {current} / {authoredMaximum}", current == 0 ? red : white));
         }
 
+        // Level / class / race requirements colour against WHOSE bags are shown — the possessed bot
+        // when you're driving one — not always the commander. ownerGuid 0 keeps the vanilla self
+        // perspective for every other surface (vendor, inspect, paperdoll comparisons). (Required
+        // SKILL still reads the session player's own skill lines — a bot's aren't streamed.)
+        ulong requirementOwner = ownerGuid != 0 ? ownerGuid : LocalPlayerGuid;
         WorldEntity? player = null;
-        if (_entities is not null && LocalPlayerGuid != 0 &&
-            _entities.TryGet(LocalPlayerGuid, out WorldEntity foundPlayer))
+        if (_entities is not null && requirementOwner != 0 &&
+            _entities.TryGet(requirementOwner, out WorldEntity foundPlayer))
             player = foundPlayer;
         byte playerRace = 0, playerClass = 0;
         uint playerLevel = 0;
@@ -1902,9 +1940,15 @@ public sealed partial class GameLoop
         bool hovered = ImGui.IsItemHovered();
         bool repairReleased = _vendorRepairMode && hovered &&
             ImGui.IsMouseReleased(ImGuiMouseButton.Left) && ImGui.IsItemDeactivated();
-        // A possessed bot's bags are read-only in v1.0: every inventory mutation opcode is
-        // guid-less and acts on the SESSION character server-side. Hover/tooltips stay live.
-        bool interactive = CanAuthorSessionInventory;
+        // A possessed bot's bags are now editable: swap/split/equip are threaded through GetSuiActor
+        // server-side, so they act on the driven bot. Left-click drag/pickup and context-equip route
+        // there; the un-threaded context actions (mail/bank/delete/gift/quest) re-check the strict
+        // CanAuthorSessionInventory and stay blocked while possessing.
+        // CanAuthorControlledOrSelf: a possessed bot's bags (threaded via GetSuiActor) OR your own
+        // character even from the free-view sky — so your own bag items are usable there too, not
+        // just the quick slots. Session-only actions (mail/bank/delete/gift/quest) still re-check
+        // the strict CanAuthorSessionInventory below and stay blocked on a bot.
+        bool interactive = CanAuthorControlledOrSelf;
         bool leftClicked = interactive && !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Left);
         bool rightClicked = interactive && !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Right);
         bool dressUpClick = leftClicked && ImGui.GetIO().KeyCtrl && instance is not null;
@@ -1975,18 +2019,25 @@ public sealed partial class GameLoop
                 }
                 else if (InventoryUiLaw.OpensLoot(item.Flags))
                 {
-                    if (CanAuthorSessionInventory)
+                    // Cracking open a lootable item (clam / lockbox): the server answers
+                    // SendLoot(item guid, LOOT_CORPSE) — the item's OWN guid, loot type 1. Arm the
+                    // loot latch to that guid so the SMSG_LOOT_RESPONSE is ADMITTED (an unlatched
+                    // type-1 response is otherwise rejected, so the window never opened). It is a
+                    // session action (loot flows to _player, server requires IsSelfMover) — allow it
+                    // for your OWN character even from the free-view sky, but never while possessing
+                    // a bot (that would misroute its loot to you, and the server drops it anyway).
+                    if (ControlledGuid == LocalPlayerGuid)
                     {
                         AddPendingBagLock(container, slot, ++_pendingBagOperation);
+                        _lootPendingGuid = instance.Guid;
                         _net.OpenItem(wire.Bag, wire.Slot);
                     }
                 }
                 else if (item.InventoryType != 0)
                 {
-                    if (CanAuthorSessionInventory)
-                    {
-                        if (CanAuthorControlledGameplay) _net.AutoEquipItem(wire.Bag, wire.Slot);
-                    }
+                    // Equip is threaded via GetSuiActor server-side, so a possessed bot equips its
+                    // own gear — same gate as the drag-to-equip-slot path.
+                    if (CanAuthorControlledOrSelf) _net.AutoEquipItem(wire.Bag, wire.Slot);
                 }
                 else SendItemUse(wire.Bag, wire.Slot, instance, item);
             }
@@ -2058,7 +2109,8 @@ public sealed partial class GameLoop
                 instance?.Fields.ItemDurability ?? 0,
                 instance?.Fields.ItemMaxDurability ?? 0,
                 instanceFlags: instance?.Fields.ItemFlags,
-                liveInstance: instance);
+                liveInstance: instance,
+                ownerGuid: ControlledGuid);   // requirements read the shown unit (possessed bot)
             ImmutableArray<PreparedPaperDollComparisonTooltip> comparisons =
                 PreparePaperDollComparisonTooltips(item);
             Action? drawComparisons = comparisons.IsEmpty

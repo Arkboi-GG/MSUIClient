@@ -223,7 +223,8 @@ public sealed partial class GameLoop
 
         DressUpFrameUiLaw.LogicalRect portraitRect = DressUpFrameUiLaw.Portrait;
         Vector2 portraitMin = origin + portraitRect.Min * scale;
-        uint portrait = RoundAperturePortrait(_playerPortrait, _playerPortraitUsable);
+        uint portrait = RoundAperturePortrait(_playerPortrait,
+            PlayerPortraitCurrent && !_freeView);
         if (portrait != 0)
             draw.AddImage((nint)portrait, portraitMin, portraitMin + portraitRect.Size * scale,
                 DressUpFrameUiLaw.PortraitUvMin, DressUpFrameUiLaw.PortraitUvMax);

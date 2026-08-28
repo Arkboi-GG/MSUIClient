@@ -128,6 +128,9 @@ public static class SuiCapabilityWire
     // lead in order to promote anyone — so without this the commander cannot
     // rearrange or break up their own party.
     public const uint PartyLeadV1 = 1u << 9;
+    /// <summary>PLAN_20 Model B: a questgiver's quests + per-member eligibility, for
+    /// the free-view commander quest window (no possession, no main at the NPC).</summary>
+    public const uint PartyGiverQuestsV1 = 1u << 10;
     public const int TrailerLength = 8;
 
     public const byte PrewarmCatalogVersion = 1;

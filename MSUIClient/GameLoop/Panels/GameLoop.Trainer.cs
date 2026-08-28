@@ -22,7 +22,7 @@ public sealed partial class GameLoop
     {
         string outcome = "REFUSED"; string detail = "descriptorMissing";
         if (_net is { IsInWorld: true } &&
-            TryGetSessionBodyPose(out WorldBodyPose sessionBody) &&
+            TryGetInteractionBodyPose(out WorldBodyPose sessionBody) &&
             _entities.TryGet(guid, out WorldEntity npc) && npc.IsCreature && !npc.IsDead &&
             (npc.NpcFlags & NpcTrainer) != 0)
         {
@@ -41,7 +41,7 @@ public sealed partial class GameLoop
     private bool UpdateTrainerLifecycle()
     {
         if (_trainer is null ||
-            !TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return false;
+            !TryGetInteractionBodyPose(out WorldBodyPose sessionBody)) return false;
         ulong trainerGuid = _trainer.TrainerGuid;
         bool sourceAvailable = _entities.TryGet(trainerGuid, out WorldEntity trainer);
         float distanceSquared = sourceAvailable

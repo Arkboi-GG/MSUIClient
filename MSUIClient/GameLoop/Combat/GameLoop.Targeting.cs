@@ -618,7 +618,8 @@ public sealed partial class GameLoop
         string name = target.IsPlayer
             ? _playerNames.GetValueOrDefault(target.Guid, "Player")
             : ResolveCreatureOrPetName(target, $"Creature {target.Entry}");
-        uint portrait = target.IsPlayer && target.Guid == ControlledGuid
+        uint portrait = target.IsPlayer && target.Guid == ControlledGuid &&
+                PlayerPortraitCurrent && !_freeView
             ? UnitFramePortrait(_playerPortrait, _playerPortraitUsable)
             : _portraitTargetGuid == target.Guid
                 ? UnitFramePortrait(_targetPortrait, _targetPortraitUsable)

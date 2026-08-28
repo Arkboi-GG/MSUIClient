@@ -45,6 +45,15 @@ public sealed partial class GameLoop
         _partyGiverStatusAvailable = available;
     }
 
+    /// <summary>Forget the pull throttle so the next frame re-asks immediately —
+    /// called on control hand-offs, where the party's business at every marked
+    /// giver may read differently the moment a different body is driven.</summary>
+    private void PokePartyGiverStatus()
+    {
+        _giverStatusPulledAt = 0;
+        _giverStatusRequestHash = 0;
+    }
+
     private void ResetPartyGiverStatus()
     {
         _partyGiverStatusAvailable = false;

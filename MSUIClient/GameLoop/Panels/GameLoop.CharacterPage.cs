@@ -253,7 +253,7 @@ public sealed partial class GameLoop
         PaperDollUiLaw.LogicalRect logical = PaperDollUiLaw.PortraitRect;
         Vector2 min = p + new Vector2(logical.X, logical.Y) * s;
         Vector2 size = new Vector2(logical.Width, logical.Height) * s;
-        bool liveTarget = _playerPortrait is not null && _playerPortraitUsable;
+        bool liveTarget = _playerPortrait is not null && PlayerPortraitCurrent && !_freeView;
         if (CharacterPageUiParityCaptureActive)
             CollectUiParityDraw("CharacterFramePortrait", "PlayerModel", min, size, "CharacterFrame",
                 new("", 0xffffffff, "ARTWORK:BEHIND_PAGE_BACKGROUND", "TOPLEFT",
@@ -264,8 +264,10 @@ public sealed partial class GameLoop
                     Visible: true, InteractionState: liveTarget ? "live-player-model" : "unit-fallback",
                     Strata: "MEDIUM"));
         // The round copy: this frame's aperture is the authored round overlay in
-        // BOTH modes, so it must never be handed the square bake.
-        uint portrait = RoundAperturePortrait(_playerPortrait, _playerPortraitUsable);
+        // BOTH modes, so it must never be handed the square bake. In free view
+        // the streamed-body chain below owns the face instead.
+        uint portrait = RoundAperturePortrait(_playerPortrait,
+            PlayerPortraitCurrent && !_freeView);
         if (portrait != 0)
             dl.AddImage((nint)portrait, min, min + size,
                 new Vector2(0, 1), new Vector2(1, 0), 0xffffffff);

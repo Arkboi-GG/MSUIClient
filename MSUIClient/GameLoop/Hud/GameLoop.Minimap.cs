@@ -659,12 +659,29 @@ public sealed partial class GameLoop
                info is not null ? info.CreatureType : 0;
     }
 
+    /// <summary>Blip indoor verdicts, cached on quantized position: the identity
+    /// resolve walks WMO collision geometry, and it used to run PER BLIP PER
+    /// FRAME — inside a large building with several tracked blips that alone
+    /// cost multiple milliseconds every frame, a big slice of why interiors
+    /// felt heavy. A blip moves slowly relative to a quarter second.</summary>
+    private readonly Dictionary<(int X, int Y, int Z), (bool Indoors, double Expires)>
+        _minimapBlipIndoors = [];
+
     private uint MinimapBlipTint(Vector3 position)
     {
         bool playerIndoors = _minimapAreaInterior is not null;
-        bool candidateIndoors = _wmo?.ResolveAreaMinimapIdentity(position,
-            _terrain?.SampleHeight(position.X, position.Y)) is not null;
-        return MinimapUiLaw.BlipTint(playerIndoors, candidateIndoors);
+        double now = NowSeconds();
+        (int, int, int) key = ((int)MathF.Round(position.X),
+            (int)MathF.Round(position.Y), (int)MathF.Round(position.Z));
+        if (!_minimapBlipIndoors.TryGetValue(key,
+                out (bool Indoors, double Expires) verdict) || now >= verdict.Expires)
+        {
+            if (_minimapBlipIndoors.Count > 512) _minimapBlipIndoors.Clear();
+            verdict = (_wmo?.ResolveAreaMinimapIdentity(position,
+                _terrain?.SampleHeight(position.X, position.Y)) is not null, now + 0.25);
+            _minimapBlipIndoors[key] = verdict;
+        }
+        return MinimapUiLaw.BlipTint(playerIndoors, verdict.Indoors);
     }
 
     private void DrawMinimapCorpseMarker(ImDrawListPtr draw, Vector3 playerPosition,

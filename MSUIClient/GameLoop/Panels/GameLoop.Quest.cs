@@ -67,7 +67,7 @@ public sealed partial class GameLoop
             bool sent = send(net); outcome = sent ? "SENT" : "SEND_FAILED";
             detail = "giver=item;rangeGate=bypassed";
         }
-        else if (TryGetSessionBodyPose(out WorldBodyPose sessionBody) &&
+        else if (TryGetInteractionBodyPose(out WorldBodyPose sessionBody) &&
             _entities.TryGet(guid, out WorldEntity npc) && npc.IsCreature && !npc.IsDead &&
             (npc.NpcFlags & NpcQuestGiver) != 0)
         {
@@ -100,6 +100,9 @@ public sealed partial class GameLoop
         // exists until an unrelated roster edge. Rate-limited; harmless when the
         // quest did get a slot.
         if (sent) RequestPartyQuestFacts("quest accepted");
+        // [SUI] P4b: an accept AS a driven bot changes no own-player field and
+        // echoes no quest packet, so nothing else invalidates the giver's "!".
+        if (sent) BumpQuestStatusReask();
         return sent;
     }
 
@@ -191,8 +194,15 @@ public sealed partial class GameLoop
     /// </summary>
     private void UpdateQuestGiverStatusQueries()
     {
+        // [SUI] P4b: sweep around the INTERACTION body — the driven bot while
+        // possessing, the session character otherwise. The server answers
+        // CMSG_QUESTGIVER_STATUS_QUERY as GetSuiActor(), so the statuses this
+        // sweep collects are the driven bot's; asking about the NPCs around the
+        // parked commander while driving a bot across the zone answered for
+        // givers nobody is looking at. Never the free-view camera (the
+        // interaction body is always a real body).
         if (_net is not { IsInWorld: true } net ||
-            !TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
+            !TryGetInteractionBodyPose(out WorldBodyPose sessionBody) ||
             !_entities.TryGet(net.PlayerGuid, out WorldEntity player)) return;
 
         ulong generation = QuestStatusRefreshLaw.PlayerGeneration(
@@ -468,7 +478,12 @@ public sealed partial class GameLoop
             reason = "left-panel-displaced";
         else if (GuidInfo.IsItem(giver))
             return false;
-        else if (!TryGetSessionBodyPose(out WorldBodyPose sessionBody))
+        // [SUI] P4b: the OPEN gates (QuestGate, RequestGossip) measure from the
+        // interaction body — the driven bot while possessing — but this lifecycle
+        // measured from the SESSION body, so a frame the bot legitimately opened
+        // far from the parked commander closed itself the very next tick. That was
+        // "can't talk to an NPC unless my logged-in character is nearby."
+        else if (!TryGetInteractionBodyPose(out WorldBodyPose sessionBody))
             return false;
         else if (!_entities.TryGet(giver, out WorldEntity npc))
             reason = "giver-despawned";
@@ -496,15 +511,21 @@ public sealed partial class GameLoop
         QuestTextMacroLaw.Subject? subject = null;
         if (_net is not null)
         {
-            if (_entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+            // [SUI] P4b: while driving a party bot, personalise the quest text with the
+            // BOT's name/race/class/gender — it is the one the giver is addressing — not
+            // the logged-in character. ControlledGuid IS your own guid when unpossessed.
+            ulong subjectGuid = ControlledGuid;
+            string subjectName = subjectGuid == _net.PlayerGuid
+                ? _net.PlayerName : ResolveUnitName(subjectGuid);
+            if (_entities.TryGet(subjectGuid, out WorldEntity player))
             {
                 var bytes = player.Fields.Bytes0;
-                subject = new QuestTextMacroLaw.Subject(_net.PlayerName, RaceName(bytes.Race),
+                subject = new QuestTextMacroLaw.Subject(subjectName, RaceName(bytes.Race),
                     ClassName(bytes.Class), bytes.Gender);
             }
-            else if (_playerTraits.TryGetValue(_net.PlayerGuid, out PlayerTraits traits))
+            else if (_playerTraits.TryGetValue(subjectGuid, out PlayerTraits traits))
             {
-                subject = new QuestTextMacroLaw.Subject(_net.PlayerName,
+                subject = new QuestTextMacroLaw.Subject(subjectName,
                     RaceName(traits.Race), ClassName(traits.Class), traits.Gender);
             }
         }

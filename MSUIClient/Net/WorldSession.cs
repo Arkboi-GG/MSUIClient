@@ -366,6 +366,15 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_SUI_MEMBER_ITEM_MOVE,
             MemberFactsWire.BuildMemberItemMoveBody(from, to, bag, slot));
 
+    /// <summary>In-place rearrange within ONE member's bags (Ctrl+F party
+    /// browser): swap src↔dest on a single owner. Rides the item-move opcode with
+    /// the in-place flag; the server does owner->SwapItem.</summary>
+    public void SuiMemberItemRearrange(ulong owner, byte srcBag, byte srcSlot,
+        byte destBag, byte destSlot) =>
+        SendPacket((ushort)Op.CMSG_SUI_MEMBER_ITEM_MOVE,
+            MemberFactsWire.BuildMemberItemMoveBody(owner, owner, srcBag, srcSlot,
+                inPlace: true, destBag, destSlot));
+
     /// <summary>Take group leadership (PLAN_20 P4a). The server only ever grants
     /// this when the current leader is an AiBot in the requester's own group.
     /// Only sent once the control-ACK trailer advertised party-lead-v1.</summary>
@@ -381,6 +390,12 @@ public sealed class WorldSession : IDisposable
     public void SuiGiverStatus(IReadOnlyList<ulong> givers) =>
         SendPacket((ushort)Op.CMSG_SUI_GIVER_STATUS,
             GiverStatusWire.BuildGiverStatusBody(givers));
+
+    /// <summary>PLAN_20 Model B: ask one giver for its quests + each party member's
+    /// eligibility, so the free-view quest window can draw per-member cards without
+    /// possession. Only sent once party-giver-quests-v1 is advertised.</summary>
+    public void SuiGiverQuests(ulong giver) =>
+        SendPacket((ushort)Op.CMSG_SUI_GIVER_QUESTS, GiverQuestsWire.BuildRequest(giver));
 
     /// <summary>Pull party quest logs (PLAN_20 P1); an empty list means the whole
     /// group AND our own character — the latter is how overflow quests arrive.

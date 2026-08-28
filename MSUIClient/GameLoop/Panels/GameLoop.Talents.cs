@@ -200,7 +200,8 @@ public sealed partial class GameLoop
         if (entity is not null)
         {
             // Round copy - the talent frame's aperture is authored art in both modes.
-            uint portrait = RoundAperturePortrait(_playerPortrait, _playerPortraitUsable);
+            uint portrait = RoundAperturePortrait(_playerPortrait,
+                PlayerPortraitCurrent && !_freeView);
             TalentFrameUiLaw.LogicalRect portraitRect = TalentFrameUiLaw.Portrait;
             if (portrait != 0)
                 dl.AddImage((nint)portrait, origin + portraitRect.Min * s,

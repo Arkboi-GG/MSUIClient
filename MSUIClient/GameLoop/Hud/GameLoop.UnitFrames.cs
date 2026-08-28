@@ -671,9 +671,17 @@ public sealed partial class GameLoop
             texture = RoundAperturePortrait(_targetPortrait, _targetPortraitUsable);
         if (texture == 0)
             texture = PetPortraitHandle(unit.Guid);
-        if (texture == 0 && unit.IsPlayer && _net is not null && unit.Guid == ControlledGuid)
+        // Free view: the streamed-body booth is the authority for EVERY player
+        // face (owner 2026-08-28) — the rig bake only fills in while it bakes.
+        if (texture == 0 && unit.IsPlayer && _freeView)
+            texture = PartyPortraitHandle(unit.Guid);
+        // Only when the bake is actually OF this unit (PlayerPortraitCurrent) —
+        // a stale bake of the previously driven bot must fall through to the
+        // party booth, never be worn by whoever holds the frame now.
+        if (texture == 0 && unit.IsPlayer && _net is not null &&
+            unit.Guid == ControlledGuid && PlayerPortraitCurrent)
             texture = RoundAperturePortrait(_playerPortrait, _playerPortraitUsable);
-        else if (texture == 0 && unit.IsPlayer)
+        if (texture == 0 && unit.IsPlayer)
             texture = PartyPortraitHandle(unit.Guid);
         if (texture == 0 && _gameplayArt is not null)
         {

@@ -83,6 +83,7 @@ public sealed class WorldSoundscape
     private bool _sessionStarted;
     private long _fadingMusicVoice;
     private float _fadingMusicEntryVolume;
+    private uint _fadingZoneMusicId;
     private double _musicFadeStartedAt;
     private readonly Dictionary<uint, double> _introPlayedAt = [];
     private int _musicSentVolume = -1;
@@ -96,6 +97,7 @@ public sealed class WorldSoundscape
     private double _ambienceStartedAt;
     private long _fadingAmbienceVoice;
     private float _fadingAmbienceEntryVolume;
+    private uint _fadingAmbienceKit;
     private double _ambienceFadeStartedAt;
     private int _ambienceSentVolume = -1;
     private int _ambienceFadeSentVolume = -1;
@@ -193,12 +195,44 @@ public sealed class WorldSoundscape
 
         if (desired != _currentZoneMusicId)
         {
+            // Step back through a doorway inside the fade window: the "new" zone
+            // is the one whose track is still fading out. Resurrect that voice —
+            // same track, same position — instead of decoding the whole file
+            // again. This is what kept quick in-and-outs from being free even
+            // after the identity dwell upstream.
+            if (_fadingMusicVoice != 0 && desired == _fadingZoneMusicId)
+            {
+                if (_musicVoice != 0)
+                {
+                    long retiring = _musicVoice;
+                    float retiringVolume = _musicEntryVolume;
+                    _musicVoice = _fadingMusicVoice;
+                    _musicEntryVolume = _fadingMusicEntryVolume;
+                    _fadingMusicVoice = retiring;
+                    _fadingMusicEntryVolume = retiringVolume;
+                    _fadingZoneMusicId = _currentZoneMusicId;
+                    _musicFadeStartedAt = now;
+                    _fadeSentVolume = -1;
+                }
+                else
+                {
+                    _musicVoice = _fadingMusicVoice;
+                    _musicEntryVolume = _fadingMusicEntryVolume;
+                    _fadingMusicVoice = 0;
+                }
+                _musicSentVolume = -1;
+                _currentZoneMusicId = desired;
+                Status = $"music resumed (set {desired})";
+                return;
+            }
+
             // Zone change: old track fades over 4 s, new starts NOW, full.
             if (_musicVoice != 0)
             {
                 StopVoice(ref _fadingMusicVoice);
                 _fadingMusicVoice = _musicVoice;
                 _fadingMusicEntryVolume = _musicEntryVolume;
+                _fadingZoneMusicId = _currentZoneMusicId;
                 _musicFadeStartedAt = now;
                 _fadeSentVolume = -1;
                 _musicVoice = 0;
@@ -394,6 +428,33 @@ public sealed class WorldSoundscape
             // Submerge/emerge swaps instantly; everything else crossfades 5 s.
             bool instant = Submerged || _ambienceKit == UnderwaterLoopKit;
 
+            // The bed we want back is still fading out (a doorway in-and-out
+            // within the crossfade window): reverse the crossfade in place
+            // instead of starting a third copy of the same loop.
+            if (!instant && _fadingAmbienceVoice != 0 && desired == _fadingAmbienceKit)
+            {
+                long comingBack = _fadingAmbienceVoice;
+                float comingBackVolume = _fadingAmbienceEntryVolume;
+                float tOut = Math.Clamp(
+                    (float)((now - _ambienceFadeStartedAt) / AmbienceFadeSeconds), 0f, 1f);
+
+                _fadingAmbienceVoice = _ambienceVoice;
+                _fadingAmbienceEntryVolume = _ambienceEntryVolume;
+                _fadingAmbienceKit = _ambienceKit;
+                _ambienceFadeStartedAt = now;
+                _ambienceFadeSentVolume = -1;
+
+                _ambienceVoice = comingBack;
+                _ambienceEntryVolume = comingBackVolume;
+                // Resume the fade-in from where the fade-out left the gain, so
+                // the reversal is seamless rather than a jump to silence.
+                _ambienceStartedAt = now - AmbienceFadeSeconds * (1f - tOut);
+                _ambienceSentVolume = -1;
+                _ambienceKit = desired;
+                Console.WriteLine($"[soundscape] ambience kit {desired} (resumed)");
+                return;
+            }
+
             if (_ambienceVoice != 0)
             {
                 if (instant)
@@ -405,6 +466,7 @@ public sealed class WorldSoundscape
                     StopVoice(ref _fadingAmbienceVoice);
                     _fadingAmbienceVoice = _ambienceVoice;
                     _fadingAmbienceEntryVolume = _ambienceEntryVolume;
+                    _fadingAmbienceKit = _ambienceKit;
                     _ambienceFadeStartedAt = now;
                     _ambienceFadeSentVolume = -1;
                     _ambienceVoice = 0;

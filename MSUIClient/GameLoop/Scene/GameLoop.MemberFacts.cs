@@ -46,6 +46,7 @@ public sealed partial class GameLoop
         ApplyPartyQuestActsCapability(capabilities);
         ApplyPartyGiverStatusCapability(capabilities);
         ApplyPartyLeadCapability(capabilities);
+        ApplyPartyGiverQuestsCapability(capabilities);
     }
 
     private void ResetPartyMemberFacts()
@@ -54,6 +55,36 @@ public sealed partial class GameLoop
         _partyItemMoveAvailable = false;
         _partyMemberFactsPulledAt = 0;
         _partyMemberFactsRosterHash = 0;
+        _controlledInvRefreshLeft = 0;
+        _controlledInvRefreshGuid = 0;
+    }
+
+    // After using an item from a possessed bot, the consumed/decremented stack must re-sync — the
+    // bot has no session to stream the change, and the server's re-snapshot in the use handler can
+    // fire BEFORE a cast-time consumable is actually taken (TakeCastItem runs inside Spell::cast,
+    // synchronous only for instant spells). So schedule a couple of targeted member-facts re-pulls
+    // to catch the post-consumption state — exactly what pressing I does, but automatic.
+    private ulong _controlledInvRefreshGuid;
+    private double _controlledInvRefreshAt;
+    private int _controlledInvRefreshLeft;
+
+    private void ScheduleControlledInventoryRefresh(ulong unit)
+    {
+        if (unit == 0 || unit == LocalPlayerGuid) return;   // own char streams its own consumption
+        if (!IsPartyMemberFactsSubject(unit)) return;        // only party AiBots can be re-pulled
+        _controlledInvRefreshGuid = unit;
+        _controlledInvRefreshAt = NowSeconds() + 0.4;        // catch an instant consume fast...
+        _controlledInvRefreshLeft = 2;                        // ...and a short cast-time one at +1.2s
+    }
+
+    private void UpdateControlledInventoryRefresh()
+    {
+        if (_controlledInvRefreshLeft <= 0 || _net is not { IsInWorld: true }) return;
+        if (NowSeconds() < _controlledInvRefreshAt) return;
+        if (IsPartyMemberFactsSubject(_controlledInvRefreshGuid))
+            _net.SuiMemberFacts([_controlledInvRefreshGuid]);
+        _controlledInvRefreshLeft--;
+        _controlledInvRefreshAt = NowSeconds() + 0.8;
     }
 
     /// <summary>
@@ -71,6 +102,24 @@ public sealed partial class GameLoop
         }
         if (from == to || from == 0 || to == 0) return;
         _net?.SuiMemberItemMove(from, to, bag, slot);
+    }
+
+    /// <summary>
+    /// In-place rearrange within ONE member's bags — the Ctrl+F party browser's
+    /// same-owner drag from one slot to another. Unlike the cross-member give, the
+    /// destination slot is explicit and the server swaps src↔dest on that owner
+    /// (owner->SwapItem, no possession), then re-snapshots it.
+    /// </summary>
+    private void RequestMemberItemRearrange(ulong owner, byte srcBag, byte srcSlot,
+        byte destBag, byte destSlot)
+    {
+        if (!_partyItemMoveAvailable)
+        {
+            ShowUiError("Item moves need the party-item-move server capability.");
+            return;
+        }
+        if (owner == 0 || (srcBag == destBag && srcSlot == destSlot)) return;
+        _net?.SuiMemberItemRearrange(owner, srcBag, srcSlot, destBag, destSlot);
     }
 
     /// <summary>SMSG_SUI_MEMBER_ITEM_MOVE_RESULT: one code + both endpoints.
