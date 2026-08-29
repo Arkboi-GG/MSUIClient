@@ -450,13 +450,13 @@ public sealed partial class GameLoop
         Vector2 headerMax = new(disp.X - margin, margin + headerH);
         dl.AddRectFilled(headerMin, headerMax, 0xFA181410, 6f * s);
         dl.AddRect(headerMin, headerMax, 0x50FFFFFF, 6f * s);
-        dl.AddText(ImGui.GetFont(), 20f * s, headerMin + new Vector2(14f, 7f) * s,
+        CmdText(dl, 20f * s, headerMin + new Vector2(14f, 7f) * s,
             VanillaGold, "COMMANDER");
         if (_rtsMode == 1)
         {
             string campaign = CommanderMapUiLaw.CampaignStatus(
                 _rtsMode, _rtsModules, _rtsFactions[OwnTeamIndex].HonorPool);
-            dl.AddText(ImGui.GetFont(), 11f * s, headerMin + new Vector2(14f, 33f) * s,
+            CmdText(dl, 11f * s, headerMin + new Vector2(14f, 33f) * s,
                 0xFF60C0E0, campaign);
         }
 
@@ -465,7 +465,7 @@ public sealed partial class GameLoop
         uint intelColor = _zoneIntelAt == 0 ? 0xFF808080 : stale ? 0xFF3E8CE6 : 0xFF9CC49C;
         float intelSize = 12f * s;
         Vector2 close = new(headerMax.X - 34f * s, headerMin.Y + (headerH - 28f * s) * 0.5f);
-        float intelWidth = ImGui.CalcTextSize(intelText).X * (intelSize / MathF.Max(1f, ImGui.GetFontSize()));
+        float intelWidth = GameText.MeasurePlain(intelText, intelSize, 1f);
         string centreTitle = drilled
             ? $"WORLD OVERVIEW  >  {(drilledZone.MapId == 1 ? "KALIMDOR" : "EASTERN KINGDOMS")}  >  {CommanderZoneName(drilledZone)}"
             : "WORLD OVERVIEW";
@@ -477,7 +477,7 @@ public sealed partial class GameLoop
         DrawCenteredText(dl, new Vector2((titleLeft + titleRight) * 0.5f,
                 headerMin.Y + headerH * 0.5f),
             fittedTitle, titleSize, 0xFFF2E8D4);
-        dl.AddText(ImGui.GetFont(), intelSize,
+        CmdText(dl, intelSize,
             new Vector2(close.X - intelWidth - 14f * s, headerMin.Y + (headerH - intelSize) * 0.5f),
             intelColor, intelText);
         DrawImageButton(dl, "##commander-close", close, new Vector2(28f) * s,
@@ -515,7 +515,7 @@ public sealed partial class GameLoop
         Vector2 legendPoint = new(margin + 5f * s,
             disp.Y - margin - footerH * 0.45f);
         DrawCommanderDiamond(dl, legendPoint, 4.5f * s, VanillaGold);
-        dl.AddText(ImGui.GetFont(), 11f * s,
+        CmdText(dl, 11f * s,
             legendPoint + new Vector2(10f, -5.5f) * s,
             0xFF96918Bu, "Camera  -  B Bots  -  P Players");
         DrawCenteredText(dl, new Vector2(disp.X * 0.5f, disp.Y - margin - footerH * 0.45f),
@@ -563,12 +563,12 @@ public sealed partial class GameLoop
         float x = min.X + 12f * s;
         float right = max.X - 12f * s;
         float y = min.Y + 10f * s;
-        dl.AddText(ImGui.GetFont(), 15f * s, new Vector2(x, y), VanillaGold, "CAMPAIGN");
+        CmdText(dl, 15f * s, new Vector2(x, y), VanillaGold, "CAMPAIGN");
         y += 24f * s;
 
         if (CommanderMapUiLaw.ShowTerritory(_rtsMode, _rtsModules))
         {
-            dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A,
+            CmdText(dl, 10f * s, new Vector2(x, y), 0xFF8A8A8A,
                 "STANDING SUPPLY");
             y += 17f * s;
             for (int team = 0; team < _rtsFactions.Length; team++)
@@ -577,15 +577,15 @@ public sealed partial class GameLoop
                 bool own = team == OwnTeamIndex;
                 string side = team == 0 ? "ALLIANCE" : "HORDE";
                 uint color = own ? 0xFFF0E6D2u : 0xFF9A948Du;
-                dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), color,
+                CmdText(dl, 11f * s, new Vector2(x, y), color,
                     own ? $"{side} (YOU)" : side);
                 DrawCommanderRightAlignedText(dl, right, y,
                     $"{row.ControlledZones} ZONES", 10f * s, color);
                 y += 16f * s;
-                dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x + 8f * s, y), 0xFF9A948Du,
+                CmdText(dl, 10f * s, new Vector2(x + 8f * s, y), 0xFF9A948Du,
                     $"Ore {row.Ore:n0}   Skins {row.Skins:n0}   Herbs {row.Herbs:n0}");
                 y += 17f * s;
-                dl.AddText(ImGui.GetFont(), 9f * s, new Vector2(x + 8f * s, y),
+                CmdText(dl, 9f * s, new Vector2(x + 8f * s, y),
                     row.HeroesFielded > row.HeroSlotCap ? 0xFF6E7FE6u : 0xFF77716Bu,
                     CommanderMapUiLaw.HeroCapacityStatus(row.HeroesFielded, row.HeroSlotCap));
                 y += 20f * s;
@@ -599,14 +599,14 @@ public sealed partial class GameLoop
             return;
         }
 
-        dl.AddText(ImGui.GetFont(), 13f * s, new Vector2(x, y), VanillaGold, "HEROES");
+        CmdText(dl, 13f * s, new Vector2(x, y), VanillaGold, "HEROES");
         DrawCommanderRightAlignedText(dl, right, y,
             CommanderMapUiLaw.HeroCapacityStatus(faction.HeroesFielded, faction.HeroSlotCap),
             10f * s, faction.HeroesFielded > faction.HeroSlotCap ? 0xFF6E7FE6u : 0xFF9A948Du);
         y += 22f * s;
         if (CommanderMapUiLaw.ShowHonor(_rtsMode, _rtsModules))
         {
-            dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y), 0xFF60C0E0,
+            CmdText(dl, 12f * s, new Vector2(x, y), 0xFF60C0E0,
                 $"Faction Honor  {faction.HonorPool:n0}");
             y += 22f * s;
         }
@@ -618,7 +618,7 @@ public sealed partial class GameLoop
             .ThenBy(hero => CommanderUnitName(hero.Guid), StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A,
+        CmdText(dl, 10f * s, new Vector2(x, y), 0xFF8A8A8A,
             "SELECTED FACTION BOT");
         y += 18f * s;
         if (_rtsSelectedForceGuid != 0 &&
@@ -653,18 +653,18 @@ public sealed partial class GameLoop
                 ? "Inspect a zone, then select a bot."
                 : _rtsForceLoading ? "Loading this zone's faction force..."
                 : "Select a faction bot on the map.";
-            dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), 0xFF8A8A8A,
+            CmdText(dl, 11f * s, new Vector2(x, y), 0xFF8A8A8A,
                 CommanderFitText(prompt, right - x, 11f * s));
             y += 27f * s;
         }
 
-        dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A, "DECLARED HEROES");
+        CmdText(dl, 10f * s, new Vector2(x, y), 0xFF8A8A8A, "DECLARED HEROES");
         y += 18f * s;
         const int maximumRosterRows = 6;
         int rosterVisible = Math.Min(maximumRosterRows, roster.Count);
         if (rosterVisible == 0)
         {
-            dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), 0xFF8A8A8A,
+            CmdText(dl, 11f * s, new Vector2(x, y), 0xFF8A8A8A,
                 "No heroes declared.");
             y += 24f * s;
         }
@@ -685,7 +685,7 @@ public sealed partial class GameLoop
             }
             if (roster.Count > rosterVisible && y + 14f * s < max.Y)
             {
-                dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A,
+                CmdText(dl, 10f * s, new Vector2(x, y), 0xFF8A8A8A,
                     $"+{roster.Count - rosterVisible} more heroes");
                 y += 18f * s;
             }
@@ -732,7 +732,7 @@ public sealed partial class GameLoop
 
         float buttonWidth = 70f * s;
         float buttonLeft = right - buttonWidth;
-        dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y),
+        CmdText(dl, 12f * s, new Vector2(x, y),
             selected ? 0xFFFFFFFFu : 0xFFE6E6E6u,
             CommanderFitText(name, buttonLeft - x - 54f * s, 12f * s));
         DrawCommanderRightAlignedText(dl, buttonLeft - 7f * s, y + 1f * s,
@@ -916,7 +916,7 @@ public sealed partial class GameLoop
             DrawCommanderDiamond(dl, camera, 7f * s, VanillaGold);
 
         dl.AddRectFilled(map.CardMin, new Vector2(map.CardMax.X, map.MapMin.Y), 0xE0181410);
-        dl.AddText(ImGui.GetFont(), 14f * s, map.CardMin + new Vector2(12f, 7f) * s,
+        CmdText(dl, 14f * s, map.CardMin + new Vector2(12f, 7f) * s,
             VanillaGold, map.Name);
         string summary = highlighted is CommanderZoneRect hz
             ? CommanderZoneSummary(hz.Zone)
@@ -1088,7 +1088,7 @@ public sealed partial class GameLoop
         int visible = Math.Min(3, rows.Count);
         float x = min.X + 12f * s;
         float y = min.Y + 9f * s;
-        dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y), VanillaGold,
+        CmdText(dl, 12f * s, new Vector2(x, y), VanillaGold,
             continentName + " PRESENCE");
         float botRight = max.X - 62f * s;
         float playerRight = max.X - 12f * s;
@@ -1110,7 +1110,7 @@ public sealed partial class GameLoop
                 dl.AddRectFilled(new Vector2(x - 4f * s, y - 2f * s),
                     new Vector2(max.X - 8f * s, y + 17f * s), 0x20FFFFFF, 2f * s);
             }
-            dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y),
+            CmdText(dl, 12f * s, new Vector2(x, y),
                 rowHover ? 0xFFFFFFFFu : color,
                 CommanderFitText(row.Name, botRight - x - 48f * s, 12f * s));
             DrawCommanderRightAlignedText(dl, botRight, y, row.Intel.Bots.ToString(), 12f * s, color);
@@ -1119,10 +1119,10 @@ public sealed partial class GameLoop
             y += 20f * s;
         }
         if (rows.Count == 0)
-            dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), 0xFF8A8A8A,
+            CmdText(dl, 11f * s, new Vector2(x, y), 0xFF8A8A8A,
                 _zoneIntelAt == 0 ? "Waiting for population data." : "No players or bots reported.");
         else if (rows.Count > visible)
-            dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A,
+            CmdText(dl, 10f * s, new Vector2(x, y), 0xFF8A8A8A,
                 $"+{rows.Count - visible} more populated zones");
         return hovered;
     }
@@ -1151,17 +1151,26 @@ public sealed partial class GameLoop
         DrawCommanderIntelPanel(dl, (int)zone.MapId, true, zone, panelMin, panelMax, s, stale: false);
     }
 
+    // Game UI never draws with the ImGui default font (Nico's rule): route this custom RTS-map
+    // text through the exact-size FRIZQT bake. `size` is a device-pixel height (the gameplay
+    // scale is already folded in), so it is passed as the logical height at uiScale 1f.
+    private static void CmdText(ImDrawListPtr dl, float size, Vector2 pos, uint color, string text)
+        => GameText.DrawPlain(dl, text, pos, size, 1f, color);
+
+    private static Vector2 CmdMeasure(string text, float size)
+        => new(GameText.MeasurePlain(text, size, 1f), GameTextLaw.EmPixels(size, 1f));
+
     private static void DrawWorldMapOutlinedCenteredText(ImDrawListPtr dl, Vector2 centre,
         string text, float size, uint color)
     {
-        Vector2 measured = ImGui.CalcTextSize(text) * (size / MathF.Max(1f, ImGui.GetFontSize()));
+        Vector2 measured = CmdMeasure(text, size);
         Vector2 at = centre - measured * 0.5f;
         for (int y = -1; y <= 1; y++)
         for (int x = -1; x <= 1; x++)
             if (x != 0 || y != 0)
-                dl.AddText(ImGui.GetFont(), size, at + new Vector2(x, y) * 1.5f,
+                CmdText(dl, size, at + new Vector2(x, y) * 1.5f,
                     0xE0000000, text);
-        dl.AddText(ImGui.GetFont(), size, at, color, text);
+        CmdText(dl, size, at, color, text);
     }
 
     private void DrawCommanderZoneView(ImDrawListPtr dl, WorldMapAreaInfo zone, uint playerMap,
@@ -1172,7 +1181,7 @@ public sealed partial class GameLoop
         Vector2 mapSize = new(mapW, mapH);
 
         string zoneName = _areas?.ZoneName(zone.AreaId) is { Length: > 0 } n ? n : zone.Directory;
-        dl.AddText(ImGui.GetFont(), 16f * s, mapMin + new Vector2(8f, 6f) * s, 0xFFFFFFFF, zoneName);
+        CmdText(dl, 16f * s, mapMin + new Vector2(8f, 6f) * s, 0xFFFFFFFF, zoneName);
 
         // Own units in this zone. Zone id is authoritative; the rect test rescues
         // units the server stamped with a subzone id the map doesn't know.
@@ -1304,11 +1313,11 @@ public sealed partial class GameLoop
             dl.AddRectFilled(panelMin, actualMax, 0xF0201C18, 4f * s);
             dl.AddRect(panelMin, actualMax, 0x40FFFFFF, 4f * s);
 
-            dl.AddText(ImGui.GetFont(), 14f * s, new Vector2(x, y), VanillaGold, "ZONE PRESENCE");
+            CmdText(dl, 14f * s, new Vector2(x, y), VanillaGold, "ZONE PRESENCE");
             y += line * 1.25f;
             float botRight = actualMax.X - 58f * s;
             float playerRight = actualMax.X - 12f * s;
-            dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A, "ZONE");
+            CmdText(dl, 10f * s, new Vector2(x, y), 0xFF8A8A8A, "ZONE");
             DrawCommanderRightAlignedText(dl, botRight, y, "BOTS", 10f * s, 0xFF8A8A8A);
             DrawCommanderRightAlignedText(dl, playerRight, y, "PLAYERS", 10f * s, 0xFF8A8A8A);
             y += line * 0.8f;
@@ -1327,7 +1336,7 @@ public sealed partial class GameLoop
                     dl.AddRectFilled(new Vector2(x - 4f * s, y - 2f * s),
                         new Vector2(actualMax.X - 8f * s, y - 2f * s + line), 0x18FFFFFF, 2f * s);
                 string fitted = CommanderFitText(name, botRight - x - 50f * s, 13f * s);
-                dl.AddText(ImGui.GetFont(), 13f * s, new Vector2(x, y), rowHover ? 0xFFFFFFFFu : dim, fitted);
+                CmdText(dl, 13f * s, new Vector2(x, y), rowHover ? 0xFFFFFFFFu : dim, fitted);
                 DrawCommanderRightAlignedText(dl, botRight, y, intel.Bots.ToString(), 13f * s, dim);
                 DrawCommanderRightAlignedText(dl, playerRight, y, intel.Players.ToString(), 13f * s, dim);
                 if (ImGui.IsItemClicked())
@@ -1338,11 +1347,11 @@ public sealed partial class GameLoop
             {
                 string empty = _zoneIntelAt == 0 ? "Waiting for population data." :
                     "No players or bots reported here.";
-                dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y), 0xFF8A8A8A, empty);
+                CmdText(dl, 12f * s, new Vector2(x, y), 0xFF8A8A8A, empty);
                 y += line;
             }
             if (overflow)
-                dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), 0xFF8A8A8A,
+                CmdText(dl, 11f * s, new Vector2(x, y), 0xFF8A8A8A,
                     $"+{rows.Count - visible} more populated zones");
         }
         else
@@ -1363,11 +1372,11 @@ public sealed partial class GameLoop
             dl.AddRectFilled(panelMin, actualMax, 0xF0201C18, 4f * s);
             dl.AddRect(panelMin, actualMax, 0x40FFFFFF, 4f * s);
 
-            dl.AddText(ImGui.GetFont(), 14f * s, new Vector2(x, y), VanillaGold, "YOUR GROUP HERE");
+            CmdText(dl, 14f * s, new Vector2(x, y), VanillaGold, "YOUR GROUP HERE");
             y += line * 1.15f;
             string zoneName = _areas?.ZoneName(drilledZone.AreaId) is { Length: > 0 } resolvedZoneName
                 ? resolvedZoneName : drilledZone.Directory;
-            dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A,
+            CmdText(dl, 10f * s, new Vector2(x, y), 0xFF8A8A8A,
                 CommanderFitText(zoneName.ToUpperInvariant(), actualMax.X - x - 12f * s, 10f * s));
             y += line * 0.9f;
 
@@ -1383,7 +1392,7 @@ public sealed partial class GameLoop
                     dl.AddRectFilled(new Vector2(x - 4f * s, y - 2f * s),
                         new Vector2(actualMax.X - 8f * s, y - 2f * s + line), 0x18FFFFFF, 2f * s);
                 dl.AddCircleFilled(new Vector2(x + 5f * s, y + 7f * s), 4f * s, color);
-                dl.AddText(ImGui.GetFont(), 13f * s, new Vector2(x + 14f * s, y),
+                CmdText(dl, 13f * s, new Vector2(x + 14f * s, y),
                     unit.Alive ? (rowHover ? 0xFFFFFFFFu : 0xFFE6E6E6u) : 0xFF8A8A8Au,
                     CommanderFitText(name + (unit.Alive ? "" : " (dead)"), actualMax.X - x - 30f * s, 13f * s));
                 if (ImGui.IsItemClicked())
@@ -1399,9 +1408,9 @@ public sealed partial class GameLoop
                 y += line;
             }
             if (units.Count == 0)
-                dl.AddText(ImGui.GetFont(), 13f * s, new Vector2(x, y), 0xFF8A8A8A, "None of your units are here.");
+                CmdText(dl, 13f * s, new Vector2(x, y), 0xFF8A8A8A, "None of your units are here.");
             else if (overflow)
-                dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), 0xFF8A8A8A,
+                CmdText(dl, 11f * s, new Vector2(x, y), 0xFF8A8A8A,
                     $"+{units.Count - visible} more units");
         }
     }
@@ -1425,13 +1434,13 @@ public sealed partial class GameLoop
         dl.AddRectFilled(panelMin, actualMax, 0xF0201C18, 4f * s);
         dl.AddRect(panelMin, actualMax, 0x40FFFFFF, 4f * s);
 
-        dl.AddText(ImGui.GetFont(), 14f * s, new Vector2(x, y), VanillaGold, "FACTION FORCE");
+        CmdText(dl, 14f * s, new Vector2(x, y), VanillaGold, "FACTION FORCE");
         y += line * 1.15f;
         string zoneName = _areas?.ZoneName(zone.AreaId) is { Length: > 0 } resolved
             ? resolved : zone.Directory;
         string count = ready ? $"  {_rtsForces.Count}/{_rtsForcePublishedTotal}" :
             _rtsForceLoading ? "  LOADING" : string.Empty;
-        dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A,
+        CmdText(dl, 10f * s, new Vector2(x, y), 0xFF8A8A8A,
             CommanderFitText(zoneName.ToUpperInvariant() + count,
                 actualMax.X - x - 12f * s, 10f * s));
         y += line * 0.9f;
@@ -1452,7 +1461,7 @@ public sealed partial class GameLoop
                     selected ? 0x303EA6E6u : 0x18FFFFFFu, 2f * s);
             dl.AddCircleFilled(new Vector2(x + 5f * s, y + 7f * s), 4f * s, color);
             string suffix = !unit.Alive ? " (dead)" : unit.Busy ? " (in use)" : string.Empty;
-            dl.AddText(ImGui.GetFont(), 13f * s, new Vector2(x + 14f * s, y),
+            CmdText(dl, 13f * s, new Vector2(x + 14f * s, y),
                 unit.Alive ? (hover || selected ? 0xFFFFFFFFu : 0xFFE6E6E6u) : 0xFF8A8A8Au,
                 CommanderFitText(name + suffix, actualMax.X - x - 30f * s, 13f * s));
             if (ImGui.IsItemClicked()) _rtsSelectedForceGuid = unit.Guid;
@@ -1460,33 +1469,32 @@ public sealed partial class GameLoop
         }
 
         if (!ready)
-            dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y), 0xFF8A8A8A,
+            CmdText(dl, 12f * s, new Vector2(x, y), 0xFF8A8A8A,
                 _rtsForceLoading ? "Loading faction bots..." : "Faction roster unavailable.");
         else if (units.Count == 0)
-            dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y), 0xFF8A8A8A,
+            CmdText(dl, 12f * s, new Vector2(x, y), 0xFF8A8A8A,
                 "No faction bots are in this zone.");
         else if (overflow)
-            dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), 0xFF8A8A8A,
+            CmdText(dl, 11f * s, new Vector2(x, y), 0xFF8A8A8A,
                 $"+{units.Count - visible} more bots on the map");
     }
 
     private static void DrawCommanderRightAlignedText(ImDrawListPtr dl, float right, float y,
         string text, float size, uint color)
     {
-        float width = ImGui.CalcTextSize(text).X * (size / MathF.Max(1f, ImGui.GetFontSize()));
-        dl.AddText(ImGui.GetFont(), size, new Vector2(right - width, y), color, text);
+        float width = GameText.MeasurePlain(text, size, 1f);
+        CmdText(dl, size, new Vector2(right - width, y), color, text);
     }
 
     private static string CommanderFitText(string text, float maxWidth, float size)
     {
         if (maxWidth <= 0f) return string.Empty;
-        float scale = size / MathF.Max(1f, ImGui.GetFontSize());
-        if (ImGui.CalcTextSize(text).X * scale <= maxWidth) return text;
+        if (GameText.MeasurePlain(text, size, 1f) <= maxWidth) return text;
         const string ellipsis = "...";
         for (int length = text.Length - 1; length > 0; length--)
         {
             string candidate = text[..length] + ellipsis;
-            if (ImGui.CalcTextSize(candidate).X * scale <= maxWidth) return candidate;
+            if (GameText.MeasurePlain(candidate, size, 1f) <= maxWidth) return candidate;
         }
         return ellipsis;
     }
@@ -1567,7 +1575,7 @@ public sealed partial class GameLoop
     {
         string text = $"B{intel.Bots}  ·  P{intel.Players}";
         float size = 12f * s;
-        Vector2 measured = ImGui.CalcTextSize(text) * (size / MathF.Max(1f, ImGui.GetFontSize()));
+        Vector2 measured = CmdMeasure(text, size);
         Vector2 pad = new(6f * s, 3f * s);
         Vector2 source = centre;
         Vector2 min = default, max = default;
@@ -1601,7 +1609,7 @@ public sealed partial class GameLoop
         if (Vector2.DistanceSquared(source, centre) > 1f)
             dl.AddLine(source, centre, 0x70D2B870, 1f * s);
         dl.AddRectFilled(min, max, stale ? 0x90242424u : 0xC8242C30u, (max.Y - min.Y) * 0.5f);
-        dl.AddText(ImGui.GetFont(), size, centre - measured * 0.5f,
+        CmdText(dl, size, centre - measured * 0.5f,
             stale ? 0xFF9A9A9Au : 0xFFF0E6D2u, text);
         return (min, max);
     }
@@ -1630,10 +1638,10 @@ public sealed partial class GameLoop
             DrawCommanderDiamond(dl, p + new Vector2(0, -r - 6f * s), 4f * s, VanillaGold);
         // Name label with a hard shadow — the map art underneath is busy.
         float size = 12f * s;
-        Vector2 measured = ImGui.CalcTextSize(name) * (size / MathF.Max(1f, ImGui.GetFontSize()));
+        Vector2 measured = CmdMeasure(name, size);
         Vector2 at = p + new Vector2(-measured.X * 0.5f, r + 3f * s);
-        dl.AddText(ImGui.GetFont(), size, at + new Vector2(1f, 1f) * s, 0xE0000000, name);
-        dl.AddText(ImGui.GetFont(), size, at, unit.Alive ? 0xFFF0F0F0u : 0xFFA0A0A0u, name);
+        CmdText(dl, size, at + new Vector2(1f, 1f) * s, 0xE0000000, name);
+        CmdText(dl, size, at, unit.Alive ? 0xFFF0F0F0u : 0xFFA0A0A0u, name);
     }
 
     private void DrawCommanderForceMarker(ImDrawListPtr dl, RtsForceUnitWire unit,
@@ -1653,10 +1661,10 @@ public sealed partial class GameLoop
         if (!selected) return;
         string name = CommanderForceName(unit.Guid, request: true);
         float size = 12f * s;
-        Vector2 measured = ImGui.CalcTextSize(name) * (size / MathF.Max(1f, ImGui.GetFontSize()));
+        Vector2 measured = CmdMeasure(name, size);
         Vector2 at = p + new Vector2(-measured.X * 0.5f, r + 3f * s);
-        dl.AddText(ImGui.GetFont(), size, at + new Vector2(1f, 1f) * s, 0xE0000000, name);
-        dl.AddText(ImGui.GetFont(), size, at, unit.Alive ? 0xFFF0F0F0u : 0xFFA0A0A0u, name);
+        CmdText(dl, size, at + new Vector2(1f, 1f) * s, 0xE0000000, name);
+        CmdText(dl, size, at, unit.Alive ? 0xFFF0F0F0u : 0xFFA0A0A0u, name);
     }
 
     private static void DrawCommanderFlyout(ImDrawListPtr dl, Vector2 at, float s, params string[] lines)
@@ -1666,7 +1674,7 @@ public sealed partial class GameLoop
         for (int i = 0; i < lines.Length; i++)
         {
             float size = i == 0 ? title : body;
-            Vector2 m = ImGui.CalcTextSize(lines[i]) * (size / MathF.Max(1f, ImGui.GetFontSize()));
+            Vector2 m = CmdMeasure(lines[i], size);
             w = MathF.Max(w, m.X);
             h += m.Y + (i > 0 ? gap : 0);
         }
@@ -1681,9 +1689,9 @@ public sealed partial class GameLoop
         for (int i = 0; i < lines.Length; i++)
         {
             float size = i == 0 ? title : body;
-            dl.AddText(ImGui.GetFont(), size, new Vector2(min.X + pad.X, y),
+            CmdText(dl, size, new Vector2(min.X + pad.X, y),
                 i == 0 ? VanillaGold : 0xFFE6E6E6u, lines[i]);
-            y += ImGui.CalcTextSize(lines[i]).Y * (size / MathF.Max(1f, ImGui.GetFontSize())) + gap;
+            y += (float)GameTextLaw.EmPixels(size, 1f) + gap;
         }
     }
 

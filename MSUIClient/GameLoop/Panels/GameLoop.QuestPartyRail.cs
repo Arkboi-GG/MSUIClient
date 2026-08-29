@@ -76,6 +76,12 @@ public sealed partial class GameLoop
         // asking about Blackfel when I'm someone else". The commander-view flow
         // (free view) is where the per-member board lives.
         if (_controlState == ControlState.Possessing) return;
+        // Free view is the commander board's turf (DrawGiverQuestsWindow owns the
+        // per-member cards + "Accept for party"/"Turn in" there). The comment above
+        // always said so, but nothing enforced it — so the old "Send with you" rail
+        // drew a SECOND, redundant party surface beside the vanilla quest frame (even
+        // with a different member count). Embodied play still uses this rail.
+        if (_freeView) return;
         QuestNpcPanel panel = QuestNpcPanelNow();
         if (panel is QuestNpcPanel.None or QuestNpcPanel.Greeting) return;
 
@@ -268,7 +274,10 @@ public sealed partial class GameLoop
                         OfferPreparedItemTooltip(
                             new GameTooltipOwnerKey($"item:quest-party-rail:{questId}:{guid}",
                                 (ulong)(k + 1)),
-                            PrepareItemTooltipBodySnapshot(item, row.Count));
+                            // This column's reward is THIS member's: judge proficiency red against
+                            // them, not the commander. A non-local member paints no red (we only
+                            // know the login character's proficiencies client-side).
+                            PrepareItemTooltipBodySnapshot(item, row.Count, ownerGuid: guid));
                     else HoverTip("Retrieving item information...");
                 }
             }
@@ -323,7 +332,7 @@ public sealed partial class GameLoop
         var max = min + new Vector2(size, size);
         if (art != 0) dl.AddImage((nint)art, min, max, new Vector2(0, 1), new Vector2(1, 0));
         else dl.AddRectFilled(min, max, 0x55101418);
-        dl.AddRect(min, max, 0xff2a343d);
+        DrawClassPortraitBorderRect(dl, min, max, guid, GameplayUiScale());
     }
 
     /// <summary>
@@ -336,6 +345,7 @@ public sealed partial class GameLoop
         foreach (MemberQuestEntry entry in MemberQuestEntries(guid))
         {
             if (entry.QuestId != questId) continue;
+            if (entry.Rewarded) return "completed";   // carries Complete too - check first
             if (entry.Failed) return "failed it";
             if (entry.Complete) return "ready to turn in";
             return entry.Overflow ? "on it (past slots)" : "on it";

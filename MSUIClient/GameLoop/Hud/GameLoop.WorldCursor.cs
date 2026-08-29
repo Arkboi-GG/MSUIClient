@@ -26,6 +26,18 @@ public sealed partial class GameLoop
             DrawBagHoverCursor(WorldCursorUiLaw.ItemTargeting(pointerOverUi).Stem);
             return;
         }
+        if (_rtsUnitCastSpellId != 0)
+        {
+            bool valid = !pointerOverUi && _hoveredGuid != 0 &&
+                _entities.TryGet(_hoveredGuid, out WorldEntity candidate) &&
+                _spellCatalog?.TryGet(_rtsUnitCastSpellId, out SpellInfo spell) == true &&
+                CastTargetLaw.Resolve(spell,
+                    CastCandidate(candidate, _hoveredGuid == _rtsUnitCastPrimary),
+                    self: null, autoSelfCast: false).Kind == CastTargetKind.Unit;
+            DrawBagHoverCursor(new WorldCursorState(WorldCursorKind.Cast,
+                Unable: !valid).Stem);
+            return;
+        }
         if (pointerOverUi || _groundCastSpell != 0) return;
 
         // Point is the reference's base in-world cursor. A unit verdict replaces it; empty world,

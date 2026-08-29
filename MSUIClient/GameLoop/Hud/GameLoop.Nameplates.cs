@@ -343,13 +343,16 @@ public sealed partial class GameLoop
         float fontSize, uint color, bool bottomSeated)
     {
         if (fontSize < 1f || text.Length == 0) return;
-        ImFontPtr font = ImGui.GetFont();
-        Vector2 extent = ImGui.CalcTextSize(text) *
-            (fontSize / MathF.Max(ImGui.GetFontSize(), 1f));
+        // Exact-size FRIZQT from the baked atlas, never the ImGui default font (game UI never
+        // uses the ImGui font).
+        int em = Math.Max(2, (int)MathF.Round(fontSize));
+        if (!GameTextLaw.TryGetFont(FontFace.FrizQt, em, false,
+                out ImFontPtr font, out float drawSize)) return;
+        Vector2 extent = new(GameText.MeasurePlain(text, fontSize, 1f), em);
         Vector2 position = NameplateUiLaw.TextPosition(anchor, extent, bottomSeated);
-        draw.AddText(font, fontSize, position + NameplateUiLaw.TextShadow(fontSize),
+        draw.AddText(font, drawSize, position + NameplateUiLaw.TextShadow(fontSize),
             WithAlpha(0xff000000u, MathF.Max(0.85f, AlphaOf(color))), text);
-        draw.AddText(font, fontSize, position, color, text);
+        draw.AddText(font, drawSize, position, color, text);
     }
 
     private static uint PlateTintU32(FactionReaction reaction, bool player, float alpha, bool lit)

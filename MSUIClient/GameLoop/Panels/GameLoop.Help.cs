@@ -66,8 +66,8 @@ public sealed partial class GameLoop
 
     private void DrawHelpHome(ImDrawListPtr dl, Vector2 origin, float s)
     {
-        dl.AddText(ImGui.GetFont(), 18f * s, origin + HelpFrameUiLaw.HomeHeading * s, VanillaGold,
-            "Petition a Game Master");
+        GameText.DrawPlain(dl, "Petition a Game Master",
+            origin + HelpFrameUiLaw.HomeHeading * s, 18f, s, VanillaGold);
         DrawWrappedText(dl,
             "Before submitting a request, please check whether one of the options below can solve the problem immediately.",
             origin + HelpFrameUiLaw.HomeIntroduction.Min * s,
@@ -81,8 +81,8 @@ public sealed partial class GameLoop
         ];
         for (int i = 0; i < headings.Length; i++)
         {
-            dl.AddText(ImGui.GetFont(), 12f * s,
-                origin + HelpFrameUiLaw.HomeIssueHeading(i) * s, VanillaGold, headings[i]);
+            GameText.DrawPlain(dl, headings[i],
+                origin + HelpFrameUiLaw.HomeIssueHeading(i) * s, 12f, s, VanillaGold);
             HelpFrameUiLaw.LogicalRect description = HelpFrameUiLaw.HomeIssueDescription(i);
             DrawWrappedText(dl, descriptions[i], origin + description.Min * s,
                 description.Width, 10f * s, s, 0xffffffff);
@@ -117,8 +117,9 @@ public sealed partial class GameLoop
     private void DrawOpenTicket(ImDrawListPtr dl, Vector2 origin, float s)
     {
         string[] types = ["Stuck", "Behavior / Harassment", "Guild", "Item", "Environment", "Other"];
-        dl.AddText(ImGui.GetFont(), 11f * s, origin + HelpFrameUiLaw.TicketCategory * s, 0xffffffff,
-            $"Category: {types[Math.Clamp(_helpTicketType - 1, 0, types.Length - 1)]}");
+        GameText.DrawPlain(dl,
+            $"Category: {types[Math.Clamp(_helpTicketType - 1, 0, types.Length - 1)]}",
+            origin + HelpFrameUiLaw.TicketCategory * s, 11f, s, 0xffffffff);
         DrawWrappedText(dl,
             "Describe the problem in detail. A Game Master can review this ticket on the server.",
             origin + HelpFrameUiLaw.TicketInstructions.Min * s,
@@ -126,8 +127,8 @@ public sealed partial class GameLoop
         VanillaInputText(dl,"##ticket-text",ref _helpTicketText,2047,
             origin + HelpFrameUiLaw.TicketInput.Min * s,
             HelpFrameUiLaw.TicketInput.Size, s, true);
-        dl.AddText(ImGui.GetFont(), 10f * s, origin + HelpFrameUiLaw.TicketStatus * s,
-            0xffaaaaaa, _helpTicketStatus);
+        GameText.DrawPlain(dl, _helpTicketStatus, origin + HelpFrameUiLaw.TicketStatus * s,
+            10f, s, 0xffaaaaaa);
         bool hasText = !string.IsNullOrWhiteSpace(_helpTicketText);
         if (VanillaButton(dl, "##ticket-back", "Back",
                 origin + HelpFrameUiLaw.TicketBack.Min * s,

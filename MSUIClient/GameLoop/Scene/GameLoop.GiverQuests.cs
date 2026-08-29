@@ -21,6 +21,7 @@ public sealed partial class GameLoop
     private ulong _giverQuestsGiverGuid;
     private GiverQuestsReply _giverQuestsReply;
     private double _giverQuestsPulledAt;
+    private bool _giverQuestsRefreshWanted;
     private const double GiverQuestsPullMinIntervalSeconds = 1.0;
 
     /// <summary>Per (quest, member) reward pick for a ready turn-in; absent = auto
@@ -51,6 +52,7 @@ public sealed partial class GameLoop
         _giverQuestsGiverGuid = 0;
         _giverQuestsReply = default;
         _giverQuestsPulledAt = 0;
+        _giverQuestsRefreshWanted = false;
         _giverQuestRewardPick.Clear();
         _giverQuestTextQuestId = 0;
         _giverQuestTextOpen = false;
@@ -68,6 +70,33 @@ public sealed partial class GameLoop
         double now = NowSeconds();
         if (now - _giverQuestsPulledAt < GiverQuestsPullMinIntervalSeconds) return;
         if (_net.SuiGiverQuests(giver)) _giverQuestsPulledAt = now;
+    }
+
+    /// <summary>
+    /// A quest state changed (a turn-in, an accept, a member's log moved) while the
+    /// commander board is open. The board is a snapshot from when it opened, so mark
+    /// it for a re-pull; <see cref="ServiceGiverQuestsRefresh"/> sends it (rate-limited)
+    /// on a later frame. Without this the board showed a stale "ready to turn in" after
+    /// the quest was already turned in, until you closed and re-opened the giver.
+    /// </summary>
+    private void RefreshGiverQuestsIfOpen()
+    {
+        if (_giverQuestsOpen && _giverQuestsGiverGuid != 0) _giverQuestsRefreshWanted = true;
+    }
+
+    /// <summary>Send a wanted board refresh once the pull rate limit allows — called each
+    /// frame the board draws, so a change within the 1s window is not silently dropped.</summary>
+    private void ServiceGiverQuestsRefresh()
+    {
+        if (!_giverQuestsRefreshWanted || _net is not { IsInWorld: true } ||
+            _giverQuestsGiverGuid == 0) return;
+        double now = NowSeconds();
+        if (now - _giverQuestsPulledAt < GiverQuestsPullMinIntervalSeconds) return;
+        if (_net.SuiGiverQuests(_giverQuestsGiverGuid))
+        {
+            _giverQuestsPulledAt = now;
+            _giverQuestsRefreshWanted = false;
+        }
     }
 
     private void ApplySuiGiverQuests(byte[] body)
@@ -134,6 +163,7 @@ public sealed partial class GameLoop
     {
         if (!_giverQuestsOpen || _net is null || _gameplayArt is null) return;
         if (_uiParityArmed) return;
+        ServiceGiverQuestsRefresh();
         float scale = GameplayUiScale();
 
         List<(ulong Guid, string Name)> owners = GiverQuestOwners();
@@ -216,12 +246,15 @@ public sealed partial class GameLoop
         var byMember = new Dictionary<ulong, byte>();
         foreach (GiverQuestMemberVerdict mv in quest.Members) byMember[mv.Member] = mv.Verdict;
 
-        // A ready-to-turn-in quest with more than one reward choice earns a per-member
-        // reward picker in the card; everything else turns in on auto (the server's
-        // spec-aware pick). The template arrives from RequireQuestTemplate above.
+        // A ready-to-turn-in quest with ANY reward choice earns a per-member reward picker in
+        // the card. The server requires an explicit pick for every choice-reward quest - even a
+        // single-choice one - and refuses an auto turn-in with ResultNeedsChoice ("Pick a reward
+        // for X"), so a `> 1` gate left single-choice quests demanding a choice with no picker to
+        // make it. Quests with no choice rewards still turn in on auto (the server's spec-aware
+        // pick); bots default to auto here too. The template arrives from RequireQuestTemplate.
         IReadOnlyList<QuestRewardItem>? rewards = null;
         if (quest.Ends && _questTemplates.TryGetValue(quest.QuestId, out QuestTemplate? tmpl) &&
-            tmpl is not null && tmpl.ChoiceRewards.Count > 1)
+            tmpl is not null && tmpl.ChoiceRewards.Count > 0)
             rewards = tmpl.ChoiceRewards;
 
         var takers = new List<PartyQuestSubject>();
@@ -305,7 +338,7 @@ public sealed partial class GameLoop
                 new Vector2(0, 1), new Vector2(1, 0));   // portraits bake V-flipped
         else
             dl.AddRectFilled(p, p + new Vector2(ps, ps), 0x55101418);
-        dl.AddRect(p, p + new Vector2(ps, ps), 0xff2a343d);
+        DrawClassPortraitBorderRect(dl, p, p + new Vector2(ps, ps), guid, scale, name);
 
         ImGui.SetCursorScreenPos(p + new Vector2(ps + 6f * scale, 0f));
         ImGui.BeginGroup();
@@ -338,7 +371,11 @@ public sealed partial class GameLoop
                     if (_items?.TryGet(row.ItemId, out ItemTemplate? item) == true && item is not null)
                         OfferPreparedItemTooltip(
                             new GameTooltipOwnerKey($"item:giver-party:{questId}:{guid}", (ulong)(k + 1)),
-                            PrepareItemTooltipBodySnapshot(item, row.Count));
+                            // The reward is THIS member's: judge proficiency red against them, not
+                            // the commander. For a non-local member the snapshot paints no red
+                            // (we only know the login character's proficiencies client-side), so a
+                            // mace no longer reads red just because YOU cannot use it.
+                            PrepareItemTooltipBodySnapshot(item, row.Count, ownerGuid: guid));
                     else HoverTip("Retrieving item information...");
                 }
                 string iconPath = QuestRewardIconPath(row);

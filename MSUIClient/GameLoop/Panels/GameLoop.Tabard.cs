@@ -173,8 +173,8 @@ public sealed partial class GameLoop
         (_tabardStyle, _tabardColor, _tabardBorderStyle, _tabardBorderColor, _tabardBackgroundColor) =
             (values[0], values[1], values[2], values[3], values[4]);
 
-        dl.AddText(ImGui.GetFont(), 10f * s, origin + TabardFrameUiLaw.Cost * s,
-            0xffffffff, "Cost: 10 gold");
+        GameText.DrawPlain(dl, "Cost: 10 gold", origin + TabardFrameUiLaw.Cost * s,
+            10f, s, 0xffffffff);
         if (VanillaButton(dl, "##tabard-accept", "Accept",
                 origin + TabardFrameUiLaw.Accept.Min * s,
                 TabardFrameUiLaw.Accept.Size, s))

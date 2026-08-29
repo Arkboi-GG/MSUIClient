@@ -2292,10 +2292,9 @@ public sealed partial class GameLoop
         if (art != 0) dl.AddImage((nint)art, min, min + size * s);
     }
 
+    // size is a device-pixel height; drawn from the exact-size FRIZQT bake (uiScale 1f), never
+    // the ImGui default font (game UI never uses the ImGui font).
     private static void DrawCenteredText(ImDrawListPtr dl, Vector2 center, string text, float size, uint color)
-    {
-        Vector2 measured = ImGui.CalcTextSize(text) * (size / Math.Max(1f, ImGui.GetFontSize()));
-        dl.AddText(ImGui.GetFont(), size, center - measured * 0.5f, color, text);
-    }
+        => GameText.DrawPlainCentered(dl, text, center, size, 1f, color);
 
 }

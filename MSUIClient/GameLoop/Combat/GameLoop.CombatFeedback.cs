@@ -341,7 +341,6 @@ public sealed partial class GameLoop
         Vector2 display = ImGui.GetIO().DisplaySize;
         float diagonal = MathF.Sqrt(display.X * display.X + display.Y * display.Y);
         ImDrawListPtr draw = ImGui.GetForegroundDrawList();
-        ImFontPtr font = ImGui.GetFont();
 
         foreach (FloatingCombatText item in _floatingCombatText)
         {
@@ -362,15 +361,20 @@ public sealed partial class GameLoop
                 ((packed >> 8) & 0xFF) / 255f,
                 (packed & 0xFF) / 255f,
                 alpha);
-            Vector2 extent = ImGui.CalcTextSize(item.Text);
-            float scaledWidth = extent.X * size / MathF.Max(ImGui.GetFontSize(), 1f);
+            // Exact-size FRIZQT from the baked atlas, never the ImGui default font (game UI
+            // never uses the ImGui font). World combat text scales continuously, so the nearest
+            // baked FRIZQT em is used per item.
+            int em = Math.Max(2, (int)MathF.Round(size));
+            if (!GameTextLaw.TryGetFont(FontFace.FrizQt, em, false,
+                    out ImFontPtr font, out float drawSize)) continue;
+            float scaledWidth = GameText.MeasurePlain(item.Text, size, 1f);
             Vector2 pos = CombatTextStateUiLaw.WorldTextPosition(
                 screen, scaledWidth, size, item.Lane, t);
             Vector2 shadowOffset = CombatTextStateUiLaw.WorldShadow(display);
             uint shadow = ImGui.ColorConvertFloat4ToU32(new Vector4(0, 0, 0, shadowAlpha));
             uint color = ImGui.ColorConvertFloat4ToU32(baseColor);
-            draw.AddText(font, size, pos + shadowOffset, shadow, item.Text);
-            draw.AddText(font, size, pos, color, item.Text);
+            draw.AddText(font, drawSize, pos + shadowOffset, shadow, item.Text);
+            draw.AddText(font, drawSize, pos, color, item.Text);
         }
     }
 
@@ -379,7 +383,6 @@ public sealed partial class GameLoop
         if (SettingsModalOpen) return;
         Vector2 display = ImGui.GetIO().DisplaySize;
         ImDrawListPtr draw = ImGui.GetForegroundDrawList();
-        ImFontPtr font = ImGui.GetFont();
         float uiScale = display.Y / 768f;
 
         foreach (CenterText item in _centerCombatText)
@@ -394,8 +397,10 @@ public sealed partial class GameLoop
                 size = (30f + 30f * grow - 30f * shrink) * uiScale;
             }
 
-            Vector2 extent = ImGui.CalcTextSize(item.Text);
-            float width = extent.X * size / MathF.Max(ImGui.GetFontSize(), 1f);
+            int em = Math.Max(2, (int)MathF.Round(size));
+            if (!GameTextLaw.TryGetFont(FontFace.FrizQt, em, false,
+                    out ImFontPtr font, out float drawSize)) continue;
+            float width = GameText.MeasurePlain(item.Text, size, 1f);
             Vector2 pos = CombatTextStateUiLaw.CenterTextPosition(
                 display, uiScale, width, item.Lane, item.Age, item.Critical);
             Vector4 baseColor = item.Style switch
@@ -406,9 +411,9 @@ public sealed partial class GameLoop
                 _ => new Vector4(1f, 0.12f, 0.08f, alpha),
             };
             uint shadow = ImGui.ColorConvertFloat4ToU32(new Vector4(0, 0, 0, alpha * 0.6f));
-            draw.AddText(font, size, pos + CombatTextStateUiLaw.CenterShadow(uiScale),
+            draw.AddText(font, drawSize, pos + CombatTextStateUiLaw.CenterShadow(uiScale),
                 shadow, item.Text);
-            draw.AddText(font, size, pos, ImGui.ColorConvertFloat4ToU32(baseColor), item.Text);
+            draw.AddText(font, drawSize, pos, ImGui.ColorConvertFloat4ToU32(baseColor), item.Text);
         }
     }
 }

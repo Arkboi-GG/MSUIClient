@@ -145,7 +145,14 @@ public sealed partial class GameLoop
     // A cast queued while control of the primary is still being handed over (possess-on-cast).
     private ulong _pendingCastPrimary;
     private uint _pendingCastSpellId;
+    private ulong _pendingCastExplicitTarget;
     private double _pendingCastAt;
+
+    // A friendly unit spell chosen from a multi-selection waits here until the commander clicks
+    // a world body, party frame, player frame, or selection portrait. This is deliberately not
+    // _selectionGuid: choosing a heal target must not replace the RTS command selection/focus.
+    private ulong _rtsUnitCastPrimary;
+    private uint _rtsUnitCastSpellId;
 
     /// <summary>
     /// Cast an ability from the PRIMARY's command card, riding the possess wire (step 2, no new
@@ -153,24 +160,94 @@ public sealed partial class GameLoop
     /// releasing any other body first — and fire the cast the moment its bars are live. The
     /// primary stays possessed afterwards, so further casts on it are instant.
     /// </summary>
-    private void CastPrimaryAbility(ulong primary, uint spellId)
+    private void CastPrimaryAbility(ulong primary, uint spellId, bool altPrimaryCast = false,
+        ulong explicitTarget = 0)
     {
         if (primary == 0 || spellId == 0) return;
+        SpellInfo? targetSpell = _spellCatalog?.TryGet(spellId, out SpellInfo foundSpell) == true
+            ? foundSpell : null;
+        bool acceptsFriendly = targetSpell is SpellInfo friendlySpell &&
+            CastTargetLaw.AcceptsExplicitFriendlyUnit(friendlySpell);
+        if (explicitTarget == 0)
+        {
+            RtsAbilityCastIntent intent = RtsAbilityTargetLaw.Resolve(
+                _freecamSelection.Count, altPrimaryCast, acceptsFriendly);
+            if (intent == RtsAbilityCastIntent.ChooseFriendlyTarget)
+            {
+                _groundCastSpell = 0;
+                _groundCursorPoint = null;
+                CancelItemTargeting();
+                _pendingCastPrimary = 0;
+                _pendingCastSpellId = 0;
+                _pendingCastExplicitTarget = 0;
+                _rtsUnitCastPrimary = primary;
+                _rtsUnitCastSpellId = spellId;
+                string spellName = targetSpell?.Name ?? $"Spell {spellId}";
+                SetRtsControlGroupStatus($"{spellName}: choose a friendly target " +
+                    "(right-click or Escape cancels). Alt casts on the primary.");
+                return;
+            }
+            if (intent == RtsAbilityCastIntent.CastOnPrimary)
+                explicitTarget = primary;
+        }
+        CancelRtsUnitCastTargeting(silent: true);
         // Already on the subject and able to author it — a driven bot, or your OWN character (which
         // stays castable from the sky: the cast applies to _player, your own self-mover) → cast now.
         // NB the self path requires ControlledGuid == you: if you're driving a bot while yourself is
         // the primary, TryCast would cast as the BOT, so fall through to a release-home first.
         if (ControlledGuid == primary && (CanAuthorControlledGameplay || primary == LocalPlayerGuid))
         {
-            TryCast(spellId);
+            TryCast(spellId, explicitTarget);
             return;
         }
         // Otherwise hand control to the primary and fire the cast the moment it lands
         // (TryFirePendingPrimaryCast): possess-on-cast for a bot, or release-home-then-cast for you.
         _pendingCastPrimary = primary;
         _pendingCastSpellId = spellId;
+        _pendingCastExplicitTarget = explicitTarget;
         _pendingCastAt = NowSeconds();
         BeginControlHandover(primary);
+    }
+
+    /// <summary>Consume a click while a multi-selection heal/buff is awaiting its unit.</summary>
+    private bool TryCommitRtsUnitCastTarget(ulong targetGuid)
+    {
+        if (_rtsUnitCastSpellId == 0) return false;
+        if (_rtsUnitCastPrimary == 0 || !_freecamSelection.Contains(_rtsUnitCastPrimary) ||
+            _spellCatalog?.TryGet(_rtsUnitCastSpellId, out SpellInfo spell) != true)
+        {
+            CancelRtsUnitCastTargeting(silent: false);
+            return true;
+        }
+        if (targetGuid == 0 || !_entities.TryGet(targetGuid, out WorldEntity target))
+        {
+            ShowUiError("Choose a friendly unit — right-click or Escape cancels.");
+            return true;
+        }
+        CastTargetCandidate candidate = CastCandidate(target,
+            isSelf: targetGuid == _rtsUnitCastPrimary);
+        CastTargetVerdict verdict = CastTargetLaw.Resolve(spell, candidate, self: null,
+            autoSelfCast: false);
+        if (verdict.Kind != CastTargetKind.Unit || verdict.Guid != targetGuid)
+        {
+            ShowUiError("That is not a valid friendly target.");
+            return true;
+        }
+
+        ulong primary = _rtsUnitCastPrimary;
+        uint spellId = _rtsUnitCastSpellId;
+        CancelRtsUnitCastTargeting(silent: true);
+        CastPrimaryAbility(primary, spellId, explicitTarget: targetGuid);
+        return true;
+    }
+
+    private bool CancelRtsUnitCastTargeting(bool silent)
+    {
+        if (_rtsUnitCastSpellId == 0) return false;
+        _rtsUnitCastPrimary = 0;
+        _rtsUnitCastSpellId = 0;
+        if (!silent) SetRtsControlGroupStatus("Spell targeting cancelled.");
+        return true;
     }
 
     /// <summary>
@@ -185,6 +262,7 @@ public sealed partial class GameLoop
         {
             _pendingCastSpellId = 0;
             _pendingCastPrimary = 0;
+            _pendingCastExplicitTarget = 0;
             return;
         }
         // Wait until control has reached the subject — a possessed bot, or your own body after a
@@ -193,9 +271,11 @@ public sealed partial class GameLoop
         if (!CanAuthorControlledGameplay && _pendingCastPrimary != LocalPlayerGuid) return;
         if (!ActionsFor(_pendingCastPrimary).KnownSpells.Contains(_pendingCastSpellId)) return;
         uint spellId = _pendingCastSpellId;
+        ulong explicitTarget = _pendingCastExplicitTarget;
         _pendingCastSpellId = 0;
         _pendingCastPrimary = 0;
-        TryCast(spellId);
+        _pendingCastExplicitTarget = 0;
+        TryCast(spellId, explicitTarget);
     }
 
     private const int RtsPrimaryAbilityLimit = 8;
@@ -214,7 +294,7 @@ public sealed partial class GameLoop
     /// <summary>Route the existing bindable Action Button 1..10 keys to the visible primary
     /// card while in Free View. Returning true means the commander card owns the binding even
     /// when that numbered card slot is empty, so the hidden body bar cannot cast by accident.</summary>
-    private bool TryUseRtsPrimaryAbilityBinding(int abilityIndex)
+    private bool TryUseRtsPrimaryAbilityBinding(int abilityIndex, bool altPrimaryCast = false)
     {
         if (!_freeView) return false;
         ulong primary = RtsPrimaryGuid;
@@ -222,8 +302,24 @@ public sealed partial class GameLoop
         List<(int Slot, ActionSlot Action, SpellInfo Spell)> abilities =
             RtsPrimaryAbilities(primary);
         if ((uint)abilityIndex < (uint)abilities.Count)
-            CastPrimaryAbility(primary, abilities[abilityIndex].Action.ActionId);
+            CastPrimaryAbility(primary, abilities[abilityIndex].Action.ActionId, altPrimaryCast);
         return true;
+    }
+
+    /// <summary>
+    /// Alt is a supplemental self-cast modifier for the visible primary card. BindingDown is an
+    /// exact-chord matcher, so an ordinary "1" binding does not fire while Alt is held; match the
+    /// binding's base key and its other authored modifiers here while deliberately ignoring Alt.
+    /// </summary>
+    private bool RtsAltAbilityBindingDown(GameBinding binding)
+    {
+        if (!_freeView || !AltHeld()) return false;
+        BindingPair pair = BoundKeys(binding);
+        return Matches(pair.Primary) || Matches(pair.Secondary);
+
+        bool Matches(BindingChord chord) => chord.IsBound &&
+            chord.Pointer == BindingPointerKey.None && InputKeyDown(chord.Key) &&
+            chord.Control == CtrlHeld() && chord.Shift == ShiftHeld();
     }
 
     private const byte SuiOrderFormationLine = 8;
@@ -293,7 +389,18 @@ public sealed partial class GameLoop
         DrawRtsConsoleInfo(dl, origin, subjects, scale);
         DrawQuickBackpackSlots(dl, origin, scale);
         DrawRtsCommandCard(dl, origin, subjects, scale);
+        DrawRtsUnitCastTargetHint(scale);
         ImGui.End();
+    }
+
+    private void DrawRtsUnitCastTargetHint(float scale)
+    {
+        if (_rtsUnitCastSpellId == 0 || _window.MouseCaptured) return;
+        string name = _spellCatalog?.TryGet(_rtsUnitCastSpellId, out SpellInfo spell) == true
+            ? spell.Name ?? "Spell" : "Spell";
+        ImGui.GetForegroundDrawList().AddText(
+            ImGui.GetIO().MousePos + new Vector2(18f, 14f) * scale, 0xFF00E060,
+            $"{name}: select friendly target");
     }
 
     /// <summary>The WC3 command console's carved-stone tablet: dark stone body graduating into
@@ -378,6 +485,12 @@ public sealed partial class GameLoop
                 dl.AddText(new Vector2((min.X + max.X) * 0.5f, (min.Y + bodyMax.Y) * 0.5f) - half,
                     0xe0101418, initial);
             }
+            // Class-colour rim on each squad portrait (issue #15); the PRIMARY gets the animated
+            // four-dot RTS marker, the rest a static class rim.
+            if (guid == primary)
+                DrawAnimatedClassPortraitBorder(dl, min, bodyMax, guid, scale);
+            else
+                DrawClassPortraitBorderRect(dl, min, bodyMax, guid, scale);
             uint maxHp = unit.Fields.MaxHealth;
             float hp = maxHp > 0 ? Math.Clamp(unit.Fields.Health / (float)maxHp, 0f, 1f) : 0f;
             dl.AddRectFilled(new Vector2(min.X, max.Y - barH), max, 0xff101418);
@@ -406,7 +519,8 @@ public sealed partial class GameLoop
             if (hovered && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) focusPick = guid;
             else if (ImGui.IsItemClicked())
             {
-                if (ImGui.GetIO().KeyShift) dropPick = guid;
+                if (_rtsUnitCastSpellId != 0) TryCommitRtsUnitCastTarget(guid);
+                else if (ImGui.GetIO().KeyShift) dropPick = guid;
                 else primaryPick = guid;
             }
         }
@@ -612,8 +726,9 @@ public sealed partial class GameLoop
             else
                 dl.AddRectFilled(content, content + portraitSize, 0xd01a222a);
         }
-        dl.AddRect(content, content + portraitSize, 0xff2a343d,
-            0, ImDrawFlags.None, MathF.Max(1f, scale));
+        // Static class-colour frame on the primary selected card (issue #15) — the animated
+        // four-dot marker lives on the mini squad portrait instead.
+        DrawClassPortraitBorderRect(dl, content, content + portraitSize, guid, scale);
         // Role medallion at the portrait's lower-right corner, fully on the
         // frame — the same disc the party rows wear.
         string unitName = ResolveUnitName(guid);
@@ -702,7 +817,7 @@ public sealed partial class GameLoop
                     new GameTooltipOwnerKey("console-card", (ulong)slot + 1),
                     spell.Id, scale, SpellTooltipPlacement.DefaultBottomRight);
             if (ImGui.IsItemClicked())
-                CastPrimaryAbility(guid, action.ActionId);
+                CastPrimaryAbility(guid, action.ActionId, AltHeld());
         }
         if (abilities.Count == 0)
             dl.AddText(rowMin + new Vector2(0f, 4f * scale), 0xff9aa4ab,

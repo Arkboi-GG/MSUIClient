@@ -739,6 +739,9 @@ public sealed partial class GameLoop
             if (!_questTemplates.ContainsKey(id) && _questQueries.Add(id)) _net.QuestQuery(id);
         foreach (uint id in now.Except(_questLogSnapshot)) EmitInterface("quest", "log", "ADDED", _net.PlayerGuid, $"quest={id};count={now.Count}");
         foreach (uint id in _questLogSnapshot.Except(now)) EmitInterface("quest", "log", "REMOVED", _net.PlayerGuid, $"quest={id};count={now.Count}");
+        // Your own accept/turn-in (from the vanilla L window or anywhere) moves this set —
+        // re-pull the commander giver board so it does not sit on a stale verdict.
+        if (!now.SetEquals(_questLogSnapshot)) RefreshGiverQuestsIfOpen();
         _questLogSnapshot = now;
         if (_questRewardPending != 0)
         {
@@ -1011,8 +1014,8 @@ public sealed partial class GameLoop
         if (ImGui.IsMouseHoveringRect(listMin, listMax, false) && ImGui.GetIO().MouseWheel != 0f)
                 _questLogOffset = QuestFrameUiLaw.ClampQuestLogOffset(
                 _questLogOffset - Math.Sign(ImGui.GetIO().MouseWheel), rows.Count);
-        DrawCenteredText(dl, origin + QuestFrameUiLaw.QuestLogTitleCenter * s,
-            "Quest Log", 12f * s, 0xffffffff);
+        GameText.DrawCentered(dl, "GameFontHighlight", "Quest Log",
+            origin + QuestFrameUiLaw.QuestLogTitleCenter * s, s);
         DrawQuestLogBookControls(dl, origin, s, quests.Length, groups);
         for (int row = 0; row < QuestFrameUiLaw.QuestLogRows; row++)
         {
@@ -1024,7 +1027,8 @@ public sealed partial class GameLoop
             if (display.IsHeader)
             {
                 if (VanillaListRow(dl, $"##quest-log-header-{display.Header}", min,
-                        rowRect.Size, s, "    " + display.Header, false, 0xffb3b3b3))
+                        rowRect.Size, s, "    " + display.Header, false, 0xffb3b3b3,
+                        fontObject: "GameFontNormal"))
                 {
                     if (display.Collapsed) _questLogCollapsed.Remove(display.Header);
                     else _questLogCollapsed.Add(display.Header);
@@ -1051,7 +1055,8 @@ public sealed partial class GameLoop
             uint color = ImGui.ColorConvertFloat4ToU32(
                 QuestFrameUiLaw.QuestDifficultyColor(player.Level, level));
             if (VanillaListRow(dl, $"##quest-log-{quest.QuestId}", min, rowRect.Size, s,
-                    "  " + title, _questLogSelectedQuestId == quest.QuestId, color))
+                    "  " + title, _questLogSelectedQuestId == quest.QuestId, color,
+                    fontObject: "GameFontNormal"))
             {
                 if (_questLogSelectedQuestId != quest.QuestId) _questLogDetailScroll = 0;
                 _questLogSelectedQuestId = quest.QuestId;
@@ -1289,20 +1294,20 @@ public sealed partial class GameLoop
         Vector2 contentOrigin = QuestFrameUiLaw.QuestLogDetailContentOrigin(
             origin, _questLogDetailScroll, s);
         dl.PushClipRect(clip.Min, clip.Max, true);
-        dl.AddText(ImGui.GetFont(), 14f * s,
+        GameText.Draw(dl, "QuestTitleFont", title,
             QuestFrameUiLaw.QuestLogDetailTextMin(
                 contentOrigin, QuestFrameUiLaw.QuestLogDetailTitleY, s),
-            0xff202020, title);
-        dl.AddText(ImGui.GetFont(), 12f * s,
+            s, 0xff202020);
+        GameText.Draw(dl, "QuestTitleFont", "Objectives",
             QuestFrameUiLaw.QuestLogDetailTextMin(
                 contentOrigin, QuestFrameUiLaw.QuestLogDetailObjectivesTitleY, s),
-            0xff202020, "Objectives");
+            s, 0xff202020);
         float y = QuestFrameUiLaw.QuestLogDetailInitialY;
         if (_questTemplates.TryGetValue(selectedSlot.QuestId, out QuestTemplate? template))
         {
-            y += DrawWrappedText(dl, template.ObjectivesText,
+            y += DrawQuestWrappedText(dl, template.ObjectivesText,
                 QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s),
-                QuestFrameUiLaw.QuestLogDetailTextWidth, 10f * s, s, 0xff202020, 8) / s;
+                QuestFrameUiLaw.QuestLogDetailTextWidth, "QuestFont", s, 0xff202020) / s;
             if (template.ObjectivesText.Length > 0) y += 8f;
             long? secondsLeft = QuestSecondsLeft(selectedSlot.Timer,
                 state: (byte)(selectedSlot.Counters >> 24));
@@ -1319,19 +1324,19 @@ public sealed partial class GameLoop
                 foreach ((string text, bool finished) in QuestObjectiveLines(
                     player, selectedSlot.Counters, i, template.Objectives[i]))
                 {
-                    y += DrawWrappedText(dl, finished ? text + " (Complete)" : text,
+                    y += DrawQuestWrappedText(dl, finished ? text + " (Complete)" : text,
                         QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s),
-                        QuestFrameUiLaw.QuestLogDetailTextWidth, 10f * s, s,
-                        finished ? 0xff333333 : 0xff000000, 3) / s + 2f;
+                        QuestFrameUiLaw.QuestLogDetailTextWidth, "QuestFont", s,
+                        finished ? 0xff333333 : 0xff000000) / s + 2f;
                 }
             }
             y += 8f;
             GameText.Draw(dl, "QuestTitleFont", "Description",
                 QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s), s, 0xff202020);
             y += 20f;
-            y += DrawWrappedText(dl, ExpandQuestText(template.Details),
+            y += DrawQuestWrappedText(dl, ExpandQuestText(template.Details),
                 QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s),
-                QuestFrameUiLaw.QuestLogDetailTextWidth, 10f * s, s, 0xff202020, 20) / s;
+                QuestFrameUiLaw.QuestLogDetailTextWidth, "QuestFont", s, 0xff202020) / s;
             y += 10f;
             bool hasRewards = template.ChoiceRewards.Count > 0 || template.FixedRewards.Count > 0 ||
                 template.Money != 0 || template.RewardSpell != 0;
@@ -1386,10 +1391,10 @@ public sealed partial class GameLoop
         }
         else
         {
-            y += DrawWrappedText(dl, _questProgress.GetValueOrDefault(selectedSlot.QuestId,
+            y += DrawQuestWrappedText(dl, _questProgress.GetValueOrDefault(selectedSlot.QuestId,
                     "Retrieving quest details..."),
                 QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s),
-                QuestFrameUiLaw.QuestLogDetailTextWidth, 10f * s, s, 0xff202020, 8) / s;
+                QuestFrameUiLaw.QuestLogDetailTextWidth, "QuestFont", s, 0xff202020) / s;
         }
         dl.PopClipRect();
         _questLogDetailContentHeight = Math.Max(rect.Height, y - rect.Y + 10f);

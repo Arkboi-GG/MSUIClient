@@ -83,6 +83,116 @@ public sealed partial class GameLoop
         return name.Length != 0 ? LoadBotBars().BotClasses.GetValueOrDefault(name, "") : "";
     }
 
+    /// <summary>
+    /// A party/raid member's WoW class colour (ABGR) for portrait borders (issue #15).
+    /// Resolves the class from the streamed entity, then cached player traits, then the
+    /// bot-bars class map by name; falls back to neutral grey when the class is unknown.
+    /// Works for your own character too (its entity carries the class).
+    /// </summary>
+    private uint ClassColorForGuid(ulong guid, string name = "")
+    {
+        byte classId = 0;
+        if (_entities.TryGet(guid, out WorldEntity entity) && entity.IsPlayer)
+            classId = entity.Fields.Bytes0.Class;
+        else if (_playerTraits.TryGetValue(guid, out PlayerTraits traits))
+            classId = traits.Class;
+        string className = classId != 0 ? ClassIdName(classId) : "";
+        if (className.Length == 0 && name.Length != 0)
+            className = LoadBotBars().BotClasses.GetValueOrDefault(name, "");
+        return CommanderClassColor(className);
+    }
+
+    /// <summary>Re-alpha an ABGR colour (top byte) — for the subtle/glow class borders.</summary>
+    private static uint WithAlphaByte(uint abgr, byte alpha) =>
+        (abgr & 0x00ff_ffffu) | ((uint)alpha << 24);
+
+    /// <summary>Whether class-colored portrait borders draw right now (issue #15). The CRPG/RTS
+    /// commander view (free view) and direct-control play are toggled independently in the
+    /// interface options ("Class Portrait Borders"): off by default in direct control, on in RTS.
+    /// </summary>
+    private bool ClassPortraitBordersOn() => _freeView
+        ? Settings.Controls.PortraitBordersRts
+        : Settings.Controls.PortraitBordersDirectControl;
+
+    /// <summary>The plain dark rim a portrait wore before issue #15, drawn when class borders
+    /// are toggled off so the surface reverts to its original look.</summary>
+    private static void DrawNeutralPortraitRim(ImDrawListPtr dl, Vector2 min, Vector2 max,
+        float scale) => dl.AddRect(min, max, 0xff2a343d, 0f, ImDrawFlags.None, MathF.Max(1f, scale));
+
+    /// <summary>
+    /// The class-colour frame for a SQUARE card portrait (issue #15): a soft outer glow plus a
+    /// ~50%-opacity class border, replacing the flat dark rim. <paramref name="guid"/> resolves
+    /// the class; unknown classes get the neutral grey, so the rim never vanishes.
+    /// </summary>
+    private void DrawClassPortraitBorderRect(ImDrawListPtr dl, Vector2 min, Vector2 max,
+        ulong guid, float scale, string name = "")
+    {
+        if (!ClassPortraitBordersOn()) { DrawNeutralPortraitRim(dl, min, max, scale); return; }
+        uint cls = ClassColorForGuid(guid, name);
+        float glowW = MathF.Max(1f, 2f * scale);
+        dl.AddRect(min - new Vector2(glowW), max + new Vector2(glowW),
+            WithAlphaByte(cls, 0x33), 0f, ImDrawFlags.None, glowW);
+        dl.AddRect(min, max, WithAlphaByte(cls, 0x88), 0f, ImDrawFlags.None,
+            MathF.Max(1f, 1.5f * scale));
+    }
+
+    /// <summary>
+    /// The class-colour ring for a ROUND portrait (issue #15): a soft outer glow and a ~50%
+    /// class ring hugging the disc, drawn AFTER the gilded frame art so it reads on the ring.
+    /// </summary>
+    private void DrawClassPortraitRing(ImDrawListPtr dl, Vector2 center, float radius,
+        ulong guid, float scale, string name = "")
+    {
+        if (!ClassPortraitBordersOn()) return;   // gilded frame ring stays, no class tint
+        uint cls = ClassColorForGuid(guid, name);
+        float thick = MathF.Max(1.5f, 2f * scale);
+        dl.AddCircle(center, radius + thick, WithAlphaByte(cls, 0x2E), 48, thick * 1.6f);
+        dl.AddCircle(center, radius, WithAlphaByte(cls, 0x82), 48, thick);
+    }
+
+    /// <summary>
+    /// The ANIMATED class-colour border for the PRIMARY mini portrait (issue #15): four class dots
+    /// chase clockwise around the rim, each with a little fading trail — an RTS "this one is
+    /// selected" marker. A static class rim sits underneath so the frame is always defined.
+    /// </summary>
+    private void DrawAnimatedClassPortraitBorder(ImDrawListPtr dl, Vector2 min, Vector2 max,
+        ulong guid, float scale, string name = "")
+    {
+        if (!ClassPortraitBordersOn()) { DrawNeutralPortraitRim(dl, min, max, scale); return; }
+        uint cls = ClassColorForGuid(guid, name);
+        dl.AddRect(min, max, WithAlphaByte(cls, 0x66), 0f, ImDrawFlags.None,
+            MathF.Max(1f, 1.5f * scale));
+        float head = ((float)NowSeconds() * 0.30f) % 1f;   // one lap ~3.3s, clockwise
+        float dot = MathF.Max(1.8f, 2.2f * scale);
+        const int trail = 5;
+        for (int d = 0; d < 4; d++)                         // four dots, a quarter-lap apart
+        {
+            float baseF = head + d * 0.25f;
+            for (int k = 0; k < trail; k++)                 // fading trail behind each dot
+            {
+                float f = (((baseF - k * 0.02f) % 1f) + 1f) % 1f;
+                byte a = (byte)(0xE6 * (1f - k / (float)trail));
+                dl.AddCircleFilled(PointOnRectPerimeter(min, max, f),
+                    dot * (1f - 0.45f * k / trail), WithAlphaByte(cls, a));
+            }
+        }
+    }
+
+    /// <summary>Point at fraction <paramref name="f"/> (0..1) clockwise around a rect's perimeter,
+    /// starting at the top-left corner.</summary>
+    private static Vector2 PointOnRectPerimeter(Vector2 min, Vector2 max, float f)
+    {
+        float w = max.X - min.X, h = max.Y - min.Y;
+        float d = Math.Clamp(f, 0f, 1f) * 2f * (w + h);
+        if (d < w) return new Vector2(min.X + d, min.Y);
+        d -= w;
+        if (d < h) return new Vector2(max.X, min.Y + d);
+        d -= h;
+        if (d < w) return new Vector2(max.X - d, max.Y);
+        d -= w;
+        return new Vector2(min.X, max.Y - d);
+    }
+
     private static int ParseSpellRank(string rank)
     {
         int space = rank.LastIndexOf(' ');

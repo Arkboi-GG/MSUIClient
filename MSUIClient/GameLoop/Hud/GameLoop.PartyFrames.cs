@@ -661,6 +661,15 @@ public sealed partial class GameLoop
             hoveredIndex < members.Length)
         {
             PartyMember member = members[hoveredIndex];
+            if (_rtsUnitCastSpellId != 0)
+            {
+                if (_partyPressButton == PartyPointerButton.Right)
+                    CancelRtsUnitCastTargeting(silent: false);
+                else
+                    TryCommitRtsUnitCastTarget(member.Guid);
+                ClearPartyPress();
+                return;
+            }
             bool altHeld = InputKeyDown(Key.AltLeft) || InputKeyDown(Key.AltRight);
             if (action == PartyPointerAction.Target && altHeld)
                 // Alt+click a party portrait = jump control to that bot (CRPG/RTS mode).
@@ -847,6 +856,10 @@ public sealed partial class GameLoop
         Vector2 artMin = p + new Vector2(0, 2) * s;
         Vector2 artSize = new Vector2(128, 64) * s;
         DrawArt(dl, @"Interface\TargetingFrame\UI-PartyFrame", artMin, new Vector2(128, 64), s);
+        // Class-colour ring on the gilded portrait frame (issue #15) - read every member's
+        // class at a glance. Drawn after the frame art so it lands on the ring, not under it.
+        DrawClassPortraitRing(dl, portraitMin + portraitSize * 0.5f, portraitSize.X * 0.5f,
+            view.Member.Guid, s, view.Member.Name);
         if (capture)
             CollectUiParityDraw(root + "/Frame/FrameTexture", "Texture", artMin, artSize, root,
                 new(@"Interface\TargetingFrame\UI-PartyFrame", 0xffffffff, "ART", "TOPLEFT",

@@ -351,6 +351,17 @@ public static class GameTextLaw
     }
 
     /// <summary>
+    /// Public accessor for world-space / GL text renderers (nameplates, floating combat text,
+    /// world unit names) that need the baked <see cref="ImFontPtr"/> and its draw size directly
+    /// rather than a 2D <c>AddText</c> - so they read glyph geometry from a baked FRIZQT face in
+    /// the shared atlas, never the ImGui default. Same nearest-bake fallback as <see cref="Draw"/>;
+    /// returns false only when the face has no bake at all.
+    /// </summary>
+    public static bool TryGetFont(string face, int em, bool thick,
+        out ImFontPtr font, out float drawSize)
+        => TryResolve(face, em, thick, out font, out drawSize);
+
+    /// <summary>
     /// Measure a string's advance width in device pixels - the client's own measure is the sum
     /// of glyph advances (GetStringWidth 0x772890), which after ApplyAdvanceLaw this is.
     /// </summary>

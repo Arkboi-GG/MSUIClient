@@ -60,6 +60,7 @@ public sealed partial class GameLoop
         _rightTargetPressPick = default;
         _targetLeftWasDown = false;
         _targetRightWasDown = false;
+        CancelRtsUnitCastTargeting(silent: true);
         _targetCycleHistory.Clear();
         // Resolved hit and negative records are template identities and survive zoning/session
         // teardown. Only an unanswered writer ask must become re-askable.
@@ -342,11 +343,13 @@ public sealed partial class GameLoop
 
     private void DrawSelectionRing()
     {
-        if (_spellEffectMeshes is null || _selectionGuid == 0 ||
+        // Free View owns its selected-target ring in RenderRtsGroundFx: one clean projected halo,
+        // including the WMO-floor fallback, rather than a stock ring plus an RTS marker stacked.
+        if (_freeView || _spellEffectMeshes is null || _selectionGuid == 0 ||
             !_entities.TryGet(_selectionGuid, out WorldEntity target)) return;
         FactionReaction reaction = ReactionTargetTowardPlayer(target);
         uint uptime = MovementInfo.ClientUptimeMs();
-        Vector3 color = NameplateUiLaw.SelectionRgb(reaction, target.IsPlayer, target.IsDead,
+        Vector3 color = SelectionRingLaw.TargetRgb(reaction, target.IsDead,
             _attackTargetGuid == target.Guid, uptime);
         float radius = _creatures?.SelectionRadius(target) ?? .7f * MathF.Max(.01f, target.Scale);
         _spellEffectMeshes.RenderUnitSelectionRing(

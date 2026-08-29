@@ -1,4 +1,4 @@
-# CRPG/RTS Mode — WIP (updated 2026-08-15)
+# CRPG/RTS Mode — WIP (updated 2026-08-29)
 
 > **2026-08-15 MMO FACTION CONTROL-GROUP UPDATE:** source now includes
 > capability-gated same-faction Free View control/orders, ten session-only
@@ -29,6 +29,32 @@
 > all confirmed working in play after Rounds 11–16 (summary below; sections are
 > newest-first). This Tier-1 result is not Tier-2 R1 validation. Owner decisions
 > in here are binding — do not redesign them.
+
+## 2026-08-29 — TARGET RING CLEANUP BUILT (client only)
+
+Free View no longer draws the four-segment crosshair shown in the owner capture for an
+ordinary selected world target. It now draws one continuous projected ring, with the
+model-authored selection radius: **friendly blue, neutral yellow, hostile red**. The stock
+target ring is suppressed while Free View owns that halo, preventing two decals from stacking.
+Ground-ring colours now have their own law, so making friendly NPC target rings blue does not
+silently turn their overhead names from green to blue. Selection-ring and nameplate clinical
+checks pass. No server change was involved.
+
+## 2026-08-28 — MULTI-SELECTION HEAL/BUFF TARGETING BUILT (client only)
+
+The primary command card no longer silently self-casts an explicitly friendly-targeted
+heal, buff, or resurrection when more than one party character is selected. Plain click or
+the ordinary ability hotkey now arms a friendly-unit cursor; the next valid world body,
+party frame, player/target frame, or command-shelf selection portrait receives the spell
+without replacing the RTS selection or combat focus. Invalid/empty picks leave the spell
+armed. Right-click or Escape cancels.
+
+**Alt+ability click / Alt+ability hotkey casts on the current PRIMARY.** “Self” therefore
+means the character whose command card owns the ability, not necessarily the logged-in
+character. The explicit target is carried through possess-on-cast/release-home handoffs, so
+the eventual cast cannot fall back to whichever combat target happens to be selected when
+control lands. Self-only, hostile, ground, item, and party-wide spells keep their existing
+behavior; single selections are unchanged. No server or runtime-control change was needed.
 
 ## 2026-08-25 (late) — PARTY QUESTING & VENDORING: plan + P1 (quest facts) BUILT
 

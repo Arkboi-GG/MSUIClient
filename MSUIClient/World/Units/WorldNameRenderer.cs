@@ -2,14 +2,16 @@ using System.Numerics;
 using ImGuiNET;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
+using MSUIClient.Engine.UI;
 using Shader = MSUIClient.Engine.Shader;
 
 namespace MSUIClient.World.Units;
 
 /// <summary>
-/// Camera-facing unit identity text in the depth-tested world pass. The glyph source is the
-/// already-live ImGui atlas, but the geometry is ordinary world geometry: walls occlude it and
-/// it participates in the finished-world glow/style passes rather than the HUD overlay.
+/// Camera-facing unit identity text in the depth-tested world pass. The glyph source is an
+/// exact-size baked FRIZQT face in the shared atlas (game UI never uses the ImGui default font),
+/// but the geometry is ordinary world geometry: walls occlude it and it participates in the
+/// finished-world glow/style passes rather than the HUD overlay.
 /// </summary>
 public sealed class WorldNameRenderer : IDisposable
 {
@@ -46,9 +48,10 @@ public sealed class WorldNameRenderer : IDisposable
     public unsafe void Render(Camera camera, IReadOnlyList<Label> labels)
     {
         if (_shader is null || labels.Count == 0) return;
-        ImFontPtr font = ImGui.GetFont();
+        // The atlas texture holds every baked gameplay face, so its id is shared across the
+        // per-label FRIZQT bakes resolved below - never the ImGui default font's glyphs.
         uint atlas = (uint)ImGui.GetIO().Fonts.TexID.ToInt64();
-        if (font.NativePtr == null || font.FontSize <= 0f || atlas == 0) return;
+        if (atlas == 0) return;
 
         Vector3 forward = Vector3.Normalize(camera.Forward);
         Vector3 right = Vector3.Cross(forward, Vector3.UnitZ);
@@ -60,6 +63,11 @@ public sealed class WorldNameRenderer : IDisposable
         foreach (Label label in labels)
         {
             if (label.LinePitch <= 0f || label.Lines.Count == 0) continue;
+            // Baked FRIZQT nearest the label's on-screen pitch; worldPerPixel = pitch/FontSize
+            // then scales its glyphs to the exact label size.
+            int em = Math.Max(2, (int)MathF.Round(label.LinePitch));
+            if (!GameTextLaw.TryGetFont(FontFace.FrizQt, em, false, out ImFontPtr font, out _)
+                || font.NativePtr == null || font.FontSize <= 0f) continue;
             float outline = label.LinePitch * 0.055f;
             Vector4 black = new(0f, 0f, 0f, MathF.Max(0.9f, label.Color.W));
             for (int lineIndex = 0; lineIndex < label.Lines.Count; lineIndex++)

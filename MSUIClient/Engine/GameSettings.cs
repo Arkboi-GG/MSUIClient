@@ -829,6 +829,11 @@ public sealed class GameSettings
         public bool ShowPlayerNames { get; set; } = true;
         public bool ShowNpcNames { get; set; } = true;
         public bool ShowOwnName { get; set; } = true;
+
+        // Class-colored portrait borders (issue #15). Independent per mode: off by default in
+        // direct control (plain WoW look), on in the CRPG/RTS commander view.
+        public bool PortraitBordersDirectControl { get; set; } = false;
+        public bool PortraitBordersRts { get; set; } = true;
         public bool ChatBubbles { get; set; } = true;
         public bool PartyChatBubbles { get; set; } = true;
 

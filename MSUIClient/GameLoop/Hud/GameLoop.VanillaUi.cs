@@ -216,7 +216,8 @@ public sealed partial class GameLoop
         Vector2 logicalSize, float scale, string text, bool selected, uint color = 0xffffffff,
         string? iconPath = null, uint? selectedColor = null, bool hoverHighlight = true,
         string? highlightPath = null, bool additiveHighlight = false,
-        Vector2? highlightOffset = null, Vector2? highlightLogicalSize = null)
+        Vector2? highlightOffset = null, Vector2? highlightLogicalSize = null,
+        string? fontObject = null)
     {
         Vector2 size = logicalSize * scale;
         ImGui.SetCursorScreenPos(min);
@@ -253,9 +254,21 @@ public sealed partial class GameLoop
         // empty/null string (see GameTextLaw.Draw) - callers may pass "" for a highlight-only
         // row whose columns are drawn separately.
         if (!string.IsNullOrEmpty(text))
-            draw.AddText(ImGui.GetFont(), 10f * scale,
-                min + new Vector2(textX, MathF.Max(1, (logicalSize.Y - 10) * .5f)) * scale,
-                color, text);
+        {
+            // A named font object routes through the exact-size FrameXML atlas (GameText);
+            // the ImGui-default fallback stays for the many callers not yet migrated.
+            if (fontObject is not null)
+                GameText.Draw(draw, fontObject, text,
+                    new Vector2(min.X + textX * scale,
+                        GameText.BoxCenteredTop(fontObject, min.Y, logicalSize.Y, scale)),
+                    scale, color);
+            else
+                // Default rows keep the old 10px look, now from the exact-size FRIZQT bake
+                // instead of the ImGui default font (game UI never uses the ImGui font).
+                GameText.DrawPlain(draw, text,
+                    min + new Vector2(textX, MathF.Max(1, (logicalSize.Y - 10) * .5f)) * scale,
+                    10f, scale, color);
+        }
         return releasedInside;
     }
 
@@ -424,8 +437,8 @@ public sealed partial class GameLoop
             uint hi = _gameplayArt?.AdditiveHandle(@"Interface\Buttons\UI-CheckBox-Highlight") ?? 0;
             if (hi != 0) draw.AddImage((nint)hi, min, min + boxSize);
         }
-        draw.AddText(ImGui.GetFont(), 10f * scale, min + new Vector2(27, 7) * scale,
-            enabled ? VanillaGold : 0xff777777, caption);
+        GameText.DrawPlain(draw, caption, min + new Vector2(27, 7) * scale, 10f, scale,
+            enabled ? VanillaGold : 0xff777777);
         return clicked;
     }
 
@@ -618,17 +631,18 @@ public sealed partial class GameLoop
         float width = logicalWidth * scale;
         float lineHeight = MathF.Ceiling(fontSize * 1.18f);
         int lines = 0;
+        // fontSize is a device-pixel size; draw and measure from the exact-size FRIZQT bake
+        // (uiScale 1f) rather than the ImGui default font (game UI never uses the ImGui font).
         foreach (string paragraph in text.Replace("\r", "").Split('\n'))
         {
             string current = "";
             foreach (string word in paragraph.Split(' ', StringSplitOptions.RemoveEmptyEntries))
             {
                 string candidate = current.Length == 0 ? word : current + " " + word;
-                Vector2 measured = ImGui.CalcTextSize(candidate) *
-                    (fontSize / MathF.Max(1f, ImGui.GetFontSize()));
-                if (current.Length > 0 && measured.X > width)
+                if (current.Length > 0 && GameText.MeasurePlain(candidate, fontSize, 1f) > width)
                 {
-                    draw.AddText(ImGui.GetFont(), fontSize, min + new Vector2(0, lines * lineHeight), color, current);
+                    GameText.DrawPlain(draw, current, min + new Vector2(0, lines * lineHeight),
+                        fontSize, 1f, color);
                     if (++lines >= maxLines) return lines * lineHeight;
                     current = word;
                 }
@@ -636,7 +650,8 @@ public sealed partial class GameLoop
             }
             if (current.Length > 0)
             {
-                draw.AddText(ImGui.GetFont(), fontSize, min + new Vector2(0, lines * lineHeight), color, current);
+                GameText.DrawPlain(draw, current, min + new Vector2(0, lines * lineHeight),
+                    fontSize, 1f, color);
                 if (++lines >= maxLines) return lines * lineHeight;
             }
         }
