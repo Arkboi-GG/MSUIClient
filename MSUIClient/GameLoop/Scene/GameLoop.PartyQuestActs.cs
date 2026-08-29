@@ -84,7 +84,14 @@ public sealed partial class GameLoop
         var refusals = new List<string>();
         foreach (PartyQuestOutcome outcome in result.Outcomes)
         {
-            if (PartyQuestWire.Succeeded(outcome.Result)) succeeded++;
+            if (PartyQuestWire.Succeeded(outcome.Result))
+            {
+                succeeded++;
+                // The result is authoritative. Retire the cached row immediately;
+                // the following server push/re-pull supplies the complete new log.
+                if (result.Action == PartyQuestWire.ActionAbandon)
+                    ForgetQuestFact(outcome.Guid, result.QuestId);
+            }
             else refusals.Add(PartyQuestWire.ResultText(outcome.Result,
                 ResolveUnitName(outcome.Guid)));
         }
@@ -103,6 +110,8 @@ public sealed partial class GameLoop
         if (refusals.Count > 0 && succeeded == 0)
             ShowUiError(refusals.Count == 1 ? refusals[0]
                 : $"None of the {refusals.Count} selected could do that.");
+        if (result.Action == PartyQuestWire.ActionAbandon && succeeded > 0)
+            RequestPartyQuestFacts("party quest abandoned");
 
         EmitInterface("party-quest", ActionName(result.Action), "APPLIED", 0,
             $"quest={result.QuestId};ok={succeeded};refused={refusals.Count}");

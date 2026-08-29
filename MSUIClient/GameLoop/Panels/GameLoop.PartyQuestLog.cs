@@ -276,7 +276,18 @@ public sealed partial class GameLoop
             GameText.Draw(dl, "GameFontNormalSmall",
                 guid == LocalPlayerGuid ? "You" : name,
                 c0 + new Vector2(0, y) * scale, scale, VanillaGold);
-            y += 16f;
+            bool mayAbandon = guid == LocalPlayerGuid || IsRtsGroupableBot(guid);
+            if (mayAbandon)
+            {
+                float buttonX = PartyQuestTitleColumnWidth +
+                    owners.Count * PartyQuestMemberColumnWidth - 76f;
+                ImGui.SetCursorScreenPos(c0 + new Vector2(buttonX, y - 3f) * scale);
+                if (ImGui.Button($"Abandon##party-quest-{guid}-{questId}",
+                        new Vector2(72f, 18f) * scale))
+                    _questAbandonConfirmation = new(guid, questId,
+                        _questTitles.GetValueOrDefault(questId, $"Quest {questId}"));
+            }
+            y += 20f;
             foreach (string line in PartyQuestObjectiveLines(cell, template))
             {
                 GameText.Draw(dl, "GameFontNormalSmall", line,

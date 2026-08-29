@@ -718,7 +718,7 @@ public sealed partial class GameLoop
     // companion side-by-side stamped with its age. Re-possessing a bot replaces
     // its snapshot (its old synthetic items are purged first); session teardown
     // purges everything.
-    private readonly Dictionary<ulong, List<ulong>> _suiSnapshotItemsByBot = [];
+    private readonly Dictionary<ulong, List<WorldEntity>> _suiSnapshotItemsByBot = [];
     private readonly Dictionary<ulong, double> _suiSnapshotAtByBot = [];
 
     /// <summary>Seconds since this bot's last inventory snapshot; null = never synced.</summary>
@@ -736,11 +736,14 @@ public sealed partial class GameLoop
         // The snapshot is the ONLY way a bot's bags/gold/talents can exist client side
         // (the wire never streams owner-only fields to a non-owner), so a silent drop
         // here is indistinguishable from "the bot has nothing". Say which it was.
-        // Accepted sources: the possessed bot (the original M4 wire) and, since the
-        // member-facts law (party = full facts, faction = orders), any party/raid
-        // member the server pushes without possession. Everything else still drops.
+        // Accepted sources: the possessed bot (the original M4 wire), the session
+        // player (the party-item-move server re-snapshots both endpoints), and any
+        // party/raid member pushed by the member-facts wire. Rejecting the session
+        // player while a bot was controlled left an item handed to the main player
+        // invisible until another bag operation happened to update that slot.
         bool forControlled = source == ControlledGuid;
-        if ((!forControlled && !IsPartyMemberFactsSubject(source)) ||
+        bool forSessionPlayer = source == LocalPlayerGuid;
+        if ((!forControlled && !forSessionPlayer && !IsPartyMemberFactsSubject(source)) ||
             !_entities.TryGet(source, out WorldEntity bot))
         {
             Console.WriteLine($"[sui] snapshot DROPPED for 0x{source:X} " +
@@ -753,7 +756,7 @@ public sealed partial class GameLoop
             $"{coinage / 10000}g{coinage % 10000 / 100}s{coinage % 100}c, {talentPoints} talent pts");
 
         PurgeSuiSnapshotFor(source);
-        List<ulong> snapshotItems = _suiSnapshotItemsByBot[source] = [];
+        List<WorldEntity> snapshotItems = _suiSnapshotItemsByBot[source] = [];
         bot.Fields.SetU32(ObjectFields.PLAYER_CHARACTER_POINTS1, talentPoints);
         bot.Fields.SetU32(ObjectFields.PLAYER_COINAGE, coinage);
 
@@ -780,31 +783,48 @@ public sealed partial class GameLoop
             uint stack = r.ReadU32();
             byte bagSlots = r.ReadU8();
 
-            var fields = new ObjectFields().AsCreated();
-            fields.SetU32(ObjectFields.OBJECT_ENTRY, entry);
-            fields.SetU32(ObjectFields.ITEM_STACK_COUNT, stack);
+            WorldEntity itemEntity;
+            bool hasExisting = _entities.TryGet(itemGuid, out WorldEntity existing);
+            bool existingIsSnapshot = hasExisting && _suiSnapshotItemsByBot.Values.Any(items =>
+                items.Any(item => ReferenceEquals(item, existing)));
+            if (hasExisting && !existingIsSnapshot &&
+                existing.Type is ObjectTypeId.Item or ObjectTypeId.Container)
+            {
+                // The logged-in player may already have the authoritative item
+                // entity from UPDATE_OBJECT. Keep its enchant/durability fields and
+                // use the snapshot only to refresh ownership and stack state.
+                itemEntity = existing;
+                itemEntity.Entry = entry;
+                itemEntity.Fields.SetU32(ObjectFields.OBJECT_ENTRY, entry);
+                itemEntity.Fields.SetU32(ObjectFields.ITEM_STACK_COUNT, stack);
+                if (bagSlots > 0)
+                    itemEntity.Fields.SetU32(ObjectFields.CONTAINER_NUM_SLOTS, bagSlots);
+            }
+            else
+            {
+                var fields = new ObjectFields().AsCreated();
+                fields.SetU32(ObjectFields.OBJECT_ENTRY, entry);
+                fields.SetU32(ObjectFields.ITEM_STACK_COUNT, stack);
+                if (bagSlots > 0)
+                    fields.SetU32(ObjectFields.CONTAINER_NUM_SLOTS, bagSlots);
+                itemEntity = new WorldEntity
+                {
+                    Guid = itemGuid,
+                    Type = bagSlots > 0 ? ObjectTypeId.Container : ObjectTypeId.Item,
+                    Entry = entry,
+                    Fields = fields,
+                };
+                _entities.AddSynthetic(itemEntity);
+                snapshotItems.Add(itemEntity);
+            }
             // The bag UI sizes windows from CONTAINER_NUM_SLOTS and enumerates
             // contents with Math.Min(numSlots, 36) — a synthetic container
             // without the field reads 0 slots, so the items filed into its
             // CONTAINER_SLOT fields were never even looked at.
             if (bagSlots > 0)
             {
-                fields.SetU32(ObjectFields.CONTAINER_NUM_SLOTS, bagSlots);
                 containersSized++;
             }
-            _entities.AddSynthetic(new WorldEntity
-            {
-                Guid = itemGuid,
-                Type = bagSlots > 0 ? ObjectTypeId.Container : ObjectTypeId.Item,
-                // Entry is a plain field the UPDATE_OBJECT parser fills for streamed
-                // entities — nothing derives it from OBJECT_ENTRY in Fields. Left at 0,
-                // every template consumer (names, icons, tooltips, bag portraits) reads
-                // "no item" while the field-driven stack counts render fine, and
-                // Require(0, ...) is a silent no-op so nothing ever logged a failure.
-                Entry = entry,
-                Fields = fields,
-            });
-            snapshotItems.Add(itemGuid);
 
             if (bag == 255)
             {
@@ -880,17 +900,32 @@ public sealed partial class GameLoop
                 uint price = r.ReadU32();
                 uint timestamp = r.ReadU32();
                 if (index >= 12 || itemGuid == 0 || entry == 0) continue;
-                var fields = new ObjectFields().AsCreated();
-                fields.SetU32(ObjectFields.OBJECT_ENTRY, entry);
-                fields.SetU32(ObjectFields.ITEM_STACK_COUNT, stack);
-                _entities.AddSynthetic(new WorldEntity
+                WorldEntity buybackItem;
+                bool hasExisting = _entities.TryGet(itemGuid, out WorldEntity existing);
+                bool existingIsSnapshot = hasExisting && _suiSnapshotItemsByBot.Values.Any(items =>
+                    items.Any(item => ReferenceEquals(item, existing)));
+                if (hasExisting && !existingIsSnapshot && existing.Type == ObjectTypeId.Item)
                 {
-                    Guid = itemGuid,
-                    Type = ObjectTypeId.Item,
-                    Entry = entry,
-                    Fields = fields,
-                });
-                snapshotItems.Add(itemGuid);
+                    buybackItem = existing;
+                    buybackItem.Entry = entry;
+                    buybackItem.Fields.SetU32(ObjectFields.OBJECT_ENTRY, entry);
+                    buybackItem.Fields.SetU32(ObjectFields.ITEM_STACK_COUNT, stack);
+                }
+                else
+                {
+                    var fields = new ObjectFields().AsCreated();
+                    fields.SetU32(ObjectFields.OBJECT_ENTRY, entry);
+                    fields.SetU32(ObjectFields.ITEM_STACK_COUNT, stack);
+                    buybackItem = new WorldEntity
+                    {
+                        Guid = itemGuid,
+                        Type = ObjectTypeId.Item,
+                        Entry = entry,
+                        Fields = fields,
+                    };
+                    _entities.AddSynthetic(buybackItem);
+                    snapshotItems.Add(buybackItem);
+                }
                 bot.Fields.SetGuid(
                     (ushort)(ObjectFields.PLAYER_VENDOR_BUYBACK_SLOT_1 + index * 2), itemGuid);
                 bot.Fields.SetU32(
@@ -921,18 +956,18 @@ public sealed partial class GameLoop
 
     private void PurgeSuiSnapshot()
     {
-        foreach (List<ulong> items in _suiSnapshotItemsByBot.Values)
-            foreach (ulong guid in items)
-                _entities.RemoveSynthetic(guid);
+        foreach (List<WorldEntity> items in _suiSnapshotItemsByBot.Values)
+            foreach (WorldEntity item in items)
+                _entities.RemoveSynthetic(item);
         _suiSnapshotItemsByBot.Clear();
         _suiSnapshotAtByBot.Clear();
     }
 
     private void PurgeSuiSnapshotFor(ulong bot)
     {
-        if (!_suiSnapshotItemsByBot.Remove(bot, out List<ulong>? items)) return;
-        foreach (ulong guid in items)
-            _entities.RemoveSynthetic(guid);
+        if (!_suiSnapshotItemsByBot.Remove(bot, out List<WorldEntity>? items)) return;
+        foreach (WorldEntity item in items)
+            _entities.RemoveSynthetic(item);
         _suiSnapshotAtByBot.Remove(bot);
     }
 

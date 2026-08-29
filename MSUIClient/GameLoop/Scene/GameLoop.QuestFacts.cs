@@ -87,6 +87,13 @@ public sealed partial class GameLoop
     private (byte Slot, uint QuestId, uint Counters, uint Timer)[] DisplayedQuestLog()
     {
         ulong subject = !_freeView && ControlledGuid != 0 ? ControlledGuid : LocalPlayerGuid;
+        return QuestLogForSubject(subject);
+    }
+
+    /// <summary>Resolve one explicitly named character's log. Party Quest Log actions must not
+    /// borrow the currently displayed body's subject after the confirmation has opened.</summary>
+    private (byte Slot, uint QuestId, uint Counters, uint Timer)[] QuestLogForSubject(ulong subject)
+    {
         if (subject == LocalPlayerGuid) return MergedOwnQuestLog();
 
         var projected = new List<(byte, uint, uint, uint)>();

@@ -12,7 +12,8 @@ public sealed partial class GameLoop
     // Free View adds a second, camera-owned stream; quest status queries must not follow it.
     private const float QuestStatusSessionNeighborhoodSquared = 130f * 130f;
 
-    private readonly record struct QuestAbandonConfirmation(uint QuestId, string Title);
+    private readonly record struct QuestAbandonConfirmation(
+        ulong Subject, uint QuestId, string Title);
     private readonly record struct QuestLogDisplayRow(bool IsHeader, string Header,
         bool Collapsed, byte Slot, uint QuestId, uint Counters, uint Timer);
 
@@ -138,17 +139,48 @@ public sealed partial class GameLoop
 
     private bool AbandonQuest(uint questId)
     {
-        if (_net is null) return false;
         ulong subject = !_freeView && ControlledGuid != 0 ? ControlledGuid : LocalPlayerGuid;
-        var found = DisplayedQuestLog().FirstOrDefault(q => q.QuestId == questId);
+        return AbandonQuest(subject, questId);
+    }
+
+    private bool AbandonQuest(ulong subject, uint questId)
+    {
+        if (_net is null || subject == 0 || questId == 0) return false;
+        var found = QuestLogForSubject(subject).FirstOrDefault(q => q.QuestId == questId);
         bool present = found.QuestId != 0 && found.Slot != QuestFactsWire.NoLogSlot;
-        // CMSG_QUESTLOG_REMOVE_QUEST addresses a SLOT, so it structurally cannot
-        // reach a quest held without one. PLAN_20 P3's act wire is id-addressed
-        // and can; without it, name the real constraint rather than failing
-        // silently.
-        if (!present && found.QuestId != 0)
+        if (found.QuestId == 0)
         {
-            if (_partyQuestActsAvailable) return AbandonQuestById(subject, questId);
+            EmitInterface("quest", "abandon", "REFUSED_NOT_IN_LOG", subject,
+                $"quest={questId}");
+            return false;
+        }
+
+        // The party act names both quest and subject. Prefer it whenever available:
+        // the legacy request names only a slot, so while a bot is controlled it can
+        // neither safely address the parked main character nor express an overflow
+        // quest. This is also the only valid route for another party member.
+        if (_partyQuestActsAvailable)
+            return AbandonQuestById(subject, questId);
+
+        if (subject != LocalPlayerGuid)
+        {
+            ShowUiError("Abandoning a companion's quest needs the party-quest-acts server capability.");
+            EmitInterface("quest", "abandon", "REFUSED_NO_PARTY_ACTS", subject,
+                $"quest={questId}");
+            return false;
+        }
+        ulong legacySubject = !_freeView && ControlledGuid != 0
+            ? ControlledGuid
+            : LocalPlayerGuid;
+        if (subject != legacySubject)
+        {
+            ShowUiError("Switch control to that character before abandoning this quest.");
+            EmitInterface("quest", "abandon", "REFUSED_WRONG_CONTROLLED_BODY", subject,
+                $"quest={questId};controlled={legacySubject}");
+            return false;
+        }
+        if (!present)
+        {
             ShowUiError("That quest is held past your quest-log slots — " +
                 "abandon a slotted quest first to free one.");
             EmitInterface("quest", "abandon", "REFUSED_NO_LOG_SLOT", subject,
@@ -1047,7 +1079,9 @@ public sealed partial class GameLoop
             if (VanillaButton(dl, "##quest-abandon", "Abandon Quest",
                     QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogAbandonRect),
                     QuestFrameUiLaw.QuestLogAbandonRect.Size, s))
-                _questAbandonConfirmation = new(selected, title);
+                _questAbandonConfirmation = new(
+                    !_freeView && ControlledGuid != 0 ? ControlledGuid : LocalPlayerGuid,
+                    selected, title);
         }
         else VanillaButton(dl, "##quest-abandon", "Abandon Quest",
             QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogAbandonRect),
@@ -1599,10 +1633,9 @@ public sealed partial class GameLoop
     private void DrawQuestAbandonConfirmation()
     {
         if (_questAbandonConfirmation is not { } confirmation || _skin is null) return;
-        if (_net is not { IsInWorld: true } net ||
-            !_entities.TryGet(!_freeView && ControlledGuid != 0
-                ? ControlledGuid : net.PlayerGuid, out WorldEntity player) ||
-            !DisplayedQuestLog().Any(q => q.QuestId == confirmation.QuestId))
+        if (_net is not { IsInWorld: true } ||
+            !_entities.TryGet(confirmation.Subject, out _) ||
+            !QuestLogForSubject(confirmation.Subject).Any(q => q.QuestId == confirmation.QuestId))
         {
             _questAbandonConfirmation = null;
             return;
@@ -1625,7 +1658,12 @@ public sealed partial class GameLoop
         _skin.DrawBackdrop(dl, origin, origin + size, WowSkin.Dialog);
         dl.PopClipRect();
 
-        string message = $"Abandon \"{confirmation.Title}\"?";
+        string subjectName = confirmation.Subject == LocalPlayerGuid
+            ? "you"
+            : ResolveUnitName(confirmation.Subject);
+        string message = confirmation.Subject == LocalPlayerGuid
+            ? $"Abandon \"{confirmation.Title}\"?"
+            : $"Have {subjectName} abandon \"{confirmation.Title}\"?";
         GameText.DrawCentered(dl, "GameFontHighlight", message,
             QuestFrameUiLaw.AbandonPopupTextCenter(origin, s), s);
         bool yes = DrawQuestAbandonButton(dl, "yes", "Yes", origin,
@@ -1640,7 +1678,8 @@ public sealed partial class GameLoop
             return;
         }
         if (!yes) return;
-        if (AbandonQuest(confirmation.QuestId)) PlayUiSound("igQuestLogAbandonQuest");
+        if (AbandonQuest(confirmation.Subject, confirmation.QuestId))
+            PlayUiSound("igQuestLogAbandonQuest");
         _questAbandonConfirmation = null;
     }
 

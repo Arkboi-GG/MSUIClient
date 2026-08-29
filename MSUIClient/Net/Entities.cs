@@ -126,6 +126,12 @@ public sealed class EntityStore
     /// <summary>Creator/DevTools: remove a locally synthesized entity.</summary>
     public bool RemoveSynthetic(ulong guid) => _entities.Remove(guid);
 
+    /// <summary>Remove a synthesized entity only if it is still the value stored for its GUID.
+    /// A later authoritative CREATE may already have replaced the snapshot object.</summary>
+    public bool RemoveSynthetic(WorldEntity expected) =>
+        _entities.TryGetValue(expected.Guid, out WorldEntity? current) &&
+        ReferenceEquals(current, expected) && _entities.Remove(expected.Guid);
+
     public void SetEngaged(ulong guid, bool engaged, ulong? victim = null)
     {
         if (_entities.TryGetValue(guid, out var entity))

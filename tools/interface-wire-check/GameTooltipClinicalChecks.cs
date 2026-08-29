@@ -236,11 +236,12 @@ internal static class GameTooltipClinicalChecks
             Stats = [new ItemStat(3, 5), new ItemStat(99, -2)],
             Damages = [new ItemDamage(1.2f, 3.4f, 0)],
             Resistances = [1, 2, 3, 4, 5, 6],
+            SellPrice = 125,
         };
         object full = Invoke<object>(game, "PrepareItemTooltipBodySnapshot",
-            item, 3u, 2u, 10u, false, (uint?)null, null);
+            item, 3u, 2u, 10u, false, (uint?)null, null, 0UL);
         object compact = Invoke<object>(game, "PrepareItemTooltipBodySnapshot",
-            item, 3u, 2u, 10u, true, (uint?)null, null);
+            item, 3u, 2u, 10u, true, (uint?)null, null, 0UL);
         PreparedItemPaint[] fullBefore = PreparedItemPaints(full);
         PreparedItemPaint[] compactBefore = PreparedItemPaints(compact);
 
@@ -285,6 +286,14 @@ internal static class GameTooltipClinicalChecks
               PreparedItemPaints(compact).SequenceEqual(compactBefore),
             "B3 deferred item body retained mutable ItemTemplate/list/array state");
 
+        object withSale = InvokeStatic<object>("AppendVendorSellPrice", full, item, 3u);
+        object[] saleOperations = Property<IEnumerable>(withSale, "Operations")
+            .Cast<object>().ToArray();
+        Check(Property<object>(saleOperations[^1], "Kind").ToString() == "Paired" &&
+              Property<string>(saleOperations[^1], "Text") == "Sell Price" &&
+              Property<string>(saleOperations[^1], "RightText") == "3 Silver 75 Copper",
+            "vendor-open owned-item tooltip lost the full-stack sell value");
+
         var currentLawItem = new ItemTemplate
         {
             Name = "Charged Mystery",
@@ -299,7 +308,7 @@ internal static class GameTooltipClinicalChecks
             ],
         };
         object currentLaw = Invoke<object>(game, "PrepareItemTooltipBodySnapshot",
-            currentLawItem, 1u, 0u, 0u, false, (uint?)null, null);
+            currentLawItem, 1u, 0u, 0u, false, (uint?)null, null, 0UL);
         object[] currentOperations = Property<IEnumerable>(currentLaw, "Operations")
             .Cast<object>().ToArray();
         Check(currentOperations.Select(operation => Property<string>(operation, "Text"))

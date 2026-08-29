@@ -298,9 +298,11 @@ internal static class QuestLogClinicalChecks
               !runtime.Contains("new Vector2(numberWidth+13*s,13*s)", StringComparison.Ordinal) &&
               !runtime.Contains("x += 17 * s", StringComparison.Ordinal) &&
               !npcRenderer.Contains("new Vector2", StringComparison.Ordinal) &&
-              runtime.Contains("_questAbandonConfirmation = new(selected, title);",
+              runtime.Contains("private readonly record struct QuestAbandonConfirmation(",
                   StringComparison.Ordinal) &&
-              runtime.Contains("if (AbandonQuest(confirmation.QuestId))",
+              runtime.Contains("ulong Subject, uint QuestId, string Title", StringComparison.Ordinal) &&
+              runtime.Contains("QuestLogForSubject(confirmation.Subject)", StringComparison.Ordinal) &&
+              runtime.Contains("AbandonQuest(confirmation.Subject, confirmation.QuestId)",
                   StringComparison.Ordinal) &&
               runtime.Contains("if (ShiftHeld()) HandleQuestLogShiftClick",
                   StringComparison.Ordinal) &&

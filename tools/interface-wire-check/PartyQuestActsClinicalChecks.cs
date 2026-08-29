@@ -109,10 +109,22 @@ internal static class PartyQuestActsClinicalChecks
 
         string quest = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Quest.cs"));
-        Check(quest.Contains("if (_partyQuestActsAvailable) return AbandonQuestById(subject, questId);",
+        Check(quest.Contains("if (_partyQuestActsAvailable)", StringComparison.Ordinal) &&
+              quest.Contains("return AbandonQuestById(subject, questId);", StringComparison.Ordinal) &&
+              acts.Contains("ForgetQuestFact(outcome.Guid, result.QuestId);",
+                  StringComparison.Ordinal) &&
+              acts.Contains("RequestPartyQuestFacts(\"party quest abandoned\")",
                   StringComparison.Ordinal),
-            "abandoning an overflow quest must route through the id-addressed act " +
-            "when the server offers it");
+            "abandonment must prefer the id-and-subject-addressed act and retire the cached " +
+            "row only after an authoritative success");
+
+        string partyLog = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.PartyQuestLog.cs"));
+        Check(partyLog.Contains("Abandon##party-quest-{guid}-{questId}",
+                  StringComparison.Ordinal) &&
+              partyLog.Contains("_questAbandonConfirmation = new(guid, questId,",
+                  StringComparison.Ordinal),
+            "Party Quest Log must expose per-character abandonment through the shared confirmation");
         Check(quest.Contains("ResetQuestPartyRail();", StringComparison.Ordinal),
             "closing the questgiver frame must clear the rail's per-member reward " +
             "picks, or they leak into the next quest");

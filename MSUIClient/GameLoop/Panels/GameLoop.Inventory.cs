@@ -1160,6 +1160,19 @@ public sealed partial class GameLoop
         return new(body.Operations.AddRange(tail));
     }
 
+    /// <summary>Add the value the open merchant will pay for this complete stack.</summary>
+    private static ItemTooltipBodySnapshot AppendVendorSellPrice(
+        in ItemTooltipBodySnapshot body, ItemTemplate item, uint count)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        if (item.SellPrice == 0) return body;
+        uint stackCount = Math.Max(1u, count);
+        uint value = (uint)Math.Min(uint.MaxValue, (ulong)item.SellPrice * stackCount);
+        return AppendPreparedItemTooltipBody(body,
+            PreparedItemTooltipPair("Sell Price", Vector4.One,
+                FormatMoney(value), Vector4.One));
+    }
+
     private ItemTooltipBodySnapshot PrepareItemTooltipBodySnapshot(
         ItemTemplate item,
         uint count,
@@ -2111,6 +2124,8 @@ public sealed partial class GameLoop
                 instanceFlags: instance?.Fields.ItemFlags,
                 liveInstance: instance,
                 ownerGuid: ControlledGuid);   // requirements read the shown unit (possessed bot)
+            if (_vendor is not null)
+                body = AppendVendorSellPrice(body, item, count);
             ImmutableArray<PreparedPaperDollComparisonTooltip> comparisons =
                 PreparePaperDollComparisonTooltips(item);
             Action? drawComparisons = comparisons.IsEmpty

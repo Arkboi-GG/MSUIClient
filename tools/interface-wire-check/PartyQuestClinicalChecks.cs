@@ -135,7 +135,7 @@ internal static class PartyQuestClinicalChecks
                   StringComparison.Ordinal),
             "a throttled quest-facts pull must be deferred and flushed, not dropped");
 
-        Check(questPanel.Contains("ForgetOwnQuestFact(questId);", StringComparison.Ordinal) &&
+        Check(questPanel.Contains("ForgetQuestFact(subject, questId);", StringComparison.Ordinal) &&
               questPanel.Contains("RequestPartyQuestFacts(\"quest abandoned\")", StringComparison.Ordinal),
             "an ordinary abandon must drop the cached row AND re-pull — MergedOwnQuestLog " +
             "re-adds any cached entry lacking a slot, so a stale row reappears as a " +

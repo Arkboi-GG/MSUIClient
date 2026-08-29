@@ -82,14 +82,31 @@ internal static class PartyMemberFactsClinicalChecks
             "GameLoop.Control.cs"));
         Check(control.Contains("bool forControlled = source == ControlledGuid;",
                   StringComparison.Ordinal) &&
-              control.Contains("(!forControlled && !IsPartyMemberFactsSubject(source)) ||",
+              control.Contains("bool forSessionPlayer = source == LocalPlayerGuid;",
+                  StringComparison.Ordinal) &&
+              control.Contains("(!forControlled && !forSessionPlayer && !IsPartyMemberFactsSubject(source)) ||",
                   StringComparison.Ordinal) &&
               control.Contains("snapshot DROPPED", StringComparison.Ordinal) &&
               control.Contains("if (forControlled) ApplyControlledCharacter();",
                   StringComparison.Ordinal),
-            "snapshot gate law drift: party/raid members must be accepted without " +
-            "possession, non-party sources still dropped with the honest log, and " +
+            "snapshot gate law drift: the session player and party/raid members must be " +
+            "accepted without possession, non-party sources still dropped with the honest log, and " +
             "the possessed-body rebuild must stay controlled-only");
+        Check(control.Contains("existing.Type is ObjectTypeId.Item or ObjectTypeId.Container",
+                  StringComparison.Ordinal) &&
+              control.Contains("ReferenceEquals(item, existing)", StringComparison.Ordinal) &&
+              control.Contains("_entities.RemoveSynthetic(item);", StringComparison.Ordinal),
+            "self inventory snapshots must reuse live items and clean up only their own synthetic instances");
+
+        var entityStore = new EntityStore();
+        var staleSynthetic = new WorldEntity { Guid = 42, Type = ObjectTypeId.Item };
+        var authoritativeReplacement = new WorldEntity { Guid = 42, Type = ObjectTypeId.Item };
+        entityStore.AddSynthetic(staleSynthetic);
+        entityStore.AddSynthetic(authoritativeReplacement);
+        Check(!entityStore.RemoveSynthetic(staleSynthetic) &&
+              entityStore.TryGet(42, out WorldEntity retained) &&
+              ReferenceEquals(retained, authoritativeReplacement),
+            "snapshot cleanup removed a later authoritative replacement with the same GUID");
 
         string memberFacts = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
             "GameLoop.MemberFacts.cs"));
