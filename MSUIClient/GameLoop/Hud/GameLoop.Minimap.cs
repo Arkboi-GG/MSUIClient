@@ -295,11 +295,10 @@ public sealed partial class GameLoop
         DrawSquarePanel(dl, mapMin, mapMax - mapMin, s);
 
         // Compass letter under the map, as on the reference's framed map.
-        float fontSize = 11f * s;
-        Vector2 extent = ImGui.CalcTextSize("N") * (fontSize / MathF.Max(1, ImGui.GetFontSize()));
-        dl.AddText(ImGui.GetFont(), fontSize,
-            new Vector2((outerMin.X + outerMax.X) * .5f - extent.X * .5f, outerMax.Y + 2f * s),
-            UiGoldU32(), "N");
+        float compassWidth = GameText.MeasurePlain("N", 11f, s);
+        GameText.DrawPlain(dl, "N",
+            new Vector2((outerMin.X + outerMax.X) * .5f - compassWidth * .5f, outerMax.Y + 2f * s),
+            11f, s, UiGoldU32());
     }
 
     private void DrawMinimapZoneText(ImDrawListPtr dl, Vector2 root, WorldEntity player, float s)
@@ -315,10 +314,21 @@ public sealed partial class GameLoop
         if (zoneArea == 0) zoneArea = leafArea;
         MinimapZonePvpInfo pvp = ResolveAreaPvp(player, leafArea, zoneArea);
         Vector4 tint = pvp.IsArena ? new Vector4(1f, .1f, .1f, 1f) : pvp.Tint;
-        float fontSize = 12 * s;
-        Vector2 extent = ImGui.CalcTextSize(text) * (fontSize / MathF.Max(1, ImGui.GetFontSize()));
-        dl.AddText(ImGui.GetFont(), fontSize, min + new Vector2((size.X - extent.X) * .5f, 0),
-            ImGui.ColorConvertFloat4ToU32(tint), text);
+        float zoneWidth = GameText.MeasurePlain(text, 12f, s);
+        // Vanilla anchors this label to the TOP of its box. The free-view / painterly SQUARE
+        // frame draws a 22px title strip above the map (DrawSquareMinimapFrame), where the top
+        // anchor sat the descenders on the frame edge and clipped them - so there, center the
+        // label vertically in that strip. The round minimap keeps the exact vanilla anchor.
+        float textTop = min.Y;
+        if (PainterlyUi || _freeView)
+        {
+            float pad = MathF.Max(1f, 3f * s);
+            float stripBottom = (root.Y + 26f) * s - 2f * pad;   // square frame outerMin.Y
+            float stripTop = stripBottom - 22f * s;
+            textTop = (stripTop + stripBottom) * .5f - 12f * s * .5f;
+        }
+        GameText.DrawPlain(dl, text, new Vector2(min.X + (size.X - zoneWidth) * .5f, textTop),
+            12f, s, ImGui.ColorConvertFloat4ToU32(tint));
         if (ImGui.IsMouseHoveringRect(min, min + size, false))
         {
             var lines = new List<string> { text };

@@ -62,6 +62,43 @@ public static class GameText
             spec.Outline, snap: true);
     }
 
+    /// <summary>
+    /// Custom / RTS / HUD text that has no vanilla FontObject to name: exact-size FRIZQT at a
+    /// logical height, drawn from the baked atlas - never the ImGui default font (Nico's rule).
+    /// <paramref name="pos"/> is the line's top-left in device pixels. Pass uiScale 1f when the
+    /// caller only has a device-pixel size (the nearest FRIZQT bake is scaled to it).
+    /// </summary>
+    public static void DrawPlain(ImDrawListPtr dl, string text, Vector2 pos, float logicalHeight,
+        float uiScale, uint color, uint? shadow = null, int outline = 0)
+        => GameTextLaw.Draw(dl, FontFace.FrizQt, text, logicalHeight, uiScale, pos, color,
+            shadow, outline);
+
+    /// <summary>DrawPlain centered on a point (both axes; the em box centers vertically).</summary>
+    public static void DrawPlainCentered(ImDrawListPtr dl, string text, Vector2 center,
+        float logicalHeight, float uiScale, uint color, uint? shadow = null)
+    {
+        float width = GameTextLaw.MeasureWidth(FontFace.FrizQt, text, logicalHeight, uiScale);
+        int em = GameTextLaw.EmPixels(logicalHeight, uiScale);
+        GameTextLaw.Draw(dl, FontFace.FrizQt, text,
+            logicalHeight, uiScale, new Vector2(center.X - width * .5f, center.Y - em * .5f),
+            color, shadow);
+    }
+
+    /// <summary>DrawPlain right-aligned: the text's RIGHT edge lands on <paramref name="rightX"/>.
+    /// <paramref name="top"/> is the line top in device pixels.</summary>
+    public static void DrawPlainRightAligned(ImDrawListPtr dl, string text, float rightX,
+        float top, float logicalHeight, float uiScale, uint color, uint? shadow = null)
+    {
+        float width = GameTextLaw.MeasureWidth(FontFace.FrizQt, text, logicalHeight, uiScale);
+        GameTextLaw.Draw(dl, FontFace.FrizQt, text, logicalHeight, uiScale,
+            new Vector2(rightX - width, top), color, shadow);
+    }
+
+    /// <summary>FRIZQT advance width in device pixels for a logical height (custom text layout).
+    /// </summary>
+    public static float MeasurePlain(string text, float logicalHeight, float uiScale)
+        => GameTextLaw.MeasureWidth(FontFace.FrizQt, text, logicalHeight, uiScale);
+
     /// <summary>Draw with the text's RIGHT edge at <paramref name="rightEdge"/>.X (justifyH
     /// RIGHT columns - tooltip right cells, money numbers).</summary>
     public static void DrawRightAligned(ImDrawListPtr dl, string fontObject, string text,

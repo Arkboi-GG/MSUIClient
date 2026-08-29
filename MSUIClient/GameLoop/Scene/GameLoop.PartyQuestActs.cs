@@ -106,6 +106,10 @@ public sealed partial class GameLoop
 
         EmitInterface("party-quest", ActionName(result.Action), "APPLIED", 0,
             $"quest={result.QuestId};ok={succeeded};refused={refusals.Count}");
+
+        // A party act moved someone's quest state — refresh the commander giver board so a
+        // just-turned-in quest stops showing "ready to turn in" without a close/re-open.
+        if (succeeded > 0) RefreshGiverQuestsIfOpen();
     }
 
     /// <summary>

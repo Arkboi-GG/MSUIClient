@@ -187,7 +187,7 @@ public sealed partial class GameLoop
                 _net is { IsInWorld: true } && (_autoRepeatSpell != 0 ||
                     _pendingCastSpell != 0 ||
                     _castBarPhase == CastBarPhase.Casting && _castBarSpell != 0),
-                _groundCastSpell != 0 || _itemCastSpell != 0,
+                _groundCastSpell != 0 || _itemCastSpell != 0 || _rtsUnitCastSpellId != 0,
                 _loot.IsOpen || HasPlayerPanelForEscape(),
                 _selectionGuid != 0));
 
@@ -2089,6 +2089,19 @@ public sealed partial class GameLoop
                 Check("Show Own Name", () => s.Controls.ShowOwnName,
                     value => s.Controls.ShowOwnName = value,
                     "Include your controlled character in the nameplate pass.");
+            }
+            EndBox();
+
+            BeginBox("portrait-borders", "Class Portrait Borders");
+            {
+                Check("Direct control mode", () => s.Controls.PortraitBordersDirectControl,
+                    value => s.Controls.PortraitBordersDirectControl = value,
+                    "Tint party/unit portrait frames with each member's class color while playing " +
+                    "your own character. Off by default (plain WoW look).");
+                Check("CRPG / RTS mode", () => s.Controls.PortraitBordersRts,
+                    value => s.Controls.PortraitBordersRts = value,
+                    "Class-color the portrait frames in the free-view commander UI (party frames, " +
+                    "command shelf, quest cards). On by default.");
             }
             EndBox();
 

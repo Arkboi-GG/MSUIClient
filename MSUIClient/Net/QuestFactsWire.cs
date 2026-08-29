@@ -28,6 +28,11 @@ public readonly record struct MemberQuestEntry(
 
     /// <summary>Held without an update-field slot — only reachable over this wire.</summary>
     public bool Overflow => (Flags & QuestFactsWire.EntryOverflow) != 0;
+
+    /// <summary>Already turned in (rewarded). The server reports these ONLY for a quest
+    /// someone else in the party still holds, so the log can show "completed" for a member
+    /// who finished it without the server dumping that member's whole quest history.</summary>
+    public bool Rewarded => (Flags & QuestFactsWire.EntryRewarded) != 0;
 }
 
 /// <summary>
@@ -74,6 +79,7 @@ public static class QuestFactsWire
     public const byte EntryComplete = 0x01;
     public const byte EntryFailed = 0x02;
     public const byte EntryOverflow = 0x04;
+    public const byte EntryRewarded = 0x08;
 
     /// <summary>u64 subject + u8 flags + u16 heldCap + u16 count.</summary>
     public const int LogHeaderBytes = 13;

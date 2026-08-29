@@ -108,6 +108,11 @@ public sealed partial class GameLoop
                         new(framePath, 0xffffffff, "IMGUI_IMAGE", "ANCHOR:ABSOLUTE", "", "", authoredOrigin.X, authoredOrigin.Y));
         }
 
+        // Class-colour ring on your own gilded portrait (issue #15), matching the party frames.
+        if (playerFrame && !PainterlyUi && unit.IsPlayer)
+            DrawClassPortraitRing(dl, p + new Vector2(portraitX + 32f, 44f) * s, 32f * s,
+                unit.Guid, s);
+
         if (playerFrame && !PainterlyUi)
             DrawPlayerFrameStatus(dl, unit, p, s);
 
@@ -289,6 +294,14 @@ public sealed partial class GameLoop
             ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
         ImGui.End();
         if (!released) return;
+        if (_rtsUnitCastSpellId != 0)
+        {
+            if (ImGui.IsMouseReleased(ImGuiMouseButton.Right))
+                CancelRtsUnitCastTargeting(silent: false);
+            else
+                TryCommitRtsUnitCastTarget(unit.Guid);
+            return;
+        }
         if (ImGui.IsMouseReleased(ImGuiMouseButton.Right))
         {
             // Ref anchor: the DropDownList TOPLEFT sits (106,27) / (120,10) up from the frame's
@@ -324,15 +337,20 @@ public sealed partial class GameLoop
         // synthetic one - was a crash waiting on the player frame.
         if (string.IsNullOrEmpty(text)) return (center, Vector2.Zero);
 
-        ImFontPtr font = ImGui.GetFont();
-        Vector2 measured = ImGui.CalcTextSize(text) *
-            (size / MathF.Max(1f, ImGui.GetFontSize()));
+        // Exact-size FRIZQT from the baked atlas, never the ImGui default font (game UI never
+        // uses the ImGui font). The size-ratio shadow and WowSkin outline are kept as-is; only
+        // the font glyph source changes.
+        int em = Math.Max(2, (int)MathF.Round(size));
+        if (!GameTextLaw.TryGetFont(FontFace.FrizQt, em, false,
+                out ImFontPtr font, out float drawSize))
+            return (center, Vector2.Zero);
+        Vector2 measured = new(GameText.MeasurePlain(text, size, 1f), size);
         Vector2 pos = center - measured * 0.5f;
         float shadow = MathF.Max(1f, MathF.Round(size * GlueTune.ShadowOffsetRatio));
-        dl.AddText(font, size, pos + new Vector2(shadow),
+        dl.AddText(font, drawSize, pos + new Vector2(shadow),
             ImGui.ColorConvertFloat4ToU32(GlueTune.ShadowColor), text);
-        WowSkin.OutlineText(dl, font, size, pos, text);
-        dl.AddText(font, size, pos, color, text);
+        WowSkin.OutlineText(dl, font, drawSize, pos, text);
+        dl.AddText(font, drawSize, pos, color, text);
         return (pos, measured);
     }
 

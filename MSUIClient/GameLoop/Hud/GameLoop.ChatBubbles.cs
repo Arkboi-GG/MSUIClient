@@ -141,14 +141,15 @@ public sealed partial class GameLoop
         float margin = ChatBubbleUiLaw.MarginGx * basis;
         float fontSize = MathF.Max(1f, ChatBubbleUiLaw.TextHeightGx * basis);
         float wrapCap = ChatBubbleUiLaw.WrapWidthGx * basis;
-        float fontScale = fontSize / MathF.Max(1f, ImGui.GetFontSize());
-        float Measure(string value) => ImGui.CalcTextSize(value).X * fontScale;
+        // Exact-size FRIZQT from the baked atlas, never the ImGui default font (game UI never
+        // uses the ImGui font); measure and draw from the same baked face so they agree.
+        float Measure(string value) => GameText.MeasurePlain(value, fontSize, 1f);
 
         float unwrapped = Measure(bubble.Text);
         float textWidth = unwrapped > wrapCap
             ? wrapCap : MathF.Max(unwrapped, 2f * border);
         List<string> lines = WrapBubbleText(bubble.Text, textWidth, Measure);
-        float lineHeight = MathF.Max(fontSize, ImGui.CalcTextSize("Ag").Y * fontScale);
+        float lineHeight = MathF.Max(fontSize, GameTextLaw.EmPixels(fontSize, 1f));
         float textHeight = MathF.Max(lineHeight, lines.Count * lineHeight);
         float width = MathF.Ceiling(textWidth) + 2f * margin;
         float height = MathF.Ceiling(textHeight) + 2f * margin;
@@ -176,13 +177,16 @@ public sealed partial class GameLoop
                 Vector2.Zero, Vector2.One, white);
         }
 
-        ImFontPtr font = ImGui.GetFont();
         uint color = WithAlpha(ChatFrameLaw.Color(bubble.Type), bubble.Alpha);
+        int em = Math.Max(2, (int)MathF.Round(fontSize));
+        if (!GameTextLaw.TryGetFont(FontFace.FrizQt, em, false,
+                out ImFontPtr font, out float drawSize))
+            return;
         float y = frame.Top + margin;
         foreach (string line in lines)
         {
             float lineWidth = Measure(line);
-            draw.AddText(font, fontSize,
+            draw.AddText(font, drawSize,
                 ChatBubbleUiLaw.LinePosition(frame, lineWidth, y), color, line);
             y += lineHeight;
         }

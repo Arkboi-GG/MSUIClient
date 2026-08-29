@@ -362,7 +362,6 @@ public sealed partial class GameLoop
     private Vector3 _freecamCamSentPosition;                 // last CMSG_SUI_CAM position
     private double _freecamCamSentAt;                        // and when it went out
     private static readonly Vector3 RtsFriendlyTint = new(0.30f, 0.95f, 0.45f);
-    private static readonly Vector3 RtsFriendlyTargetTint = new(0.25f, 0.60f, 1.00f);
     private static readonly Vector3 RtsHostileTint = new(0.95f, 0.30f, 0.22f);
     private static readonly Vector3 RtsNeutralTint = new(0.95f, 0.85f, 0.25f);
     private bool _freecamKeyWasDown;
@@ -1350,6 +1349,7 @@ public sealed partial class GameLoop
             _freecamDragActive = false;
             _freecamMarqueeConsumedClick = false;
             _freecamSelection.Clear();
+            CancelRtsUnitCastTargeting(silent: true);
             ClearRtsWaypointChain();
             ClearRtsAttackQueue();
             CancelRtsPatrolAuthoring(silent: true);
@@ -1483,6 +1483,7 @@ public sealed partial class GameLoop
         _freecamRightWasDown = rightDown;
 
         if (leftDown && _freecamDragOrigin is null && !_commanderMapOpen &&
+            _rtsUnitCastSpellId == 0 &&
             !_window.MouseCaptured && !ImGui.GetIO().WantCaptureMouse)
             _freecamDragOrigin = mouse;
 
@@ -1885,6 +1886,18 @@ public sealed partial class GameLoop
         // (right). The grab began on an earlier Shift+Left-click ON the body.
         if (_encounterOrbitDragging)
         { EndEncounterOrbitDrag(commit: click.Button == MouseButton.Left); return; }
+
+        // A command-card heal/buff owns the next world click without changing the RTS selection.
+        // Right-click is cancellation; left-click binds the press-latched unit under the cursor.
+        if (_rtsUnitCastSpellId != 0)
+        {
+            if (click.Button == MouseButton.Right)
+                CancelRtsUnitCastTargeting(silent: false);
+            else if (click.Button == MouseButton.Left)
+                TryCommitRtsUnitCastTarget(pressPick.Armed
+                    ? pressPick.UnitGuid : PickUnit(click.Position));
+            return;
+        }
 
         if (click.Button == MouseButton.Left)
         {
@@ -2299,14 +2312,13 @@ public sealed partial class GameLoop
             if (_selectionGuid != 0 && !_freecamSelection.Contains(_selectionGuid) &&
                 _entities.TryGet(_selectionGuid, out WorldEntity target) && !target.IsDead)
             {
-                Vector3 tint = ReactionTargetTowardPlayer(target) switch
-                {
-                    FactionReaction.Hostile => RtsHostileTint,
-                    FactionReaction.Friendly => RtsFriendlyTargetTint,
-                    _ => RtsNeutralTint,
-                };
-                float radius = 1.05f * MathF.Max(0.5f, target.Scale <= 0f ? 1f : target.Scale);
-                rings.Add(new(target.Position, radius, tint, pulse, Target: true));
+                FactionReaction reaction = ReactionTargetTowardPlayer(target);
+                Vector3 tint = SelectionRingLaw.TargetRgb(reaction, isDead: false,
+                    combatFlash: _attackTargetGuid == target.Guid,
+                    MovementInfo.ClientUptimeMs());
+                float radius = _creatures?.SelectionRadius(target) ??
+                    1.05f * MathF.Max(0.5f, target.Scale <= 0f ? 1f : target.Scale);
+                rings.Add(new(target.Position, radius, tint, pulse));
             }
             // Waypoint-chain dots: small persistent rings until a plain move/stop replaces them.
             foreach (Vector3 waypoint in _rtsWaypointChain)

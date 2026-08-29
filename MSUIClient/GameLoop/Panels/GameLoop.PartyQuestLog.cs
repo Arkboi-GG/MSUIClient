@@ -37,7 +37,7 @@ public sealed partial class GameLoop
     /// the same index may carry one of each, so a single bank per index silently
     /// discarded whichever came second.</param>
     private readonly record struct PartyQuestCell(
-        bool Held, bool Complete, bool Failed, bool Overflow,
+        bool Held, bool Complete, bool Failed, bool Overflow, bool Rewarded,
         uint[] KillProgress, uint[] ItemProgress, int ObjectivesDone, int ObjectivesTotal);
 
     private void OpenPartyQuestLog()
@@ -310,6 +310,7 @@ public sealed partial class GameLoop
         bool complete = held && entry.Complete;
         bool failed = held && entry.Failed;
         bool overflow = held && entry.Overflow;
+        bool rewarded = held && entry.Rewarded;
 
         bool hasLocal = false;
         uint localCounters = 0;
@@ -371,7 +372,7 @@ public sealed partial class GameLoop
                 }
             }
         }
-        return new PartyQuestCell(held, complete, failed, overflow,
+        return new PartyQuestCell(held, complete, failed, overflow, rewarded,
             killProgress, itemProgress, done, total);
     }
 
@@ -422,6 +423,9 @@ public sealed partial class GameLoop
     {
         if (!cell.Held)
             return guid == LocalPlayerGuid || HasMemberQuestFacts(guid) ? "—" : "?";
+        // Rewarded carries the Complete flag too, so it must win over "done"
+        // (which here means complete-but-not-yet-turned-in).
+        if (cell.Rewarded) return "completed";
         if (cell.Failed) return "failed";
         if (cell.Complete) return "done";
         return cell.ObjectivesTotal > 0
@@ -433,6 +437,7 @@ public sealed partial class GameLoop
     {
         if (!cell.Held)
             return guid == LocalPlayerGuid || HasMemberQuestFacts(guid) ? 0xff5a646b : 0xff3f4750;
+        if (cell.Rewarded) return 0xff5ab45a;    // ABGR — soft green: turned in & done
         if (cell.Failed) return 0xff4040ff;      // ABGR — red
         if (cell.Complete) return VanillaGold;
         return 0xffd8e0e6;

@@ -156,10 +156,29 @@ public static class FontObjectLaw
         "ZoneTextFont", "SubZoneTextFont",
     ];
 
+    /// <summary>
+    /// Exact-size FRIZQT ems used by custom / HUD gameplay text that has no vanilla FontObject to
+    /// name - the RTS commander map, help-frame headings, minimap zone text, and the shared
+    /// device-pixel text helpers. Nico's standing rule is that game UI never draws with the ImGui
+    /// default font; routing those sites through GameTextLaw already satisfies it (FRIZQT always
+    /// has a bake, so a draw resolves to the nearest FRIZQT bake, never the ImGui default), and
+    /// registering these ems keeps them 1:1 crisp instead of scaling the nearest bake.
+    /// </summary>
+    public static readonly (string Face, float Height, bool Thick)[] ExtraGameplayBakes =
+    [
+        (FontFace.FrizQt, 9f, false),
+        (FontFace.FrizQt, 11f, false),
+        (FontFace.FrizQt, 15f, false),
+        (FontFace.FrizQt, 18f, false),
+        (FontFace.FrizQt, 25f, false),
+    ];
+
     /// <summary>Distinct (face, height, thick) triples to rasterise for
-    /// <see cref="BakedByDefault"/>. THICK-outlined objects bake as separate font instances
-    /// because their advance law differs (+1 extra tracking per glyph).</summary>
+    /// <see cref="BakedByDefault"/> plus <see cref="ExtraGameplayBakes"/>. THICK-outlined objects
+    /// bake as separate font instances because their advance law differs (+1 extra tracking per
+    /// glyph).</summary>
     public static IEnumerable<(string Face, float Height, bool Thick)> DefaultBakePairs()
         => BakedByDefault.Select(name => Objects[name])
-            .Select(spec => (spec.Face, spec.Height, spec.Outline >= 2)).Distinct();
+            .Select(spec => (spec.Face, spec.Height, spec.Outline >= 2))
+            .Concat(ExtraGameplayBakes).Distinct();
 }

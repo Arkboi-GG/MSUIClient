@@ -83,20 +83,15 @@ public sealed partial class GameLoop
     {
         var picked = new List<(ulong, (byte, byte, byte, byte))>();
         var candidates = new List<(ulong Guid, (byte, byte, byte, byte) Traits)>();
+        // Your own character is a commanded unit like any other and answers with the rest of
+        // the group - it was excluded here (ControlledGuid), so in a mixed selection everyone
+        // barked but you never did. In free view ControlledGuid is your own body; it is only a
+        // driven body while possessing, and you drive that body rather than RTS-ordering it, so
+        // it is not among an order's subjects then anyway.
         foreach (ulong guid in subjects)
-            if (guid != ControlledGuid && TryCompanionTraits(guid, out var traits))
+            if (TryCompanionTraits(guid, out var traits))
                 candidates.Add((guid, traits));
-        if (candidates.Count == 0)
-        {
-            // Solo free view: the own body is the whole selection and may answer.
-            foreach (ulong guid in subjects)
-                if (TryCompanionTraits(guid, out var traits))
-                {
-                    picked.Add((guid, traits));
-                    break;
-                }
-            return picked;
-        }
+        if (candidates.Count == 0) return picked;
         for (int i = candidates.Count - 1; i > 0; i--)
         {
             int j = Random.Shared.Next(i + 1);

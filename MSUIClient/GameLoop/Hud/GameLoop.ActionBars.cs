@@ -73,14 +73,15 @@ public sealed partial class GameLoop
     {
         for (int i = 0; i < _actionKeyWasDown.Length; i++)
         {
-            bool down = BindingDown(ActionBinding(i));
+            bool altPrimaryCast = RtsAltAbilityBindingDown(ActionBinding(i));
+            bool down = BindingDown(ActionBinding(i)) || altPrimaryCast;
             if (down && !_actionKeyWasDown[i] && !typing &&
                 !RtsControlGroupClaimsBinding(ActionBinding(i)))
             {
                 // In Free View the bindable Action Button 1..10 keys belong to the
                 // primary character card (the visible card currently supports eight).
                 // Outside it, preserve the ordinary mount/action-bar routing.
-                if (!TryUseRtsPrimaryAbilityBinding(i) &&
+                if (!TryUseRtsPrimaryAbilityBinding(i, altPrimaryCast) &&
                     !TryMountKitNumberKey(i + 1) && _net is { IsInWorld: true })
                     UseAction(ActionWireSlot(i));
             }
@@ -201,7 +202,7 @@ public sealed partial class GameLoop
         }
     }
 
-    private void TryCast(uint spellId)
+    private void TryCast(uint spellId, ulong explicitTarget = 0)
     {
         if (_net is null) return;
         if (_spellCatalog is null || !_spellCatalog.TryGet(spellId, out SpellInfo spell))
@@ -307,7 +308,7 @@ public sealed partial class GameLoop
             return;
         }
 
-        CastTargetVerdict targetVerdict = ResolveCastTarget(spell);
+        CastTargetVerdict targetVerdict = ResolveCastTarget(spell, explicitTarget);
         if (_itemCastSpell != 0 && _itemCastSpell != spellId) CancelItemTargeting();
         ulong target = targetVerdict.Guid;
         if (targetVerdict.Kind == CastTargetKind.Ground)
@@ -332,11 +333,12 @@ public sealed partial class GameLoop
         {
             EmitCastVerdict(spellId, targetVerdict.Reason, target, sent: false);
             RefuseCast(spellId, targetVerdict.Reason.ToString(),
-                _selectionGuid == 0 ? "You have no target." : "Invalid target");
+                explicitTarget == 0 && _selectionGuid == 0
+                    ? "You have no target." : "Invalid target");
             return;
         }
-        if (target == _selectionGuid && target != ControlledGuid &&
-            CastRangeRefusal(spell) is { } rangeFailure)
+        if (target != ControlledGuid &&
+            CastRangeRefusal(spell, target) is { } rangeFailure)
         {
             EmitCastVerdict(spellId, rangeFailure.Reason, target, sent: false);
             RefuseCast(spellId, $"LOCAL_{rangeFailure.Reason}", rangeFailure.Text);
@@ -425,6 +427,7 @@ public sealed partial class GameLoop
 
     private bool TryCancelSpellTargetingOnEscape()
     {
+        if (CancelRtsUnitCastTargeting(silent: false)) return true;
         if (_groundCastSpell != 0)
         {
             _groundCastSpell = 0;
@@ -439,11 +442,12 @@ public sealed partial class GameLoop
     private void RefuseCast(uint spellId, string reason, string text) =>
         ShowSpellError(spellId, reason, text, "LOCAL_GATE");
 
-    private (string Text, CastTargetReason Reason)? CastRangeRefusal(in SpellInfo spell)
+    private (string Text, CastTargetReason Reason)? CastRangeRefusal(in SpellInfo spell,
+        ulong targetGuid)
     {
         if (_net is null || !TryGetControlledBodyPose(out WorldBodyPose controlledBody) ||
-            _spellCatalog is null || _selectionGuid == 0 ||
-            !_entities.TryGet(_selectionGuid, out WorldEntity target) ||
+            _spellCatalog is null || targetGuid == 0 ||
+            !_entities.TryGet(targetGuid, out WorldEntity target) ||
             !_spellCatalog.TryGetRange(spell.RangeIndex, out SpellRangeRow row)) return null;
         float selfReach = _entities.TryGet(ControlledGuid, out WorldEntity self)
             ? self.Fields.CombatReach : 1.5f;
@@ -465,12 +469,13 @@ public sealed partial class GameLoop
     // Benilla cast_target.rs transcribes Spell_C::ArmCast/BindTarget: seed the target word from
     // Spell.dbc Targets, apply EffectImplicitTargetA[0], then satisfy every unit-shaped bit.
     // A hostile selection therefore cannot receive Holy Light; autoSelfCast binds the player.
-    private CastTargetVerdict ResolveCastTarget(in SpellInfo spell)
+    private CastTargetVerdict ResolveCastTarget(in SpellInfo spell, ulong explicitTarget = 0)
     {
         CastTargetCandidate? selected = null, self = null;
-        if (_selectionGuid != 0 && _entities.TryGet(_selectionGuid, out WorldEntity selectedEntity))
+        ulong selectedGuid = explicitTarget != 0 ? explicitTarget : _selectionGuid;
+        if (selectedGuid != 0 && _entities.TryGet(selectedGuid, out WorldEntity selectedEntity))
         {
-            selected = CastCandidate(selectedEntity, _selectionGuid == ControlledGuid);
+            selected = CastCandidate(selectedEntity, selectedGuid == ControlledGuid);
             EmitCombat("SpellTargetCandidate", "cast-acting-path", selectedEntity.Guid,
                 $"spell={spell.Id};mask=0x{CastTargetLaw.TargetMask(spell):X4};isSelf={selected.Value.IsSelf};" +
                 $"friendly={selected.Value.Friendly};attackable={selected.Value.Attackable};dead={selected.Value.Dead};" +
@@ -479,7 +484,7 @@ public sealed partial class GameLoop
         }
         if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player))
             self = CastCandidate(player, isSelf: true);
-        return CastTargetLaw.Resolve(spell, selected, self);
+        return CastTargetLaw.Resolve(spell, selected, self, autoSelfCast: explicitTarget == 0);
     }
 
     private void EmitCastVerdict(uint spellId, CastTargetReason reason, ulong resolvedGuid, bool sent)
@@ -1784,15 +1789,12 @@ public sealed partial class GameLoop
     private static uint UiGoldU32() =>
         ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 0.82f, 0f, 1f));
 
+    // size is a device-pixel height. Exact-size FRIZQT from the baked atlas with the classic
+    // +1,-shadow, never the ImGui default font (game UI never uses the ImGui font). DrawPlain's
+    // shadow offset is floor(uiScale) = 1 device px, matching the old manual +(1,1) shadow.
     private static void DrawCenteredActionText(ImDrawListPtr dl, Vector2 center, string text,
         float size, uint color)
-    {
-        ImFontPtr font = ImGui.GetFont();
-        Vector2 extent = ImGui.CalcTextSize(text) * (size / MathF.Max(ImGui.GetFontSize(), 1f));
-        Vector2 pos = center - extent * 0.5f;
-        dl.AddText(font, size, pos + Vector2.One, 0xff000000u, text);
-        dl.AddText(font, size, pos, color, text);
-    }
+        => GameText.DrawPlainCentered(dl, text, center, size, 1f, color, 0xff000000u);
 
     private bool DrawSlotRing(ImDrawListPtr dl, Vector2 buttonMin, Vector2 buttonMax,
         string art, float scale, uint tint = 0xffffffffu, bool emptySlot = false)

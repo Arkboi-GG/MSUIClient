@@ -11,6 +11,53 @@ static void Check(bool condition, string message)
     if (!condition) throw new InvalidDataException(message);
 }
 
+static void CheckRtsAbilityTargeting(SpellInfo seed)
+{
+    var friendlyUnitSpell = seed with { Targets = 0x0100, ImplicitTarget = 0 };
+    var hostileUnitSpell = seed with { Targets = 0x0080, ImplicitTarget = 0 };
+    var genericUnitSpell = seed with { Targets = 0x0002, ImplicitTarget = 0 };
+    var implicitSelfSpell = seed with { Targets = 0, ImplicitTarget = 0 };
+    Check(CastTargetLaw.AcceptsExplicitFriendlyUnit(friendlyUnitSpell) &&
+          !CastTargetLaw.AcceptsExplicitFriendlyUnit(hostileUnitSpell) &&
+          !CastTargetLaw.AcceptsExplicitFriendlyUnit(genericUnitSpell) &&
+          !CastTargetLaw.AcceptsExplicitFriendlyUnit(implicitSelfSpell),
+        "commander friendly-unit spell classification drift");
+    Check(RtsAbilityTargetLaw.Resolve(5, altHeld: false,
+              acceptsExplicitFriendlyUnit: true) == RtsAbilityCastIntent.ChooseFriendlyTarget &&
+          RtsAbilityTargetLaw.Resolve(5, altHeld: true,
+              acceptsExplicitFriendlyUnit: true) == RtsAbilityCastIntent.CastOnPrimary &&
+          RtsAbilityTargetLaw.Resolve(1, altHeld: false,
+              acceptsExplicitFriendlyUnit: true) == RtsAbilityCastIntent.Normal &&
+          RtsAbilityTargetLaw.Resolve(5, altHeld: true,
+              acceptsExplicitFriendlyUnit: false) == RtsAbilityCastIntent.Normal,
+        "commander multi-selection/Alt cast targeting grammar drift");
+
+    string root = ClientConfig.FindRepoRoot();
+    string shelf = SourceText.Read(Path.Combine(root,
+        "MSUIClient", "GameLoop", "Hud", "GameLoop.CommandShelf.cs"));
+    string control = SourceText.Read(Path.Combine(root,
+        "MSUIClient", "GameLoop", "Scene", "GameLoop.Control.cs"));
+    string party = SourceText.Read(Path.Combine(root,
+        "MSUIClient", "GameLoop", "Hud", "GameLoop.PartyFrames.cs"));
+    string unitFrames = SourceText.Read(Path.Combine(root,
+        "MSUIClient", "GameLoop", "Hud", "GameLoop.UnitFrames.cs"));
+    string settings = SourceText.Read(Path.Combine(root,
+        "MSUIClient", "GameLoop", "Panels", "GameLoop.Settings.cs"));
+    Check(shelf.Contains("RtsAbilityTargetLaw.Resolve(", StringComparison.Ordinal) &&
+          shelf.Contains("CastPrimaryAbility(primary, spellId, explicitTarget: targetGuid);",
+              StringComparison.Ordinal) &&
+          shelf.Contains("CastPrimaryAbility(guid, action.ActionId, AltHeld());",
+              StringComparison.Ordinal) &&
+          control.Contains("TryCommitRtsUnitCastTarget(pressPick.Armed",
+              StringComparison.Ordinal) &&
+          party.Contains("TryCommitRtsUnitCastTarget(member.Guid);",
+              StringComparison.Ordinal) &&
+          unitFrames.Contains("TryCommitRtsUnitCastTarget(unit.Guid);",
+              StringComparison.Ordinal) &&
+          settings.Contains("_rtsUnitCastSpellId != 0", StringComparison.Ordinal),
+        "commander friendly-target world/frame/Alt/Escape production wiring drift");
+}
+
 static void CheckGameMenuLayout()
 {
     static bool Near(Vector2 left, Vector2 right) =>
@@ -1531,6 +1578,24 @@ if (args.Contains("--party-quest-acts-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--rts-ability-target-only", StringComparer.Ordinal))
+{
+    string data = Path.Combine(ClientConfig.FindRepoRoot(), "GameData", "Data");
+    using var mpq = new MpqMount(data);
+    SpellCatalog spells = SpellCatalog.Load(mpq) ??
+        throw new InvalidDataException("Spell DBC unavailable");
+    CheckRtsAbilityTargeting(spells.Spells.First());
+    SpellInfo RequiredSpell(uint id) => spells.TryGet(id, out SpellInfo spell)
+        ? spell : throw new InvalidDataException($"spell {id} missing");
+    Check(CastTargetLaw.AcceptsExplicitFriendlyUnit(RequiredSpell(2050)) &&
+          CastTargetLaw.AcceptsExplicitFriendlyUnit(RequiredSpell(1243)) &&
+          CastTargetLaw.AcceptsExplicitFriendlyUnit(RequiredSpell(2006)) &&
+          !CastTargetLaw.AcceptsExplicitFriendlyUnit(RequiredSpell(6673)),
+        "real Spell.dbc heal/buff/resurrection/party-wide classification drift");
+    Console.WriteLine("interface-wire-check: RtsAbilityTarget PASS");
+    return;
+}
+
 CharCreateClinicalChecks.Run();
 CharSelectCurrentClinicalChecks.Run();
 LoginClinicalChecks.Run();
@@ -2240,6 +2305,7 @@ var itemTargetSpell = bracerEnchant with
 };
 Check(CastTargetLaw.Resolve(itemTargetSpell, null, null).Kind == CastTargetKind.Item,
     "item-only target word no longer arms the item cursor");
+CheckRtsAbilityTargeting(bracerEnchant);
 ulong enchantItemGuid = 0xF470000000123456ul;
 var itemCastReader = new PacketReader(WorldSession.BuildCastSpellOnItemBody(
     bracerEnchant.Id, enchantItemGuid));

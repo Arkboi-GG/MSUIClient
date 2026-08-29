@@ -99,8 +99,8 @@ internal static class NameplateClinicalChecks
               model.Contains("ShowNpcNames { get; set; } = true", StringComparison.Ordinal) &&
               model.Contains("ShowOwnName { get; set; } = true", StringComparison.Ordinal),
             "nameplate settings rows or live show gates drift");
-        Check(targeting.Contains("NameplateUiLaw.SelectionRgb", StringComparison.Ordinal),
-            "ground ring no longer shares the overhead colour selector");
+        Check(targeting.Contains("SelectionRingLaw.TargetRgb", StringComparison.Ordinal),
+            "ground ring no longer uses its dedicated friendly-blue/neutral-yellow palette");
         Check(names.Contains("WouldHaveActiveNameplate(unit, display)", StringComparison.Ordinal) &&
               names.Contains("_worldNames.Render(_window.Camera", StringComparison.Ordinal) &&
               names.Contains("NameplateUiLaw.WorldNamePitch(distance)", StringComparison.Ordinal) &&

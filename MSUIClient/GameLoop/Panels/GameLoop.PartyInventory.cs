@@ -229,8 +229,7 @@ public sealed partial class GameLoop
             Vector2 half = ImGui.CalcTextSize(initial) * 0.5f;
             dl.AddText(portraitMin + portraitSize * 0.5f - half, 0xe0101418, initial);
         }
-        dl.AddRect(portraitMin, portraitMin + portraitSize, 0xff2a343d,
-            0, ImDrawFlags.None, MathF.Max(1f, scale));
+        DrawClassPortraitBorderRect(dl, portraitMin, portraitMin + portraitSize, guid, scale, name);
         PartyItemDropTarget(guid);   // dropping "on the character" works
 
         for (int i = 0; i < PartyDollLeftRail.Length; i++)

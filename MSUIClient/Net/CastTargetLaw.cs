@@ -93,6 +93,33 @@ public static class CastTargetLaw
         return new(CastTargetKind.Refused, CastTargetReason.NoValidUnit);
     }
 
+    /// <summary>
+    /// Whether this spell can bind an explicitly chosen friendly unit other than the caster,
+    /// but cannot bind a hostile unit. The second half keeps dual-purpose and generic unit spells
+    /// on their existing combat-target path instead of misclassifying them as heals/buffs.
+    /// Commander multi-selection uses this to distinguish heals/buffs/resurrections from
+    /// self-only, hostile, ground, item, and party-wide spells before opening a unit cursor.
+    /// Both living and dead candidates are tried so ally-corpse spells keep their target step.
+    /// </summary>
+    public static bool AcceptsExplicitFriendlyUnit(in SpellInfo spell)
+    {
+        var living = new CastTargetCandidate(1, IsSelf: false, Friendly: true,
+            Attackable: false, Dead: false);
+        var dead = living with { Dead = true };
+        var hostile = new CastTargetCandidate(2, IsSelf: false, Friendly: false,
+            Attackable: true, Dead: false);
+        var hostileDead = hostile with { Dead = true };
+        bool acceptsFriendly = Resolve(spell, living, self: null,
+                autoSelfCast: false).Kind == CastTargetKind.Unit ||
+            Resolve(spell, dead, self: null,
+                autoSelfCast: false).Kind == CastTargetKind.Unit;
+        bool acceptsHostile = Resolve(spell, hostile, self: null,
+                autoSelfCast: false).Kind == CastTargetKind.Unit ||
+            Resolve(spell, hostileDead, self: null,
+                autoSelfCast: false).Kind == CastTargetKind.Unit;
+        return acceptsFriendly && !acceptsHostile;
+    }
+
     private static ushort ClearSatisfied(ushort word, in CastTargetCandidate candidate)
     {
         bool assist = candidate.IsSelf || candidate.Friendly;

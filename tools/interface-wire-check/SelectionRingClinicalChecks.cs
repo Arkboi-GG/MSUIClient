@@ -1,5 +1,7 @@
 using MSUIClient;
 using MSUIClient.Engine.UI;
+using MSUIClient.Formats;
+using System.Numerics;
 
 internal static class SelectionRingClinicalChecks
 {
@@ -19,6 +21,13 @@ internal static class SelectionRingClinicalChecks
         Near(cos0, 1f, "zero-yaw projector cosine");
         Near(sin90, -1f, "quarter-turn projector sine");
         Near(cos90, 0f, "quarter-turn projector cosine");
+        Check(SelectionRingLaw.TargetRgb(FactionReaction.Friendly, false, false, 0) ==
+                  SelectionRingLaw.FriendlyBlue &&
+              SelectionRingLaw.TargetRgb(FactionReaction.Neutral, false, false, 0) ==
+                  SelectionRingLaw.NeutralYellow &&
+              SelectionRingLaw.TargetRgb(FactionReaction.Hostile, false, false, 0) ==
+                  SelectionRingLaw.HostileRed,
+            "friendly/neutral/hostile target-ring palette drifted");
 
         string root = ClientConfig.FindRepoRoot();
         string target = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop",
@@ -26,11 +35,16 @@ internal static class SelectionRingClinicalChecks
         string meshes = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Units",
             "SpellEffectMeshRenderer.cs"));
         Check(target.Contains("SelectionRingLaw.DiedWhileSelected") &&
+              target.Contains("SelectionRingLaw.TargetRgb") &&
+              target.Contains("if (_freeView ||", StringComparison.Ordinal) &&
               target.Contains("RenderUnitSelectionRing") &&
               meshes.Contains(@"Textures\UnitSelectTexture.blp") &&
               meshes.Contains("ProjectDecal(frame, uv, camera.Position)") &&
               meshes.Contains("UnitAwareDepthBias"),
             "projected selection-ring or death-edge production wiring drifted");
+        Check(!meshes.Contains("RtsTargetTexture", StringComparison.Ordinal) &&
+              !meshes.Contains("bool Target = false", StringComparison.Ordinal),
+            "obsolete four-segment RTS target marker returned");
         Check(!File.Exists(Path.Combine(root, "MSUIClient", "World", "Units",
                 "SelectionRingRenderer.cs")),
             "obsolete flat-quad selection-ring renderer returned");

@@ -826,11 +826,9 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     // character standing on it instead of floating over the model.
 
     private Texture? _rtsRingTexture;
-    private Texture? _rtsTargetTexture;
     private Texture? _rtsChevronTexture;
 
-    public readonly record struct UnitRing(Vector3 Centre, float Radius, Vector3 Tint, float Opacity,
-        bool Target = false);
+    public readonly record struct UnitRing(Vector3 Centre, float Radius, Vector3 Tint, float Opacity);
     public readonly record struct MoveMarker(Vector3 Centre, float Age, Vector3 Tint);
 
     /// <summary>Crisp anti-aliased band + faint inner fill + soft outer glow. White; tinted per draw.</summary>
@@ -855,36 +853,6 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         }
         _rtsRingTexture = Texture.FromRgbaNoMips(_gl, rgba, size, size);
         return _rtsRingTexture;
-    }
-
-    /// <summary>A broken-ring crosshair for selected targets. Party selections keep the
-    /// continuous halo, so silhouette as well as colour distinguishes friend from target.</summary>
-    private Texture RtsTargetTexture()
-    {
-        if (_rtsTargetTexture is not null) return _rtsTargetTexture;
-        const int size = 256;
-        byte[] rgba = new byte[size * size * 4];
-        for (int y = 0; y < size; y++)
-        for (int x = 0; x < size; x++)
-        {
-            float dx = (x + 0.5f) / size * 2f - 1f;
-            float dy = (y + 0.5f) / size * 2f - 1f;
-            float d = MathF.Sqrt(dx * dx + dy * dy);
-            float band = SmoothStep(0.76f, 0.82f, d) *
-                (1f - SmoothStep(0.90f, 0.96f, d));
-            float angle = MathF.Atan2(dy, dx);
-            float fourArcs = MathF.Pow(MathF.Abs(MathF.Cos(angle * 2f)), 10f);
-            float horizontalTick = MathF.Abs(dy) < 0.055f && MathF.Abs(dx) is > 0.48f and < 0.98f
-                ? 1f : 0f;
-            float verticalTick = MathF.Abs(dx) < 0.055f && MathF.Abs(dy) is > 0.48f and < 0.98f
-                ? 1f : 0f;
-            float a = MathF.Min(1f, band * fourArcs + MathF.Max(horizontalTick, verticalTick));
-            int i = (y * size + x) * 4;
-            rgba[i] = 255; rgba[i + 1] = 255; rgba[i + 2] = 255;
-            rgba[i + 3] = (byte)(a * 255f + 0.5f);
-        }
-        _rtsTargetTexture = Texture.FromRgbaNoMips(_gl, rgba, size, size);
-        return _rtsTargetTexture;
     }
 
     /// <summary>A chevron (arrowhead) pointing +Y in texture space; frame rotation aims it.</summary>
@@ -929,7 +897,6 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     {
         if (_groundShader is null || rings.Count == 0) return;
         Texture ring = RtsRingTexture();
-        Texture target = RtsTargetTexture();
         Span<Vector2> uv = [new(0, 0), new(1, 0), new(0, 1), new(1, 1)];
         List<(float[], Texture?, int, Vector3, float, int)> draws = [];
         foreach (UnitRing r in rings)
@@ -941,7 +908,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
             float[]? vertices = ProjectDecal(frame, uv, camera.Position) ??
                                 FlatDiscVertices(r.Centre, r.Radius, camera.Position);
             if (vertices is not null)
-                draws.Add((vertices, r.Target ? target : ring, 2, r.Tint, r.Opacity, 0));
+                draws.Add((vertices, ring, 2, r.Tint, r.Opacity, 0));
         }
         // The one ground FX that a unit is standing IN: the far arc belongs behind the model,
         // the way the reference client's selection circle does.
