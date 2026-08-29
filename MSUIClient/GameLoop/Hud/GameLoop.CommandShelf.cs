@@ -198,6 +198,34 @@ public sealed partial class GameLoop
         TryCast(spellId);
     }
 
+    private const int RtsPrimaryAbilityLimit = 8;
+
+    private List<(int Slot, ActionSlot Action, SpellInfo Spell)> RtsPrimaryAbilities(ulong guid)
+    {
+        var result = new List<(int, ActionSlot, SpellInfo)>(RtsPrimaryAbilityLimit);
+        PlayerActions store = ActionsFor(guid);
+        for (int slot = 0; slot < 12 && result.Count < RtsPrimaryAbilityLimit; slot++)
+            if (store[slot] is ActionSlot action && action.Kind == 0 &&
+                _spellCatalog?.TryGet(action.ActionId, out SpellInfo spell) == true)
+                result.Add((slot, action, spell));
+        return result;
+    }
+
+    /// <summary>Route the existing bindable Action Button 1..10 keys to the visible primary
+    /// card while in Free View. Returning true means the commander card owns the binding even
+    /// when that numbered card slot is empty, so the hidden body bar cannot cast by accident.</summary>
+    private bool TryUseRtsPrimaryAbilityBinding(int abilityIndex)
+    {
+        if (!_freeView) return false;
+        ulong primary = RtsPrimaryGuid;
+        if (primary == 0) return true;
+        List<(int Slot, ActionSlot Action, SpellInfo Spell)> abilities =
+            RtsPrimaryAbilities(primary);
+        if ((uint)abilityIndex < (uint)abilities.Count)
+            CastPrimaryAbility(primary, abilities[abilityIndex].Action.ActionId);
+        return true;
+    }
+
     private const byte SuiOrderFormationLine = 8;
     private const byte SuiOrderFormationCircle = 9;
     private const byte SuiOrderSheath = 10;
@@ -301,7 +329,7 @@ public sealed partial class GameLoop
     /// <summary>
     /// WC3-style portrait grid of the CURRENT selection — the console's left region. Each cell is a
     /// unit's portrait over a health bar; the PRIMARY (whose card + abilities fill the middle panel)
-    /// wears a gold border. Single-click makes a unit primary, double-click selects only it,
+    /// wears a gold border. Single-click makes a unit primary, double-click centers the camera,
     /// Shift+click drops it. Tab / Shift+Tab cycle the primary. The saved-group "squad" grid
     /// (DrawRtsSquadGrid) is shelved for the true-RTS mode.
     /// </summary>
@@ -322,7 +350,7 @@ public sealed partial class GameLoop
         var cell = new Vector2(21f, 19f) * scale;
         float barH = 3f * scale, gap = 2f * scale;
         const int cols = 6, maxCells = 12;
-        ulong primaryPick = 0, soloPick = 0, dropPick = 0;
+        ulong primaryPick = 0, focusPick = 0, dropPick = 0;
         int shown = 0;
         for (int i = 0; i < _freecamSelection.Count && shown < maxCells; i++)
         {
@@ -374,8 +402,8 @@ public sealed partial class GameLoop
 
             if (hovered)
                 HoverTip($"{ResolveUnitName(guid)} — {(int)(hp * 100)}%\n" +
-                    "Click: make primary · Double-click: select only · Shift+click: drop");
-            if (hovered && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) soloPick = guid;
+                    "Click: make primary · Double-click: center camera · Shift+click: drop");
+            if (hovered && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) focusPick = guid;
             else if (ImGui.IsItemClicked())
             {
                 if (ImGui.GetIO().KeyShift) dropPick = guid;
@@ -384,12 +412,10 @@ public sealed partial class GameLoop
         }
 
         // Mutations after the loop — never mutate the selection mid-iteration.
-        if (soloPick != 0)
+        if (focusPick != 0)
         {
-            _freecamSelection.Clear();
-            _freecamSelection.Add(soloPick);
-            _rtsPrimaryGuid = soloPick;
-            PlayCompanionSelectionVoice(soloPick);
+            _rtsPrimaryGuid = focusPick;
+            FocusRtsCameraOnUnit(focusPick);
         }
         else if (dropPick != 0)
         {
@@ -425,10 +451,26 @@ public sealed partial class GameLoop
                 : "Party Tactics needs a companion bot in the party");
     }
 
+    /// <summary>Center the detached camera on a mini-portrait's unit without changing the
+    /// current multi-selection, camera facing, pitch, or boom distance.</summary>
+    private bool FocusRtsCameraOnUnit(ulong guid)
+    {
+        if (_controller is null || guid == 0 ||
+            !_entities.TryGet(guid, out WorldEntity unit) || unit.IsDead)
+            return false;
+
+        _commanderFlySettle = null;
+        _controller.Teleport(unit.Position.X, unit.Position.Y, unit.Position.Z);
+        _window.Camera.Target = _controller.Position;
+        _freecamCamSentAt = 0;
+        _rtsWheelRetreatYards = 0f;
+        return true;
+    }
+
     /// <summary>
     /// All ten WC3 group slots as a fixed 5×2 grid. A filled well recalls its
     /// squad on click; Ctrl+click on ANY well saves the current selection
-    /// there (the keys 1-0 / Ctrl+1-0 do the same).
+    /// there (Shift+1-0 recalls; Ctrl+1-0 saves; plain action keys cast the primary card).
     ///
     /// Shift+click still saves as well. The keyboard chord moved to Ctrl for RTS convention
     /// (2026-08-26), but no other binding competes for a modified click on a well, so the old
@@ -631,14 +673,12 @@ public sealed partial class GameLoop
         float size = 22f * scale;
         var side = new Vector2(size, size);
         Vector2 rowMin = content + new Vector2(0f, 50f) * scale;
-        int drawn = 0;
-        for (int slot = 0; slot < 12 && drawn < 8; slot++)
+        List<(int Slot, ActionSlot Action, SpellInfo Spell)> abilities =
+            RtsPrimaryAbilities(guid);
+        for (int drawn = 0; drawn < abilities.Count; drawn++)
         {
-            if (store[slot] is not ActionSlot action || action.Kind != 0 ||
-                _spellCatalog?.TryGet(action.ActionId, out SpellInfo spell) != true)
-                continue;
+            (int slot, ActionSlot action, SpellInfo spell) = abilities[drawn];
             Vector2 min = rowMin + new Vector2(drawn * (size + 3f * scale), 0f);
-            drawn++;
             Vector2 max = min + side;
             ImGui.SetCursorScreenPos(min);
             ImGui.InvisibleButton($"##card-{guid}-{slot}", side);
@@ -652,6 +692,11 @@ public sealed partial class GameLoop
             DrawBevel(dl, min, max, MathF.Max(1f, scale), PainterlyStoneTop, PainterlyFrameOuter);
             dl.AddRect(min, max, ImGui.IsItemHovered() ? PainterlyFrameRule : PainterlyFrameOuter,
                 0, ImDrawFlags.None, MathF.Max(1f, scale));
+            string binding = BindingText(ActionBinding(drawn));
+            if (binding.Length > 0)
+                GameText.DrawRightAligned(dl, "NumberFontNormal", binding,
+                    max - new Vector2(2f, GameText.EmPixels("NumberFontNormal", scale) + 1f),
+                    scale, 0xffffffff);
             if (ImGui.IsItemHovered())
                 tooltip = PrepareSharedSpellTooltip(
                     new GameTooltipOwnerKey("console-card", (ulong)slot + 1),
@@ -659,7 +704,7 @@ public sealed partial class GameLoop
             if (ImGui.IsItemClicked())
                 CastPrimaryAbility(guid, action.ActionId);
         }
-        if (drawn == 0)
+        if (abilities.Count == 0)
             dl.AddText(rowMin + new Vector2(0f, 4f * scale), 0xff9aa4ab,
                 "abilities syncing…");
     }
@@ -849,6 +894,13 @@ public sealed partial class GameLoop
         bool routeReady = _rtsWaypointChain.Count > 0 &&
             SameRtsMembers(_rtsWaypointSubjects, subjects);
 
+        bool SendImmediateOrder(byte orderType, ulong target = 0,
+            float x = 0, float y = 0, float z = 0)
+        {
+            ClearRtsAttackQueue();
+            return _net.SuiOrder(orderType, subjects, target, x, y, z);
+        }
+
         int cellIndex = 0;
         bool CardButton(string id, string icon, string tooltip, bool enabled, bool lit = false)
         {
@@ -875,20 +927,20 @@ public sealed partial class GameLoop
                 ? "Focus: send the selection at your current target"
                 : "Focus needs a selection and a hostile target\n(click one in the world first)",
                 any && hostileTargeted) &&
-            _net.SuiOrder(1, subjects, _selectionGuid, 0, 0, 0))
+            SendImmediateOrder(1, _selectionGuid))
         {
             NoteCompanionOrder(1, subjects);
             AddChatMessage($"{OrderSubjectLabel(subjects)}: attack {ResolveWorldUnitName(_selectionGuid)}!");
         }
         if (CardButton("##card-regroup", ConsoleIconRegroup,
                 "Regroup: abandon the tactical route and\nescort the body you drive", any) &&
-            _net.SuiOrder(5, subjects, ControlledGuid, 0, 0, 0))
+            SendImmediateOrder(5, ControlledGuid))
         {
             NoteCompanionOrder(5, subjects);
             AddChatMessage($"{OrderSubjectLabel(subjects)}: regroup on {ResolveUnitName(ControlledGuid)}.");
         }
         if (CardButton("##card-hold", ConsoleIconHold, "Hold: stop and hold this spot", any) &&
-            _net.SuiOrder(2, subjects, 0, 0, 0, 0))
+            SendImmediateOrder(2))
         {
             NoteCompanionOrder(2, subjects);
             AddChatMessage($"{OrderSubjectLabel(subjects)}: stand your ground.");
@@ -907,13 +959,14 @@ public sealed partial class GameLoop
         if (CardButton("##card-patrol", ConsoleIconPatrol, patrolTip,
                 any || _rtsPatrolAuthoring, _rtsPatrolAuthoring))
         {
+            ClearRtsAttackQueue();
             if (_rtsPatrolAuthoring)
                 EngageRtsPatrolDraft();
             else if (routeReady)
                 foreach (ulong patrolGuid in subjects)
                     if (_entities.TryGet(patrolGuid, out WorldEntity unit) && !unit.IsDead)
                     {
-                        if (_net.SuiOrder(4, subjects, 0,
+                        if (SendImmediateOrder(4, 0,
                                 unit.Position.X, unit.Position.Y, unit.Position.Z))
                         {
                             NoteCompanionOrder(4, subjects);
@@ -926,14 +979,14 @@ public sealed partial class GameLoop
         }
         if (CardButton("##card-line", ConsoleIconLine,
                 "Line: standing army — ranks of five facing you,\nformed where the squad stands", any) &&
-            _net.SuiOrder(SuiOrderFormationLine, subjects, 0, 0, 0, 0))
+            SendImmediateOrder(SuiOrderFormationLine))
         {
             NoteCompanionOrder(SuiOrderFormationLine, subjects);
             AddChatMessage($"{OrderSubjectLabel(subjects)}: form ranks!");
         }
         if (CardButton("##card-circle", ConsoleIconCircle,
                 "Circle: evenly spaced ring, everyone facing outward", any) &&
-            _net.SuiOrder(SuiOrderFormationCircle, subjects, 0, 0, 0, 0))
+            SendImmediateOrder(SuiOrderFormationCircle))
         {
             NoteCompanionOrder(SuiOrderFormationCircle, subjects);
             AddChatMessage($"{OrderSubjectLabel(subjects)}: form a circle!");
@@ -943,7 +996,7 @@ public sealed partial class GameLoop
                 " — parade discipline.\nEntering combat always draws steel.", any))
         {
             bool draw = _rtsWeaponsSheathed;
-            if (_net.SuiOrder(SuiOrderSheath, subjects, 0, draw ? 1f : 0f, 0, 0))
+            if (SendImmediateOrder(SuiOrderSheath, 0, draw ? 1f : 0f))
             {
                 _rtsWeaponsSheathed = !draw;
                 NoteCompanionOrder(SuiOrderSheath, subjects);

@@ -55,9 +55,9 @@ public sealed partial class GameLoop
     /// slot-indexed opcode so it can reach a quest held without a log slot;
     /// falls back to the vanilla path when the server has no acts capability.
     /// </summary>
-    private bool AbandonQuestById(uint questId) =>
+    private bool AbandonQuestById(ulong subject, uint questId) =>
         RequestPartyQuestAct(PartyQuestWire.ActionAbandon, questId, 0,
-            [new PartyQuestSubject(LocalPlayerGuid, PartyQuestWire.RewardChoiceAuto)]);
+            [new PartyQuestSubject(subject, PartyQuestWire.RewardChoiceAuto)]);
 
     private static string ActionName(byte action) => action switch
     {

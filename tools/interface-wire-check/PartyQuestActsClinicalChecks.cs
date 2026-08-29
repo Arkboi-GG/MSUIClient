@@ -102,13 +102,14 @@ internal static class PartyQuestActsClinicalChecks
               acts.Contains("if (!_partyQuestActsAvailable)", StringComparison.Ordinal),
             "party quest acts must stay capability-gated");
         Check(acts.Contains("PartyQuestWire.ActionAbandon, questId, 0,", StringComparison.Ordinal) &&
-              acts.Contains("new PartyQuestSubject(LocalPlayerGuid,", StringComparison.Ordinal),
-            "the id-addressed abandon must address our OWN guid — it is what reaches " +
-            "a quest held past the update-field slots");
+              acts.Contains("AbandonQuestById(ulong subject, uint questId)", StringComparison.Ordinal) &&
+              acts.Contains("new PartyQuestSubject(subject,", StringComparison.Ordinal),
+            "the id-addressed abandon must address the displayed controlled character — " +
+            "it is what reaches a quest held past that character's update-field slots");
 
         string quest = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Quest.cs"));
-        Check(quest.Contains("if (_partyQuestActsAvailable) return AbandonQuestById(questId);",
+        Check(quest.Contains("if (_partyQuestActsAvailable) return AbandonQuestById(subject, questId);",
                   StringComparison.Ordinal),
             "abandoning an overflow quest must route through the id-addressed act " +
             "when the server offers it");

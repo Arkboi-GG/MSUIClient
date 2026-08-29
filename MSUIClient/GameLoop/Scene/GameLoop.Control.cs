@@ -286,6 +286,7 @@ public sealed partial class GameLoop
         _freeViewExitRequested = false;
         _freecamSelection.Clear();
         ClearRtsWaypointChain();
+        ClearRtsAttackQueue();
         CancelRtsPatrolAuthoring(silent: true);
         _suiRoster.Clear();
         ClearRtsForceTakeControl();
@@ -334,6 +335,10 @@ public sealed partial class GameLoop
     private readonly List<(Vector3 Pos, double Born, Vector3 Tint)> _rtsMoveMarkers = [];
     private readonly List<Vector3> _rtsWaypointChain = [];   // Shift+RightClick chain dots
     private readonly List<ulong> _rtsWaypointSubjects = [];  // who the chain was issued to
+    private readonly List<ulong> _rtsAttackQueue = [];        // Shift+click hostile sequence
+    private readonly List<ulong> _rtsAttackSubjects = [];     // frozen selection for that sequence
+    private double _rtsAttackIssuedAt;
+    private const double RtsAttackStaleSeconds = 90.0;
     // Patrol button flow (owner 2026-08-25): Patrol ARMS a draft, right-clicks
     // chain COLD waypoints (nothing ordered yet), Patrol again queues every leg
     // and engages the loop; Escape cancels. Subjects freeze at arm time.
@@ -357,6 +362,7 @@ public sealed partial class GameLoop
     private Vector3 _freecamCamSentPosition;                 // last CMSG_SUI_CAM position
     private double _freecamCamSentAt;                        // and when it went out
     private static readonly Vector3 RtsFriendlyTint = new(0.30f, 0.95f, 0.45f);
+    private static readonly Vector3 RtsFriendlyTargetTint = new(0.25f, 0.60f, 1.00f);
     private static readonly Vector3 RtsHostileTint = new(0.95f, 0.30f, 0.22f);
     private static readonly Vector3 RtsNeutralTint = new(0.95f, 0.85f, 0.25f);
     private bool _freecamKeyWasDown;
@@ -369,6 +375,8 @@ public sealed partial class GameLoop
     private bool _freeViewExitRequested;     // ...and this one asks to LEAVE it
     private double _freecamPanAt;            // last edge-pan tick, for its own dt
     private const float FreecamEdgePanMargin = 14f;   // px from a screen edge that starts a pan
+    private const float RtsMaxWheelAltitudeYards = 120f;
+    private float _rtsWheelRetreatYards;
     private const byte SuiRosterControllable = 0x01;
     private const byte SuiRosterPossessed = 0x02;
     private const double ControlAckTimeoutSeconds = 3.0;
@@ -1343,9 +1351,11 @@ public sealed partial class GameLoop
             _freecamMarqueeConsumedClick = false;
             _freecamSelection.Clear();
             ClearRtsWaypointChain();
+            ClearRtsAttackQueue();
             CancelRtsPatrolAuthoring(silent: true);
             _commanderMapOpen = false;      // the commander map is a free-view surface only
             _freecamPanAt = 0;
+            _rtsWheelRetreatYards = 0;
             if (_controller is not null)
             {
                 _controller.FlyFloorClearance = null;
@@ -1373,7 +1383,8 @@ public sealed partial class GameLoop
 
         // RTS altitude on the wheel: fly the RIG along the camera look direction
         // (wheel up = toward what you look at, wheel down = pull back and away).
-        // Unlimited height — the orbit boom's MaxDistance no longer caps the view.
+        // The detached rig has its own ceiling: without one repeated wheel-down
+        // steps can retreat forever even though the ordinary orbit boom is capped.
         // Steps scale with altitude like the edge pan, and go through FlyMove so
         // the wheel cannot ghost through what the keys cannot.
         // While the commander map is up the mouse belongs to the map: no rig
@@ -1393,20 +1404,54 @@ public sealed partial class GameLoop
         }
         else if (wheel != 0f && !_commanderMapOpen && _controller is not null)
         {
+            // Pulling toward the battlefield also shortens the orbit boom. Previously the
+            // boom stayed frozen at its pre-RTS distance, so moving the rig forward could
+            // never get the view closer than the zoom level used before Ctrl+F.
+            if (wheel > 0f) _window.Camera.Zoom(wheel);
             // Under a terrain shell (Ironforge, Undercity, a cave) the height field is OVERHEAD,
             // so "Z minus terrain" is a negative number and this collapsed to its 2-yard floor -
             // the wheel crawled the moment you raised the free view indoors. Keep the mid-altitude
             // fallback there, exactly as when the sample misses entirely.
-            float altitude = 10f;
-            if (!_controller.UnderTerrainShell &&
-                _terrain?.SampleHeight(_controller.Position.X, _controller.Position.Y) is float floor)
-                altitude = MathF.Max(2f, _controller.Position.Z - floor);
+            float? ground = _controller.GroundZ;
+            if (ground is null && !_controller.UnderTerrainShell)
+                ground = _terrain?.SampleHeight(_controller.Position.X, _controller.Position.Y);
+            float altitude = ground is float floor
+                ? MathF.Max(2f, _controller.Position.Z - floor) : 10f;
             float step = Math.Clamp(altitude * 0.30f, 2.5f, 40f);
-            _controller.FlyMove(_window.Camera.Forward * (wheel * step));
+            Vector3 delta = _window.Camera.Forward * (wheel * step);
+            if (wheel < 0f)
+            {
+                // Also cap cumulative wheel retreat. This closes the horizontal-look and
+                // missing-ground cases where an altitude-only ceiling could still retreat
+                // forever without gaining Z.
+                float retreatRemaining = RtsMaxWheelAltitudeYards - _rtsWheelRetreatYards;
+                float requested = delta.Length();
+                if (retreatRemaining <= 0f)
+                    delta = Vector3.Zero;
+                else if (requested > retreatRemaining)
+                    delta *= retreatRemaining / requested;
+
+                if (ground is not null)
+                {
+                    float altitudeRemaining = RtsMaxWheelAltitudeYards - altitude;
+                    if (altitudeRemaining <= 0f)
+                        delta = Vector3.Zero;
+                    else if (delta.Z > altitudeRemaining)
+                        delta *= altitudeRemaining / delta.Z;
+                }
+            }
+            if (delta != Vector3.Zero)
+            {
+                _controller.FlyMove(delta);
+                if (wheel < 0f) _rtsWheelRetreatYards += delta.Length();
+                else _rtsWheelRetreatYards = MathF.Max(0f,
+                    _rtsWheelRetreatYards - delta.Length());
+            }
         }
 
         if (!_commanderMapOpen) UpdateFreeCamEdgePan();
         UpdateRtsWaypointProgress();
+        UpdateRtsAttackQueue();
 
         // Keep the server's streaming eye under the camera: heartbeat every 2 s, and
         // whenever the rig has flown more than a few yards since the last send.
@@ -1502,6 +1547,78 @@ public sealed partial class GameLoop
         _rtsWaypointProgressAt = 0;
     }
 
+    private void ClearRtsAttackQueue()
+    {
+        _rtsAttackQueue.Clear();
+        _rtsAttackSubjects.Clear();
+        _rtsAttackIssuedAt = 0;
+    }
+
+    /// <summary>Append a hostile to the current selection's kill sequence. The first target is
+    /// issued immediately; later entries wait until the active target dies or despawns.</summary>
+    private void QueueRtsAttack(List<ulong> subjects, ulong target)
+    {
+        if (target == 0 || _rtsAttackQueue.Contains(target)) return;
+        if (_rtsAttackQueue.Count > 0 && !SameRtsMembers(_rtsAttackSubjects, subjects))
+            ClearRtsAttackQueue();
+        if (_rtsAttackQueue.Count == 0)
+        {
+            _rtsAttackSubjects.AddRange(subjects);
+            ClearRtsWaypointChain();
+        }
+
+        _rtsAttackQueue.Add(target);
+        int number = _rtsAttackQueue.Count;
+        AddChatMessage($"{OrderSubjectLabel(subjects)}: queued {number} — " +
+            $"{ResolveWorldUnitName(target)}.");
+        if (number == 1) IssueCurrentRtsAttack();
+    }
+
+    private void IssueCurrentRtsAttack()
+    {
+        if (_rtsAttackQueue.Count == 0) return;
+        ulong target = _rtsAttackQueue[0];
+        if (_net?.SuiOrder(1, _rtsAttackSubjects, target, 0, 0, 0) != true) return;
+        NoteCompanionOrder(1, _rtsAttackSubjects);
+        _rtsAttackIssuedAt = NowSeconds();
+        if (_entities.TryGet(target, out WorldEntity unit))
+            _rtsMoveMarkers.Add((unit.Position, _rtsAttackIssuedAt, RtsHostileTint));
+    }
+
+    private void UpdateRtsAttackQueue()
+    {
+        if (_rtsAttackQueue.Count == 0) return;
+        if (_rtsAttackIssuedAt == 0)
+        {
+            IssueCurrentRtsAttack();
+            return;
+        }
+        double now = NowSeconds();
+        ulong active = _rtsAttackQueue[0];
+        bool finished = _entities.TryGet(active, out WorldEntity target)
+            ? target.IsDead
+            : _rtsAttackIssuedAt > 0 && now - _rtsAttackIssuedAt > 2.0;
+        if (!finished)
+        {
+            if (_rtsAttackIssuedAt > 0 && now - _rtsAttackIssuedAt > RtsAttackStaleSeconds)
+                ClearRtsAttackQueue();
+            return;
+        }
+
+        _rtsAttackQueue.RemoveAt(0);
+        while (_rtsAttackQueue.Count > 0 &&
+            (!_entities.TryGet(_rtsAttackQueue[0], out WorldEntity next) || next.IsDead))
+            _rtsAttackQueue.RemoveAt(0);
+        if (_rtsAttackQueue.Count == 0)
+        {
+            ClearRtsAttackQueue();
+            return;
+        }
+        IssueCurrentRtsAttack();
+        AddChatMessage($"{OrderSubjectLabel(_rtsAttackSubjects)}: next target — " +
+            $"{ResolveWorldUnitName(_rtsAttackQueue[0])}.");
+    }
+
     /// <summary>
     /// Plain move (type 0) through the flood coalescer: at most one send per
     /// <see cref="RtsMoveOrderMinInterval"/>, newest destination wins. A move to a different
@@ -1510,6 +1627,7 @@ public sealed partial class GameLoop
     /// </summary>
     private void IssueRtsMoveOrder(List<ulong> subjects, Vector3 point)
     {
+        ClearRtsAttackQueue();
         if (_hasPendingMoveOrder && _pendingMoveSubjects is not null &&
             !SameRtsMembers(_pendingMoveSubjects, subjects))
             FlushPendingRtsMoveOrder(force: true);
@@ -1795,6 +1913,18 @@ public sealed partial class GameLoop
             // still works. Must run before selection handling, or this click
             // would CLEAR the very selection it is ordering.
             if (click.ShiftDown && HandleEncounterRtsOrder(click)) return;
+            // Shift+LeftClick on hostiles is the kill-queue gesture. It deliberately
+            // precedes ordinary target selection so adding an enemy never drops the
+            // highlighted command subjects.
+            if (click.ShiftDown && pickedUnit != 0 &&
+                _entities.TryGet(pickedUnit, out WorldEntity queuedTarget) &&
+                !queuedTarget.IsDead && CanAttack(queuedTarget))
+            {
+                List<ulong> queuedSubjects =
+                    [.. RtsControlGroupLaw.NormalizeMembers(_freecamSelection)];
+                QueueRtsAttack(queuedSubjects, pickedUnit);
+                return;
+            }
             // Encounter Lab raid puppet: clicking a sim body SELECTS it for orders,
             // never takes command — there is no character behind it to command.
             if (HandleEncounterPuppetSelect(pickedUnit)) return;
@@ -1926,14 +2056,21 @@ public sealed partial class GameLoop
             !target.IsDead && CanAttack(target))
         {
             if (subjects.Count == 0 && !queue) return;   // nothing highlighted, no accidental orders
-            _net?.SuiOrder(1, subjects, picked, 0, 0, 0);
-            NoteCompanionOrder(1, subjects);
-            _rtsMoveMarkers.Add((target.Position, NowSeconds(), RtsHostileTint));
-            ClearRtsWaypointChain();
-            AddChatMessage($"{OrderSubjectLabel(subjects)}: attack {ResolveWorldUnitName(picked)}!");
+            if (queue)
+                QueueRtsAttack(subjects, picked);
+            else
+            {
+                ClearRtsAttackQueue();
+                _net?.SuiOrder(1, subjects, picked, 0, 0, 0);
+                NoteCompanionOrder(1, subjects);
+                _rtsMoveMarkers.Add((target.Position, NowSeconds(), RtsHostileTint));
+                ClearRtsWaypointChain();
+                AddChatMessage($"{OrderSubjectLabel(subjects)}: attack {ResolveWorldUnitName(picked)}!");
+            }
         }
         else if (TryPickGround(click.Position, out System.Numerics.Vector3 point))
         {
+            ClearRtsAttackQueue();
             if (queue)
             {
                 // Shift+RightClick chains a waypoint (whole party when nothing is highlighted).
@@ -2082,6 +2219,20 @@ public sealed partial class GameLoop
             }
         }
 
+        // Dynamic red numerals use the same vanilla quest-marker font as the !/?
+        // companion labels. The active target is 1; remaining targets follow in order.
+        float markerScale = GameplayUiScale();
+        for (int i = 0; i < _rtsAttackQueue.Count; i++)
+        {
+            if (!_entities.TryGet(_rtsAttackQueue[i], out WorldEntity queued) || queued.IsDead)
+                continue;
+            Vector3 anchor = UnitWorldPosition(queued) + new Vector3(0f, 0f,
+                UnitOverheadHeight(queued) + QuestMarkerUiLaw.NumeralClearanceYards);
+            if (_window.Camera.TryWorldToScreen(anchor, display, out Vector2 screen))
+                GameText.DrawCentered(draw, QuestMarkerUiLaw.NumeralFontObject,
+                    (i + 1).ToString(), screen, markerScale, 0xff4c4cff);
+        }
+
         if (!_freecamDragActive || _freecamDragOrigin is not Vector2 origin) return;
         Vector2 mouse = _window.MousePosition;
         Vector2 min = Vector2.Min(origin, mouse);
@@ -2151,11 +2302,11 @@ public sealed partial class GameLoop
                 Vector3 tint = ReactionTargetTowardPlayer(target) switch
                 {
                     FactionReaction.Hostile => RtsHostileTint,
-                    FactionReaction.Friendly => RtsFriendlyTint,
+                    FactionReaction.Friendly => RtsFriendlyTargetTint,
                     _ => RtsNeutralTint,
                 };
                 float radius = 1.05f * MathF.Max(0.5f, target.Scale <= 0f ? 1f : target.Scale);
-                rings.Add(new(target.Position, radius, tint, pulse));
+                rings.Add(new(target.Position, radius, tint, pulse, Target: true));
             }
             // Waypoint-chain dots: small persistent rings until a plain move/stop replaces them.
             foreach (Vector3 waypoint in _rtsWaypointChain)

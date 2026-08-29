@@ -209,24 +209,14 @@ public sealed partial class GameLoop
 
     private void UpdateRtsControlGroupKeys(bool typing)
     {
-        // In the free view the numerals are RTS group keys: plain number RECALLS the saved
-        // group, Ctrl+number SAVES the current selection. Outside the free view they stay
-        // action-bar keys.
+        // In the free view plain bindable action keys cast the primary card. The physical
+        // digit chords remain RTS group keys: Shift+number RECALLS and Ctrl+number SAVES.
         //
-        // Ctrl, not Shift, since 2026-08-26: Shift was originally chosen because Ctrl+digit was
-        // already the vanilla pet bar (BonusActionButton1-10, see ResetBindingsToDefaults), but
-        // every RTS the free view is modelled on binds Ctrl+digit to "set group" and testers read
-        // Shift as wrong. The owner's call is that inside the free view the numerals belong to
-        // the groups outright and the pet bar stands down there until a later control scheme
-        // gives it somewhere else to live - so RtsControlGroupClaimsBinding now suppresses the
-        // pet bar too, and the modifier is free to follow the convention.
-        //
-        // The partition is EXPLICIT rather than "not Shift". The old `recall = !ShiftHeld()` also
-        // fired on Ctrl+digit and Alt+digit; recall must mean the bare key, or the assign chord
-        // recalls the group on its way to overwriting it.
-        bool modifierFree = !CtrlHeld() && !ShiftHeld() && !AltHeld();
+        // Ctrl stays the conventional assignment chord. Shift becomes recall now that plain
+        // bindable action keys drive the primary character card. Both matches are exact so a
+        // chord can never recall a group on its way to overwriting it.
         bool assign = _freeView && CtrlHeld() && !ShiftHeld() && !AltHeld() && !typing;
-        bool recall = _freeView && modifierFree && !typing;
+        bool recall = _freeView && ShiftHeld() && !CtrlHeld() && !AltHeld() && !typing;
         for (int i = 0; i < RtsControlGroupKeys.Length; i++)
         {
             bool down = InputKeyDown(RtsControlGroupKeys[i]);
@@ -241,7 +231,7 @@ public sealed partial class GameLoop
         }
     }
 
-    /// <summary>Plain-number recall: select the saved group (and say so).</summary>
+    /// <summary>Shift+number recall: select the saved group (and say so).</summary>
     private void RecallRtsControlGroup(int index)
     {
         string number = RtsControlGroupLaw.DisplayNumber(index);
@@ -258,18 +248,15 @@ public sealed partial class GameLoop
     }
 
     /// <summary>
-    /// Do the free-view group keys own this remappable action binding? In the
-    /// free view every numeral belongs to the groups (plain = recall, Ctrl =
-    /// save) and never casts — the commanded body's bars are read-only there.
-    ///
-    /// Deliberately modifier-blind: it claims the numeral on ANY chord, so the pet bar's
-    /// Ctrl+digit and the main bar's bare digit both stand down together. The free view is a
-    /// commander console, not a body, and the pet bar has no home there until a later control
-    /// scheme gives it one.
+    /// Do the free-view group chords own this remappable action binding? Ctrl+digit saves and
+    /// Shift+digit recalls. Plain Action Button bindings fall through to the primary card.
     /// </summary>
     private bool RtsControlGroupClaimsBinding(GameBinding binding)
     {
         if (!_freeView) return false;
+        bool groupChord = (CtrlHeld() && !ShiftHeld() && !AltHeld()) ||
+            (ShiftHeld() && !CtrlHeld() && !AltHeld());
+        if (!groupChord) return false;
         BindingPair bound = BoundKeys(binding);
         foreach (Key key in RtsControlGroupKeys)
             if (InputKeyDown(key) && bound.ContainsBase(key)) return true;
@@ -397,6 +384,7 @@ public sealed partial class GameLoop
         List<ulong> members = _rtsControlGroups[index];
         if (members.Count is 0 or > RtsControlGroupLaw.MaximumWireSubjects || _net is null)
             return false;
+        ClearRtsAttackQueue();
         bool sent = _net.SuiOrder(orderType, members, 0, 0, 0, 0);
         if (sent) NoteCompanionOrder(orderType, members);
         return sent;
@@ -407,6 +395,7 @@ public sealed partial class GameLoop
         if ((uint)index >= (uint)_rtsControlGroups.Length || _net is null) return false;
         List<ulong> members = _rtsControlGroups[index];
         if (members.Count is 0 or > RtsControlGroupLaw.MaximumWireSubjects) return false;
+        ClearRtsAttackQueue();
 
         // Current servers close each bot's loop at that bot's own position. The
         // non-zero fallback keeps older party-only cores from appending world
@@ -445,7 +434,7 @@ public sealed partial class GameLoop
         Vector2 display = ImGui.GetIO().DisplaySize;
         if (active.Count == 0)
         {
-            const string hint = "Ctrl+1-0: save selected faction bots";
+            const string hint = "Shift+1-0: recall · Ctrl+1-0: save selected faction bots";
             Vector2 size = ImGui.CalcTextSize(hint);
             ImGui.GetForegroundDrawList().AddText(
                 new Vector2((display.X - size.X) * 0.5f, 54f * scale), 0xCCB8C8D8u, hint);

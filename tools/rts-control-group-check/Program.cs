@@ -83,16 +83,21 @@ string targeting = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop",
     "GameLoop.Targeting.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
 string actionBars = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
     "GameLoop.ActionBars.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
+string commandShelf = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
+    "GameLoop.CommandShelf.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
 string settings = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
     "GameLoop.Settings.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
 string portalWire = File.ReadAllText(Path.Combine(root, "MSUIClient", "Net",
     "PortalWire.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
 string session = File.ReadAllText(Path.Combine(root, "MSUIClient", "Net",
     "WorldSession.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
+string groundFx = File.ReadAllText(Path.Combine(root, "MSUIClient", "World", "Units",
+    "SpellEffectMeshRenderer.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
 
 Check(hud.Contains("Key.Number1, Key.Number2, Key.Number3", StringComparison.Ordinal) &&
       hud.Contains("Key.Number9, Key.Number0", StringComparison.Ordinal) &&
-      hud.Contains("Ctrl+1-0: save selected faction bots", StringComparison.Ordinal),
+      hud.Contains("Shift+1-0: recall · Ctrl+1-0: save selected faction bots",
+          StringComparison.Ordinal),
     "the physical 1-9,0 chord or Free-View-only group rail is no longer wired");
 Check(hud.Contains("_freecamSelection.Where(IsRtsGroupMember)", StringComparison.Ordinal) &&
       hud.Contains("IsRtsDirectlyControllableBot", StringComparison.Ordinal) &&
@@ -122,15 +127,42 @@ Check(actionBars.Contains("RtsControlGroupClaimsBinding(ActionBinding(i))", Stri
           StringComparison.Ordinal),
     "a free-view numeral stopped suppressing a colliding main/multi/pet action-bar binding");
 
-// The assign chord must be an EXACT modifier match on both sides. `recall = !ShiftHeld()` used to
-// fire on Ctrl+digit as well, which after the 2026-08-26 move to Ctrl would have recalled a group
-// on the way to overwriting it.
+// Group chords must be exact. Plain bindable action keys now belong to the visible primary card;
+// physical Ctrl+digits save groups and Shift+digits recall them.
 Check(hud.Contains("bool assign = _freeView && CtrlHeld() && !ShiftHeld() && !AltHeld() && !typing;",
           StringComparison.Ordinal) &&
-      hud.Contains("bool recall = _freeView && modifierFree && !typing;", StringComparison.Ordinal),
+      hud.Contains("bool recall = _freeView && ShiftHeld() && !CtrlHeld() && !AltHeld() && !typing;",
+          StringComparison.Ordinal) &&
+      actionBars.Contains("TryUseRtsPrimaryAbilityBinding(i)", StringComparison.Ordinal) &&
+      commandShelf.Contains("RtsPrimaryAbilities(primary)", StringComparison.Ordinal) &&
+      commandShelf.Contains("BindingText(ActionBinding(drawn))", StringComparison.Ordinal),
     "free-view group assign/recall stopped discriminating every modifier exactly");
 Check(control.Contains("bool queue = click.ShiftDown;", StringComparison.Ordinal),
     "queued waypoints stopped using the gesture-captured Shift state");
+Check(commandShelf.Contains("ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)",
+          StringComparison.Ordinal) &&
+      commandShelf.Contains("focusPick = guid", StringComparison.Ordinal) &&
+      commandShelf.Contains("FocusRtsCameraOnUnit(focusPick)", StringComparison.Ordinal) &&
+      commandShelf.Contains("_controller.Teleport(unit.Position.X, unit.Position.Y, unit.Position.Z)",
+          StringComparison.Ordinal),
+    "double-clicking a selected-unit mini portrait stopped centering the camera on that unit");
+Check(!hud.Contains("RtsGroupDoubleTapSeconds", StringComparison.Ordinal) &&
+      !hud.Contains("FocusRtsCameraOnPrimary", StringComparison.Ordinal),
+    "camera focus must not be attached to the Shift+number group recall chord");
+Check(control.Contains("QueueRtsAttack(queuedSubjects, pickedUnit);", StringComparison.Ordinal) &&
+      control.Contains("UpdateRtsAttackQueue();", StringComparison.Ordinal) &&
+      control.Contains("QuestMarkerUiLaw.NumeralFontObject", StringComparison.Ordinal) &&
+      control.Contains("RtsMaxWheelAltitudeYards = 120f", StringComparison.Ordinal) &&
+      control.Contains("RtsMaxWheelAltitudeYards - _rtsWheelRetreatYards",
+          StringComparison.Ordinal),
+    "bounded RTS wheel zoom or numbered hostile kill queue is no longer wired");
+Check(control.Contains("if (wheel > 0f) _window.Camera.Zoom(wheel);", StringComparison.Ordinal),
+    "ordinary RTS wheel-in stopped shortening the boom below its pre-Free-View distance");
+Check(control.Contains("RtsFriendlyTargetTint", StringComparison.Ordinal) &&
+      control.Contains("Target: true", StringComparison.Ordinal) &&
+      groundFx.Contains("private Texture RtsTargetTexture()", StringComparison.Ordinal) &&
+      groundFx.Contains("r.Target ? target : ring", StringComparison.Ordinal),
+    "RTS targets lost their distinct red/blue/yellow crosshair decal");
 Check(targeting.Contains("HandleFreeCamWorldClick(click, pressPick);", StringComparison.Ordinal) &&
       control.Contains("pressPick.Armed", StringComparison.Ordinal) &&
       control.Contains("if (click.ShiftDown)", StringComparison.Ordinal) &&

@@ -34,6 +34,11 @@ groups:
 | `Ctrl+1` through `Ctrl+9` | 1 through 9 |
 | `Ctrl+0` | 0 |
 
+`Shift+1` through `Shift+0` recalls those slots. Plain bindable Action Button
+keys cast the abilities shown on the currently selected primary character card.
+Double-clicking a selected-unit mini portrait centers the camera on that character
+without changing the current multi-selection, camera facing, pitch, or boom distance.
+
 These groups:
 
 - exist only in client memory for the current login/socket session;
@@ -275,12 +280,11 @@ Circle, and the Draw/Sheathe toggle, always led by the selected count. It sits
 140 logical px above the screen bottom — the bar art (main bar to −78, multi
 bars to −131) draws after ImGui windows, so the shelf must clear it entirely.
 
-**Free-view number keys (2026-08-25):** in the free view the numerals are WC3
-group keys — plain `1-0` RECALLS the saved group (status line reports
-nearby/total; an empty slot explains Ctrl+number), `Ctrl+1-0` SAVES the
-current selection. `RtsControlGroupClaimsBinding` claims every numeral from the
-action bars while the free view is up (the commanded body's bars are read-only
-there); outside the free view the numbers stay bar casts, exactly as before.
+**Free-view number keys (updated 2026-08-28):** plain Action Button 1-10
+bindings cast the corresponding visible ability on the primary character card
+(the current card exposes eight). `Ctrl+1-0` SAVES a tactical group and
+`Shift+1-0` RECALLS it. `RtsControlGroupClaimsBinding` claims only those exact
+physical group chords; outside Free View the bindings remain ordinary bar casts.
 
 ### 5c. Conscription — group membership turns the brain off (added 2026-08-24)
 

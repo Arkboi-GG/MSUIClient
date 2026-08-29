@@ -264,11 +264,12 @@ public sealed partial class GameLoop
                     MathF.Max(1f, (picked ? 2f : 1f) * s));
                 if (ImGui.IsItemHovered())
                 {
-                    // Name the item, not just the verb. "Choose this for them" over
-                    // a blank square told the player nothing about what "this" was.
-                    (string hoverName, _) = QuestRewardName(row);
-                    HoverTip(hoverName + (picked ? "  —  their pick"
-                        : "  —  choose for " + name));
+                    if (_items?.TryGet(row.ItemId, out ItemTemplate? item) == true && item is not null)
+                        OfferPreparedItemTooltip(
+                            new GameTooltipOwnerKey($"item:quest-party-rail:{questId}:{guid}",
+                                (ulong)(k + 1)),
+                            PrepareItemTooltipBodySnapshot(item, row.Count));
+                    else HoverTip("Retrieving item information...");
                 }
             }
             colX += QuestRewardColumnWidth;

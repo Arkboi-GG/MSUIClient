@@ -138,19 +138,20 @@ public sealed partial class GameLoop
 
     private bool AbandonQuest(uint questId)
     {
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
-        var found = player.Fields.QuestLog().FirstOrDefault(q => q.QuestId == questId);
-        bool present = found.QuestId != 0;
+        if (_net is null) return false;
+        ulong subject = !_freeView && ControlledGuid != 0 ? ControlledGuid : LocalPlayerGuid;
+        var found = DisplayedQuestLog().FirstOrDefault(q => q.QuestId == questId);
+        bool present = found.QuestId != 0 && found.Slot != QuestFactsWire.NoLogSlot;
         // CMSG_QUESTLOG_REMOVE_QUEST addresses a SLOT, so it structurally cannot
         // reach a quest held without one. PLAN_20 P3's act wire is id-addressed
         // and can; without it, name the real constraint rather than failing
         // silently.
-        if (!present && IsOwnOverflowQuest(questId))
+        if (!present && found.QuestId != 0)
         {
-            if (_partyQuestActsAvailable) return AbandonQuestById(questId);
+            if (_partyQuestActsAvailable) return AbandonQuestById(subject, questId);
             ShowUiError("That quest is held past your quest-log slots — " +
                 "abandon a slotted quest first to free one.");
-            EmitInterface("quest", "abandon", "REFUSED_NO_LOG_SLOT", _net.PlayerGuid,
+            EmitInterface("quest", "abandon", "REFUSED_NO_LOG_SLOT", subject,
                 $"quest={questId}");
             return false;
         }
@@ -161,10 +162,10 @@ public sealed partial class GameLoop
             // overflow quest — a change with no update-field signal we can read
             // for the promoted quest and no server push of its own. Without both
             // of these the log kept showing the abandoned quest as an overflow row.
-            ForgetOwnQuestFact(questId);
+            ForgetQuestFact(subject, questId);
             RequestPartyQuestFacts("quest abandoned");
         }
-        EmitInterface("quest", "abandon", sent ? "SENT" : "REFUSED_NOT_IN_LOG", _net.PlayerGuid,
+        EmitInterface("quest", "abandon", sent ? "SENT" : "REFUSED_NOT_IN_LOG", subject,
             $"quest={questId};slot={(present ? found.Slot : 255)}");
         return sent;
     }
@@ -890,7 +891,9 @@ public sealed partial class GameLoop
                         ClipMask:"BenillaQuestNpcNameFrame", Strata:"DIALOG"));
             }
         }
-        if (_questLogOpen && _net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        ulong questLogSubject = !_freeView && ControlledGuid != 0
+            ? ControlledGuid : _net?.PlayerGuid ?? 0;
+        if (_questLogOpen && _entities.TryGet(questLogSubject, out WorldEntity player))
             DrawQuestLogContent(dl, origin, s, player);
         else
             DrawQuestNpcContent(dl, origin, s);
@@ -949,9 +952,8 @@ public sealed partial class GameLoop
 
     private void DrawQuestLogContent(ImDrawListPtr dl, Vector2 origin, float s, WorldEntity player)
     {
-        // Both halves of our own log: the twenty update-field slots plus any
-        // quest a quest-cap server says we hold without one (PLAN_20 P2).
-        var quests = MergedOwnQuestLog();
+        // Embodied play follows the directly controlled character.
+        var quests = DisplayedQuestLog();
         EnsureQuestHeaderCatalogs();
         string[] headers = quests.Select(q => QuestHeaderName(
             _questTemplates.GetValueOrDefault(q.QuestId)?.ZoneOrSort ?? 0)).ToArray();
@@ -1530,10 +1532,11 @@ public sealed partial class GameLoop
     private void DrawQuestWatchFrame()
     {
         ExpireAutomaticQuestWatches();
+        ulong questLogSubject = !_freeView && ControlledGuid != 0
+            ? ControlledGuid : _net?.PlayerGuid ?? 0;
         if (_questWatches.Count == 0 || _net is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
-        // Merged: a tracked quest may be held without an update-field slot.
-        var slots = MergedOwnQuestLog().ToDictionary(q => q.QuestId);
+            !_entities.TryGet(questLogSubject, out WorldEntity player)) return;
+        var slots = DisplayedQuestLog().ToDictionary(q => q.QuestId);
         var lines = new List<(string Text, bool Title, bool Finished)>(
             QuestFrameUiLaw.MaxQuestWatchLines);
         foreach (uint questId in _questWatches)
@@ -1597,8 +1600,9 @@ public sealed partial class GameLoop
     {
         if (_questAbandonConfirmation is not { } confirmation || _skin is null) return;
         if (_net is not { IsInWorld: true } net ||
-            !_entities.TryGet(net.PlayerGuid, out WorldEntity player) ||
-            !MergedOwnQuestLog().Any(q => q.QuestId == confirmation.QuestId))
+            !_entities.TryGet(!_freeView && ControlledGuid != 0
+                ? ControlledGuid : net.PlayerGuid, out WorldEntity player) ||
+            !DisplayedQuestLog().Any(q => q.QuestId == confirmation.QuestId))
         {
             _questAbandonConfirmation = null;
             return;

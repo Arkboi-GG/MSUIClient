@@ -115,6 +115,12 @@ internal static class PartyQuestClinicalChecks
             "GameLoop.Quest.cs"));
         string partyPanel = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.PartyQuestLog.cs"));
+        string giverPanel = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
+            "GameLoop.GiverQuests.cs"));
+        string questRail = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.QuestPartyRail.cs"));
+        string hudDraw = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Combat",
+            "GameLoop.CombatFeedback.cs"));
         Check(questPanel.Contains("RequestPartyQuestFacts(\"quest accepted\")", StringComparison.Ordinal) &&
               questPanel.Contains("RequestPartyQuestFacts(\"quest turned in\")", StringComparison.Ordinal),
             "an ordinary accept or turn-in must re-pull quest facts — a quest held past " +
@@ -206,6 +212,18 @@ internal static class PartyQuestClinicalChecks
                   "        ImGui.Dummy(new Vector2(1, 1));", StringComparison.Ordinal),
             "the positioned zero dummy is what gives the scrolling child its content " +
             "height over draw-list output — losing it silently kills the scrollbar");
+        Check(panel.Contains("_giverQuestTextFromPartyLog = true;", StringComparison.Ordinal) &&
+              panel.Contains("RequireQuestTemplate(questId);", StringComparison.Ordinal) &&
+              hudDraw.Contains("DrawGiverQuestTextWindow();", StringComparison.Ordinal),
+            "clicking a Party Quest Log row must open the shared read-only quest text window");
+        Check(giverPanel.Contains("item:giver-party:", StringComparison.Ordinal) &&
+              giverPanel.Contains("item:quest-preview:", StringComparison.Ordinal) &&
+              questRail.Contains("item:quest-party-rail:", StringComparison.Ordinal) &&
+              giverPanel.Contains("PrepareItemTooltipBodySnapshot(item, row.Count)",
+                  StringComparison.Ordinal) &&
+              questRail.Contains("PrepareItemTooltipBodySnapshot(item, row.Count)",
+                  StringComparison.Ordinal),
+            "party quest reward chips must publish full item-stat tooltips, not name-only hover text");
 
         string bars = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
             "GameLoop.ActionBars.cs"));

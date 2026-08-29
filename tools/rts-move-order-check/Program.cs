@@ -78,15 +78,23 @@ Near((float)(State("_animTime")[ordered.Guid] ?? -1f), 0f, 0f,
 string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
 string control = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Scene", "GameLoop.Control.cs"))
     .Replace("\r\n", "\n", StringComparison.Ordinal);
-int queuedCase = control.IndexOf("if (queue)", StringComparison.Ordinal);
+int groundCase = control.IndexOf("else if (TryPickGround(click.Position", StringComparison.Ordinal);
+int queuedCase = control.IndexOf("if (queue)", groundCase, StringComparison.Ordinal);
 int plainCase = control.IndexOf("else\n            {", queuedCase, StringComparison.Ordinal);
-int helper = control.IndexOf("private void BeginRtsMovePresentation", plainCase, StringComparison.Ordinal);
-Check(queuedCase >= 0 && plainCase > queuedCase && helper > plainCase,
+int handlerEnd = control.IndexOf("private void BeginRtsMovePresentation", plainCase,
+    StringComparison.Ordinal);
+int sendStart = control.IndexOf("private void SendRtsMoveOrder", StringComparison.Ordinal);
+int sendEnd = control.IndexOf("private void FlushPendingRtsMoveOrder", sendStart,
+    StringComparison.Ordinal);
+Check(groundCase >= 0 && queuedCase > groundCase && plainCase > queuedCase &&
+      handlerEnd > plainCase && sendStart >= 0 && sendEnd > sendStart,
     "move-order routing blocks were not found");
 Check(!control[queuedCase..plainCase].Contains("BeginRtsMovePresentation", StringComparison.Ordinal),
     "queued waypoint predicted a future leg before it began");
-Check(control[plainCase..helper].Contains("BeginRtsMovePresentation(subjects, point)",
-        StringComparison.Ordinal),
+Check(control[plainCase..handlerEnd].Contains("IssueRtsMoveOrder(subjects, point)",
+          StringComparison.Ordinal) &&
+      control[sendStart..sendEnd].Contains("BeginRtsMovePresentation(subjects, point)",
+          StringComparison.Ordinal),
     "plain move did not apply its immediate presentation boundary");
 
 Console.WriteLine($"RTS move-order checks passed ({checks}).");

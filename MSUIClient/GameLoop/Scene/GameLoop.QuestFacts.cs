@@ -79,18 +79,37 @@ public sealed partial class GameLoop
         var slotted = new HashSet<uint>();
         foreach ((_, uint questId, _, _) in merged) slotted.Add(questId);
 
-        foreach (MemberQuestEntry entry in MemberQuestEntries(LocalPlayerGuid))
+        AppendMemberQuestFacts(merged, slotted, MemberQuestEntries(LocalPlayerGuid));
+        return [.. merged];
+    }
+
+    /// <summary>The ordinary QuestLogFrame follows the embodied controlled character.</summary>
+    private (byte Slot, uint QuestId, uint Counters, uint Timer)[] DisplayedQuestLog()
+    {
+        ulong subject = !_freeView && ControlledGuid != 0 ? ControlledGuid : LocalPlayerGuid;
+        if (subject == LocalPlayerGuid) return MergedOwnQuestLog();
+
+        var projected = new List<(byte, uint, uint, uint)>();
+        AppendMemberQuestFacts(projected, [], MemberQuestEntries(subject));
+        return [.. projected];
+    }
+
+    private static void AppendMemberQuestFacts(
+        List<(byte Slot, uint QuestId, uint Counters, uint Timer)> destination,
+        HashSet<uint> knownQuestIds, IReadOnlyList<MemberQuestEntry> entries)
+    {
+        foreach (MemberQuestEntry entry in entries)
         {
-            if (entry.QuestId == 0 || slotted.Contains(entry.QuestId)) continue;
+            if (entry.QuestId == 0 || !knownQuestIds.Add(entry.QuestId)) continue;
             uint counters = 0;
             for (int i = 0; i < QuestFactsWire.ObjectivesPerQuest; i++)
                 counters |= (Math.Min(entry.ObjectiveCounts[i], (byte)63u) & 0x3fu) << (6 * i);
             uint state = 0;
             if (entry.Complete) state |= 1;
             if (entry.Failed) state |= 2;
-            merged.Add((QuestFactsWire.NoLogSlot, entry.QuestId, counters | (state << 24), 0u));
+            destination.Add((entry.Slot, entry.QuestId,
+                counters | (state << 24), 0u));
         }
-        return [.. merged];
     }
 
     /// <summary>
@@ -102,12 +121,15 @@ public sealed partial class GameLoop
     /// the authority and restores the row if the abandon was refused.
     /// </summary>
     private void ForgetOwnQuestFact(uint questId)
+        => ForgetQuestFact(LocalPlayerGuid, questId);
+
+    private void ForgetQuestFact(ulong subject, uint questId)
     {
         if (questId == 0 ||
-            !_memberQuestLogs.TryGetValue(LocalPlayerGuid, out MemberQuestEntry[]? entries))
+            !_memberQuestLogs.TryGetValue(subject, out MemberQuestEntry[]? entries))
             return;
         MemberQuestEntry[] kept = [.. entries.Where(e => e.QuestId != questId)];
-        if (kept.Length != entries.Length) _memberQuestLogs[LocalPlayerGuid] = kept;
+        if (kept.Length != entries.Length) _memberQuestLogs[subject] = kept;
     }
 
     /// <summary>How many quests this character may hold, per the server.</summary>
@@ -175,7 +197,8 @@ public sealed partial class GameLoop
     /// </summary>
     private void RefreshPartyQuestFactsWhileWatched()
     {
-        bool watched = _partyQuestLogOpen || QuestNpcPanelNow() != QuestNpcPanel.None;
+        bool watched = _partyQuestLogOpen || _questLogOpen ||
+            QuestNpcPanelNow() != QuestNpcPanel.None;
         if (!watched) return;
         if (NowSeconds() - _partyQuestFactsPulledAt < PartyQuestFactsLiveRefreshSeconds) return;
         RequestPartyQuestFacts("panel watching");

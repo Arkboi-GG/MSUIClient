@@ -77,10 +77,11 @@ public sealed partial class GameLoop
             if (down && !_actionKeyWasDown[i] && !typing &&
                 !RtsControlGroupClaimsBinding(ActionBinding(i)))
             {
-                // Riding a cart that HAS this slot: the key belongs to the cart. Anything the
-                // cart does not carry falls straight through to the ordinary bar, so an
-                // unconfigured mount changes nothing about how the client plays.
-                if (!TryMountKitNumberKey(i + 1) && _net is { IsInWorld: true })
+                // In Free View the bindable Action Button 1..10 keys belong to the
+                // primary character card (the visible card currently supports eight).
+                // Outside it, preserve the ordinary mount/action-bar routing.
+                if (!TryUseRtsPrimaryAbilityBinding(i) &&
+                    !TryMountKitNumberKey(i + 1) && _net is { IsInWorld: true })
                     UseAction(ActionWireSlot(i));
             }
             _actionKeyWasDown[i] = down;

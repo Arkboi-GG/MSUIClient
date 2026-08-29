@@ -239,6 +239,8 @@ internal static class QuestLogClinicalChecks
 
         string runtime = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
             "MSUIClient", "GameLoop", "Panels", "GameLoop.Quest.cs"));
+        string questFacts = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
+            "MSUIClient", "GameLoop", "Scene", "GameLoop.QuestFacts.cs"));
         string session = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
             "MSUIClient", "Net", "WorldSession.cs"));
         string client = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
@@ -342,6 +344,14 @@ internal static class QuestLogClinicalChecks
               runtime.Contains("template.RewardSpell", StringComparison.Ordinal) &&
               runtime.Contains("AutoWatchQuest(value.QuestId);", StringComparison.Ordinal) &&
               runtime.Contains("ExpireAutomaticQuestWatches();", StringComparison.Ordinal) &&
+              runtime.Contains("var quests = DisplayedQuestLog();", StringComparison.Ordinal) &&
+              runtime.Contains("? ControlledGuid : _net?.PlayerGuid", StringComparison.Ordinal) &&
+              questFacts.Contains("private (byte Slot, uint QuestId, uint Counters, uint Timer)[] DisplayedQuestLog()",
+                  StringComparison.Ordinal) &&
+              questFacts.Contains("AppendMemberQuestFacts(projected, [], MemberQuestEntries(subject));",
+                  StringComparison.Ordinal) &&
+              questFacts.Contains("destination.Add((entry.Slot, entry.QuestId,",
+                  StringComparison.Ordinal) &&
               runtime.Contains("_questWatches.RemoveAll(id => !now.Contains(id));",
                   StringComparison.Ordinal),
             "quest-log modal/abandon/watch production wiring drift");

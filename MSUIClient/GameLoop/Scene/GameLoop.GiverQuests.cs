@@ -32,6 +32,7 @@ public sealed partial class GameLoop
     /// buttons, because acting happens from the commander window itself).</summary>
     private uint _giverQuestTextQuestId;
     private bool _giverQuestTextOpen;
+    private bool _giverQuestTextFromPartyLog;
 
     private void ApplyPartyGiverQuestsCapability(uint capabilities)
     {
@@ -53,6 +54,7 @@ public sealed partial class GameLoop
         _giverQuestRewardPick.Clear();
         _giverQuestTextQuestId = 0;
         _giverQuestTextOpen = false;
+        _giverQuestTextFromPartyLog = false;
     }
 
     /// <summary>Open the commander quest window on a giver: request the fresh
@@ -181,9 +183,6 @@ public sealed partial class GameLoop
         ImGui.Unindent(gutter);
         ImGui.EndChild();
         ImGui.End();
-        // The text page is the commander window's satellite: it never outlives it.
-        if (!_giverQuestsOpen) _giverQuestTextOpen = false;
-        DrawGiverQuestTextWindow();
     }
 
     private void DrawGiverQuestRow(GiverQuestEntry quest,
@@ -206,6 +205,7 @@ public sealed partial class GameLoop
         if (ImGui.IsItemClicked())
         {
             _giverQuestTextQuestId = quest.QuestId;
+            _giverQuestTextFromPartyLog = false;
             _giverQuestTextOpen = !textOpenOnThis;
             RequireQuestTemplate(quest.QuestId);
         }
@@ -335,8 +335,11 @@ public sealed partial class GameLoop
                 if (ImGui.IsItemClicked()) _giverQuestRewardPick[(questId, guid)] = (byte)k;
                 if (ImGui.IsItemHovered())
                 {
-                    (string rn, _) = QuestRewardName(row);
-                    HoverTip(rn + (picked == k ? "  —  their pick" : "  —  pick for " + name));
+                    if (_items?.TryGet(row.ItemId, out ItemTemplate? item) == true && item is not null)
+                        OfferPreparedItemTooltip(
+                            new GameTooltipOwnerKey($"item:giver-party:{questId}:{guid}", (ulong)(k + 1)),
+                            PrepareItemTooltipBodySnapshot(item, row.Count));
+                    else HoverTip("Retrieving item information...");
                 }
                 string iconPath = QuestRewardIconPath(row);
                 uint icon = iconPath.Length > 0 ? _gameplayArt?.Handle(iconPath) ?? 0 : 0;
@@ -358,6 +361,12 @@ public sealed partial class GameLoop
     private void DrawGiverQuestTextWindow()
     {
         if (!_giverQuestTextOpen || _giverQuestTextQuestId == 0 || _net is null) return;
+        if ((_giverQuestTextFromPartyLog && !_partyQuestLogOpen) ||
+            (!_giverQuestTextFromPartyLog && !_giverQuestsOpen))
+        {
+            _giverQuestTextOpen = false;
+            return;
+        }
         if (_uiParityArmed) return;
         float scale = GameplayUiScale();
 
@@ -465,8 +474,12 @@ public sealed partial class GameLoop
             ImGui.InvisibleButton($"##gqt-{tag}-{k}", cell);
             if (ImGui.IsItemHovered())
             {
-                (string rewardName, _) = QuestRewardName(row);
-                HoverTip(row.Count > 1 ? $"{rewardName} x{row.Count}" : rewardName);
+                if (_items?.TryGet(row.ItemId, out ItemTemplate? item) == true && item is not null)
+                    OfferPreparedItemTooltip(
+                        new GameTooltipOwnerKey(
+                            $"item:quest-preview:{_giverQuestTextQuestId}:{tag}", (ulong)(k + 1)),
+                        PrepareItemTooltipBodySnapshot(item, row.Count));
+                else HoverTip("Retrieving item information...");
             }
             string iconPath = QuestRewardIconPath(row);
             uint icon = iconPath.Length > 0 ? _gameplayArt?.Handle(iconPath) ?? 0 : 0;

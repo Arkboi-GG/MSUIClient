@@ -180,7 +180,15 @@ public sealed partial class GameLoop
             ImGui.InvisibleButton($"##pquest-row-{questId}", rowSize);
             bool hovered = ImGui.IsItemHovered();
             if (ImGui.IsItemClicked())
-                _partyQuestLogSelected = _partyQuestLogSelected == questId ? 0 : questId;
+            {
+                bool textOpenOnThis = _giverQuestTextOpen && _giverQuestTextFromPartyLog &&
+                    _giverQuestTextQuestId == questId;
+                _partyQuestLogSelected = questId;
+                _giverQuestTextQuestId = questId;
+                _giverQuestTextFromPartyLog = true;
+                _giverQuestTextOpen = !textOpenOnThis;
+                RequireQuestTemplate(questId);
+            }
             if (_partyQuestLogSelected == questId)
                 dl.AddRectFilled(rowMin, rowMin + rowSize, 0x33d0b060);
             else if (hovered)
