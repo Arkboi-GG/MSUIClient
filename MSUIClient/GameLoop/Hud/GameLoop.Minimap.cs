@@ -888,7 +888,12 @@ public sealed partial class GameLoop
         if (handle != 0) dl.AddImage((nint)handle, min, max);
         if (hovered)
         {
-            uint highlight = _gameplayArt?.Handle(
+            // ADD art (alphaDepth 0: black background, opaque everywhere). Through the plain
+            // Handle it was drawn as authored under ImGui's SRC_ALPHA blend, so the black
+            // background REPLACED the button - a solid 32x32 black square on hover, which is
+            // exactly how it was reported. AdditiveHandle is the re-encode every other
+            // highlight in the client already goes through.
+            uint highlight = _gameplayArt?.AdditiveHandle(
                 @"Interface\Minimap\UI-Minimap-ZoomButton-Highlight") ?? 0;
             if (highlight != 0) dl.AddImage((nint)highlight, min, max);
             if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))

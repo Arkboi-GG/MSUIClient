@@ -1,3 +1,4 @@
+using System.Numerics;
 using Silk.NET.OpenGL;
 using MSUIClient.Formats;
 
@@ -15,6 +16,7 @@ public sealed class GameplayArt : IDisposable
     private readonly Dictionary<string, Texture?> _repeatTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _additiveTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _brightHighlightTextures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Texture?> _additiveRegionTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _circularTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _painterlyTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _painterlyCircularTextures = new(StringComparer.OrdinalIgnoreCase);
@@ -257,7 +259,12 @@ public sealed class GameplayArt : IDisposable
 
     /// <summary>
     /// Builds an alpha-safe copy of ADD-authored art for ImGui's regular alpha draw list.
-    /// Black additive texels become transparent instead of painting an opaque black rectangle.
+    /// Pure black becomes transparent instead of painting an opaque rectangle - and, for art the
+    /// BLP header declares to be ADD (no alpha channel), the colour is also normalised to full
+    /// brightness so the DIM mid-tones stop subtracting light from what is under them. Without
+    /// that second half a dim glow like UI-CheckBox-Highlight, which peaks at 99/255, darkened
+    /// every pixel it covered and read as a black square. See <see cref="UiHighlightBlendLaw"/>
+    /// for the arithmetic and for why an ImGui draw list cannot simply blend ADD.
     /// </summary>
     public uint AdditiveHandle(string path)
     {
@@ -268,11 +275,7 @@ public sealed class GameplayArt : IDisposable
             byte[]? bytes = _mpq.ReadFile(path);
             if (bytes is null) { _additiveTextures[path] = null; return 0; }
             byte[] bgra = BlpDecoder.GetPixels(bytes, 0, out int width, out int height);
-            for (int i = 0; i + 3 < bgra.Length; i += 4)
-            {
-                int intensity = Math.Max(bgra[i], Math.Max(bgra[i + 1], bgra[i + 2]));
-                bgra[i + 3] = (byte)(bgra[i + 3] * intensity / 255);
-            }
+            UiHighlightBlendLaw.EncodeAdditive(bgra, addArt: !BlpDecoder.HasAlphaChannel(bytes));
             Texture texture = Texture.From2D(_gl, bgra, width, height, mipmaps: false, repeat: false);
             _additiveTextures[path] = texture;
             return texture.Handle;
@@ -295,17 +298,51 @@ public sealed class GameplayArt : IDisposable
             byte[]? bytes = _mpq.ReadFile(path);
             if (bytes is null) { _brightHighlightTextures[path] = null; return 0; }
             byte[] bgra = BlpDecoder.GetPixels(bytes, 0, out int width, out int height);
-            for (int i = 0; i + 3 < bgra.Length; i += 4)
-            {
-                int intensity = Math.Max(bgra[i], Math.Max(bgra[i + 1], bgra[i + 2]));
-                bgra[i] = bgra[i + 1] = bgra[i + 2] = 255;
-                bgra[i + 3] = (byte)(bgra[i + 3] * intensity / 255);
-            }
+            UiHighlightBlendLaw.EncodeBrightMask(bgra);
             Texture texture = Texture.From2D(_gl, bgra, width, height, mipmaps: false, repeat: false);
             _brightHighlightTextures[path] = texture;
             return texture.Handle;
         }
         catch { _brightHighlightTextures[path] = null; return 0; }
+    }
+
+    /// <summary>
+    /// A sheet whose ADD-ness is declared PER REGION in FrameXML rather than by its own header,
+    /// and so cannot be settled by <see cref="BlpDecoder.HasAlphaChannel"/>.
+    ///
+    /// UI-StateIcon is the case this exists for. One 64x64 file holds four quadrants: the top
+    /// half is the Zzz / crossed-swords icons, ordinary alpha art (measured 7-8% opaque), and the
+    /// bottom half is their GLOW, which PlayerFrame.xml declares alphaMode="ADD" on
+    /// PlayerRestGlow/PlayerAttackGlow and which measures 100% opaque with 71% of it flat black.
+    /// The FILE reports alphaDepth 8 because of the icons, so the header test correctly says
+    /// "not ADD art" for the sheet while being wrong about half of it - and drawing that half
+    /// straight painted a black square over the level number.
+    ///
+    /// Only uvMin..uvMax is re-encoded; every texel outside it comes out byte-identical to
+    /// <see cref="Handle"/>, so one texture can still serve both halves of a sheet like this.
+    /// </summary>
+    public uint AdditiveRegionHandle(string path, Vector2 uvMin, Vector2 uvMax)
+    {
+        if (!path.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)) path += ".blp";
+        string key = $"{path}|{uvMin.X},{uvMin.Y}|{uvMax.X},{uvMax.Y}";
+        if (_additiveRegionTextures.TryGetValue(key, out Texture? cached)) return cached?.Handle ?? 0;
+        try
+        {
+            byte[]? bytes = _mpq.ReadFile(path);
+            if (bytes is null) { _additiveRegionTextures[key] = null; return 0; }
+            byte[] bgra = BlpDecoder.GetPixels(bytes, 0, out int width, out int height);
+            int x0 = Math.Clamp((int)MathF.Round(uvMin.X * width), 0, width);
+            int x1 = Math.Clamp((int)MathF.Round(uvMax.X * width), x0, width);
+            int y0 = Math.Clamp((int)MathF.Round(uvMin.Y * height), 0, height);
+            int y1 = Math.Clamp((int)MathF.Round(uvMax.Y * height), y0, height);
+            for (int y = y0; y < y1 && x1 > x0; y++)
+                UiHighlightBlendLaw.EncodeAdditive(
+                    bgra.AsSpan((y * width + x0) * 4, (x1 - x0) * 4), addArt: true);
+            Texture texture = Texture.From2D(_gl, bgra, width, height, mipmaps: false, repeat: false);
+            _additiveRegionTextures[key] = texture;
+            return texture.Handle;
+        }
+        catch { _additiveRegionTextures[key] = null; return 0; }
     }
 
     public void Dispose()
@@ -314,6 +351,7 @@ public sealed class GameplayArt : IDisposable
         foreach (Texture texture in _repeatTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _additiveTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _brightHighlightTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
+        foreach (Texture texture in _additiveRegionTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _circularTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         // Styled copies are owned solely by this cache - nothing else holds them.
         ClearPainterlyCache();
@@ -321,6 +359,7 @@ public sealed class GameplayArt : IDisposable
         _repeatTextures.Clear();
         _additiveTextures.Clear();
         _brightHighlightTextures.Clear();
+        _additiveRegionTextures.Clear();
         _circularTextures.Clear();
     }
 }

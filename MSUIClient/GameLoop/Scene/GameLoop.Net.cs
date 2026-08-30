@@ -2492,13 +2492,29 @@ public sealed partial class GameLoop
             // their foreground text bled through the parchment. While the modal is up,
             // this whole cluster simply does not exist.
             float boxW = 160f * s, boxH = 37f * s;
-            LoginField(dl, "Account Name", "##acct", _acctBuf, cx, disp.Y - 345f * s, boxW, boxH, s, false, out _);
+            LoginField(dl, "Account Name", "##acct", _acctBuf, cx, disp.Y - 345f * s, boxW, boxH, s, false,
+                out bool acctSubmit);
+            // Enter in the ACCOUNT box with no password yet advances to the password box rather
+            // than submitting nothing - 1.12's own tab order, and the reason Enter felt dead here.
+            // SetKeyboardFocusHere targets the next submitted item, which is the password
+            // InputText: LoginField draws its backdrop and label straight to the draw list, so it
+            // claims no ImGui item before that.
+            bool passwordEmpty = BufToString(_passBuf).Length == 0;
+            if (acctSubmit && passwordEmpty) ImGui.SetKeyboardFocusHere();
             LoginField(dl, "Account Password", "##pass", _passBuf, cx, disp.Y - 270f * s, boxW, boxH, s, true, out bool submit);
 
             // Login (170x45, TOP 519, centered). Height is live-tunable (grows downward from 519).
             ImGui.SetCursorScreenPos(new Vector2(cx - loginSize.X * 0.5f, 519f * s));
             bool loginClick = _skin?.GlueButton("Login", loginSize) ?? ImGui.Button("Login", loginSize);
-            if (loginClick || submit)
+            // Enter is Login's default-button key, the same contract char-create already honours
+            // (GameLoop.CharCreate: Enter = Create). Three ways in: the password box's own
+            // EnterReturnsTrue, Enter from the account box once a password exists, and Enter while
+            // NOTHING is focused - the case that made this feel broken, because clicking the
+            // background dropped focus and then the key did nothing at all.
+            bool loginKey = !ImGui.GetIO().WantTextInput &&
+                (ImGui.IsKeyPressed(ImGuiKey.Enter, false) ||
+                 ImGui.IsKeyPressed(ImGuiKey.KeypadEnter, false));
+            if (loginClick || submit || (acctSubmit && !passwordEmpty) || loginKey)
             {
                 string a = BufToString(_acctBuf), p = BufToString(_passBuf);
                 if (a.Length > 0 && p.Length > 0 && _net is not null)
@@ -3112,6 +3128,18 @@ public sealed partial class GameLoop
         bool ewClick = _skin?.GlueButton("Enter World", ewSize, chars.Count > 0, GlueTune.EnterWorldTextPx * s)
                        ?? ImGui.Button("Enter World", ewSize);
         if (ewClick && chars.Count > 0) enterGuid = chars[_selectedChar].Guid;
+
+        // Enter World is this screen's default button, so Enter presses it - matching the login
+        // screen above and char-create's Enter = Create. Gated on exactly what the BUTTON is
+        // gated on (a roster with a live selection), and stood down while the delete confirmation
+        // owns the keyboard - it wants the typed character name, and Enter there must not enter
+        // the world instead - or while a launch-configuration modal is up.
+        bool enterKey = !ImGui.GetIO().WantTextInput && _deleteConfirmGuid == 0 &&
+            !LoginConfigurationModalOpen &&
+            (ImGui.IsKeyPressed(ImGuiKey.Enter, false) ||
+             ImGui.IsKeyPressed(ImGuiKey.KeypadEnter, false));
+        if (enterKey && _selectedChar >= 0 && _selectedChar < chars.Count)
+            enterGuid = chars[_selectedChar].Guid;
 
         // The stylized rotate pair, UNDER Enter World and centred on it - the 1.12 placement, and the
         // same UI-RotationRight-Big art the create screen uses (RotateButton, shared partial). It used

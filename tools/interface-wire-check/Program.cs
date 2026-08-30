@@ -1397,7 +1397,15 @@ if (args.Contains("--macro-frame-only", StringComparer.Ordinal))
 if (args.Contains("--binding-chord-only", StringComparer.Ordinal))
 {
     BindingChordClinicalChecks.Run();
+    UiHighlightBlendClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: BindingChord PASS");
+    return;
+}
+
+if (args.Contains("--highlight-blend-only", StringComparer.Ordinal))
+{
+    UiHighlightBlendClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: UiHighlightBlend PASS");
     return;
 }
 

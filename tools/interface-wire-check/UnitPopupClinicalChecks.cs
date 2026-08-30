@@ -277,6 +277,36 @@ internal static class UnitPopupClinicalChecks
               UnitFrameUiLaw.StatusPulse(1) == 1f,
             "PlayerFrame resting/combat status priority or pulse drift");
 
+        // MSUI's own layer over that reference priority, and its ONE deviation: the resting icon
+        // stands down at the cap. Reported 2026-08-30 - PlayerFrame.lua's IsResting() has no
+        // level test, so 1.12 shows the Zzz in an inn at 60 for a rested bonus that cannot exist.
+        Check(UnitFrameUiLaw.MaxPlayerLevel == 60 &&
+              UnitFrameUiLaw.VisibleStatus(PlayerFrameStatus.Resting, 59) ==
+                  PlayerFrameStatus.Resting &&
+              UnitFrameUiLaw.VisibleStatus(PlayerFrameStatus.Resting, 60) ==
+                  PlayerFrameStatus.None &&
+              UnitFrameUiLaw.VisibleStatus(PlayerFrameStatus.Attacking, 60) ==
+                  PlayerFrameStatus.Attacking &&
+              UnitFrameUiLaw.VisibleStatus(PlayerFrameStatus.HateList, 60) ==
+                  PlayerFrameStatus.HateList,
+            "the max-level rest-icon stand-down drifted, or it swallowed a combat state");
+
+        // The level number and the state icon are CONCENTRIC in the reference - PlayerLevelText
+        // is CENTER (-63,-16) = (53,66) on the 232x100 frame, PlayerRestIcon is TOPLEFT (37,-49)
+        // at 31x33, centre (52.5,65.5) - and the rest quadrant is only 7% opaque, so both drawn
+        // is mush rather than an occlusion. Exactly one of them may hold the slot.
+        Check(UnitFrameUiLaw.ShowsLevelText(PlayerFrameStatus.None) &&
+              !UnitFrameUiLaw.ShowsLevelText(PlayerFrameStatus.Resting) &&
+              !UnitFrameUiLaw.ShowsLevelText(PlayerFrameStatus.Attacking) &&
+              !UnitFrameUiLaw.ShowsLevelText(PlayerFrameStatus.HateList),
+            "the level number and a state icon can share the (53,66) slot again");
+
+        string frames = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
+            "MSUIClient", "GameLoop", "Hud", "GameLoop.UnitFrames.cs"));
+        Check(frames.Contains("UnitFrameUiLaw.VisibleStatus(", StringComparison.Ordinal) &&
+              frames.Contains("UnitFrameUiLaw.ShowsLevelText(playerStatus)", StringComparison.Ordinal),
+            "the player frame stopped routing its state icon and level text through one decision");
+
         string runtime = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
             "MSUIClient", "GameLoop", "Hud", "GameLoop.UnitPopup.cs"));
         Check(runtime.Contains("_net?.GroupLootMethod(method, master, _partyLootThreshold);",

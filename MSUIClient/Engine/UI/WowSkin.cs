@@ -360,6 +360,19 @@ public sealed class WowSkin : IDisposable
                 // not enough.
                 else if (key == "btn.hilight.sq")
                     WhiteGlowFromLuma(bgra);
+                // check.hi WAS MISSING FROM EVERY BRANCH ABOVE and so went up AS AUTHORED - and it
+                // is ADD art like the rest: alphaDepth 0, peak (24,40,99), and 76% of its texels a
+                // near-black field, measured. Opaque black over a straight-alpha draw does not add
+                // nothing, it REPLACES: the settings checkboxes hovered as a hard-edged square film
+                // covering the whole 26x26 cell, while the box art itself only occupies the middle
+                // ~17px of that - the "overflowing square" it was reported as. This is the same
+                // defect the minimap zoom buttons had, in a third copy of the encode.
+                //
+                // UiHighlightBlendLaw rather than WhiteGlowFromLuma: the law normalises the colour
+                // to full brightness instead of discarding it, so the checkbox keeps the blue tint
+                // 1.12 gives it. Measured, it lands exactly on what alphaMode="ADD" would produce.
+                else if (key == "check.hi")
+                    UiHighlightBlendLaw.EncodeAdditive(bgra, addArt: !BlpDecoder.HasAlphaChannel(blp));
 
                 piece.Texture = Texture.From2D(gl, bgra, w, h, mipmaps: false, repeat: repeat);
                 piece.Width = w;
@@ -979,9 +992,11 @@ public sealed class WowSkin : IDisposable
         var art = held ? (Get("check.down") ?? box) : box;
         dl.AddImage(Id(art), boxMin, boxMax, Vector2.Zero, Vector2.One, White);
 
+        // FULL strength, not the half-alpha this carried. The 0.5 was holding back the dark veil
+        // that check.hi's un-rebuilt black field painted over the box; with the field now properly
+        // transparent it was only halving the glow itself.
         if (hovered && Get("check.hi") is Piece hi)
-            dl.AddImage(Id(hi), boxMin, boxMax, Vector2.Zero, Vector2.One,
-                ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 1f, 1f, 0.5f)));
+            dl.AddImage(Id(hi), boxMin, boxMax, Vector2.Zero, Vector2.One, White);
 
         if (value && Get("check.mark") is Piece mark)
             dl.AddImage(Id(mark), boxMin, boxMax, Vector2.Zero, Vector2.One, White);

@@ -26,6 +26,23 @@ public static class BlpDecoder
     private const int PaletteOffset = 148;   // 4+4+4 + 8 + 64 + 64
 
     /// <summary>
+    /// Does this BLP carry an alpha channel at all? Header byte 9 (alphaDepth), read without
+    /// decoding a single texel.
+    ///
+    /// For UI art this is the file saying WHICH BLEND IT WAS AUTHORED FOR. A hover/glow texture
+    /// shipped with alphaDepth 0 is ADD art - black background, coloured glow, every texel
+    /// opaque - because an add needs no coverage mask. Anything carrying an alpha channel is
+    /// ordinary alpha/alphakey art. See MSUIClient.Engine.UI.UiHighlightBlendLaw, which has to
+    /// tell the two apart to draw either one through an ImGui draw list.
+    /// </summary>
+    public static bool HasAlphaChannel(byte[] blp)
+    {
+        ArgumentNullException.ThrowIfNull(blp);
+        return blp.Length > 9 && blp[0] == 'B' && blp[1] == 'L' && blp[2] == 'P' &&
+               blp[3] == '2' && blp[9] != 0;
+    }
+
+    /// <summary>
     /// Decode a BLP2 mip level to BGRA bytes (w*h*4). Drop-in replacement for
     /// War3Net's BlpFile.GetPixels(mip, out w, out h).
     /// </summary>

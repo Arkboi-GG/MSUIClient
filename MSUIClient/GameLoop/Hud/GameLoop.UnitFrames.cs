@@ -113,8 +113,15 @@ public sealed partial class GameLoop
             DrawClassPortraitRing(dl, p + new Vector2(portraitX + 32f, 44f) * s, 32f * s,
                 unit.Guid, s);
 
+        // Resolved once, here, because the LEVEL TEXT below depends on it: a state icon and the
+        // level number occupy the same (53,66) in the reference, so exactly one of them draws.
+        PlayerFrameStatus playerStatus = playerFrame
+            ? UnitFrameUiLaw.VisibleStatus(
+                UnitFrameUiLaw.Status(unit.Fields.PlayerFlags, _attackTargetGuid != 0,
+                    unit.InCombat), unit.Level)
+            : PlayerFrameStatus.None;
         if (playerFrame && !PainterlyUi)
-            DrawPlayerFrameStatus(dl, unit, p, s);
+            DrawPlayerFrameStatus(dl, unit, p, s, playerStatus);
 
         string? pvpPath = UnitFrameUiLaw.PvpIcon(unit.Fields.Bytes0.Race,
             unit.Fields.UnitFlags, unit.Fields.PlayerFlags);
@@ -160,7 +167,9 @@ public sealed partial class GameLoop
                 playerFrame ? "PlayerFrame/Frame/Frame" : "TargetFrameTextureFrame",
                 new("", nameColor, "IMGUI_TEXT", "ANCHOR:ABSOLUTE", "", "", nameMin.X / s, nameMin.Y / s, "", 10));
         Vector2 levelCenter = p + new Vector2(playerFrame ? 53 : 179, 66) * s;
-        if (unit.Level > 0)
+        bool showLevel = unit.Level > 0 &&
+            (!playerFrame || UnitFrameUiLaw.ShowsLevelText(playerStatus));
+        if (showLevel)
         {
             uint levelColor = playerFrame ? UiGoldU32() : ReactionColorU32(reaction, unit.IsPlayer, unit.IsDead);
             (Vector2 levelMin, Vector2 levelSize) = DrawUnitFrameText(dl, levelCenter, unit.Level.ToString(), 10f * s, levelColor);
@@ -169,7 +178,7 @@ public sealed partial class GameLoop
                     playerFrame ? "PlayerFrame/Frame/Frame" : "TargetFrameTextureFrame",
                     new("", levelColor, "IMGUI_TEXT", "ANCHOR:ABSOLUTE", "", "", levelMin.X / s, levelMin.Y / s, "", 10));
         }
-        else if (!playerFrame)
+        else if (!playerFrame && unit.Level == 0)
             DrawArt(dl, @"Interface\TargetingFrame\UI-TargetingFrame-Skull",
                 levelCenter - new Vector2(8) * s, new Vector2(16), s);
 
@@ -208,14 +217,14 @@ public sealed partial class GameLoop
         DrawUnitFrameHitRect(unit, authoredOrigin, playerFrame, s);
     }
 
+    /// <summary>
+    /// The status is resolved by the CALLER (DrawVanillaUnitFrame) because the level number
+    /// shares this icon's slot and the two decisions have to agree. PLAYER_REGEN_DISABLED /
+    /// ENABLED is derived from UNIT_FLAG_IN_COMBAT in current Benilla.
+    /// </summary>
     private void DrawPlayerFrameStatus(ImDrawListPtr dl, WorldEntity player, Vector2 frameMin,
-        float scale)
+        float scale, PlayerFrameStatus status)
     {
-        bool autoAttacking = _attackTargetGuid != 0;
-        // PLAYER_REGEN_DISABLED/ENABLED is derived from UNIT_FLAG_IN_COMBAT in current Benilla.
-        bool onHateList = player.InCombat;
-        PlayerFrameStatus status = UnitFrameUiLaw.Status(player.Fields.PlayerFlags,
-            autoAttacking, onHateList);
         if (status == PlayerFrameStatus.None) return;
 
         bool resting = status == PlayerFrameStatus.Resting;
@@ -247,7 +256,17 @@ public sealed partial class GameLoop
                     ImGui.ColorConvertFloat4ToU32(new Vector4(.8f, .1f, .1f, .4f)));
         }
 
-        uint state = _gameplayArt!.Handle(@"Interface\CharacterFrame\UI-StateIcon");
+        // TWO kinds of art in one 64x64 sheet. The top half is the Zzz / crossed-swords icons on
+        // ordinary alpha; the BOTTOM half is their glow, which PlayerFrame.xml declares
+        // alphaMode="ADD" on PlayerRestGlow and PlayerAttackGlow. That half measures 100% opaque
+        // with 71% of it flat black, so drawing it straight painted a hard black 32x32 square
+        // centred on (53,66) - exactly where the level number and the Zzz icon sit.
+        //
+        // The sheet's own header says alphaDepth 8 (because of the icons), so AdditiveHandle's
+        // header test would rightly decline to touch it. AdditiveRegionHandle re-encodes ONLY the
+        // ADD half and leaves the icon half byte-identical, so one texture serves both draws.
+        uint state = _gameplayArt!.AdditiveRegionHandle(
+            @"Interface\CharacterFrame\UI-StateIcon", new Vector2(0f, 0.5f), Vector2.One);
         Vector2 iconMin = frameMin + new Vector2(resting ? 37 : 38, resting ? 49 : 50) * scale;
         Vector2 iconSize = new(resting ? 31 : 32, resting ? 33 : 32);
         Vector2 uv0 = resting ? Vector2.Zero : new Vector2(.5f, 0f);
