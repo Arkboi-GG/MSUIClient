@@ -209,3 +209,7 @@ parity/verification/
 # NOTE: /encounters/ is deliberately NOT ignored — authored encounter definitions
 # are work product and the source of truth for what the Lab simulates.
 /encounter-tapes/
+/camera/Barrens_Chat-Dwfpala.txt
+/camera/Barrens_Chat-Paltest.txt
+/camera/Barrens_Chat-Testagain.txt
+/camera/Barrens_Chat-Testpala.txt
