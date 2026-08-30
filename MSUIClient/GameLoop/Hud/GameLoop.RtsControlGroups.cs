@@ -8,16 +8,13 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    private static readonly Key[] RtsControlGroupKeys =
-    [
-        Key.Number1, Key.Number2, Key.Number3, Key.Number4, Key.Number5,
-        Key.Number6, Key.Number7, Key.Number8, Key.Number9, Key.Number0,
-    ];
-
     // Session-only by design. This state never enters settings.json, keybindings.json,
     // botbars.json, or a server group until the player explicitly chooses Auto-group.
     private readonly List<ulong>[] _rtsControlGroups = CreateRtsControlGroups();
-    private readonly bool[] _rtsControlGroupKeyWasDown = new bool[RtsControlGroupLaw.GroupCount];
+    /// <summary>Command-card orders pressed by KEY this frame, drained by the shelf's draw.
+    /// The shelf owns the enable rules and the subject list, and it is submitted later in the
+    /// same frame (Update runs before Render), so a hotkey and a click land identically.</summary>
+    private readonly HashSet<GameBinding> _rtsOrderHotkeys = [];
     private int _rtsControlGroupCommandIndex = -1;
     private int _rtsControlGroupMemberOffset;
     private bool _rtsControlGroupCommandOpen;
@@ -103,7 +100,7 @@ public sealed partial class GameLoop
         // hook musters the army out authoritatively.
         _rtsConscripted.Clear();
         foreach (List<ulong> group in _rtsControlGroups) group.Clear();
-        Array.Clear(_rtsControlGroupKeyWasDown);
+        _rtsOrderHotkeys.Clear();
         _rtsControlGroupCommandIndex = -1;
         _rtsControlGroupMemberOffset = 0;
         _rtsControlGroupCommandOpen = false;
@@ -207,29 +204,43 @@ public sealed partial class GameLoop
             BeginRtsForceRosterLoad(zoneId);
     }
 
+    /// <summary>The seven command-card orders, in the shelf's own cell order.</summary>
+    private static readonly GameBinding[] RtsOrderBindings =
+    [
+        GameBinding.RtsOrderFocus, GameBinding.RtsOrderRegroup, GameBinding.RtsOrderHold,
+        GameBinding.RtsOrderPatrol, GameBinding.RtsOrderFormationLine,
+        GameBinding.RtsOrderFormationCircle, GameBinding.RtsOrderSheath,
+    ];
+
     private void UpdateRtsControlGroupKeys(bool typing)
     {
-        // In the free view plain bindable action keys cast the primary card. The physical
-        // digit chords remain RTS group keys: Shift+number RECALLS and Ctrl+number SAVES.
+        // Save/Select Control Group 1-0 are twenty ordinary bindings now (RTS Controls),
+        // defaulting to the Ctrl+digit / Shift+digit chords that used to be spelled out here.
+        // The exactness that comment insisted on is now the chord resolver's own rule: a
+        // Ctrl+digit press can never also recall on its way to overwriting.
         //
-        // Ctrl stays the conventional assignment chord. Shift becomes recall now that plain
-        // bindable action keys drive the primary character card. Both matches are exact so a
-        // chord can never recall a group on its way to overwriting it.
-        bool assign = _freeView && CtrlHeld() && !ShiftHeld() && !AltHeld() && !typing;
-        bool recall = _freeView && ShiftHeld() && !CtrlHeld() && !AltHeld() && !typing;
-        for (int i = 0; i < RtsControlGroupKeys.Length; i++)
+        // EVERY edge is taken unconditionally, including typing and outside-Free-View frames.
+        // BindingPressedEdge owns the was-down state, so a digit held across the free-view
+        // boundary can never become an assignment once the gate opens — which is exactly what
+        // the hand-rolled edge array this replaces was guarding.
+        _rtsOrderHotkeys.Clear();
+        for (int i = 0; i < RtsControlGroupLaw.GroupCount; i++)
         {
-            bool down = InputKeyDown(RtsControlGroupKeys[i]);
-            if (down && !_rtsControlGroupKeyWasDown[i])
-            {
-                if (assign) AssignRtsControlGroup(i);
-                else if (recall) RecallRtsControlGroup(i);
-            }
-            // Track every physical edge, including typing/outside-Free-View frames,
-            // so a held key can never become an assignment after the gate changes.
-            _rtsControlGroupKeyWasDown[i] = down;
+            bool save = BindingPressedEdge(RtsSaveGroupBinding(i), typing);
+            bool select = BindingPressedEdge(RtsRecallGroupBinding(i), typing);
+            if (!_freeView) continue;
+            if (save) AssignRtsControlGroup(i);
+            else if (select) RecallRtsControlGroup(i);
         }
+        foreach (GameBinding order in RtsOrderBindings)
+            if (BindingPressedEdge(order, typing) && _freeView)
+                _rtsOrderHotkeys.Add(order);
     }
+
+    /// <summary>Did a key press ask for this order this frame? One-shot: the shelf's draw
+    /// consumes it, so an order whose card is disabled is dropped rather than banked.</summary>
+    private bool ConsumeRtsOrderHotkey(GameBinding order, bool enabled) =>
+        _rtsOrderHotkeys.Remove(order) && enabled;
 
     /// <summary>Shift+number recall: select the saved group (and say so).</summary>
     private void RecallRtsControlGroup(int index)
@@ -237,8 +248,8 @@ public sealed partial class GameLoop
         string number = RtsControlGroupLaw.DisplayNumber(index);
         if ((uint)index >= (uint)_rtsControlGroups.Length || _rtsControlGroups[index].Count == 0)
         {
-            SetRtsControlGroupStatus($"Group {number} is empty — Ctrl+{number} saves " +
-                "the current selection.");
+            SetRtsControlGroupStatus($"Group {number} is empty — " +
+                $"{BindingHint(RtsSaveGroupBinding(index))} saves the current selection.");
             return;
         }
         SelectRtsControlGroup(index, openCommands: false);
@@ -254,13 +265,22 @@ public sealed partial class GameLoop
     private bool RtsControlGroupClaimsBinding(GameBinding binding)
     {
         if (!_freeView) return false;
-        bool groupChord = (CtrlHeld() && !ShiftHeld() && !AltHeld()) ||
-            (ShiftHeld() && !CtrlHeld() && !AltHeld());
-        if (!groupChord) return false;
         BindingPair bound = BoundKeys(binding);
-        foreach (Key key in RtsControlGroupKeys)
-            if (InputKeyDown(key) && bound.ContainsBase(key)) return true;
+        for (int i = 0; i < RtsControlGroupLaw.GroupCount; i++)
+            if (ClaimedBy(RtsSaveGroupBinding(i)) || ClaimedBy(RtsRecallGroupBinding(i)))
+                return true;
         return false;
+
+        // Base-key overlap, not chord equality: the collision being suppressed is
+        // Ctrl+1 meaning BOTH "save group 1" and the pet bar's BonusActionButton1, which
+        // share the physical 1 and differ only in what the player bound around it.
+        bool ClaimedBy(GameBinding group)
+        {
+            if (!BindingDown(group)) return false;
+            BindingPair pair = BoundKeys(group);
+            return (pair.Primary.IsBound && bound.ContainsBase(pair.Primary.Key)) ||
+                   (pair.Secondary.IsBound && bound.ContainsBase(pair.Secondary.Key));
+        }
     }
 
     /// <summary>

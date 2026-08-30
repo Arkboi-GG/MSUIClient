@@ -307,19 +307,26 @@ public sealed partial class GameLoop
     }
 
     /// <summary>
-    /// Alt is a supplemental self-cast modifier for the visible primary card. BindingDown is an
-    /// exact-chord matcher, so an ordinary "1" binding does not fire while Alt is held; match the
-    /// binding's base key and its other authored modifiers here while deliberately ignoring Alt.
+    /// "Cast Card Ability on Primary" (RTS Controls) is a supplemental self-cast MODIFIER over
+    /// the visible primary card — Alt by default. BindingDown is an exact-chord matcher, so an
+    /// ordinary "1" binding does not fire while that modifier is held; match the binding's base
+    /// key and its other authored modifiers here while deliberately ignoring the ones the
+    /// modifier command itself claims. Reseat it onto Ctrl and Ctrl+1 becomes the self-cast
+    /// while Alt+1 goes back to meaning nothing — no other code has to know.
     /// </summary>
-    private bool RtsAltAbilityBindingDown(GameBinding binding)
+    private bool RtsCastOnPrimaryBindingDown(GameBinding binding)
     {
-        if (!_freeView || !AltHeld()) return false;
+        if (!_freeView || !BindingModifierHeld(GameBinding.RtsCastOnPrimary)) return false;
+        (bool maskAlt, bool maskControl, bool maskShift) =
+            BindingModifierMask(GameBinding.RtsCastOnPrimary);
         BindingPair pair = BoundKeys(binding);
         return Matches(pair.Primary) || Matches(pair.Secondary);
 
         bool Matches(BindingChord chord) => chord.IsBound &&
             chord.Pointer == BindingPointerKey.None && InputKeyDown(chord.Key) &&
-            chord.Control == CtrlHeld() && chord.Shift == ShiftHeld();
+            (maskAlt || chord.Alt == AltHeld()) &&
+            (maskControl || chord.Control == CtrlHeld()) &&
+            (maskShift || chord.Shift == ShiftHeld());
     }
 
     private const byte SuiOrderFormationLine = 8;
@@ -817,7 +824,8 @@ public sealed partial class GameLoop
                     new GameTooltipOwnerKey("console-card", (ulong)slot + 1),
                     spell.Id, scale, SpellTooltipPlacement.DefaultBottomRight);
             if (ImGui.IsItemClicked())
-                CastPrimaryAbility(guid, action.ActionId, AltHeld());
+                CastPrimaryAbility(guid, action.ActionId,
+                    BindingModifierHeld(GameBinding.RtsCastOnPrimary));
         }
         if (abilities.Count == 0)
             dl.AddText(rowMin + new Vector2(0f, 4f * scale), 0xff9aa4ab,
@@ -1023,6 +1031,12 @@ public sealed partial class GameLoop
             Vector2 min = origin + new Vector2(ConsoleCardX, 26f) * scale +
                 new Vector2(cellIndex % 4 * (side.X + 3f * scale),
                     cellIndex / 4 * (side.Y + 3f * scale));
+            // The grid is authored in RtsOrderBindings order, so the CELL INDEX is the command.
+            // Each card's binding (RTS Controls: Order: ...) fires exactly what the button under
+            // it fires, under the same enable rule - a hotkey can never send an order the card
+            // itself refuses, and one pressed against a disabled card is dropped, not banked.
+            bool hotkeyFired = (uint)cellIndex < (uint)RtsOrderBindings.Length &&
+                ConsumeRtsOrderHotkey(RtsOrderBindings[cellIndex], enabled);
             cellIndex++;
             Vector2 max = min + side;
             ImGui.SetCursorScreenPos(min);
@@ -1035,7 +1049,7 @@ public sealed partial class GameLoop
             dl.AddRect(min, max, lit || (hovered && enabled) ? PainterlyFrameRule : PainterlyFrameOuter,
                 0, ImDrawFlags.None, MathF.Max(1f, scale));
             if (hovered) HoverTip(tooltip);
-            return enabled && ImGui.IsItemClicked();
+            return hotkeyFired || (enabled && ImGui.IsItemClicked());
         }
 
         if (CardButton("##card-focus", ConsoleIconFocus, hostileTargeted && any

@@ -32,8 +32,6 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private bool _encounterLabOpen;
-    private bool _encounterLabKeyWasDown;
-    private bool _encounterUndoKeyWasDown;
 
     private EncounterDataClient? _encounterData;
     private EncounterLibrary? _encounterLibrary;
@@ -222,20 +220,15 @@ public sealed partial class GameLoop
 
     // ── input ────────────────────────────────────────────────────────────────
 
-    /// <summary>Ctrl+E edge toggle, run from UpdateControlInput beside Ctrl+N/Ctrl+F.
-    /// Works in live and creator mode — the simulator needs no server at all, which
-    /// is the entire point of running it here.</summary>
+    /// <summary>Two bindings (RTS Controls: Encounter Lab, Undo Waypoint), defaulting to the
+    /// Ctrl+E / Ctrl+Z they were hard-coded as. Run from UpdateControlInput beside the free-view
+    /// toggle. Works in live and creator mode — the simulator needs no server at all, which is
+    /// the entire point of running it here.</summary>
     private void UpdateEncounterLabInput(bool typing)
     {
-        bool ctrl = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
-        bool pressed = ctrl && InputKeyDown(Key.E);
-        if (pressed && !_encounterLabKeyWasDown && !typing) ToggleEncounterLab();
-        _encounterLabKeyWasDown = pressed;
-
-        bool undoPressed = ctrl && InputKeyDown(Key.Z);
-        if (undoPressed && !_encounterUndoKeyWasDown && !typing && _encounterLabOpen)
+        if (BindingPressedEdge(GameBinding.RtsEncounterLab, typing)) ToggleEncounterLab();
+        if (BindingPressedEdge(GameBinding.RtsUndoWaypoint, typing) && _encounterLabOpen)
             UndoEncounterWaypoint();
-        _encounterUndoKeyWasDown = undoPressed;
     }
 
     private void ToggleEncounterLab()

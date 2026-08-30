@@ -325,8 +325,6 @@ public sealed partial class GameLoop
     private ControlState _controlPendingReturn = ControlState.OwnChar;   // watchdog fallback
     private ulong _controlSwitchQueued;      // cycle target waiting for the in-flight release ACK
     private bool _controlledBodyPending;     // possessed body rebuild waiting on entity stream-in
-    private bool _controlCycleWasDown;
-    private bool _primaryCycleWasDown;       // edge latch for plain-Tab command-card primary cycle
 
     // ── Free-view marquee selection (party + advertised faction bots) ───────────────────────────
     private Vector2? _freecamDragOrigin;         // left button went down here, over the world
@@ -366,7 +364,6 @@ public sealed partial class GameLoop
     private static readonly Vector3 RtsFriendlyTint = new(0.30f, 0.95f, 0.45f);
     private static readonly Vector3 RtsHostileTint = new(0.95f, 0.30f, 0.22f);
     private static readonly Vector3 RtsNeutralTint = new(0.95f, 0.85f, 0.25f);
-    private bool _freecamKeyWasDown;
     private bool _freecamRequested;          // the in-flight release asked for the free view
     // Right-button camera-look latch: true when the current right-hold flew the camera by
     // keyboard (WASD). The window's click-vs-drag test only measures MOUSE travel, so a
@@ -481,9 +478,14 @@ public sealed partial class GameLoop
             EnterPlayerAuraWorld(LocalPlayerGuid);
             // Snapshots survive the free view: possession synced them, the
             // Party Inventory browser keeps reading them with an age stamp.
-            AddChatMessage("Free view: click or drag to select faction bots, Shift+click adds, " +
-                "RightClick moves/attacks, Alt+click directly controls one, " +
-                "Shift+RightClick chains waypoints, Ctrl+F returns.");
+            // Every chord in this line is now a binding, so the line READS the bindings.
+            // A player who reseats Take Direct Control must not be told to Alt+click.
+            AddChatMessage($"Free view: {BindingHint(GameBinding.RtsSelect)} or drag to select " +
+                $"faction bots, {BindingHint(GameBinding.RtsSelectAdd)} adds, " +
+                $"{BindingHint(GameBinding.RtsOrderMove)} moves/attacks, " +
+                $"{BindingHint(GameBinding.CrpgTakeControl)} directly controls one, " +
+                $"{BindingHint(GameBinding.RtsOrderQueueWaypoint)} chains waypoints, " +
+                $"{BindingHint(GameBinding.RtsToggleFreeView)} returns.");
             return;
         }
 
@@ -1331,20 +1333,23 @@ public sealed partial class GameLoop
         UpdateFreeCamSelection();
         FlushPendingRtsMoveOrder();   // deliver the newest coalesced move once its throttle elapses
 
-        bool ctrl = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
-        bool tab = InputKeyDown(Key.Tab);
-        bool cyclePressed = ctrl && tab;
-        if (cyclePressed && !_controlCycleWasDown && !typing && _net is { IsInWorld: true })
-            CycleControl(ShiftHeld() ? -1 : +1);
-        _controlCycleWasDown = cyclePressed;
+        // Four ordinary bindings now (CRPG Controls / RTS Controls), defaulting to exactly the
+        // chords that used to be hard-coded here: Ctrl+Tab and Ctrl+Shift+Tab cycle which BODY
+        // you drive, plain Tab and Shift+Tab cycle the command-card PRIMARY through the current
+        // selection. Tab can serve both ladders because enemy tab-targeting stands down in the
+        // free view (UpdateTargetBinding) and the card cycle only runs while it is up.
+        //
+        // All four edges are taken unconditionally: BindingPressedEdge owns the was-down state,
+        // so a frame that skips the call would let a key held across it fire again on release.
+        bool cycleNext = BindingPressedEdge(GameBinding.CrpgCycleControlNext, typing);
+        bool cyclePrevious = BindingPressedEdge(GameBinding.CrpgCycleControlPrevious, typing);
+        if ((cycleNext || cyclePrevious) && _net is { IsInWorld: true })
+            CycleControl(cyclePrevious ? -1 : +1);
 
-        // Free view: plain Tab (Shift+Tab reverses) cycles the command-card PRIMARY through the
-        // current selection. Ctrl+Tab above still cycles which body you DRIVE; enemy tab-targeting
-        // is disabled in the free view (UpdateTargetBinding), so Tab is free for this.
-        bool plainTab = tab && !ctrl;
-        if (_freeView && plainTab && !_primaryCycleWasDown && !typing && _freecamSelection.Count > 0)
-            CycleRtsPrimary(ShiftHeld() ? -1 : +1);
-        _primaryCycleWasDown = plainTab;
+        bool cardNext = BindingPressedEdge(GameBinding.RtsCyclePrimaryNext, typing);
+        bool cardPrevious = BindingPressedEdge(GameBinding.RtsCyclePrimaryPrevious, typing);
+        if (_freeView && (cardNext || cardPrevious) && _freecamSelection.Count > 0)
+            CycleRtsPrimary(cardPrevious ? -1 : +1);
 
         // Possess-on-cast / possess-on-use / possess-on-open: fire a queued command-card ability,
         // quick-slot item, or bag window once control lands on the primary.
@@ -1353,14 +1358,13 @@ public sealed partial class GameLoop
         TryFirePendingPrimaryBags();
         UpdateControlledInventoryRefresh();   // re-sync a possessed bot's bags after a consumable use
 
-        // Ctrl+F: free view toggle (plain F stays the local fly toggle). Works in
-        // the creator sandbox too — there it is purely a camera decision, and it
-        // is how the Encounter Lab's raid gets commanded.
-        bool freecamPressed = ctrl && InputKeyDown(Key.F);
-        if (freecamPressed && !_freecamKeyWasDown && !typing &&
+        // Free view toggle, Ctrl+F by default (plain F stays the local fly toggle — Program.cs
+        // asks THIS binding whether the press was already spoken for, so a rebind moves both
+        // halves together). Works in the creator sandbox too: there it is purely a camera
+        // decision, and it is how the Encounter Lab's raid gets commanded.
+        if (BindingPressedEdge(GameBinding.RtsToggleFreeView, typing) &&
             (_net is { IsInWorld: true } || CreatorInWorld))
             ToggleFreeView();
-        _freecamKeyWasDown = freecamPressed;
 
         // Ctrl+N: the NPC dev window (spawn/pathing/aggro overlays). Same edge
         // pattern; no in-world gate so it also opens in creator mode.
@@ -1434,12 +1438,22 @@ public sealed partial class GameLoop
         // the CAMERAZOOMIN/OUT binding is gated off while free view is up - so without this you
         // can never pull in closer than the distance you toggled in at. Wheel up (positive) =
         // zoom in, matching normal camera mode, under the same Min/MaxDistance clamp.
-        bool boomZoom = InputKeyDown(Key.AltLeft) || InputKeyDown(Key.AltRight);
+        // Which wheel command owns this tick is a BINDING question now (RTS Controls: Commander
+        // Zoom In/Out, Fly Camera Forward/Back). The chords are matched exactly against the
+        // modifiers held beside the tick — the free view spends its wheel through
+        // ClientWindow.TakeFreeFlightScroll, a different accumulator from the one the global
+        // latch pulses, so this cannot go through BindingDown.
+        BindingPointerKey wheelDirection = wheel > 0f
+            ? BindingPointerKey.WheelUp : BindingPointerKey.WheelDown;
+        bool boomZoom = BindingClaimsPointerNow(wheel > 0f
+            ? GameBinding.RtsBoomZoomIn : GameBinding.RtsBoomZoomOut, wheelDirection);
+        bool rigFly = BindingClaimsPointerNow(wheel > 0f
+            ? GameBinding.RtsRigForward : GameBinding.RtsRigBackward, wheelDirection);
         if (wheel != 0f && !_commanderMapOpen && boomZoom)
         {
             _window.Camera.Zoom(wheel);
         }
-        else if (wheel != 0f && !_commanderMapOpen && _controller is not null)
+        else if (wheel != 0f && !_commanderMapOpen && rigFly && _controller is not null)
         {
             // Pulling toward the battlefield also shortens the orbit boom. Previously the
             // boom stayed frozen at its pre-RTS distance, so moving the rig forward could
@@ -1894,8 +1908,9 @@ public sealed partial class GameLoop
                     PlayCompanionSelectionVoice(swept);
                     break;
                 }
-            AddChatMessage($"Selected {_freecamSelection.Count}: RightClick the ground to move, " +
-                "a hostile to attack, Shift+RightClick to chain waypoints.");
+            AddChatMessage($"Selected {_freecamSelection.Count}: " +
+                $"{BindingHint(GameBinding.RtsOrderMove)} the ground to move, a hostile to " +
+                $"attack, {BindingHint(GameBinding.RtsOrderQueueWaypoint)} to chain waypoints.");
         }
         else if (!CanUseFactionForceRoster() && _partyMembers.Count == 0)
             // The silent empty marquee was the confusing half of the closed gate: bots
@@ -1936,7 +1951,23 @@ public sealed partial class GameLoop
             return;
         }
 
-        if (click.Button == MouseButton.Left)
+        // The free view's gestures are bindings now (RTS Controls / CRPG Controls). Resolve
+        // them once, here, against the modifiers CAPTURED WITH THE CLICK: the queued-click
+        // drain runs a frame or more after the press that classified it, so the live keyboard
+        // is the wrong question (releasing Shift before the button already had to be handled).
+        // Defaults reproduce the old hard-coded grammar exactly - Button1 selects, Shift+Button1
+        // adds, Alt+Button1 takes control, Button2 orders, Shift+Button2 chains.
+        bool gestureSelect = BindingClaimsClick(GameBinding.RtsSelect, click);
+        bool gestureAdd = BindingClaimsClick(GameBinding.RtsSelectAdd, click);
+        bool gestureControl = BindingClaimsClick(GameBinding.CrpgTakeControl, click);
+        bool gestureOrder = BindingClaimsClick(GameBinding.RtsOrderMove, click);
+        bool gestureQueue = BindingClaimsClick(GameBinding.RtsOrderQueueWaypoint, click);
+
+        // Both guards stay a SUPERSET of the physical button. Sub-handlers inside each branch
+        // are not gestures of their own — the NPC-dev focus set (Ctrl+LeftClick), the encounter
+        // puppet select, the armed patrol draft's right-clicks — and gating them behind a
+        // rebindable chord would strand them the moment someone reseats Select or Move Order.
+        if (click.Button == MouseButton.Left || gestureSelect || gestureAdd || gestureControl)
         {
             if (_freecamMarqueeConsumedClick)
             {
@@ -1962,11 +1993,11 @@ public sealed partial class GameLoop
             // owner's original gesture ("shift click the floor"); right-click
             // still works. Must run before selection handling, or this click
             // would CLEAR the very selection it is ordering.
-            if (click.ShiftDown && HandleEncounterRtsOrder(click)) return;
+            if (gestureAdd && HandleEncounterRtsOrder(click)) return;
             // Shift+LeftClick on hostiles is the kill-queue gesture. It deliberately
             // precedes ordinary target selection so adding an enemy never drops the
             // highlighted command subjects.
-            if (click.ShiftDown && pickedUnit != 0 &&
+            if (gestureAdd && pickedUnit != 0 &&
                 _entities.TryGet(pickedUnit, out WorldEntity queuedTarget) &&
                 !queuedTarget.IsDead && CanAttack(queuedTarget))
             {
@@ -1984,7 +2015,7 @@ public sealed partial class GameLoop
                 foreach (ulong guid in FreeCamSelectableGuids())
                     if (guid == pickedUnit)
                     {
-                        if (click.AltDown)
+                        if (gestureControl)
                         {
                             _freecamSelection.Clear();
                             _freecamSelection.Add(guid);
@@ -1995,7 +2026,7 @@ public sealed partial class GameLoop
                                 ShowUiError("That faction bot is selectable but cannot be directly controlled right now.");
                             return;
                         }
-                        if (click.ShiftDown)
+                        if (gestureAdd)
                         {
                             if (!_freecamSelection.Remove(guid))
                                 _freecamSelection.Add(guid);
@@ -2019,7 +2050,7 @@ public sealed partial class GameLoop
             if (pickedUnit == 0) _freecamSelection.Clear();
             return;
         }
-        if (click.Button != MouseButton.Right) return;
+        if (click.Button != MouseButton.Right && !gestureOrder && !gestureQueue) return;
 
         // A right-hold that flew the camera by keyboard (WASD, mouse still) is a camera gesture,
         // not an order - suppress the whole right-click order path. Mouse-rotate already
@@ -2051,11 +2082,12 @@ public sealed partial class GameLoop
             return;
         }
 
-        // SHIFT, not Ctrl, queues waypoints: Ctrl is the control-chord modifier (Ctrl+F,
-        // Ctrl+Tab), so entering the free view with Ctrl still down turned the very first
-        // right-click into a chained waypoint instead of a move. Shift is also what every
-        // RTS uses for queue-this-order, so the collision fix is the conventional binding.
-        bool queue = click.ShiftDown;
+        // SHIFT, not Ctrl, is the shipped default for queue-this-order: Ctrl is the
+        // control-chord modifier (Ctrl+F, Ctrl+Tab), so entering the free view with Ctrl still
+        // down turned the very first right-click into a chained waypoint instead of a move.
+        // Shift is also what every RTS uses, so the collision fix is the conventional binding —
+        // and it is now only the DEFAULT of Chain Waypoint, which the player may reseat.
+        bool queue = gestureQueue;
         // The commanded toon is ordered like any other member — no filtering. In the free view
         // a possessed bot IS orderable: SuiPossess::orderBot waives its IsPossessed() bail when
         // the possessor holds a freecam eye, because the conflict that bail guards (a server
@@ -2392,14 +2424,22 @@ public sealed partial class GameLoop
                 ? $"commanding {ResolveUnitName(_controlTargetGuid)}"
                 : BarsReadOnly
                     ? $"{ResolveUnitName(BarsGuid)} selected — abilities on the console"
-                    : "click/drag: select · Shift+click: add · Alt+click: direct control";
-            text = $"Free view — {who} · RightClick: move/attack · " +
-                "Shift+RightClick: chain waypoints · 1-0: pick group · Ctrl+1-0: save group · Ctrl+F: land";
+                    : $"{BindingHint(GameBinding.RtsSelect)}/drag: select · " +
+                      $"{BindingHint(GameBinding.RtsSelectAdd)}: add · " +
+                      $"{BindingHint(GameBinding.CrpgTakeControl)}: direct control";
+            text = $"Free view — {who} · {BindingHint(GameBinding.RtsOrderMove)}: move/attack · " +
+                $"{BindingHint(GameBinding.RtsOrderQueueWaypoint)}: chain waypoints · " +
+                $"{BindingHint(GameBinding.RtsRecallGroup1)}-{BindingHint(GameBinding.RtsRecallGroup10)}: " +
+                $"pick group · {BindingHint(GameBinding.RtsSaveGroup1)}-" +
+                $"{BindingHint(GameBinding.RtsSaveGroup10)}: save group · " +
+                $"{BindingHint(GameBinding.RtsToggleFreeView)}: land";
         }
         else text = _controlState switch
         {
             ControlState.Possessing =>
-                $"Controlling {ResolveUnitName(_controlTargetGuid)} — Ctrl+Tab to switch, Ctrl+F free view",
+                $"Controlling {ResolveUnitName(_controlTargetGuid)} — " +
+                $"{BindingHint(GameBinding.CrpgCycleControlNext)} to switch, " +
+                $"{BindingHint(GameBinding.RtsToggleFreeView)} free view",
             ControlState.PossessPending => "Taking control…",
             ControlState.ReleasePending => "Releasing control…",
             _ => "",

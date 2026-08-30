@@ -29,13 +29,21 @@ same-faction bot without first putting it in their real party.
 The player can save the current bot selection into ten temporary tactical
 groups:
 
-| Chord | Tactical slot |
+| Default chord | Tactical slot |
 |---|---:|
 | `Ctrl+1` through `Ctrl+9` | 1 through 9 |
 | `Ctrl+0` | 0 |
 
 `Shift+1` through `Shift+0` recalls those slots. Plain bindable Action Button
 keys cast the abilities shown on the currently selected primary character card.
+
+**These are DEFAULTS, not chords (2026-08-30).** Every commander control is a
+rebindable command in the Key Bindings frame under the two MSUI categories
+**RTS Controls** and **CRPG Controls**. `Save Control Group 1`-`0` and
+`Select Control Group 1`-`0` are twenty ordinary rows whose shipped defaults are
+exactly the chords above; nothing in this document's grammar changed for a player
+who never opens that frame. Read `MSUIClient/Engine/UI/RtsBindingLaw.cs` for how
+world-click gestures and held modifiers became bindable at all.
 Double-clicking a selected-unit mini portrait centers the camera on that character
 without changing the current multi-selection, camera facing, pitch, or boom distance.
 
@@ -280,11 +288,14 @@ Circle, and the Draw/Sheathe toggle, always led by the selected count. It sits
 140 logical px above the screen bottom — the bar art (main bar to −78, multi
 bars to −131) draws after ImGui windows, so the shelf must clear it entirely.
 
-**Free-view number keys (updated 2026-08-28):** plain Action Button 1-10
+**Free-view number keys (updated 2026-08-30):** plain Action Button 1-10
 bindings cast the corresponding visible ability on the primary character card
-(the current card exposes eight). `Ctrl+1-0` SAVES a tactical group and
-`Shift+1-0` RECALLS it. `RtsControlGroupClaimsBinding` claims only those exact
-physical group chords; outside Free View the bindings remain ordinary bar casts.
+(the current card exposes eight). Save Control Group 1-0 (`Ctrl+1-0` by default)
+SAVES a tactical group and Select Control Group 1-0 (`Shift+1-0` by default)
+RECALLS it. `RtsControlGroupClaimsBinding` suppresses the colliding action-bar
+command by asking whether a group binding is DOWN and shares its base key, so the
+suppression follows a rebind of either side; outside Free View the action
+bindings remain ordinary bar casts.
 
 ### 5c. Conscription — group membership turns the brain off (added 2026-08-24)
 

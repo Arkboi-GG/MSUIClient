@@ -144,25 +144,41 @@ public sealed partial class GameLoop
 
         if (_bindingCapture is not null)
         {
+            BindingInputKind captureKind = BindingKindOf(_bindingCapture.Value);
             if (!_bindingCaptureReleased) _bindingCaptureReleased = !AnyBindableInputDown();
-            else if (FirstBindableChordDown() is { } pressed)
+            else if (FirstBindableChordDown(captureKind) is { } pressed)
             {
-                GameBinding[] previousOwners = _bindings
-                    .Where(x => x.Value.Contains(pressed))
-                    .Select(x => x.Key).ToArray();
-                string feedback = "Key Bound Successfully";
-                foreach (GameBinding other in previousOwners)
+                // A row can only hold a chord its command is able to READ - a world-click
+                // gesture needs a mouse button, a held modifier needs a bare modifier, and an
+                // ordinary command refuses the left and right buttons because those never
+                // enter the global latch. Refusing here is what keeps a dead binding - one
+                // that displays perfectly and never fires - off the list entirely.
+                if (!RtsBindingLaw.Accepts(captureKind, pressed))
                 {
-                    BindingPair without = _bindings[other].Without(pressed);
-                    if (other != _bindingCapture.Value &&
-                        !without.Primary.IsBound && !without.Secondary.IsBound)
-                        feedback = $"{BindingLabel(other)} Function is Now Unbound!";
-                    _bindings[other] = _bindings[other].Without(pressed);
+                    _bindingFeedback = RtsBindingLaw.RejectionFor(captureKind);
+                    _bindingFeedbackUntil = ImGui.GetTime() + 4.0;
+                    _bindingCaptureReleased = false;   // wait for release, don't spam the line
                 }
-                _bindings[_bindingCapture.Value] = BoundKeys(_bindingCapture.Value).With(_bindingCaptureSlot, pressed);
-                _bindingFeedback = feedback;
-                _bindingFeedbackUntil = ImGui.GetTime() + 4.0;
-                _bindingCapture = null;
+                else
+                {
+                    GameBinding[] previousOwners = _bindings
+                        .Where(x => x.Value.Contains(pressed))
+                        .Select(x => x.Key).ToArray();
+                    string feedback = "Key Bound Successfully";
+                    foreach (GameBinding other in previousOwners)
+                    {
+                        BindingPair without = _bindings[other].Without(pressed);
+                        if (other != _bindingCapture.Value &&
+                            !without.Primary.IsBound && !without.Secondary.IsBound)
+                            feedback = $"{BindingLabel(other)} Function is Now Unbound!";
+                        _bindings[other] = _bindings[other].Without(pressed);
+                    }
+                    _bindings[_bindingCapture.Value] =
+                        BoundKeys(_bindingCapture.Value).With(_bindingCaptureSlot, pressed);
+                    _bindingFeedback = feedback;
+                    _bindingFeedbackUntil = ImGui.GetTime() + 4.0;
+                    _bindingCapture = null;
+                }
             }
         }
 
@@ -236,7 +252,16 @@ public sealed partial class GameLoop
 
     private bool AnyBindableInputDown() => FirstBindableKeyDown() is not null ||
         _window.MouseMiddleDown || _window.MouseButton4Down || _window.MouseButton5Down ||
-        ImGui.GetIO().MouseWheel != 0;
+        _window.MouseLeftDown || _window.MouseRightDown ||
+        AnyModifierDown() || ImGui.GetIO().MouseWheel != 0;
+
+    /// <summary>Bare modifiers count as input for the RELEASE gate only. A modifier row is
+    /// armed by clicking its key button, and the player is usually still holding nothing;
+    /// without this the ladder they were already holding would be taken instantly.</summary>
+    private bool AnyModifierDown() =>
+        InputKeyDown(Key.AltLeft) || InputKeyDown(Key.AltRight) ||
+        InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight) ||
+        InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight);
 
     private Key? FirstBindableKeyDown()
     {
@@ -246,13 +271,31 @@ public sealed partial class GameLoop
         return null;
     }
 
-    private BindingChord? FirstBindableChordDown()
+    private BindingChord? FirstBindableChordDown(BindingInputKind kind)
     {
         if (InputKeyDown(Key.SuperLeft) || InputKeyDown(Key.SuperRight)) return null;
         bool alt = InputKeyDown(Key.AltLeft) || InputKeyDown(Key.AltRight);
         bool control = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
         bool shift = InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight);
-        BindingPointerKey pointer = _window.MouseMiddleDown ? BindingPointerKey.Button3 :
+
+        // A modifier row takes the ladder ALONE: with a base key or a button also down the
+        // player is spelling an ordinary chord, and the ladder is not yet what they meant.
+        if (kind == BindingInputKind.Modifier)
+            return (alt || control || shift) && FirstBindableKeyDown() is null &&
+                   !_window.MouseLeftDown && !_window.MouseRightDown &&
+                   !_window.MouseMiddleDown && !_window.MouseButton4Down &&
+                   !_window.MouseButton5Down && ImGui.GetIO().MouseWheel == 0
+                ? new BindingChord(Key.Unknown, alt, control, shift) : null;
+
+        // The left and right buttons are offered only to gesture rows, and only for a click
+        // that lands OUTSIDE every ImGui window. The capture block runs before this frame's
+        // Okay/Cancel/Unbind buttons are submitted, so without that fence arming a gesture row
+        // and then reaching for Cancel would bind Left Mouse instead of cancelling.
+        bool worldClick = kind == BindingInputKind.Pointer && !ImGui.GetIO().WantCaptureMouse;
+        BindingPointerKey pointer =
+            worldClick && _window.MouseLeftDown ? BindingPointerKey.Button1 :
+            worldClick && _window.MouseRightDown ? BindingPointerKey.Button2 :
+            _window.MouseMiddleDown ? BindingPointerKey.Button3 :
             _window.MouseButton4Down ? BindingPointerKey.Button4 :
             _window.MouseButton5Down ? BindingPointerKey.Button5 :
             ImGui.GetIO().MouseWheel > 0 ? BindingPointerKey.WheelUp :

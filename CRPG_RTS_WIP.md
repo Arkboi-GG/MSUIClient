@@ -1,3 +1,38 @@
+# CRPG/RTS Mode — WIP (updated 2026-08-30)
+
+> **2026-08-30 CONTROLS ARE BINDABLE (source/build verified; NOT yet exercised
+> in world):** every CRPG/RTS control that was hard-coded is now a rebindable
+> command in the Key Bindings frame, under two new MSUI categories appended after
+> Benilla's nine: **RTS Controls** (42 commands) and **CRPG Controls** (3).
+> Covered: the free view toggle, direct-control and command-card cycling, ten
+> Save and ten Select control groups, the seven command-card orders, the
+> commander map, the free-view wheel (rig fly and boom zoom), the Encounter Lab
+> and its waypoint undo, the world-click gestures (select, add, take direct
+> control, move order, chain waypoint), and the cast-on-primary held modifier.
+>
+> Two chord-law extensions made it possible. `BindingPointerKey` gained
+> `Button1`/`Button2` on vanilla's own `BUTTON1`/`BUTTON2` tokens — deliberately
+> kept OUT of the global latch scan and resolved only against a captured
+> `WorldMouseClick` through the new `Engine/UI/RtsBindingLaw.cs`, because those
+> buttons are also camera look and ImGui's click source. And a chord carrying
+> ONLY modifiers is now bound, which is the only way to spell a command whose
+> base input belongs to another binding.
+>
+> **Every default reproduces the exact chord its command was hard-coded as**, so
+> a player who never opens Key Bindings sees no change; the seven orders and the
+> commander map, which had no key at all, ship unbound. On-screen hint lines and
+> the free-view banner now READ the bindings instead of naming chords.
+>
+> Verified: Debug and Release builds clean; `interface-wire-check` passes
+> `--binding-chord-only`, `--keybinding-registry-only`, `--character-bindings-only`,
+> `--target-cycle-only`, `--audio-bindings-only`, `--minimap-binding-only` and
+> `--social-tab-bindings-only`. The full `interface-wire-check` run still stops at
+> `parity/snapshots/current/benilla.source.zip`, which is absent on this machine —
+> pre-existing and unrelated. NOT verified: any of this in a live world. Rebinding
+> a gesture, the capture refusals, and the free-view wheel need owner play-testing.
+> The parity registry `systems/bindings` records the two categories as a
+> deliberate deviation from its `must-match` policy.
+
 # CRPG/RTS Mode — WIP (updated 2026-08-29)
 
 > **2026-08-15 MMO FACTION CONTROL-GROUP UPDATE:** source now includes

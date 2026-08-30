@@ -8,6 +8,7 @@ internal static class BindingChordClinicalChecks
     {
         CheckCodecAndFallback();
         CheckUnboundIsNotTheZeroKey();
+        CheckCrpgRtsChordExtensions();
         CheckZeroKeyPoisonRepair();
         CheckRuntimeSourceFence();
     }
@@ -109,9 +110,15 @@ internal static class BindingChordClinicalChecks
     private static void CheckUnboundIsNotTheZeroKey()
     {
         BindingChord unbound = default;
-        Check(!unbound.IsBound && !new BindingChord(Key.Unknown).IsBound &&
-              !new BindingChord(Key.Unknown, Alt: true, Control: true, Shift: true).IsBound,
+        Check(!unbound.IsBound && !new BindingChord(Key.Unknown).IsBound,
             "default/Key.Unknown chord reads as bound again - unbound is a phantom key");
+        // A phantom key CARRYING MODIFIERS is a different thing and is deliberately bound: it
+        // is MSUI's held-modifier command (RTS Controls / Cast Card Ability on Primary), whose
+        // base input is whatever the ability itself is bound to. What the repair above actually
+        // protects - that unbound canonicalises to "" and never to the zero key - is unchanged,
+        // and is asserted below and again in the modifier round trip.
+        Check(new BindingChord(Key.Unknown, Alt: true, Control: true, Shift: true).IsBound,
+            "a bare modifier ladder stopped being bindable - the self-cast modifier is dead");
         Check(BindingChordLaw.Canonical(unbound).Length == 0 &&
               BindingChordLaw.Canonical(new BindingChord(Key.Unknown)).Length == 0,
             "an unbound slot canonicalises to a key token again - saving poisons the file");
@@ -134,6 +141,70 @@ internal static class BindingChordClinicalChecks
             BindingChordLaw.TryParse(BindingChordLaw.Canonical(default), out BindingChord slot);
             return slot != BindingChordLaw.Live(Key.Number0, false, false, false);
         }
+    }
+
+    /// <summary>
+    /// MSUI's two chord extensions: the vanilla BUTTON1/BUTTON2 tokens, which carry the free
+    /// view's world-click gestures, and the bare modifier ladder behind the self-cast command.
+    /// Both have to survive a save/load round trip, and neither may be confusable with unbound.
+    /// </summary>
+    private static void CheckCrpgRtsChordExtensions()
+    {
+        BindingChord gesture = BindingChordLaw.LivePointer(BindingPointerKey.Button1,
+            true, false, false);
+        Check(BindingChordLaw.Canonical(gesture) == "ALT-BUTTON1" &&
+              BindingChordLaw.TryParse("ALT-BUTTON1", out BindingChord parsedGesture) &&
+              parsedGesture == gesture &&
+              BindingChordLaw.Display(gesture, key => key.ToString()) == "ALT-Left Mouse",
+            "Alt+Left Mouse stopped round-tripping - the take-control gesture cannot be saved");
+        Check(BindingChordLaw.TryParse("SHIFT-BUTTON2", out BindingChord queue) &&
+              queue.Pointer == BindingPointerKey.Button2 && queue.Shift && queue.Key == Key.Unknown,
+            "Shift+Right Mouse stopped round-tripping - chain waypoints cannot be saved");
+        Check(RtsBindingLaw.IsWorldClickButton(BindingPointerKey.Button1) &&
+              RtsBindingLaw.IsWorldClickButton(BindingPointerKey.Button2) &&
+              !RtsBindingLaw.IsWorldClickButton(BindingPointerKey.Button3),
+            "the world-click button set drifted");
+
+        BindingChord modifier = new(Key.Unknown, Alt: true);
+        Check(modifier.IsBound && BindingChordLaw.IsModifierOnly(modifier) &&
+              BindingChordLaw.Canonical(modifier) == "ALT" &&
+              BindingChordLaw.TryParse("ALT", out BindingChord parsedModifier) &&
+              parsedModifier == modifier,
+            "the bare Alt modifier stopped round-tripping");
+        Check(BindingChordLaw.TryParse("CTRL-SHIFT", out BindingChord ladder) &&
+              BindingChordLaw.IsModifierOnly(ladder) && ladder.Control && ladder.Shift &&
+              !ladder.Alt && BindingChordLaw.Canonical(ladder) == "CTRL-SHIFT",
+            "a two-modifier ladder stopped round-tripping");
+        Check(!BindingChordLaw.IsModifierOnly(default) &&
+              !BindingChordLaw.IsModifierOnly(BindingChordLaw.Live(Key.Z, true, false, false)),
+            "unbound or an ordinary Alt+key chord is being read as a bare modifier");
+
+        // Capture may only seat a chord the command can READ, or the row is decorative.
+        Check(RtsBindingLaw.Accepts(BindingInputKind.Pointer, gesture) &&
+              !RtsBindingLaw.Accepts(BindingInputKind.Pointer, modifier) &&
+              RtsBindingLaw.Accepts(BindingInputKind.Modifier, modifier) &&
+              !RtsBindingLaw.Accepts(BindingInputKind.Modifier, gesture) &&
+              !RtsBindingLaw.Accepts(BindingInputKind.Any, gesture) &&
+              !RtsBindingLaw.Accepts(BindingInputKind.Any, modifier) &&
+              RtsBindingLaw.Accepts(BindingInputKind.Any,
+                  BindingChordLaw.Live(Key.Z, false, true, false)),
+            "a Key Bindings row can seat a chord its command cannot read");
+
+        // Gesture matching is EXACT: a stray extra modifier must not fall back onto a
+        // different order. Alt+Shift+Left is neither take-control nor add-to-selection.
+        Check(RtsBindingLaw.ClaimsPointer(gesture, BindingPointerKey.Button1,
+                  true, false, false) &&
+              !RtsBindingLaw.ClaimsPointer(gesture, BindingPointerKey.Button1,
+                  true, false, true) &&
+              !RtsBindingLaw.ClaimsPointer(gesture, BindingPointerKey.Button2,
+                  true, false, false),
+            "world-click gesture matching stopped being exact");
+
+        // Held modifiers are NOT exclusive: the binding underneath may carry its own.
+        Check(RtsBindingLaw.ModifierHeld(modifier, true, true, false) &&
+              !RtsBindingLaw.ModifierHeld(modifier, false, true, true) &&
+              !RtsBindingLaw.ModifierHeld(gesture, true, false, false),
+            "held-modifier matching drifted");
     }
 
     /// <summary>
@@ -231,7 +302,12 @@ internal static class BindingChordClinicalChecks
               bindings.Contains("CommitSelection(nearest.Guid, beginAttack: true)",
                   StringComparison.Ordinal),
             "binding storage or exact-first/fallback runtime dispatch escaped the chord law");
-        Check(page.Contains("FirstBindableChordDown()", StringComparison.Ordinal) &&
+        // The capture now takes the row's input KIND: an ordinary command refuses the world
+        // click buttons, a gesture row requires one, and a modifier row takes a bare ladder.
+        Check(page.Contains("FirstBindableChordDown(BindingInputKind kind)", StringComparison.Ordinal) &&
+              page.Contains("RtsBindingLaw.Accepts(captureKind, pressed)", StringComparison.Ordinal) &&
+              page.Contains("BindingPointerKey.Button1", StringComparison.Ordinal) &&
+              page.Contains("BindingPointerKey.Button2", StringComparison.Ordinal) &&
               page.Contains("!BindingChordLaw.IsModifier(key)", StringComparison.Ordinal) &&
               page.Contains("InputKeyDown(Key.SuperLeft)", StringComparison.Ordinal) &&
               page.Contains("BindingPointerKey.Button3", StringComparison.Ordinal) &&

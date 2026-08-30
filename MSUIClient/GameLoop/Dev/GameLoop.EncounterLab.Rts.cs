@@ -220,8 +220,8 @@ public sealed partial class GameLoop
     private bool HandleEncounterWaypointOrient(WorldMouseClick click)
     {
         if (!_encounterLabOpen || !_freeView) return false;
-        if (click.Button != MouseButton.Right || !click.ShiftDown ||
-            click.CtrlDown || click.AltDown) return false;
+        // Chain Waypoint (RTS Controls, Shift+Right Mouse by default), for the same reason.
+        if (!BindingClaimsClick(GameBinding.RtsOrderQueueWaypoint, click)) return false;
         if (!TryPickEncounterWaypoint(click.Position, out string key, out int leg, out bool staged))
             return false;
 
@@ -419,8 +419,10 @@ public sealed partial class GameLoop
     private bool HandleEncounterOrbitGrab(WorldMouseClick click, ulong pickedUnit)
     {
         if (!_encounterLabOpen || !_freeView) return false;
-        if (click.Button != MouseButton.Left || !click.ShiftDown ||
-            click.CtrlDown || click.AltDown) return false;
+        // The world's own Add to Selection gesture (RTS Controls, Shift+Left Mouse by
+        // default) - asked as a binding so the Lab cannot disagree with the free view about
+        // what a shift-click is once the player reseats it.
+        if (!BindingClaimsClick(GameBinding.RtsSelectAdd, click)) return false;
         if (_encounterSim is not { } sim || sim.Boss is not { } boss) return false;
         if (EncounterRaidPuppetKey(pickedUnit) is not { } key) return false;
         if (sim.Actors.FirstOrDefault(a => a.Key == key) is not { } actor) return false;

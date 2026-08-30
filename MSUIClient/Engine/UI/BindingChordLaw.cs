@@ -10,6 +10,13 @@ public enum BindingPointerKey
     Button5,
     WheelUp,
     WheelDown,
+    // The left and right buttons are LAST because they are not ordinary command inputs.
+    // Vanilla names them BUTTON1/BUTTON2 and MSUI's RTS/CRPG gestures are authored on them,
+    // but they are deliberately kept OUT of the global latch scan in GameLoop.Bindings.cs -
+    // they are camera look and ImGui's own click source. They resolve only against a captured
+    // WorldMouseClick, through RtsBindingLaw. See BindingClaimsClick.
+    Button1,
+    Button2,
 }
 
 /// <summary>One canonical 1.12 keyboard or mouse chord. Super/Cmd is not representable.</summary>
@@ -34,8 +41,14 @@ public readonly record struct BindingChord(Key Key, bool Alt = false, bool Contr
     /// Reported 2026-08-26: rebinding the inventory key showed the displaced command sitting on
     /// "0", and the client had to be restarted.
     /// </summary>
+    /// <remarks>
+    /// A chord carrying ONLY modifiers is also bound: MSUI's RTS/CRPG grammar has genuine
+    /// held-modifier commands ("which modifier casts a card ability on the primary"), whose
+    /// base input is whatever key the ability itself is bound to. default(BindingChord) is
+    /// still unbound - every modifier flag defaults to false - so the repair above is intact.
+    /// </remarks>
     public bool IsBound => Pointer != BindingPointerKey.None ||
-        (Key != Key.Unknown && Key != default);
+        (Key != Key.Unknown && Key != default) || Alt || Control || Shift;
 }
 
 public static class BindingChordLaw
@@ -96,9 +109,27 @@ public static class BindingChordLaw
             savedKeys[slotIndex] != ZeroKeyToken) return false;
         return slotIndex > 0 || (savedKeys.Length > 1 && savedKeys[1] == ZeroKeyToken);
     }
+    /// <summary>A chord with modifiers and no base input - the held-modifier commands.</summary>
+    public static bool IsModifierOnly(in BindingChord chord) =>
+        chord.Pointer == BindingPointerKey.None &&
+        (chord.Key == Key.Unknown || chord.Key == default) &&
+        (chord.Alt || chord.Control || chord.Shift);
+
+    /// <summary>ALT / CTRL-SHIFT / ... - the prefix ladder standing alone, so it round-trips
+    /// through the very same prefix loop <see cref="TryParse"/> already runs.</summary>
+    private static string ModifierToken(in BindingChord chord)
+    {
+        var parts = new List<string>(3);
+        if (chord.Alt) parts.Add("ALT");
+        if (chord.Control) parts.Add("CTRL");
+        if (chord.Shift) parts.Add("SHIFT");
+        return string.Join('-', parts);
+    }
+
     public static string Canonical(in BindingChord chord)
     {
         if (!chord.IsBound) return "";
+        if (IsModifierOnly(chord)) return ModifierToken(chord);
         string prefix = chord.Alt ? "ALT-" : "";
         if (chord.Control) prefix += "CTRL-";
         if (chord.Shift) prefix += "SHIFT-";
@@ -143,6 +174,13 @@ public static class BindingChordLaw
             chord = LivePointer(pointer, alt, control, shift);
             return true;
         }
+        // A bare modifier ladder: the loop above ate "ALT-" and left "CTRL", or ate everything
+        // and left "". Either way this is a held-modifier command, not a malformed key.
+        if (TryTokenModifier(rest, ref alt, ref control, ref shift))
+        {
+            chord = new(Key.Unknown, alt, control, shift);
+            return chord.IsBound;
+        }
         if (!TryTokenKey(rest, out Key key) &&
             !Enum.TryParse(rest, ignoreCase: true, out key)) return false;
         if (key == Key.Unknown || IsModifier(key)) return false;
@@ -154,6 +192,7 @@ public static class BindingChordLaw
     {
         ArgumentNullException.ThrowIfNull(baseLabel);
         if (!chord.IsBound) return "Not Bound";
+        if (IsModifierOnly(chord)) return ModifierToken(chord);
         string prefix = chord.Alt ? "ALT-" : "";
         if (chord.Control) prefix += "CTRL-";
         if (chord.Shift) prefix += "SHIFT-";
@@ -163,6 +202,8 @@ public static class BindingChordLaw
 
     public static string PointerToken(BindingPointerKey pointer) => pointer switch
     {
+        BindingPointerKey.Button1 => "BUTTON1",
+        BindingPointerKey.Button2 => "BUTTON2",
         BindingPointerKey.Button3 => "BUTTON3",
         BindingPointerKey.Button4 => "BUTTON4",
         BindingPointerKey.Button5 => "BUTTON5",
@@ -173,6 +214,8 @@ public static class BindingChordLaw
 
     public static string PointerLabel(BindingPointerKey pointer) => pointer switch
     {
+        BindingPointerKey.Button1 => "Left Mouse",
+        BindingPointerKey.Button2 => "Right Mouse",
         BindingPointerKey.Button3 => "Middle Mouse",
         BindingPointerKey.Button4 => "Mouse Button 4",
         BindingPointerKey.Button5 => "Mouse Button 5",
@@ -241,10 +284,25 @@ public static class BindingChordLaw
         return false;
     }
 
+    private static bool TryTokenModifier(string token, ref bool alt, ref bool control,
+        ref bool shift)
+    {
+        switch (token.ToUpperInvariant())
+        {
+            case "": return alt || control || shift;
+            case "ALT": alt = true; return true;
+            case "CTRL": control = true; return true;
+            case "SHIFT": shift = true; return true;
+            default: return false;
+        }
+    }
+
     private static bool TryTokenPointer(string token, out BindingPointerKey pointer)
     {
         pointer = token.ToUpperInvariant() switch
         {
+            "BUTTON1" => BindingPointerKey.Button1,
+            "BUTTON2" => BindingPointerKey.Button2,
             "BUTTON3" => BindingPointerKey.Button3,
             "BUTTON4" => BindingPointerKey.Button4,
             "BUTTON5" => BindingPointerKey.Button5,

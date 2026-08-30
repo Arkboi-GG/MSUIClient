@@ -30,6 +30,13 @@ public sealed partial class GameLoop
             else ToggleWorldMap();
         }
         _worldMapKeyWasDown = down;
+
+        // The dedicated Commander Map command (RTS Controls) ships UNBOUND: the free-view
+        // overload above is how that map has always opened, and this is simply the seat for a
+        // player who would rather not overload their World Map key.
+        if (BindingPressedEdge(GameBinding.RtsCommanderMap, typing) &&
+            _freeView && _net is { IsInWorld: true })
+            ToggleCommanderMap();
     }
 
     private void ToggleWorldMap()

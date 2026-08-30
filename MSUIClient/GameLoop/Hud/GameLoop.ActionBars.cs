@@ -73,7 +73,7 @@ public sealed partial class GameLoop
     {
         for (int i = 0; i < _actionKeyWasDown.Length; i++)
         {
-            bool altPrimaryCast = RtsAltAbilityBindingDown(ActionBinding(i));
+            bool altPrimaryCast = RtsCastOnPrimaryBindingDown(ActionBinding(i));
             bool down = BindingDown(ActionBinding(i)) || altPrimaryCast;
             if (down && !_actionKeyWasDown[i] && !typing &&
                 !RtsControlGroupClaimsBinding(ActionBinding(i)))

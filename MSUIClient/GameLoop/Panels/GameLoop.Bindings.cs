@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Numerics;
 using Silk.NET.Input;
+using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
 using MSUIClient.Net;
 
@@ -46,7 +47,33 @@ public sealed partial class GameLoop
         MultiActionBar2Button10, MultiActionBar2Button11, MultiActionBar2Button12,
         RaidTarget1, RaidTarget2, RaidTarget3, RaidTarget4, RaidTarget5,
         RaidTarget6, RaidTarget7, RaidTarget8, RaidTargetNone,
+
+        // MSUI's own CRPG/RTS commands. They are APPENDED, never interleaved: the
+        // ShapeshiftButton1..BonusActionButton10 RANGE above is what ResetBindingsToDefaults
+        // stamps Control:true across, so anything landing inside it would silently default to
+        // a Ctrl chord. Their real defaults are assigned explicitly after that loop.
+        //
+        // Save/Recall group runs stay CONTIGUOUS - RtsSaveGroupBinding/RtsRecallGroupBinding
+        // do index arithmetic across them, exactly like ActionBinding does over Action1..12.
+        RtsToggleFreeView, RtsCyclePrimaryNext, RtsCyclePrimaryPrevious,
+        RtsSelect, RtsSelectAdd, RtsOrderMove, RtsOrderQueueWaypoint,
+        RtsSaveGroup1, RtsSaveGroup2, RtsSaveGroup3, RtsSaveGroup4, RtsSaveGroup5,
+        RtsSaveGroup6, RtsSaveGroup7, RtsSaveGroup8, RtsSaveGroup9, RtsSaveGroup10,
+        RtsRecallGroup1, RtsRecallGroup2, RtsRecallGroup3, RtsRecallGroup4, RtsRecallGroup5,
+        RtsRecallGroup6, RtsRecallGroup7, RtsRecallGroup8, RtsRecallGroup9, RtsRecallGroup10,
+        RtsOrderFocus, RtsOrderRegroup, RtsOrderHold, RtsOrderPatrol,
+        RtsOrderFormationLine, RtsOrderFormationCircle, RtsOrderSheath,
+        RtsCommanderMap, RtsCastOnPrimary,
+        RtsRigForward, RtsRigBackward, RtsBoomZoomIn, RtsBoomZoomOut,
+        RtsEncounterLab, RtsUndoWaypoint,
+        CrpgCycleControlNext, CrpgCycleControlPrevious, CrpgTakeControl,
     }
+
+    private static GameBinding RtsSaveGroupBinding(int index) =>
+        (GameBinding)((int)GameBinding.RtsSaveGroup1 + Math.Clamp(index, 0, 9));
+
+    private static GameBinding RtsRecallGroupBinding(int index) =>
+        (GameBinding)((int)GameBinding.RtsRecallGroup1 + Math.Clamp(index, 0, 9));
 
     private static readonly (string Category, GameBinding Binding, string Label, Key Default)[] BindingRows =
     [
@@ -175,6 +202,56 @@ public sealed partial class GameLoop
         ("Raid Targeting", GameBinding.RaidTarget7, "Assign Cross to Target", Key.Unknown),
         ("Raid Targeting", GameBinding.RaidTarget8, "Assign Skull to Target", Key.Unknown),
         ("Raid Targeting", GameBinding.RaidTargetNone, "Clear Raid Target Icon", Key.Unknown),
+        // MSUI extension. Every row here carries Key.Unknown because its real default is a
+        // CHORD (Ctrl+F, Shift+Button1, Alt+MouseWheelUp, a bare Alt), which this four-column
+        // table cannot spell; ResetBindingsToDefaults assigns them explicitly below. Commands
+        // that have no key at all today - the seven command-card orders, the commander map -
+        // ship genuinely unbound, so nothing a player already presses changes meaning.
+        ("RTS Controls", GameBinding.RtsToggleFreeView, "Free View (Commander Camera)", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsSelect, "Select / Marquee Drag", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsSelectAdd, "Add to Selection / Queue Attack", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsOrderMove, "Move / Attack Order", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsOrderQueueWaypoint, "Chain Waypoint / Orient", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsCyclePrimaryNext, "Next Command Card", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsCyclePrimaryPrevious, "Previous Command Card", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsSaveGroup1, "Save Control Group 1", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsSaveGroup2, "Save Control Group 2", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsSaveGroup3, "Save Control Group 3", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsSaveGroup4, "Save Control Group 4", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsSaveGroup5, "Save Control Group 5", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsSaveGroup6, "Save Control Group 6", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsSaveGroup7, "Save Control Group 7", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsSaveGroup8, "Save Control Group 8", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsSaveGroup9, "Save Control Group 9", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsSaveGroup10, "Save Control Group 0", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsRecallGroup1, "Select Control Group 1", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsRecallGroup2, "Select Control Group 2", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsRecallGroup3, "Select Control Group 3", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsRecallGroup4, "Select Control Group 4", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsRecallGroup5, "Select Control Group 5", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsRecallGroup6, "Select Control Group 6", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsRecallGroup7, "Select Control Group 7", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsRecallGroup8, "Select Control Group 8", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsRecallGroup9, "Select Control Group 9", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsRecallGroup10, "Select Control Group 0", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsOrderFocus, "Order: Focus Target", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsOrderRegroup, "Order: Regroup", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsOrderHold, "Order: Hold Position", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsOrderPatrol, "Order: Patrol", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsOrderFormationLine, "Order: Line Formation", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsOrderFormationCircle, "Order: Circle Formation", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsOrderSheath, "Order: Sheathe/Draw Weapons", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsCommanderMap, "Commander Map", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsCastOnPrimary, "Modifier: Cast Card Ability on Primary", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsRigForward, "Fly Camera Forward", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsRigBackward, "Fly Camera Back", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsBoomZoomIn, "Commander Zoom In", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsBoomZoomOut, "Commander Zoom Out", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsEncounterLab, "Encounter Lab", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsUndoWaypoint, "Undo Waypoint", Key.Unknown),
+        ("CRPG Controls", GameBinding.CrpgTakeControl, "Take Direct Control", Key.Unknown),
+        ("CRPG Controls", GameBinding.CrpgCycleControlNext, "Control Next Character", Key.Unknown),
+        ("CRPG Controls", GameBinding.CrpgCycleControlPrevious, "Control Previous Character", Key.Unknown),
     ];
 
     private readonly record struct BindingPair(BindingChord Primary, BindingChord Secondary)
@@ -398,6 +475,94 @@ public sealed partial class GameLoop
             new BindingChord(Key.Equal, Control: true), default);
         _bindings[GameBinding.MasterVolumeDown] = new(
             new BindingChord(Key.Minus, Control: true), default);
+
+        // ── MSUI CRPG/RTS defaults ───────────────────────────────────────────────────────
+        // These reproduce EXACTLY the chords that were hard-coded before they became bindable,
+        // so a player who never opens Key Bindings notices no change. Duplicates below are
+        // deliberate and mode-separated, matching how the hard-coded versions already behaved:
+        //   Tab            RtsCyclePrimaryNext (free view) vs TargetNearestEnemy (body) -
+        //                  UpdateTargetBinding already refuses to tab-target in the free view.
+        //   Ctrl+digit     RtsSaveGroupN vs BonusActionButtonN, separated by
+        //                  RtsControlGroupClaimsBinding.
+        //   Wheel          RtsRigForward/Back vs CameraZoomIn/Out, and the camera zoom
+        //                  bindings are already gated off while the free view is up.
+        // (The shipped table already carries such pairs - ToggleMusic and OpenWorldMap are
+        // both M - so this is the established idiom, not a new one.)
+        _bindings[GameBinding.RtsToggleFreeView] = new(
+            new BindingChord(Key.F, Control: true), default);
+        _bindings[GameBinding.RtsCyclePrimaryNext] = new(new BindingChord(Key.Tab), default);
+        _bindings[GameBinding.RtsCyclePrimaryPrevious] = new(
+            new BindingChord(Key.Tab, Shift: true), default);
+        _bindings[GameBinding.RtsSelect] = new(
+            BindingChordLaw.LivePointer(BindingPointerKey.Button1, false, false, false), default);
+        _bindings[GameBinding.RtsSelectAdd] = new(
+            BindingChordLaw.LivePointer(BindingPointerKey.Button1, false, false, true), default);
+        _bindings[GameBinding.RtsOrderMove] = new(
+            BindingChordLaw.LivePointer(BindingPointerKey.Button2, false, false, false), default);
+        _bindings[GameBinding.RtsOrderQueueWaypoint] = new(
+            BindingChordLaw.LivePointer(BindingPointerKey.Button2, false, false, true), default);
+        _bindings[GameBinding.RtsSaveGroup1] = new(
+            new BindingChord(Key.Number1, Control: true), default);
+        _bindings[GameBinding.RtsSaveGroup2] = new(
+            new BindingChord(Key.Number2, Control: true), default);
+        _bindings[GameBinding.RtsSaveGroup3] = new(
+            new BindingChord(Key.Number3, Control: true), default);
+        _bindings[GameBinding.RtsSaveGroup4] = new(
+            new BindingChord(Key.Number4, Control: true), default);
+        _bindings[GameBinding.RtsSaveGroup5] = new(
+            new BindingChord(Key.Number5, Control: true), default);
+        _bindings[GameBinding.RtsSaveGroup6] = new(
+            new BindingChord(Key.Number6, Control: true), default);
+        _bindings[GameBinding.RtsSaveGroup7] = new(
+            new BindingChord(Key.Number7, Control: true), default);
+        _bindings[GameBinding.RtsSaveGroup8] = new(
+            new BindingChord(Key.Number8, Control: true), default);
+        _bindings[GameBinding.RtsSaveGroup9] = new(
+            new BindingChord(Key.Number9, Control: true), default);
+        _bindings[GameBinding.RtsSaveGroup10] = new(
+            new BindingChord(Key.Number0, Control: true), default);
+        _bindings[GameBinding.RtsRecallGroup1] = new(
+            new BindingChord(Key.Number1, Shift: true), default);
+        _bindings[GameBinding.RtsRecallGroup2] = new(
+            new BindingChord(Key.Number2, Shift: true), default);
+        _bindings[GameBinding.RtsRecallGroup3] = new(
+            new BindingChord(Key.Number3, Shift: true), default);
+        _bindings[GameBinding.RtsRecallGroup4] = new(
+            new BindingChord(Key.Number4, Shift: true), default);
+        _bindings[GameBinding.RtsRecallGroup5] = new(
+            new BindingChord(Key.Number5, Shift: true), default);
+        _bindings[GameBinding.RtsRecallGroup6] = new(
+            new BindingChord(Key.Number6, Shift: true), default);
+        _bindings[GameBinding.RtsRecallGroup7] = new(
+            new BindingChord(Key.Number7, Shift: true), default);
+        _bindings[GameBinding.RtsRecallGroup8] = new(
+            new BindingChord(Key.Number8, Shift: true), default);
+        _bindings[GameBinding.RtsRecallGroup9] = new(
+            new BindingChord(Key.Number9, Shift: true), default);
+        _bindings[GameBinding.RtsRecallGroup10] = new(
+            new BindingChord(Key.Number0, Shift: true), default);
+        // A bare modifier: the base input is whatever the ability's OWN action-bar binding is,
+        // so this command can only be spelled as the modifier that changes what that press means.
+        _bindings[GameBinding.RtsCastOnPrimary] = new(
+            new BindingChord(Key.Unknown, Alt: true), default);
+        _bindings[GameBinding.RtsRigForward] = new(
+            BindingChordLaw.LivePointer(BindingPointerKey.WheelUp, false, false, false), default);
+        _bindings[GameBinding.RtsRigBackward] = new(
+            BindingChordLaw.LivePointer(BindingPointerKey.WheelDown, false, false, false), default);
+        _bindings[GameBinding.RtsBoomZoomIn] = new(
+            BindingChordLaw.LivePointer(BindingPointerKey.WheelUp, true, false, false), default);
+        _bindings[GameBinding.RtsBoomZoomOut] = new(
+            BindingChordLaw.LivePointer(BindingPointerKey.WheelDown, true, false, false), default);
+        _bindings[GameBinding.RtsEncounterLab] = new(
+            new BindingChord(Key.E, Control: true), default);
+        _bindings[GameBinding.RtsUndoWaypoint] = new(
+            new BindingChord(Key.Z, Control: true), default);
+        _bindings[GameBinding.CrpgTakeControl] = new(
+            BindingChordLaw.LivePointer(BindingPointerKey.Button1, true, false, false), default);
+        _bindings[GameBinding.CrpgCycleControlNext] = new(
+            new BindingChord(Key.Tab, Control: true), default);
+        _bindings[GameBinding.CrpgCycleControlPrevious] = new(
+            new BindingChord(Key.Tab, Control: true, Shift: true), default);
     }
 
     private Key BoundKey(GameBinding binding)
@@ -418,6 +583,113 @@ public sealed partial class GameLoop
         return _bindingLatches.Values.Any(active => active.Contains(binding)) ||
             _bindingPointerLatches.Values.Any(active => active.Contains(binding)) ||
             _bindingPointerPulse.Contains(binding);
+    }
+
+    // ── MSUI CRPG/RTS binding queries ────────────────────────────────────────────────────
+    // Three commands the global latch cannot answer, and why:
+    //   Pointer  - Button1/Button2 are camera look and ImGui's click source, so they are kept
+    //              out of UpdateBindingLatches entirely and resolved against a captured click.
+    //   Modifier - a bare modifier ladder has no base input to latch on.
+    //   Wheel    - the free view spends its wheel through ClientWindow.TakeFreeFlightScroll,
+    //              a separate accumulator from BindingWheelDelta, so the chord is matched
+    //              against live modifiers beside that tick rather than pulsed.
+
+    /// <summary>What a row may be bound to. Everything shipped is <see cref="BindingInputKind.Any"/>;
+    /// only MSUI's own gesture and modifier commands deviate.</summary>
+    private static BindingInputKind BindingKindOf(GameBinding binding) => binding switch
+    {
+        GameBinding.RtsSelect or GameBinding.RtsSelectAdd or GameBinding.RtsOrderMove or
+        GameBinding.RtsOrderQueueWaypoint or GameBinding.CrpgTakeControl =>
+            BindingInputKind.Pointer,
+        GameBinding.RtsCastOnPrimary => BindingInputKind.Modifier,
+        _ => BindingInputKind.Any,
+    };
+
+    /// <summary>Does this command own the click that was just delivered? Uses the modifier
+    /// state captured WITH the gesture, never the live keyboard: a queued release is drained
+    /// a frame or more after the press that classified it.</summary>
+    private bool BindingClaimsClick(GameBinding binding, in WorldMouseClick click)
+    {
+        BindingPair pair = BoundKeys(binding);
+        BindingPointerKey button = RtsBindingLaw.PointerFor(click.Button);
+        // Copied out of the `in` parameter: a local function may not capture one.
+        (bool alt, bool control, bool shift) = (click.AltDown, click.CtrlDown, click.ShiftDown);
+        return Claims(pair.Primary) || Claims(pair.Secondary);
+
+        bool Claims(in BindingChord chord) =>
+            RtsBindingLaw.ClaimsPointer(chord, button, alt, control, shift);
+    }
+
+    /// <summary>Is this command's held modifier down right now?</summary>
+    private bool BindingModifierHeld(GameBinding binding)
+    {
+        BindingPair pair = BoundKeys(binding);
+        return Held(pair.Primary) || Held(pair.Secondary);
+
+        bool Held(in BindingChord chord) =>
+            RtsBindingLaw.ModifierHeld(chord, AltHeld(), CtrlHeld(), ShiftHeld());
+    }
+
+    /// <summary>
+    /// Does this command own <paramref name="pointer"/> under the modifiers held RIGHT NOW?
+    /// For the two callers that have no captured click to consult: the free view's wheel
+    /// (spent through a separate accumulator) and the party portraits (an ImGui hit, not a
+    /// world click).
+    /// </summary>
+    private bool BindingClaimsPointerNow(GameBinding binding, BindingPointerKey pointer)
+    {
+        BindingPair pair = BoundKeys(binding);
+        return Claims(pair.Primary) || Claims(pair.Secondary);
+
+        bool Claims(in BindingChord chord) => RtsBindingLaw.ClaimsPointer(chord, pointer,
+            AltHeld(), CtrlHeld(), ShiftHeld());
+    }
+
+    /// <summary>
+    /// Which modifiers a held-modifier command claims. A chord sitting UNDER one has to ignore
+    /// exactly those and stay exact on the rest: Alt+2 must reach Action Button 2 while Alt is
+    /// the cast-on-primary modifier, and must stop reaching it the moment that command is
+    /// reseated onto Ctrl.
+    /// </summary>
+    private (bool Alt, bool Control, bool Shift) BindingModifierMask(GameBinding binding)
+    {
+        BindingPair pair = BoundKeys(binding);
+        bool alt = false, control = false, shift = false;
+        Fold(pair.Primary);
+        Fold(pair.Secondary);
+        return (alt, control, shift);
+
+        void Fold(in BindingChord chord)
+        {
+            if (!BindingChordLaw.IsModifierOnly(chord)) return;
+            alt |= chord.Alt;
+            control |= chord.Control;
+            shift |= chord.Shift;
+        }
+    }
+
+    /// <summary>The chord to SHOW for a command — what the player would actually press today.
+    /// Empty when the command is unbound, so hint lines can drop the clause entirely.</summary>
+    private string BindingHint(GameBinding binding)
+    {
+        BindingPair pair = BoundKeys(binding);
+        string primary = FriendlyHotkey(pair.Primary);
+        return primary.Length > 0 ? primary : FriendlyHotkey(pair.Secondary);
+    }
+
+    private readonly HashSet<GameBinding> _bindingEdgeHeld = [];
+
+    /// <summary>
+    /// One press, once. The command set itself is already edge-resolved by the Held latch, so
+    /// this only has to remember whether the previous frame saw it - which is what every
+    /// hard-coded <c>*KeyWasDown</c> flag this replaces was doing by hand. Call at most once
+    /// per binding per frame.
+    /// </summary>
+    private bool BindingPressedEdge(GameBinding binding, bool typing)
+    {
+        bool down = !typing && BindingDown(binding);
+        bool was = down ? !_bindingEdgeHeld.Add(binding) : _bindingEdgeHeld.Remove(binding);
+        return down && !was;
     }
 
     /// <summary>

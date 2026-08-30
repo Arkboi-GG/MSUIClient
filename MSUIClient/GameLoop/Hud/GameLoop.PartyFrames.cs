@@ -670,9 +670,11 @@ public sealed partial class GameLoop
                 ClearPartyPress();
                 return;
             }
-            bool altHeld = InputKeyDown(Key.AltLeft) || InputKeyDown(Key.AltRight);
-            if (action == PartyPointerAction.Target && altHeld)
-                // Alt+click a party portrait = jump control to that bot (CRPG/RTS mode).
+            // Take Direct Control (CRPG Controls, Alt+Left Mouse by default) reaches the party
+            // portraits too — same command, second surface. The portrait is an ImGui hit rather
+            // than a world click, so the chord is matched against the live modifiers.
+            if (action == PartyPointerAction.Target &&
+                BindingClaimsPointerNow(GameBinding.CrpgTakeControl, BindingPointerKey.Button1))
                 SwitchControlTo(member.Guid);
             else if (action == PartyPointerAction.Target)
                 CommitSelection(member.Guid, beginAttack: false);

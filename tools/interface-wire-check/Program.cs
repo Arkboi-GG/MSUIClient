@@ -46,7 +46,7 @@ static void CheckRtsAbilityTargeting(SpellInfo seed)
     Check(shelf.Contains("RtsAbilityTargetLaw.Resolve(", StringComparison.Ordinal) &&
           shelf.Contains("CastPrimaryAbility(primary, spellId, explicitTarget: targetGuid);",
               StringComparison.Ordinal) &&
-          shelf.Contains("CastPrimaryAbility(guid, action.ActionId, AltHeld());",
+          shelf.Contains("BindingModifierHeld(GameBinding.RtsCastOnPrimary));",
               StringComparison.Ordinal) &&
           control.Contains("TryCommitRtsUnitCastTarget(pressPick.Armed",
               StringComparison.Ordinal) &&

@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using System.Diagnostics;
 using ImGuiNET;
 using Silk.NET.Input;
@@ -1708,13 +1708,16 @@ public sealed partial class GameLoop : IDisposable
         ObserveUiPanelOwnership();
 
         // F toggles free-fly. Edge-triggered so holding it doesn't strobe.
-        // Ctrl+F belongs to the CRPG free view (UpdateControlInput); without this
+        // The CRPG free view (UpdateControlInput) owns Ctrl+F by default; without this
         // exclusion the same press also flipped the local fly rig, and the two
         // toggles fought — most visibly as a floor-drop when leaving the free view.
-        // The edge tracker follows the physical key so releasing Ctrl first
+        // Ask the BINDING rather than testing Ctrl, so reseating Free View in Key Bindings
+        // moves both halves of that agreement together: whatever chord raises the free view
+        // stops raising the fly rig, and plain F keeps working the moment it is free again.
+        // The edge tracker follows the physical key so releasing a modifier first
         // doesn't retrigger the local toggle mid-hold.
         bool flyKey = InputKeyDown(Key.F);
-        bool flyCtrlHeld = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
+        bool flyCtrlHeld = BindingDown(GameBinding.RtsToggleFreeView);
         if (flyKey && !_flyKeyDown && !typing && !flyCtrlHeld)
         {
             _controller.Flying = !_controller.Flying;
@@ -1728,7 +1731,7 @@ public sealed partial class GameLoop : IDisposable
             // menu, a keybinding capture. Say which one, once per press, rather
             // than leaving "F stopped working" to be guessed at.
             Console.WriteLine("[move] F ignored - " +
-                (flyCtrlHeld ? "Ctrl is held (Ctrl+F is the CRPG free view)"
+                (flyCtrlHeld ? $"the CRPG free view owns this press ({BindingHint(GameBinding.RtsToggleFreeView)})"
                  : $"the keyboard is owned elsewhere (textInput={ImGui.GetIO().WantTextInput} " +
                    $"settings={_settingsOpen} bindingCapture={_bindingCapture is not null})"));
         }
