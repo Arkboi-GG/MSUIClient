@@ -19,6 +19,7 @@ internal static class GameplayImguiPolicyClinicalChecks
     /// </summary>
     private static readonly string[] EnrolledCleanFiles =
     [
+        "MSUIClient/GameLoop/Panels/GameLoop.PartyQuestLog.cs",
         "MSUIClient/GameLoop/Panels/GameLoop.RaidInfoPanel.cs",
         "MSUIClient/GameLoop/Panels/GameLoop.StablePanel.cs",
     ];

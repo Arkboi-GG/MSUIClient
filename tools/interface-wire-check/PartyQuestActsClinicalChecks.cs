@@ -120,11 +120,24 @@ internal static class PartyQuestActsClinicalChecks
 
         string partyLog = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.PartyQuestLog.cs"));
-        Check(partyLog.Contains("Abandon##party-quest-{guid}-{questId}",
+        Check(partyLog.Contains("VanillaButton(dl, $\"##party-quest-abandon-{guid}-{questId}\", \"Abandon\"",
                   StringComparison.Ordinal) &&
               partyLog.Contains("_questAbandonConfirmation = new(guid, questId,",
                   StringComparison.Ordinal),
-            "Party Quest Log must expose per-character abandonment through the shared confirmation");
+            "Party Quest Log must expose per-character abandonment through the shared " +
+            "confirmation, on vanilla button art — an ImGui.Button in a gameplay frame " +
+            "is banned by GameplayImguiPolicyLaw");
+
+        // A rewarded row is reported so the grid can say "completed"; offering it an
+        // Abandon asks the server to remove a quest its owner already turned in.
+        Check(partyLog.Contains("private bool PartyQuestMayAbandon(ulong guid, in PartyQuestCell cell) =>",
+                  StringComparison.Ordinal) &&
+              partyLog.Contains("cell.Held && !cell.Rewarded &&", StringComparison.Ordinal) &&
+              partyLog.Contains("IsRtsGroupableBot(guid) && _partyQuestActsAvailable",
+                  StringComparison.Ordinal) &&
+              partyLog.Contains("if (PartyQuestMayAbandon(guid, cell))", StringComparison.Ordinal),
+            "the Party Quest Log may only offer Abandon for a quest the subject still " +
+            "holds, and only where the abandon can actually be routed");
         Check(quest.Contains("ResetQuestPartyRail();", StringComparison.Ordinal),
             "closing the questgiver frame must clear the rail's per-member reward " +
             "picks, or they leak into the next quest");

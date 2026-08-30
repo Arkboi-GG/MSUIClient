@@ -124,6 +124,11 @@ internal static class PartyQuestClinicalChecks
             "else dropped with an honest log line");
         Check(questFacts.Contains("counters | (state << 24), entry.Timer", StringComparison.Ordinal),
             "party quest deadlines must survive projection into the displayed quest log");
+        Check(questFacts.Contains("if (entry.QuestId == 0 || entry.Rewarded ||",
+                  StringComparison.Ordinal),
+            "a REWARDED entry carries no log slot and must never be projected into a " +
+            "quest log — it is reported only so a party view can say \"completed\", and " +
+            "projecting it invents a phantom overflow quest that can be abandoned");
 
         Check(questFacts.Contains("if (!_partyQuestFactsAvailable || _net is not { IsInWorld: true }) return false;",
                   StringComparison.Ordinal) &&

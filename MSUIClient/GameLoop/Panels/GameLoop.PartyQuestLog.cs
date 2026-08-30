@@ -166,11 +166,18 @@ public sealed partial class GameLoop
     {
         if (quests.Length == 0)
         {
-            ImGui.SetCursorScreenPos(c0 + new Vector2(0, y) * scale);
-            ImGui.TextWrapped(_partyQuestFactsAvailable
+            string empty = _partyQuestFactsAvailable
                 ? "No quests held by anyone in the party yet."
-                : "This server has no party-quest-facts support — only your own log is readable.");
-            return y + 40f;
+                : "This server has no party-quest-facts support — only your own log is readable.";
+            foreach (string line in GameTooltipUiLaw.WrapText(empty,
+                         PartyQuestTitleColumnWidth + owners.Count * PartyQuestMemberColumnWidth,
+                         text => GameText.MeasureWidth("GameFontNormalSmall", text, scale) / scale))
+            {
+                GameText.Draw(dl, "GameFontNormalSmall", line,
+                    c0 + new Vector2(0, y) * scale, scale, 0xff9aa4ab);
+                y += 15f;
+            }
+            return y + 12f;
         }
 
         float rowWidth = PartyQuestTitleColumnWidth + owners.Count * PartyQuestMemberColumnWidth;
@@ -265,8 +272,8 @@ public sealed partial class GameLoop
 
         if (!_questTemplates.TryGetValue(questId, out QuestTemplate? template))
         {
-            ImGui.SetCursorScreenPos(c0 + new Vector2(0, y) * scale);
-            ImGui.TextDisabled("Retrieving quest details...");
+            GameText.Draw(dl, "GameFontNormalSmall", "Retrieving quest details...",
+                c0 + new Vector2(0, y) * scale, scale, 0xff9aa4ab);
             RequireQuestTemplate(questId);
             return y + 24f;
         }
@@ -278,18 +285,30 @@ public sealed partial class GameLoop
             GameText.Draw(dl, "GameFontNormalSmall",
                 guid == LocalPlayerGuid ? "You" : name,
                 c0 + new Vector2(0, y) * scale, scale, VanillaGold);
-            bool mayAbandon = guid == LocalPlayerGuid || IsRtsGroupableBot(guid);
-            if (mayAbandon)
+            if (PartyQuestMayAbandon(guid, cell))
             {
                 float buttonX = PartyQuestTitleColumnWidth +
                     owners.Count * PartyQuestMemberColumnWidth - 76f;
-                ImGui.SetCursorScreenPos(c0 + new Vector2(buttonX, y - 3f) * scale);
-                if (ImGui.Button($"Abandon##party-quest-{guid}-{questId}",
-                        new Vector2(72f, 18f) * scale))
+                if (VanillaButton(dl, $"##party-quest-abandon-{guid}-{questId}", "Abandon",
+                        c0 + new Vector2(buttonX, y - 3f) * scale, new Vector2(72f, 18f), scale,
+                        normalFont: "GameFontNormalSmall",
+                        highlightFont: "GameFontHighlightSmall",
+                        disabledFont: "GameFontDisableSmall"))
                     _questAbandonConfirmation = new(guid, questId,
                         _questTitles.GetValueOrDefault(questId, $"Quest {questId}"));
             }
             y += 20f;
+
+            // A turned-in quest is history, not work. It carries the Complete flag
+            // too, so left on the ordinary path it printed "Ready to turn in." under
+            // an Abandon for a quest its owner no longer holds.
+            if (cell.Rewarded)
+            {
+                GameText.Draw(dl, "GameFontNormalSmall", "Turned in.",
+                    c0 + new Vector2(12f, y) * scale, scale, 0xff5ab45a);
+                y += 19f;
+                continue;
+            }
             long? secondsLeft = QuestSecondsLeft(cell.Timer, cell.Failed ? (byte)2 : (byte)0);
             if (secondsLeft is not null)
             {
@@ -315,6 +334,18 @@ public sealed partial class GameLoop
         }
         return y;
     }
+
+    /// <summary>
+    /// Whose Abandon this panel may offer. A REWARDED entry is NOT a held quest —
+    /// the server sends it only so the grid can say "completed" for a member who has
+    /// already turned this quest in — so an Abandon there asks the server to remove
+    /// a quest nobody holds, and earns a refusal the player never asked for. A
+    /// companion's abandon rides the party-quest-acts wire, so without that
+    /// capability the button is not drawn at all rather than drawn to fail.
+    /// </summary>
+    private bool PartyQuestMayAbandon(ulong guid, in PartyQuestCell cell) =>
+        cell.Held && !cell.Rewarded &&
+        (guid == LocalPlayerGuid || (IsRtsGroupableBot(guid) && _partyQuestActsAvailable));
 
     /// <summary>
     /// One member's state for one quest. Your own column merges the two sources:

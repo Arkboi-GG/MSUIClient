@@ -107,7 +107,13 @@ public sealed partial class GameLoop
     {
         foreach (MemberQuestEntry entry in entries)
         {
-            if (entry.QuestId == 0 || !knownQuestIds.Add(entry.QuestId)) continue;
+            // A REWARDED entry is not a held quest. The server sends it only so a
+            // party view can say "completed" for a member who already turned this
+            // quest in, and it arrives with no log slot — so projecting it here
+            // manufactured a phantom OVERFLOW quest: listed in the player's own
+            // quest log, and abandonable, for a quest nobody holds any more.
+            if (entry.QuestId == 0 || entry.Rewarded ||
+                !knownQuestIds.Add(entry.QuestId)) continue;
             uint counters = 0;
             for (int i = 0; i < QuestFactsWire.ObjectivesPerQuest; i++)
                 counters |= (Math.Min(entry.ObjectiveCounts[i], (byte)63u) & 0x3fu) << (6 * i);

@@ -4530,5 +4530,9 @@ PartyQuestActsClinicalChecks.Run();
 PartyGiverStatusClinicalChecks.Run();
 PartyLeadClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
+// The ImGui-widget ratchet only ratchets if the DEFAULT run enforces it; behind
+// --imgui-policy-only alone, an enrolled panel could regress unnoticed.
+GameplayImguiPolicyClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: GameplayImguiPolicy PASS");
 
 Console.WriteLine("interface wire checks passed: minimap projection/area/zone + action icons + gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + social + trade + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding + gameplay-text fence");
