@@ -20,10 +20,9 @@ public static class PetMenuUiLaw
     public const string YesText = "Yes";
     public const string NoText = "No";
 
-    // PetFrame is an intentionally preserved MSUI surface. Its right-click affordance still
-    // belongs to a law: ImGui hosts this exact authored rectangle and does not size it.
-    public const float FrameWidth = 128f;
-    public const float FrameHeight = 42f;
+    // The frame rectangle the right-click affordance is hosted in now lives with the rest of
+    // the shipped PetFrame.xml geometry - see PetFrameUiLaw. It was 128x42 here, authored by
+    // eye; the file says 128x53.
 
     public readonly record struct PlainPopupLayout(
         float Width, float Height,

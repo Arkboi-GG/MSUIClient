@@ -77,11 +77,14 @@ public sealed partial class GameLoop
         _audioMixer.PollFinished();
         // A multi-companion order answers as a cascade; the tail plays from here.
         UpdateCompanionVoicePending();
-        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled && !_audioCompatibilityAnnounced)
+        if (!_audioCompatibilityAnnounced)
         {
             _audioCompatibilityAnnounced = true;
-            Console.WriteLine("[audio] known-clean producer set active; " +
-                              "expanded creature/GO/liquid emitters quarantined");
+            Console.WriteLine(AudioFeaturePolicy.ExpandedWorldAudioEnabled
+                ? "[audio] full producer set active (footsteps, creature/GO emitters, " +
+                  "melee, emotes, NPC greetings, chat and inventory cues)"
+                : "[audio] MSUI_EXPANDED_WORLD_AUDIO=0: world emitters quarantined, " +
+                  "music/ambience/spells/UI only");
         }
         UpdateGlueAudio();
 

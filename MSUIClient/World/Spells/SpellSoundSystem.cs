@@ -136,24 +136,48 @@ public sealed class SpellSoundSystem
         ulong unit, Vector3 source, Vector3 listener, bool forceLoop, bool trackHold,
         int? variation)
     {
-        SoundVariant variant = variation is int exact
-            ? _library.PickVariantAt(entry, exact)
-            : _library.PickVariant(entry);
         bool looping = forceLoop || entry.Looping;
-
-        // Replace this unit's own loop BEFORE the new one is requested, so the
-        // mixer runs the stop first and the two never overlap.
-        if (looping && trackHold && _holds.Remove(unit, out long held)) _mixer.Stop(held);
 
         Vector3 effectiveListener = _listenerSet ? _listenerPosition : listener;
         float gain = Gain(entry, source, effectiveListener) * _mixer.CategoryAmp(category);
+        if (gain <= 0f) return 0; // reference rejects inaudible cues before selection
         float pan = AudioFeaturePolicy.ExpandedWorldAudioEnabled &&
                     entry.CutoffDistance > 0f
             ? SpatialAudioLaw.Pan(source, effectiveListener, _listenerYaw) : 0f;
-        long voiceId = _mixer.Play(new AudioPlayRequest(
-            variant.Path, category, gain, looping,
-            RequestedCue: requestedCue, SoundId: entry.Id, Owner: unit, TrackHold: trackHold,
-            Pan: pan));
+
+        // The mixer owns the GLOBAL claim because world beds and liquid loops do
+        // not route through this class. Reserve before either variation or pitch
+        // RNG so a later request cannot overtake this one while its file decodes.
+        // Custom entries use id 0, for which their sole virtual path is the key.
+        long noDuplicateReservation = entry.NoDuplicates
+            ? _mixer.TryReserveNoDuplicate(entry.Id, entry.Variants[0].Path) : 0;
+        if (entry.NoDuplicates && noDuplicateReservation == 0) return 0;
+
+        long voiceId;
+        try
+        {
+            SoundVariant variant = variation is int exact
+                ? _library.PickVariantAt(entry, exact)
+                : _library.PickVariant(entry);
+
+            // Replace this unit's own loop BEFORE the new one is requested, so the
+            // mixer runs the stop first and the two never overlap.
+            if (looping && trackHold && _holds.Remove(unit, out long held)) Stop(held);
+
+            uint playbackFrequency = entry.VaryPitch
+                ? SoundVariationLaw.NextPitchFrequency() : 0;
+            voiceId = _mixer.Play(new AudioPlayRequest(
+                variant.Path, category, gain, looping,
+                RequestedCue: requestedCue, SoundId: entry.Id, Owner: unit,
+                TrackHold: trackHold, Pan: pan, PlaybackFrequency: playbackFrequency,
+                NoDuplicates: entry.NoDuplicates,
+                NoDuplicateReservation: noDuplicateReservation));
+        }
+        catch
+        {
+            _mixer.ReleaseNoDuplicateReservation(noDuplicateReservation);
+            throw;
+        }
         if (voiceId == 0) return 0;
 
         if (looping)
@@ -201,11 +225,9 @@ public sealed class SpellSoundSystem
                         voice.Entry.CutoffDistance > 0f
                 ? SpatialAudioLaw.Pan(position, effectiveListener, _listenerYaw) : 0f;
 
-            // Only when the quantized value moved. Every mciSendString is a
-            // synchronous cross-process call made on the one thread that also pumps
-            // DirectShow's notification window, so a standing looping voice
-            // re-sending an IDENTICAL volume every frame put a few hundred blocking
-            // calls a second in front of that pump.
+            // Only when the quantized value moved. The shared renderer glides to
+            // each new target; re-sending identical state every frame would only
+            // churn the control queue.
             int volume = (int)Math.Clamp(gain * 1000f, 0, 1000);
             int panLevel = (int)Math.Clamp(pan * 1000f, -1000f, 1000f);
             if (_sentVolume.TryGetValue(id, out var last) &&

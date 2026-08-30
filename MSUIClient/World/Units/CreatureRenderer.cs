@@ -85,6 +85,9 @@ public sealed partial class CreatureRenderer : IDisposable
     /// Wired to the live <see cref="Formats.EmoteCatalog"/> - same resolver the local
     /// player uses, so remote Dance resolves from the real DBC, not a static table.</summary>
     public Func<uint, int>? EmoteAnimResolver { get; set; }
+    /// <summary>Creature template TypeFlags by entry. Off-frustum animation event
+    /// tracks stay silent unless the reference's MORE_AUDIBLE bit (0x20) is set.</summary>
+    public Func<uint, uint?>? TypeFlagsFor { get; set; }
     /// <summary>rider/root guid, event-source display id, world-space feet.</summary>
     public Action<ulong, int, Vector3, float>? FootstepAnimationEvent { get; set; }
     public Action<ulong, int, Vector3, string>? CreatureAnimationSoundEvent { get; set; }
@@ -155,6 +158,7 @@ public sealed partial class CreatureRenderer : IDisposable
 
     private readonly Dictionary<ulong, float> _animTime = new();
     private readonly Dictionary<ulong, (int Sequence, float Time)> _footstepTime = [];
+    private readonly Dictionary<ulong, float> _animationEventOutOfViewSince = [];
     private readonly Dictionary<ulong, CombatAction> _combatActions = new();
     /// <summary>Edge-detect for the _combatActions movement-break rule below - see
     /// its comment (and CharacterRenderer.Update's matching one) for why this has
@@ -503,6 +507,8 @@ public sealed partial class CreatureRenderer : IDisposable
             // squares native sub-1 scales and makes wolves/critters tiny.
             float scale = UnitRenderScale(e.Scale, ScaleMultiplier);
             float heading = e.Orientation + heading0;
+            bool animationEventsElected = AnimationEventsElected(e, camPos, viewProj);
+            if (!animationEventsElected) ForgetAnimationEventClocks(e.Guid);
             bool prominentHighlight = ProminentSelectedGuids.Contains(e.Guid);
             bool highlighted = prominentHighlight || e.Guid == HoveredGuid ||
                 e.Guid == SelectedGuid || GroupSelectedGuids.Contains(e.Guid);
@@ -523,7 +529,8 @@ public sealed partial class CreatureRenderer : IDisposable
                     e.Spline?.AverageSpeed ?? 0f,
                     e.Speeds is { Length: > 0 } speeds ? speeds[0] : 0f,
                     e.Flying || e.Spline?.Flying == true,
-                    dt, highlighted, e.AuraVisual.Alpha, e.AuraVisual.Tint,
+                    dt, animationEventsElected, highlighted,
+                    e.AuraVisual.Alpha, e.AuraVisual.Tint,
                     e.AuraVisual.Frozen, out mount);
             else ForgetMount(e.Guid);
 
@@ -672,7 +679,7 @@ public sealed partial class CreatureRenderer : IDisposable
                 if (clip is not null)
                 {
                     pickClip = clip;
-                    if (!mounted)
+                    if (!mounted && animationEventsElected)
                         EmitFootstepEvents(e.Guid, e.DisplayId, e.Position,
                             e.Scale, model.Source, clip, at, mount: false);
                     boneCount = Math.Min(model.BoneCount, M2Animator.MaxBones);
@@ -877,6 +884,31 @@ public sealed partial class CreatureRenderer : IDisposable
                 : CreatureLifecycleTracker.AdmissionCode.OUT_OF_FRUSTUM,
             entity.Position, cameraPosition, cameraTarget);
         return visible;
+    }
+
+    private bool AnimationEventsElected(WorldEntity entity, Vector3 cameraPosition,
+        Matrix4x4 viewProjection)
+    {
+        float radius = AnimationEventElectionLaw.PaddedRadius(
+            UnitRenderScale(entity.Scale, ScaleMultiplier));
+        Vector3 relative = entity.Position - cameraPosition;
+        bool visible = Camera.BoxInFrustum(viewProjection,
+            relative - new Vector3(radius, radius, radius),
+            relative + new Vector3(radius, radius, radius));
+
+        const uint MoreAudible = 0x20;
+        bool moreAudible = entity.IsCreature &&
+            TypeFlagsFor?.Invoke(entity.Entry) is uint flags &&
+            (flags & MoreAudible) != 0;
+        float outOfViewSince = _animationEventOutOfViewSince.GetValueOrDefault(
+            entity.Guid, -1f);
+        bool elected = AnimationEventElectionLaw.IsElected(
+            visible, moreAudible, _globalTime, ref outOfViewSince);
+        if (outOfViewSince < 0f)
+            _animationEventOutOfViewSince.Remove(entity.Guid);
+        else
+            _animationEventOutOfViewSince[entity.Guid] = outOfViewSince;
+        return elected;
     }
 
     public void NoteKnownNotDrawn(EntityStore entities)
@@ -1333,6 +1365,8 @@ public sealed partial class CreatureRenderer : IDisposable
         foreach (var pair in _combatActions)
             if (!_seen.Contains(pair.Key) || pair.Value.ExpiresAt <= _globalTime)
                 if (!_stale.Contains(pair.Key)) _stale.Add(pair.Key);
+        foreach (ulong guid in _animationEventOutOfViewSince.Keys)
+            if (!_seen.Contains(guid) && !_stale.Contains(guid)) _stale.Add(guid);
         foreach (var k in _stale)
         {
             _animTime.Remove(k);
@@ -1343,6 +1377,7 @@ public sealed partial class CreatureRenderer : IDisposable
             _observedDead.Remove(k);
             _deathTime.Remove(k);
             _footstepTime.Remove(k);
+            _animationEventOutOfViewSince.Remove(k);
             _wasMovingByGuid.Remove(k);
         }
 

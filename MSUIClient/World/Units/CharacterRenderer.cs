@@ -2791,7 +2791,9 @@ public sealed partial class CharacterRenderer : IDisposable
             CombatAnimationSoundEvent?.Invoke(identifier);
         }
         _footstepTime = _clipTime;
-        for (int i = 0; i < count; i++) FootstepAnimationEvent();
+        // One footfall per tick, as on the creature path: four in a frame is four
+        // waveOut devices and no extra information.
+        if (count > 0) FootstepAnimationEvent();
     }
 
     /// <summary>Restart the packet-driven melee one-shot on the local player.</summary>

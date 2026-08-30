@@ -53,9 +53,26 @@ internal static class PetMenuClinicalChecks
               PetMenuUiLaw.AbandonDefinition.HasCancel &&
               PetMenuUiLaw.RenameConfirmDefinition.HasAccept &&
               PetMenuUiLaw.RenameConfirmDefinition.HasCancel &&
-              PetMenuUiLaw.DismissWord == 0x0700_0003 &&
-              PetMenuUiLaw.FrameWidth == 128 && PetMenuUiLaw.FrameHeight == 42,
-            "pet dialog text, definitions, rename cap, dismiss word, or frame hit law drift");
+              PetMenuUiLaw.DismissWord == 0x0700_0003,
+            "pet dialog text, definitions, rename cap, or dismiss word drift");
+
+        // PetFrame.xml, verbatim. These were invented before (128x42 at (10,86), 75x7 bars at
+        // (39,12)/(39,21)), which put the status bars eight pixels left and eight to ten high
+        // of the recess the frame art paints for them.
+        Check(PetFrameUiLaw.Origin == new Vector2(61f, 64f) &&
+              PetFrameUiLaw.Size == new Vector2(128f, 53f) &&
+              PetFrameUiLaw.TextureOffset == new Vector2(0f, 2f) &&
+              PetFrameUiLaw.TextureSize == new Vector2(128f, 64f) &&
+              PetFrameUiLaw.PortraitOffset == new Vector2(7f, 6f) &&
+              PetFrameUiLaw.PortraitSize == 37f &&
+              PetFrameUiLaw.HealthBarOffset == new Vector2(47f, 22f) &&
+              PetFrameUiLaw.ManaBarOffset == new Vector2(47f, 29f) &&
+              PetFrameUiLaw.BarSize == new Vector2(70f, 8f) &&
+              PetFrameUiLaw.NameFont == "GameFontNormalSmall" &&
+              PetFrameUiLaw.NameLeft == 50f && PetFrameUiLaw.NameBottom == 20f &&
+              PetFrameUiLaw.FrameTexture ==
+                  @"Interface\TargetingFrame\UI-SmallTargetingFrame",
+            "PetFrame geometry drifted from the shipped PetFrame.xml");
 
         PetMenuUiLaw.PlainPopupLayout plain = PetMenuUiLaw.PlainLayout(14);
         Check(plain.Width == StaticPopupCoordinatorLaw.BaseWidth &&
@@ -86,7 +103,10 @@ internal static class PetMenuClinicalChecks
             "GameLoop.PetMenu.cs"));
         string coordinator = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
             "GameLoop.PartyFrames.cs"));
-        Check(petFrame.Contains("PetMenuUiLaw.FrameWidth", StringComparison.Ordinal) &&
+        Check(petFrame.Contains("PetFrameUiLaw.Size * s", StringComparison.Ordinal) &&
+              petFrame.Contains("PetFrameUiLaw.HealthBarOffset", StringComparison.Ordinal) &&
+              petFrame.Contains("PetFrameUiLaw.ManaBarOffset", StringComparison.Ordinal) &&
+              petFrame.Contains("GameText.Draw(dl, PetFrameUiLaw.NameFont", StringComparison.Ordinal) &&
               petFrame.Contains("ImGuiMouseButton.Right", StringComparison.Ordinal) &&
               petFrame.Contains("UnitPopupWhich.Pet", StringComparison.Ordinal) &&
               petFrame.Contains("ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse",

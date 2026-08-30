@@ -90,6 +90,20 @@ internal static class ChatBubbleClinicalChecks
               settings.Contains("BeginBox(\"chat-bubbles\", \"Chat Bubbles\")",
                   StringComparison.Ordinal),
             "bubble wire/spawn/name-exclusion/backdrop wiring drift");
+
+        // The listener is the body being PLAYED. Measuring the bubble's range from
+        // LocalPlayerGuid killed every bubble while possessing a bot - the commander is
+        // parked elsewhere, so nothing is ever in range of them - and the line still
+        // reached the chat frame, so it read as "the NPC never said it". The file must
+        // not name LocalPlayerGuid again for anything but that story in a comment.
+        Check(bubbles.Contains("TryGetInteractionBodyPose(out WorldBodyPose listener)",
+                  StringComparison.Ordinal) &&
+              bubbles.Contains("listener.Position", StringComparison.Ordinal) &&
+              bubbles.Contains("senderGuid == ControlledGuid", StringComparison.Ordinal) &&
+              !bubbles.Replace("// LocalPlayerGuid silently dropped every bubble in the world while in direct",
+                      "", StringComparison.Ordinal)
+                  .Contains("LocalPlayerGuid", StringComparison.Ordinal),
+            "chat bubbles must range from the possessed body, not the parked commander");
     }
 
     private static bool Close(float actual, float expected) => MathF.Abs(actual - expected) < 0.0002f;

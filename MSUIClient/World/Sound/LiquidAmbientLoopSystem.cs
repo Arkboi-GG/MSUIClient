@@ -191,14 +191,29 @@ public sealed class LiquidAmbientLoopSystem
     private void StartVoice(LoopVoice voice, Vector3 source, Vector3 listener,
         float listenerYaw, int liquidClass)
     {
-        SoundVariant variant = _library.PickVariant(voice.Entry);
+        long noDuplicateReservation = voice.Entry.NoDuplicates
+            ? _mixer.TryReserveNoDuplicate(voice.Entry.Id, voice.Entry.Variants[0].Path) : 0;
+        if (voice.Entry.NoDuplicates && noDuplicateReservation == 0) return;
         float gain = VoiceGain(voice, source, listener);
         float pan = SpatialAudioLaw.Pan(source, listener, listenerYaw);
-        voice.Voice = _mixer.Play(new AudioPlayRequest(
-            variant.Path, "ambience", gain, Looping: true,
-            RequestedCue: $"liquid-{voice.Kit}", SoundId: voice.Kit,
-            Owner: (ulong)(liquidClass + 1), StartWhenSilent: true, Announce: true,
-            Pan: pan));
+        try
+        {
+            SoundVariant variant = _library.PickVariant(voice.Entry);
+            uint playbackFrequency = voice.Entry.VaryPitch
+                ? SoundVariationLaw.NextPitchFrequency() : 0;
+            voice.Voice = _mixer.Play(new AudioPlayRequest(
+                variant.Path, "ambience", gain, Looping: true,
+                RequestedCue: $"liquid-{voice.Kit}", SoundId: voice.Kit,
+                Owner: (ulong)(liquidClass + 1), StartWhenSilent: true, Announce: true,
+                Pan: pan, PlaybackFrequency: playbackFrequency,
+                NoDuplicates: voice.Entry.NoDuplicates,
+                NoDuplicateReservation: noDuplicateReservation));
+        }
+        catch
+        {
+            _mixer.ReleaseNoDuplicateReservation(noDuplicateReservation);
+            throw;
+        }
         voice.SentVolume = (int)Math.Clamp(gain * 1000f, 0, 1000);
         voice.SentPan = (int)Math.Clamp(pan * 1000f, -1000, 1000);
     }

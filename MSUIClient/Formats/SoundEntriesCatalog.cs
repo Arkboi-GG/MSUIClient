@@ -8,6 +8,7 @@ public readonly record struct SoundEntry(
 {
     public bool Looping => (Flags & 0x200) != 0;
     public bool NoDuplicates => (Flags & 0x20) != 0;
+    public bool VaryPitch => (Flags & 0x400) != 0;
 }
 
 /// <summary>Complete build-5875 SoundEntries.dbc spell-audio projection.</summary>

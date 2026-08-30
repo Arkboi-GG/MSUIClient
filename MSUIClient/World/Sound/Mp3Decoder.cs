@@ -28,6 +28,10 @@ internal static class Mp3Decoder
     /// NLayer decodes to float, so this is the only conversion in the path.</summary>
     private const float Scale = short.MaxValue;
 
+    /// <summary>Ceiling on one decoded track, so a corrupt duration cannot ask for a
+    /// gigabyte. Comfortably past the longest music the client ships.</summary>
+    private const long MaxPcmBytes = 192L << 20;
+
     /// <summary>Decode a whole MP3 to a RIFF/WAVE buffer. False leaves the caller
     /// on its existing path rather than silent.</summary>
     public static bool TryDecode(byte[] mp3, string path, out byte[] wav)
@@ -42,30 +46,56 @@ internal static class Mp3Decoder
             int rate = file.SampleRate;
             if (channels is not (1 or 2) || rate <= 0) return false;
 
-            // Decode in frame-sized bites into a growing buffer. A 55 s stereo
-            // 44.1 kHz track lands around 10 MB of PCM, which is the whole point:
-            // it is resident, so playback reads nothing.
-            var pcm = new MemoryStream(Math.Max(1 << 16, mp3.Length * 8));
+            // ONE ALLOCATION FOR THE WHOLE TRACK, and the samples land directly in
+            // it behind the WAV header. This used to be a growing MemoryStream, then
+            // ToArray(), then BuildWav's own array plus a copy, then the voice's
+            // unmanaged copy: four full-track buffers for one song. On the 28 MB glue
+            // theme that is over a hundred megabytes of allocation, three of them on
+            // the Large Object Heap, at the exact moment the client is also streaming
+            // a world - and the 2026-08-30 log caught what that costs: the audio
+            // worker descheduled 250 ms with an EMPTY queue, the game thread at
+            // 0.35 M cycles/ms ("blocked or descheduled"), and the device measurably
+            // 180 ms short of real time. Starting a track must not be a memory storm.
+            long estimate = (long)(file.Duration.TotalSeconds * rate * channels) * 2;
+            if (estimate <= 0 || estimate > MaxPcmBytes) estimate = 1 << 20;
+            // A second of slack absorbs the usual encoder-padding disagreement
+            // between the duration estimate and the decoded sample count.
+            var buffer = new byte[AudioMixer.HeaderBytes +
+                                  (int)Math.Min(MaxPcmBytes, estimate + rate * channels * 2L)];
             var samples = new float[channels * 4096];
-            var block = new byte[samples.Length * 2];
+            int written = 0;
             while (true)
             {
                 int read = file.ReadSamples(samples, 0, samples.Length);
                 if (read <= 0) break;
+                int need = AudioMixer.HeaderBytes + written + read * 2;
+                if (need > buffer.Length)
+                {
+                    // The estimate was short. Grow once by half rather than doubling
+                    // per block; a correct estimate never reaches this.
+                    long grown = Math.Min(MaxPcmBytes + AudioMixer.HeaderBytes,
+                        Math.Max(need, buffer.LongLength + buffer.LongLength / 2));
+                    if (grown <= buffer.LongLength) break;   // at the ceiling: stop cleanly
+                    Array.Resize(ref buffer, (int)grown);
+                }
+                var target = buffer.AsSpan(AudioMixer.HeaderBytes + written);
                 for (int i = 0; i < read; i++)
                 {
                     // Clamp: MP3 reconstruction legitimately overshoots +/-1 and a
                     // wrapped short is a loud click, which would read as exactly
                     // the defect this whole change is removing.
                     int value = (int)(Math.Clamp(samples[i], -1f, 1f) * Scale);
-                    block[i * 2] = (byte)value;
-                    block[i * 2 + 1] = (byte)(value >> 8);
+                    target[i * 2] = (byte)value;
+                    target[i * 2 + 1] = (byte)(value >> 8);
                 }
-                pcm.Write(block, 0, read * 2);
+                written += read * 2;
             }
 
-            if (pcm.Length == 0) return false;
-            wav = AudioMixer.BuildWav(pcm.ToArray(), channels, rate, bits: 16);
+            if (written == 0) return false;
+            // The chunk sizes describe the samples; any slack after them is ignored
+            // by every reader on this path (see AudioMixer.WriteWavHeader).
+            AudioMixer.WriteWavHeader(buffer, written, channels, rate, bits: 16);
+            wav = buffer;
             return true;
         }
         catch (Exception ex)

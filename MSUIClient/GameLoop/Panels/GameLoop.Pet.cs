@@ -290,11 +290,21 @@ public sealed partial class GameLoop
         DrawPetActionBar(_petGuid, actionPet, s);
     }
 
+    /// <summary>
+    /// The vanilla PetFrame, laid out from <see cref="PetFrameUiLaw"/> - every offset comes
+    /// out of the shipped PetFrame.xml. What was here before was authored by eye: the frame
+    /// sat at (10, 86) instead of the anchored (61, 64), and inside it the two status bars
+    /// were 75x7 at (39, 12)/(39, 21) instead of 70x8 at (47, 22)/(47, 29) - eight pixels
+    /// left and eight to ten pixels high of the recess UI-SmallTargetingFrame paints for
+    /// them, which is the misalignment that shows.
+    /// </summary>
     private void DrawPetFrame(WorldEntity pet, float s)
     {
-        Vector2 p = new Vector2(10, 86) * s;
+        Vector2 p = PetFrameUiLaw.Origin * s;
+        CollectGameplayLayout("pet-frame", PetFrameUiLaw.Origin.X, PetFrameUiLaw.Origin.Y,
+            PetFrameUiLaw.Width, PetFrameUiLaw.Height, p, PetFrameUiLaw.Size * s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
-        ImGui.SetNextWindowSize(new Vector2(128, 42) * s, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(PetFrameUiLaw.Size * s, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
@@ -306,20 +316,27 @@ public sealed partial class GameLoop
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
         dl.PushClipRectFullScreen();
         ImGui.SetCursorScreenPos(p);
-        ImGui.InvisibleButton("##pet-frame-input",
-            new Vector2(PetMenuUiLaw.FrameWidth, PetMenuUiLaw.FrameHeight) * s,
+        // The whole frame stays the click target; vanilla's HitRectInsets narrow it to the
+        // portrait half, which PetFrameUiLaw records but this does not apply.
+        ImGui.InvisibleButton("##pet-frame-input", PetFrameUiLaw.Size * s,
             ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
         bool leftClicked = ImGui.IsItemClicked(ImGuiMouseButton.Left);
         bool rightClicked = ImGui.IsItemClicked(ImGuiMouseButton.Right);
-        Vector2 portrait = p + new Vector2(5, 4) * s;
-        DrawUnitPortraitImage(dl, pet, portrait, 32 * s, 0, false);
-        DrawArt(dl, @"Interface\TargetingFrame\UI-SmallTargetingFrame", p, new Vector2(128, 64), s);
-        DrawVanillaStatusBar(dl, p + new Vector2(39, 12) * s, new Vector2(75, 7) * s,
-            pet.HealthFraction, new Vector4(0, 1, 0, 1));
-        DrawVanillaStatusBar(dl, p + new Vector2(39, 21) * s, new Vector2(75, 7) * s,
-            pet.PowerFraction, PowerColor(pet.Fields.PowerType));
+        Vector2 portrait = p + PetFrameUiLaw.PortraitOffset * s;
+        DrawUnitPortraitImage(dl, pet, portrait, PetFrameUiLaw.PortraitSize * s, 0, false);
+        DrawArt(dl, PetFrameUiLaw.FrameTexture, p + PetFrameUiLaw.TextureOffset * s,
+            PetFrameUiLaw.TextureSize, s);
+        DrawVanillaStatusBar(dl, p + PetFrameUiLaw.HealthBarOffset * s,
+            PetFrameUiLaw.BarSize * s, pet.HealthFraction, new Vector4(0, 1, 0, 1));
+        DrawVanillaStatusBar(dl, p + PetFrameUiLaw.ManaBarOffset * s,
+            PetFrameUiLaw.BarSize * s, pet.PowerFraction, PowerColor(pet.Fields.PowerType));
+        // PetName is LEFT-aligned in the shipped frame, so it is placed by its own box
+        // rather than through the centre-anchored player/target name helper.
         string name = ResolveCreatureOrPetName(pet, "Pet");
-        DrawUnitFrameText(dl, p + new Vector2(75, 7) * s, name, 9 * s, UiGoldU32());
+        GameText.Draw(dl, PetFrameUiLaw.NameFont, name,
+            p + new Vector2(PetFrameUiLaw.NameLeft, PetFrameUiLaw.NameBottom) * s -
+                new Vector2(0, GameText.EmPixels(PetFrameUiLaw.NameFont, s)),
+            s, UiGoldU32());
         dl.PopClipRect();
         ImGui.End();
         ImGui.PopStyleVar(3);

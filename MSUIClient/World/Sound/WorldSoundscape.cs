@@ -32,7 +32,7 @@ namespace MSUIClient.World.Sound;
 ///
 /// Voices run straight on the shared <see cref="AudioMixer"/>: this class owns the
 /// whole gain product (entry volume x category amp x envelope) and pushes it only
-/// when the quantized MCI value actually changes.
+/// when the quantized renderer target actually changes.
 /// </summary>
 public sealed class WorldSoundscape
 {
@@ -81,9 +81,9 @@ public sealed class WorldSoundscape
     private float _musicEntryVolume = 1f;
     private double _nextTrackAt = double.MaxValue;
     private bool _sessionStarted;
+    private bool _musicReconciled;
     private long _fadingMusicVoice;
     private float _fadingMusicEntryVolume;
-    private uint _fadingZoneMusicId;
     private double _musicFadeStartedAt;
     private readonly Dictionary<uint, double> _introPlayedAt = [];
     private int _musicSentVolume = -1;
@@ -97,8 +97,8 @@ public sealed class WorldSoundscape
     private double _ambienceStartedAt;
     private long _fadingAmbienceVoice;
     private float _fadingAmbienceEntryVolume;
-    private uint _fadingAmbienceKit;
     private double _ambienceFadeStartedAt;
+    private double _ambienceRetryAt;
     private int _ambienceSentVolume = -1;
     private int _ambienceFadeSentVolume = -1;
 
@@ -140,6 +140,8 @@ public sealed class WorldSoundscape
         _musicKit = 0;
         _ambienceKit = 0;
         _sessionStarted = false;
+        _musicReconciled = false;
+        _ambienceRetryAt = 0;
         _nextTrackAt = double.MaxValue;
         _musicSentVolume = _fadeSentVolume = _ambienceSentVolume = _ambienceFadeSentVolume = -1;
         Status = "idle";
@@ -151,16 +153,46 @@ public sealed class WorldSoundscape
         voice = 0;
     }
 
-    /// <summary>Start one of this class's own channels: 2D, unowned, and started at
-    /// an explicit gain so a crossfade can begin at silence.</summary>
-    private long PlayKit(uint kit, string category, bool forceLoop, float startGain)
+    /// <summary>Start a streamed zone bed. Benilla's pick_stream path uses weighted
+    /// selection and entry volume, but deliberately bypasses ordinary channel flags
+    /// such as NO_DUPLICATES and VARY_PITCH. Music plays naturally; ambience is
+    /// force-looped by its transport.</summary>
+    private long PlayStreamKit(uint kit, string category, bool forceLoop, float startGain)
     {
         if (!_library.TryGet(kit, out SoundEntry entry) || entry.Variants.Count == 0) return 0;
         SoundVariant variant = _library.PickVariant(entry);
         return _mixer.Play(new AudioPlayRequest(
-            variant.Path, category, Math.Clamp(startGain, 0f, 1f), forceLoop || entry.Looping,
+            variant.Path, category, Math.Clamp(startGain, 0f, 1f), forceLoop,
             RequestedCue: kit.ToString(), SoundId: kit,
             StartWhenSilent: true, Announce: true));
+    }
+
+    /// <summary>Ordinary flat SoundEntries playback (SMSG_PLAY_SOUND), including
+    /// the process-wide 0x20 gate and authored pitch law.</summary>
+    private long PlayOrdinaryKit(uint kit, string category, float startGain)
+    {
+        if (!_library.TryGet(kit, out SoundEntry entry) || entry.Variants.Count == 0) return 0;
+        long noDuplicateReservation = entry.NoDuplicates
+            ? _mixer.TryReserveNoDuplicate(entry.Id, entry.Variants[0].Path) : 0;
+        if (entry.NoDuplicates && noDuplicateReservation == 0) return 0;
+        try
+        {
+            SoundVariant variant = _library.PickVariant(entry);
+            uint playbackFrequency = entry.VaryPitch
+                ? SoundVariationLaw.NextPitchFrequency() : 0;
+            return _mixer.Play(new AudioPlayRequest(
+                variant.Path, category, Math.Clamp(startGain, 0f, 1f),
+                entry.Looping,
+                RequestedCue: kit.ToString(), SoundId: kit,
+                StartWhenSilent: true, Announce: true,
+                PlaybackFrequency: playbackFrequency, NoDuplicates: entry.NoDuplicates,
+                NoDuplicateReservation: noDuplicateReservation));
+        }
+        catch
+        {
+            _mixer.ReleaseNoDuplicateReservation(noDuplicateReservation);
+            throw;
+        }
     }
 
     public void Update(double now)
@@ -179,12 +211,15 @@ public sealed class WorldSoundscape
 
     private void UpdateMusic(double now)
     {
+        bool firstReconciliation = !_musicReconciled;
+        _musicReconciled = true;
         (uint areaAmbience, uint areaMusic, uint areaIntro) =
             _areas?.ResolveAudio(AreaId) ?? (0u, 0u, 0u);
         _ = areaAmbience;
         uint desired = InteriorZoneMusicId != 0 ? InteriorZoneMusicId : areaMusic;
 
-        // MUTE IS A TRANSPORT GATE, NOT ONLY A GAIN GATE. PlayKit asks for StartWhenSilent, which
+        // MUTE IS A TRANSPORT GATE, NOT ONLY A GAIN GATE. PlayStreamKit asks for
+        // StartWhenSilent, which
         // defeats the mixer's own "never open a device for an inaudible request" rule - so with
         // music off the client still resolved a kit, decoded the whole mp3 and burned the track at
         // gain 0, then scheduled another multi-minute silence behind it. Unchecking the box
@@ -195,44 +230,14 @@ public sealed class WorldSoundscape
 
         if (desired != _currentZoneMusicId)
         {
-            // Step back through a doorway inside the fade window: the "new" zone
-            // is the one whose track is still fading out. Resurrect that voice —
-            // same track, same position — instead of decoding the whole file
-            // again. This is what kept quick in-and-outs from being free even
-            // after the identity dwell upstream.
-            if (_fadingMusicVoice != 0 && desired == _fadingZoneMusicId)
-            {
-                if (_musicVoice != 0)
-                {
-                    long retiring = _musicVoice;
-                    float retiringVolume = _musicEntryVolume;
-                    _musicVoice = _fadingMusicVoice;
-                    _musicEntryVolume = _fadingMusicEntryVolume;
-                    _fadingMusicVoice = retiring;
-                    _fadingMusicEntryVolume = retiringVolume;
-                    _fadingZoneMusicId = _currentZoneMusicId;
-                    _musicFadeStartedAt = now;
-                    _fadeSentVolume = -1;
-                }
-                else
-                {
-                    _musicVoice = _fadingMusicVoice;
-                    _musicEntryVolume = _fadingMusicEntryVolume;
-                    _fadingMusicVoice = 0;
-                }
-                _musicSentVolume = -1;
-                _currentZoneMusicId = desired;
-                Status = $"music resumed (set {desired})";
-                return;
-            }
-
-            // Zone change: old track fades over 4 s, new starts NOW, full.
+            // Later zone changes start immediately. On the first reconciliation,
+            // an eligible intro also starts immediately; without an intro, keep
+            // the reference client's six-second cold-start deadline.
             if (_musicVoice != 0)
             {
                 StopVoice(ref _fadingMusicVoice);
                 _fadingMusicVoice = _musicVoice;
                 _fadingMusicEntryVolume = _musicEntryVolume;
-                _fadingZoneMusicId = _currentZoneMusicId;
                 _musicFadeStartedAt = now;
                 _fadeSentVolume = -1;
                 _musicVoice = 0;
@@ -248,7 +253,8 @@ public sealed class WorldSoundscape
                 if (musicAudible)
                 {
                     uint intro = InteriorIntroSoundId != 0 ? InteriorIntroSoundId : areaIntro;
-                    if (!TryStartIntro(intro, now)) StartZoneTrack(now);
+                    if (!TryStartIntro(intro, now) && !firstReconciliation)
+                        StartZoneTrack(now);
                 }
                 else _nextTrackAt = now;
             }
@@ -303,6 +309,7 @@ public sealed class WorldSoundscape
             // two are indistinguishable at this point, so say so rather than reporting silence as
             // if the track had played.
             _musicVoice = 0;
+            _musicKit = 0;
             if (_currentZoneMusicId != 0 &&
                 _zoneMusic?.TryGet(_currentZoneMusicId, out ZoneMusicEntry set) == true)
             {
@@ -332,8 +339,7 @@ public sealed class WorldSoundscape
             Console.WriteLine($"[soundscape] {Status}");
             return;
         }
-        StartMusicKit(set.Sound(DayPhase), $"zone set {set.Id} '{set.SetName}'");
-        _ = now;
+        StartMusicKit(set.Sound(DayPhase), $"zone set {set.Id} '{set.SetName}'", now);
     }
 
     private bool TryStartIntro(uint introId, double now)
@@ -343,14 +349,15 @@ public sealed class WorldSoundscape
             intro.SoundId == 0) return false;
         double last = _introPlayedAt.GetValueOrDefault(introId, double.MinValue);
         if (now - last < intro.MinDelayMinutes * 60.0) return false;
+        if (!StartMusicKit(intro.SoundId, $"intro {intro.Id} '{intro.Name}'", now))
+            return false;
         _introPlayedAt[introId] = now;
-        StartMusicKit(intro.SoundId, $"intro {intro.Id} '{intro.Name}'");
         return true;
     }
 
-    private void StartMusicKit(uint kit, string why)
+    private bool StartMusicKit(uint kit, string why, double now)
     {
-        if (kit == 0) return;
+        if (kit == 0) return false;
         // The single choke point for every music start - zone track, zone intro, and the
         // server's own PlayServerMusic push. UpdateMusic already refuses to start a track while
         // the category is silent, but PlayServerMusic arrives from the packet handler and would
@@ -359,25 +366,32 @@ public sealed class WorldSoundscape
         if (_mixer.CategoryAmp("music") <= 0f)
         {
             Status = $"music kit {kit} suppressed while muted ({why})";
-            return;
+            return false;
         }
-        _musicEntryVolume = _library.TryGet(kit, out SoundEntry entry)
-            ? Math.Clamp(entry.Volume, 0f, 1f) : 1f;
+        if (!_library.TryGet(kit, out SoundEntry entry) || entry.Variants.Count == 0)
+        {
+            Status = $"music kit {kit} UNRESOLVED ({why})";
+            Console.WriteLine($"[soundscape] {Status}");
+            return false;
+        }
+        _musicEntryVolume = Math.Clamp(entry.Volume, 0f, 1f);
         float gain = _musicEntryVolume * _mixer.CategoryAmp("music");
-        _musicVoice = PlayKit(kit, "music", forceLoop: false, gain);
+
+        _musicVoice = PlayStreamKit(kit, "music", forceLoop: false, gain);
         _musicKit = kit;
         _musicSentVolume = (int)Math.Clamp(gain * 1000f, 0, 1000);
         if (_musicVoice == 0)
         {
-            // PlayKit refused outright: no SoundEntries row, or a row with no variants. The line
-            // used to be printed as a success either way, so a zone whose music never resolved
-            // read exactly like a zone whose music was playing.
-            Status = $"music kit {kit} UNRESOLVED ({why})";
+            // The row is valid (checked above), so zero here is a transient route
+            // refusal. Retry shortly; never leave a valid zone parked forever.
+            if (_currentZoneMusicId != 0) _nextTrackAt = now + 0.25;
+            Status = $"music kit {kit} busy; retry scheduled ({why})";
             Console.WriteLine($"[soundscape] {Status}");
-            return;
+            return false;
         }
         Status = $"music kit {kit} ({why})";
         Console.WriteLine($"[soundscape] {Status}");
+        return true;
     }
 
     /// <summary>
@@ -405,7 +419,7 @@ public sealed class WorldSoundscape
             _musicVoice = 0;
         }
 
-        StartMusicKit(kit, "server push");
+        StartMusicKit(kit, "server push", now);
     }
 
     /// <summary>Play the flat SFX form of SMSG_PLAY_SOUND through the shared
@@ -414,7 +428,7 @@ public sealed class WorldSoundscape
     {
         if (!_library.TryGet(kit, out SoundEntry entry) || entry.Variants.Count == 0) return 0;
         float gain = Math.Clamp(entry.Volume, 0f, 1f) * _mixer.CategoryAmp("sfx");
-        return PlayKit(kit, "sfx", forceLoop: false, gain);
+        return PlayOrdinaryKit(kit, "sfx", gain);
     }
 
     // ── ambience ─────────────────────────────────────────────────────────────
@@ -423,37 +437,10 @@ public sealed class WorldSoundscape
     {
         uint desired = DesiredAmbienceKit();
 
-        if (desired != _ambienceKit)
+        if (desired != _ambienceKit && now >= _ambienceRetryAt)
         {
             // Submerge/emerge swaps instantly; everything else crossfades 5 s.
             bool instant = Submerged || _ambienceKit == UnderwaterLoopKit;
-
-            // The bed we want back is still fading out (a doorway in-and-out
-            // within the crossfade window): reverse the crossfade in place
-            // instead of starting a third copy of the same loop.
-            if (!instant && _fadingAmbienceVoice != 0 && desired == _fadingAmbienceKit)
-            {
-                long comingBack = _fadingAmbienceVoice;
-                float comingBackVolume = _fadingAmbienceEntryVolume;
-                float tOut = Math.Clamp(
-                    (float)((now - _ambienceFadeStartedAt) / AmbienceFadeSeconds), 0f, 1f);
-
-                _fadingAmbienceVoice = _ambienceVoice;
-                _fadingAmbienceEntryVolume = _ambienceEntryVolume;
-                _fadingAmbienceKit = _ambienceKit;
-                _ambienceFadeStartedAt = now;
-                _ambienceFadeSentVolume = -1;
-
-                _ambienceVoice = comingBack;
-                _ambienceEntryVolume = comingBackVolume;
-                // Resume the fade-in from where the fade-out left the gain, so
-                // the reversal is seamless rather than a jump to silence.
-                _ambienceStartedAt = now - AmbienceFadeSeconds * (1f - tOut);
-                _ambienceSentVolume = -1;
-                _ambienceKit = desired;
-                Console.WriteLine($"[soundscape] ambience kit {desired} (resumed)");
-                return;
-            }
 
             if (_ambienceVoice != 0)
             {
@@ -466,32 +453,48 @@ public sealed class WorldSoundscape
                     StopVoice(ref _fadingAmbienceVoice);
                     _fadingAmbienceVoice = _ambienceVoice;
                     _fadingAmbienceEntryVolume = _ambienceEntryVolume;
-                    _fadingAmbienceKit = _ambienceKit;
                     _ambienceFadeStartedAt = now;
                     _ambienceFadeSentVolume = -1;
                     _ambienceVoice = 0;
                 }
             }
 
-            _ambienceKit = desired;
+            // No main voice owns the old identity after the move above. Commit
+            // the desired kit only after PlayStreamKit actually routes it;
+            // otherwise a transient backend refusal would make later frames
+            // believe a bed existed and suppress every retry.
+            _ambienceKit = 0;
+            _ambienceRetryAt = 0;
             if (desired != 0)
             {
                 _ambienceEntryVolume = _library.TryGet(desired, out SoundEntry entry)
                     ? Math.Clamp(entry.Volume, 0f, 1f) : 1f;
                 float start = instant
                     ? _ambienceEntryVolume * _mixer.CategoryAmp("ambience") : 0f;
-                _ambienceVoice = PlayKit(desired, "ambience", forceLoop: true, start);
-                _ambienceStartedAt = instant ? now - AmbienceFadeSeconds : now;
-                _ambienceSentVolume = -1;
-                Console.WriteLine($"[soundscape] ambience kit {desired}" +
-                                  (instant ? " (instant)" : " (crossfade)"));
+                _ambienceVoice = PlayStreamKit(
+                    desired, "ambience", forceLoop: true, start);
+                if (_ambienceVoice != 0)
+                {
+                    _ambienceKit = desired;
+                    _ambienceRetryAt = 0;
+                    _ambienceStartedAt = instant ? now - AmbienceFadeSeconds : now;
+                    _ambienceSentVolume = -1;
+                    Console.WriteLine($"[soundscape] ambience kit {desired}" +
+                                      (instant ? " (instant)" : " (crossfade)"));
+                }
+                else
+                {
+                    _ambienceRetryAt = now + 0.25;
+                    Status = $"ambience kit {desired} busy; retry scheduled";
+                }
             }
         }
 
         if (_fadingAmbienceVoice != 0)
         {
             float t = (float)((now - _ambienceFadeStartedAt) / AmbienceFadeSeconds);
-            if (t >= 1f) StopVoice(ref _fadingAmbienceVoice);
+            if (t >= 1f || !_mixer.IsLive(_fadingAmbienceVoice))
+                StopVoice(ref _fadingAmbienceVoice);
             else PushGain(_fadingAmbienceVoice,
                 _fadingAmbienceEntryVolume * _mixer.CategoryAmp("ambience") * (1f - t),
                 ref _ambienceFadeSentVolume);
@@ -499,10 +502,21 @@ public sealed class WorldSoundscape
 
         if (_ambienceVoice != 0)
         {
-            float t = Math.Clamp((float)((now - _ambienceStartedAt) / AmbienceFadeSeconds), 0f, 1f);
-            PushGain(_ambienceVoice,
-                _ambienceEntryVolume * _mixer.CategoryAmp("ambience") * t,
-                ref _ambienceSentVolume);
+            if (!_mixer.IsLive(_ambienceVoice))
+            {
+                _ambienceVoice = 0;
+                _ambienceKit = 0;
+                _ambienceSentVolume = -1;
+                _ambienceRetryAt = now + 0.25;
+            }
+            else
+            {
+                float t = Math.Clamp(
+                    (float)((now - _ambienceStartedAt) / AmbienceFadeSeconds), 0f, 1f);
+                PushGain(_ambienceVoice,
+                    _ambienceEntryVolume * _mixer.CategoryAmp("ambience") * t,
+                    ref _ambienceSentVolume);
+            }
         }
     }
 
@@ -518,9 +532,8 @@ public sealed class WorldSoundscape
             ? row.Kit(DayPhase) : 0;
     }
 
-    /// <summary>Push a gain to the worker only when the quantized MCI volume
-    /// actually changed - mciSendString is a synchronous call and 60 Hz of
-    /// identical set-volume commands would be pure waste.</summary>
+    /// <summary>Push a gain to the control worker only when the quantized renderer
+    /// target changed. Re-sending identical frame-rate state is pure queue churn.</summary>
     private void PushGain(long voice, float gain, ref int sentVolume)
     {
         int volume = (int)Math.Clamp(gain * 1000f, 0, 1000);

@@ -148,6 +148,9 @@ public sealed partial class GameLoop
                 _creatures.AnimationResolved = CaptureAnimationChoice;
                 _creatures.TuningFor = MountTuningFor;
                 _creatures.EmoteAnimResolver = ResolveEmoteAnim;
+                _creatures.TypeFlagsFor = entry =>
+                    _creatureQueryRecords.TryGetValue(entry, out CreatureQueryInfo? info)
+                        ? info?.TypeFlags : null;
             }
         }
         catch (Exception ce) { Console.WriteLine($"[creature] init failed: {ce.Message}"); }

@@ -108,7 +108,10 @@ public sealed partial class GameLoop
     {
         if (kit == 0 || !_soundscapePlaybackArmed || _spellSounds is null ||
             NpcGreetingVoiceLive(npc.Guid)) return 0;
-        Vector3 listener = _controller?.Position ?? Vector3.Zero;
+        // No controller (parked / free view) must not park the EARS at the world origin:
+        // the line would attenuate to silence thousands of yards away. Fall back to the
+        // speaker, as the spell-cast path does.
+        Vector3 listener = _controller?.Position ?? npc.Position;
         long voice = variation is int exact
             ? _spellSounds.PlayVariant(kit, exact, npc.Guid, npc.Position, listener,
                 forceLoop: false, trackHold: false, category: "sfx")

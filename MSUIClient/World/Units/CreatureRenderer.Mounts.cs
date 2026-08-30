@@ -167,6 +167,7 @@ public sealed partial class CreatureRenderer
             _mountsDrawn.Remove(guid);
             _mountAnimTime.Remove(guid);
             _mountFlourishTime.Remove(guid);
+            _mountFootstepTime.Remove(guid);
             return false;
         }
 
@@ -176,8 +177,8 @@ public sealed partial class CreatureRenderer
 
         BeginUnitShader(camera);
         bool drew = TryDrawMount(camera, guid, mountDisplayId, position, orientation,
-            travelSpeed, walkSpeed, flying, dt, highlight: false, bodyAlpha, bodyTint,
-            freezeAnimation, out MountDraw drawn);
+            travelSpeed, walkSpeed, flying, dt, true, false,
+            bodyAlpha, bodyTint, freezeAnimation, out MountDraw drawn);
         _gl.BindVertexArray(0);
         _gl.DepthMask(true);
         if (drew) seat = drawn.Seat;
@@ -213,8 +214,9 @@ public sealed partial class CreatureRenderer
     /// (<see cref="BeginUnitShader"/>) and leaves it bound, so the rider can draw straight after.
     /// </summary>
     private bool TryDrawMount(Camera camera, ulong guid, int mountDisplayId, Vector3 position,
-        float orientation, float travelSpeed, float walkSpeed, bool flying, float dt, bool highlight,
-        float bodyAlpha, Vector3 bodyTint, bool freezeAnimation, out MountDraw drawn)
+        float orientation, float travelSpeed, float walkSpeed, bool flying, float dt,
+        bool emitAnimationEvents, bool highlight, float bodyAlpha, Vector3 bodyTint,
+        bool freezeAnimation, out MountDraw drawn)
     {
         drawn = default;
         if (_shader is null || _resolver is null || mountDisplayId <= 0) return false;
@@ -306,8 +308,9 @@ public sealed partial class CreatureRenderer
             if (clip is not null)
             {
                 pickClip = clip;
-                EmitFootstepEvents(guid, mountDisplayId, position,
-                    scale, model.Source, clip, at, mount: true);
+                if (emitAnimationEvents)
+                    EmitFootstepEvents(guid, mountDisplayId, position,
+                        scale, model.Source, clip, at, mount: true);
                 boneCount = Math.Min(model.BoneCount, M2Animator.MaxBones);
                 model.Animator.Evaluate(clip, at, _globalTime, _mountSkin);
                 M2Animator.Pack(_mountSkin, boneCount, _mountPacked);
@@ -504,6 +507,25 @@ public sealed partial class CreatureRenderer
         _mountFootstepTime.Remove(guid);
     }
 
+    /// <summary>Name a multi-crossing tick, at most once a second, so "many units
+    /// walking" and "one unit firing repeatedly" stop looking the same in a log.</summary>
+    private void ReportFootstepBurst(ulong guid, int count)
+    {
+        long now = Environment.TickCount64;
+        if (now - _lastFootstepBurstReportMs < 1000) return;
+        _lastFootstepBurstReportMs = now;
+        Console.WriteLine($"[footstep] {count} crossings in one tick for {guid:X16} " +
+                          "- collapsed to one sound");
+    }
+
+    private long _lastFootstepBurstReportMs;
+
+    private void ForgetAnimationEventClocks(ulong guid)
+    {
+        _footstepTime.Remove(guid);
+        _mountFootstepTime.Remove(guid);
+    }
+
     private void EmitFootstepEvents(ulong guid, int displayId, Vector3 position,
         float renderScale, M2Model model, M2Animator.Clip clip, float at, bool mount)
     {
@@ -523,7 +545,14 @@ public sealed partial class CreatureRenderer
             if (!mount) CombatAnimationSoundEvent?.Invoke(guid, identifier);
         }
         clocks[guid] = (clip.SequenceIndex, at);
-        for (int i = 0; i < count; i++)
+        // ONE FOOTFALL PER UNIT PER TICK. A tick is a frame; nobody takes four
+        // steps in sixteen milliseconds, and collapsing a catch-up burst also
+        // prevents an artificial wall of identical transients in the shared mix.
+        // Crossings can legitimately come in bursts (a long frame, several $FSD
+        // markers inside one window) - the EVENT count stays honest and only the
+        // SOUND is collapsed, which is the half a listener can tell apart.
+        if (count > 1) ReportFootstepBurst(guid, count);
+        if (count > 0)
             FootstepAnimationEvent?.Invoke(guid, displayId, position, renderScale);
     }
 }

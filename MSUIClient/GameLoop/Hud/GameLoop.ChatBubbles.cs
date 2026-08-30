@@ -35,11 +35,18 @@ public sealed partial class GameLoop
 
         string text = ChatBubbleUiLaw.Sanitize(rawText);
         int words = ChatBubbleUiLaw.WordCount(text);
+        // The range is measured from the body the player is EMBODIED IN, which under
+        // possession is the driven bot and not the parked commander. Measuring it from
+        // LocalPlayerGuid silently dropped every bubble in the world while in direct
+        // control: the commander is parked wherever you left them, so an NPC standing in
+        // front of the body you are actually playing is always out of range. The line
+        // still reached the chat frame, which is why this reads as "they never said it"
+        // rather than as a missing message. Same helper the gossip/quest-giver range
+        // gates use, so what you can TALK to and what you can SEE talk now agree.
         if (words == 0 || !_entities.TryGet(senderGuid, out WorldEntity speaker) ||
-            !speaker.IsUnit || !_entities.TryGet(LocalPlayerGuid, out WorldEntity self)) return;
+            !speaker.IsUnit || !TryGetInteractionBodyPose(out WorldBodyPose listener)) return;
 
-        Vector3 selfPosition = UnitWorldPosition(self);
-        if (Vector3.DistanceSquared(UnitWorldPosition(speaker), selfPosition) >
+        if (Vector3.DistanceSquared(UnitWorldPosition(speaker), listener.Position) >
             ChatBubbleUiLaw.RangeSquared) return;
 
         // Replace is allowed while an old bubble owns the name-exclusion handle.
@@ -54,7 +61,8 @@ public sealed partial class GameLoop
             Text = text,
             Type = type,
             Born = now,
-            Duration = ChatBubbleUiLaw.DurationSeconds(words, senderGuid == LocalPlayerGuid),
+            // Self-speech reads shorter. "Self" is whoever you are driving.
+            Duration = ChatBubbleUiLaw.DurationSeconds(words, senderGuid == ControlledGuid),
             LastTick = now,
             Lift = LatchedChatBubbleLift(speaker),
             Alpha = 0f,
@@ -79,8 +87,9 @@ public sealed partial class GameLoop
 
         double now = NowSeconds();
         Vector2 display = ImGui.GetIO().DisplaySize;
-        WorldEntity? self = _entities.TryGet(LocalPlayerGuid, out WorldEntity local) ? local : null;
-        Vector3 selfPosition = self is null ? default : UnitWorldPosition(self);
+        // Same listener as the spawn gate, or a bubble that spawned in range would fade
+        // straight back out against the parked commander's distance.
+        bool listening = TryGetInteractionBodyPose(out WorldBodyPose listener);
         List<ulong> remove = [];
         List<PendingChatBubble> pending = [];
 
@@ -96,8 +105,8 @@ public sealed partial class GameLoop
             bubble.LastTick = now;
             double age = Math.Max(0.0, now - bubble.Born);
             Vector3 speakerPosition = UnitWorldPosition(speaker);
-            bool inRange = self is not null &&
-                Vector3.DistanceSquared(speakerPosition, selfPosition) <=
+            bool inRange = listening &&
+                Vector3.DistanceSquared(speakerPosition, listener.Position) <=
                     ChatBubbleUiLaw.RangeSquared;
             bubble.Alpha = ChatBubbleUiLaw.StepAlpha(
                 bubble.Alpha, age, bubble.Duration, delta, inRange);

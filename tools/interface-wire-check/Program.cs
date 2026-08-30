@@ -695,6 +695,12 @@ if (args.Contains("--gossip-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--audio-device-probe", StringComparer.Ordinal))
+{
+    AudioDeviceProbe.Run();
+    return;
+}
+
 if (args.Contains("--imgui-policy-only", StringComparer.Ordinal))
 {
     GameplayImguiPolicyClinicalChecks.Run();
