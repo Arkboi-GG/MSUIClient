@@ -9,7 +9,7 @@ public enum ChatTabMenuLevel
     SystemMessages, OtherMessages, OtherCreature, OtherLoot,
 }
 
-public enum ChatTabMenuRowKind { Header, Submenu, FontSize, MsgType }
+public enum ChatTabMenuRowKind { Header, Submenu, FontSize, MsgType, LockWindow }
 
 /// <summary>
 /// One menu row. Header rows are non-interactive section labels (gold, no hover).
@@ -45,7 +45,7 @@ public static class ChatTabMenuUiLaw
 
     public static readonly ChatTabMenuRow[] Root =
     [
-        new("Display", ChatTabMenuRowKind.Header),
+        new("Lock Window", ChatTabMenuRowKind.LockWindow),
         new("Font Size", Nested: ChatTabMenuLevel.FontSize),
         new("Filters", ChatTabMenuRowKind.Header),
         new("Channels", Nested: ChatTabMenuLevel.Channels),

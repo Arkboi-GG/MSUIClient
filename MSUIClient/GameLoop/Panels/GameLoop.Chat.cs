@@ -934,6 +934,11 @@ public sealed partial class GameLoop
                         _chatFontSizePt = row.FontPt;
                         CloseChatTabMenu();
                         break;
+                    case ChatTabMenuRowKind.LockWindow:
+                        Settings.HudLayout.ChatUnlocked = !Settings.HudLayout.ChatUnlocked;
+                        SettingsFile?.Save();
+                        CloseChatTabMenu();
+                        break;
                     case ChatTabMenuRowKind.MsgType when row.Type is { } type:
                         Vector2 swatchOrigin = origins[depth] + ChatTabMenuUiLaw.SwatchOrigin(hover, widths[depth]);
                         bool onSwatch = mouse.X >= swatchOrigin.X &&
@@ -989,6 +994,14 @@ public sealed partial class GameLoop
             if (row.Kind == ChatTabMenuRowKind.FontSize)
             {
                 if (row.FontPt == _chatFontSizePt)
+                    GameText.Draw(dl, font, "X",
+                        (logicalOrigin + ChatTabMenuUiLaw.CheckOrigin(i, contentWidth)) * s, s);
+            }
+            else if (row.Kind == ChatTabMenuRowKind.LockWindow)
+            {
+                // Checked means locked — the inverse of Settings.HudLayout.ChatUnlocked,
+                // which the existing "Unlock chat frame" Settings-panel checkbox also reads.
+                if (!Settings.HudLayout.ChatUnlocked)
                     GameText.Draw(dl, font, "X",
                         (logicalOrigin + ChatTabMenuUiLaw.CheckOrigin(i, contentWidth)) * s, s);
             }
