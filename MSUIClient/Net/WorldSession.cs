@@ -443,6 +443,37 @@ public sealed class WorldSession : IDisposable
     public void CompleteCinematic() =>
         SendPacket((ushort)Op.CMSG_COMPLETE_CINEMATIC, ReadOnlySpan<byte>.Empty);
 
+    /// <summary>Ask for the raid/dungeon lockout list (spec P1). Empty body;
+    /// answered by SMSG_RAID_INSTANCE_INFO.</summary>
+    public void RequestRaidInfo() =>
+        SendPacket((ushort)Op.CMSG_REQUEST_RAID_INFO, ReadOnlySpan<byte>.Empty);
+
+    /// <summary>Reset every instance the character is NOT saved to (spec P1). Empty
+    /// body; answered per-map by SMSG_INSTANCE_RESET / SMSG_INSTANCE_RESET_FAILED.</summary>
+    public void ResetInstances() =>
+        SendPacket((ushort)Op.CMSG_RESET_INSTANCES, ReadOnlySpan<byte>.Empty);
+
+    /// <summary>Ask a stablemaster for the pet list (spec P3). Answered by
+    /// MSG_LIST_STABLED_PETS.</summary>
+    public void RequestStabledPets(ulong npcGuid) =>
+        SendPacket((ushort)Op.MSG_LIST_STABLED_PETS, StableWire.BuildNpcGuidBody(npcGuid));
+
+    /// <summary>Stable the currently active pet at this stablemaster.</summary>
+    public void StablePet(ulong npcGuid) =>
+        SendPacket((ushort)Op.CMSG_STABLE_PET, StableWire.BuildNpcGuidBody(npcGuid));
+
+    /// <summary>Take a stabled pet out (make it active).</summary>
+    public void UnstablePet(ulong npcGuid, uint petNumber) =>
+        SendPacket((ushort)Op.CMSG_UNSTABLE_PET, StableWire.BuildPetActionBody(npcGuid, petNumber));
+
+    /// <summary>Buy an additional stable slot.</summary>
+    public void BuyStableSlot(ulong npcGuid) =>
+        SendPacket((ushort)Op.CMSG_BUY_STABLE_SLOT, StableWire.BuildNpcGuidBody(npcGuid));
+
+    /// <summary>Swap the active pet with a stabled one.</summary>
+    public void SwapStablePet(ulong npcGuid, uint petNumber) =>
+        SendPacket((ushort)Op.CMSG_STABLE_SWAP_PET, StableWire.BuildPetActionBody(npcGuid, petNumber));
+
     public void LogoutRequest() =>
         SendPacket((ushort)Op.CMSG_LOGOUT_REQUEST, ReadOnlySpan<byte>.Empty);
 

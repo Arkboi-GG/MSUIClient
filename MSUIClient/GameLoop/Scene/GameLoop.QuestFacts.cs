@@ -115,7 +115,7 @@ public sealed partial class GameLoop
             if (entry.Complete) state |= 1;
             if (entry.Failed) state |= 2;
             destination.Add((entry.Slot, entry.QuestId,
-                counters | (state << 24), 0u));
+                counters | (state << 24), entry.Timer));
         }
     }
 

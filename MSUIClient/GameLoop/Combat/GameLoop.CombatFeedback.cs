@@ -201,6 +201,8 @@ public sealed partial class GameLoop
             DrawPartyTacticsPanel();
             DrawPartyInventoryPanel();
             DrawPartyQuestLogPanel();
+            DrawRaidInfoPanel();
+            DrawStablePanel();
             DrawGiverQuestsWindow();
             DrawGiverQuestTextWindow();
             DrawQuestMarkerNumerals();

@@ -15,13 +15,15 @@ namespace MSUIClient.Net;
 /// (255) when the quest is held without one (an overflow quest).</param>
 /// <param name="ObjectiveCounts">Kill/GO progress per objective (vanilla caps these at a byte).</param>
 /// <param name="ItemCounts">Required-item progress per objective.</param>
+/// <param name="Timer">Absolute Unix deadline seconds, or zero for an untimed quest.</param>
 public readonly record struct MemberQuestEntry(
     uint QuestId,
     byte Status,
     byte Flags,
     byte Slot,
     byte[] ObjectiveCounts,
-    ushort[] ItemCounts)
+    ushort[] ItemCounts,
+    uint Timer = 0)
 {
     public bool Complete => (Flags & QuestFactsWire.EntryComplete) != 0;
     public bool Failed => (Flags & QuestFactsWire.EntryFailed) != 0;
@@ -81,13 +83,25 @@ public static class QuestFactsWire
     public const byte EntryOverflow = 0x04;
     public const byte EntryRewarded = 0x08;
 
+    // Request/response flag: opt into a trailing absolute Unix deadline on every
+    // entry. The server remembers the negotiation for unsolicited roster pushes.
+    public const byte RequestIncludeTimers = 0x01;
+    public const byte LogIncludesTimers = 0x01;
+    private const byte KnownLogFlags = LogIncludesTimers;
+
     /// <summary>u64 subject + u8 flags + u16 heldCap + u16 count.</summary>
     public const int LogHeaderBytes = 13;
 
-    /// <summary>u32 quest + u8 status + u8 flags + u8 slot + u8×4 objectives + u16×4 items.</summary>
-    public const int LogEntryBytes = 19;
+    /// <summary>Original fixed stride, retained for clients/servers that do not negotiate timers.</summary>
+    public const int LegacyLogEntryBytes = 19;
 
-    /// <summary>u8 flags (reserved), u8 count (0 = whole party/raid + self), u64 guids.</summary>
+    /// <summary>Legacy entry plus a trailing u32 absolute Unix deadline.</summary>
+    public const int TimedLogEntryBytes = LegacyLogEntryBytes + 4;
+
+    /// <summary>The stride requested by this client.</summary>
+    public const int LogEntryBytes = TimedLogEntryBytes;
+
+    /// <summary>u8 flags, u8 count (0 = whole party/raid + self), u64 guids.</summary>
     public static byte[] BuildQuestFactsBody(IReadOnlyList<ulong> subjects)
     {
         ArgumentNullException.ThrowIfNull(subjects);
@@ -95,7 +109,7 @@ public static class QuestFactsWire
             throw new ArgumentOutOfRangeException(nameof(subjects),
                 $"quest-facts pull supports at most {MaximumSubjects} explicit subjects.");
         var w = new PacketWriter(2 + subjects.Count * 8);
-        w.WriteU8(0);
+        w.WriteU8(RequestIncludeTimers);
         w.WriteU8((byte)subjects.Count);
         foreach (ulong guid in subjects) w.WriteU64(guid);
         return w.ToArray();
@@ -115,7 +129,10 @@ public static class QuestFactsWire
         byte flags = r.ReadU8();
         ushort heldCap = r.ReadU16();
         int count = r.ReadU16();
-        if (body.Length != LogHeaderBytes + count * LogEntryBytes) return false;
+        if ((flags & ~KnownLogFlags) != 0) return false;
+        bool hasTimers = (flags & LogIncludesTimers) != 0;
+        int entryBytes = hasTimers ? TimedLogEntryBytes : LegacyLogEntryBytes;
+        if (body.Length != LogHeaderBytes + count * entryBytes) return false;
         if (subject == 0) return false;
 
         var entries = new MemberQuestEntry[count];
@@ -129,7 +146,9 @@ public static class QuestFactsWire
             for (int j = 0; j < ObjectivesPerQuest; j++) objectives[j] = r.ReadU8();
             var items = new ushort[ObjectivesPerQuest];
             for (int j = 0; j < ObjectivesPerQuest; j++) items[j] = r.ReadU16();
-            entries[i] = new MemberQuestEntry(questId, status, entryFlags, slot, objectives, items);
+            uint timer = hasTimers ? r.ReadU32() : 0;
+            entries[i] = new MemberQuestEntry(
+                questId, status, entryFlags, slot, objectives, items, timer);
         }
 
         log = new MemberQuestLog(subject, flags, heldCap, entries);

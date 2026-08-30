@@ -88,14 +88,14 @@ internal static class ObserverBodyOwnershipClinicalChecks
                   Ordinal) &&
               cursor.Contains("TryGetSessionBodyPose(out goActorBody)", Ordinal) &&
               cursor.Contains("TryGetControlledBodyPose(out goActorBody)", Ordinal) &&
-              cursor.Contains(
-                  "bool sessionScoped = unit.IsDead || serviceKind is not null;", Ordinal) &&
-              cursor.Contains(
-                  "TryGetControlledBodyPose(out WorldBodyPose actorPose)", Ordinal) &&
+              cursor.Contains("if (serviceKind is not null)", Ordinal) &&
+              cursor.Contains("hasActorPose = TryGetInteractionBodyPose(out actorPose);", Ordinal) &&
+              cursor.Contains("else if (unit.IsDead", Ordinal) &&
               cursor.Contains("hasActorPose = TryGetSessionBodyPose(out actorPose);", Ordinal) &&
+              cursor.Contains("hasActorPose = TryGetControlledBodyPose(out actorPose);", Ordinal) &&
               !cursor.Contains("_controller.Position", Ordinal),
-            "world cursor must use session-body reach for loot/services and controlled-body " +
-            "reach for combat");
+            "world cursor must use session-body reach for loot, interaction-body reach for " +
+            "services, and controlled-body reach for combat");
 
         Check(instances.Contains(
                   "TryGetSessionBodyPose(out WorldBodyPose sessionBody)", Ordinal) &&
@@ -208,9 +208,12 @@ internal static class ObserverBodyOwnershipClinicalChecks
         Check(inventory.Contains("private bool CanAuthorSessionInventory", Ordinal) &&
               inventory.Contains(
                   "CanAuthorControlledGameplay && ControlledGuid == LocalPlayerGuid", Ordinal) &&
-              Count(inventory, "CanAuthorSessionInventory") >= 10 &&
-              AppearsBefore(inventory, "if (CanAuthorSessionInventory)",
-                  "_net.AutoEquipItem(wire.Bag, wire.Slot);") &&
+              inventory.Contains(
+                  "if (CanAuthorControlledOrSelf) _net.AutoEquipItem(wire.Bag, wire.Slot);",
+                  Ordinal) &&
+              inventory.Contains(
+                  "if (!CanAuthorSessionInventory || _net is null || slot is < 0 or >= 19",
+                  Ordinal) &&
               characterPage.Contains("if (!CanAuthorSessionInventory) return false;", Ordinal) &&
               characterPage.Contains("sent = _net.SetAmmo(carried.Entry);", Ordinal) &&
               deleteItem.Contains("if (!CanAuthorSessionInventory ||", Ordinal) &&
@@ -220,7 +223,8 @@ internal static class ObserverBodyOwnershipClinicalChecks
               skills.Contains(
                   "if (!CanAuthorControlledGameplay || ControlledGuid != LocalPlayerGuid)",
                   Ordinal),
-            "direct equip/unequip/ammo tails must not author gameplay from plain Free View");
+            "threaded equip must allow a possessed body, while unthreaded unequip/ammo tails " +
+            "must remain session-inventory-only");
 
         string taxiSweep = Slice(taxi, "private void UpdateTaxiNodeStatusQueries()",
             "private void ApplyTaxiNodes");
@@ -231,12 +235,13 @@ internal static class ObserverBodyOwnershipClinicalChecks
               taxiSweep.Contains(
                   "Vector3.DistanceSquared(sessionBody.Position, unit.Position)", Ordinal) &&
               questSweep.Contains(
-                  "TryGetSessionBodyPose(out WorldBodyPose sessionBody)", Ordinal) &&
+                  "TryGetInteractionBodyPose(out WorldBodyPose sessionBody)", Ordinal) &&
               questSweep.Contains(
                   "_entities.TryGet(net.PlayerGuid, out WorldEntity player)", Ordinal) &&
               questSweep.Contains("QuestStatusSessionNeighborhoodSquared", Ordinal) &&
               !questSweep.Contains("_entities.TryGet(ControlledGuid", Ordinal),
-            "automatic NPC status queries must follow the session body, not the camera stream");
+            "automatic taxi queries must follow the session body and quest-giver queries the " +
+            "interaction body, never the camera stream");
 
         Check(auction.Contains("private bool AuctioneerEligible(", Ordinal) &&
               auction.Contains(

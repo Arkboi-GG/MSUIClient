@@ -749,6 +749,27 @@ public sealed partial class GameLoop
                     case Op.SMSG_GROUP_LIST:
                         ApplyPartyRoster(body);
                         break;
+                    case Op.SMSG_RAID_INSTANCE_INFO:
+                        ApplyRaidInstanceInfo(body);
+                        break;
+                    case Op.SMSG_INSTANCE_SAVE_CREATED:
+                        ApplyInstanceSaveCreated(body);
+                        break;
+                    case Op.SMSG_RAID_INSTANCE_MESSAGE:
+                        ApplyRaidInstanceMessage(body);
+                        break;
+                    case Op.SMSG_INSTANCE_RESET:
+                        ApplyInstanceReset(body, failed: false);
+                        break;
+                    case Op.SMSG_INSTANCE_RESET_FAILED:
+                        ApplyInstanceReset(body, failed: true);
+                        break;
+                    case Op.MSG_LIST_STABLED_PETS:
+                        ApplyStableList(body);
+                        break;
+                    case Op.SMSG_STABLE_RESULT:
+                        ApplyStableResult(body);
+                        break;
                     case Op.SMSG_GROUP_INVITE:
                         ApplyPartyInvite(body);
                         break;

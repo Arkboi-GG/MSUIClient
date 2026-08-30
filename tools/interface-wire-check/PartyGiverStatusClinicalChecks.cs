@@ -3,11 +3,11 @@ using MSUIClient.Engine.UI;
 using MSUIClient.Net;
 
 /// <summary>
-/// Party questgiver status (PLAN_20 P5 — the parenthesised numeral over the
-/// vanilla !/? art). Verifies the wire law (pull builder + exact-length status
-/// parser), the opcode and capability constants including the pair still
-/// reserved for P4, the counting law that decides what the numeral says, and
-/// the additive law that keeps a vanilla screenshot unchanged.
+/// Party questgiver status (PLAN_20 P5 — parenthesised party-member names over
+/// the vanilla !/? art in commander view). Verifies the wire law (pull builder
+/// plus exact-length status parser), the opcode and capability constants including the pair still
+/// reserved for P4, the actionable-status classification, and the additive
+/// wiring that keeps embodied play and UI-parity captures unchanged.
 /// </summary>
 internal static class PartyGiverStatusClinicalChecks
 {
@@ -75,10 +75,10 @@ internal static class PartyGiverStatusClinicalChecks
             "0x035A/0x035B are PLAN_20 P4's reserved vendor pair — P5 shipping first must " +
             "not renumber onto them, because the core reserves the same two indices");
 
-        // ── The counting law ─────────────────────────────────────────────────
+        // ── Actionable-status classification ─────────────────────────────────
         // REWARD_REP (4) draws as a blue question mark but MEANS "available";
-        // counting it with the turn-ins it resembles would put the wrong number
-        // over every repeatable questgiver in the game.
+        // classifying it with the turn-ins it resembles would attach the wrong
+        // party-business meaning to every repeatable questgiver in the game.
         Check(QuestMarkerUiLaw.FamilyOf(GiverStatusWire.DialogRewardRep) == QuestMarkerFamily.Take &&
               QuestMarkerUiLaw.FamilyOf(GiverStatusWire.DialogAvailable) == QuestMarkerFamily.Take,
             "DIALOG_STATUS_REWARD_REP and _AVAILABLE both mean 'can take' and must count together");
@@ -88,42 +88,15 @@ internal static class PartyGiverStatusClinicalChecks
         foreach (byte quiet in new[] { GiverStatusWire.DialogNone, GiverStatusWire.DialogUnavailable,
                      GiverStatusWire.DialogChat, GiverStatusWire.DialogIncomplete })
             Check(QuestMarkerUiLaw.FamilyOf(quiet) == QuestMarkerFamily.None,
-                $"dialog status {quiet} is not actionable and must not be counted");
+                $"dialog status {quiet} is not actionable and must not produce a party label");
 
-        // Our own status picks the family when we have business here; when we do
-        // not, the numeral speaks for whoever does — that is the case where it
-        // earns its keep, because walking past is the alternative.
-        Check(QuestMarkerUiLaw.NumeralFamily(GiverStatusWire.DialogReward2, 3, 1)
-                  == QuestMarkerFamily.TurnIn,
-            "our own turn-in status must pick the turn-in count, not the larger one");
-        Check(QuestMarkerUiLaw.NumeralFamily(GiverStatusWire.DialogUnavailable, 0, 2)
-                  == QuestMarkerFamily.TurnIn,
-            "a grey marker must still speak for members who DO have business here");
-        Check(QuestMarkerUiLaw.NumeralFamily(GiverStatusWire.DialogUnavailable, 0, 0)
-                  == QuestMarkerFamily.None,
-            "nobody with business means no numeral");
+        // The current label is intentionally the plain-sized vanilla gold font.
+        // The earlier large count read as a headline from the commander camera.
+        Check(QuestMarkerUiLaw.NumeralFontObject == "GameFontNormal",
+            "party questgiver names must use the plain vanilla gold label font");
 
-        // ── The additive law ─────────────────────────────────────────────────
-        // "(1)" over our own available quest is what vanilla already says by
-        // drawing the marker at all. Drawing nothing there is what keeps solo
-        // play pixel-identical, which is the whole basis of this being additive.
-        Check(!QuestMarkerUiLaw.ShowNumeral(GiverStatusWire.DialogAvailable,
-                  QuestMarkerFamily.Take, 1),
-            "a count of one that is US must draw NO numeral — vanilla already said it");
-        Check(QuestMarkerUiLaw.ShowNumeral(GiverStatusWire.DialogAvailable,
-                  QuestMarkerFamily.Take, 2),
-            "two or more must draw the numeral");
-        Check(QuestMarkerUiLaw.ShowNumeral(GiverStatusWire.DialogUnavailable,
-                  QuestMarkerFamily.Take, 1),
-            "a count of one that is NOT us must draw — nothing else on screen says it");
-        Check(QuestMarkerUiLaw.NumeralText(4) == "(4)",
-            "owner decision 5 is a PARENTHESISED numeral");
-        Check(QuestMarkerUiLaw.NumeralFontObject == "GameFontNormalLarge",
-            "decision 5 keeps the vanilla quest font and yellow — GameFontNormalLarge is " +
-            "FrizQt/gold/black-shadow, the quest font object itself");
-
-        // The marker art must be untouched: the numeral hangs OVER vanilla's
-        // markers and never adds, moves or restyles one.
+        // The marker art must be untouched: member-name labels hang over vanilla's
+        // markers and never add, move or restyle one.
         Check(QuestMarkerUiLaw.Style(5)?.ModelPath == @"Interface\Buttons\TalkToMe.m2" &&
               QuestMarkerUiLaw.Style(6)?.ModelPath == @"Interface\Buttons\TalkToMeQuestionMark.m2" &&
               QuestMarkerUiLaw.Style(0) is null,
@@ -134,27 +107,34 @@ internal static class PartyGiverStatusClinicalChecks
         string markers = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
             "GameLoop.QuestMarkers.cs"));
         Check(markers.Contains("if (_uiParityArmed) return;", StringComparison.Ordinal),
-            "the numeral must not draw while a UI-parity proof is armed");
-        Check(markers.Contains("UpdatePartyGiverStatus(_questMarkerGuids);", StringComparison.Ordinal),
-            "the pull must be driven by the markers actually on screen");
+            "party questgiver labels must not draw while a UI-parity proof is armed");
+        Check(markers.Contains("UpdatePartyGiverStatus(_nearbyQuestGiverGuids);",
+                  StringComparison.Ordinal),
+            "the pull must include nearby questgivers so companion-only markers can appear");
         Check(markers.Contains("_questMarkerGuids.Clear();", StringComparison.Ordinal),
             "the marked-giver set must be rebuilt each frame, not accumulated forever");
+        Check(markers.Contains("if (!_freeView) return;", StringComparison.Ordinal) &&
+              markers.Contains("GiverMemberNameLines(guid)", StringComparison.Ordinal) &&
+              markers.Contains("string line = \"(\" + names[i] + \")\";",
+                  StringComparison.Ordinal),
+            "commander-view questgiver labels must render parenthesised member names, " +
+            "not the retired aggregate count");
 
         string feedback = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Combat",
             "GameLoop.CombatFeedback.cs"));
         Check(feedback.Contains("DrawQuestMarkerNumerals();", StringComparison.Ordinal),
-            "the numeral has exactly one draw call and it was not pinned");
+            "the party questgiver label pass has exactly one draw call and it was not pinned");
 
         string facts = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
             "GameLoop.MemberFacts.cs"));
         Check(facts.Contains("ApplyPartyGiverStatusCapability(capabilities);", StringComparison.Ordinal),
-            "without the capability apply site the bit is never observed and no numeral ever draws");
+            "without the capability apply site the bit is never observed and no labels ever draw");
 
         string giver = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
             "GameLoop.GiverStatus.cs"));
         Check(giver.Contains("if (guid == LocalPlayerGuid) continue;", StringComparison.Ordinal),
             "our own verdict must come from _questStatuses, not from the wire — otherwise the " +
-            "numeral and the marker under it can disagree about us");
+            "party label and the marker under it can disagree about us");
         Check(giver.Contains("_giverMemberStatuses[entry.Giver] = [];", StringComparison.Ordinal),
             "a giver the server answers for must have its map REPLACED, or a member who " +
             "stops having business there is counted forever at a stale verdict");

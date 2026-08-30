@@ -15,12 +15,11 @@ public sealed partial class GameLoop
     private void DrawQuestTimerFrame()
     {
         _questTimerFrameHeight = 0f;
-        if (_net is null || _gameplayArt is null || _skin is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+        if (_net is not { IsInWorld: true } || _gameplayArt is null || _skin is null) return;
 
         EnsureQuestServerTime();
         var timers = new List<QuestTimerDisplay>(QuestTimerFrameUiLaw.MaxTimers);
-        foreach (var quest in player.Fields.QuestLog())
+        foreach (var quest in DisplayedQuestLog())
         {
             long? seconds = QuestSignedSecondsLeft(quest.Timer, (byte)(quest.Counters >> 24));
             if (seconds is null || seconds.Value < 0) continue;

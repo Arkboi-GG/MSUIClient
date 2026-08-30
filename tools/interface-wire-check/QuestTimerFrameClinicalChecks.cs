@@ -60,6 +60,8 @@ internal static class QuestTimerFrameClinicalChecks
               !runtime.Contains("ImGui.SetTooltip", StringComparison.Ordinal) &&
               !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               runtime.Contains("QuestSignedSecondsLeft", StringComparison.Ordinal) &&
+              runtime.Contains("foreach (var quest in DisplayedQuestLog())", StringComparison.Ordinal) &&
+              !runtime.Contains("player.Fields.QuestLog()", StringComparison.Ordinal) &&
               runtime.Contains("UI-DialogBox-Header", StringComparison.Ordinal) &&
               runtime.Contains("_questLogSelectedQuestId = timer.QuestId", StringComparison.Ordinal) &&
               quest.Contains("_questTimerFrameHeight, _durabilityFrameShown", StringComparison.Ordinal) &&

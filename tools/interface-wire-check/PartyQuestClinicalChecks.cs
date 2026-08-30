@@ -13,23 +13,24 @@ internal static class PartyQuestClinicalChecks
     public static void Run()
     {
         // ── Pull builder: u8 flags, u8 count, u64 guids; empty = group + self ──
-        Check(QuestFactsWire.BuildQuestFactsBody([]) is [0, 0],
-            "empty quest-facts pull must be exactly flags=0, count=0");
+        Check(QuestFactsWire.BuildQuestFactsBody([]) is [QuestFactsWire.RequestIncludeTimers, 0],
+            "empty quest-facts pull must request timers and address the whole group");
         byte[] two = QuestFactsWire.BuildQuestFactsBody([0x1122334455667788UL, 9UL]);
-        Check(two.Length == 18 && two[0] == 0 && two[1] == 2 &&
+        Check(two.Length == 18 && two[0] == QuestFactsWire.RequestIncludeTimers && two[1] == 2 &&
               BitConverter.ToUInt64(two, 2) == 0x1122334455667788UL &&
               BitConverter.ToUInt64(two, 10) == 9UL,
             "quest-facts pull body layout drift (flags/count/raw little-endian guids)");
         ExpectRefused(() => QuestFactsWire.BuildQuestFactsBody(
             [.. Enumerable.Repeat(1UL, QuestFactsWire.MaximumSubjects + 1)]));
 
-        // ── Quest-log parser: u64 subject, u8 flags, u16 count, 19-byte entries ─
+        // ── Quest-log parser: negotiated 23-byte entries carry a deadline ─────
         var w = new PacketWriter();
         w.WriteU64(0xABCDEF01UL);
-        w.WriteU8(0);
+        w.WriteU8(QuestFactsWire.LogIncludesTimers);
         w.WriteU16(100);                 // heldCap — the server's MAX_QUEST_HELD
         w.WriteU16(2);
-        WriteEntry(w, 3906, QuestFactsWire.StatusIncomplete, 0, 4, [7, 0, 0, 0], [0, 0, 0, 0]);
+        WriteEntry(w, 3906, QuestFactsWire.StatusIncomplete, 0, 4,
+            [7, 0, 0, 0], [0, 0, 0, 0], 1_000_860);
         WriteEntry(w, 1234, QuestFactsWire.StatusComplete,
             (byte)(QuestFactsWire.EntryComplete | QuestFactsWire.EntryOverflow),
             QuestFactsWire.NoLogSlot, [0, 0, 0, 0], [5, 300, 0, 0]);
@@ -44,14 +45,29 @@ internal static class PartyQuestClinicalChecks
         MemberQuestEntry first = log.Entries[0];
         Check(first.QuestId == 3906 && first.Status == QuestFactsWire.StatusIncomplete &&
               first.Slot == 4 && !first.Complete && !first.Overflow &&
-              first.ObjectiveCounts is [7, 0, 0, 0] && first.ItemCounts is [0, 0, 0, 0],
-            "quest-log entry 0 drift (id/status/slot/objective counters)");
+              first.ObjectiveCounts is [7, 0, 0, 0] && first.ItemCounts is [0, 0, 0, 0] &&
+              first.Timer == 1_000_860,
+            "quest-log entry 0 drift (id/status/slot/objective counters/deadline)");
 
         MemberQuestEntry second = log.Entries[1];
         Check(second.QuestId == 1234 && second.Complete && second.Overflow && !second.Failed &&
               second.Slot == QuestFactsWire.NoLogSlot && second.ItemCounts is [5, 300, 0, 0],
             "quest-log overflow entry drift — a slotless quest must survive the wire " +
             "with slot 255 and the overflow flag, and item counts must not truncate at a byte");
+
+        // A legacy server response remains readable and supplies an untimed zero.
+        var legacy = new PacketWriter();
+        legacy.WriteU64(9);
+        legacy.WriteU8(0);
+        legacy.WriteU16(20);
+        legacy.WriteU16(1);
+        WriteEntry(legacy, 3361, QuestFactsWire.StatusIncomplete, 0, 3,
+            [0, 0, 0, 0], [0, 0, 0, 0], includeTimer: false);
+        byte[] legacyBody = legacy.ToArray();
+        Check(legacyBody.Length == QuestFactsWire.LogHeaderBytes + QuestFactsWire.LegacyLogEntryBytes &&
+              QuestFactsWire.TryParseQuestLog(legacyBody, out MemberQuestLog legacyLog) &&
+              legacyLog.Entries is [{ Timer: 0 }],
+            "legacy 19-byte quest entries must remain readable as untimed quests");
 
         // An empty (but exact) log is legal: it means "told, and they hold none".
         var empty = new PacketWriter();
@@ -78,6 +94,14 @@ internal static class PartyQuestClinicalChecks
         Check(!QuestFactsWire.TryParseQuestLog(zeroSubject.ToArray(), out _),
             "a quest log addressed to nobody must be refused, not filed under guid 0");
 
+        var unknownFlags = new PacketWriter();
+        unknownFlags.WriteU64(7);
+        unknownFlags.WriteU8(0x80);
+        unknownFlags.WriteU16(20);
+        unknownFlags.WriteU16(0);
+        Check(!QuestFactsWire.TryParseQuestLog(unknownFlags.ToArray(), out _),
+            "unknown quest-log response flags must be refused, not guessed");
+
         // ── Opcodes + capability bit; P3/P4 stay unclaimed until they are built ─
         // 856/857 were reserved here until P3 claimed them; 858-859 stay reserved
         // for the P4 vendor pair. PartyQuestActsClinicalChecks owns the act pair.
@@ -98,6 +122,8 @@ internal static class PartyQuestClinicalChecks
               questFacts.Contains("log DROPPED", StringComparison.Ordinal),
             "quest-facts gate law drift: own guid + party members accepted, everything " +
             "else dropped with an honest log line");
+        Check(questFacts.Contains("counters | (state << 24), entry.Timer", StringComparison.Ordinal),
+            "party quest deadlines must survive projection into the displayed quest log");
 
         Check(questFacts.Contains("if (!_partyQuestFactsAvailable || _net is not { IsInWorld: true }) return false;",
                   StringComparison.Ordinal) &&
@@ -150,6 +176,10 @@ internal static class PartyQuestClinicalChecks
         Check(partyPanel.Contains("MemberQuestLogAge(guid)", StringComparison.Ordinal),
             "the party quest log must state how old its facts are — the age helper " +
             "existed with no consumer at all, so the grid presented stale counters as live");
+        Check(partyPanel.Contains("EnsureQuestServerTime();", StringComparison.Ordinal) &&
+              partyPanel.Contains("QuestSecondsLeft(cell.Timer", StringComparison.Ordinal) &&
+              partyPanel.Contains("Time Remaining: ", StringComparison.Ordinal),
+            "the Party Quest Log must display each held character's own quest deadline");
 
         // Kill and collect objectives SHARE an index in vanilla and 89 quest/index
         // pairs across 83 quests in the shipped world DB carry both. This was fixed
@@ -219,11 +249,16 @@ internal static class PartyQuestClinicalChecks
         Check(giverPanel.Contains("item:giver-party:", StringComparison.Ordinal) &&
               giverPanel.Contains("item:quest-preview:", StringComparison.Ordinal) &&
               questRail.Contains("item:quest-party-rail:", StringComparison.Ordinal) &&
+              giverPanel.Contains(
+                  "PrepareItemTooltipBodySnapshot(item, row.Count, ownerGuid: guid)",
+                  StringComparison.Ordinal) &&
               giverPanel.Contains("PrepareItemTooltipBodySnapshot(item, row.Count)",
                   StringComparison.Ordinal) &&
-              questRail.Contains("PrepareItemTooltipBodySnapshot(item, row.Count)",
+              questRail.Contains(
+                  "PrepareItemTooltipBodySnapshot(item, row.Count, ownerGuid: guid)",
                   StringComparison.Ordinal),
-            "party quest reward chips must publish full item-stat tooltips, not name-only hover text");
+            "party quest reward chips must publish full item-stat tooltips and evaluate " +
+            "member-specific proficiency against the reward's owner");
 
         string bars = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
             "GameLoop.ActionBars.cs"));
@@ -234,7 +269,7 @@ internal static class PartyQuestClinicalChecks
     }
 
     private static void WriteEntry(PacketWriter w, uint questId, byte status, byte flags,
-        byte slot, byte[] objectives, ushort[] items)
+        byte slot, byte[] objectives, ushort[] items, uint timer = 0, bool includeTimer = true)
     {
         w.WriteU32(questId);
         w.WriteU8(status);
@@ -242,6 +277,7 @@ internal static class PartyQuestClinicalChecks
         w.WriteU8(slot);
         foreach (byte value in objectives) w.WriteU8(value);
         foreach (ushort value in items) w.WriteU16(value);
+        if (includeTimer) w.WriteU32(timer);
     }
 
     private static void ExpectRefused(Action action)

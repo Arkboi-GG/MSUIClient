@@ -294,6 +294,8 @@ public sealed partial class GameLoop
         ResetCompanionVoiceState();
         ResetPartyMemberFacts();
         ResetPartyQuestFacts();
+        ResetRaidInfo();
+        ResetStable();
         ResetPartyGiverStatus();
         ResetPartyGiverQuests();
         ResetPartyLead();

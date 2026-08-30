@@ -637,7 +637,8 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
             "    private bool OpenFirstProfession()");
         string actionBars = SourceText.Read(Path.Combine(root,
             "MSUIClient", "Program.ActionBars.cs"));
-        string tryCast = Slice(actionBars, "    private void TryCast(uint spellId)",
+        string tryCast = Slice(actionBars,
+            "    private void TryCast(uint spellId, ulong explicitTarget = 0)",
             "    private void CommitCastSend(in SpellInfo spell");
 
         Check(law.Contains("effectIds[0] != TradeSkillEffect", StringComparison.Ordinal) &&

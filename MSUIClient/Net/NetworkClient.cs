@@ -260,6 +260,29 @@ public sealed class NetworkClient : IDisposable
     }
 
     public void CompleteCinematic() { try { _session?.CompleteCinematic(); } catch { } }
+    /// <summary>Request the raid/dungeon lockout list (spec P1).</summary>
+    public bool RequestRaidInfo() => InWorld(s => s.RequestRaidInfo());
+
+    /// <summary>Reset instances the character is not saved to (spec P1).</summary>
+    public bool ResetInstances() => InWorld(s => s.ResetInstances());
+
+    /// <summary>Ask a stablemaster for the pet list (spec P3).</summary>
+    public bool RequestStabledPets(ulong npcGuid) => InWorld(s => s.RequestStabledPets(npcGuid));
+
+    /// <summary>Stable the active pet.</summary>
+    public bool StablePet(ulong npcGuid) => InWorld(s => s.StablePet(npcGuid));
+
+    /// <summary>Take a stabled pet out.</summary>
+    public bool UnstablePet(ulong npcGuid, uint petNumber) =>
+        InWorld(s => s.UnstablePet(npcGuid, petNumber));
+
+    /// <summary>Buy an additional stable slot.</summary>
+    public bool BuyStableSlot(ulong npcGuid) => InWorld(s => s.BuyStableSlot(npcGuid));
+
+    /// <summary>Swap the active pet with a stabled one.</summary>
+    public bool SwapStablePet(ulong npcGuid, uint petNumber) =>
+        InWorld(s => s.SwapStablePet(npcGuid, petNumber));
+
     public bool LogoutRequest() => InWorld(s => s.LogoutRequest());
     public bool LogoutCancel() => InWorld(s => s.LogoutCancel());
 

@@ -38,7 +38,8 @@ public sealed partial class GameLoop
     /// discarded whichever came second.</param>
     private readonly record struct PartyQuestCell(
         bool Held, bool Complete, bool Failed, bool Overflow, bool Rewarded,
-        uint[] KillProgress, uint[] ItemProgress, int ObjectivesDone, int ObjectivesTotal);
+        uint Timer, uint[] KillProgress, uint[] ItemProgress,
+        int ObjectivesDone, int ObjectivesTotal);
 
     private void OpenPartyQuestLog()
     {
@@ -49,6 +50,7 @@ public sealed partial class GameLoop
     private void DrawPartyQuestLogPanel()
     {
         if (!_partyQuestLogOpen || _net is null || _gameplayArt is null) return;
+        EnsureQuestServerTime();
         float scale = GameplayUiScale();
 
         List<(ulong Guid, string Name)> owners = [(LocalPlayerGuid, _net.PlayerName ?? "You")];
@@ -288,6 +290,14 @@ public sealed partial class GameLoop
                         _questTitles.GetValueOrDefault(questId, $"Quest {questId}"));
             }
             y += 20f;
+            long? secondsLeft = QuestSecondsLeft(cell.Timer, cell.Failed ? (byte)2 : (byte)0);
+            if (secondsLeft is not null)
+            {
+                GameText.Draw(dl, "GameFontNormalSmall",
+                    "Time Remaining: " + QuestFrameUiLaw.SecondsToTime(secondsLeft.Value),
+                    c0 + new Vector2(12f, y) * scale, scale, 0xff9aa4ab);
+                y += 15f;
+            }
             foreach (string line in PartyQuestObjectiveLines(cell, template))
             {
                 GameText.Draw(dl, "GameFontNormalSmall", line,
@@ -322,18 +332,20 @@ public sealed partial class GameLoop
         bool failed = held && entry.Failed;
         bool overflow = held && entry.Overflow;
         bool rewarded = held && entry.Rewarded;
+        uint timer = held ? entry.Timer : 0;
 
         bool hasLocal = false;
         uint localCounters = 0;
         if (guid == LocalPlayerGuid)
         {
-            foreach ((_, uint localId, uint counters, _) in LocalQuestLogEntries())
+            foreach ((_, uint localId, uint counters, uint localTimer) in LocalQuestLogEntries())
             {
                 if (localId != questId) continue;
                 byte state = (byte)(counters >> 24);
                 held = true;
                 hasLocal = true;
                 localCounters = counters;
+                timer = localTimer;
                 complete = (state & 1) != 0;
                 failed = (state & 2) != 0;
                 overflow = false;              // it has a slot by definition
@@ -384,7 +396,7 @@ public sealed partial class GameLoop
             }
         }
         return new PartyQuestCell(held, complete, failed, overflow, rewarded,
-            killProgress, itemProgress, done, total);
+            timer, killProgress, itemProgress, done, total);
     }
 
     private IEnumerable<string> PartyQuestObjectiveLines(PartyQuestCell cell, QuestTemplate template)

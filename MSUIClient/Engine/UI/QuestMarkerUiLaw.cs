@@ -30,11 +30,12 @@ public static class QuestMarkerUiLaw
         _ => null,
     };
 
-    // ── PLAN_20 P5: the party numeral ────────────────────────────────────────
+    // ── PLAN_20 P5: party quest-marker labels ───────────────────────────────
     //
-    // Owner decision 5: keep the exact vanilla art, font and yellow, and hang a
-    // parenthesised numeral over it — (4) when four of your group can take what
-    // this NPC offers, and the same for turn-ins.
+    // The original aggregate count evolved into a vertical stack of parenthesised
+    // member names in commander view. The historical Numeral* identifiers remain
+    // shared by that renderer and the RTS queue, but this font constant now governs
+    // a plain-sized label rather than a large numeric headline.
 
     /// <summary>The vanilla quest font and yellow. Owner 2026-08-28: the LARGE
     /// face read as shouting from the sky and sat on top of the marker art —

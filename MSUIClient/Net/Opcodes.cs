@@ -85,6 +85,31 @@ public enum Op : ushort
     SMSG_PARTY_MEMBER_STATS_FULL = 0x02F2,
     MSG_RAID_TARGET_UPDATE       = 0x0321,
     MSG_RAID_READY_CHECK         = 0x0322,
+
+    // --- Dungeon / raid lockouts + timers (spec P1) ---
+    // The Raid Info window: which instances this character is saved to and the
+    // reset countdown per lock. Both requests carry an empty body; RaidInfoWire
+    // only parses. Values verified against vmangos Opcodes_1_12_1.h (build 5875).
+    CMSG_REQUEST_RAID_INFO       = 0x02CD,   // empty body → SMSG_RAID_INSTANCE_INFO
+    SMSG_RAID_INSTANCE_INFO      = 0x02CC,   // u32 count, then rows {mapId, secs, instanceId}
+    SMSG_INSTANCE_SAVE_CREATED   = 0x02CB,   // u32(0): "you are now saved"
+    SMSG_RAID_INSTANCE_MESSAGE   = 0x02FA,   // u32 type, u32 mapId, u32 secs (reset warning)
+    CMSG_RESET_INSTANCES         = 0x031D,   // empty body → SMSG_INSTANCE_RESET(_FAILED)
+    SMSG_INSTANCE_RESET          = 0x031E,   // u32 mapId (reset succeeded)
+    SMSG_INSTANCE_RESET_FAILED   = 0x031F,   // u32 reason, u32 mapId
+    SMSG_UPDATE_LAST_INSTANCE    = 0x0320,   // u32 mapId (last instance entered)
+
+    // --- Pet stables (spec P3) ---
+    // The stablemaster window. All requests address the NPC by guid; unstable/swap
+    // also carry the pet number. Values verified against vmangos (build 5875).
+    // CMSG_STABLE_REVIVE_PET (0x0274) is intentionally omitted: its server handler
+    // is an empty stub (no-op), so there is nothing to drive.
+    MSG_LIST_STABLED_PETS        = 0x026F,   // C: {npcGuid}; S: guid,count,slots,rows
+    CMSG_STABLE_PET              = 0x0270,   // {npcGuid} — stable the active pet
+    CMSG_UNSTABLE_PET            = 0x0271,   // {npcGuid, petNumber}
+    CMSG_BUY_STABLE_SLOT         = 0x0272,   // {npcGuid}
+    SMSG_STABLE_RESULT           = 0x0273,   // u8 result code
+    CMSG_STABLE_SWAP_PET         = 0x0275,   // {npcGuid, petNumber}
     CMSG_MOVE_WORLDPORT_ACK      = 0x00DC,
     // Benilla/reference spelling retained as a numeric-table alias. The packet
     // is client->server in practice; 1.12's table names it MSG_*.

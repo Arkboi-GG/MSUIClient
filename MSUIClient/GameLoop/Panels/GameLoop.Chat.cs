@@ -1037,6 +1037,21 @@ public sealed partial class GameLoop
             }
             return true;
         }
+        if (command is "/raidinfo" or "/raid" or "/saved")
+        {
+            // Raid Info (spec P1): the saved-instance list + reset timers. Toggle the
+            // panel; opening it pulls a fresh SMSG_RAID_INSTANCE_INFO.
+            ToggleRaidInfoPanel();
+            return true;
+        }
+        if (command is "/stable" or "/stables")
+        {
+            // Pet stables (spec P3): open the stablemaster window for the current
+            // target. The window opens when the server returns the pet list.
+            if (_stableOpen) _stableOpen = false;
+            else OpenStableForTarget();
+            return true;
+        }
         if (ChatChannelLaw.TryResolveAdmin(_chatChannels, command, args, out var channelAdmin))
         {
             if (channelAdmin.Channel.Length > 0)

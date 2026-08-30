@@ -260,8 +260,8 @@ public sealed partial class GameLoop
         var takers = new List<PartyQuestSubject>();
         var finishers = new List<PartyQuestSubject>();
 
-        // One card per member — portrait, name, verdict (and reward chips on a
-        // multi-reward turn-in) — wrapping to the window width.
+        // One card per member — portrait, name, verdict (and reward chips on any
+        // choice-reward turn-in) — wrapping to the window width.
         var cardSize = new Vector2(118, rewards is not null ? 78 : 44) * scale;
         float avail = ImGui.GetContentRegionAvail().X;
         float rowW = 0f;
@@ -349,8 +349,9 @@ public sealed partial class GameLoop
         ImGui.PopTextWrapPos();
         ImGui.EndGroup();
 
-        // Reward picker: only a member who is READY chooses, and only when the quest
-        // offered more than one reward. A click sets their pick; unpicked stays auto.
+        // Reward picker: only a member who is READY chooses, and every choice-reward
+        // quest gets one, including a single-choice quest. A click sets their pick;
+        // unpicked stays auto so the server can report that an explicit choice is needed.
         if (verdict == GiverQuestsWire.Ready && rewards is not null)
         {
             byte picked = _giverQuestRewardPick.TryGetValue((questId, guid), out byte pk)

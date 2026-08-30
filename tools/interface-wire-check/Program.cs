@@ -695,6 +695,13 @@ if (args.Contains("--gossip-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--imgui-policy-only", StringComparer.Ordinal))
+{
+    GameplayImguiPolicyClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: GameplayImguiPolicy PASS");
+    return;
+}
+
 if (args.Contains("--binder-only", StringComparer.Ordinal))
 {
     BinderClinicalChecks.Run();
