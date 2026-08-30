@@ -46,6 +46,57 @@ public sealed partial class GameLoop
     // they're omitted rather than shown empty).
     private static readonly string[] ChatTabs = ["General", "Combat Log"];
 
+    // ── right-click tab settings menu ───────────────────────────────────────
+    // Per-tab visible-type allowlist. A tab with no entry falls back to
+    // ChatFrameLaw.VisibleInTab's hardcoded default (seeded into an entry the
+    // first time that tab's Channels/System/Other menu is touched).
+    private readonly Dictionary<int, HashSet<ChatFrameLaw.MsgType>> _chatVisibilityOverrides = new();
+    // Global per-type color overrides (ImGui ABGR). Absent type falls back to
+    // ChatFrameLaw.Color's hardcoded default. Global, not per-tab, matching the
+    // stock client (a channel's color is the same everywhere it appears).
+    private readonly Dictionary<ChatFrameLaw.MsgType, uint> _chatColorOverrides = new();
+    private int _chatFontSizePt = 14; // matches ChatFontNormal's shipped size
+
+    private bool _chatTabMenuOpen;
+    private int _chatTabMenuTab;
+    private Vector2 _chatTabMenuAnchor;
+    private double _chatTabMenuCloseAt;
+    // Up to 3 levels deep (Root -> Channels -> Party -> its flyout). Index 0 is
+    // always Root; a None level at index N means depth N+ is closed.
+    private readonly ChatTabMenuLevel[] _chatTabMenuStack =
+        [ChatTabMenuLevel.Root, ChatTabMenuLevel.None, ChatTabMenuLevel.None];
+    private readonly int[] _chatTabMenuHover = [-1, -1, -1];
+    private readonly int[] _chatTabMenuParentRow = [-1, -1, -1];
+    private ChatFrameLaw.MsgType? _chatColorPickerType;
+    private Vector3 _chatColorPickerValue;
+
+    private bool ChatTypeVisible(ChatFrameLaw.MsgType type, int tab) =>
+        _chatVisibilityOverrides.TryGetValue(tab, out var set)
+            ? set.Contains(type)
+            : ChatFrameLaw.VisibleInTab(type, tab);
+
+    private uint ChatTypeColor(ChatFrameLaw.MsgType type) =>
+        _chatColorOverrides.TryGetValue(type, out uint c) ? c : ChatFrameLaw.Color(type);
+
+    /// <summary>Copies today's hardcoded defaults into an explicit per-tab set, the first
+    /// time that tab's visibility is ever touched from the menu, so toggling one type
+    /// doesn't silently reset every other type's visibility to "hidden".</summary>
+    private HashSet<ChatFrameLaw.MsgType> EnsureVisibilitySeeded(int tab)
+    {
+        if (_chatVisibilityOverrides.TryGetValue(tab, out var set)) return set;
+        set = [];
+        foreach (ChatFrameLaw.MsgType type in Enum.GetValues<ChatFrameLaw.MsgType>())
+            if (ChatFrameLaw.VisibleInTab(type, tab)) set.Add(type);
+        _chatVisibilityOverrides[tab] = set;
+        return set;
+    }
+
+    private void ToggleChatTypeVisible(ChatFrameLaw.MsgType type, int tab)
+    {
+        var set = EnsureVisibilitySeeded(tab);
+        if (!set.Remove(type)) set.Add(type);
+    }
+
     private void AddChatMessage(string text) => AddChatMessage(text, ChatFrameLaw.MsgType.System);
 
     private void AddChatMessage(string text, ChatFrameLaw.MsgType type)
@@ -510,6 +561,7 @@ public sealed partial class GameLoop
             "ScrollEnd", () => _chatScroll = 0);
         DrawChatTabs(dl, root, s);
         DrawChatMenu(root + ChatFrameLaw.MenuButtonRect.Min);
+        DrawChatTabMenu();
 
         if (_chatEditOpen) DrawChatEditBox(dl, root, s);
 
@@ -606,18 +658,22 @@ public sealed partial class GameLoop
 
     private void DrawChatMessages(ImDrawListPtr dl, Vector2 root, float s)
     {
+        // Font size (menu-configurable, default 14pt matching ChatFontNormal) scales
+        // glyph rendering/measurement/pitch independently of the frame's own size —
+        // the frame stays anchored at `s`, only the text within it grows or shrinks.
+        float sChat = s * (_chatFontSizePt / 14f);
         float wrapPx = (ChatFrameLaw.FrameWidth - 8f) * s;
-        float pitch = GameText.LinePitch(ChatFrameLaw.ChatFont, s);
+        float pitch = GameText.LinePitch(ChatFrameLaw.ChatFont, sChat);
         if (pitch <= 0f) return;
 
         var lines = new List<UiTextMarkupLine>();
         foreach (var (text, type) in _chat)
         {
-            if (!ChatFrameLaw.VisibleInTab(type, _chatSelectedTab)) continue;
-            uint color = ChatFrameLaw.Color(type);
+            if (!ChatTypeVisible(type, _chatSelectedTab)) continue;
+            uint color = ChatTypeColor(type);
             Vector4 baseColor = ImGui.ColorConvertU32ToFloat4(color);
             lines.AddRange(UiTextMarkupLaw.Wrap(text, baseColor,
-                glyph => GameText.MeasureWidth(ChatFrameLaw.ChatFont, glyph, s), wrapPx));
+                glyph => GameText.MeasureWidth(ChatFrameLaw.ChatFont, glyph, sChat), wrapPx));
         }
 
         int maxVisible = Math.Max(1, (int)(ChatFrameLaw.FrameHeight * s / pitch));
@@ -631,8 +687,8 @@ public sealed partial class GameLoop
             foreach (UiTextColorRun run in lines[i].Runs)
             {
                 uint runColor = ImGui.ColorConvertFloat4ToU32(run.Color);
-                GameText.Draw(dl, ChatFrameLaw.ChatFont, run.Text, at, s, runColor);
-                float width = GameText.MeasureWidth(ChatFrameLaw.ChatFont, run.Text, s);
+                GameText.Draw(dl, ChatFrameLaw.ChatFont, run.Text, at, sChat, runColor);
+                float width = GameText.MeasureWidth(ChatFrameLaw.ChatFont, run.Text, sChat);
                 if (run.Link is { Markup.Length: > 0 } link && width > 0)
                 {
                     // Chat is painted on the background draw list and has no
@@ -731,6 +787,8 @@ public sealed partial class GameLoop
                         (tab.Highlight.Min + tab.Highlight.Size) * s,
                         Vector2.Zero, Vector2.One, WhiteAlpha(_chatReveal));
                 if (ImGui.IsMouseClicked(ImGuiMouseButton.Left)) _chatSelectedTab = t;
+                else if (ImGui.IsMouseClicked(ImGuiMouseButton.Right))
+                    OpenChatTabMenu(t, tab.Hit.Min * s);
             }
 
             uint labelColor = WithAlpha(FontObjectLaw.Get(ChatFrameLaw.TabFont).Color, alpha);
@@ -764,6 +822,212 @@ public sealed partial class GameLoop
             _chatMenuSubmenu = ChatMenuLevel.None;
             _chatMenuCloseAt = NowSeconds() + ChatMenuUiLaw.TimeoutSeconds;
             PlayUiSound(ChatMenuUiLaw.OpenSound, ChatMenuUiLaw.SoundCategory);
+        }
+    }
+
+    private void OpenChatTabMenu(int tab, Vector2 screenAnchor)
+    {
+        _chatTabMenuOpen = true;
+        _chatTabMenuTab = tab;
+        _chatTabMenuAnchor = screenAnchor;
+        _chatTabMenuStack[0] = ChatTabMenuLevel.Root;
+        _chatTabMenuStack[1] = ChatTabMenuLevel.None;
+        _chatTabMenuStack[2] = ChatTabMenuLevel.None;
+        _chatTabMenuHover[0] = _chatTabMenuHover[1] = _chatTabMenuHover[2] = -1;
+        _chatTabMenuParentRow[0] = _chatTabMenuParentRow[1] = _chatTabMenuParentRow[2] = -1;
+        _chatTabMenuCloseAt = NowSeconds() + ChatTabMenuUiLaw.TimeoutSeconds;
+        _chatColorPickerType = null;
+        PlayUiSound("igMainMenuOpen"); // same open cue as OpenUnitPopup's right-click menu
+    }
+
+    private void CloseChatTabMenu()
+    {
+        _chatTabMenuOpen = false;
+        _chatColorPickerType = null;
+    }
+
+    private static float MeasureMenuLabel(string label, float s) =>
+        GameText.MeasureWidth("GameFontNormal", label, s) / s;
+
+    /// <summary>
+    /// The chat tab right-click settings menu: up to 3 flyout levels (e.g. Root ->
+    /// Channels -> Party), each row a Header (label only), Submenu (opens the next
+    /// level on hover), FontSize (radio-style point size), or MsgType (checkbox for
+    /// per-tab visibility + a color swatch opening an inline ColorEdit3 popup).
+    /// Modeled on DrawChatMenu/DrawChatMenuLevel's hover-and-timeout pattern, extended
+    /// one level deeper and with row kinds beyond plain labeled actions.
+    /// </summary>
+    private void DrawChatTabMenu()
+    {
+        if (!_chatTabMenuOpen) return;
+        float s = GameplayUiScale();
+        Vector2 display = ImGui.GetIO().DisplaySize / s;
+        Vector2 mouse = ImGui.GetIO().MousePos / s;
+
+        Span<Vector2> origins = stackalloc Vector2[3];
+        Span<float> widths = stackalloc float[3];
+        var rowSets = new IReadOnlyList<ChatTabMenuRow>[3];
+        bool overAny = false;
+        int depths = 0;
+
+        for (int depth = 0; depth < 3; depth++)
+        {
+            if (_chatTabMenuStack[depth] == ChatTabMenuLevel.None) break;
+            depths = depth + 1;
+            IReadOnlyList<ChatTabMenuRow> rows = ChatTabMenuUiLaw.Rows(_chatTabMenuStack[depth]);
+            rowSets[depth] = rows;
+            float width = ChatTabMenuUiLaw.ContentWidth(rows, label => MeasureMenuLabel(label, s));
+            widths[depth] = width;
+            origins[depth] = depth == 0
+                ? ChatTabMenuUiLaw.RootOrigin(_chatTabMenuAnchor / s, rows.Count, width, display)
+                : ChatTabMenuUiLaw.SubmenuOrigin(origins[depth - 1], _chatTabMenuParentRow[depth],
+                    widths[depth - 1], rows.Count, width, display);
+
+            int hover = ChatTabMenuUiLaw.HitRow(mouse, origins[depth], rows.Count, width);
+            _chatTabMenuHover[depth] = hover;
+            if (ChatTabMenuUiLaw.Contains(mouse, origins[depth], rows.Count, width)) overAny = true;
+
+            if (hover < 0 || rows[hover].Kind == ChatTabMenuRowKind.Header) continue;
+            ChatTabMenuLevel nested = rows[hover].Nested;
+            if (nested != ChatTabMenuLevel.None)
+            {
+                if (depth + 1 < 3 && _chatTabMenuStack[depth + 1] != nested)
+                {
+                    _chatTabMenuStack[depth + 1] = nested;
+                    _chatTabMenuParentRow[depth + 1] = hover;
+                    if (depth + 2 < 3) _chatTabMenuStack[depth + 2] = ChatTabMenuLevel.None;
+                }
+            }
+            else
+            {
+                // A leaf row is hovered — anything deeper than this depth is stale.
+                if (depth + 1 < 3) _chatTabMenuStack[depth + 1] = ChatTabMenuLevel.None;
+                if (depth + 2 < 3) _chatTabMenuStack[depth + 2] = ChatTabMenuLevel.None;
+            }
+        }
+
+        bool colorPickerOpen = _chatColorPickerType is not null && ImGui.IsPopupOpen("##chat-color-picker");
+        if (overAny || colorPickerOpen)
+            _chatTabMenuCloseAt = NowSeconds() + ChatTabMenuUiLaw.TimeoutSeconds;
+        else if (NowSeconds() >= _chatTabMenuCloseAt)
+        {
+            CloseChatTabMenu();
+            return;
+        }
+
+        ImDrawListPtr dl = ImGui.GetForegroundDrawList();
+        for (int depth = 0; depth < depths; depth++)
+            DrawChatTabMenuLevel(dl, origins[depth], rowSets[depth], _chatTabMenuHover[depth], widths[depth], s);
+
+        DrawChatColorPickerPopup(s);
+
+        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left) && !colorPickerOpen)
+        {
+            for (int depth = depths - 1; depth >= 0; depth--)
+            {
+                int hover = _chatTabMenuHover[depth];
+                if (hover < 0) continue;
+                ChatTabMenuRow row = rowSets[depth][hover];
+                switch (row.Kind)
+                {
+                    case ChatTabMenuRowKind.FontSize:
+                        _chatFontSizePt = row.FontPt;
+                        CloseChatTabMenu();
+                        break;
+                    case ChatTabMenuRowKind.MsgType when row.Type is { } type:
+                        Vector2 swatchOrigin = origins[depth] + ChatTabMenuUiLaw.SwatchOrigin(hover, widths[depth]);
+                        bool onSwatch = mouse.X >= swatchOrigin.X &&
+                            mouse.X < swatchOrigin.X + ChatTabMenuUiLaw.SwatchSize &&
+                            mouse.Y >= swatchOrigin.Y && mouse.Y < swatchOrigin.Y + ChatTabMenuUiLaw.SwatchSize;
+                        if (onSwatch)
+                        {
+                            _chatColorPickerType = type;
+                            Vector4 current = ImGui.ColorConvertU32ToFloat4(ChatTypeColor(type));
+                            _chatColorPickerValue = new Vector3(current.X, current.Y, current.Z);
+                            ImGui.SetNextWindowPos((swatchOrigin + new Vector2(ChatTabMenuUiLaw.SwatchSize, 0f)) * s);
+                            ImGui.OpenPopup("##chat-color-picker");
+                        }
+                        else
+                        {
+                            ToggleChatTypeVisible(type, _chatTabMenuTab);
+                        }
+                        break;
+                }
+                break;
+            }
+            if (!overAny && !colorPickerOpen) CloseChatTabMenu();
+        }
+    }
+
+    private void DrawChatTabMenuLevel(ImDrawListPtr dl, Vector2 logicalOrigin,
+        IReadOnlyList<ChatTabMenuRow> rows, int hoveredRow, float contentWidth, float s)
+    {
+        Vector2 origin = logicalOrigin * s;
+        Vector2 size = ChatTabMenuUiLaw.CardSize(rows.Count, contentWidth) * s;
+        _skin!.DrawBackdrop(dl, origin, origin + size, WowSkin.Tooltip);
+
+        uint highlight = _gameplayArt?.AdditiveHandle(
+            @"Interface\QuestFrame\UI-QuestTitleHighlight") ?? 0;
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            ChatTabMenuRow row = rows[i];
+            Vector2 rowMin = (logicalOrigin + ChatTabMenuUiLaw.RowOrigin(i, contentWidth)) * s;
+            Vector2 rowSize = ChatTabMenuUiLaw.RowSize(contentWidth) * s;
+            bool hovered = i == hoveredRow && row.Kind != ChatTabMenuRowKind.Header;
+            if (hovered && highlight != 0)
+                dl.AddImage((nint)highlight, rowMin, rowMin + rowSize);
+
+            string font = row.Kind == ChatTabMenuRowKind.Header ? "GameFontNormal"
+                : hovered ? "GameFontHighlight" : "GameFontNormal";
+            Vector2 textPos = (logicalOrigin + ChatTabMenuUiLaw.TextOrigin(i, contentWidth)) * s;
+            if (row.Kind == ChatTabMenuRowKind.Header)
+                GameText.Draw(dl, font, row.Label, textPos, s, ImGui.ColorConvertFloat4ToU32(WowSkin.Gold));
+            else
+                GameText.Draw(dl, font, row.Label, textPos, s);
+
+            if (row.Kind == ChatTabMenuRowKind.FontSize)
+            {
+                if (row.FontPt == _chatFontSizePt)
+                    GameText.Draw(dl, font, "X",
+                        (logicalOrigin + ChatTabMenuUiLaw.CheckOrigin(i, contentWidth)) * s, s);
+            }
+            else if (row.Kind == ChatTabMenuRowKind.MsgType && row.Type is { } type)
+            {
+                if (ChatTypeVisible(type, _chatTabMenuTab))
+                    GameText.Draw(dl, font, "X",
+                        (logicalOrigin + ChatTabMenuUiLaw.CheckOrigin(i, contentWidth)) * s, s);
+
+                Vector2 swatchMin = (logicalOrigin + ChatTabMenuUiLaw.SwatchOrigin(i, contentWidth)) * s;
+                Vector2 swatchSize = new Vector2(ChatTabMenuUiLaw.SwatchSize, ChatTabMenuUiLaw.SwatchSize) * s;
+                uint swatchColor = ChatTypeColor(type) | 0xFF000000u;
+                dl.AddRectFilled(swatchMin, swatchMin + swatchSize, swatchColor);
+                dl.AddRect(swatchMin, swatchMin + swatchSize, 0xFF000000u);
+            }
+
+            if (row.Nested != ChatTabMenuLevel.None)
+            {
+                Vector2 arrowPos = rowMin + new Vector2(rowSize.X - ChatTabMenuUiLaw.ArrowWidth * s, 2f * s);
+                GameText.Draw(dl, font, ">", arrowPos, s);
+            }
+        }
+    }
+
+    /// <summary>ColorEdit3 popup for whichever MsgType's swatch was clicked. Writing the
+    /// override happens live as the user drags, matching stock WoW's color picker feel.</summary>
+    private void DrawChatColorPickerPopup(float s)
+    {
+        if (_chatColorPickerType is not { } type) return;
+        if (ImGui.BeginPopup("##chat-color-picker"))
+        {
+            if (ImGui.ColorEdit3("##chat-color-value", ref _chatColorPickerValue))
+                _chatColorOverrides[type] = ImGui.ColorConvertFloat4ToU32(
+                    new Vector4(_chatColorPickerValue, 1f)) | 0xFF000000u;
+            ImGui.EndPopup();
+        }
+        else
+        {
+            _chatColorPickerType = null;
         }
     }
 
@@ -885,9 +1149,10 @@ public sealed partial class GameLoop
     {
         _chatSendType = PeekChatType(_chatInput);
         string header = ChatFrameLaw.Header(_chatSendType);
-        uint color = ChatFrameLaw.Color(_chatSendType);
-        int em = GameText.EmPixels(ChatFrameLaw.ChatFont, s);
-        float headerWidth = GameText.MeasureWidth(ChatFrameLaw.ChatFont, header, s);
+        uint color = ChatTypeColor(_chatSendType);
+        float sChat = s * (_chatFontSizePt / 14f);
+        int em = GameText.EmPixels(ChatFrameLaw.ChatFont, sChat);
+        float headerWidth = GameText.MeasureWidth(ChatFrameLaw.ChatFont, header, sChat);
         ChatFrameLaw.EditLayout edit = ChatFrameLaw.EditGeometry(
             root, s, em, headerWidth, ImGui.GetFontSize());
 
@@ -900,7 +1165,7 @@ public sealed partial class GameLoop
 
         // The header reflects the send type peeked from a leading /slash, and tints
         // both it and the typed text (Say white, Guild green, Whisper pink…).
-        GameText.Draw(dl, ChatFrameLaw.ChatFont, header, edit.HeaderPosition, s, color);
+        GameText.Draw(dl, ChatFrameLaw.ChatFont, header, edit.HeaderPosition, sChat, color);
 
         // The editable field is a transparent ImGui InputText overlaid after the
         // header. Its focus sets WantCaptureKeyboard, which the movement gate at
@@ -917,9 +1182,15 @@ public sealed partial class GameLoop
             if (_chatEditJustOpened) { ImGui.SetKeyboardFocusHere(); _chatEditJustOpened = false; }
             ImGui.SetNextItemWidth(edit.InputSize.X);
             unsafe { _chatEditCallback ??= ChatEditCursorCallback; }
+            // ImGui.InputText renders with ImGui's own font at scale 1, not the
+            // ChatFont/s used for the "Say:" header beside it — same fix as
+            // GameLoop.CharCreate's name field and GameLoop.Net's login fields.
+            float baseFs = ImGui.GetFontSize();
+            ImGui.SetWindowFontScale(baseFs > 0f ? em / baseFs : 1f);
             bool submit = ImGui.InputText("##chat-edit", ref _chatInput, 255,
                 ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.CallbackAlways,
                 _chatEditCallback);
+            ImGui.SetWindowFontScale(1f);
             bool active = ImGui.IsItemActive();
             if (active) _chatEditActivated = true;
             if (submit) SubmitChat();
