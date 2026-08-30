@@ -2314,6 +2314,17 @@ public sealed partial class GameLoop
     /// <summary>Called from Gui(). Draws whichever glue/status screen matches the connection state.</summary>
     private void NetHud()
     {
+        // Establishes the base "Point" hardware cursor for every glue screen this frame
+        // (login, character select, connecting) - previously only DrawCombatHud's own
+        // cursor-authority frame set it, so the login/char-select screens stayed on the
+        // OS default arrow until the world loaded (reported 2026-08-30). Harmless no-op
+        // for the InWorld branch below: DrawCombatHud starts its own cursor-authority
+        // frame right after, which simply resets and refines this same proposal further
+        // (item-hover cursors etc.).
+        _window.BeginHardwareCursorFrame();
+        TryUseHardwareCursor(WorldCursorKind.Point.ToString());
+        _window.EndHardwareCursorFrame();
+
         // Offline HUD preview (Program.HudPreview.cs) - draws the real gameplay
         // frames against a synthetic player so UI work is checkable in the same
         // screenshot probe the world uses. FIRST, because the probe that boots
