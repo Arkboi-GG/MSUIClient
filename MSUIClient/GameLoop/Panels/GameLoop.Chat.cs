@@ -1185,8 +1185,13 @@ public sealed partial class GameLoop
             // ImGui.InputText renders with ImGui's own font at scale 1, not the
             // ChatFont/s used for the "Say:" header beside it — same fix as
             // GameLoop.CharCreate's name field and GameLoop.Net's login fields.
+            // EmPixels is a metric from the custom bitmap-font system, not ImGui's
+            // own font atlas, so em/baseFs alone renders visibly smaller than the
+            // header beside it (reported 2026-08-30) — EditBoxScaleCorrection
+            // compensates for that mismatch. Re-tune this constant if it's still off.
+            const float EditBoxScaleCorrection = 1.25f;
             float baseFs = ImGui.GetFontSize();
-            ImGui.SetWindowFontScale(baseFs > 0f ? em / baseFs : 1f);
+            ImGui.SetWindowFontScale(baseFs > 0f ? em * EditBoxScaleCorrection / baseFs : 1f);
             bool submit = ImGui.InputText("##chat-edit", ref _chatInput, 255,
                 ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.CallbackAlways,
                 _chatEditCallback);
