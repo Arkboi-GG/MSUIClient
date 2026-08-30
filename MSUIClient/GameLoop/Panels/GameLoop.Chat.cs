@@ -11,6 +11,7 @@ public sealed partial class GameLoop
 {
     // ── functional-input state (stage 3) ──────────────────────────────────────
     private string _chatInput = "";
+    private int _chatInputCursorPos;
     private bool _chatEditCursorToEnd;
     private ImGuiInputTextCallback? _chatEditCallback;
     private bool _chatEditJustOpened, _chatEditActivated;
@@ -1188,33 +1189,41 @@ public sealed partial class GameLoop
         // both it and the typed text (Say white, Guild green, Whisper pink…).
         GameText.Draw(dl, ChatFrameLaw.ChatFont, header, edit.HeaderPosition, sChat, color);
 
-        // The editable field is a transparent ImGui InputText overlaid after the
-        // header. Its focus sets WantCaptureKeyboard, which the movement gate at
-        // Program.cs already honours - so WASD won't walk while typing.
+        // The editable field is a fully-transparent ImGui InputText overlaid after the
+        // header — kept only for keyboard capture, cursor bookkeeping and click-to-position;
+        // its own glyphs are never shown. ImGui.PushFont with the baked ChatFontNormal was
+        // tried here first: it made InputText's internal cursor/selection code treat that
+        // font as active too, and the widget rendered garbled/unreadable text (reported
+        // 2026-08-30) — the game's baked bitmap fonts live in their own texture atlas,
+        // separate from ImGui's, and InputText's internal rendering doesn't handle a
+        // foreign-atlas font the way plain AddText calls (used below) do. Drawing the real
+        // text manually, in the same font/position as the header, avoids that path entirely.
+        // Known limitation: the invisible InputText still auto-scrolls internally once the
+        // typed text overflows the box width, but this manual overlay always draws from the
+        // start — very long messages may run past the box's right edge. Not hit at the 255-char
+        // cap and this box's default width; revisit if it turns out to matter in practice.
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
         ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, edit.FramePadding);
         ImGui.PushStyleColor(ImGuiCol.FrameBg, 0u);
-        ImGui.PushStyleColor(ImGuiCol.Text, color);
+        ImGui.PushStyleColor(ImGuiCol.Text, WithAlpha(color, 0f));
         ImGui.SetNextWindowPos(edit.InputPosition);
         ImGui.SetNextWindowSize(edit.InputSize);
+        bool active = false;
         if (ImGui.Begin("##chat-input-window", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoBackground |
                 ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoNav))
         {
             if (_chatEditJustOpened) { ImGui.SetKeyboardFocusHere(); _chatEditJustOpened = false; }
             ImGui.SetNextItemWidth(edit.InputSize.X);
             unsafe { _chatEditCallback ??= ChatEditCursorCallback; }
-            // ImGui.InputText renders with ImGui's own font at scale 1, not the
-            // ChatFont/s used for the "Say:" header beside it — same fix as
-            // GameLoop.CharCreate's name field and GameLoop.Net's login fields.
-            // Uses the same corrected size EditGeometry was given above, so the
-            // rendered text and the box built to fit it agree on how big it is.
+            // Sizing here only drives ImGui's internal click-to-position/scroll metrics for
+            // the invisible widget — it no longer affects anything visible.
             float baseFs = ImGui.GetFontSize();
             ImGui.SetWindowFontScale(baseFs > 0f ? correctedInputFontSize / baseFs : 1f);
             bool submit = ImGui.InputText("##chat-edit", ref _chatInput, 255,
                 ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.CallbackAlways,
                 _chatEditCallback);
             ImGui.SetWindowFontScale(1f);
-            bool active = ImGui.IsItemActive();
+            active = ImGui.IsItemActive();
             if (active) _chatEditActivated = true;
             if (submit) SubmitChat();
             else if (_chatEditActivated && !active) CloseChatEdit();   // escape / click-away
@@ -1222,6 +1231,21 @@ public sealed partial class GameLoop
         ImGui.End();
         ImGui.PopStyleColor(2);
         ImGui.PopStyleVar(2);
+
+        // The real, visible text — same font/position/tint as the header, so both halves
+        // of the line read as one continuous string.
+        Vector2 textOrigin = new(edit.InputPosition.X, edit.HeaderPosition.Y);
+        GameText.Draw(dl, ChatFrameLaw.ChatFont, _chatInput, textOrigin, sChat, color);
+
+        // A manual caret: ImGui's own follows ImGuiCol.Text, which is now transparent.
+        if (active)
+        {
+            int caretIndex = Math.Clamp(_chatInputCursorPos, 0, _chatInput.Length);
+            float caretX = textOrigin.X +
+                GameText.MeasureWidth(ChatFrameLaw.ChatFont, _chatInput[..caretIndex], sChat);
+            dl.AddLine(new Vector2(caretX, textOrigin.Y), new Vector2(caretX, textOrigin.Y + em),
+                color, MathF.Max(1f, s));
+        }
     }
 
     private void OpenChatEdit()
@@ -1249,7 +1273,9 @@ public sealed partial class GameLoop
     }
 
     // Focus via SetKeyboardFocusHere selects the whole buffer, so the first keystroke would
-    // replace a prefill; the one-shot callback parks the caret at the end instead.
+    // replace a prefill; the one-shot branch parks the caret at the end instead. Runs every
+    // frame (CallbackAlways) regardless, to keep _chatInputCursorPos - read by the manual
+    // caret draw in DrawChatEditBox - in sync with typing, arrow keys and mouse clicks.
     private unsafe int ChatEditCursorCallback(ImGuiInputTextCallbackData* data)
     {
         if (_chatEditCursorToEnd)
@@ -1259,6 +1285,7 @@ public sealed partial class GameLoop
             data->SelectionEnd = data->BufTextLen;
             _chatEditCursorToEnd = false;
         }
+        _chatInputCursorPos = data->CursorPos;
         return 0;
     }
 
