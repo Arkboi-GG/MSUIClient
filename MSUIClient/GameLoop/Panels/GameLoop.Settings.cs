@@ -1117,8 +1117,40 @@ public sealed partial class GameLoop
     // releases - the height is remembered from last frame. The only artefact is
     // one frame of wrong height when a drill-down opens, and it self-corrects.
 
+    // Two-column masonry for a page's category boxes. Plain ImGui.Columns(2) locks both
+    // columns of a "row" to the taller box's height, so pairing boxes by file order (as the
+    // first pass here did) left the shorter box's column staring at a dead gap down to the
+    // next row - reported after the first screenshot pass, 2026-08-30. Tracking each column's
+    // own bottom Y and dropping each box into whichever is currently shorter removes the row
+    // concept entirely: a short box next to a tall one just lets the next short box start
+    // higher up the same column. BeginBox/EndBox open/close a private one-box Columns(2) region
+    // per call so ControlWidth() keeps measuring a half-width column exactly as before; pages
+    // that never call BeginBoxGrid() get the original single-column behaviour unchanged.
+    private float _gridLeftY, _gridRightY;
+    private bool _gridActive, _gridWasLeft;
+
+    private void BeginBoxGrid()
+    {
+        _gridLeftY = _gridRightY = ImGui.GetCursorPosY();
+        _gridActive = true;
+    }
+
+    private void EndBoxGrid()
+    {
+        ImGui.SetCursorPosY(MathF.Max(_gridLeftY, _gridRightY));
+        _gridActive = false;
+    }
+
     private void BeginBox(string id, string caption)
     {
+        if (_gridActive)
+        {
+            _gridWasLeft = _gridLeftY <= _gridRightY;
+            ImGui.SetCursorPosY(_gridWasLeft ? _gridLeftY : _gridRightY);
+            ImGui.Columns(2, "grid-" + id, false);
+            if (!_gridWasLeft) ImGui.NextColumn();
+        }
+
         var dl = ImGui.GetWindowDrawList();
 
         if (!string.IsNullOrEmpty(caption))
@@ -1126,7 +1158,14 @@ public sealed partial class GameLoop
             // White, not gold. In the real Video Options frame the box captions
             // ("Display", "World Appearance") are the plain face; only the
             // control labels inside them are yellow.
+            //
+            // Every other label in this menu (checkbox/slider captions, button
+            // captions) carries FrameXML's 1px drop shadow - this was the one
+            // flat dl.AddText left out, and white text with no shadow directly
+            // over the UI-Tooltip-Background fill (a flat mid-grey at 73%
+            // alpha, see SYSTEM_SETTINGS_UI.md 1.6) reads as washed out.
             var at = ImGui.GetCursorScreenPos();
+            dl.AddText(at + new Vector2(1f, 1f) * S, ImGui.ColorConvertFloat4ToU32(GlueTune.ShadowColor), caption);
             dl.AddText(at, ImGui.ColorConvertFloat4ToU32(WowSkin.Normal), caption);
             ImGui.Dummy(new Vector2(1f, ImGui.GetTextLineHeight()));
         }
@@ -1151,6 +1190,13 @@ public sealed partial class GameLoop
 
         _boxHeights[_boxId] = ImGui.GetItemRectMax().Y - _boxStart.Y;
         ImGui.Dummy(new Vector2(1f, 10f * S));
+
+        if (_gridActive)
+        {
+            float bottom = ImGui.GetCursorPosY();
+            ImGui.Columns(1);
+            if (_gridWasLeft) _gridLeftY = bottom; else _gridRightY = bottom;
+        }
     }
 
     // ── Video Options ────────────────────────────────────────────────────────
@@ -1168,6 +1214,8 @@ public sealed partial class GameLoop
 
         if (ImGui.BeginChild("##sound-body", new Vector2(0f, bodyHeight)))
         {
+            BeginBoxGrid();
+
             BeginBox("soundtoggles", "Sound");
             {
                 Check("Enable All Sound", () => s.Audio.EnableAll, v => s.Audio.EnableAll = v,
@@ -1192,6 +1240,8 @@ public sealed partial class GameLoop
                     "Zone beds - birds, wind, water. 1.12's default is 60%.");
             }
             EndBox();
+
+            EndBoxGrid();
         }
         ImGui.EndChild();
 
@@ -1206,6 +1256,7 @@ public sealed partial class GameLoop
 
         if (ImGui.BeginChild("##video-body", new Vector2(0f, bodyHeight)))
         {
+            BeginBoxGrid();
 
             BeginBox("quality", "Quality");
             {
@@ -2026,6 +2077,8 @@ public sealed partial class GameLoop
                 }
             }
             EndBox();
+
+            EndBoxGrid();
         }
         ImGui.EndChild();
 
@@ -2043,6 +2096,8 @@ public sealed partial class GameLoop
 
         if (ImGui.BeginChild("##controls-body", new Vector2(0f, bodyHeight)))
         {
+            BeginBoxGrid();
+
             BeginBox("mouse", "Mouse");
             {
                 Slider("msens", "Mouse sensitivity", () => s.Controls.MouseSensitivity,
@@ -2193,6 +2248,8 @@ public sealed partial class GameLoop
                 ImGui.TextDisabled("Rebindable keys are not built yet.");
             }
             EndBox();
+
+            EndBoxGrid();
         }
         ImGui.EndChild();
 
@@ -2508,6 +2565,28 @@ public sealed partial class GameLoop
         if (tip is not null && ImGui.IsItemHovered()) HoverTip(tip);
     }
 
+    /// <summary>
+    /// A combo with its caption drawn above it, Slider-style, instead of ImGui's native
+    /// trailing label. The native label reads fine at the old single-column width but has
+    /// nowhere to go in a half-width grid column - "Resolution" and "Camera Following Style"
+    /// were clipping to "Reso"/"Came" right against the dropdown arrow once the two-column
+    /// layout landed. Every other control in this menu already draws its own caption instead
+    /// of relying on ImGui's side label, so this makes combos match rather than inventing a
+    /// new convention.
+    /// </summary>
+    private bool ComboWithCaption(string id, string caption, ref int selected, string[] labels)
+    {
+        var dl = ImGui.GetWindowDrawList();
+        var top = ImGui.GetCursorScreenPos();
+        var shadow = new Vector2(1f, 1f) * S;
+        dl.AddText(top + shadow, ImGui.ColorConvertFloat4ToU32(GlueTune.ShadowColor), caption);
+        dl.AddText(top, ImGui.ColorConvertFloat4ToU32(WowSkin.Gold), caption);
+        ImGui.Dummy(new Vector2(1f, ImGui.GetTextLineHeight()));
+
+        ImGui.SetNextItemWidth(ControlWidth());
+        return ImGui.Combo("##" + id, ref selected, labels, labels.Length);
+    }
+
     private static void Restart()
         => ImGui.TextColored(new Vector4(1f, 0.72f, 0.30f, 1f), "Applies on the next launch.");
 
@@ -2619,9 +2698,7 @@ public sealed partial class GameLoop
         if (selected < 0) selected = 0;
         string[] labels = [.. options.Select(o => ResolutionUiLaw.Label(o))];
 
-        ImGui.SetNextItemWidth(ControlWidth());
-        bool changed = ImGui.Combo("Resolution##display-resolution", ref selected,
-            labels, labels.Length);
+        bool changed = ComboWithCaption("display-resolution", "Resolution", ref selected, labels);
         Tip("The window size, applied on the next launch. Fullscreen ignores it and\n" +
             "always uses the desktop mode, so change this for windowed play.");
         if (!changed) return false;
@@ -2643,9 +2720,8 @@ public sealed partial class GameLoop
             if (order[i] == current) { selected = i; break; }
         if (selected < 0) selected = 0;
         string[] labels = order.Select(CameraFollowLaw.Label).ToArray();
-        ImGui.SetNextItemWidth(ControlWidth());
-        bool changed = ImGui.Combo("Camera Following Style##camera-follow-style",
-            ref selected, labels, labels.Length);
+        bool changed = ComboWithCaption(
+            "camera-follow-style", "Camera Following Style", ref selected, labels);
         Tip(CameraFollowLaw.Description(order[selected]));
         if (!changed) return false;
         controls.CameraFollowStyle = order[selected];

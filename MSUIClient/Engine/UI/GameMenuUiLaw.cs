@@ -51,7 +51,7 @@ public static class GameMenuUiLaw
     public const float HeaderTop = -12f;
     public const float HeaderTitleTop = 14f;
     public const float HighlightAlpha = .55f;
-    public const float OptionsDefaultWidth = 450f;
+    public const float OptionsDefaultWidth = 900f;
     public const float OptionsDefaultHeight = 575f;
     public const float OptionsMinWidth = 450f;
     public const float OptionsMinHeight = 360f;

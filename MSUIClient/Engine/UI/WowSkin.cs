@@ -1041,11 +1041,18 @@ public sealed class WowSkin : IDisposable
         float knob = knobSize * Scale;
         float rowH = ImGui.GetTextLineHeight();
 
-        // Caption row: name on the left, current value on the right.
+        // Caption row: name on the left, current value on the right. Both carry the same 1px
+        // drop shadow every other label in this menu has (CheckBox, GlueButton) - sliders are
+        // most of a Video/Sound/Interface Options page, and shadowless text was the main
+        // contributor to it reading as barely legible over the group-box backdrop.
         var top = ImGui.GetCursorScreenPos();
+        var shadow = new Vector2(1f, 1f) * Scale;
+        dl.AddText(top + shadow, U32(GlueTune.ShadowColor), caption);
         dl.AddText(top, U32(Gold), caption);
         var vs = ImGui.CalcTextSize(valueText);
-        dl.AddText(new Vector2(top.X + width - vs.X, top.Y), U32(Normal), valueText);
+        var valuePos = new Vector2(top.X + width - vs.X, top.Y);
+        dl.AddText(valuePos + shadow, U32(GlueTune.ShadowColor), valueText);
+        dl.AddText(valuePos, U32(Normal), valueText);
         ImGui.Dummy(new Vector2(width, rowH));
 
         // Track row. The hit area is knob-tall so the knob is easy to grab.
