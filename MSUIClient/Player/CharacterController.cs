@@ -833,8 +833,13 @@ public sealed class CharacterController
         static bool SameChunk(in TerrainSurfaceSample a, in TerrainSurfaceSample b) =>
             a.TileCol == b.TileCol && a.TileRow == b.TileRow &&
             a.ChunkX == b.ChunkX && a.ChunkY == b.ChunkY;
+        // Ironforge and other interiors sit beneath the outdoor ADT. Once WMO
+        // support has proven that relationship, neither the mountain's steep
+        // contour nor its chunk fence may be projected downward into the room.
+        bool IsProvenOverheadShell(in TerrainSurfaceSample surface) =>
+            _underTerrainShell && surface.Height - Position.Z > UndergroundSlack;
         bool FenceActive(in TerrainSurfaceSample surface) =>
-            surface.Impassable &&
+            !IsProvenOverheadShell(surface) && surface.Impassable &&
             Position.Z + _opts.Height >= surface.ChunkMinimumHeight - TerrainSkin;
 
         // MCNK_IMPASSABLE is four outward-facing walls around each authored
@@ -874,13 +879,15 @@ public sealed class CharacterController
 
         TerrainSurfaceSample face = default;
         bool contact = false;
-        if (haveTarget && targetSurface.Normal.Z < _minGroundZ &&
+        if (haveTarget && !IsProvenOverheadShell(targetSurface) &&
+            targetSurface.Normal.Z < _minGroundZ &&
             Position.Z <= targetSurface.Height + TerrainSkin)
         {
             face = targetSurface;
             contact = true;
         }
-        else if (haveStart && startSurface.Normal.Z < _minGroundZ &&
+        else if (haveStart && !IsProvenOverheadShell(startSurface) &&
+                 startSurface.Normal.Z < _minGroundZ &&
                  Position.Z <= startSurface.Height + TerrainSkin)
         {
             face = startSurface;

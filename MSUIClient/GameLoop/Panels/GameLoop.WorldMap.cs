@@ -167,6 +167,7 @@ public sealed partial class GameLoop
                 DrawMinimapPlayerArrow(dl, player.Orientation, marker, s);
             }
         }
+        DrawWorldMapGossipPoi(dl, haveMapArea, area, mapMin, mapSize, s);
         DrawWorldMapCorpseMarker(dl, haveMapArea, area, mapMin, mapSize, s);
 
         GameText.DrawCentered(dl, WorldMapUiLaw.TitleFont, "World Map",
@@ -342,6 +343,35 @@ public sealed partial class GameLoop
                 WorldMapUiLaw.CorpseTooltipSeat(min, size, mapMin, mapSize);
             OfferOwnerAnchoredSharedGameTooltip(new("world-map-corpse", 0),
                 [new(DeathFrameUiLaw.CorpseTooltip, GameTooltipTextTone.Red)],
+                tooltipSeat.Anchor, tooltipSeat.Pivot);
+        }
+    }
+
+    private void DrawWorldMapGossipPoi(ImDrawListPtr draw, bool haveMapArea,
+        WorldMapAreaInfo area, Vector2 mapMin, Vector2 mapSize, float scale)
+    {
+        if (!haveMapArea || _gossipPoi is not { } poi) return;
+        Vector3 poiPosition = new(poi.Position.X, poi.Position.Y, 0f);
+        if (!DeathFrameUiLaw.TryWorldMapFraction((int)_gossipPoiMapId, area.MapId,
+                poiPosition, area.Left, area.Right, area.Top, area.Bottom,
+                out Vector2 fraction)) return;
+
+        Vector2 size = Vector2.One * (WorldMapUiLaw.PoiIconSize * scale);
+        Vector2 center = WorldMapUiLaw.MapPoint(mapMin, mapSize, fraction.X, fraction.Y);
+        Vector2 min = center - size * .5f;
+        uint texture = _gameplayArt?.Handle(@"Interface\Minimap\POIIcons") ?? 0;
+        if (texture != 0 && AreaPoiCatalog.TryIconUv(
+                poi.Icon, out Vector2 uvMin, out Vector2 uvMax))
+            draw.AddImage((nint)texture, min, min + size, uvMin, uvMax);
+        else
+            draw.AddCircleFilled(center, MathF.Max(3f, 4f * scale), 0xff2020ff);
+
+        if (ImGui.IsMouseHoveringRect(min, min + size, false))
+        {
+            WorldMapUiLaw.TooltipSeat tooltipSeat =
+                WorldMapUiLaw.CorpseTooltipSeat(min, size, mapMin, mapSize);
+            OfferOwnerAnchoredSharedGameTooltip(new("world-map-gossip-poi", poi.Data),
+                [new(poi.Name, GameTooltipTextTone.White)],
                 tooltipSeat.Anchor, tooltipSeat.Pivot);
         }
     }

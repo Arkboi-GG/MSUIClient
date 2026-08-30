@@ -200,10 +200,13 @@ public sealed partial class GameLoop
         Vector3 nameRgb = NameplateUiLaw.SelectionRgb(reaction, unit.IsPlayer, unit.IsDead,
             _attackTargetGuid == unit.Guid, MovementInfo.ClientUptimeMs());
         uint nameColor = ImGui.ColorConvertFloat4ToU32(new Vector4(nameRgb, alpha));
-        DrawPlateText(draw, NameplateUiLaw.NameAnchor(plate, 0, layout.NameSize),
+        int identityLineCount = subnameLine is null ? 1 : 2;
+        DrawPlateText(draw, NameplateUiLaw.NameAnchor(
+                plate, 0, identityLineCount, layout.NameSize),
             nameLine, layout.NameSize, nameColor, bottomSeated: true);
         if (subnameLine is not null)
-            DrawPlateText(draw, NameplateUiLaw.NameAnchor(plate, 1, layout.NameSize),
+            DrawPlateText(draw, NameplateUiLaw.NameAnchor(
+                    plate, 1, identityLineCount, layout.NameSize),
                 subnameLine, layout.NameSize, nameColor, bottomSeated: true);
 
         Vector2 levelAnchor = NameplateUiLaw.LevelAnchor(plate, layout.Basis);

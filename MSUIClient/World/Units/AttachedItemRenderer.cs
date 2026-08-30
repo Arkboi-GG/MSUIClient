@@ -186,7 +186,7 @@ public sealed class AttachedItemRenderer : IDisposable
     public float SunIntensity { get; set; } = 1.15f;
     public Vector3 AmbientColor { get; set; } = new(0.42f, 0.50f, 0.60f);
     public float AmbientIntensity { get; set; } = 0.85f;
-    public float ShadowSoftness { get; set; } = 0f;   // matches CharacterRenderer wrap (uShadowWrap); shares character.frag
+    public float ShadowSoftness { get; set; } = 0f;   // zero selects CharacterRenderer's in-world Model2 response
     public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;

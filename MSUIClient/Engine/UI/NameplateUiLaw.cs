@@ -101,9 +101,14 @@ public static class NameplateUiLaw
     public static ImageRect Frame(Bounds plate) =>
         new(new Vector2(plate.Left, plate.Top), new Vector2(plate.Right, plate.Bottom));
 
-    public static Vector2 NameAnchor(Bounds plate, int lineIndex, float fontSize) =>
+    /// <summary>
+    /// Seat the last identity line in the ordinary name position. Extra lines grow upward so
+    /// a creature subname never descends into the health bar.
+    /// </summary>
+    public static Vector2 NameAnchor(Bounds plate, int lineIndex, int lineCount, float fontSize) =>
         new((plate.Left + plate.Right) * .5f,
-            LineBottom((plate.Top + plate.Bottom) * .5f, lineIndex, fontSize));
+            (plate.Top + plate.Bottom) * .5f +
+            (lineIndex - Math.Max(0, lineCount - 1)) * fontSize);
 
     public static Vector2 LevelAnchor(Bounds plate, float basis) =>
         new(plate.Right - Gx(.0092f, basis), plate.Bottom - Gx(.0071f, basis));

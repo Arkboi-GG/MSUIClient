@@ -43,6 +43,7 @@ public sealed partial class GameLoop
     private int? _worldLoadingMapId;
     private float _loadProgress;
     private float _loadCurtainAlpha = 1f;
+    private float _loadRevealHoldRemaining;
     private int _loadFadeWarmStage;
     private bool _preWorldHudPrimed;
 
@@ -103,6 +104,9 @@ public sealed partial class GameLoop
     /// <summary>Curtain fade-out length once the world is ready.</summary>
     private const float LoadFadeSeconds = 0.5f;
 
+    /// <summary>Extra opaque settle time after the composed world is ready.</summary>
+    private const float LoadRevealHoldSeconds = 1f;
+
     /// <summary>One alpha-1 render frame for each independently warmed render family.</summary>
     private const int LoadLayerWarmStageCount = 6;
 
@@ -154,6 +158,7 @@ public sealed partial class GameLoop
         TryLoadLoadingBarArt(gl);
         _loadProgress = 0f;
         _loadCurtainAlpha = 1f;
+        _loadRevealHoldRemaining = LoadRevealHoldSeconds;
         _loadFadeWarmStage = 0;
         _preWorldHudPrimed = false;
         _placeDoodadStage = 0;
@@ -172,6 +177,7 @@ public sealed partial class GameLoop
         _loadScreenMapId = null;
         _loadProgress = 0f;
         _loadCurtainAlpha = 0f;
+        _loadRevealHoldRemaining = 0f;
     }
 
     /// <summary>
@@ -212,6 +218,7 @@ public sealed partial class GameLoop
         _worldLoading = true;
         _loadProgress = 0f;
         _loadCurtainAlpha = 1f;
+        _loadRevealHoldRemaining = LoadRevealHoldSeconds;
         _loadFadeWarmStage = 0;
         _placeDoodadStage = 0;
         _loadDoodadTiles = [];
@@ -792,6 +799,12 @@ public sealed partial class GameLoop
 
             case WorldLoadPhase.Fade:
             {
+                // Gameplay Update remains intentionally paused until the curtain is gone,
+                // so perform the camera-dependent part of its first frame here. Without
+                // this, the fade can expose a boom still inside terrain (and stale WMO
+                // portal visibility) before ResolveCameraCollision gets its first turn.
+                SettleLoadRevealCamera(dt);
+
                 // Prime one render family per alpha-1 curtain frame. The first
                 // complete world pass is then cache-hot and cannot stack WMO,
                 // doodad, player, and creature first touches into one reveal
@@ -800,6 +813,12 @@ public sealed partial class GameLoop
                 if (_loadFadeWarmStage < LoadFadePrimeStageLimit)
                 {
                     _loadFadeWarmStage++;
+                    break;
+                }
+                if (_loadRevealHoldRemaining > 0f)
+                {
+                    _loadRevealHoldRemaining = MathF.Max(0f,
+                        _loadRevealHoldRemaining - dt);
                     break;
                 }
                 _loadCurtainAlpha -= dt / LoadFadeSeconds;
@@ -818,6 +837,15 @@ public sealed partial class GameLoop
                 break;
             }
         }
+    }
+
+    private void SettleLoadRevealCamera(float dt)
+    {
+        if (_controller is null) return;
+        _window.Camera.Target = _controller.Position;
+        ResolveCameraCollision(dt);
+        Vector3 eye = _window.Camera.Position;
+        _wmo?.UpdateCameraCell(eye, _terrain?.SampleHeight(eye.X, eye.Y));
     }
 
     /// <summary>

@@ -2465,15 +2465,21 @@ vec3 carriedPointLight(vec3 normal, vec3 worldPos){
     if(d2<1e29){float d=sqrt(d2);s+=c2*max(dot(normal,v2/max(d,.001)),0.0)/max(.7*d+.03*d*d,.001);}
     return s;
 }
+float model2SunResponse(float mu){
+    return (4.0/17.0)*(0.375+2.0*mu+1.875*mu*mu);
+}
+const float WorldModelSelfFill = 0.25;
 void main(){
     vec4 t = texture(uTex, vUv);
     if (t.a < uAlphaCut) discard;
     vec3 normal = normalize(vNorm);
     if (!gl_FrontFacing) normal = -normal;
-    float ndl = max(dot(normal, normalize(uSunDir)), 0.0);
+    float sunResponse = model2SunResponse(dot(normal, normalize(uSunDir)));
     vec3 light = uAmbientColor * uAmbientIntensity
-        + uSunColor * uSunIntensity * ndl + vec3(uHighlight);
+        + uSunColor * uSunIntensity * sunResponse + vec3(uHighlight);
+    light += vec3(WorldModelSelfFill);
     light += carriedPointLight(normal, vWorld);
+    light = max(light, vec3(0.0));
     float fog = clamp((vDist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
     frag = vec4(mix(t.rgb * uBodyTint * light, uFogColor, fog), t.a * uBodyAlpha);
 }";

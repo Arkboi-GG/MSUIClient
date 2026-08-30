@@ -21,6 +21,7 @@ VerifyRampStillWalkable();
 VerifyWalkableAdtTerrainClimbs();
 VerifySteepAdtTerrainBlocksWalking();
 VerifySteepAdtTerrainDoesNotBankJumps();
+VerifyOverheadSteepTerrainDoesNotWallInterior();
 VerifyImpassableMcnkIsOneWay();
 VerifyContinuousInteriorEntryRetainsTerrainShell(CreateTerrain(height: 100f));
 VerifyGlobalWmoFall(CreateEmptyTerrain(), collision);
@@ -436,6 +437,34 @@ static void VerifySteepAdtTerrainDoesNotBankJumps()
         $"repeated steep-terrain jumps banked landing height {highestLanding:F3}");
     Require(controller.Position.X < -23f,
         $"repeated steep-terrain jumps climbed through the face to X={controller.Position.X:F3}");
+}
+
+static void VerifyOverheadSteepTerrainDoesNotWallInterior()
+{
+    // Ironforge sits beneath the outdoor Dun Morogh terrain. Its mountain
+    // contours are legitimately too steep to climb outdoors, but down here they
+    // are a roof/shell tens of yards above the WMO floor, not circular walls.
+    TerrainRenderer terrain = CreateTerrainGrid((worldX, _) =>
+        100f + MathF.Max(0f, worldX + 25f) * MathF.Tan(55f * MathF.PI / 180f));
+    var collision = new CollisionWorld();
+    AddFloor(collision, -40f, 0f, -20f, 0f, 0f);
+    collision.Build();
+
+    CharacterController controller = CreateController(terrain, collision);
+    controller.Teleport(-30f, -10f, 0f);
+    controller.Update(1f / 60f, default);
+    Require(controller.Grounded && controller.UnderTerrainShell &&
+            controller.GroundSource == "collision",
+        "overhead-steep setup did not establish an interior WMO floor");
+
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    for (int i = 0; i < 150; i++) controller.Update(1f / 60f, forward);
+
+    Require(controller.Position.X > -16f,
+        $"overhead mountain contour became an invisible interior wall at " +
+        $"X={controller.Position.X:F3}");
+    Require(controller.Grounded && MathF.Abs(controller.Position.Z) < 0.01f,
+        $"interior traversal left its WMO floor at {controller.Position}");
 }
 
 static void VerifyImpassableMcnkIsOneWay()

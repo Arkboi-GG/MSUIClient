@@ -53,6 +53,7 @@ internal static class WorldMapClinicalChecks
                   new WorldMapUiLaw.LogicalRect(0, 0, 130, 16) &&
               WorldMapUiLaw.MapPoint(new Vector2(11, 69), new Vector2(1002, 668),
                   .5f, .25f) == new Vector2(512, 236) &&
+              WorldMapUiLaw.PoiIconSize == 16f &&
               WorldMapUiLaw.CorpseTooltipSeat(new Vector2(800, 300), new Vector2(16),
                   new Vector2(11, 69), new Vector2(1002, 668)) ==
                   new WorldMapUiLaw.TooltipSeat(new Vector2(800, 300), Vector2.One) &&
@@ -80,6 +81,10 @@ internal static class WorldMapClinicalChecks
               map.Contains("WorldMapUiLaw.MapPoint", StringComparison.Ordinal) &&
               map.Contains("WorldMapUiLaw.PixelRect", StringComparison.Ordinal) &&
               map.Contains("WorldMapUiLaw.CorpseTooltipSeat", StringComparison.Ordinal) &&
+              map.Contains("DrawWorldMapGossipPoi", StringComparison.Ordinal) &&
+              map.Contains("_gossipPoiMapId", StringComparison.Ordinal) &&
+              map.Contains("AreaPoiCatalog.TryIconUv", StringComparison.Ordinal) &&
+              map.Contains("world-map-gossip-poi", StringComparison.Ordinal) &&
               map.Contains("world-map-corpse", StringComparison.Ordinal) &&
               map.Contains("OfferOwnerAnchoredSharedGameTooltip", StringComparison.Ordinal) &&
               map.Contains("GameTooltipTextTone.Red", StringComparison.Ordinal) &&

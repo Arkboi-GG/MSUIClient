@@ -14,7 +14,7 @@ namespace MSUIClient.Engine;
 ///   Parity112  - as close to the vanilla 1.12 client as we can get: the
 ///                authored colours are additionally scaled by the day/night
 ///                intensity curve the real client ships in World\dnc.db, and
-///                the interior spill multiplier stays at the neutral 1.0.
+///                the interior spill multiplier uses the shipped 1.10 balance.
 ///
 /// Serialised as a string so settings.json stays hand-editable.
 /// </summary>
@@ -745,16 +745,15 @@ public sealed class GameSettings
         /// values live in ApplyLightingModeDefaults; the user can still override
         /// in Advanced.
         /// </summary>
-        public float InteriorSpill { get; set; } = MsuiInteriorSpill;
+        public float InteriorSpill { get; set; } = ParityInteriorSpill;
 
         /// <summary>Recommended doorway spill for MSUI Lighting - deliberately
         /// stronger than the old effective 1.0 (owner: the abbey spill was far
         /// too faint).</summary>
         public const float MsuiInteriorSpill = 1.8f;
 
-        /// <summary>Recommended doorway spill for 1.12 Parity: neutral - the
-        /// authored 2.0 VertexColorScale chain and nothing else.</summary>
-        public const float ParityInteriorSpill = 1.0f;
+        /// <summary>Shipped doorway/interior brightness for 1.12 Parity.</summary>
+        public const float ParityInteriorSpill = 1.10f;
 
         /// <summary>
         /// Switch the lighting mode and push that mode's RECOMMENDED values for

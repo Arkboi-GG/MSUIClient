@@ -2,8 +2,9 @@
 
 // MSUI Client - character fragment shader.
 //
-// THIS IS wmo.frag WITH ONE CHANGE, and the change is the whole reason it
-// exists: the final alpha is the texture's alpha instead of a hardcoded 1.0.
+// This began as wmo.frag with character alpha preservation. Character models
+// also use the legacy Model2 directional-light response below; applying the
+// WMO hard-Lambert response to them makes side-facing bodies much too dark.
 //
 // wmo.frag ends with `FragColor = vec4(mix(lit, uFogColor, fog), 1.0)`, which
 // is right for a building - every wall is opaque and anything cut out was
@@ -11,11 +12,6 @@
 // genuinely BLENDED geometry: hair cards, eyelashes, eye glow. Forcing alpha to
 // one means the blend equation has nothing to work with, so those surfaces
 // draw solid and fight whatever is behind them.
-//
-// The lighting and fog are byte-identical to wmo.frag on purpose. A character
-// that lights differently from the ground he stands on looks wrong in a way
-// that is hard to name and easy to avoid, and that promise is worth more than
-// having one fewer file. If wmo.frag's lighting changes, change it here too.
 //
 // ASCII ONLY - see character.vert.
 
@@ -37,7 +33,7 @@ uniform vec3  uSunColor;
 uniform float uSunIntensity;
 uniform vec3  uAmbientColor;
 uniform float uAmbientIntensity;
-uniform float uShadowWrap;      // 0 = hard Lambert terminator; up to 1 = light wraps around (soft shadow)
+uniform float uShadowWrap;      // nonzero only for the separately tuned glue-booth preview
 uniform float uFogStart;
 uniform float uFogEnd;
 uniform vec3  uFogColor;
@@ -73,6 +69,16 @@ vec3 carriedPointLight(vec3 normal, vec3 worldPos)
     return sum;
 }
 
+// WoW's Model2 light is the low-order spherical-harmonic response used by the
+// 1.12 reference renderer, not max(N.L, 0). It preserves the lit-face peak but
+// keeps room-coloured directional light on surfaces around the terminator.
+float model2SunResponse(float mu)
+{
+    return (4.0 / 17.0) * (0.375 + 2.0 * mu + 1.875 * mu * mu);
+}
+
+const float WorldModelSelfFill = 0.25;
+
 out vec4 FragColor;
 
 void main()
@@ -89,17 +95,24 @@ void main()
     // fixed directional light change as the camera moves around the model.
     if (!gl_FrontFacing) normal = -normal;
 
-    // Wrap lighting softens the terminator: uShadowWrap 0 keeps a hard Lambert edge; higher values
-    // let the key wrap past 90 degrees so the shadow side lifts and the boundary blurs. Booth tuning
-    // only - the in-world character sets 0 (uShadowWrap default), so its shading is unchanged.
-    float ndl = dot(normal, uSunDirection);
-    float lambert = clamp((ndl + uShadowWrap) / (1.0 + uShadowWrap), 0.0, 1.0);
+    float mu = dot(normal, uSunDirection);
+    // Keep the signed-off glue-booth wrap independent. In-world characters and
+    // their attached equipment set zero and follow the Model2 response.
+    float sunResponse = uShadowWrap > 0.0001
+        ? clamp((mu + uShadowWrap) / (1.0 + uShadowWrap), 0.0, 1.0)
+        : model2SunResponse(mu);
     vec3 light = vec3(1.0);
     if (uUnlit == 0)
     {
         light = uAmbientColor * uAmbientIntensity
-            + uSunColor * lambert * uSunIntensity;
+            + uSunColor * sunResponse * uSunIntensity;
+        // The 1.12 model path carries a base contribution independent of the
+        // room surface exposure. Keep that practical separation here so a
+        // readable body does not require overexposing the surrounding WMO.
+        if (uShadowWrap <= 0.0001)
+            light += vec3(WorldModelSelfFill);
         light += carriedPointLight(normal, vWorldPos);
+        light = max(light, vec3(0.0));
     }
     vec3 lit = albedo.rgb * uBodyTint * light;
 

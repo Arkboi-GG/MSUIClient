@@ -186,8 +186,8 @@ one changes, both must.
   It used to be a DevTools-only slider that reset to `1.0` every launch, which
   is why the spill always shipped faint. Now applied by `ApplySettings`, with
   per-lighting-mode recommended defaults: **MSUI Lighting `1.8`** (owner: the
-  abbey spill was far too faint), **1.12 Parity `1.0`** (the authored `2.0`
-  chain and nothing else). The DevTools Buildings-panel slider and the modal's
+  abbey spill was far too faint), **1.12 Parity `1.10`** (the authored `2.0`
+  chain, plus the shipped 1.10 brightness balance). The DevTools Buildings-panel slider and the modal's
   Advanced slider write the same value.
 
 ---

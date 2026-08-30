@@ -169,6 +169,7 @@ public enum Op : ushort
     SMSG_GOSSIP_COMPLETE          = 0x017E,
     CMSG_NPC_TEXT_QUERY           = 0x017F,
     SMSG_NPC_TEXT_UPDATE          = 0x0180,
+    SMSG_GOSSIP_POI               = 0x0224,
 
     // --- Game objects / readable world pages ---
     CMSG_PAGE_TEXT_QUERY          = 0x005A,

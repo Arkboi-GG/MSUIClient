@@ -43,6 +43,7 @@ public static class WorldMapUiLaw
     public const string TitleFont = "GameFontNormal";
     public const string HoverLabelFont = "WorldMapTextFont";
     public const float TileSize = 256f;
+    public const float PoiIconSize = 16f;
     public static readonly LogicalRect FrameRect = new(0, 0, FrameWidth, FrameHeight);
     public static readonly LogicalRect MapRect = new(11, 69, 1002, 668);
     // World Map FontString CENTER -> frame CENTER(0,+372), screen y = 384-372.

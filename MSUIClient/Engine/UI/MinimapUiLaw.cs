@@ -102,6 +102,23 @@ public static class MinimapUiLaw
     }
 
     /// <summary>
+    /// The server-authored city-guide POI keeps its own icon and is clamped to the same 0.8
+    /// minimap rim when the destination is outside the visible map radius.
+    /// </summary>
+    public static Vector2 GossipPoiCenter(Vector2 player, Vector2 poi,
+        Vector2 minimapCenter, float minimapSide, float radiusYards)
+    {
+        if (minimapSide <= 0 || radiusYards <= 0) return minimapCenter;
+        Vector2 worldDelta = poi - player;
+        Vector2 offset = new Vector2(-worldDelta.Y, -worldDelta.X) *
+            (minimapSide / (radiusYards * 2f));
+        float limit = minimapSide * .5f * LandmarkEdgeRatio;
+        if (offset.LengthSquared() > limit * limit)
+            offset = Vector2.Normalize(offset) * limit;
+        return minimapCenter + offset;
+    }
+
+    /// <summary>
     /// Frozen place_party_raid_blips split: members at or inside 0.8 radius are blue dots at
     /// their true position; farther members ride the 0.8 rim on a rotating arrow.
     /// </summary>

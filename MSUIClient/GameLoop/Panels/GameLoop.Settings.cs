@@ -2060,7 +2060,7 @@ public sealed partial class GameLoop
                         "brightness - it decides how strongly a lit room spills from its\n" +
                         "doorway (the Northshire Abbey glow). MSUI Lighting recommends " +
                         $"{GameSettings.LightingSettings.MsuiInteriorSpill:F1};\n" +
-                        $"1.12 Parity recommends the neutral {GameSettings.LightingSettings.ParityInteriorSpill:F1}. " +
+                        $"1.12 Parity recommends {GameSettings.LightingSettings.ParityInteriorSpill:F1}. " +
                         "Switching mode resets it.");
 
                     Check("Draw the sky gradient", () => s.Lighting.SkyEnabled, v => s.Lighting.SkyEnabled = v);

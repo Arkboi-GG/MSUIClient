@@ -3896,16 +3896,15 @@ public sealed partial class CharacterRenderer : IDisposable
 
     /// <summary>
     /// Copied value for value from DoodadRenderer. These are not defaults to be
-    /// tuned here - a character lit even slightly differently from the trees
-    /// beside it reads as a bug you cannot name. If they change there, change
-    /// them here.
+    /// The atmosphere supplies these colours and intensities. The character
+    /// shader then applies the legacy Model2 response instead of WMO Lambert.
     /// </summary>
     public Vector3 SunDirection { get; set; } = Vector3.Normalize(new Vector3(0.45f, 0.35f, 0.82f));
     public Vector3 SunColor { get; set; } = new(1.00f, 0.95f, 0.85f);
     public float SunIntensity { get; set; } = 1.15f;
     public Vector3 AmbientColor { get; set; } = new(0.42f, 0.50f, 0.60f);
     public float AmbientIntensity { get; set; } = 0.85f;
-    public float ShadowSoftness { get; set; } = 0f;   // wrap-lighting: 0 = hard Lambert terminator .. 1 = soft (uShadowWrap). The in-world character keeps 0.
+    public float ShadowSoftness { get; set; } = 0f;   // zero selects in-world Model2 lighting; the glue booth uses its nonzero wrap preset
     public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;

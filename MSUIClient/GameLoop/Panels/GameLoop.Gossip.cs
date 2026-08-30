@@ -29,6 +29,8 @@ public sealed partial class GameLoop
     private readonly Dictionary<uint, NpcText> _npcTextRecords = [];
     private uint _gossipSourceFlags;
     private float _gossipScroll;
+    private GossipPoi? _gossipPoi;
+    private uint _gossipPoiMapId;
 
     private void ResetGossip()
     {
@@ -36,6 +38,12 @@ public sealed partial class GameLoop
         _gossipGreeting = null;
         _gossipSourceFlags = 0;
         _gossipScroll = 0;
+    }
+
+    private void ResetGossipPoi()
+    {
+        _gossipPoi = null;
+        _gossipPoiMapId = 0;
     }
 
     private bool RequestGossip(ulong guid)
@@ -163,6 +171,18 @@ public sealed partial class GameLoop
         _gossipGreeting = DrawGossipGreeting(text, sourceGender);
         EmitInterface("gossip", "text", "DECODED", _gossipMenu.SourceGuid,
             $"textId={text.TextId};blocks={text.Blocks.Count};gender={sourceGender};selectedChars={_gossipGreeting.Length}");
+    }
+
+    private void ApplyGossipPoi(byte[] body)
+    {
+        GossipPoi poi = GossipPackets.ParsePoi(body);
+        _gossipPoi = poi;
+        _gossipPoiMapId = _net?.Player?.Map ??
+            checked((uint)Math.Max(0, _config.Start.Map));
+        EmitInterface("gossip", "poi", "DECODED", _gossipMenu?.SourceGuid ?? 0,
+            $"map={_gossipPoiMapId};x={poi.Position.X:R};y={poi.Position.Y:R};" +
+            $"icon={poi.Icon};flags=0x{poi.Flags:X8};data={poi.Data};" +
+            $"name={SanitizeEvidence(poi.Name)}");
     }
 
     private static string DrawGossipGreeting(NpcText text, byte sourceGender) =>

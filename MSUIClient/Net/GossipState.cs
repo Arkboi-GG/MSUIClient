@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace MSUIClient.Net;
 
 public readonly record struct GossipOption(uint ListId, byte Icon, bool Coded, string Text);
@@ -11,6 +13,8 @@ public sealed record GossipMenu(
 
 public readonly record struct NpcTextBlock(float Probability, string MaleText, string FemaleText);
 public sealed record NpcText(uint TextId, IReadOnlyList<NpcTextBlock> Blocks);
+public readonly record struct GossipPoi(
+    uint Flags, Vector2 Position, uint Icon, uint Data, string Name);
 
 public static class GossipPackets
 {
@@ -51,5 +55,20 @@ public static class GossipPackets
         if (r.Remaining != 0)
             throw new InvalidDataException($"SMSG_NPC_TEXT_UPDATE has {r.Remaining} trailing byte(s)");
         return new NpcText(textId, blocks);
+    }
+
+    public static GossipPoi ParsePoi(byte[] body)
+    {
+        var r = new PacketReader(body);
+        uint flags = r.ReadU32();
+        var position = new Vector2(r.ReadF32(), r.ReadF32());
+        uint icon = r.ReadU32();
+        uint data = r.ReadU32();
+        string name = r.ReadCString();
+        if (!float.IsFinite(position.X) || !float.IsFinite(position.Y))
+            throw new InvalidDataException("SMSG_GOSSIP_POI contains a non-finite position");
+        if (r.Remaining != 0)
+            throw new InvalidDataException($"SMSG_GOSSIP_POI has {r.Remaining} trailing byte(s)");
+        return new GossipPoi(flags, position, icon, data, name);
     }
 }

@@ -48,7 +48,9 @@ internal static class NameplateClinicalChecks
               plate == new NameplateUiLaw.Bounds(436, 200, 564, 232) &&
               health == new NameplateUiLaw.ImageRect(
                   new Vector2(440, 219), new Vector2(491.5f, 228)) &&
-              NameplateUiLaw.NameAnchor(plate, 1, 13) == new Vector2(500, 229) &&
+              NameplateUiLaw.NameAnchor(plate, 0, 1, 13) == new Vector2(500, 216) &&
+              NameplateUiLaw.NameAnchor(plate, 0, 2, 13) == new Vector2(500, 203) &&
+              NameplateUiLaw.NameAnchor(plate, 1, 2, 13) == new Vector2(500, 216) &&
               NameplateUiLaw.LevelAnchor(plate, 1280) == new Vector2(552, 223) &&
               NameplateUiLaw.Skull(new Vector2(552, 223), 1280) ==
                   new NameplateUiLaw.ImageRect(

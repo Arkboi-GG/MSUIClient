@@ -21,8 +21,13 @@ internal sealed class SharedWaveOutMixer : IDisposable
     private const int OutputBits = 16;
     private const int OutputBlockAlign = OutputChannels * OutputBits / 8;
     private const int BufferFrames = 480; // 10 ms
-    private const int BufferCount = 4;    // 40 ms queued against scheduler jitter
+    // Eight short periods keep control latency reasonable while covering the
+    // 49-70 ms final-device holes captured in the Ironforge evidence log. Four
+    // periods left only 40 ms queued behind a managed render thread.
+    private const int BufferCount = 8;    // 80 ms queued against scheduler/GC jitter
     private const int BufferBytes = BufferFrames * OutputBlockAlign;
+    private const int RenderFallbackPollMs = 5;
+    private const int RenderRetryPollMs = 1;
 
     internal readonly record struct PcmClip(
         byte[] Bytes,
@@ -353,6 +358,8 @@ internal sealed class SharedWaveOutMixer : IDisposable
     private int _consecutiveRenderFailures;
     private volatile bool _unhealthy;
     private const int MaxRenderFailures = 3;
+    private long _lastStarvationReportAtMs;
+    private long _outputStarvations;
 
     public bool Running => _device != 0 && !_shutdown && !_unhealthy;
     public bool Unhealthy => _unhealthy;
@@ -368,7 +375,9 @@ internal sealed class SharedWaveOutMixer : IDisposable
         {
             IsBackground = true,
             Name = "audio-render",
-            Priority = ThreadPriority.AboveNormal,
+            // MMCSS below is the real Windows scheduling contract. Highest also
+            // covers systems where avrt is unavailable or refuses registration.
+            Priority = ThreadPriority.Highest,
         };
     }
 
@@ -457,56 +466,109 @@ internal sealed class SharedWaveOutMixer : IDisposable
 
     private void RenderLoop()
     {
-        while (!_shutdown)
+        nint mmcss = EnterMmcss();
+        long lastWakeAt = Environment.TickCount64;
+        try
         {
-            // A transient write refusal must retry inside the remaining 30 ms
-            // safety ring, not after the ordinary 100 ms lost-event watchdog.
-            _bufferReady.WaitOne(_retrySubmit ? 10 : 100);
-            _retrySubmit = false;
-            if (_shutdown) break;
+            while (!_shutdown)
+            {
+                // CALLBACK_EVENT is primary. The short timeout is a recovery
+                // poll: a missed/coalesced notification must not outlive even one
+                // period, let alone drain the entire safety ring.
+                _bufferReady.WaitOne(_retrySubmit
+                    ? RenderRetryPollMs : RenderFallbackPollMs);
+                _retrySubmit = false;
+                if (_shutdown) break;
 
-            try
-            {
-                bool found;
-                do
+                long wokeAt = Environment.TickCount64;
+                int completedAtWake = CompletedBufferCount();
+                if (completedAtWake == BufferCount)
+                    ReportOutputStarvation(wokeAt - lastWakeAt);
+                lastWakeAt = wokeAt;
+
+                try
                 {
-                    found = false;
-                    foreach (OutputBuffer? buffer in _buffers)
+                    bool found;
+                    do
                     {
-                        if (buffer is null || buffer.Header == 0) continue;
-                        WaveHdr header = Marshal.PtrToStructure<WaveHdr>(buffer.Header);
-                        if ((header.Flags & WhdrDone) == 0) continue;
-                        found = true;
-                        // PendingSubmit means this same completion was already
-                        // counted and its replacement write failed. Never advance
-                        // the device clock again merely because a retry is due.
-                        if (!buffer.PendingSubmit)
-                            Interlocked.Add(ref _completedFrames, BufferFrames);
-                        FillAndSubmit(buffer);
-                    }
-                } while (found && !_shutdown);
-                _consecutiveRenderFailures = 0;
-            }
-            catch (Exception ex)
-            {
-                _consecutiveRenderFailures++;
-                if (_consecutiveRenderFailures >= MaxRenderFailures)
-                {
-                    _unhealthy = true;
-                    _shutdown = true;
-                    Console.WriteLine("[audio] shared output marked unhealthy after " +
-                                      $"{_consecutiveRenderFailures} render failures; " +
-                                      "the next route will clean and reopen it");
-                    break;
+                        found = false;
+                        foreach (OutputBuffer? buffer in _buffers)
+                        {
+                            if (buffer is null || buffer.Header == 0) continue;
+                            WaveHdr header = Marshal.PtrToStructure<WaveHdr>(buffer.Header);
+                            if ((header.Flags & WhdrDone) == 0) continue;
+                            found = true;
+                            // PendingSubmit means this same completion was already
+                            // counted and its replacement write failed. Never advance
+                            // the device clock again merely because a retry is due.
+                            if (!buffer.PendingSubmit)
+                                Interlocked.Add(ref _completedFrames, BufferFrames);
+                            FillAndSubmit(buffer);
+                        }
+                    } while (found && !_shutdown);
+                    _consecutiveRenderFailures = 0;
                 }
-                _retrySubmit = true;
-                if (!_renderFailureReported)
+                catch (Exception ex)
                 {
-                    _renderFailureReported = true;
-                    Console.WriteLine($"[audio] shared render failed - {ex.Message}");
+                    _consecutiveRenderFailures++;
+                    if (_consecutiveRenderFailures >= MaxRenderFailures)
+                    {
+                        _unhealthy = true;
+                        _shutdown = true;
+                        Console.WriteLine("[audio] shared output marked unhealthy after " +
+                                          $"{_consecutiveRenderFailures} render failures; " +
+                                          "the next route will clean and reopen it");
+                        break;
+                    }
+                    _retrySubmit = true;
+                    if (!_renderFailureReported)
+                    {
+                        _renderFailureReported = true;
+                        Console.WriteLine($"[audio] shared render failed - {ex.Message}");
+                    }
                 }
             }
         }
+        finally
+        {
+            if (mmcss != 0) AvRevertMmThreadCharacteristics(mmcss);
+        }
+    }
+
+    private int CompletedBufferCount()
+    {
+        int completed = 0;
+        foreach (OutputBuffer? buffer in _buffers)
+        {
+            if (buffer is null || buffer.Header == 0) continue;
+            WaveHdr header = Marshal.PtrToStructure<WaveHdr>(buffer.Header);
+            if ((header.Flags & WhdrDone) != 0) completed++;
+        }
+        return completed;
+    }
+
+    private void ReportOutputStarvation(long renderWakeGapMs)
+    {
+        long now = Environment.TickCount64;
+        long occurrence = ++_outputStarvations;
+        if (_lastStarvationReportAtMs != 0 && now - _lastStarvationReportAtMs < 1000) return;
+        _lastStarvationReportAtMs = now;
+        Console.WriteLine($"[audio] OUTPUT STARVED: all {BufferCount} periods " +
+                          $"({BufferCount * 10} ms) drained before the renderer ran " +
+                          $"(wake gap {renderWakeGapMs} ms, recovery poll " +
+                          $"{RenderFallbackPollMs} ms, occurrence {occurrence})");
+    }
+
+    private static nint EnterMmcss()
+    {
+        try
+        {
+            nint handle = AvSetMmThreadCharacteristics("Pro Audio", out _);
+            if (handle != 0) AvSetMmThreadPriority(handle, AvrtPriority.High);
+            return handle;
+        }
+        catch (DllNotFoundException) { return 0; }
+        catch (EntryPointNotFoundException) { return 0; }
     }
 
     private void FillAndSubmit(OutputBuffer buffer)
@@ -832,6 +894,14 @@ internal sealed class SharedWaveOutMixer : IDisposable
     private const uint WhdrDone = 0x0001;
     private const uint TimeBytes = 0x0004;
 
+    private enum AvrtPriority
+    {
+        Low = -1,
+        Normal = 0,
+        High = 1,
+        Critical = 2,
+    }
+
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     private struct WaveFormatEx
     {
@@ -886,4 +956,16 @@ internal sealed class SharedWaveOutMixer : IDisposable
 
     [DllImport("winmm.dll")]
     private static extern int waveOutGetPosition(nint device, ref MmTime time, uint size);
+
+    [DllImport("avrt.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern nint AvSetMmThreadCharacteristics(string taskName,
+        out uint taskIndex);
+
+    [DllImport("avrt.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AvSetMmThreadPriority(nint avrtHandle, AvrtPriority priority);
+
+    [DllImport("avrt.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AvRevertMmThreadCharacteristics(nint avrtHandle);
 }

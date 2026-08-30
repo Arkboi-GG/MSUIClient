@@ -1358,6 +1358,7 @@ public sealed partial class GameLoop
         _loadPhase = WorldLoadPhase.Done;
         _loadProgress = 1f;
         _loadCurtainAlpha = 0f;
+        _loadRevealHoldRemaining = 0f;
         _loadFadeWarmStage = 0;
         _loadScreen?.Dispose();
         _loadScreen = null;

@@ -55,6 +55,11 @@ internal static class SessionTransferClinicalChecks
         Check(loading.Contains("LoadCompositePrimeFrames = 3", StringComparison.Ordinal) &&
               loading.Contains("_loadFadeWarmStage < LoadFadePrimeStageLimit",
                   StringComparison.Ordinal) &&
+              loading.Contains("LoadRevealHoldSeconds = 1f", StringComparison.Ordinal) &&
+              loading.Contains("_loadRevealHoldRemaining - dt", StringComparison.Ordinal) &&
+              loading.Contains("SettleLoadRevealCamera(dt)", StringComparison.Ordinal) &&
+              loading.Contains("ResolveCameraCollision(dt)", StringComparison.Ordinal) &&
+              loading.Contains("_wmo?.UpdateCameraCell", StringComparison.Ordinal) &&
               program.Contains("_loadFadeWarmStage < LoadLayerWarmStageCount",
                   StringComparison.Ordinal),
             "opaque complete-scene priming drift");

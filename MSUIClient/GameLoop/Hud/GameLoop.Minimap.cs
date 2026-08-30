@@ -170,6 +170,8 @@ public sealed partial class GameLoop
             dl, playerPosition, mapMin, mapMax, interiorBlipRadius);
         DrawMinimapPartyArrows(dl, playerPosition, mapMin, mapMax, interiorBlipRadius);
         DrawMinimapCorpseArrow(dl, playerPosition, mapMin, mapMax, interiorBlipRadius);
+        MinimapResourceTooltipCandidate? gossipPoiTooltip = DrawMinimapGossipPoi(
+            dl, playerPosition, mapMin, mapMax, s, interiorBlipRadius);
         DrawMinimapPlayerArrow(dl, playerOrientation, (mapMin + mapMax) * .5f, s);
         DrawMinimapPartyDots(dl, playerPosition, mapMin, mapMax, s, interiorBlipRadius);
         DrawMinimapCorpseMarker(dl, playerPosition, mapMin, mapMax, s,
@@ -183,7 +185,8 @@ public sealed partial class GameLoop
         MinimapResourceTooltipCandidate? questTooltip =
             DrawMinimapQuestDots(dl, playerPosition, mapMin, mapMax, s, interiorBlipRadius);
         UpdateAndQueueMinimapResourceTooltip(
-            questTooltip ?? creatureTooltip ?? resourceTooltip ?? landmarkTooltip);
+            questTooltip ?? gossipPoiTooltip ?? creatureTooltip ?? resourceTooltip ??
+            landmarkTooltip);
         if (_uiParityArmed && _uiParityPanel == "minimap")
             CollectUiParity("Minimap", "Minimap", mapMin, new Vector2(140) * s,
                 parent: "MinimapCluster", point: "CENTER", relativePoint: "TOP",
@@ -585,6 +588,34 @@ public sealed partial class GameLoop
 
         static MinimapResourceTooltipCandidate LandmarkTooltip(in AreaPoiInfo poi) =>
             new(0xA000_0000_0000_0000UL | poi.Id, poi.Name);
+    }
+
+    private MinimapResourceTooltipCandidate? DrawMinimapGossipPoi(
+        ImDrawListPtr draw, Vector3 playerPosition, Vector2 mapMin, Vector2 mapMax,
+        float scale, float? radiusOverride = null)
+    {
+        if (_gossipPoi is not { } poi || _gameplayArt is null ||
+            _gossipPoiMapId != checked((uint)Math.Max(0, _config.Start.Map))) return null;
+
+        float radiusYards = radiusOverride ?? MinimapUiLaw.OutdoorRadius(_minimapZoom);
+        float side = mapMax.X - mapMin.X;
+        Vector2 center = MinimapUiLaw.GossipPoiCenter(
+            new(playerPosition.X, playerPosition.Y), poi.Position,
+            (mapMin + mapMax) * .5f, side, radiusYards);
+        float size = MinimapUiLaw.LandmarkIconSize(side);
+        Vector2 half = new(size * .5f);
+        uint texture = _gameplayArt.Handle(@"Interface\Minimap\POIIcons");
+        draw.PushClipRect(mapMin, mapMax, true);
+        if (texture != 0 && AreaPoiCatalog.TryIconUv(
+                poi.Icon, out Vector2 uvMin, out Vector2 uvMax))
+            draw.AddImage((nint)texture, center - half, center + half, uvMin, uvMax);
+        else
+            draw.AddCircleFilled(center, MathF.Max(3f, 4f * scale), 0xff2020ff);
+        draw.PopClipRect();
+
+        return ImGui.IsMouseHoveringRect(center - half, center + half, false)
+            ? new MinimapResourceTooltipCandidate(0, poi.Name)
+            : null;
     }
 
     private void EnsureMinimapAreaPois()

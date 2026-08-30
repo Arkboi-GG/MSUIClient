@@ -122,7 +122,10 @@ internal static class SpatialAudioClinicalChecks
               !sharedOutput.Contains("Looping && !stopping", StringComparison.Ordinal) &&
               voice.Contains("public static bool DrainPool()", StringComparison.Ordinal) &&
               mixer.Contains("if (!WaveOutVoice.DrainPool())", StringComparison.Ordinal) &&
-              sharedOutput.Contains("BufferCount = 4", StringComparison.Ordinal),
+              sharedOutput.Contains("BufferCount = 8", StringComparison.Ordinal) &&
+              sharedOutput.Contains("RenderFallbackPollMs = 5", StringComparison.Ordinal) &&
+              sharedOutput.Contains("AvSetMmThreadCharacteristics", StringComparison.Ordinal) &&
+              sharedOutput.Contains("OUTPUT STARVED", StringComparison.Ordinal),
             "the isolated shared-output mixer / de-click law went missing");
 
         MethodInfo softLimit = typeof(SpatialAudioLaw).Assembly

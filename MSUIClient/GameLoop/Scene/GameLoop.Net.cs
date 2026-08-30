@@ -464,6 +464,7 @@ public sealed partial class GameLoop
             ResetHearth();
             ResetTaxi();
             ResetGossip();
+            ResetGossipPoi();
             ResetVendor();
             ResetQuestSession(clearStatusStore: true);
             ResetMail();
@@ -1266,6 +1267,9 @@ public sealed partial class GameLoop
                         EmitInterface("gossip", "complete", "RECEIVED", _gossipMenu?.SourceGuid ?? 0, "serverClosed=true");
                         ResetGossip();
                         CloseQuestNpcFrame(playSound: true);
+                        break;
+                    case Op.SMSG_GOSSIP_POI:
+                        ApplyGossipPoi(body);
                         break;
                     case Op.SMSG_NPC_TEXT_UPDATE:
                         ApplyNpcText(body);

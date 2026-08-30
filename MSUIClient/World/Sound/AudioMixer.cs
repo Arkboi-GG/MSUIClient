@@ -609,7 +609,7 @@ public sealed class AudioMixer : IDisposable
             }
             return;
         }
-        // The shared device has up to 40 ms of already-queued mix ahead of a newly
+        // The shared device has up to 80 ms of already-queued mix ahead of a newly
         // admitted source. Do not baseline that source until its first frame has
         // actually crossed the device clock, or the queue lead becomes a fake
         // first-window deficit.

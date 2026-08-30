@@ -42,6 +42,19 @@ internal static class GossipClinicalChecks
               parsed.Blocks[7].MaleText == "M7",
             "gossip eight-block packet retention drift");
 
+        var poiWriter = new PacketWriter(64);
+        poiWriter.WriteU32(6);
+        poiWriter.WriteF32(-4821.52f);
+        poiWriter.WriteF32(-1152.61f);
+        poiWriter.WriteU32(7);
+        poiWriter.WriteU32(99);
+        poiWriter.WriteCString("Ironforge Auction House");
+        GossipPoi poi = GossipPackets.ParsePoi(poiWriter.ToArray());
+        Check((ushort)Op.SMSG_GOSSIP_POI == 0x0224 &&
+              poi.Flags == 6 && poi.Position == new System.Numerics.Vector2(-4821.52f, -1152.61f) &&
+              poi.Icon == 7 && poi.Data == 99 && poi.Name == "Ironforge Auction House",
+            "city-guide gossip POI opcode or packet retention drift");
+
         Check(GossipUiLaw.OptionIcon(0).EndsWith("GossipGossipIcon") &&
               GossipUiLaw.OptionIcon(1).EndsWith("VendorGossipIcon") &&
               GossipUiLaw.OptionIcon(4).EndsWith("HealerGossipIcon") &&
@@ -78,6 +91,10 @@ internal static class GossipClinicalChecks
         string root = ClientConfig.FindRepoRoot();
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Gossip.cs"));
+        string net = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
+            "GameLoop.Net.cs"));
+        string control = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
+            "GameLoop.Control.cs"));
         Check(runtime.Contains("GossipUiLaw.OptionIcon(option.Icon)", StringComparison.Ordinal) &&
               runtime.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[0], s)",
                   StringComparison.Ordinal) &&
@@ -91,6 +108,9 @@ internal static class GossipClinicalChecks
               runtime.Contains("DrawGossipScrollBar(dl, p, s, contentHeight)",
                   StringComparison.Ordinal) &&
               runtime.Contains("!option.Coded", StringComparison.Ordinal) &&
+              runtime.Contains("GossipPackets.ParsePoi", StringComparison.Ordinal) &&
+              net.Contains("case Op.SMSG_GOSSIP_POI:", StringComparison.Ordinal) &&
+              control.Contains("case Op.SMSG_GOSSIP_POI:", StringComparison.Ordinal) &&
               !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               runtime.IndexOf("rows.Add((true", StringComparison.Ordinal) <
                   runtime.IndexOf("rows.Add((false", StringComparison.Ordinal),

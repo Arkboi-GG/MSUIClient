@@ -55,6 +55,12 @@ internal static class MinimapClinicalChecks
               MathF.Abs(MinimapUiLaw.LandmarkArrowSize(140.8f) - 38.4f) < .001f &&
               Vector2.Distance(MinimapUiLaw.LandmarkArrowCenter(
                   Vector2.Zero, Vector2.UnitX, 140.8f), new Vector2(56.32f, 0)) < .001f &&
+              Vector2.Distance(MinimapUiLaw.GossipPoiCenter(Vector2.Zero,
+                  new Vector2(20, 0), new Vector2(70.4f), 140.8f, 100f),
+                  new Vector2(70.4f, 56.32f)) < .001f &&
+              Vector2.Distance(MinimapUiLaw.GossipPoiCenter(Vector2.Zero,
+                  new Vector2(-300, 0), new Vector2(70.4f), 140.8f, 100f),
+                  new Vector2(70.4f, 126.72f)) < .001f &&
               Vector3.Distance(MinimapUiLaw.OutdoorDayTint(
                   Vector3.Zero, Vector3.Zero), new Vector3(.28125f)) < .0001f &&
               MinimapUiLaw.OutdoorDayTint(Vector3.One, Vector3.One) == Vector3.One,
@@ -128,6 +134,8 @@ internal static class MinimapClinicalChecks
               runtime.Contains("MinimapTrackedCreatureType", StringComparison.Ordinal) &&
               runtime.Contains("MinimapBlipTint", StringComparison.Ordinal) &&
               runtime.Contains("DrawMinimapLandmarks", StringComparison.Ordinal) &&
+              runtime.Contains("DrawMinimapGossipPoi", StringComparison.Ordinal) &&
+              runtime.Contains("MinimapUiLaw.GossipPoiCenter", StringComparison.Ordinal) &&
               runtime.Contains("DrawMinimapPartyArrows", StringComparison.Ordinal) &&
               runtime.Contains("DrawMinimapCorpseArrow", StringComparison.Ordinal) &&
               runtime.Contains("PartyMinimapPositions", StringComparison.Ordinal) &&

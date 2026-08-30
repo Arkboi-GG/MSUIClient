@@ -657,6 +657,9 @@ public sealed partial class GameLoop
                 ResetGossip();
                 CloseQuestNpcFrame(playSound: true);
                 break;
+            case Op.SMSG_GOSSIP_POI:
+                ApplyGossipPoi(inner);
+                break;
             case Op.SMSG_QUESTGIVER_STATUS:
                 ApplyQuestStatus(inner);
                 break;

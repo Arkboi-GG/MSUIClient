@@ -58,6 +58,16 @@ static void CheckRtsAbilityTargeting(SpellInfo seed)
         "commander friendly-target world/frame/Alt/Escape production wiring drift");
 }
 
+static void CheckLightingDefaults()
+{
+    var lightingDefaults = new GameSettings.LightingSettings();
+    Check(lightingDefaults.Mode == LightingMode.Parity112 &&
+          lightingDefaults.InteriorSpill ==
+              GameSettings.LightingSettings.ParityInteriorSpill &&
+          GameSettings.LightingSettings.ParityInteriorSpill == 1.10f,
+        "shipped Parity interior-brightness default drift");
+}
+
 static void CheckGameMenuLayout()
 {
     static bool Near(Vector2 left, Vector2 right) =>
@@ -636,6 +646,13 @@ if (args.Contains("--aura-visual-only", StringComparer.Ordinal))
 {
     AuraVisualClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: AuraVisual PASS");
+    return;
+}
+
+if (args.Contains("--model-lighting-only", StringComparer.Ordinal))
+{
+    ModelLightingClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ModelLighting PASS");
     return;
 }
 
@@ -1493,6 +1510,13 @@ if (args.Contains("--game-menu-layout-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--lighting-default-only", StringComparer.Ordinal))
+{
+    CheckLightingDefaults();
+    Console.WriteLine("interface-wire-check: LightingDefaults PASS");
+    return;
+}
+
 Check(!ClientWindow.CameraLookRequested(
           leftDown: true, rightDown: false, freeSelectMode: false, leftButtonReserved: true) &&
       ClientWindow.CameraLookRequested(
@@ -1645,6 +1669,7 @@ TradeProtocolClinicalChecks.Run();
 SocialProtocolClinicalChecks.Run();
 ChatClinicalChecks.Run();
 AuraVisualClinicalChecks.Run();
+ModelLightingClinicalChecks.Run();
 RealmLogonClinicalChecks.Run();
 AuthSessionAddonClinicalChecks.Run();
 NetworkTelemetryClinicalChecks.Run();
@@ -2002,6 +2027,7 @@ Check(GameMenuUiLaw.FrameWidth == 195f && GameMenuUiLaw.FrameHeight == 246f &&
 Check(Enumerable.Range(0, 8).Select(GameMenuUiLaw.ButtonTop).SequenceEqual(
       new[] { 26.5f, 48.5f, 70.5f, 92.5f, 114.5f, 136.5f, 158.5f, 195.5f }),
     "GameMenuFrame preserved eight-rung ladder drift");
+CheckLightingDefaults();
 CheckGameMenuLayout();
 CheckOptionsSearch();
 
@@ -2502,6 +2528,7 @@ Check((ushort)Op.CMSG_GOSSIP_HELLO == 379, "CMSG_GOSSIP_HELLO opcode");
 Check((ushort)Op.CMSG_GOSSIP_SELECT_OPTION == 380, "CMSG_GOSSIP_SELECT_OPTION opcode");
 Check((ushort)Op.SMSG_GOSSIP_MESSAGE == 381, "SMSG_GOSSIP_MESSAGE opcode");
 Check((ushort)Op.SMSG_GOSSIP_COMPLETE == 382, "SMSG_GOSSIP_COMPLETE opcode");
+Check((ushort)Op.SMSG_GOSSIP_POI == 0x0224, "SMSG_GOSSIP_POI opcode");
 Check((ushort)Op.CMSG_NPC_TEXT_QUERY == 383, "CMSG_NPC_TEXT_QUERY opcode");
 Check((ushort)Op.SMSG_NPC_TEXT_UPDATE == 384, "SMSG_NPC_TEXT_UPDATE opcode");
 Check((ushort)Op.CMSG_LIST_INVENTORY == 414 && (ushort)Op.SMSG_LIST_INVENTORY == 415,
