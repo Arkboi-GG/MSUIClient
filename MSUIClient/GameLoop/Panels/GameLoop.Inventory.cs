@@ -1065,6 +1065,10 @@ public sealed partial class GameLoop
         Colored,
         Paired,
         Separator,
+
+        /// <summary>The vanilla money row: coins, no text, no label. See
+        /// <see cref="GameTooltipUiLaw.MoneyRowLabelNote"/>.</summary>
+        Money,
     }
 
     private readonly record struct PreparedItemTooltipPaintOp(
@@ -1073,7 +1077,8 @@ public sealed partial class GameLoop
         Vector4 Color,
         string? RightText = null,
         Vector4 RightColor = default,
-        bool Wrap = false);
+        bool Wrap = false,
+        uint Copper = 0);
 
     private readonly record struct ItemTooltipBodySnapshot(
         ImmutableArray<PreparedItemTooltipPaintOp> Operations);
@@ -1097,7 +1102,9 @@ public sealed partial class GameLoop
         Vector4 BackdropEdgeTint,
         Vector2 ThickenMinimum,
         Vector2 ThickenMaximum,
-        Vector4 ThickenTint);
+        Vector4 ThickenTint,
+        ImmutableArray<PreparedSharedGameTooltipMoneyCoin> MoneyCoins,
+        uint MoneyTexture);
 
     private readonly record struct PreparedPaperDollComparisonTooltip(
         int TooltipNumber,
@@ -1149,6 +1156,9 @@ public sealed partial class GameLoop
     private static PreparedItemTooltipPaintOp PreparedItemTooltipSeparator()
         => new(PreparedItemTooltipPaintKind.Separator, "", default);
 
+    private static PreparedItemTooltipPaintOp PreparedItemTooltipMoney(uint copper)
+        => new(PreparedItemTooltipPaintKind.Money, "", Vector4.One, Copper: copper);
+
     private static ItemTooltipBodySnapshot AppendPreparedItemTooltipBody(
         in ItemTooltipBodySnapshot body,
         params PreparedItemTooltipPaintOp[] tail)
@@ -1160,17 +1170,52 @@ public sealed partial class GameLoop
         return new(body.Operations.AddRange(tail));
     }
 
-    /// <summary>Add the value the open merchant will pay for this complete stack.</summary>
+    /// <summary>
+    /// The value the open merchant will pay for this complete stack, as 1.12 renders it:
+    /// a bare money row of coins with NO label (there is no such string in 1.12 —
+    /// <see cref="GameTooltipUiLaw.MoneyRowLabelNote"/>), or the ITEM_UNSELLABLE line
+    /// when the price is zero. This used to print an invented "Sell Price" label with the
+    /// amount spelled out in words and right-aligned to the plate edge, which is three
+    /// separate departures from the game.
+    /// </summary>
     private static ItemTooltipBodySnapshot AppendVendorSellPrice(
         in ItemTooltipBodySnapshot body, ItemTemplate item, uint count)
     {
         ArgumentNullException.ThrowIfNull(item);
-        if (item.SellPrice == 0) return body;
+        // Zero is not "say nothing": at an open merchant the engine prints the
+        // unsellable line, which is how the player learns the vendor will not take it.
+        if (item.SellPrice == 0)
+            return AppendPreparedItemTooltipBody(body,
+                PreparedItemTooltipColored(GameTooltipUiLaw.UnsellableText, Vector4.One));
         uint stackCount = Math.Max(1u, count);
         uint value = (uint)Math.Min(uint.MaxValue, (ulong)item.SellPrice * stackCount);
-        return AppendPreparedItemTooltipBody(body,
-            PreparedItemTooltipPair("Sell Price", Vector4.One,
-                FormatMoney(value), Vector4.One));
+        return AppendPreparedItemTooltipBody(body, PreparedItemTooltipMoney(value));
+    }
+
+    /// <summary>
+    /// The item tooltip's money, both branches of ContainerFrameItemButton_OnEnter in one
+    /// place: in repair mode a DAMAGED item gets the REPAIR_COST label and its own repair
+    /// money; otherwise an open merchant gets the engine's sell price. With no merchant
+    /// open there is no money row at all - vanilla never prices an item in your bag until
+    /// you are standing at someone who would pay for it.
+    /// </summary>
+    private ItemTooltipBodySnapshot AppendVendorMoneyRow(
+        in ItemTooltipBodySnapshot body, ItemTemplate item, uint count, WorldEntity? instance)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        if (_vendor is null) return body;
+        if (_vendorRepairMode)
+        {
+            // Same cost the repair-all tooltip totals, per item; zero means undamaged or
+            // unrepairable, which is vanilla's silence rather than a "0" row.
+            uint repair = instance is { } damaged ? MerchantRepairItemCost(damaged) : 0;
+            return repair == 0
+                ? body
+                : AppendPreparedItemTooltipBody(body,
+                    PreparedItemTooltipColored(GameTooltipUiLaw.RepairCostText, Vector4.One),
+                    PreparedItemTooltipMoney(repair));
+        }
+        return AppendVendorSellPrice(body, item, count);
     }
 
     private ItemTooltipBodySnapshot PrepareItemTooltipBodySnapshot(
@@ -1582,6 +1627,11 @@ public sealed partial class GameLoop
                         ImGui.EndTable();
                     }
                     break;
+                case PreparedItemTooltipPaintKind.Money:
+                    // The debug fallback plate has no draw list to hang coins off; the
+                    // positioned vanilla renderer below is the one the player sees.
+                    ImGui.TextUnformatted(GameTooltipUiLaw.MoneyString(operation.Copper));
+                    break;
                 case PreparedItemTooltipPaintKind.Separator:
                     ImGui.Separator();
                     break;
@@ -1608,6 +1658,8 @@ public sealed partial class GameLoop
         var heights = new float[body.Operations.Length];
         var fonts = new string[body.Operations.Length];
         var physicalLines = new string[body.Operations.Length][];
+        var moneyGeometries = new GameTooltipMoneyRowGeometry?[body.Operations.Length];
+        var moneyTexts = new string[body.Operations.Length][];
         float contentWidth = 0f;
         float contentHeight = 0f;
         for (int i = 0; i < body.Operations.Length; i++)
@@ -1619,6 +1671,19 @@ public sealed partial class GameLoop
             {
                 heights[i] = gap;
                 physicalLines[i] = [];
+            }
+            else if (operation.Kind == PreparedItemTooltipPaintKind.Money)
+            {
+                // SetTooltipMoney's blank line: the row carries no text of its own, and
+                // the STATIC small money frame supplies both its width and its content.
+                GameTooltipMoneyParts parts = GameTooltipUiLaw.Money(operation.Copper)!.Value;
+                moneyTexts[i] = [.. parts.VisibleCoins().Select(coin => coin.Amount.ToString())];
+                float[] numberWidths = [.. moneyTexts[i].Select(text =>
+                    GameText.MeasureWidth(GameTooltipUiLaw.MoneyFontObject, text, scale))];
+                moneyGeometries[i] = GameTooltipUiLaw.MoneyRowGeometry(parts, numberWidths, scale);
+                physicalLines[i] = [];
+                widths[i] = moneyGeometries[i]!.ContentWidth;
+                heights[i] = GameText.EmPixels(font, scale);
             }
             else
             {
@@ -1646,10 +1711,31 @@ public sealed partial class GameLoop
         var lines = ImmutableArray.CreateBuilder<PreparedInventoryTooltipLine>(
             body.Operations.Length);
         float y = position.Y + padding;
+        var coins = ImmutableArray.CreateBuilder<PreparedSharedGameTooltipMoneyCoin>();
         for (int i = 0; i < body.Operations.Length; i++)
         {
             PreparedItemTooltipPaintOp operation = body.Operations[i];
-            if (operation.Kind != PreparedItemTooltipPaintKind.Separator)
+            if (operation.Kind == PreparedItemTooltipPaintKind.Money)
+            {
+                GameTooltipMoneyRowGeometry geometry = moneyGeometries[i]!;
+                float coinSize = GameTooltipUiLaw.MoneyCoinSize * scale;
+                float contentLeft = position.X + padding;
+                float iconTop = y + (heights[i] - coinSize) * .5f;
+                float numberTop = GameText.BoxCenteredTop(GameTooltipUiLaw.MoneyFontObject,
+                    iconTop, GameTooltipUiLaw.MoneyCoinSize, scale);
+                for (int coin = 0; coin < geometry.Coins.Length; coin++)
+                {
+                    GameTooltipMoneyCoinGeometry placed = geometry.Coins[coin];
+                    coins.Add(new(moneyTexts[i][coin],
+                        new Vector2(contentLeft + placed.NumberX, numberTop),
+                        new Vector2(contentLeft + placed.IconX, iconTop),
+                        new Vector2(contentLeft + placed.IconX + coinSize, iconTop + coinSize),
+                        new Vector2(placed.TexCoords.Left, placed.TexCoords.Top),
+                        new Vector2(placed.TexCoords.Right, placed.TexCoords.Bottom),
+                        0xffffffff));
+                }
+            }
+            else if (operation.Kind != PreparedItemTooltipPaintKind.Separator)
             {
                 Vector4 leftColor = operation.Kind switch
                 {
@@ -1684,9 +1770,12 @@ public sealed partial class GameLoop
 
         (Vector4 fillTint, Vector4 edgeTint) = SharedGameTooltipBackdropTints(1f);
         Vector2 thickenInset = new(5f * scale);
+        uint moneyTexture = coins.Count == 0
+            ? 0
+            : _gameplayArt?.Handle(GameTooltipUiLaw.MoneyTexturePath) ?? 0;
         return new(_skin, position, size, scale, lines.ToImmutable(), fillTint, edgeTint,
             position + thickenInset, position + size - thickenInset,
-            new Vector4(.09f, .09f, .19f, .4f));
+            new Vector4(.09f, .09f, .19f, .4f), coins.ToImmutable(), moneyTexture);
     }
 
     private static void DrawPreparedInventoryItemTooltip(
@@ -1729,6 +1818,13 @@ public sealed partial class GameLoop
                 GameText.Draw(draw, line.FontObject, line.RightText, line.RightPosition,
                     prepared.Scale, line.RightColor);
         }
+        foreach (PreparedSharedGameTooltipMoneyCoin coin in prepared.MoneyCoins)
+            if (prepared.MoneyTexture != 0)
+                draw.AddImage((nint)prepared.MoneyTexture, coin.IconMinimum, coin.IconMaximum,
+                    coin.UvMinimum, coin.UvMaximum, coin.Tint);
+        foreach (PreparedSharedGameTooltipMoneyCoin coin in prepared.MoneyCoins)
+            GameText.Draw(draw, GameTooltipUiLaw.MoneyFontObject, coin.AmountText,
+                coin.NumberPosition, prepared.Scale, coin.Tint);
         draw.PopClipRect();
         ImGui.End();
     }
@@ -2124,8 +2220,7 @@ public sealed partial class GameLoop
                 instanceFlags: instance?.Fields.ItemFlags,
                 liveInstance: instance,
                 ownerGuid: ControlledGuid);   // requirements read the shown unit (possessed bot)
-            if (_vendor is not null)
-                body = AppendVendorSellPrice(body, item, count);
+            body = AppendVendorMoneyRow(body, item, count, instance);
             ImmutableArray<PreparedPaperDollComparisonTooltip> comparisons =
                 PreparePaperDollComparisonTooltips(item);
             Action? drawComparisons = comparisons.IsEmpty

@@ -286,13 +286,60 @@ internal static class GameTooltipClinicalChecks
               PreparedItemPaints(compact).SequenceEqual(compactBefore),
             "B3 deferred item body retained mutable ItemTemplate/list/array state");
 
+        // The 1.12 money row: coins alone, NO label. GlobalStrings.lua has no sell-price
+        // string at all, and GameTooltip.lua's SetTooltipMoney adds a BLANK line and hangs
+        // the STATIC small money frame off its left edge. A "Sell Price" caption with the
+        // amount spelled out in words was three departures from the game in one row.
         object withSale = InvokeStatic<object>("AppendVendorSellPrice", full, item, 3u);
         object[] saleOperations = Property<IEnumerable>(withSale, "Operations")
             .Cast<object>().ToArray();
-        Check(Property<object>(saleOperations[^1], "Kind").ToString() == "Paired" &&
-              Property<string>(saleOperations[^1], "Text") == "Sell Price" &&
-              Property<string>(saleOperations[^1], "RightText") == "3 Silver 75 Copper",
-            "vendor-open owned-item tooltip lost the full-stack sell value");
+        Check(Property<object>(saleOperations[^1], "Kind").ToString() == "Money" &&
+              Property<uint>(saleOperations[^1], "Copper") == 375u &&
+              Property<string>(saleOperations[^1], "Text").Length == 0 &&
+              saleOperations.All(operation =>
+                  !Property<string>(operation, "Text").Contains("Sell Price",
+                      StringComparison.OrdinalIgnoreCase)),
+            "the vendor money row must be SellPrice x stack as bare coins, with no " +
+            "invented label - 1.12 has no sell-price string");
+
+        // Zero at an open merchant is the ITEM_UNSELLABLE line, not silence.
+        var unsellable = new ItemTemplate { Name = "Clinical Key", Quality = 1, SellPrice = 0 };
+        object withoutSale = InvokeStatic<object>("AppendVendorSellPrice", full, unsellable, 3u);
+        object[] unsellableOperations = Property<IEnumerable>(withoutSale, "Operations")
+            .Cast<object>().ToArray();
+        Check(Property<string>(unsellableOperations[^1], "Text") ==
+                  GameTooltipUiLaw.UnsellableText &&
+              GameTooltipUiLaw.UnsellableText == "No sell price",
+            "a zero sell price at an open merchant must print ITEM_UNSELLABLE");
+
+        // The money row's own geometry, straight off MoneyFrame.lua: 13px coins, a 4px
+        // leading inset, a 4px gap between coin frames, and every zero denomination
+        // collapsed away (STATIC money type, no showSmallerCoins).
+        GameTooltipMoneyParts coppersOnly = GameTooltipUiLaw.Money(12u)!.Value;
+        GameTooltipMoneyParts goldAndCopper = GameTooltipUiLaw.Money(10_012u)!.Value;
+        Check(coppersOnly.VisibleCoins().Length == 1 &&
+              coppersOnly.VisibleCoins()[0].Kind == GameTooltipCoinKind.Copper &&
+              goldAndCopper.VisibleCoins().Length == 2 &&
+              goldAndCopper.VisibleCoins()[0].Kind == GameTooltipCoinKind.Gold &&
+              goldAndCopper.VisibleCoins()[1].Kind == GameTooltipCoinKind.Copper &&
+              GameTooltipUiLaw.MoneyCoinSize == 13f &&
+              GameTooltipUiLaw.MoneyRowInset == 4f &&
+              GameTooltipUiLaw.MoneyCoinGap == 4f &&
+              GameTooltipUiLaw.MoneyFontObject == "NumberFontNormal",
+            "the tooltip money row drifted from MoneyFrame.lua's collapse rules or the " +
+            "SmallMoneyFrameTemplate metrics");
+
+        string inventorySource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.Inventory.cs"));
+        Check(inventorySource.Contains("if (_vendor is null) return body;",
+                  StringComparison.Ordinal) &&
+              inventorySource.Contains("if (_vendorRepairMode)", StringComparison.Ordinal) &&
+              inventorySource.Contains("GameTooltipUiLaw.RepairCostText", StringComparison.Ordinal) &&
+              inventorySource.Contains("MerchantRepairItemCost(damaged)", StringComparison.Ordinal) &&
+              GameTooltipUiLaw.RepairCostText == "Repair cost:",
+            "the money row must carry BOTH of ContainerFrameItemButton_OnEnter's branches: " +
+            "REPAIR_COST plus the item's own repair money in repair mode, the sell price " +
+            "otherwise, and nothing at all with no merchant open");
 
         var currentLawItem = new ItemTemplate
         {

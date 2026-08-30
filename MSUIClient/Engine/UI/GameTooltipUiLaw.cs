@@ -188,6 +188,34 @@ public static class GameTooltipUiLaw
     public const float MoneyCoinGap = 4f;
     public const float MoneyRowInset = 4f;
 
+    /// <summary>GlobalStrings.lua <c>ITEM_UNSELLABLE</c>. Printed in place of the coins
+    /// when a merchant is open and the item's sell price is zero.</summary>
+    public const string UnsellableText = "No sell price";
+
+    /// <summary>GlobalStrings.lua <c>REPAIR_COST</c>. ContainerFrame.lua adds this as its
+    /// own line above the money row while in repair mode - the only labelled money row in
+    /// 1.12, and the reason a sell price must not be shown there.</summary>
+    public const string RepairCostText = "Repair cost:";
+
+    /// <summary>
+    /// 1.12 has NO sell-price LABEL. GlobalStrings.lua carries no such string at all —
+    /// only ITEM_UNSELLABLE and the coin-pickup words GOLD/SILVER/COPPER — and
+    /// GameTooltip.lua's SetTooltipMoney is the whole of the row:
+    /// <code>
+    /// frame:AddLine(" ", 1, 1, 1);
+    /// moneyFrame:SetPoint("LEFT", frame.."TextLeft"..NumLines(), "LEFT", 4, 0);
+    /// MoneyFrame_Update(...); frame:SetMinimumWidth(moneyFrame:GetWidth());
+    /// </code>
+    /// A BLANK line with the STATIC SmallMoneyFrame hung off its left edge, inset four
+    /// pixels. So the row is coins alone — number then 13px coin, gold to silver to
+    /// copper, every zero denomination collapsed away (MoneyFrame.lua's collapse rules).
+    /// A label appears in exactly one place in 1.12: REPAIR_COST ("Repair cost:"), which
+    /// ContainerFrame.lua adds as its own line above this row while in repair mode.
+    /// </summary>
+    public const string MoneyRowLabelNote =
+        "1.12 has no sell-price label: SetTooltipMoney adds a blank line and anchors " +
+        "the coins to it.";
+
     private static readonly uint[] GreyLevelBands =
         [4, 4, 5, 5, 6, 6, 7, 7, 8, 9, 10, 11, 12, 12, 12, 12, 12, 12, 12, 12];
 

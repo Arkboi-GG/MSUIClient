@@ -823,9 +823,8 @@ public sealed partial class GameLoop
                     instance?.Fields.ItemMaxDurability ?? 0,
                     instanceFlags: instance?.Fields.ItemFlags,
                     liveInstance: instance);
-                if (_vendor is not null)
-                    body = AppendVendorSellPrice(body, item,
-                        instance?.Fields.ItemStackCount ?? 1);
+                body = AppendVendorMoneyRow(body, item,
+                    instance?.Fields.ItemStackCount ?? 1, instance);
                 InventoryUiLaw.TooltipSeat tooltipSeat = InventoryUiLaw.ItemTooltipSeat(
                     min, max, ImGui.GetIO().DisplaySize.X);
                 OfferPreparedItemTooltip(tooltipOwner, body, tooltipSeat.Position,
