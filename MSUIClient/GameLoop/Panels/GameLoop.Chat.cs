@@ -1153,8 +1153,16 @@ public sealed partial class GameLoop
         float sChat = s * (_chatFontSizePt / 14f);
         int em = GameText.EmPixels(ChatFrameLaw.ChatFont, sChat);
         float headerWidth = GameText.MeasureWidth(ChatFrameLaw.ChatFont, header, sChat);
+        // EmPixels is a metric from the custom bitmap-font system, not ImGui's own font
+        // atlas, so em alone renders visibly smaller in ImGui.InputText than the header
+        // beside it (reported 2026-08-30) — EditBoxScaleCorrection compensates. Fed into
+        // EditGeometry too, so the box's own padding/height accounts for the actual
+        // (corrected) rendered text size instead of overflowing below a box sized for
+        // the smaller, uncorrected one (reported the same day, second round).
+        const float EditBoxScaleCorrection = 1.25f;
+        float correctedInputFontSize = em * EditBoxScaleCorrection;
         ChatFrameLaw.EditLayout edit = ChatFrameLaw.EditGeometry(
-            root, s, em, headerWidth, ImGui.GetFontSize());
+            root, s, em, headerWidth, correctedInputFontSize);
 
         DrawChatTexture(dl, edit.Left.Min, edit.Left.Size,
             ChatFrameLaw.EditLeft, Vector2.Zero, Vector2.One, 0xffffffffu);
@@ -1185,13 +1193,10 @@ public sealed partial class GameLoop
             // ImGui.InputText renders with ImGui's own font at scale 1, not the
             // ChatFont/s used for the "Say:" header beside it — same fix as
             // GameLoop.CharCreate's name field and GameLoop.Net's login fields.
-            // EmPixels is a metric from the custom bitmap-font system, not ImGui's
-            // own font atlas, so em/baseFs alone renders visibly smaller than the
-            // header beside it (reported 2026-08-30) — EditBoxScaleCorrection
-            // compensates for that mismatch. Re-tune this constant if it's still off.
-            const float EditBoxScaleCorrection = 1.25f;
+            // Uses the same corrected size EditGeometry was given above, so the
+            // rendered text and the box built to fit it agree on how big it is.
             float baseFs = ImGui.GetFontSize();
-            ImGui.SetWindowFontScale(baseFs > 0f ? em * EditBoxScaleCorrection / baseFs : 1f);
+            ImGui.SetWindowFontScale(baseFs > 0f ? correctedInputFontSize / baseFs : 1f);
             bool submit = ImGui.InputText("##chat-edit", ref _chatInput, 255,
                 ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.CallbackAlways,
                 _chatEditCallback);
