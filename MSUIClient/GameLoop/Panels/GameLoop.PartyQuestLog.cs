@@ -457,8 +457,7 @@ public sealed partial class GameLoop
                 // carries both, the collect line must not repeat the kill's label.
                 string label = kill ? "" : objective.Text;
                 if (label.Length == 0)
-                    label = _items?.TryGet(objective.ItemId, out ItemTemplate? proto) == true &&
-                      proto is not null ? proto.Name : $"Item {objective.ItemId}";
+                    label = QuestObjectiveItemLabel(objective.ItemId);
                 any = true;
                 yield return $"{label}: {current}/{objective.ItemCount}";
             }

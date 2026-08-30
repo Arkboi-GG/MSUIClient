@@ -46,6 +46,7 @@ public sealed partial class GameLoop
     private uint _questStatusReaskEpoch;
     private readonly Dictionary<uint, uint> _questWorldStates = [];
     private HashSet<uint> _questLogSnapshot = [];
+    private bool _questLogSnapshotKnown;
     private uint _questXpBefore;
     private uint _questMoneyBefore;
     private uint _questExpectedXp;
@@ -488,6 +489,7 @@ public sealed partial class GameLoop
         _questWatches.Clear();
         _questAutoWatchExpiries.Clear();
         _questLogSnapshot.Clear();
+        _questLogSnapshotKnown = false;
         _questQueries.Clear();
         _questWorldStates.Clear();
         ClearRtsTerritoryCapture();
@@ -732,6 +734,8 @@ public sealed partial class GameLoop
     {
         if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
         HashSet<uint> now = player.Fields.QuestLog().Select(q => q.QuestId).ToHashSet();
+        bool playAddedSound = QuestFrameUiLaw.ShouldPlayQuestAddedSound(
+            _questLogSnapshotKnown, _questLogSnapshot, now);
         _questWatches.RemoveAll(id => !now.Contains(id));
         foreach (uint id in _questAutoWatchExpiries.Keys.Where(id => !now.Contains(id)).ToArray())
             _questAutoWatchExpiries.Remove(id);
@@ -739,10 +743,14 @@ public sealed partial class GameLoop
             if (!_questTemplates.ContainsKey(id) && _questQueries.Add(id)) _net.QuestQuery(id);
         foreach (uint id in now.Except(_questLogSnapshot)) EmitInterface("quest", "log", "ADDED", _net.PlayerGuid, $"quest={id};count={now.Count}");
         foreach (uint id in _questLogSnapshot.Except(now)) EmitInterface("quest", "log", "REMOVED", _net.PlayerGuid, $"quest={id};count={now.Count}");
+        // QUESTADDED -> iQuestActivate.wav is a C++ quest-log transition cue, not
+        // an Accept-button sound. Waiting for the field edge keeps refusals silent.
+        if (playAddedSound) PlayUiSound(QuestFrameUiLaw.QuestAddedSound);
         // Your own accept/turn-in (from the vanilla L window or anywhere) moves this set —
         // re-pull the commander giver board so it does not sit on a stale verdict.
         if (!now.SetEquals(_questLogSnapshot)) RefreshGiverQuestsIfOpen();
         _questLogSnapshot = now;
+        _questLogSnapshotKnown = true;
         if (_questRewardPending != 0)
         {
             uint xpDelta = player.Fields.Experience >= _questXpBefore ? player.Fields.Experience - _questXpBefore : 0;
@@ -764,6 +772,11 @@ public sealed partial class GameLoop
         {
             _questTemplates[template.QuestId] = template;
             if (template.Title.Length > 0) _questTitles[template.QuestId] = template.Title;
+            if (_items is not null && _net is not null)
+                foreach (uint itemId in template.Objectives
+                    .Where(o => o.ItemId != 0 && o.ItemCount > 0)
+                    .Select(o => o.ItemId).Distinct())
+                    _items.Require(itemId, 0, _net);
         }
         _questQueries.Remove(template.QuestId);
         EmitInterface("quest", "query", "DECODED", 0,
@@ -1486,11 +1499,19 @@ public sealed partial class GameLoop
             uint current = Math.Min(CarriedCount(objective.ItemId), objective.ItemCount);
             string label = kill ? "" : objective.Text;
             if (label.Length == 0)
-                label = _items?.TryGet(objective.ItemId, out ItemTemplate? item) == true && item is not null
-                    ? item.Name : $"Item {objective.ItemId}";
+                label = QuestObjectiveItemLabel(objective.ItemId);
             yield return ($"{label}: {current}/{objective.ItemCount}",
                 current >= objective.ItemCount);
         }
+    }
+
+    private string QuestObjectiveItemLabel(uint itemId)
+    {
+        if (_items is not null && _net is not null)
+            _items.Require(itemId, 0, _net);
+        string? resolvedName = _items?.TryGet(itemId, out ItemTemplate? item) == true
+            ? item?.Name : null;
+        return QuestFrameUiLaw.ObjectiveItemLabel(resolvedName);
     }
 
     private void HandleQuestLogShiftClick(uint questId, string title)

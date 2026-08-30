@@ -207,6 +207,22 @@ internal static class QuestLogClinicalChecks
               QuestFrameUiLaw.SecondsToTime(90061) == "1 Day 1 Hr " &&
               QuestFrameUiLaw.SecondsToTime(61) == "1 Min 1 Sec ",
             "quest-log header grouping/fold law drift");
+        var priorQuestIds = new HashSet<uint> { 11, 22 };
+        Check(QuestFrameUiLaw.QuestAddedSound == "QUESTADDED" &&
+              !QuestFrameUiLaw.ShouldPlayQuestAddedSound(false, new HashSet<uint>(),
+                  new HashSet<uint> { 11, 22 }) &&
+              !QuestFrameUiLaw.ShouldPlayQuestAddedSound(true, priorQuestIds,
+                  new HashSet<uint> { 11, 22 }) &&
+              !QuestFrameUiLaw.ShouldPlayQuestAddedSound(true, priorQuestIds,
+                  new HashSet<uint> { 11 }) &&
+              QuestFrameUiLaw.ShouldPlayQuestAddedSound(true, priorQuestIds,
+                  new HashSet<uint> { 11, 22, 33 }),
+            "quest-added sound edge/baseline law drift");
+        Check(QuestFrameUiLaw.ObjectiveItemLabel("Tough Wolf Meat") ==
+                  "Tough Wolf Meat" &&
+              QuestFrameUiLaw.ObjectiveItemLabel(null) == "..." &&
+              QuestFrameUiLaw.ObjectiveItemLabel("") == "...",
+            "quest objective item-name/loading label drift");
 
         var writer = new PacketWriter();
         writer.WriteU32(77); writer.WriteU32(2); writer.WriteU32(18);
@@ -241,6 +257,8 @@ internal static class QuestLogClinicalChecks
             "MSUIClient", "GameLoop", "Panels", "GameLoop.Quest.cs"));
         string questFacts = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
             "MSUIClient", "GameLoop", "Scene", "GameLoop.QuestFacts.cs"));
+        string partyQuestLog = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
+            "MSUIClient", "GameLoop", "Panels", "GameLoop.PartyQuestLog.cs"));
         string session = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
             "MSUIClient", "Net", "WorldSession.cs"));
         string client = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
@@ -355,8 +373,25 @@ internal static class QuestLogClinicalChecks
               questFacts.Contains("destination.Add((entry.Slot, entry.QuestId,",
                   StringComparison.Ordinal) &&
               runtime.Contains("_questWatches.RemoveAll(id => !now.Contains(id));",
-                  StringComparison.Ordinal),
+                  StringComparison.Ordinal) &&
+              runtime.Contains("QuestFrameUiLaw.ShouldPlayQuestAddedSound(",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("PlayUiSound(QuestFrameUiLaw.QuestAddedSound);",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("_questLogSnapshotKnown = false;", StringComparison.Ordinal),
             "quest-log modal/abandon/watch production wiring drift");
+        Check(runtime.Contains(".Where(o => o.ItemId != 0 && o.ItemCount > 0)",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("_items.Require(itemId, 0, _net);",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("label = QuestObjectiveItemLabel(objective.ItemId);",
+                  StringComparison.Ordinal) &&
+              partyQuestLog.Contains("label = QuestObjectiveItemLabel(objective.ItemId);",
+                  StringComparison.Ordinal) &&
+              !runtime.Contains("$\"Item {objective.ItemId}\"", StringComparison.Ordinal) &&
+              !partyQuestLog.Contains("$\"Item {objective.ItemId}\"",
+                  StringComparison.Ordinal),
+            "quest objective item-template request/name wiring drift");
     }
 
     private static void Check(bool condition, string message)

@@ -29,6 +29,7 @@ public readonly record struct QuestLogHeaderGroup(string Header, IReadOnlyList<i
 /// <summary>Authored QuestFrame.xml geometry and bounded panel behavior.</summary>
 public static class QuestFrameUiLaw
 {
+    public const string QuestAddedSound = "QUESTADDED";
     public const float Width = 384f;
     public const float Height = 512f;
     public const float ScrollX = 23f;
@@ -408,6 +409,15 @@ public static class QuestFrameUiLaw
             NpcScrollTrackRect.Width, ScrollThumbHeight);
     public static bool RewardCompleteEnabled(int choiceCount, int selectedChoice) =>
         choiceCount == 0 || selectedChoice >= 0 && selectedChoice < choiceCount;
+
+    /// <summary>The frozen client plays QUESTADDED when a quest enters an established log.
+    /// The first descriptor snapshot after login is a baseline, not an accept event.</summary>
+    public static bool ShouldPlayQuestAddedSound(bool snapshotKnown,
+        IReadOnlySet<uint> previous, IReadOnlySet<uint> current) =>
+        snapshotKnown && current.Any(id => !previous.Contains(id));
+
+    public static string ObjectiveItemLabel(string? resolvedName) =>
+        string.IsNullOrWhiteSpace(resolvedName) ? "..." : resolvedName;
 
     /// <summary>The frozen client splits greeting and gossip rows solely by the wire icon.</summary>
     public static QuestGreetingPool GreetingPool(uint icon) => icon is 3 or 4
