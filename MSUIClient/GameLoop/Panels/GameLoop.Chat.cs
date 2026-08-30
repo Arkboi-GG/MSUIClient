@@ -1166,18 +1166,16 @@ public sealed partial class GameLoop
         float sChat = s * (_chatFontSizePt / 14f);
         int em = GameText.EmPixels(ChatFrameLaw.ChatFont, sChat);
         float headerWidth = GameText.MeasureWidth(ChatFrameLaw.ChatFont, header, sChat);
-        // The typed text shares the header's exact baked font (ChatFontNormal / ARIALN) so
-        // both halves of the line match — previously ImGui.InputText fell back to ImGui's
-        // own default font, only scaled to roughly the header's height, which reads as a
-        // generic UI font next to the authentic bitmap "Say:" header (reported 2026-08-30).
-        // Falls back to the old scaled-default-font approximation on the rare frame the
-        // bake isn't resolved yet (same "never silent" fallback TryResolve uses elsewhere).
-        const float UnbakedFallbackScale = 1.25f;
-        bool hasChatFont = GameTextLaw.TryGetFont(FontObjectLaw.Get(ChatFrameLaw.ChatFont).Face,
-            em, false, out ImFontPtr chatFont, out float chatDrawSize);
-        float inputFontSize = hasChatFont ? chatDrawSize : em * UnbakedFallbackScale;
+        // EmPixels is a metric from the custom bitmap-font system, not ImGui's own font
+        // atlas, so em alone renders visibly smaller in ImGui.InputText than the header
+        // beside it (reported 2026-08-30) — EditBoxScaleCorrection compensates. Fed into
+        // EditGeometry too, so the box's own padding/height accounts for the actual
+        // (corrected) rendered text size instead of overflowing below a box sized for
+        // the smaller, uncorrected one (reported the same day, second round).
+        const float EditBoxScaleCorrection = 1.25f;
+        float correctedInputFontSize = em * EditBoxScaleCorrection;
         ChatFrameLaw.EditLayout edit = ChatFrameLaw.EditGeometry(
-            root, s, em, headerWidth, inputFontSize);
+            root, s, em, headerWidth, correctedInputFontSize);
 
         DrawChatTexture(dl, edit.Left.Min, edit.Left.Size,
             ChatFrameLaw.EditLeft, Vector2.Zero, Vector2.One, 0xffffffffu);
@@ -1199,18 +1197,19 @@ public sealed partial class GameLoop
         ImGui.PushStyleColor(ImGuiCol.Text, color);
         ImGui.SetNextWindowPos(edit.InputPosition);
         ImGui.SetNextWindowSize(edit.InputSize);
-        if (hasChatFont) ImGui.PushFont(chatFont);
         if (ImGui.Begin("##chat-input-window", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoBackground |
                 ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoNav))
         {
             if (_chatEditJustOpened) { ImGui.SetKeyboardFocusHere(); _chatEditJustOpened = false; }
             ImGui.SetNextItemWidth(edit.InputSize.X);
             unsafe { _chatEditCallback ??= ChatEditCursorCallback; }
-            // Scales whichever font is active (the real baked ChatFontNormal, or the
-            // ImGui-default fallback) from its own native size up to inputFontSize, so the
-            // rendered text and the box built to fit it (EditGeometry above) agree on size.
-            float baseFs = hasChatFont ? chatFont.FontSize : ImGui.GetFontSize();
-            ImGui.SetWindowFontScale(baseFs > 0f ? inputFontSize / baseFs : 1f);
+            // ImGui.InputText renders with ImGui's own font at scale 1, not the
+            // ChatFont/s used for the "Say:" header beside it — same fix as
+            // GameLoop.CharCreate's name field and GameLoop.Net's login fields.
+            // Uses the same corrected size EditGeometry was given above, so the
+            // rendered text and the box built to fit it agree on how big it is.
+            float baseFs = ImGui.GetFontSize();
+            ImGui.SetWindowFontScale(baseFs > 0f ? correctedInputFontSize / baseFs : 1f);
             bool submit = ImGui.InputText("##chat-edit", ref _chatInput, 255,
                 ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.CallbackAlways,
                 _chatEditCallback);
@@ -1221,7 +1220,6 @@ public sealed partial class GameLoop
             else if (_chatEditActivated && !active) CloseChatEdit();   // escape / click-away
         }
         ImGui.End();
-        if (hasChatFont) ImGui.PopFont();
         ImGui.PopStyleColor(2);
         ImGui.PopStyleVar(2);
     }
