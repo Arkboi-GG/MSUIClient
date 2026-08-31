@@ -304,7 +304,13 @@ public sealed partial class GameLoop
             return;
         }
 
-        ImDrawListPtr draw = ImGui.GetWindowDrawList();
+        // WorldMapFrame deliberately paints its fullscreen shell on ImGui's foreground list.
+        // A normal tooltip-window draw list therefore sits underneath an opaque map even when
+        // submitted later. Keep map-owned GameTooltip art on the same top layer; every other
+        // tooltip retains the ordinary Tooltip-window stratum.
+        ImDrawListPtr draw = _worldMapOpen
+            ? ImGui.GetForegroundDrawList()
+            : ImGui.GetWindowDrawList();
         draw.PushClipRectFullScreen();
         float savedSkinScale = prepared.Skin.Scale;
         try

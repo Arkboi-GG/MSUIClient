@@ -2,7 +2,7 @@ using System.Numerics;
 
 namespace MSUIClient.Engine.UI;
 
-public enum OptionsSearchPage { Video, Interface, Sound }
+public enum OptionsSearchPage { Video, Interface, Sound, AddOns }
 
 public readonly record struct OptionsSearchEntry(OptionsSearchPage Page, string Label);
 
@@ -11,8 +11,8 @@ public readonly record struct OptionsSearchGroup(
 
 /// <summary>
 /// Current Benilla's SettingsPanel search scoring and MSUI's rule-owned search seats. The
-/// results navigate into MSUI's preserved three-page options presentation; they do not alter its
-/// independent scaling, remembered sizes, or live-apply semantics.
+/// results navigate into MSUI's preserved option pages plus the native AddOns page; they do not
+/// alter independent scaling, remembered sizes, or live-apply semantics.
 /// </summary>
 public static class OptionsSearchUiLaw
 {
@@ -45,8 +45,7 @@ public static class OptionsSearchUiLaw
     [
         "Quality", "Display", "Painterly mode", "View distance", "Environment detail",
         "Ground clutter", "Water", "Lighting and sky",
-        "Alpha lift", "Apex ahead", "Fade out", "Full-strength speed", "V length",
-        "V width", "Wake strength", "Water depth cutoff", "Wavefronts", "World lock",
+        "Foam strength", "Water foam", "Water depth cutoff",
         "Alpha cutoff", "Ambient amount", "Ambient strength", "Animation FPS",
         "Anisotropic filtering", "Authored water colours (Light.dbc)  [KNOWN BAD]",
         "Baked interior light - buildings (MOCV)", "Baked interior light - props (MODD)",
@@ -100,10 +99,17 @@ public static class OptionsSearchUiLaw
         "Enable Music", "Master Volume", "Music Volume", "Sound Effects Volume",
     ];
 
+    private static readonly string[] AddOnLabels =
+    [
+        "AddOns", "Quest Helper", "Quest map pins", "Quest minimap pins",
+        "Active quest objectives", "Ready to turn in",
+    ];
+
     public static IReadOnlyList<OptionsSearchEntry> Catalog { get; } =
         Entries(OptionsSearchPage.Video, VideoLabels)
             .Concat(Entries(OptionsSearchPage.Interface, InterfaceLabels))
             .Concat(Entries(OptionsSearchPage.Sound, SoundLabels))
+            .Concat(Entries(OptionsSearchPage.AddOns, AddOnLabels))
             .ToArray();
 
     public static Rect Box(float logicalFrameWidth)
@@ -124,6 +130,7 @@ public static class OptionsSearchUiLaw
         OptionsSearchPage.Video => "Video Options",
         OptionsSearchPage.Interface => "Interface Options",
         OptionsSearchPage.Sound => "Sound Options",
+        OptionsSearchPage.AddOns => "AddOns",
         _ => "Options",
     };
 

@@ -21,14 +21,25 @@ public class M2Model
     public List<ushort> TextureLookup { get; set; } = new();
 
     /// <summary>
-    /// Per-texture-coordinate-unit lookup. Vanilla M2 uses -1 to request
-    /// camera-space environment coordinates instead of authored model UVs.
+    /// Per-texture-coordinate-unit lookup. Values 0..2 select authored texture
+    /// coordinates; higher unsigned values (stock art uses 0xFFFF) request a
+    /// generated camera-space environment coordinate.
     /// </summary>
     public List<short> TextureUnitLookup { get; set; } = new();
 
     public bool UsesEnvironmentMapForBatch(M2Batch batch)
-        => batch.TextureCoordIndex < TextureUnitLookup.Count &&
-           TextureUnitLookup[batch.TextureCoordIndex] == -1;
+        => UsesEnvironmentMapForBatchUnit(batch, 0);
+
+    public bool UsesEnvironmentMapForBatchUnit(M2Batch batch, int unit)
+    {
+        if (unit < 0 || unit >= Math.Max(1, (int)batch.TextureCount) ||
+            batch.TextureCoordIndex == ushort.MaxValue)
+            return false;
+
+        long combo = (long)batch.TextureCoordIndex + unit;
+        return combo >= 0 && combo < TextureUnitLookup.Count &&
+               unchecked((ushort)TextureUnitLookup[(int)combo]) > 2;
+    }
 
     // ── Skeleton ─────────────────────────────────────────────────────────────
     public List<M2Bone> Bones { get; set; } = new();

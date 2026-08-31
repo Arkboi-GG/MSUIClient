@@ -169,12 +169,15 @@ public sealed partial class CreatureRenderer : IDisposable
     private readonly HashSet<ulong> _knownAlive = new();
     private readonly HashSet<ulong> _observedDead = new();
     private readonly Dictionary<ulong, float> _deathTime = new();
+    private readonly Dictionary<ulong, float> _deadCreatureSeenAt = new();
+    private readonly Dictionary<ulong, float> _respawnFadeStartedAt = new();
     private readonly HashSet<ulong> _seen = new();
     private readonly List<ulong> _stale = new();
     private readonly List<WorldEntity> _orderedUnits = [];
     private readonly List<UnitShadowCaster> _shadowCasters = [];
     private Vector3 _sortCameraPosition;
     private float _globalTime;
+    private const float DeadCreatureRetentionSeconds = 10f * 60f;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private double _lastSeconds;
 
@@ -501,6 +504,7 @@ public sealed partial class CreatureRenderer : IDisposable
 
             _seen.Add(e.Guid);
             TrackLifeState(e);
+            float respawnAlpha = e.IsCreature ? RespawnFadeAlpha(e.Guid) : 1f;
 
             // UNIT_FIELD_SCALE_X is already the complete unit render scale. vmangos folds
             // CreatureModelData × CreatureDisplayInfo into it; applying DbcScale again
@@ -530,7 +534,7 @@ public sealed partial class CreatureRenderer : IDisposable
                     e.Speeds is { Length: > 0 } speeds ? speeds[0] : 0f,
                     e.Flying || e.Spline?.Flying == true,
                     dt, animationEventsElected, highlighted,
-                    e.AuraVisual.Alpha, e.AuraVisual.Tint,
+                    e.AuraVisual.Alpha * respawnAlpha, e.AuraVisual.Tint,
                     e.AuraVisual.Frozen, out mount);
             else ForgetMount(e.Guid);
 
@@ -544,9 +548,10 @@ public sealed partial class CreatureRenderer : IDisposable
             m.M41 -= camPos.X; m.M42 -= camPos.Y; m.M43 -= camPos.Z;
             _shader.Set("uModel", m);
             _shader.Set("uHighlight", highlightStrength);
-            float bodyAlpha = e.AuraVisual.Alpha;
+            float bodyAlpha = e.AuraVisual.Alpha * respawnAlpha;
             Vector3 bodyTint = e.AuraVisual.Tint;
-            bool bodyTranslucent = e.AuraVisual.Translucent;
+            bool bodyTranslucent = e.AuraVisual.Translucent ||
+                respawnAlpha < 1f - AuraVisualLaw.AlphaSettledEpsilon;
             _shader.Set("uBodyAlpha", bodyAlpha);
             _shader.Set("uBodyTint", bodyTint);
 
@@ -736,10 +741,11 @@ public sealed partial class CreatureRenderer : IDisposable
             if (CastsGroundShadow(e))
                 _shadowCasters.Add(new UnitShadowCaster(e.Position, mounted
                     ? mount.GroundRadius
-                    : GroundShadowRadius(model.HorizontalRadius, scale)));
+                    : GroundShadowRadius(model.HorizontalRadius, scale), respawnAlpha));
 
             DrawUnitAttachments(camera, e, model, info, m,
-                boneCount > 0 ? _skin : _bindSkin, applyAuraVisual: true);
+                boneCount > 0 ? _skin : _bindSkin, applyAuraVisual: true,
+                alphaMultiplier: respawnAlpha);
             // The attachment path has its own shader; restore ours before the
             // next streamed unit uploads its model/bone uniforms.
             _gl.Enable(EnableCap.Blend);
@@ -948,7 +954,7 @@ public sealed partial class CreatureRenderer : IDisposable
 
     private void DrawUnitAttachments(Camera camera, WorldEntity entity, LoadedModel model,
         in CreatureModelInfo info, Matrix4x4 transform, Matrix4x4[] skin,
-        bool applyAuraVisual = false)
+        bool applyAuraVisual = false, float alphaMultiplier = 1f)
     {
         if (model.Source.Attachments.Count == 0 || _attachedItems is null) return;
         uint head = info.HasExtended && info.ExtEquipment.Length > 0
@@ -1012,7 +1018,9 @@ public sealed partial class CreatureRenderer : IDisposable
             state.Signature = signature;
         }
         state.LastSeenAt = _globalTime;
-        _attachedItems.BodyAlpha = applyAuraVisual ? entity.AuraVisual.Alpha : 1f;
+        _attachedItems.BodyAlpha = applyAuraVisual
+            ? entity.AuraVisual.Alpha * Math.Clamp(alphaMultiplier, 0f, 1f)
+            : 1f;
         _attachedItems.BodyTint = applyAuraVisual ? entity.AuraVisual.Tint : Vector3.One;
         _attachedItems.GlowOwnerKey = $"unit:{entity.Guid:X16}";
         _attachedItems.Render(camera, transform, model.Source, skin, state.Mounts,
@@ -1345,15 +1353,40 @@ public sealed partial class CreatureRenderer : IDisposable
             bool witnessedAlive = _knownAlive.Remove(entity.Guid);
             if (_observedDead.Add(entity.Guid))
                 _deathTime[entity.Guid] = witnessedAlive ? 0f : float.PositiveInfinity;
+            if (entity.IsCreature)
+                _deadCreatureSeenAt[entity.Guid] = _globalTime;
             _combatActions.Remove(entity.Guid);
             return;
         }
 
         bool resurrected = _observedDead.Remove(entity.Guid);
+        if (entity.IsCreature && _deadCreatureSeenAt.Remove(entity.Guid))
+            resurrected = true;
         _deathTime.Remove(entity.Guid);
         _knownAlive.Add(entity.Guid);
         if (resurrected)
+        {
             _combatActions[entity.Guid] = new CombatAction(7, _globalTime, _globalTime + 3f);
+            if (entity.IsCreature)
+                _respawnFadeStartedAt[entity.Guid] = _globalTime;
+        }
+    }
+
+    /// <summary>
+    /// The build-5875 streamed-object appear curve: a two-second cubic ramp. We arm it only on a
+    /// creature's witnessed dead-to-alive edge, so first sight, ordinary stream-in and remote
+    /// players keep their established presentation.
+    /// </summary>
+    private float RespawnFadeAlpha(ulong guid)
+    {
+        if (!_respawnFadeStartedAt.TryGetValue(guid, out float started)) return 1f;
+        float elapsed = _globalTime - started;
+        if (elapsed >= CreatureRespawnFadeLaw.DurationSeconds)
+        {
+            _respawnFadeStartedAt.Remove(guid);
+            return 1f;
+        }
+        return CreatureRespawnFadeLaw.Alpha(elapsed);
     }
 
     private static float InitialPhase(ulong guid) => (guid % 977) / 977f * 5f;
@@ -1376,10 +1409,20 @@ public sealed partial class CreatureRenderer : IDisposable
             _knownAlive.Remove(k);
             _observedDead.Remove(k);
             _deathTime.Remove(k);
+            _respawnFadeStartedAt.Remove(k);
             _footstepTime.Remove(k);
             _animationEventOutOfViewSince.Remove(k);
             _wasMovingByGuid.Remove(k);
         }
+
+        // A corpse commonly streams out before its spawn comes alive again. Keep only the
+        // dead-creature fact across that gap; all animation/model state above remains volatile.
+        // The bounded retention prevents a same-GUID sighting much later from being misread.
+        _stale.Clear();
+        foreach (var pair in _deadCreatureSeenAt)
+            if (_globalTime - pair.Value >= DeadCreatureRetentionSeconds)
+                _stale.Add(pair.Key);
+        foreach (ulong guid in _stale) _deadCreatureSeenAt.Remove(guid);
 
         // A steed whose rider stopped drawing (left the world, walked out of range)
         // must not keep supplying a saddle to the nameplate and selection-ring

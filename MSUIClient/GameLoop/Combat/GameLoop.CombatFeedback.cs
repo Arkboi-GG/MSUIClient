@@ -181,6 +181,9 @@ public sealed partial class GameLoop
             if (_worldMapOpen)
             {
                 DrawWorldMapFrame();
+                // Fullscreen map drawing returns early from the ordinary HUD pass. Resolve its
+                // offers here or map-owned GameTooltip content is discarded by the finally block.
+                ResolveAndDrawSharedGameTooltip();
                 return;
             }
             UpdateAndQueueWorldUnitGameTooltip(NowSeconds());

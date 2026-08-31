@@ -267,29 +267,49 @@ public sealed class LiquidRenderer : IDisposable
     /// </summary>
     public float HighlightGain { get; set; } = 4.0f;
 
-    // -- The walking wake (PLAN_16) ------------------------------------------
+    // -- Build-5875 CWater0Ripple records ------------------------------------
     //
-    // A single V-shaped bow wave anchored at the player and extending backward.
-    //
-    // The first version kept a ring of eight recent positions and stamped the
-    // mask at each. That was wrong, and the reason is worth keeping: decoding
-    // XTextures\splash\wake.blp shows its alpha channel IS ALREADY A V - a narrow
-    // wedge that splits into two diverging arms. Stamping it eight times drew
-    // eight overlapping Vs, which read as a chain of blobs. THE TEXTURE IS THE
-    // TRAIL; it only needs placing once.
-    //
-    // The lesson, which this project keeps paying for: LOOK AT THE ASSET before
-    // deciding how to use it. One alpha dump would have settled the shape before
-    // any of the trail machinery was written.
-    private Texture? _texWakeMask, _dummy2D;
-    private bool _hasWakeTex;
+    // Benilla's byte-verified reference work shows that walking/swimming foam is
+    // not one V stretched behind the mover. The client emits short-lived decal
+    // records: wake.blp while translating, splash.blp rings while standing or
+    // crossing the 0.4 x collision-height wade line. Each record expands for
+    // roughly 0.65 seconds and fades on a 40/60 rise/fall envelope. The reference
+    // pool is partitioned: 32 records reserved for the controlled body and 96 for
+    // every other player/creature, so a crowded ford cannot evict your own wake.
+    private const int SelfFoamSlots = 32;
+    private const int OtherFoamSlots = 96;
+    private const int FoamPoolSize = SelfFoamSlots + OtherFoamSlots;
+    // Two vec4 arrays cost eight fragment-uniform components per packed record.
+    // 64 stays comfortably below GL 3.3's minimum uniform budget while covering
+    // the complete live output of several nearby movers; the full 128-slot pool
+    // still owns lifecycle and eviction exactly like the reference.
+    private const int MaxPackedFoamRecords = 64;
+    private readonly record struct FoamRecord(
+        Vector2 Center, float Heading, float Size0, float Growth,
+        float Lifetime, float Peak, float Born, bool Ring, ulong Owner);
 
-    private Vector2 _wakePos;
-    private Vector2 _wakeDir = new(1f, 0f);
+    private sealed class FoamEmitterState(uint seed)
+    {
+        public Vector3 LastSample;
+        public float LastYaw;
+        public float ReadyAt;
+        public bool Wading;
+        public bool HaveLastSample;
+        public bool Active;
+        public uint Rng = seed | 1u;
+    }
+
+    private Texture? _texWakeMask, _texRingMask, _dummy2D;
+    private bool _hasWakeTex, _hasRingTex;
+    private readonly FoamRecord?[] _foamPool = new FoamRecord?[FoamPoolSize];
+    private readonly float[] _foamPackedA = new float[MaxPackedFoamRecords * 4];
+    private readonly float[] _foamPackedB = new float[MaxPackedFoamRecords * 4];
+    private readonly Dictionary<ulong, FoamEmitterState> _otherFoamEmitters = [];
+    private readonly List<ulong> _staleFoamEmitters = [];
+    private FoamEmitterState _selfFoamEmitter = new(0x5EEDF0A5u);
+    private int _selfFoamCursor;
+    private int _otherFoamCursor;
     private float _wakeAmount;
-    private Vector3 _lastWakeSample;
-    private bool _haveLastSample;
-    private float _wakeScroll;
 
     /// <summary>Master switch. Off is a bit-identical image to pre-PLAN_16 water.</summary>
     public bool WakeEnabled { get; set; } = true;
@@ -323,86 +343,256 @@ public sealed class LiquidRenderer : IDisposable
     /// </summary>
     public float WakeWorldLock { get; set; } = 1.0f;
 
-    /// <summary>Colour ADDED where the water is churned. Added, so keep it modest.</summary>
+    /// <summary>Legacy tuning value retained for settings-file compatibility.</summary>
     public Vector3 WakeColor { get; set; } = new(0.30f, 0.36f, 0.42f);
 
-    /// <summary>
-    /// How much the wake also lifts surface alpha. Not decoration: a wake happens
-    /// in SHALLOW water, which is exactly where ShoreFade has already pulled alpha
-    /// down, so colour alone barely shows where the effect lives.
-    /// </summary>
+    /// <summary>Legacy tuning value retained for settings-file compatibility.</summary>
     public float WakeOpacity { get; set; } = 0.40f;
 
     /// <summary>Current wake intensity 0..1, for the HUD.</summary>
     public float WakeAmount => _wakeAmount;
 
-    /// <summary>True when wake.blp resolved out of the MPQs.</summary>
-    public bool HasWakeTexture => _hasWakeTex;
+    /// <summary>All live records, including newborns whose fade-in alpha is still zero.</summary>
+    public int ActiveFoamCount { get; private set; }
+
+    public int ActiveSelfFoamCount { get; private set; }
+    public int ActiveOtherFoamCount { get; private set; }
+    public int TrackedOtherFoamUnits => _otherFoamEmitters.Count;
+
+    /// <summary>True when both build-5875 foam stencils resolved out of the MPQs.</summary>
+    public bool HasWakeTexture => _hasWakeTex && _hasRingTex;
 
     /// <summary>
-    /// Advance the wake. Call once per frame BEFORE <see cref="Render"/>.
-    ///
-    /// inWater is the caller's gate - it is the only place that knows where the
-    /// feet are relative to the surface.
-    ///
-    /// Direction comes from actual TRAVEL, not body yaw, so strafing or backing
-    /// up lays the V along the way you are really moving. Body yaw only seeds it.
-    /// The direction is HELD when you stop rather than zeroed, so the V fades out
-    /// pointing the way it was instead of snapping to an axis on the last frame.
+    /// Start one world-frame of foam classification. Every streamed emitter must be fed between
+    /// this and <see cref="EndWakeFrame"/>; unfed GUID state is retired while its laid-down records
+    /// finish aging in place.
     /// </summary>
-    public void UpdateWake(Vector3 playerPos, float bodyYawRadians, float dt, bool inWater)
+    public void BeginWakeFrame()
     {
-        if (!WakeEnabled) { _wakeAmount = 0f; _haveLastSample = false; return; }
+        if (!WakeEnabled)
+        {
+            ClearWake();
+            return;
+        }
+        foreach (FoamEmitterState emitter in _otherFoamEmitters.Values)
+            emitter.Active = false;
+    }
+
+    /// <summary>
+    /// Advance the controlled mover's build-5875 water-foam emitter. <paramref name="waterDepth"/>
+    /// is surface minus feet; null means there is no water surface under the body. The two-height
+    /// gate deliberately includes surface swimming and excludes a real dive.
+    /// </summary>
+    public void UpdateWake(Vector3 playerPos, float bodyYawRadians, float dt,
+        float? waterDepth, float collisionHeight, float renderScale)
+    {
+        if (!WakeEnabled)
+            return;
         if (dt <= 0f) return;
 
-        _wakePos = new Vector2(playerPos.X, playerPos.Y);
+        DriveFoamEmitter(_selfFoamEmitter, owner: 0, self: true,
+            playerPos, bodyYawRadians, dt, waterDepth, collisionHeight, renderScale);
+    }
+
+    /// <summary>Feed one non-controlled player or creature. Position deltas proxy its streamed
+    /// movement flags, matching the reference's other-unit path.</summary>
+    public void UpdateOtherWake(ulong guid, Vector3 position, float yawRadians, float dt,
+        float? waterDepth, float collisionHeight, float renderScale)
+    {
+        if (!WakeEnabled || guid == 0 || dt <= 0f) return;
+        if (!_otherFoamEmitters.TryGetValue(guid, out FoamEmitterState? emitter))
+        {
+            uint seed = (uint)guid ^ (uint)(guid >> 32) ^ 0xA11CE5EDu;
+            emitter = new FoamEmitterState(seed);
+            _otherFoamEmitters.Add(guid, emitter);
+        }
+        emitter.Active = true;
+        DriveFoamEmitter(emitter, guid, self: false,
+            position, yawRadians, dt, waterDepth, collisionHeight, renderScale);
+    }
+
+    private void DriveFoamEmitter(FoamEmitterState emitter, ulong owner, bool self,
+        Vector3 position, float bodyYawRadians, float dt, float? waterDepth,
+        float collisionHeight, float renderScale)
+    {
 
         float speed = 0f;
-        if (_haveLastSample)
+        float heading = bodyYawRadians;
+        float yawRate = 0f;
+        if (emitter.HaveLastSample)
         {
-            var delta = new Vector2(playerPos.X - _lastWakeSample.X, playerPos.Y - _lastWakeSample.Y);
+            Vector2 delta = new(position.X - emitter.LastSample.X,
+                position.Y - emitter.LastSample.Y);
             float moved = delta.Length();
+            // A teleport is not 400 wake emissions compressed into one frame.
+            if (moved > 20f)
+            {
+                ClearOwnerFoam(owner);
+                emitter.ReadyAt = Time;
+                moved = 0f;
+            }
             speed = moved / dt;
-            // Ignore sub-millimetre jitter, which would otherwise spin the
-            // direction vector wildly while standing still.
-            if (moved > 0.001f) _wakeDir = Vector2.Normalize(delta);
+            if (moved > 0.001f) heading = MathF.Atan2(delta.Y, delta.X);
+            yawRate = MathF.Abs(WrapAngle(bodyYawRadians - emitter.LastYaw)) / dt;
+        }
+
+        float height = float.IsFinite(collisionHeight) && collisionHeight > 0f
+            ? collisionHeight : WaterFoamLaw.DefaultCollisionHeight;
+        float gate = WaterFoamLaw.CollisionGate(height);
+        float depth = waterDepth is float d && float.IsFinite(d) ? d : float.NegativeInfinity;
+        bool wadingNow = WaterFoamLaw.BeyondWadeLine(waterDepth, height);
+        bool oneShot = wadingNow != emitter.Wading;
+        emitter.Wading = wadingNow;
+
+        bool eligible = WaterFoamLaw.Eligible(waterDepth, height);
+        if (eligible && (oneShot || Time >= emitter.ReadyAt))
+        {
+            bool translating = !oneShot && speed > 0.5f;
+            bool turning = !oneShot && !translating && yawRate > 0.35f;
+            bool ring = oneShot || !translating;
+            EmitFoam(emitter, owner, self, position, heading, speed, depth, gate,
+                MathF.Max(renderScale, 0.01f), ring,
+                standing: ring && !oneShot && !turning);
+
+            if (oneShot)
+                emitter.ReadyAt = Time;
+            else if (ring)
+                emitter.ReadyAt = Time + Lerp(0.4f, 0.45f, NextFoam01(emitter));
+            else
+                emitter.ReadyAt = Time + WaterFoamLaw.WakeCooldown(speed,
+                    Lerp(0.9f, 1.1f, NextFoam01(emitter)));
+        }
+
+        emitter.LastSample = position;
+        emitter.LastYaw = bodyYawRadians;
+        emitter.HaveLastSample = true;
+    }
+
+    /// <summary>Finish classification, prune disappeared unit state, and age the shared pool.</summary>
+    public void EndWakeFrame()
+    {
+        if (!WakeEnabled) return;
+
+        _staleFoamEmitters.Clear();
+        foreach ((ulong guid, FoamEmitterState emitter) in _otherFoamEmitters)
+            if (!emitter.Active) _staleFoamEmitters.Add(guid);
+        foreach (ulong guid in _staleFoamEmitters)
+            _otherFoamEmitters.Remove(guid);
+
+        _wakeAmount = 0f;
+        ActiveFoamCount = 0;
+        ActiveSelfFoamCount = 0;
+        ActiveOtherFoamCount = 0;
+        for (int i = 0; i < _foamPool.Length; i++)
+        {
+            if (_foamPool[i] is not { } record) continue;
+            // Alpha is exactly zero at birth: that is the first point of the authored fade-in,
+            // not death. Retiring on alpha <= 0 deleted every emitted record in this same update,
+            // before a subsequent frame could ever make it visible.
+            if (!WaterFoamLaw.RecordAlive(record.Lifetime, record.Born, Time))
+            {
+                _foamPool[i] = null;
+                continue;
+            }
+            ActiveFoamCount++;
+            if (i < SelfFoamSlots) ActiveSelfFoamCount++;
+            else ActiveOtherFoamCount++;
+            float alpha = FoamAlpha(record, Time);
+            _wakeAmount = MathF.Max(_wakeAmount, alpha);
+        }
+    }
+
+    private void EmitFoam(FoamEmitterState emitter, ulong owner, bool self,
+        Vector3 position, float heading, float speed, float depth, float gate,
+        float scale, bool ring, bool standing)
+    {
+        float size0 = Math.Clamp(scale / 3f * Lerp(0.9f, 1.1f, NextFoam01(emitter)),
+            1f / 3f, 5f / 3f);
+        float lifetime = Lerp(0.6f, 0.7f, NextFoam01(emitter));
+        float growth = Lerp(1f, 1.5f, NextFoam01(emitter));
+        float peak = 1f;
+
+        if (!ring)
+            growth *= MathF.Min(speed, 20f) / 2.5f;
+        else if (standing)
+        {
+            peak *= 0.8f;
+            growth *= 0.25f;
+            size0 *= 0.6f;
+        }
+
+        float halfGate = gate * 0.5f;
+        if (depth > halfGate)
+        {
+            float attenuation = 0.5f + 0.5f * (gate - depth) / halfGate;
+            peak *= attenuation;
+            lifetime *= attenuation;
+            size0 *= attenuation;
+        }
+
+        // Rings have no directional shape; the reference randomises their texgen heading.
+        if (ring) heading = NextFoam01(emitter) * MathF.Tau;
+        int slot;
+        if (self)
+        {
+            slot = _selfFoamCursor;
+            _selfFoamCursor = (_selfFoamCursor + 1) % SelfFoamSlots;
         }
         else
         {
-            _wakeDir = new Vector2(MathF.Cos(bodyYawRadians), MathF.Sin(bodyYawRadians));
+            slot = SelfFoamSlots + _otherFoamCursor;
+            _otherFoamCursor = (_otherFoamCursor + 1) % OtherFoamSlots;
         }
-        // Advance the propagation phase by DISTANCE, not time. That is what makes
-        // the crests stay put in the water while the character moves through
-        // them; a time-based scroll would slide the whole V along with you and
-        // look exactly as stuck as the first version did.
-        if (_haveLastSample && WakeLength > 0.01f)
-        {
-            var mv = new Vector2(playerPos.X - _lastWakeSample.X, playerPos.Y - _lastWakeSample.Y);
-            _wakeScroll -= mv.Length() / WakeLength * WakeRepeat * WakeWorldLock;
-            // Keep it in 0..1 so float precision does not drift after a long walk.
-            _wakeScroll -= MathF.Floor(_wakeScroll);
-        }
+        _foamPool[slot] = new FoamRecord(
+            new Vector2(position.X, position.Y), heading, size0, growth,
+            lifetime, Math.Clamp(peak, 0f, 1f), Time, ring, owner);
+    }
 
-        _lastWakeSample = playerPos;
-        _haveLastSample = true;
+    private static float FoamAlpha(in FoamRecord record, float now) =>
+        WaterFoamLaw.RecordAlpha(record.Peak, record.Lifetime, record.Born, now);
 
-        float target = 0f;
-        if (inWater && WakeFullSpeed > 0.01f)
-            target = Math.Clamp(speed / WakeFullSpeed, 0f, 1f);
+    private static float FoamSize(in FoamRecord record, float now) =>
+        WaterFoamLaw.RecordSize(record.Size0, record.Growth, record.Born, now);
 
-        // Attack fast, release slow: the churn appears the moment you move and
-        // lingers a beat after you stop, which is what disturbed water does.
-        float rate = target > _wakeAmount ? (dt / 0.08f) : (dt / MathF.Max(WakeFade, 0.01f));
-        _wakeAmount += Math.Clamp(target - _wakeAmount, -rate, rate);
-        _wakeAmount = Math.Clamp(_wakeAmount, 0f, 1f);
+    private static float NextFoam01(FoamEmitterState emitter)
+    {
+        uint x = emitter.Rng;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        emitter.Rng = x;
+        return (x >> 8) / (float)(1u << 24);
+    }
+
+    private void ClearOwnerFoam(ulong owner)
+    {
+        for (int i = 0; i < _foamPool.Length; i++)
+            if (_foamPool[i] is { Owner: var recordOwner } && recordOwner == owner)
+                _foamPool[i] = null;
+    }
+
+    private static float Lerp(float a, float b, float t) => a + (b - a) * t;
+
+    private static float WrapAngle(float radians)
+    {
+        while (radians > MathF.PI) radians -= MathF.Tau;
+        while (radians < -MathF.PI) radians += MathF.Tau;
+        return radians;
     }
 
     /// <summary>Drop the wake - on teleport, map change or a settings change.</summary>
     public void ClearWake()
     {
         _wakeAmount = 0f;
-        _haveLastSample = false;
-        _wakeScroll = 0f;
+        Array.Clear(_foamPool);
+        _selfFoamCursor = 0;
+        _otherFoamCursor = 0;
+        _selfFoamEmitter = new FoamEmitterState(0x5EEDF0A5u);
+        _otherFoamEmitters.Clear();
+        _staleFoamEmitters.Clear();
+        ActiveFoamCount = 0;
+        ActiveSelfFoamCount = 0;
+        ActiveOtherFoamCount = 0;
     }
 
     public float OceanAlphaShallow { get; set; } = 0.85f;
@@ -513,13 +703,10 @@ public sealed class LiquidRenderer : IDisposable
         _dummyTex = Texture.Array2D(_gl, new List<byte[]> { new byte[] { 0, 0, 0, 0 } },
             1, 1, mipmaps: false);
 
-        // The walking wake mask (PLAN_16). XTextures\splash\ holds exactly two
-        // files, wake.blp and splash.blp - Blizzard authored this effect and we
-        // are wiring it, not inventing it.
-        //
-        // CLAMPED, not repeated: it is stamped once per trail sample, and a
-        // wrapping mask would tile the disturbance across the whole river.
-        LoadWakeTexture(clientDataPath);
+        // Build-5875's two CWater0Ripple stencils: translating units emit short
+        // wake records; standing/turning/wade-line crossings emit ring records.
+        // Both are CLAMPED, linearly filtered and unmipmapped like the reference.
+        LoadFoamTextures(clientDataPath);
 
         // A 1x1 2D dummy so the wake sampler always has something bound even
         // when wake.blp is missing. Different target from _dummyTex above -
@@ -538,42 +725,37 @@ public sealed class LiquidRenderer : IDisposable
             DiscoverLiquidTexturePaths(clientDataPath);
     }
 
-    /// <summary>
-    /// Load XTextures\splash\wake.blp — the mask the walking wake is stamped
-    /// with. Logs what it found, including the MAX ALPHA, because that number is
-    /// the one that decides whether this works at all.
-    ///
-    /// Only the ALPHA channel is used: wake.blp is a near-black greyscale mask
-    /// (measured mean RGB 0.024, mean alpha 0.451), exactly like the liquid
-    /// frames. If the decoded max alpha comes back as 1 rather than 255 this is
-    /// the 1-bit-alpha trap from handbook section 3.19 and the wake will be
-    /// invisible — the log says so rather than leaving it a mystery.
-    /// </summary>
-    private void LoadWakeTexture(string clientDataPath)
+    private void LoadFoamTextures(string clientDataPath)
     {
-        const string path = @"XTextures\splash\wake.blp";
+        (_texWakeMask, _hasWakeTex) = LoadFoamTexture(
+            clientDataPath, @"XTextures\splash\wake.blp", "wake");
+        (_texRingMask, _hasRingTex) = LoadFoamTexture(
+            clientDataPath, @"XTextures\splash\splash.blp", "ring");
+    }
+
+    private (Texture? Texture, bool Valid) LoadFoamTexture(
+        string clientDataPath, string path, string label)
+    {
         var px = AdtTerrainReader.ReadBlpPixels(clientDataPath, path);
         if (px is null)
         {
-            _hasWakeTex = false;
-            Console.WriteLine($"[wake] '{path}' not found - falling back to a procedural ring. " +
-                              "The trail will still show, but it is not Blizzard's shape.");
-            return;
+            Console.WriteLine($"[water-foam] '{path}' not found - {label} records disabled");
+            return (null, false);
         }
 
         var (bgra, w, h) = (px.Value.bgra, px.Value.width, px.Value.height);
         byte maxAlpha = 0;
-        for (int i = 3; i < bgra.Length; i += 4) if (bgra[i] > maxAlpha) maxAlpha = bgra[i];
+        for (int i = 3; i < bgra.Length; i += 4)
+            if (bgra[i] > maxAlpha) maxAlpha = bgra[i];
 
-        _texWakeMask = Texture.From2D(_gl, bgra, w, h, mipmaps: true, repeat: false);
-        _hasWakeTex = maxAlpha > 1;
-
-        Console.WriteLine($"[wake] {path} {w}x{h}, max alpha {maxAlpha}");
-        if (maxAlpha == 0)
-            Console.WriteLine("[wake] max alpha 0 - the mask is empty, using the procedural ring instead.");
-        else if (maxAlpha == 1)
-            Console.WriteLine("[wake] max alpha 1 - 1-bit alpha decoded as 0/1 (handbook 3.19). " +
-                              "Using the procedural ring; the proper fix belongs in BlpDecoder.");
+        bool valid = maxAlpha > 1;
+        Texture texture = Texture.From2D(_gl, bgra, w, h,
+            mipmaps: false, repeat: false);
+        Console.WriteLine($"[water-foam] {label} {path} {w}x{h}, max alpha {maxAlpha}");
+        if (!valid)
+            Console.WriteLine($"[water-foam] {label} alpha is {(maxAlpha == 0 ? "empty" : "0/1")}; " +
+                "that record category stays disabled");
+        return (texture, valid);
     }
 
     /// <summary>
@@ -1024,6 +1206,38 @@ public sealed class LiquidRenderer : IDisposable
 
     public void Render(Camera camera) => Render(camera, null);
 
+    private int PackFoamRecords(float now)
+    {
+        int count = 0;
+        for (int i = 0; i < _foamPool.Length; i++)
+        {
+            if (count >= MaxPackedFoamRecords) break;
+            if (_foamPool[i] is not { } record) continue;
+            if (!WaterFoamLaw.RecordAlive(record.Lifetime, record.Born, now))
+            {
+                _foamPool[i] = null;
+                continue;
+            }
+            float alpha = FoamAlpha(record, now);
+            // A record emitted during this update is alive but starts its rise envelope at zero.
+            // Keep it in the pool; it will enter the packed draw on the next frame.
+            if (alpha <= 0f) continue;
+
+            int p = count * 4;
+            (float sin, float cos) = MathF.SinCos(record.Heading);
+            _foamPackedA[p] = record.Center.X;
+            _foamPackedA[p + 1] = record.Center.Y;
+            _foamPackedA[p + 2] = sin;
+            _foamPackedA[p + 3] = cos;
+            _foamPackedB[p] = FoamSize(record, now);
+            _foamPackedB[p + 1] = alpha;
+            _foamPackedB[p + 2] = record.Ring ? 1f : 0f;
+            _foamPackedB[p + 3] = 0f;
+            count++;
+        }
+        return count;
+    }
+
     /// <summary>
     /// Draw liquid with an optional absolute-world clip plane. The caller owns
     /// GL_CLIP_DISTANCE0 state so full-screen underwater tint can remain outside
@@ -1085,21 +1299,16 @@ public sealed class LiquidRenderer : IDisposable
         _shader.Set("uRiverFar",   authored ? RiverFar   : Deep(RiverBody));
         _shader.Set("uHighlightGain", MathF.Max(HighlightGain, 0f));
 
-        // The walking wake (PLAN_16). One float is the kill switch: at 0 the
-        // shader's wakeAt() returns immediately and the image is bit-identical
-        // to the pre-PLAN_16 water.
-        float wakeAmt = WakeEnabled ? _wakeAmount * WakeStrength : 0f;
-        _shader.Set("uWakePos", _wakePos);
-        _shader.Set("uWakeDir", _wakeDir);
-        _shader.Set("uWakeAmount", Math.Clamp(wakeAmt, 0f, 1f));
-        _shader.Set("uWakeLength", MathF.Max(WakeLength, 0.1f));
-        _shader.Set("uWakeWidth", MathF.Max(WakeWidth, 0.1f));
-        _shader.Set("uWakeAhead", WakeAhead);
-        _shader.Set("uWakeRepeat", MathF.Max(WakeRepeat, 0.1f));
-        _shader.Set("uWakeScroll", _wakeScroll);
-        _shader.Set("uWakeColor", WakeColor);
-        _shader.Set("uWakeOpacity", WakeOpacity);
+        int foamCount = WakeEnabled ? PackFoamRecords(Time) : 0;
+        _shader.Set("uFoamCount", foamCount);
+        if (foamCount > 0)
+        {
+            _shader.SetVec4Array("uFoamA", _foamPackedA, foamCount);
+            _shader.SetVec4Array("uFoamB", _foamPackedB, foamCount);
+        }
+        _shader.Set("uFoamStrength", Math.Clamp(WakeStrength, 0f, 2f));
         _shader.Set("uHasWakeTex", _hasWakeTex ? 1 : 0);
+        _shader.Set("uHasRingTex", _hasRingTex ? 1 : 0);
 
         _shader.Set("uOceanAlphaShallow", OceanAlphaShallow);
         _shader.Set("uOceanAlphaDeep", OceanAlphaDeep);
@@ -1112,10 +1321,12 @@ public sealed class LiquidRenderer : IDisposable
         BindLiquidTexture("uTexOcean", _texOcean, 1, "uFramesOcean", _framesOcean);
         BindLiquidTexture("uTexSlime", _texSlime, 2, "uFramesSlime", _framesSlime);
         BindLiquidTexture("uTexMagma", _texMagma, 3, "uFramesMagma", _framesMagma);
-        // Unit 4: the wake mask. Always bound - a sampler2D left dangling is
-        // undefined behaviour even when the shader never reads it.
+        // Units 4/5: both CWater0Ripple masks. They stay bound to transparent
+        // dummies when unavailable because dangling sampler2Ds are undefined.
         (_texWakeMask ?? _dummy2D)?.Bind(4);
         _shader.Set("uTexWake", 4);
+        (_texRingMask ?? _dummy2D)?.Bind(5);
+        _shader.Set("uTexRing", 5);
         _gl.ActiveTexture(TextureUnit.Texture0);
 
         // Transparent surface: blend, TEST depth so hills and the near side of the
@@ -1415,7 +1626,7 @@ public sealed class LiquidRenderer : IDisposable
         _wmoSurfaces.Clear();
         _texWater?.Dispose(); _texOcean?.Dispose(); _texSlime?.Dispose(); _texMagma?.Dispose();
         _dummyTex?.Dispose();
-        _texWakeMask?.Dispose(); _dummy2D?.Dispose();
+        _texWakeMask?.Dispose(); _texRingMask?.Dispose(); _dummy2D?.Dispose();
         if (_overlayVao != 0) { _gl.DeleteVertexArray(_overlayVao); _overlayVao = 0; }
         _shader?.Dispose(); _shader = null;
         _underwater?.Dispose(); _underwater = null;

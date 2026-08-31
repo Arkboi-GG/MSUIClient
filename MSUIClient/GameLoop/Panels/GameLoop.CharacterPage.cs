@@ -625,6 +625,12 @@ public sealed partial class GameLoop
             dl.AddImage((nint)_paperDoll!.TextureHandle, modelMin, modelMin + modelSize,
                 new Vector2(0, 1), new Vector2(1, 0));
 
+        // ImGui assigns an overlap to the first submitted hit target. Submit the two authored
+        // rotation buttons before the full model-pane drop target, otherwise that invisible pane
+        // eats both visible buttons and the animated doll can never be turned.
+        DrawRotationButton(dl, p + new Vector2(65, 78) * s, true, s, panelClip);
+        DrawRotationButton(dl, p + new Vector2(100, 78) * s, false, s, panelClip);
+
         ImGui.SetCursorScreenPos(modelMin);
         ImGui.InvisibleButton("##paper-model-drop", modelSize,
             ImGuiButtonFlags.MouseButtonLeft);
@@ -646,9 +652,6 @@ public sealed partial class GameLoop
                 AutoEquipCarriedPaperDollItem();
             ImGui.EndDragDropTarget();
         }
-
-        DrawRotationButton(dl, p + new Vector2(65, 78) * s, true, s, panelClip);
-        DrawRotationButton(dl, p + new Vector2(100, 78) * s, false, s, panelClip);
 
         for (int i = 0; i < LeftPaperDollSlots.Length; i++)
         {
@@ -988,14 +991,16 @@ public sealed partial class GameLoop
         if (entry != 0) _items.Require(entry, 0, _net);
         _items.TryGet(entry, out ItemTemplate? ammo);
         uint count = entry == 0 ? 0 : CarriedAmmoCount(player, entry);
-        uint icon = _gameplayArt.Handle(ammo?.IconPath ?? "");
+        string? ammoIconPath = PaperDollUiLaw.AmmoIconPath(entry, ammo?.IconPath);
+        uint icon = ammoIconPath is null ? 0 : _gameplayArt.Handle(ammoIconPath);
         if (_uiParityArmed && _uiParityPanel == "character-frame")
             CollectUiParityDraw("CharacterAmmoSlotIconTexture", "Texture", min, max - min,
-                "CharacterAmmoSlot", new(ammo?.IconPath ?? "", 0xffffffff, "ARTWORK", "CENTER",
+                "CharacterAmmoSlot", new(ammoIconPath ?? "", 0xffffffff, "ARTWORK", "CENTER",
                     "CharacterAmmoSlot", "CENTER", 0, 0, TexCoords: "0|0|1|1",
                     ContentRect: new Vector4(min.X, min.Y, max.X, max.Y), ClipRect: panelClip,
                     BlendMode: "BLEND", Visible: icon != 0,
-                    InteractionState: ammo is null ? "empty" : "loaded-ammo", Strata: "MEDIUM"));
+                    InteractionState: entry == 0 ? "empty" : ammo is null ? "resolving-ammo" :
+                        "loaded-ammo", Strata: "MEDIUM"));
         if (icon != 0) dl.AddImage((nint)icon, min, max);
 
         ImGui.SetCursorScreenPos(min);

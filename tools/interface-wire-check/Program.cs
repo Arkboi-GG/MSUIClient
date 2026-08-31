@@ -68,6 +68,29 @@ static void CheckLightingDefaults()
         "shipped Parity interior-brightness default drift");
 }
 
+static void CheckPaperDollRegressions()
+{
+    Check(PaperDollUiLaw.AmmoIconPath(0, null) is null &&
+          PaperDollUiLaw.AmmoIconPath(0, "Interface\\Icons\\INV_Ammo_Arrow_01") is null &&
+          PaperDollUiLaw.AmmoIconPath(2512, null) ==
+              @"Interface\Icons\INV_Misc_QuestionMark" &&
+          PaperDollUiLaw.AmmoIconPath(2512, "Interface\\Icons\\INV_Ammo_Arrow_01") ==
+              "Interface\\Icons\\INV_Ammo_Arrow_01",
+        "paper-doll empty ammo must not resolve through the red missing-icon fallback");
+
+    string characterPageSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
+        "MSUIClient", "GameLoop", "Panels", "GameLoop.CharacterPage.cs"));
+    int rotateLeftHit = characterPageSource.IndexOf(
+        "DrawRotationButton(dl, p + new Vector2(65, 78) * s, true", StringComparison.Ordinal);
+    int modelDropHit = characterPageSource.IndexOf(
+        "ImGui.InvisibleButton(\"##paper-model-drop\"", StringComparison.Ordinal);
+    Check(rotateLeftHit >= 0 && modelDropHit > rotateLeftHit &&
+          characterPageSource.Contains(
+              "PaperDollUiLaw.AmmoIconPath(entry, ammo?.IconPath)", StringComparison.Ordinal),
+        "CharacterFrame rotate buttons must win the overlapping model drop target, and empty ammo " +
+        "must bypass GameplayArt's missing-icon fallback");
+}
+
 static void CheckGameMenuLayout()
 {
     static bool Near(Vector2 left, Vector2 right) =>
@@ -92,7 +115,7 @@ static void CheckGameMenuLayout()
     Check(authored == new Vector2(900f, 1150f) &&
           remembered == new Vector2(1050f, 750f) &&
           smallViewport == new Vector2(672f, 460f) &&
-          Near(mainDefault, new Vector2(234f, 295.2f)) &&
+          Near(mainDefault, new Vector2(234f, 321.6f)) &&
           Near(mainRemembered, new Vector2(360f, 480f)) &&
           Near(optionMinimum, new Vector2(540f, 432f)) &&
           Near(optionMaximum, new Vector2(1536f, 828f)) &&
@@ -432,6 +455,10 @@ static void CheckOptionsSearch()
     Check(chat.Any(g => g.Page == OptionsSearchPage.Video &&
               g.Entries.Any(e => e.Label == "Unlock chat frame")),
         "options search cannot find 'Unlock chat frame' on the Video page");
+    OptionsSearchGroup[] questHelper = OptionsSearchUiLaw.Find("quest helper");
+    Check(questHelper.Length == 1 && questHelper[0].Page == OptionsSearchPage.AddOns &&
+          questHelper[0].Entries.Any(entry => entry.Label == "Quest Helper"),
+        "options search cannot find the native Quest Helper on the AddOns page");
 
     // The Escape menu's layout gear must sit in the frame's INTERIOR. GameMenuFrame.xml declares
     // a Backdrop with EdgeSize 32, and WowSkin.Dialog carries the same 32 (drawn at
@@ -484,6 +511,20 @@ static void CheckOptionsSearch()
           settings.Contains("Settings.MenuLayout?.Scale ?? 1f", StringComparison.Ordinal) &&
           settings.Contains("RememberPageSize(size, io.DisplaySize", StringComparison.Ordinal),
         "Options search runtime wiring or protected MSUI scaling/resize seam drift");
+}
+
+if (args.Contains("--visual-lifecycle-only", StringComparer.Ordinal))
+{
+    VisualLifecycleClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: VisualLifecycle PASS");
+    return;
+}
+
+if (args.Contains("--paper-doll-regression-only", StringComparer.Ordinal))
+{
+    CheckPaperDollRegressions();
+    Console.WriteLine("interface-wire-check: PaperDollRegression PASS");
+    return;
 }
 
 CheckInterfaceScaleLaw();
@@ -1864,6 +1905,7 @@ Check(PaperDollUiLaw.FitsEquipmentSlot(11, 10) && PaperDollUiLaw.FitsEquipmentSl
       PaperDollUiLaw.FitsEquipmentSlot(20, 4) && !PaperDollUiLaw.FitsEquipmentSlot(24, 17) &&
       PaperDollUiLaw.IsAmmo(24),
     "paper-doll inventoryType fit table/ammo fork drift");
+CheckPaperDollRegressions();
 Check(PaperDollUiLaw.IconTint(true, true) == PaperDollUiLaw.Locked &&
       PaperDollUiLaw.IconTint(false, true) == PaperDollUiLaw.Broken &&
       PaperDollUiLaw.RingTint(true, true) == PaperDollUiLaw.Fits &&
@@ -2016,20 +2058,31 @@ if (args.Contains("--character-only", StringComparer.Ordinal))
     return;
 }
 
-// GameMenuFrame clinical contract. The geometry constants below intentionally pin MSUI's
-// present build-5875 menu; the Escape/lifecycle laws pin only missing or reproduced behavior.
-Check(GameMenuUiLaw.FrameWidth == 195f && GameMenuUiLaw.FrameHeight == 246f &&
+// GameMenuFrame clinical contract. The geometry below preserves the build-5875 ladder and pins
+// the one intentional native AddOns extension; Escape/lifecycle behavior remains unchanged.
+Check(GameMenuUiLaw.FrameWidth == 195f && GameMenuUiLaw.FrameHeight == 268f &&
       GameMenuUiLaw.ButtonWidth == 144f && GameMenuUiLaw.ButtonHeight == 21f &&
       GameMenuUiLaw.HeaderWidth == 256f && GameMenuUiLaw.HeaderHeight == 64f &&
       GameMenuUiLaw.HeaderTop == -12f && GameMenuUiLaw.HeaderTitleTop == 14f &&
       GameMenuUiLaw.HighlightAlpha == .55f,
-    "GameMenuFrame preserved 195x246 geometry/header/highlight contract drift");
-Check(Enumerable.Range(0, 8).Select(GameMenuUiLaw.ButtonTop).SequenceEqual(
-      new[] { 26.5f, 48.5f, 70.5f, 92.5f, 114.5f, 136.5f, 158.5f, 195.5f }),
-    "GameMenuFrame preserved eight-rung ladder drift");
+    "GameMenuFrame native-AddOns geometry/header/highlight contract drift");
+Check(Enumerable.Range(0, 9).Select(GameMenuUiLaw.ButtonTop).SequenceEqual(
+      new[] { 26.5f, 48.5f, 70.5f, 92.5f, 114.5f, 136.5f, 158.5f, 180.5f, 217.5f }),
+    "GameMenuFrame native-AddOns nine-rung ladder drift");
 CheckLightingDefaults();
 CheckGameMenuLayout();
 CheckOptionsSearch();
+Check(QuestHelperUiLaw.QuestComplete(1u << 24) &&
+      !QuestHelperUiLaw.QuestComplete(0) &&
+      QuestHelperUiLaw.ObjectiveProgress(5u << 6, 1, 8) == 5 &&
+      QuestHelperUiLaw.ObjectiveEntry(unchecked((uint)-142702)) == 142702 &&
+      QuestHelperUiLaw.ObjectiveIsObject(unchecked((uint)-142702)),
+    "native Quest Helper objective decoding drift");
+QuestHelperDataCatalog questHelperData = QuestHelperDataCatalog.LoadEmbedded();
+Check(questHelperData.UnitSpawns(6).Count > 0 &&
+      questHelperData.ItemSources(750).Units.Length > 0 &&
+      questHelperData.TurnInSources(7).Units.Contains(197u),
+    "native Quest Helper embedded Vanilla data smoke check failed");
 
 GameMenuEscapeState idleEscape = new(false, false, false, false, false, false,
     false, false, false, false, false);

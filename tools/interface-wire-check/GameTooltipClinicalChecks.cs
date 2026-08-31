@@ -521,7 +521,7 @@ internal static class GameTooltipClinicalChecks
     {
         object game = RuntimeHelpers.GetUninitializedObject(typeof(GameLoop));
         object copper = CreateGameLoopNested("MinimapResourceTooltipCandidate",
-            0xC0FFEEUL, "Copper Vein");
+            0xC0FFEEUL, "Copper Vein", null);
         Check(!Invoke<bool>(game, "UpdateAndQueueMinimapResourceTooltip", copper) &&
               !Invoke<GameTooltipOwnerToken>(game,
                   "CurrentSharedGameTooltipOwnerToken").IsValid,
@@ -573,7 +573,7 @@ internal static class GameTooltipClinicalChecks
         // retained lease must arm departure without ever invoking the ImGui renderer callback.
         object worldMapGame = RuntimeHelpers.GetUninitializedObject(typeof(GameLoop));
         object herb = CreateGameLoopNested("MinimapResourceTooltipCandidate",
-            0xABCDUL, "Peacebloom");
+            0xABCDUL, "Peacebloom", null);
         InvokeVoid(worldMapGame, "BeginSharedGameTooltipFrame", 200d);
         Check(Invoke<bool>(worldMapGame, "UpdateAndQueueMinimapResourceTooltip", herb),
             "B5 WorldMap departure fixture could not retain its fade lease");
@@ -1186,23 +1186,27 @@ internal static class GameTooltipClinicalChecks
         int tryStart = draw.IndexOf("try", StringComparison.Ordinal);
         int bake = draw.IndexOf("BakeDirtyPortraits();", StringComparison.Ordinal);
         int worldMap = draw.IndexOf("if (_worldMapOpen)", StringComparison.Ordinal);
+        int worldMapResolve = draw.IndexOf("ResolveAndDrawSharedGameTooltip();",
+            worldMap, StringComparison.Ordinal);
         int worldMapReturn = draw.IndexOf("return;", worldMap, StringComparison.Ordinal);
         int multiBars = draw.IndexOf("DrawMultiActionBars();", StringComparison.Ordinal);
         int resolve = draw.IndexOf("ResolveAndDrawSharedGameTooltip();",
-            StringComparison.Ordinal);
+            multiBars, StringComparison.Ordinal);
         int complete = draw.IndexOf("CompleteDeferredPartyTooltipParityCapture();",
             resolve, StringComparison.Ordinal);
         int invite = draw.IndexOf("DrawPartyInvite();", StringComparison.Ordinal);
-        int finallyStart = draw.IndexOf("finally", StringComparison.Ordinal);
+        int finallyStart = draw.IndexOf("\n        finally", invite,
+            StringComparison.Ordinal);
         int end = draw.IndexOf("EndSharedGameTooltipFrame();", StringComparison.Ordinal);
         int fallbackComplete = draw.IndexOf("CompleteDeferredPartyTooltipParityCapture();",
             end, StringComparison.Ordinal);
         Check(begin >= 0 && begin < tryStart && tryStart < bake && bake < worldMap &&
-              worldMap < worldMapReturn && worldMapReturn < multiBars &&
+              worldMap < worldMapResolve && worldMapResolve < worldMapReturn &&
+              worldMapReturn < multiBars &&
               multiBars < resolve && resolve < complete && complete < invite &&
               invite < finallyStart && finallyStart < end && end < fallbackComplete &&
               Count(draw, "BeginSharedGameTooltipFrame(NowSeconds());") == 1 &&
-              Count(draw, "ResolveAndDrawSharedGameTooltip();") == 1 &&
+              Count(draw, "ResolveAndDrawSharedGameTooltip();") == 2 &&
               Count(draw, "EndSharedGameTooltipFrame();") == 1 &&
               Count(draw, "CompleteDeferredPartyTooltipParityCapture();") == 2,
             "GameTooltip frame begin/map-return/tooltip-stratum/Party completion order drift");
@@ -1899,8 +1903,9 @@ internal static class GameTooltipClinicalChecks
                   "DrawMinimapResourceDots(dl, player, playerPosition, mapMin, mapMax, s,",
                   StringComparison.Ordinal) &&
               minimapDraw.Contains(
-                  "questTooltip ?? creatureTooltip ?? resourceTooltip ?? landmarkTooltip",
+                  "questHelperTooltip ?? questTooltip ?? gossipPoiTooltip ?? creatureTooltip ?? resourceTooltip ??",
                   StringComparison.Ordinal) &&
+              minimapDraw.Contains("landmarkTooltip);", StringComparison.Ordinal) &&
               resourceDraw.Contains(
                   "ImGui.IsMouseHoveringRect(row.Dot - half, row.Dot + half, false)",
                   StringComparison.Ordinal) &&
@@ -2001,7 +2006,7 @@ internal static class GameTooltipClinicalChecks
         int spellbook = drawOrder.IndexOf("DrawSpellbook();", StringComparison.Ordinal);
         int multi = drawOrder.IndexOf("DrawMultiActionBars();", StringComparison.Ordinal);
         int resolve = drawOrder.IndexOf("ResolveAndDrawSharedGameTooltip();",
-            StringComparison.Ordinal);
+            multi, StringComparison.Ordinal);
         Check(party >= 0 && party < aura && aura < map && map < actions &&
               actions < inventory && inventory < character && character < inspect &&
               inspect < spellbook && spellbook < multi && multi < resolve,

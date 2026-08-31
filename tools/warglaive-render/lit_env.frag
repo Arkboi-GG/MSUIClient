@@ -18,9 +18,12 @@
 in vec3 vWorldPos;
 in vec3 vNormal;
 in vec2 vUV;
+in vec3 vViewPosition;
+in vec3 vViewNormal;
 
 uniform sampler2D uTexture;
 uniform int   uHasTexture;
+uniform int   uEnvironmentMap;
 
 // Alpha below which a fragment is thrown away. Set PER BATCH: zero for a
 // texture with no alpha channel, a real cut for alpha-keyed geometry, and zero
@@ -83,8 +86,24 @@ out vec4 FragColor;
 
 void main()
 {
+    vec2 sampledUV = vUV;
+    if (uEnvironmentMap != 0)
+    {
+        // Literal Three r162 MeshMatcapMaterial coordinate used by the working
+        // MangosSuperUI Weapon Forge. glTF cannot retain the M2 generated
+        // coordinate, so its viewer replaces the environment primitive with a
+        // matcap and computes this per fragment.
+        vec3 viewDir = normalize(vViewPosition);
+        vec3 x = normalize(vec3(viewDir.z, 0.0, -viewDir.x));
+        vec3 y = cross(viewDir, x);
+        vec3 matcapNormal = normalize(vViewNormal);
+        vec2 matcapUV = vec2(dot(x, matcapNormal), dot(y, matcapNormal))
+            * 0.495 + vec2(0.5);
+        sampledUV = matcapUV;
+    }
+
     vec4 albedo = uHasTexture == 1
-        ? texture(uTexture, vUV)
+        ? texture(uTexture, sampledUV)
         : vec4(0.62, 0.60, 0.56, 1.0);
 
     if (uAlphaCutoff > 0.0 && albedo.a < uAlphaCutoff) discard;
@@ -102,8 +121,9 @@ void main()
         ? clamp((mu + uShadowWrap) / (1.0 + uShadowWrap), 0.0, 1.0)
         : model2SunResponse(mu);
     vec3 light = vec3(1.0);
-    // Generated coordinates only change where a texture is sampled. The
-    // renderer supplies the final lighting policy separately through uUnlit.
+    // MeshMatcapMaterial is unlit. Applying the character's ambient, sun and
+    // self-fill to this additive pass is what turns its narrow reflected streak
+    // into the solid neon blade seen in the failed character-select capture.
     if (uUnlit == 0)
     {
         light = uAmbientColor * uAmbientIntensity

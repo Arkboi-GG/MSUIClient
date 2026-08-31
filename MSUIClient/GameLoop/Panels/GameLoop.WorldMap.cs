@@ -167,6 +167,7 @@ public sealed partial class GameLoop
                 DrawMinimapPlayerArrow(dl, player.Orientation, marker, s);
             }
         }
+        DrawWorldMapQuestHelperPins(dl, haveMapArea, area, mapMin, mapSize, s);
         DrawWorldMapGossipPoi(dl, haveMapArea, area, mapMin, mapSize, s);
         DrawWorldMapCorpseMarker(dl, haveMapArea, area, mapMin, mapSize, s);
 

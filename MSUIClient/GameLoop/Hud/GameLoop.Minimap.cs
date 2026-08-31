@@ -40,7 +40,8 @@ public sealed partial class GameLoop
     private bool _minimapAreaPoisLoaded;
     private InteriorMinimapComposite? _minimapInteriorComposite;
 
-    private readonly record struct MinimapResourceTooltipCandidate(ulong Guid, string Name);
+    private readonly record struct MinimapResourceTooltipCandidate(
+        ulong Guid, string Name, GameTooltipLine[]? FrameXmlLines = null);
     private readonly record struct MinimapResourceTooltipRuntime(
         GameTooltipOwnerToken Token,
         string Name);
@@ -184,8 +185,11 @@ public sealed partial class GameLoop
                 interiorBlipRadius);
         MinimapResourceTooltipCandidate? questTooltip =
             DrawMinimapQuestDots(dl, playerPosition, mapMin, mapMax, s, interiorBlipRadius);
+        MinimapResourceTooltipCandidate? questHelperTooltip =
+            DrawMinimapQuestHelperPins(dl, playerPosition, mapMin, mapMax, s,
+                interiorBlipRadius);
         UpdateAndQueueMinimapResourceTooltip(
-            questTooltip ?? gossipPoiTooltip ?? creatureTooltip ?? resourceTooltip ??
+            questHelperTooltip ?? questTooltip ?? gossipPoiTooltip ?? creatureTooltip ?? resourceTooltip ??
             landmarkTooltip);
         if (_uiParityArmed && _uiParityPanel == "minimap")
             CollectUiParity("Minimap", "Minimap", mapMin, new Vector2(140) * s,
@@ -811,6 +815,13 @@ public sealed partial class GameLoop
 
         if (hovered is MinimapResourceTooltipCandidate candidate)
         {
+            if (candidate.FrameXmlLines is { Length: > 0 } lines)
+            {
+                _minimapResourceTooltip = null;
+                Vector2 anchor = ImGui.GetMousePos() + new Vector2(14f, 16f) * GameplayUiScale();
+                return OfferOwnerAnchoredSharedGameTooltip(
+                    MinimapResourceGameTooltipOwner(candidate.Guid), lines, anchor, Vector2.Zero);
+            }
             GameTooltipOwnerToken token = ClaimSharedGameTooltip(
                 MinimapResourceGameTooltipOwner(candidate.Guid));
             if (!ClearSharedGameTooltip(token))

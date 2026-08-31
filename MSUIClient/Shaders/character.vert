@@ -2,9 +2,8 @@
 
 // MSUI Client - skinned character vertex shader.
 //
-// This is wmo.vert plus skinning, and nothing else. It writes exactly the same
-// three varyings, so it pairs with wmo.frag UNCHANGED - a character therefore
-// cannot light or fog differently from the building it is standing next to.
+// This is wmo.vert plus skinning, and nothing else. It writes the same world
+// position, normal, and authored UV interface used by attached.vert.
 //
 // BONE MATRICES ARE ROWS, NOT A mat4 ARRAY
 //   Each bone is three vec4 holding the ROWS of an affine transform, so

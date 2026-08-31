@@ -1,15 +1,8 @@
 #version 330 core
 
-// Character attachment vertex shader. Most equipment remains on the rigid path; item models whose
-// authored vertices depend on billboard bones receive a bind-pose palette with those joints
-// camera-faced by AttachedItemBillboardLaw.
-//
-// Attachments need a separate clip matrix for the same reason the skinned
-// character does: applying their world transform first adds tiny helmet,
-// shoulder and weapon geometry to a roughly -8950 world coordinate. That
-// rounds away close surface separation before the view matrix subtracts the
-// camera. A precombined model-view-projection keeps the local detail intact.
-
+// Isolated build-5875 generated-coordinate path.  This intentionally computes
+// the reflected position coordinate at each vertex and lets the rasterizer
+// interpolate it, matching Model2.bls rather than Three's fragment matcap.
 layout (location = 0) in vec3 aPosition;
 layout (location = 1) in vec3 aNormal;
 layout (location = 2) in vec2 aUV;
@@ -22,12 +15,12 @@ uniform mat4 uView;
 const int MAX_BONES = 160;
 uniform vec4 uBones[MAX_BONES * 3];
 uniform int uBoneCount;
-uniform vec2 uUvOffset;
-uniform int uEnvironmentMap;
 
 out vec3 vWorldPos;
 out vec3 vNormal;
 out vec2 vUV;
+out vec3 vViewPosition;
+out vec3 vViewNormal;
 
 void main()
 {
@@ -68,30 +61,16 @@ void main()
     }
 
     vec4 world = uModel * vec4(p, 1.0);
-
+    vec3 worldNormal = normalize(
+        transpose(inverse(mat3(uModel) * skinLinear)) * aNormal);
+    vec3 viewPosition = (uView * world).xyz;
+    vec3 viewNormal = normalize(mat3(uView) * worldNormal);
+    vec3 reflected = normalize(viewPosition
+        - 2.0 * dot(viewPosition, viewNormal) * viewNormal);
     vWorldPos = world.xyz;
-    vNormal = normalize(transpose(inverse(mat3(uModel) * skinLinear)) * aNormal);
-    vec2 mappedUV = aUV;
-    if (uEnvironmentMap != 0)
-    {
-        // Exact build-5875 Model2 generated coordinate. The original client
-        // computes this from view-space position and normal PER VERTEX, then
-        // lets the rasterizer interpolate it across the blade. That positional
-        // variation is what turns ArmorReflect3's narrow diagonal streak into
-        // a line that travels along the Warglaive instead of making a whole
-        // low-poly face brighten and dim together.
-        vec3 viewPosition = (uView * world).xyz;
-        vec3 viewNormal = normalize(mat3(uView) * vNormal);
-        vec3 reflected = viewPosition
-            - 2.0 * dot(viewPosition, viewNormal) * viewNormal;
-        float reflectedLength = length(reflected);
-        mappedUV = reflectedLength > 0.000001
-            ? reflected.xy / reflectedLength * 0.5 + vec2(0.5)
-            : vec2(0.5);
-    }
-
-    // Generated coordinates never inherit an authored texture transform.
-    vUV = mappedUV + (uEnvironmentMap != 0 ? vec2(0.0) : uUvOffset);
-
+    vNormal = worldNormal;
+    vUV = reflected.xy * 0.5 + vec2(0.5);
+    vViewPosition = -viewPosition;
+    vViewNormal = viewNormal;
     gl_Position = uModelViewProjection * vec4(p, 1.0);
 }

@@ -102,7 +102,11 @@ internal static class GameObjectAnimationClinicalChecks
               doodads.Contains("[0, 153, 154, 155, 156, 157]", StringComparison.Ordinal) &&
               doodads.Contains("TryApplyDynamicStateAnimation", StringComparison.Ordinal) &&
               doodads.Contains("StateAnimation", StringComparison.Ordinal) &&
-              doodads.Contains("UseInstancing && !dynamicOwnerAnimation", StringComparison.Ordinal) &&
+              // Stateful GameObject models leave instancing per-model (a closed and
+              // an open copy of one crate cannot share the one instanced VBO pose)
+              // and draw through the per-instance pass instead of a global toggle.
+              doodads.Contains("_animatedGoModels.Contains(model)", StringComparison.Ordinal) &&
+              doodads.Contains("RenderNonInstanced(", StringComparison.Ordinal) &&
               doodads.Contains("UpdateAnimatedVertices(model, instance)", StringComparison.Ordinal) &&
               doodads.Contains("FindOrBake(oneShot.AnimationId)", StringComparison.Ordinal),
             "Doodad state pose/exact one-shot/per-instance rendering handoff drift");

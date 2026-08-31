@@ -65,4 +65,55 @@ public static class AttachedItemMaterialLaw
         6 => 3,
         _ => 0,
     };
+
+    /// <summary>
+    /// Exact build-5875 Model2 generated environment coordinate. The vertex
+    /// program reflects the view-space position around the view-space normal,
+    /// normalizes that vector, and remaps its XY lanes from -1..1 to 0..1.
+    /// </summary>
+    public static Vector2 EnvironmentUv(Vector3 viewPosition, Vector3 viewNormal)
+    {
+        if (viewPosition.LengthSquared() <= 0.0000001f ||
+            viewNormal.LengthSquared() <= 0.0000001f)
+            return new Vector2(0.5f);
+
+        Vector3 normal = Vector3.Normalize(viewNormal);
+        Vector3 reflected = viewPosition -
+            2f * Vector3.Dot(viewPosition, normal) * normal;
+        if (reflected.LengthSquared() <= 0.0000001f) return new Vector2(0.5f);
+        reflected = Vector3.Normalize(reflected);
+        return new Vector2(reflected.X, reflected.Y) * 0.5f + new Vector2(0.5f);
+    }
+
+    /// <summary>
+    /// The Warglaive blade families use an opaque energy base and a matching
+    /// ArmorReflect3 overlay. MSUI's directional booth light otherwise makes
+    /// that entire authored energy surface brighten and darken as the hand
+    /// turns, so these specific blade passes use stable effect lighting.
+    /// </summary>
+    public static bool UsesSteadyWarglaiveBlade(string modelPath)
+    {
+        string stem = Path.GetFileNameWithoutExtension(modelPath);
+        return stem.Equals("Glave_1H_DualBlade_D_01", StringComparison.OrdinalIgnoreCase) ||
+               stem.Equals("Glave_1H_DualBlade_D_01Left", StringComparison.OrdinalIgnoreCase) ||
+               stem.Equals("Glave_1H_Short_B_01", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsSteadyWarglaiveBladeBatch(
+        string modelPath, M2Model model, M2Batch batch)
+    {
+        if (!UsesSteadyWarglaiveBlade(modelPath)) return false;
+        if (model.UsesEnvironmentMapForBatch(batch)) return true;
+
+        var flags = batch.MaterialIndex < model.RenderFlags.Count
+            ? model.RenderFlags[batch.MaterialIndex]
+            : null;
+        bool transparent = (flags?.BlendingMode ?? 0) >= 2 ||
+                           (flags?.NoZWrite ?? false);
+        if (transparent) return false;
+
+        return model.Batches.Any(other =>
+            other.SubmeshIndex == batch.SubmeshIndex &&
+            model.UsesEnvironmentMapForBatch(other));
+    }
 }

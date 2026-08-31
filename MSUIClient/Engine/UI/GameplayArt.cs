@@ -13,6 +13,9 @@ public sealed class GameplayArt : IDisposable
     private readonly GL _gl;
     private readonly MpqMount _mpq;
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<QuestHelperPinKind, Texture?> _questHelperMarkers = [];
+    private byte[]? _questHelperFrizQt;
+    private bool _questHelperFrizQtResolved;
     private readonly Dictionary<string, Texture?> _repeatTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _additiveTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _brightHighlightTextures = new(StringComparer.OrdinalIgnoreCase);
@@ -40,6 +43,43 @@ public sealed class GameplayArt : IDisposable
     }
 
     public uint Handle(string path) => Get(path)?.Handle ?? 0;
+
+    /// <summary>
+    /// Original high-resolution quest-helper art. The same pure rasterizer is exercised by the
+    /// clinical visual check, so these cannot drift back to cropped cursor art or tiny gossip
+    /// punctuation without failing verification.
+    /// </summary>
+    public uint QuestHelperMarkerHandle(QuestHelperPinKind kind)
+    {
+        QuestHelperPinKind visualKind = kind switch
+        {
+            QuestHelperPinKind.Available => QuestHelperPinKind.Available,
+            QuestHelperPinKind.TurnIn => QuestHelperPinKind.TurnIn,
+            _ => QuestHelperPinKind.Loot,
+        };
+        if (_questHelperMarkers.TryGetValue(visualKind, out Texture? cached))
+            return cached?.Handle ?? 0;
+        try
+        {
+            if (visualKind is QuestHelperPinKind.Available or QuestHelperPinKind.TurnIn &&
+                !_questHelperFrizQtResolved)
+            {
+                _questHelperFrizQt = _mpq.ReadFile(FontFace.FrizQt);
+                _questHelperFrizQtResolved = true;
+            }
+            byte[] pixels = QuestHelperMarkerArt.RenderBgra(visualKind, _questHelperFrizQt);
+            Texture texture = Texture.From2D(_gl, pixels,
+                QuestHelperMarkerArt.Width, QuestHelperMarkerArt.Height,
+                mipmaps: false, repeat: false);
+            _questHelperMarkers[visualKind] = texture;
+            return texture.Handle;
+        }
+        catch
+        {
+            _questHelperMarkers[visualKind] = null;
+            return 0;
+        }
+    }
 
     /// <summary>Resolve UI art with repeat addressing (Backdrop edge strips).</summary>
     public uint RepeatHandle(string path)
@@ -348,6 +388,7 @@ public sealed class GameplayArt : IDisposable
     public void Dispose()
     {
         foreach (Texture texture in _textures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
+        foreach (Texture texture in _questHelperMarkers.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _repeatTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _additiveTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _brightHighlightTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
@@ -356,6 +397,7 @@ public sealed class GameplayArt : IDisposable
         // Styled copies are owned solely by this cache - nothing else holds them.
         ClearPainterlyCache();
         _textures.Clear();
+        _questHelperMarkers.Clear();
         _repeatTextures.Clear();
         _additiveTextures.Clear();
         _brightHighlightTextures.Clear();

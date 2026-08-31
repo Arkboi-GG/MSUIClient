@@ -123,6 +123,7 @@ public sealed class GameSettings
     public StreamingSettings Streaming { get; set; } = new();
     public DevWindowSettings DevWindow { get; set; } = new();
     public EncounterLabSettings EncounterLab { get; set; } = new();
+    public AddOnSettings AddOns { get; set; } = new();
     public MenuLayoutSettings MenuLayout { get; set; } = new();
     public HudLayoutSettings HudLayout { get; set; } = new();
     public MountSettings Mounts { get; set; } = new();
@@ -251,6 +252,19 @@ public sealed class GameSettings
         public float ControlsHeight { get; set; }
         public float SoundWidth { get; set; }
         public float SoundHeight { get; set; }
+        public float AddOnsWidth { get; set; }
+        public float AddOnsHeight { get; set; }
+    }
+
+    /// <summary>
+    /// Optional native client modules. These are deliberately not a Lua addon host: each switch
+    /// gates an isolated C# feature, while the Escape-menu AddOns page gives players the familiar
+    /// place to control it.
+    /// </summary>
+    public sealed class AddOnSettings
+    {
+        /// <summary>Active-objective and ready-to-turn-in pins on the world map and minimap.</summary>
+        public bool QuestHelper { get; set; } = true;
     }
 
     /// <summary>Player-placed gameplay frames, stored in logical pixels so UI scaling is neutral.</summary>
@@ -684,9 +698,10 @@ public sealed class GameSettings
         public float HighlightGain { get; set; } = 4.0f;
 
         /// <summary>
-        /// The walking wake (PLAN_16): the trail you leave wading through water,
-        /// stamped from Blizzard's own XTextures\splash\wake.blp. WakeStrength 0
-        /// is the kill switch and restores a bit-identical pre-PLAN_16 surface.
+        /// Build-5875 CWater0Ripple records: wake.blp while translating and splash.blp
+        /// rings while standing/turning or crossing the wade line. WakeStrength is the
+        /// one presentation dial; the remaining legacy fields stay only so existing
+        /// settings files continue to deserialize without losing user data.
         /// </summary>
         public bool WakeEnabled { get; set; } = true;
         public float WakeStrength { get; set; } = 0.9f;

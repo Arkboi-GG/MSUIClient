@@ -37,13 +37,14 @@ public readonly record struct GameMenuEscapePlan(
 
 /// <summary>
 /// Deterministic GameMenuFrame behavior shared by production input and the parity checks.
-/// Geometry constants intentionally describe MSUI's already-working build-5875 menu; the frozen
-/// Benilla Era ladder is a reference difference, not authority to normalize this surface.
+/// Geometry constants preserve MSUI's build-5875 row spacing and add one explicit native-AddOns
+/// rung; the frozen Benilla Era ladder is a reference difference, not authority to normalize this
+/// optional client surface.
 /// </summary>
 public static class GameMenuUiLaw
 {
     public const float FrameWidth = 195f;
-    public const float FrameHeight = 246f;
+    public const float FrameHeight = 268f;
     public const float ButtonWidth = 144f;
     public const float ButtonHeight = 21f;
     public const float HeaderWidth = 256f;
@@ -67,7 +68,7 @@ public static class GameMenuUiLaw
     public const string PopupCloseSound = "igMainMenuClose";
 
     private static readonly float[] RowTops =
-        [26.5f, 48.5f, 70.5f, 92.5f, 114.5f, 136.5f, 158.5f, 195.5f];
+        [26.5f, 48.5f, 70.5f, 92.5f, 114.5f, 136.5f, 158.5f, 180.5f, 217.5f];
 
     public static float ButtonTop(int row) => RowTops[Math.Clamp(row, 0, RowTops.Length - 1)];
 

@@ -45,7 +45,7 @@ public sealed partial class GameLoop
     private const string MenuPopupId = "##msui-game-menu";
 
     /// <summary>Which frame the menu is showing. 0 is the Game Menu itself.</summary>
-    private enum MenuPage { GameMenu = 0, Video, Controls, Sound }
+    private enum MenuPage { GameMenu = 0, Video, Controls, Sound, AddOns }
 
     /// <summary>
     /// Handed over by Program.Main, which loads it BEFORE the window exists
@@ -582,6 +582,7 @@ public sealed partial class GameLoop
                 case MenuPage.Video: DrawVideoOptions(size); break;
                 case MenuPage.Controls: DrawControlsPage(size); break;
                 case MenuPage.Sound: DrawSoundOptions(size); break;
+                case MenuPage.AddOns: DrawAddOnsPage(size); break;
             }
             MarkUiParityFrameComplete();
 
@@ -657,12 +658,14 @@ public sealed partial class GameLoop
         MenuPage.Video => "Video Options",
         MenuPage.Controls => "Interface Options",
         MenuPage.Sound => "Sound Options",
+        MenuPage.AddOns => "AddOns",
         _ => "Main Menu",
     };
 
     /// <summary>
-    /// GameMenuFrame is 195x246 in vanilla with eight buttons. Ours is derived
-    /// from the same constants so it stays right when a button is added.
+    /// GameMenuFrame is 195x246 in vanilla with eight buttons. The native AddOns
+    /// entry adds one authored rung and 22 logical pixels without disturbing the
+    /// stock row spacing or bottom gap.
     /// OptionsFrame starts at 450x575; Video and Interface Options remember the
     /// player's independently resized dimensions while their bodies keep scrolling.
     /// </summary>
@@ -680,6 +683,9 @@ public sealed partial class GameLoop
             MenuPage.Video => new(layout.VideoWidth, layout.VideoHeight),
             MenuPage.Controls => new(layout.ControlsWidth, layout.ControlsHeight),
             MenuPage.Sound => new(layout.SoundWidth, layout.SoundHeight),
+            MenuPage.AddOns => new(
+                layout.AddOnsWidth > 0f ? layout.AddOnsWidth : 500f,
+                layout.AddOnsHeight > 0f ? layout.AddOnsHeight : 360f),
             _ => Vector2.Zero,
         };
         return GameMenuUiLaw.ResolveOptionsSize(logical, S, display);
@@ -725,6 +731,11 @@ public sealed partial class GameLoop
         {
             layout.SoundWidth = logical.X;
             layout.SoundHeight = logical.Y;
+        }
+        else if (_menuPage == MenuPage.AddOns)
+        {
+            layout.AddOnsWidth = logical.X;
+            layout.AddOnsHeight = logical.Y;
         }
     }
 
@@ -832,6 +843,7 @@ public sealed partial class GameLoop
             layout.VideoWidth = layout.VideoHeight = 0f;
             layout.ControlsWidth = layout.ControlsHeight = 0f;
             layout.SoundWidth = layout.SoundHeight = 0f;
+            layout.AddOnsWidth = layout.AddOnsHeight = 0f;
             var defaults = new GameSettings.MenuLayoutSettings();
             layout.Scale = defaults.Scale;
             layout.TextScale = defaults.TextScale;
@@ -857,6 +869,9 @@ public sealed partial class GameLoop
                 break;
             case MenuPage.Sound:
                 layout.SoundWidth = layout.SoundHeight = 0f;
+                break;
+            case MenuPage.AddOns:
+                layout.AddOnsWidth = layout.AddOnsHeight = 0f;
                 break;
         }
     }
@@ -967,15 +982,18 @@ public sealed partial class GameLoop
                 ImGui.CloseCurrentPopup();
                 OpenMacros();
             });
-        Row("GameMenuButtonLogout", "Logout", GameMenuUiLaw.ButtonTop(5), "TOP", "GameMenuButtonMacros", "BOTTOM", "-1",
+        Row("GameMenuButtonAddOns", "AddOns", GameMenuUiLaw.ButtonTop(5), "TOP", "GameMenuButtonMacros", "BOTTOM", "-1",
+            true, () => { PlayUiSound("igMainMenuOption"); Go(MenuPage.AddOns); },
+            "Optional features built directly into the MSUI client.");
+        Row("GameMenuButtonLogout", "Logout", GameMenuUiLaw.ButtonTop(6), "TOP", "GameMenuButtonAddOns", "BOTTOM", "-1",
             _net is { IsInWorld: true } && !LogoutUiActive, () => RequestLogout(quitting: false));
 
         // NOT _window.Close() - that runs the whole teardown synchronously and
         // the rest of this ImGui frame then draws into freed memory. Flag it and
         // let Update act between frames. See ConsumeQuitRequest.
-        Row("GameMenuButtonQuit", "Exit Game", GameMenuUiLaw.ButtonTop(6), "TOP", "GameMenuButtonLogout", "BOTTOM", "-1",
+        Row("GameMenuButtonQuit", "Exit Game", GameMenuUiLaw.ButtonTop(7), "TOP", "GameMenuButtonLogout", "BOTTOM", "-1",
             !LogoutUiActive, () => RequestLogout(quitting: true));
-        Row("GameMenuButtonContinue", "Return to Game", GameMenuUiLaw.ButtonTop(7), "TOP", "GameMenuButtonQuit", "BOTTOM", "-16", true, () =>
+        Row("GameMenuButtonContinue", "Return to Game", GameMenuUiLaw.ButtonTop(8), "TOP", "GameMenuButtonQuit", "BOTTOM", "-16", true, () =>
         {
             PlayUiSound("igMainMenuContinue");
             if (!_settingsCancelling) CommitSettings();
@@ -1106,6 +1124,7 @@ public sealed partial class GameLoop
         OptionsSearchPage.Video => MenuPage.Video,
         OptionsSearchPage.Interface => MenuPage.Controls,
         OptionsSearchPage.Sound => MenuPage.Sound,
+        OptionsSearchPage.AddOns => MenuPage.AddOns,
         _ => MenuPage.Video,
     };
 
@@ -1876,53 +1895,19 @@ public sealed partial class GameLoop
                         "it is the sparkle, not the surface. 0 gives a dead still surface,\n" +
                         "which is the quickest way to judge the body colour on its own.");
 
-                    ImGui.TextDisabled("Walking wake - the trail you leave wading. PLAN_16.");
+                    ImGui.TextDisabled("Water foam - build-5875 wake and splash records.");
                     Check("Walking wake", () => s.Water.WakeEnabled, v => s.Water.WakeEnabled = v,
-                        "Stamps Blizzard's own XTextures\\splash\\wake.blp along your recent\n" +
-                        "path while you are wading. Off, or strength 0, is a bit-identical\n" +
-                        "surface to before the feature existed.");
+                        "Uses Blizzard's wake.blp while moving and splash.blp while standing,\n" +
+                        "turning, entering or leaving the wade line. Records stay in the water,\n" +
+                        "expand and fade; surface swimming remains eligible like the 1.12 client.");
                     if (s.Water.WakeEnabled)
                     {
-                        Slider("wkst", "  Wake strength", () => s.Water.WakeStrength,
+                        Slider("wkst", "  Foam strength", () => s.Water.WakeStrength,
                             v => s.Water.WakeStrength = v, 0f, 2f, "{0:F2}");
-                        Slider("wkln", "  V length", () => s.Water.WakeLength,
-                            v => s.Water.WakeLength = v, 0.5f, 20f, "{0:F2} yd",
-                            "How far the V trails behind you.");
-                        Slider("wkwd", "  V width", () => s.Water.WakeWidth,
-                            v => s.Water.WakeWidth = v, 0.3f, 12f, "{0:F2} yd",
-                            "How wide the arms spread at the tail.");
-                        Slider("wkah", "  Apex ahead", () => s.Water.WakeAhead,
-                            v => s.Water.WakeAhead = v, -2f, 4f, "{0:F2} yd",
-                            "Where the point of the V sits relative to your feet.");
-                        Slider("wkfs", "  Full-strength speed", () => s.Water.WakeFullSpeed,
-                            v => s.Water.WakeFullSpeed = v, 0.5f, 10f, "{0:F2} yd/s",
-                            "Movement speed at which the wake reaches full visibility.");
-                        Slider("wkfd", "  Fade out", () => s.Water.WakeFade,
-                            v => s.Water.WakeFade = v, 0.05f, 3f, "{0:F2} s",
-                            "How long the churn lingers after you stop.");
-                        Slider("wkrp", "  Wavefronts", () => s.Water.WakeRepeat,
-                            v => s.Water.WakeRepeat = v, 0.5f, 8f, "{0:F2}",
-                            "How many crests fit along the length. 1 is a single frozen\n" +
-                            "chevron; higher gives a train of them streaming backward.");
-                        Slider("wkwl", "  World lock", () => s.Water.WakeWorldLock,
-                            v => s.Water.WakeWorldLock = v, 0f, 2f, "{0:F2}",
-                            "1.0 = crests stay put in the river and you move THROUGH\n" +
-                            "them (what the real client does). 0 = the V rides along\n" +
-                            "stuck to you, which is what the first version did wrong.");
-                        Slider("wkop", "  Alpha lift", () => s.Water.WakeOpacity,
-                            v => s.Water.WakeOpacity = v, 0f, 1f, "{0:F2}",
-                            "A wake happens in shallow water, where the shoreline fade has\n" +
-                            "already made the surface faint. This lifts it back.");
-                        var wc = new Vector3(s.Water.WakeColorR, s.Water.WakeColorG, s.Water.WakeColorB);
-                        if (ImGui.ColorEdit3("  Wake colour", ref wc))
-                        {
-                            s.Water.WakeColorR = wc.X; s.Water.WakeColorG = wc.Y; s.Water.WakeColorB = wc.Z;
-                            ApplyWater(s);
-                        }
                         if (_liquid is not null)
                             ImGui.TextDisabled(_liquid.HasWakeTexture
-                                ? $"  wake.blp loaded, amount {_liquid.WakeAmount:F2}"
-                                : $"  wake.blp NOT loaded - analytic V, amount {_liquid.WakeAmount:F2}");
+                                ? $"  stencils loaded, records {_liquid.ActiveSelfFoamCount}+{_liquid.ActiveOtherFoamCount}, other units {_liquid.TrackedOtherFoamUnits}, amount {_liquid.WakeAmount:F2}"
+                                : $"  stencil missing, records {_liquid.ActiveSelfFoamCount}+{_liquid.ActiveOtherFoamCount}, other units {_liquid.TrackedOtherFoamUnits}, amount {_liquid.WakeAmount:F2}");
                     }
 
                     ImGui.TextDisabled("Lighting.");
@@ -2258,6 +2243,39 @@ public sealed partial class GameLoop
         ImGui.EndChild();
     }
 
+    private void DrawAddOnsPage(Vector2 size)
+    {
+        var addOns = Settings.AddOns ??= new GameSettings.AddOnSettings();
+        float bodyHeight = PanelBodyHeight(presets: false);
+
+        if (ImGui.BeginChild("##addons-body", new Vector2(0f, bodyHeight)))
+        {
+            BeginBox("quest-helper", "Quest Helper");
+            {
+                Check("Enable Quest Helper", () => addOns.QuestHelper,
+                    value => addOns.QuestHelper = value,
+                    "Shows active quest objectives and ready-to-turn-in locations on the " +
+                    "world map and minimap.");
+                ImGui.TextWrapped(
+                    "Adds map pins for active kill, loot and object objectives, then shows " +
+                    "the turn-in location when a quest is ready. It does not add a route, " +
+                    "navigation arrow, automatic movement, or any Lua addon runtime.");
+                ImGui.Spacing();
+                ImGui.TextDisabled(
+                    "Red: defeat   Blue: collect   Orange: object   Gold: turn in");
+                ImGui.TextDisabled(
+                    "Vanilla locations are bundled locally. Custom quest locations appear " +
+                    "when they are added to the native data bundle.");
+            }
+            EndBox();
+        }
+        ImGui.EndChild();
+
+        if (ImGui.BeginChild("##addons-footer", Vector2.Zero))
+            DrawPanelFooter(size, presets: false);
+        ImGui.EndChild();
+    }
+
     private void DrawStreamingPage(Vector2 size)
     {
         var s = Settings;
@@ -2406,6 +2424,9 @@ public sealed partial class GameLoop
                     // renderer preset. Do not replace it invisibly on preset load.
                     loaded.MenuLayout = Settings.MenuLayout ??
                         new GameSettings.MenuLayoutSettings();
+                    // Native module enablement is global too; a graphics preset must never
+                    // silently turn a gameplay helper on or off.
+                    loaded.AddOns = Settings.AddOns ?? new GameSettings.AddOnSettings();
                     loaded.ResolveComposites();
                     SettingsFile.Replace(loaded);
                     ApplySettings(loaded);
@@ -2529,6 +2550,9 @@ public sealed partial class GameLoop
                 break;
             case MenuPage.Sound:
                 s.Audio = d.Audio;
+                break;
+            case MenuPage.AddOns:
+                s.AddOns = d.AddOns;
                 break;
         }
 

@@ -414,15 +414,6 @@ public sealed partial class GameLoop : IDisposable
     private DoodadRenderer? _doodads;
     private LiquidRenderer? _liquid;
 
-    /// <summary>
-    /// Deepest water, in yards above the feet, that still counts as WADING for
-    /// the wake (PLAN_16 D3). Past this the character is swimming rather than
-    /// walking through it, and a surface trail is the wrong effect.
-    ///
-    /// Set a little above the eventual swim threshold so the two do not fight at
-    /// the margin; PLAN_16 D4 puts that entry around 1.4 yd.
-    /// </summary>
-    private const float WakeMaxWadeDepth = 1.8f;
     private FoliageRenderer? _foliage;
     private AdtCache? _adts;
     private CollisionDebugRenderer? _collisionDebug;
@@ -2727,25 +2718,55 @@ public sealed partial class GameLoop : IDisposable
         {
             _liquid.Time += dt;
 
-            // The walking wake (PLAN_16). The gate lives HERE rather than inside
-            // LiquidRenderer because this is the only place that knows where the
-            // player's feet are.
-            //
-            // "In water" means a liquid surface sits ABOVE the feet and the feet
-            // are not far below it - so wading leaves a trail, walking a bridge
-            // over a river does not, and a swimmer well under the surface does
-            // not either. Three cases, one test.
+            // Build-5875 CWater0Ripple input. Pass the true feet-to-surface depth
+            // and the display's collision height: the reference emits while
+            // wading AND surface swimming, stopping only after a real dive below
+            // two body heights.
+            _liquid.BeginWakeFrame();
             if (TryGetControlledBodyPose(out WorldBodyPose wakeBody))
             {
                 var feet = wakeBody.Position;
+                float? waterDepth =
+                    TryGetBodyLiquidSurface(feet, out float wakeZ, out _, waterOnly: true) &&
+                    float.IsFinite(wakeZ)
+                        ? wakeZ - feet.Z
+                        : null;
+                float renderScale = 1f;
+                float collisionHeight = CreatureVoiceCatalog.DefaultCollisionHeight;
+                if (_entities.TryGet(ControlledGuid, out WorldEntity wakeEntity))
+                {
+                    renderScale = MathF.Max(wakeEntity.Scale, 0.01f);
+                    collisionHeight = _creatureVoices?.CollisionHeight(
+                        (uint)wakeEntity.DisplayId, renderScale) ??
+                        CreatureVoiceCatalog.DefaultCollisionHeight * renderScale;
+                }
 
-                bool inWater =
-                    TryGetBodyLiquidSurface(feet, out float wakeZ, out _, waterOnly: true)
-                    && wakeZ > feet.Z
-                    && wakeZ - feet.Z < WakeMaxWadeDepth;
-
-                _liquid.UpdateWake(feet, wakeBody.Orientation, dt, inWater);
+                _liquid.UpdateWake(feet, wakeBody.Orientation, dt,
+                    waterDepth, collisionHeight, renderScale);
             }
+
+            // Every streamed UNIT/PLAYER displaces water in 1.12. The controlled body above owns
+            // the reserved self partition; every other player, possessed bot and creature shares
+            // the 96-record other partition. EntityStore advances spline/interpolated positions
+            // before this pass, so position deltas are the honest remote movement proxy and the
+            // controlled body's mirrored entity must be skipped to avoid a doubled trail.
+            foreach (WorldEntity foamUnit in _entities.Units)
+            {
+                if (foamUnit.Guid == ControlledGuid || foamUnit.DisplayId <= 0) continue;
+                Vector3 feet = foamUnit.Position;
+                float? waterDepth =
+                    TryGetBodyLiquidSurface(feet, out float foamSurfaceZ, out _, waterOnly: true) &&
+                    float.IsFinite(foamSurfaceZ)
+                        ? foamSurfaceZ - feet.Z
+                        : null;
+                float renderScale = MathF.Max(foamUnit.Scale, 0.01f);
+                float collisionHeight = _creatureVoices?.CollisionHeight(
+                    (uint)foamUnit.DisplayId, renderScale) ??
+                    CreatureVoiceCatalog.DefaultCollisionHeight * renderScale;
+                _liquid.UpdateOtherWake(foamUnit.Guid, feet, foamUnit.Orientation, dt,
+                    waterDepth, collisionHeight, renderScale);
+            }
+            _liquid.EndWakeFrame();
 
             // WMO liquid (MLIQ). A per-frame INT COMPARE against LiquidVersion,
             // not a tile-crossing event: groups are adopted several frames after

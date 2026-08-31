@@ -87,6 +87,18 @@ public static class PaperDollUiLaw
             : 0f;
 
     public static bool IsAmmo(uint inventoryType) => inventoryType == 24;
+    /// <summary>
+    /// Resolve the ammo icon without confusing a genuinely empty PLAYER_AMMO_ID with an
+    /// unresolved item template. GameplayArt deliberately maps a blank path to the red question
+    /// mark fallback, so empty ammo must be represented by no path at all.
+    /// </summary>
+    public static string? AmmoIconPath(uint entry, string? iconPath) => entry switch
+    {
+        0 => null,
+        _ when string.IsNullOrWhiteSpace(iconPath) =>
+            @"Interface\Icons\INV_Misc_QuestionMark",
+        _ => iconPath,
+    };
     public static bool IsBroken(uint itemFlags, uint durability, uint maxDurability) =>
         (itemFlags & 0x08) == 0 &&
         ((itemFlags & 0x10) != 0 || maxDurability > 0 && durability == 0);

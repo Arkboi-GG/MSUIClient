@@ -55,6 +55,10 @@
 
 	<ItemGroup>
 		<EmbeddedResource Include="Assets\msui-icon.png" />
+		<EmbeddedResource Include="Assets\QuestHelperData.bin.gz">
+			<LogicalName>MSUIClient.Assets.QuestHelperData.bin.gz</LogicalName>
+			<WithCulture>false</WithCulture>
+		</EmbeddedResource>
 	</ItemGroup>
 
 	<ItemGroup>
@@ -63,6 +67,10 @@
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</None>
 		<None Update="Shaders\**\*">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</None>
+		<None Update="Assets\ThirdParty\*.txt">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</None>

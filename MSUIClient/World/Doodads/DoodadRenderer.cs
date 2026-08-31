@@ -631,13 +631,19 @@ public sealed class DoodadRenderer : IDisposable
     public bool Enabled { get; set; } = true;
 
     /// <summary>
-    /// Runtime safety gate for owner-local GameObject animation. The first live entry test of
-    /// the per-owner VBO rewrite path produced a repeatable native access violation in
-    /// nvoglv64.dll immediately after the initial Closed (AnimationData 147) poses were armed.
-    /// Keep ordinary/static doodad rendering and GameObject interaction enabled while this
-    /// isolated GL path is quarantined for a focused renderer repair.
+    /// Runtime gate for owner-local GameObject animation (chest lids, doors). The
+    /// first live entry produced a repeatable nvoglv64.dll access violation the
+    /// instant the initial Closed (AnimationData 147) poses were armed: the shared
+    /// VAO leaves the divisor-1 instance arrays enabled, and the per-instance pose
+    /// draw's non-instanced glDrawElements fetched them at index 0 off an
+    /// unallocated <c>InstanceVbo</c>. That store is now seeded with one element at
+    /// build (see BuildModel), so the fetch is in-bounds, and only the handful of
+    /// GameObject models actually holding a pose leave the instanced path (see
+    /// <see cref="_animatedGoModels"/>) -- the static world stays instanced. With
+    /// both in place the lane is on by default; set false to fall back to the pre-
+    /// animation renderer (GameObjects then rest at their loader pose).
     /// </summary>
-    public bool DynamicGameObjectAnimationEnabled { get; set; }
+    public bool DynamicGameObjectAnimationEnabled { get; set; } = true;
     public bool FrustumCulling { get; set; } = true;
     /// <summary>
     /// When true, a placement whose model is not resident queues that model and
@@ -2170,6 +2176,20 @@ public sealed class DoodadRenderer : IDisposable
         uint instanceVbo = _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, instanceVbo);
 
+        // Seed one zeroed element so the store is never a zero-byte buffer. The
+        // VAO below leaves locations 3-9 permanently enabled with divisor 1
+        // sourcing THIS buffer. The per-instance GameObject-pose pass draws with a
+        // plain (non-instanced) glDrawElements, which still fetches those enabled
+        // divisor-1 arrays at instance index 0. Before this seed, a GameObject
+        // model drawn per-instance before it was ever drawn instanced backed those
+        // arrays with an unallocated store, and the index-0 fetch ran off the end
+        // -- the repeatable nvoglv64 access violation that forced the animation
+        // lane off. One element makes the fetch in-bounds; uUseInstancing=0 makes
+        // the shader ignore the value it reads there.
+        InstanceData instanceSeed = default;
+        _gl.BufferData(BufferTargetARB.ArrayBuffer,
+            (nuint)sizeof(InstanceData), &instanceSeed, BufferUsageARB.StreamDraw);
+
         // 16 floats of placement matrix, then 4 of baked light, then 1 appear-fade
         // start, then 1 hover-highlight boost: one InstanceData. Locations 3..6 are
         // the matrix rows, 7 the light, 8 the appear-fade start, 9 the highlight.
@@ -2518,6 +2538,16 @@ public sealed class DoodadRenderer : IDisposable
     private readonly List<(Model Model, uint InstanceCount)> _deferredBlendedInstanced = [];
 
     /// <summary>
+    /// Family-A GameObject models holding a live owner-local pose this frame (a
+    /// retained state pose or an unfinished transition). Rebuilt each frame from
+    /// <see cref="_dynamicByKey"/>. These models -- and only these -- leave the
+    /// instanced path for the per-instance pose draw, so two copies of one crate
+    /// model can be open and closed at once while the static scenery around them
+    /// stays fully instanced. Empty in the steady state with the lane disabled.
+    /// </summary>
+    private readonly HashSet<Model> _animatedGoModels = [];
+
+    /// <summary>
     /// glBlendFunc per M2 blend mode, the same equations the WMO MOMT split
     /// uses for its modes (§3.25) extended with the additive/modulate family:
     ///   2 alpha        (SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
@@ -2813,18 +2843,25 @@ public sealed class DoodadRenderer : IDisposable
             return;
         }
 
-        bool dynamicOwnerAnimation = _dynamicByKey.Values.Any(entry =>
-            entry.Instance.StateAnimation is not null ||
-            entry.Instance.OneShot is { } oneShot &&
-            NowSeconds - oneShot.StartedAt < oneShot.DurationSeconds);
-        bool useInstancingNow = UseInstancing && !dynamicOwnerAnimation;
+        // Which GameObject models hold a live owner-local pose this frame -- a
+        // retained state pose or an unfinished transition. Only these leave the
+        // instanced path (and only for their own placements), so a resting chest
+        // lid or a swinging door never de-instances the scenery around it. Empty
+        // in the steady state, which keeps the whole world on the fast path.
+        _animatedGoModels.Clear();
+        foreach (var entry in _dynamicByKey.Values)
+            if (entry.Instance.StateAnimation is not null ||
+                entry.Instance.OneShot is { } oneShot &&
+                NowSeconds - oneShot.StartedAt < oneShot.DurationSeconds)
+                _animatedGoModels.Add(entry.Model);
 
         _shader.Use();
         _shader.Set("uViewProjection", camera.RelativeViewProjection);
         _shader.Set("uWorldClipPlane", worldClipPlane is { IsValid: true } clip
             ? clip.RelativeEquation(camera.Position)
             : new Vector4(0f, 0f, 0f, 1f));
-        _shader.Set("uUseInstancing", useInstancingNow ? 1 : 0);
+        // uUseInstancing is set per pass below (1 for RenderInstanced, 0 for the
+        // per-instance GameObject-pose pass), not once for the whole frame.
         _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uSunDirection", SunDirection);
         _shader.Set("uSunColor", SunColor);
@@ -2860,9 +2897,24 @@ public sealed class DoodadRenderer : IDisposable
         float maxDistanceSq = effectiveDrawDistance * effectiveDrawDistance;
         bool cullingOn = true;
 
-        if (useInstancingNow)
+        if (UseInstancing)
         {
+            // The whole world, minus any model holding an owner-local pose, on the
+            // instanced fast path (RenderInstanced skips exactly _animatedGoModels).
+            _shader.Set("uUseInstancing", 1);
             RenderInstanced(viewProjection, eye, maxDistanceSq, highlighted, ref cullingOn);
+
+            // Then just the stateful GameObject models, each placement drawn with
+            // its own held pose: a closed chest, the one open chest you are
+            // looting, a door mid-swing. Skipped entirely when none exist, so the
+            // steady-state world pays nothing for this second pass.
+            if (_animatedGoModels.Count > 0)
+            {
+                _shader.Set("uUseInstancing", 0);
+                RenderNonInstanced(camera, eye, maxDistanceSq, viewProjection,
+                    highlighted, _animatedGoModels, ref cullingOn);
+            }
+
             if (!cullingOn) _gl.Enable(EnableCap.CullFace);
             _gl.BindVertexArray(0);
             MaybeLogCull(effectiveDrawDistance);
@@ -2870,6 +2922,38 @@ public sealed class DoodadRenderer : IDisposable
             return;
         }
 
+        // Whole-world non-instanced path (UseInstancing off, the A/B baseline).
+        _shader.Set("uUseInstancing", 0);
+        RenderNonInstanced(camera, eye, maxDistanceSq, viewProjection,
+            highlighted, null, ref cullingOn);
+
+        if (!cullingOn) _gl.Enable(EnableCap.CullFace);
+        _gl.BindVertexArray(0);
+        MaybeLogCull(effectiveDrawDistance);
+        RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+
+        // The non-instanced path does not produce the three-way split. Zero it
+        // rather than leaving the last instanced frame's numbers standing - a
+        // stale timer reporting a plausible value is worse than a missing one.
+        CullMilliseconds = InstanceUploadMilliseconds = DrawMilliseconds = 0;
+        UploadedModelsLastFrame = FirstTouchModelsLastFrame = 0;
+        CullModelsLastFrame = CullInstancesLastFrame = 0;
+    }
+
+    /// <summary>
+    /// Draw doodad models with a per-instance uniform (the caller must have set
+    /// uUseInstancing to 0). This is the flavour that supports owner-local
+    /// GameObject bone poses, since the shared instanced VBO can hold only one
+    /// pose per model. Two callers: the whole world when instancing is toggled off
+    /// (<paramref name="onlyModels"/> null), and -- on the instanced fast path --
+    /// only the handful of GameObject models holding a live pose this frame
+    /// (<paramref name="onlyModels"/> = the stateful set), drawn right after
+    /// RenderInstanced has skipped exactly those models so nothing double-draws.
+    /// </summary>
+    private unsafe void RenderNonInstanced(
+        Camera camera, Vector3 eye, float maxDistanceSq, Matrix4x4 viewProjection,
+        Instance? highlighted, HashSet<Model>? onlyModels, ref bool cullingOn)
+    {
         // Appear fade needs straight-alpha blending while a doodad eases in; at
         // alpha 1 (every steady doodad) it composites identically to opaque, so
         // this is a no-op for the resident world. Depth-write stays on (benilla
@@ -2879,13 +2963,14 @@ public sealed class DoodadRenderer : IDisposable
             _gl.Enable(EnableCap.Blend);
             _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
         }
-        _shader.Set("uPreserveAlpha", AppearFade ? 1 : 0);
+        _shader!.Set("uPreserveAlpha", AppearFade ? 1 : 0);
 
         _deferredBlended.Clear();
         bool depthWriteOn = true;
 
         foreach (var (model, instances) in _byModel)
         {
+            if (onlyModels is not null && !onlyModels.Contains(model)) continue;
             bool bound = false;
 
             foreach (var instance in instances)
@@ -2978,18 +3063,6 @@ public sealed class DoodadRenderer : IDisposable
         if (!depthWriteOn) { _gl.DepthMask(true); depthWriteOn = true; }
 
         DrawBlendedDeferred(camera, eye, highlighted, ref cullingOn);
-
-        if (!cullingOn) _gl.Enable(EnableCap.CullFace);
-        _gl.BindVertexArray(0);
-        MaybeLogCull(effectiveDrawDistance);
-        RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-
-        // The non-instanced path does not produce the three-way split. Zero it
-        // rather than leaving the last instanced frame's numbers standing - a
-        // stale timer reporting a plausible value is worse than a missing one.
-        CullMilliseconds = InstanceUploadMilliseconds = DrawMilliseconds = 0;
-        UploadedModelsLastFrame = FirstTouchModelsLastFrame = 0;
-        CullModelsLastFrame = CullInstancesLastFrame = 0;
     }
 
     /// <summary>
@@ -3206,6 +3279,13 @@ public sealed class DoodadRenderer : IDisposable
 
         foreach (var (model, instances) in _byModel)
         {
+            // A model holding an owner-local GameObject pose this frame is drawn by
+            // the per-instance pass in Render (RenderNonInstanced) instead: the
+            // shared instanced VBO can carry only one pose, so a closed chest and
+            // the open chest beside it cannot both ride it. Skipping it here is
+            // what keeps that pass from double-drawing over this one.
+            if (_animatedGoModels.Contains(model)) continue;
+
             long cullStarted = Stopwatch.GetTimestamp();
             cullModels++;
             cullInstances += instances.Count;

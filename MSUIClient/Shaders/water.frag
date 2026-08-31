@@ -105,84 +105,51 @@ uniform float uRiverAlphaDeep;
 // visible highlight range.
 uniform float uHighlightGain;
 
-// -- The walking wake (PLAN_16) ----------------------------------------------
-//
-// The V-shaped bow wave you push through shallow water.
-//
-// XTextures\splash\wake.blp IS THAT V. Decoded, its alpha channel is a narrow
-// wedge at the top that splits into two diverging arms toward the bottom -
-// dense churn right behind you, spreading into a trailing V. Blizzard authored
-// the shape; this just has to place it.
-//
-// FIRST ATTEMPT GOT THIS WRONG and it is worth recording: the mask was stamped
-// eight times along a trail of recent positions, which drew eight overlapping
-// Vs and read as a chain of blobs. ONE stamp, anchored at the player and
-// extending backward, is the whole effect. The texture is the trail.
-//
-// Only the ALPHA is sampled - wake.blp is near-black greyscale (mean RGB 0.024),
-// a mask like every other water texture here. Colour comes from uWakeColor.
-uniform vec2      uWakePos;      // world XY of the apex
-uniform vec2      uWakeDir;      // unit direction of travel
-uniform float     uWakeAmount;   // 0 = off; ramps with speed, eases out when you stop
-uniform float     uWakeLength;   // yards the V extends BEHIND
-uniform float     uWakeWidth;    // yards across at the widest
-uniform float     uWakeAhead;    // yards the apex sits ahead of the origin
-uniform float     uWakeRepeat;   // how many wavefronts fit along the length
-uniform float     uWakeScroll;   // world-locking phase, driven by distance travelled
-uniform vec3      uWakeColor;
-uniform float     uWakeOpacity;  // how much the wake also lifts ALPHA
+// -- Build-5875 CWater0Ripple records ----------------------------------------
+// A translating body emits one small wake decal per about 0.625 yd; standing,
+// turning and crossing the 0.4-height wade line emit expanding splash rings.
+// The records stay at their emission points, grow through texgen, and die after
+// roughly 0.65 s. This is deliberately not one repeated/stretched V.
+// CPU lifecycle owns the reference's full 128-record pool. Up to 64 live records are packed here,
+// with the reserved self partition first, to remain inside every GL 3.3 fragment-uniform budget.
+const int MAX_FOAM_RECORDS = 64;
+uniform int       uFoamCount;
+uniform vec4      uFoamA[MAX_FOAM_RECORDS]; // center.xy, sin(heading), cos(heading)
+uniform vec4      uFoamB[MAX_FOAM_RECORDS]; // size, vertex alpha, ring flag, unused
+uniform float     uFoamStrength;
 uniform sampler2D uTexWake;
-uniform int       uHasWakeTex;   // 0 = mask missing, fall back to an analytic V
+uniform sampler2D uTexRing;
+uniform int       uHasWakeTex;
+uniform int       uHasRingTex;
 
-// Wake coverage at this fragment, 0..1.
-float wakeAt(vec2 worldXY)
+// Reference FFP composition is texture RGBA x white vertex alpha, then ADD blending uses the
+// resulting source alpha. Folded into this water pass that is stencil.rgb * stencil.a * vertexAlpha.
+// Do not turn stencil alpha into colour: wake.blp's alpha is a broad opaque wedge while its RGB
+// carries the narrow authored arms. Colourising alpha is what made the wake look several times
+// too large even though the world-size and growth formulas were already correct.
+vec3 foamAt(vec2 worldXY)
 {
-    if (uWakeAmount <= 0.001) return 0.0;
-
-    vec2 d    = worldXY - uWakePos;
-    vec2 perp = vec2(-uWakeDir.y, uWakeDir.x);
-
-    float along = dot(d, uWakeDir);   // + is ahead of the player
-    float lat   = dot(d, perp);
-
-    // v runs 0 at the apex (just ahead of the feet) to 1 at the far tail.
-    float v = (uWakeAhead - along) / max(uWakeLength, 0.01);
-    float u = lat / max(uWakeWidth, 0.01) + 0.5;
-    if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0) return 0.0;
-
-    // PROPAGATION. The V must not ride along rigidly stuck to the character -
-    // in the real client the wavefronts are laid down in the water and the
-    // player moves THROUGH them, so they appear to stream backward and new ones
-    // keep being born at the feet.
-    //
-    // uWakeScroll is advanced by DISTANCE TRAVELLED, not by time, which is what
-    // makes the pattern world-locked: move a yard forward and the phase shifts by
-    // exactly the yard, so a given crest stays put in the river. Tiling by
-    // uWakeRepeat is what gives a train of crests instead of one frozen chevron.
-    float vt = fract(v * uWakeRepeat + uWakeScroll);
-
-    float m;
-    if (uHasWakeTex != 0)
+    vec3 rgb = vec3(0.0);
+    for (int i = 0; i < MAX_FOAM_RECORDS; ++i)
     {
-        m = texture(uTexWake, vec2(u, vt)).a;
-    }
-    else
-    {
-        // Analytic V, so a missing mask still reads as the right shape rather
-        // than as nothing: two thin arms diverging from the apex.
-        float arm = abs(u - 0.5) * 2.0;      // 0 centre .. 1 edge
-        m = smoothstep(0.10, 0.0, abs(arm - vt)) * step(0.04, vt);
-    }
+        if (i >= uFoamCount) break;
+        vec4 a = uFoamA[i];
+        vec4 b = uFoamB[i];
+        float size = max(b.x, 0.001);
+        vec2 d = worldXY - a.xy;
+        float inv = 1.0 / (2.0 * size);
+        vec2 uv = vec2(
+            (-a.z * d.x + a.w * d.y) * inv + 0.5,
+            (-a.w * d.x - a.z * d.y) * inv + 0.5);
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) continue;
 
-    // The arms spread with distance behind, so narrow the sampled band near the
-    // apex - without this every tiled crest is the same width and the whole
-    // thing reads as stripes rather than a widening wake.
-    m *= smoothstep(0.0, 0.15, v);
-
-    // Thin the tail out so the V dissolves instead of ending on a hard edge.
-    // Uses the TRUE v, not the tiled coordinate, so distance fade is monotonic.
-    m *= 1.0 - v * v;
-    return clamp(m * uWakeAmount, 0.0, 1.0);
+        bool ring = b.z > 0.5;
+        if ((ring && uHasRingTex == 0) || (!ring && uHasWakeTex == 0)) continue;
+        vec4 stencil = ring ? texture(uTexRing, uv) : texture(uTexWake, uv);
+        float vertexAlpha = clamp(b.y * uFoamStrength, 0.0, 1.0);
+        rgb += stencil.rgb * stencil.a * vertexAlpha;
+    }
+    return rgb;
 }
 
 out vec4 FragColor;
@@ -372,14 +339,9 @@ void main()
             col *= mix(1.0, uDepthDarken, tdepthFade);
             col *= (uBrightness + tamb * uAmbientAmt + uSunColor * uSunIntensity * tsun * uSunAmt);
 
-            // THE WAKE (PLAN_16). Added after the lighting multiply so churned
-            // water reads bright rather than being dimmed with the body, and
-            // before fog so a distant wake fades with everything else.
-            //
-            // With uWakeAmount 0 this is exactly `col += 0`, which is why the
-            // feature can be switched off to a bit-identical image.
-            float twake = wakeAt(vAbsXY);
-            col += twake * uWakeColor;
+            // The record positions, growth and fade remain world-locked. Only the authored narrow
+            // stencil detail adds light; the broad alpha support never becomes a filled triangle.
+            col += foamAt(vAbsXY);
 
             // Grazing sky sheen from the VIEW angle only (flat surface) - a smooth
             // static gradient, never a moving band.
@@ -394,12 +356,6 @@ void main()
             // about a yard) and survives either way.
             float tbodyA = mix(uOpacity, uOpacity * aAlpha, uAuthoredWater);
             float alpha  = clamp(tbodyA * mix(uShoreFade, 1.0, tshore), 0.0, 1.0);
-
-            // The wake also lifts ALPHA, and this is not decoration: a wake
-            // happens in SHALLOW water, which is exactly where uShoreFade has
-            // already pulled alpha down. Colour alone would be nearly invisible
-            // in the one place the effect exists.
-            alpha = clamp(alpha + twake * uWakeOpacity, 0.0, 1.0);
 
             FragColor = vec4(col, alpha);
             return;
@@ -495,6 +451,10 @@ void main()
 
     // Wave-crest brightening.
     col += vec3(smoothstep(0.5, 1.0, vWave) * 0.04);
+
+    // The same following record trail must survive the procedural fallback when a particular
+    // liquid texture set is unavailable. This mirrors the textured branch above.
+    col += foamAt(vAbsXY);
 
     // ---- Animated surface shimmer: the signature vanilla 1.12 water look ----
     // Dense soft caustic highlights that DRIFT steadily sideways (the constant

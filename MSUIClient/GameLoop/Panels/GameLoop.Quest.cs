@@ -435,6 +435,7 @@ public sealed partial class GameLoop
     private void ApplyQuestComplete(byte[] body)
     {
         QuestComplete value = QuestPackets.ParseComplete(body);
+        _questHelperRewardedThisSession.Add(value.QuestId);
         ulong giver = QuestGiverGuid();
         _questRewardPending = value.QuestId; _questExpectedXp = value.Experience; _questExpectedMoney = value.Money;
         EmitInterface("quest", "reward", "COMPLETED", _net?.PlayerGuid ?? 0,

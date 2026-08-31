@@ -74,6 +74,7 @@ public sealed class AttachedItemRenderer : IDisposable
         public bool Unlit;
         public int FogPolicy;
         public bool EnvironmentMapped;
+        public bool SteadyWarglaiveBlade;
         public M2Batch? Source;
         public bool Transparent => BlendMode >= 2 || NoZWrite;
     }
@@ -432,9 +433,25 @@ public sealed class AttachedItemRenderer : IDisposable
         }
 
         var model = BuildModel(m2, textureName, folder);
-        if (model is not null) model.Path = found;
+        if (model is not null)
+        {
+            model.Path = found;
+            ClassifySteadyWarglaiveBlade(model);
+        }
         Models[key] = model;
         return model;
+    }
+
+    private static void ClassifySteadyWarglaiveBlade(ItemModel model)
+    {
+        // Only the ArmorReflect stage and its opaque same-submesh base form the
+        // energy blade. The handle/guard remains normally lit. This model-path
+        // gate is deliberate: hundreds of unrelated weapons also use
+        // ArmorReflect3 with the same topology.
+        foreach (Batch batch in model.Batches)
+            batch.SteadyWarglaiveBlade = batch.Source is not null &&
+                AttachedItemMaterialLaw.IsSteadyWarglaiveBladeBatch(
+                    model.Path, model.Source, batch.Source);
     }
 
     private unsafe ItemModel? BuildModel(M2Model m2, string textureName, string folder)
@@ -774,7 +791,10 @@ public sealed class AttachedItemRenderer : IDisposable
                     shader.Set("uBodyAlpha", bodyAlpha * material.Alpha);
                     shader.Set("uUvOffset", material.UvOffset);
                     shader.Set("uEnvironmentMap", batch.EnvironmentMapped ? 1 : 0);
-                    shader.Set("uUnlit", batch.Unlit ? 1 : 0);
+                    // Generic environment/blend passes honor the authored UNLIT bit. The known
+                    // Warglaive energy submesh is the narrow exception: keeping its base and line
+                    // pass stable prevents the hand animation from becoming a whole-blade pulse.
+                    shader.Set("uUnlit", (batch.Unlit || batch.SteadyWarglaiveBlade) ? 1 : 0);
                     shader.Set("uFogPolicy", batch.FogPolicy);
 
                     _gl.DrawElements(PrimitiveType.Triangles, batch.IndexCount,

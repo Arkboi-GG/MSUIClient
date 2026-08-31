@@ -95,10 +95,18 @@ First sight snaps silently to the held state pose: 149 Opened, 147 Closed, or
 146 Close, 150 Destroy, or 152 Rebuild—then explicitly hands back to the
 destination rest pose even when the M2 sequence's loop bit is set. Each dynamic
 GUID owns this playback state, so two copies of one crate model can hold
-different poses; while any owner-local animation exists, the renderer uses its
-per-instance CPU-skin draw path instead of sharing one instanced pose. The
-reference missing-sequence remap is retained, including frozen frame-zero Open
-or Close clips standing in for absent Closed/Opened poses.
+different poses. A shared instanced VBO can carry only one pose per model, so any
+model holding a live pose this frame (`_animatedGoModels`) is skipped by the
+instanced pass and redrawn per-instance on the CPU-skin path — a closed chest and
+the open chest beside it both render correctly, while the static scenery around
+them stays instanced. That per-instance draw's non-instanced `glDrawElements`
+still fetches the VAO's enabled divisor-1 arrays at index 0, so the per-model
+`InstanceVbo` is seeded with one element at build; without that seed a GameObject
+drawn per-instance before it was ever drawn instanced fetched off an unallocated
+store — the nvoglv64 access violation that had this whole lane quarantined
+(`DynamicGameObjectAnimationEnabled`), leaving chests parked at their lid-open
+loader pose. The reference missing-sequence remap is retained, including frozen
+frame-zero Open or Close clips standing in for absent Closed/Opened poses.
 
 Three writers feed the stored state without fighting each other: a genuine
 wire field change, an open-lock `SMSG_SPELL_GO` GameObject target (ACTIVE), and
