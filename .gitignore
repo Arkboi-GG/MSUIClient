@@ -218,6 +218,7 @@ live-runs/N2-0-2-1-unit-frames-20260801-155000/
 /camera/Barrens_Chat-Paltest.txt
 /camera/Barrens_Chat-Testagain.txt
 /camera/Barrens_Chat-Testpala.txt
-/MSUIClient/Assets/ThirdParty
+/MSUIClient/Assets/ThirdParty/*
+!/MSUIClient/Assets/ThirdParty/*.txt
 /camera/Barrens_Chat-Testwar.txt
 /camera/Barrens_Chat-Yaf.txt

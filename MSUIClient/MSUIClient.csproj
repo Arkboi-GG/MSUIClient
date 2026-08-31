@@ -25,6 +25,22 @@
 		<RootNamespace>MSUIClient</RootNamespace>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<InvariantGlobalization>true</InvariantGlobalization>
+		<PackageLicenseExpression>GPL-2.0-or-later</PackageLicenseExpression>
+		<Copyright>Copyright (C) 2026 MSUIClient contributors</Copyright>
+
+		<!-- Windows-only client. With no RID this publishes portable, which copies
+		     every platform's natives out of every package - 21 RIDs and ~450 MB of
+		     runtimes/, none of which this client can run. Pinning win-x64 keeps only
+		     the natives that load here. AppendRuntimeIdentifierToOutputPath=false
+		     holds the output at bin/<cfg>/net8.0/ instead of moving it under a
+		     win-x64/ subfolder, so existing paths and launch habits still work. -->
+		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+		<SelfContained>false</SelfContained>
+		<AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+		<!-- The SDK appends the RID to the publish path on its own, independently of
+		     the flag above. Pin it so the publish folder stays at the path it has
+		     always been at. The condition lets an explicit -o still win. -->
+		<PublishDir Condition="'$(PublishDir)' == ''">bin\$(Configuration)\$(TargetFramework)\publish\</PublishDir>
 
 		<!-- Console stays attached in Debug so parser output is visible; hidden
 		     in Release so the shipped client doesn't open a terminal beside it. -->
@@ -46,12 +62,12 @@
 		<PackageReference Include="Silk.NET.Maths" Version="2.21.0" />
 		<PackageReference Include="Silk.NET.OpenGL.Extensions.ImGui" Version="2.21.0" />
 
-		<!-- Only AdtTerrainReader's PNG/splat-map helpers need Skia. The client
-		     itself calls ReadBlpPixels (raw BGRA) and never touches them, so if
-		     you strip those methods from your copy you can drop these two lines
-		     and the native dependency with them. -->
+		<!-- Skia is load-bearing well beyond AdtTerrainReader now: portrait render
+		     targets, quest-helper glyph rasterizing and marker art, and BLP writing
+		     all go through it, so the dependency is not droppable. The Linux native
+		     assets package is gone - it shipped libSkiaSharp for eleven Linux RIDs
+		     (musl, loongarch64, riscv64 among them) that a Windows client never loads. -->
 		<PackageReference Include="SkiaSharp" Version="3.119.2" />
-		<PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -59,6 +75,14 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<None Include="..\LICENSE" Link="LICENSE.txt">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</None>
+		<None Include="..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</None>
 		<None Update="client-config.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
@@ -76,5 +100,25 @@
 	<ItemGroup>
 	  <Folder Include="World\Particles\" />
 	</ItemGroup>
+
+	<!-- SkiaSharp's Windows native packages ship an ~80 MB libSkiaSharp.pdb next
+	     to each DLL. Nothing here debugs into native Skia, so drop every .pdb that
+	     came from a package. The empty NuGetPackageId test spares MSUIClient.pdb,
+	     which is ours and still wanted for managed stack traces. -->
+	<Target Name="TrimPackageSymbols" AfterTargets="ComputeResolvedFilesToPublishList">
+		<ItemGroup>
+			<ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+											  Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb' and '%(ResolvedFileToPublish.NuGetPackageId)' != ''" />
+		</ItemGroup>
+	</Target>
+
+	<!-- Same symbols, other code path: a plain build copies them into bin/ through
+	     ReferenceCopyLocalPaths, which publish's trim above never sees. -->
+	<Target Name="TrimPackageSymbolsFromBuild" AfterTargets="ResolveReferences">
+		<ItemGroup>
+			<ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)"
+												  Condition="'%(ReferenceCopyLocalPaths.Extension)' == '.pdb' and '%(ReferenceCopyLocalPaths.NuGetPackageId)' != ''" />
+		</ItemGroup>
+	</Target>
 
 </Project>

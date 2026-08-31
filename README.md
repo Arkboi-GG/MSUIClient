@@ -71,6 +71,12 @@ Contributors must not submit proprietary client assets, private server data, cre
 
 MSUIClient is intended for educational, research, archival, interoperability, and private emulator-development use.
 
+## License
+
+MSUIClient is free software licensed under the [GNU General Public License, version 2 or later](LICENSE).
+
+Third-party components and adapted source remain under their respective licenses. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the complete attribution and redistribution notices. No Blizzard game assets are covered by the MSUIClient license or distributed by this repository.
+
 ## Contributing
 
 Bug reports and contributions are welcome. The most useful reports include the failed workflow, relevant logs, a screenshot when the problem is visual, and the smallest repeatable case.
@@ -79,4 +85,4 @@ Read [CODE_STRUCTURE_LAW.md](CODE_STRUCTURE_LAW.md) before making structural cha
 
 ## Acknowledgments
 
-This project builds on years of work by the VMaNGOS and broader MaNGOS communities, along with the people who documented the 1.12 protocol and the MPQ, BLP, DBC, ADT, M2, and WMO formats. [Benilla](https://github.com/samwhosung/benilla) is also used as an open-source Vanilla client reference during development.
+This project builds on years of work by the VMaNGOS and broader MaNGOS communities, along with the people who documented the 1.12 protocol and the MPQ, BLP, DBC, ADT, M2, and WMO formats. [Benilla](https://github.com/samwhosung/benilla) is both an open-source Vanilla client reference and the origin of specifically identified protocol code ports. [StormLib](https://github.com/ladislav-zezula/StormLib) is the origin of specifically identified managed MPQ and PKWARE ports. Their license notices, along with those for the client's packaged dependencies, are preserved in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
