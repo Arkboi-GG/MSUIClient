@@ -1306,6 +1306,11 @@ public sealed partial class GameLoop
                     v => { s.Display.Fullscreen = v; _window.Fullscreen = v; },
                     "True fullscreen at the desktop resolution. Alt+Enter toggles it any time.");
 
+                Check("Maximized Window", () => s.Display.Maximized,
+                    v => { s.Display.Maximized = v; _window.Maximized = v; },
+                    "Starts maximized to fill the screen while staying windowed - window chrome\n" +
+                    "stays put, unlike Fullscreen. Ignored while Fullscreen is on.");
+
                 Check("VSync", () => s.Display.VSync, v => { s.Display.VSync = v; _window.VSync = v; },
                     "Caps the frame rate to the monitor and stops tearing. Turning it off is a\n" +
                     "DIAGNOSTIC as much as a preference - SYSTEM_STREAMING.md section 5A.17.");
@@ -2788,6 +2793,7 @@ public sealed partial class GameLoop
         ApplyAudioSettings(s);
         _window.VSync = s.Display.VSync;
         _window.Fullscreen = s.Display.Fullscreen;
+        _window.Maximized = s.Display.Maximized;
         _window.MultisamplingEnabled = s.Display.MultisamplingEnabled;
         if (_skin is not null) _skin.Textured = s.Display.TexturedFrame;
 
@@ -3074,6 +3080,7 @@ public sealed partial class GameLoop
     {
         s.Display.VSync = _window.VSync;
         s.Display.Fullscreen = _window.Fullscreen;
+        s.Display.Maximized = _window.Maximized;
         s.Display.MultisamplingEnabled = _window.MultisamplingEnabled;
 
         if (_painterly is not null)

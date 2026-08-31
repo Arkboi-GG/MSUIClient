@@ -2609,6 +2609,13 @@ public sealed partial class GameLoop
         if (_skin?.GlueButton("Quit", quitSize) ?? ImGui.Button("Quit", quitSize))
             _quitRequested = true;
 
+        // Escape on the login screen quits, same as the Quit button - skipped while the login
+        // failure dialog or a connection/launch-configuration modal is up, since those already
+        // own Escape themselves (dismiss/close) and must not also exit the client.
+        if (!loginFailureOpen && !LoginConfigurationModalOpen &&
+            ImGui.IsKeyPressed(ImGuiKey.Escape, false))
+            _quitRequested = true;
+
         // Dev: a small top-right toggle for the live tuning modal (clear of the logo at top-left).
         ImGui.SetCursorScreenPos(new Vector2(disp.X - 58f * s, 6f * s));
         if (ImGui.InvisibleButton("##glue-tune-toggle", new Vector2(52f * s, 18f * s)))
@@ -3050,11 +3057,18 @@ public sealed partial class GameLoop
             Character c = chars[i];
             var rMin = new Vector2(rowX, rowsTop + i * pitch);
             ImGui.SetCursorScreenPos(rMin);
-            if (ImGui.InvisibleButton($"##row{i}", new Vector2(rowW, rowH)))
+            bool rowClicked = ImGui.InvisibleButton($"##row{i}", new Vector2(rowW, rowH));
+            // InvisibleButton only returns true on the RELEASE of a click, one frame after
+            // IsMouseDoubleClicked goes true on the second click's PRESS - checking it nested
+            // inside the button's own return value compared two different frames and so never
+            // agreed, and a double-click on a row silently did nothing. IsItemHovered right after
+            // the button call is valid regardless of the button's own pressed/released timing.
+            bool rowDoubleClicked = ImGui.IsItemHovered() && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left);
+            if (rowClicked || rowDoubleClicked)
             {
                 _selectedChar = i;
                 RememberCharacterSelection(c.Guid);
-                if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) enterGuid = c.Guid;
+                if (rowDoubleClicked) enterGuid = c.Guid;
             }
             // Use the pre-panel snapshot, not ImGui.IsItemHovered / the live _selectedChar: the panel
             // hole above was cut from exactly these two, and a lit card with no hole (or vice versa)
@@ -3178,7 +3192,11 @@ public sealed partial class GameLoop
             OpenDeleteConfirm(chars[_selectedChar]);
         }
         ImGui.SetCursorScreenPos(new Vector2(disp.X - 30f * s - backSize.X, backTop));
-        if (_skin?.GlueButton("Back", backSize) ?? ImGui.Button("Back", backSize))
+        bool backClicked = _skin?.GlueButton("Back", backSize) ?? ImGui.Button("Back", backSize);
+        // Escape does the same thing as Back, unless the delete confirmation is up - that dialog
+        // owns Escape itself (cancels the delete) and must not also back out to the login screen.
+        bool backKey = _deleteConfirmGuid == 0 && ImGui.IsKeyPressed(ImGuiKey.Escape, false);
+        if (backClicked || backKey)
         {
             PlayUiSound(CharSelectUiLaw.BackSound, CharSelectUiLaw.SoundCategory);
             _net.Stop();
