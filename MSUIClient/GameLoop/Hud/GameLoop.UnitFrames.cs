@@ -24,9 +24,16 @@ public sealed partial class GameLoop
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
         ImGui.SetNextWindowSize(windowSize * s, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
+        // PlayerFrame/TargetFrame are BACKGROUND-LOW portrait art and must never rise over a
+        // UIPanel. NoBringToFrontOnFocus pins them to the display-back furniture band alongside
+        // their own ##player-frame-hit / ##target-frame-hit hosts; without it the target frame
+        // re-appears on every target change, and ImGui raises a re-appearing window to the
+        // absolute display front - over whatever panel the player already had open. These windows
+        // are NoInputs, so pinning them costs no click.
         ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
                                  ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground |
-                                 ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoInputs;
+                                 ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoInputs |
+                                 ImGuiWindowFlags.NoBringToFrontOnFocus;
         if (!ImGui.Begin(playerFrame ? "##vanilla-player-frame" : "##vanilla-target-frame", flags))
         { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();

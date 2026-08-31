@@ -2559,8 +2559,13 @@ public sealed partial class GameLoop
         }
 
         // The main-menu buttons. Positions are by eye (benilla cut these) - screenshot pass.
-        // Left column sits ABOVE the Remember checkbox (canvas top 653) so it never clips it:
-        // Manage Connection 565, Launch Configurations 607 -> bottom (~641) clears the checkbox.
+        // The LEFT column is BOTTOM-anchored at canvas 645, eight units above the Remember
+        // Account Name checkbox (top 653), and stacks upward with a constant five-unit gap.
+        // Button height is 34 * GlueTune.ButtonHeightMul, live-tunable over [0.8, 1.8] from the
+        // tune window: with the old fixed literals a third button punched through the checkbox
+        // above mul ~1.20 and the buttons' own hit rects overlapped above ~1.235. Deriving from
+        // the bottom keeps the 8 units of clearance and 5 units of air true at EVERY mul, and at
+        // the shipped 1.086 it reproduces the eyeballed 565/607 to within ~1.2 units.
         var small = new Vector2(150f * s, 34f * s * GlueTune.ButtonHeightMul);
         var connectionMenuSize = new Vector2(176f * s, small.Y);
         float gap = small.Y + 6f * s;
@@ -2569,12 +2574,21 @@ public sealed partial class GameLoop
         GlueMenuButton("Credits", new Vector2(rightX, 300f * s + gap), small);
         GlueMenuButton("Terms of Use", new Vector2(rightX, 300f * s + 2f * gap), small);
         float leftX = 17f * s;
-        ImGui.SetCursorScreenPos(new Vector2(leftX, 565f * s));
+        float menuH = connectionMenuSize.Y;
+        float menuPitch = menuH + 5f * s;
+        float menuBottom = 645f * s;
+        float menuY3 = menuBottom - menuH;
+        float menuY2 = menuY3 - menuPitch;
+        float menuY1 = menuY2 - menuPitch;
+        ImGui.SetCursorScreenPos(new Vector2(leftX, menuY1));
         if (_skin?.GlueButton("Manage Connection", connectionMenuSize) == true)
             OpenConnectionManager();
-        ImGui.SetCursorScreenPos(new Vector2(leftX, 607f * s));
+        ImGui.SetCursorScreenPos(new Vector2(leftX, menuY2));
         if (_skin?.GlueButton("Launch Configurations", connectionMenuSize) == true)
             OpenLaunchConfigurationManager();
+        ImGui.SetCursorScreenPos(new Vector2(leftX, menuY3));
+        if (_skin?.GlueButton("MSUI Web Connection", connectionMenuSize) == true)
+            OpenMsuiWebConnection();
 
         // Launch Options - the one wired menu button: what does this client boot into?
         ImGui.SetCursorScreenPos(new Vector2(rightX, 300f * s + 3f * gap));
@@ -2585,6 +2599,7 @@ public sealed partial class GameLoop
             {
                 _manageConnectionsOpen = false;
                 _launchConfigurationsOpen = false;
+                _msuiWebOpen = false;
             }
         }
 
@@ -2603,6 +2618,30 @@ public sealed partial class GameLoop
             // Stage B wires this click to the realm-select modal; for now it's a hover affordance.
             GlueText(dl, realm, disp.X - 6f * s, quitTop - 32f * s, 13f * s,
                      ImGui.IsItemHovered() ? WowSkin.Highlight : WowSkin.GlueGold, 2);
+        }
+        else if (!LoginConfigurationModalOpen)
+        {
+            // Creator and serverless have no realm, so this slot is free - and it is the
+            // right one: the web app is exactly the "what am I connected to" fact here,
+            // and creator mode is where the Spell Workshop's push actually matters.
+            string web = SuiWebAppUrl.Length > 0 ? SuiWebAppUrl : "not set up";
+            GlueText(dl, "MSUI Web", disp.X - 6f * s, quitTop - 46f * s, 11f * s,
+                     WowSkin.Muted, 2);
+            float wScale = ImGui.GetFontSize() > 0f ? (13f * s / ImGui.GetFontSize()) : 1f;
+            Vector2 wSz = ImGui.CalcTextSize(web) * wScale;
+            ImGui.SetCursorScreenPos(new Vector2(disp.X - 6f * s - wSz.X, quitTop - 32f * s));
+            if (ImGui.InvisibleButton("##msui-web-status",
+                    new Vector2(MathF.Max(wSz.X, 40f), MathF.Max(wSz.Y, 12f * s))))
+                OpenMsuiWebConnection();
+            bool hovered = ImGui.IsItemHovered();
+            GlueText(dl, web, disp.X - 6f * s, quitTop - 32f * s, 13f * s,
+                     hovered ? WowSkin.Highlight
+                             : SuiWebAppUrl.Length > 0 ? WowSkin.GlueGold : WowSkin.Muted, 2);
+            if (hovered)
+                ImGui.SetTooltip(SuiWebAppUrl.Length > 0
+                    ? $"Spell Workshop pushes go to {SuiWebAppUrl}.\nClick to change or verify."
+                    : "No MangosSuperUI web app set - the Spell Workshop can preview\n" +
+                      "spells but cannot push them. Click to set the address.");
         }
 
         ImGui.SetCursorScreenPos(new Vector2(disp.X - 5f * s - quitSize.X, quitTop));

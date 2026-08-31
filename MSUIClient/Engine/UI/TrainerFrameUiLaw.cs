@@ -1,5 +1,6 @@
 using System.Numerics;
 using MSUIClient.Formats;
+using MSUIClient.Net;
 
 namespace MSUIClient.Engine.UI;
 
@@ -188,6 +189,16 @@ public static class TrainerFrameUiLaw
             if (wire.EffectIds[i] is 36 or 57 && wire.EffectTriggerSpells[i] != 0)
                 return wire.EffectTriggerSpells[i];
         return wire.Id;
+    }
+
+    public static IReadOnlyList<TrainerSpell> MarkServiceUsed(
+        IReadOnlyList<TrainerSpell> spells, uint serviceSpellId)
+    {
+        TrainerSpell[] updated = spells.ToArray();
+        for (int i = 0; i < updated.Length; i++)
+            if (updated[i].ServiceSpellId == serviceSpellId)
+                updated[i] = updated[i] with { State = UsedState };
+        return updated;
     }
 
     public static (uint Key, string Name) ServiceGroup(uint trainerType, byte state,

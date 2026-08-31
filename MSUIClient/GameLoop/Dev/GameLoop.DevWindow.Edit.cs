@@ -312,7 +312,7 @@ public sealed partial class GameLoop
                 CreatedUtc = DateTime.UtcNow,
                 Character = _net?.PlayerName is { Length: > 0 } name ? name : "offline",
                 SourceSnapshotUtc = DevData.World?.FetchedUtc ?? DateTime.MinValue,
-                SuiBase = Settings.DevWindow.SuiBaseUrl,
+                SuiBase = SuiWebAppUrl,
             },
         };
         var packet = new DevChangePacket
@@ -768,12 +768,12 @@ public sealed partial class GameLoop
             if (ImGui.Button("Commit (SuperUI)"))
             {
                 _devReloadStatus = "";
-                DevData.BeginApply(Settings.DevWindow.SuiBaseUrl, _devChanges);
+                DevData.BeginApply(SuiWebAppUrl, _devChanges);
             }
             if (busy) ImGui.EndDisabled();
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip($"Verify + apply + audit this change-set through MangosSuperUI\n" +
-                    $"({Settings.DevWindow.SuiBaseUrl}/NpcDev/Apply). Applied packets then wash to the DB baseline.");
+                    $"({SuiWebAppUrl}/NpcDev/Apply). Applied packets then wash to the DB baseline.");
             ImGui.SameLine();
         }
         if (_devReloadTargets.Count > 0)
@@ -788,7 +788,7 @@ public sealed partial class GameLoop
         if (hasPackets && ImGui.Button("Save now")) SaveDevChanges();
 
         if (busy)
-            ImGui.TextDisabled($"committing to {Settings.DevWindow.SuiBaseUrl}…");
+            ImGui.TextDisabled($"committing to {SuiWebAppUrl}…");
         else if (applied is not null)
         {
             if (!applied.Ok)
@@ -843,7 +843,7 @@ public sealed partial class GameLoop
         }
         int map = _config.Start.Map;
         Vector3 c = _controller?.Position ?? Vector3.Zero;
-        DevData.BeginFetchWorld(Settings.DevWindow.SuiBaseUrl, map, c.X, c.Y, forceRefresh: true);
+        DevData.BeginFetchWorld(SuiWebAppUrl, map, c.X, c.Y, forceRefresh: true);
     }
 
     /// <summary>Owner-clicked live reload of the just-committed targets: .reload creature_template
@@ -894,7 +894,7 @@ public sealed partial class GameLoop
         // Auto-fetch the diff when the inspected spawn changes.
         NpcDiff? diff = DevData.Diff;
         if (!DevData.Diffing && (diff is null || diff.Guid != spawnGuid))
-            DevData.BeginDiff(Settings.DevWindow.SuiBaseUrl, spawnGuid, entry);
+            DevData.BeginDiff(SuiWebAppUrl, spawnGuid, entry);
 
         // A completed reset: make it live (your click authorized it), resnapshot, re-diff.
         if (DevData.ResetResult is { Ok: true } reset && reset.CompletedUtc > _devLastResetUtc)
@@ -903,8 +903,8 @@ public sealed partial class GameLoop
             if (_devResetReloadTemplate) SendGmCommand(".reload creature_template", "npc-reset");
             if (_devResetReloadGuid != 0) SendGmCommand($".npc reloadspawn {_devResetReloadGuid}", "npc-reset");
             Vector3 c = _controller?.Position ?? Vector3.Zero;
-            DevData.BeginFetchWorld(Settings.DevWindow.SuiBaseUrl, _config.Start.Map, c.X, c.Y, forceRefresh: true);
-            DevData.BeginDiff(Settings.DevWindow.SuiBaseUrl, spawnGuid, entry);
+            DevData.BeginFetchWorld(SuiWebAppUrl, _config.Start.Map, c.X, c.Y, forceRefresh: true);
+            DevData.BeginDiff(SuiWebAppUrl, spawnGuid, entry);
         }
 
         ImGui.Spacing();
@@ -933,7 +933,7 @@ public sealed partial class GameLoop
             {
                 _devResetReloadGuid = spawnGuid;
                 _devResetReloadTemplate = false;
-                DevData.BeginReset(Settings.DevWindow.SuiBaseUrl, DevCharacter(), new[] { spawnGuid }, Array.Empty<uint>());
+                DevData.BeginReset(SuiWebAppUrl, DevCharacter(), new[] { spawnGuid }, Array.Empty<uint>());
             }
             if (busy) ImGui.EndDisabled();
         }
@@ -948,7 +948,7 @@ public sealed partial class GameLoop
             {
                 _devResetReloadGuid = 0;
                 _devResetReloadTemplate = true;
-                DevData.BeginReset(Settings.DevWindow.SuiBaseUrl, DevCharacter(), Array.Empty<uint>(), new[] { entry });
+                DevData.BeginReset(SuiWebAppUrl, DevCharacter(), Array.Empty<uint>(), new[] { entry });
             }
             if (busy) ImGui.EndDisabled();
             if (ImGui.IsItemHovered())

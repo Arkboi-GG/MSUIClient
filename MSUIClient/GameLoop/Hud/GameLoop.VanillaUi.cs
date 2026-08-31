@@ -9,10 +9,24 @@ public sealed partial class GameLoop
     // ImGui packs colors as ABGR (IM_COL32), not CSS/ARGB. Vanilla's normal
     // gold is RGB FF D1 00, hence the seemingly reversed literal below.
     private const uint VanillaGold = 0xff00d1ff;
+    // NoBringToFrontOnFocus deliberately absent. It is NOT a stratum: ImGui push_fronts such a
+    // window to g.Windows index 0 - the BOTTOM of the display order - at CREATION, so of two
+    // flagged windows the one first opened LATER ends up UNDERNEATH. The portraits exist from
+    // login and a panel is created the first time the player opens it, so carrying the flag here
+    // put every panel that goes through this constant (TradeSkill/Craft, Mail, Social, Trade,
+    // Macro, Tabard, DressUp, ItemText, Help, Key Bindings, WorldMap, ItemRef) under the player
+    // and party portraits, and handed clicks on the overlap to their hit hosts. The panels that
+    // spell their own flags out - CharacterFrame, SpellBook, Bank, Merchant, Quest, Gossip, Taxi,
+    // Trainer, Talent, Guild, Inspect, Loot, Auction - never carried it and were always correct;
+    // this makes the other half agree with them and with 1.12, where a UIPanel is MEDIUM and sits
+    // over the BACKGROUND/LOW unit frames. The flag now belongs only to standing HUD furniture
+    // that must never rise over a panel the player opened - the action bars and their hit hosts,
+    // the micro menu, party frames, stance and pet bars, the RTS command shelf, the unit-frame
+    // art - every one of which sets it locally.
     private static readonly ImGuiWindowFlags VanillaWindowFlags =
         ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
         ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground |
-        ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoBringToFrontOnFocus;
+        ImGuiWindowFlags.NoNav;
 
     private Vector2 VanillaPanelOrigin(float scale, float x = 0, float y = 104) =>
         new(x * scale, y * scale);
@@ -57,13 +71,13 @@ public sealed partial class GameLoop
         ImGui.SetNextWindowPos(origin, movable ? ImGuiCond.FirstUseEver : ImGuiCond.Always);
         ImGui.SetNextWindowSize(logicalSize * scale, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
-        // NoBringToFrontOnFocus has to go WITH NoMove. ImGui both push_fronts such a window to
-        // the bottom of the display order at creation and skips BringWindowToDisplayFront on
-        // focus - so a draggable frame that kept the flag could be parked over any HUD window
-        // and would sit UNDER it, where FindHoveredWindow returns the HUD and every button in
-        // the frame stops responding while still painting. Dragging must be able to raise it.
+        // A draggable frame must additionally be able to raise itself: parked over another HUD
+        // window it would otherwise sit UNDER it, where FindHoveredWindow returns the HUD and
+        // every button in the frame stops responding while still painting. That is now the
+        // default for every frame opened through here - see VanillaWindowFlags - so dropping
+        // NoMove is all this branch still has to do.
         ImGuiWindowFlags flags = movable
-            ? VanillaWindowFlags & ~(ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoBringToFrontOnFocus)
+            ? VanillaWindowFlags & ~ImGuiWindowFlags.NoMove
             : VanillaWindowFlags;
         bool open = ImGui.Begin(id, flags);
         draw = ImGui.GetWindowDrawList();

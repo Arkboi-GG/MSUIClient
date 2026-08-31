@@ -64,6 +64,17 @@ public sealed partial class GameLoop
     private void EnterOfflineWorld()
     {
         if (_gl is null || _worldLoadStarted) return;
+
+        // The front door may keep an idle network client ready so switching back to
+        // Client Mode is immediate. The creator WORLD must not keep it: a live session
+        // stopped by SetLaunchMode remains Disconnected, so PumpNet would run its
+        // session-loss reset every frame and force the creator controller out of flight.
+        // Dropping the client here also restores CreatorLocalGuid as the offline identity.
+        _net?.Stop();
+        _net?.Dispose();
+        _net = null;
+        Array.Clear(_passBuf);
+
         _creatorWorldRequested = true;
         _worldLoadStarted = true;   // Update()'s pre-world gate follows the net path's convention
         if (_character is not null) _character.Enabled = true;
@@ -190,6 +201,8 @@ public sealed partial class GameLoop
             if (_net is not null && _net.State != NetState.Idle)
             {
                 _net.Stop();
+                _net.Dispose();
+                _net = null;
                 Array.Clear(_passBuf);
                 Console.WriteLine("[creator] session disconnected - creator front door up");
             }

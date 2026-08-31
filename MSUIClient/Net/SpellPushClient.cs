@@ -28,7 +28,7 @@ public sealed class SpellPushClient
     // Design payloads run to megabytes (patched M2s, recolored BLPs, audio), and
     // the server writes them to disk before answering - well past the 15 s the
     // read-only dev fetches use.
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(2) };
+    private readonly HttpClient _http = WebAppHttp.Create(TimeSpan.FromMinutes(2));
 
     private volatile SpellPushResult? _result;
     private Task? _pushing;

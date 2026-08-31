@@ -165,6 +165,18 @@ public sealed class GameSettings
         /// deck's top edge to change it).</summary>
         public float DeckFraction { get; set; } = 0.30f;
 
+        /// <summary>The Spell Workshop's focus layout: opening it takes BOTH
+        /// sidebars - the spell and its phases on the left, the selected phase's
+        /// dials on the right - and stands the bottom deck down, so the centre
+        /// stays clear full-height for watching the spell play. Off = the Spell
+        /// Workshop uses the ordinary rails and deck like every other panel.</summary>
+        public bool SpellFocus { get; set; } = true;
+
+        /// <summary>Focus-layout sidebar width as a fraction of the display. The
+        /// SAME value drives both sides so the viewing stage stays centred on the
+        /// model; dragging either inner edge changes it.</summary>
+        public float SpellFocusFraction { get; set; } = 0.26f;
+
         /// <summary>Chrome fill opacity for the creator panels (0.3 - 1).</summary>
         public float PanelAlpha { get; set; } = 0.62f;
 
@@ -921,8 +933,12 @@ public sealed class GameSettings
         /// <summary>Overlays are culled beyond this many yards from the camera.</summary>
         public float OverlayRange { get; set; } = 150f;
 
-        /// <summary>MangosSuperUI base URL for DB reads (and later, change-set upload).</summary>
-        public string SuiBaseUrl { get; set; } = "http://127.0.0.1:5000";
+        /// <summary>LEGACY. The web-app address now lives on
+        /// LoginProfileSettings.WebAppUrl, outside the settings-preset blast radius
+        /// and editable from the login screen's MSUI Web Connection modal. Read once
+        /// in SettingsStore.Load to carry an existing file forward, then nulled so the
+        /// key drops out of settings.json. Nothing else may read it.</summary>
+        public string? SuiBaseUrl { get; set; }
     }
 
     /// <summary>
@@ -1199,6 +1215,15 @@ public sealed class LoginProfileSettings
 {
     public string ActiveConnectionId { get; set; } = "";
     public string ActiveLaunchConfigurationId { get; set; } = "";
+
+    /// <summary>The MangosSuperUI web app this client pushes finished spell designs
+    /// to (and reads DB tables from). Stored HERE, beside the connections, and NOT
+    /// inside GameSettings: a settings preset replaces the whole GameSettings object,
+    /// and loading an old graphics preset must never silently restore an old server
+    /// address. Empty means not set up - the Spell Workshop still previews and edits
+    /// everything locally, but "Push to Completer" has nowhere to go.</summary>
+    public string WebAppUrl { get; set; } = "";
+
     public List<ConnectionProfileSetting> Connections { get; set; } = [];
     public List<LaunchConfigurationSetting> LaunchConfigurations { get; set; } = [];
 }
@@ -1291,11 +1316,29 @@ public sealed class SettingsStore
                     parsed.Settings.ResolveComposites();
                     Migrate(parsed.Settings, serializedPainterlyDetail, legacyCycleTimeOfDay);
 
+                    // One-time promotion: the web-app address used to live inside
+                    // DevWindowSettings, where a preset load could stomp it. Migrate()
+                    // is handed parsed.Settings only and cannot reach LoginProfiles, so
+                    // the carry-forward has to happen here. Terminating: the legacy key
+                    // is nulled unconditionally, so a deliberately blanked address stays
+                    // blank on the next launch.
+                    LoginProfileSettings profiles =
+                        parsed.LoginProfiles ?? new LoginProfileSettings();
+                    if (profiles.WebAppUrl.Length == 0 &&
+                        !string.IsNullOrWhiteSpace(parsed.Settings.DevWindow.SuiBaseUrl))
+                    {
+                        profiles.WebAppUrl =
+                            parsed.Settings.DevWindow.SuiBaseUrl!.Trim().TrimEnd('/');
+                        Console.WriteLine("[settings] promoted DevWindow.SuiBaseUrl -> " +
+                                          $"LoginProfiles.WebAppUrl ({profiles.WebAppUrl})");
+                    }
+                    parsed.Settings.DevWindow.SuiBaseUrl = null;
+
                     Console.WriteLine($"[settings] {path}  " +
                                       $"preset '{parsed.Settings.ActivePreset}', " +
                                       $"{parsed.Presets.Count} saved preset(s)");
                     return new SettingsStore(path, parsed.Settings, parsed.Presets,
-                        parsed.LoginProfiles ?? new LoginProfileSettings(), false);
+                        profiles, false);
                 }
             }
             else

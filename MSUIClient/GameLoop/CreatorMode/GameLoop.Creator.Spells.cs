@@ -590,6 +590,7 @@ public sealed partial class GameLoop
         if (_spellVisualCatalog?.TryGetStages(info.VisualId, out doc.Stages) != true)
         {
             _creatorSpell = doc;   // selectable, but the panel will say "no visual"
+            _spellFocusRow = null;   // every ws-{path} id just died with the old doc
             return;
         }
 
@@ -654,6 +655,7 @@ public sealed partial class GameLoop
         }
 
         _creatorSpell = doc;
+        _spellFocusRow = null;    // doc.Models was replaced wholesale; heal to phase one
         _creatorLoopNextAt = 0;   // fire the loop immediately on next tick
     }
 
@@ -1058,6 +1060,70 @@ public sealed partial class GameLoop
             ImGui.TextDisabled(CreatorMissileTargetGuid() != 0
                 ? "Impact lands on the spawned target."
                 : "Impact lands on you - spawn a target (Target menu) to see it land there.");
+    }
+
+    /// <summary>
+    /// Play ONE phase on repeat - the focus layout's "solo" button, so selecting a
+    /// row can also mean "show me just this". Driven through the loop machinery
+    /// rather than PresentSpellEffect, because that only accepts the five stage
+    /// kits: the missile runs through its own spawn path and the area through the
+    /// area machine, and the loop is the one place all of them are sequenced.
+    /// </summary>
+    private void SoloCreatorSpellPhase(string sectionId)
+    {
+        if (_creatorSpell is not { } doc) return;
+        if (!sectionId.StartsWith("ws-", StringComparison.Ordinal)) return;
+        string path = sectionId[3..];
+
+        // A geometry child has no phase of its own - it is spawned per particle by a
+        // host emitter, so soloing it means soloing that host. GeometryHosts stores a
+        // FILE NAME, not a full path, hence the filename-to-filename join.
+        if (doc.GeometryHosts.TryGetValue(path, out string? hostFile))
+        {
+            foreach (string candidate in doc.Models.Keys)
+                if (string.Equals(Path.GetFileName(candidate), hostFile,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    path = candidate;
+                    break;
+                }
+        }
+
+        var stages = doc.PhaseModels
+            .Where(p => string.Equals(p.Path, path, StringComparison.OrdinalIgnoreCase))
+            .Select(p => p.Stage).Distinct().ToList();
+        bool missile = doc.MissilePath is { Length: > 0 } &&
+                       string.Equals(doc.MissilePath, path, StringComparison.OrdinalIgnoreCase);
+        // Nothing to solo: leave playback exactly as the user left it.
+        if (stages.Count == 0 && !missile) return;
+
+        // Drop whatever kit is currently presented. The state/channel holds STICK to
+        // the character until something reaps them, so soloing the missile (or any
+        // phase that does not itself present) would otherwise leave the old effect
+        // glued on with no obvious way off but the Loop section's Stop button.
+        ReapPresentedEffect();
+
+        _creatorLoopPrecast = _creatorLoopCast = _creatorLoopMissilePhase =
+            _creatorLoopImpactPhase = _creatorLoopStateHold = _creatorLoopChannelHold =
+            _creatorLoopAreaHold = false;
+        foreach (SpellStage stage in stages)
+        {
+            switch (stage)
+            {
+                case SpellStage.Precast: _creatorLoopPrecast = true; break;
+                case SpellStage.Cast: _creatorLoopCast = true; break;
+                case SpellStage.Impact: _creatorLoopImpactPhase = true; break;
+                case SpellStage.State: _creatorLoopStateHold = true; break;
+                case SpellStage.Channel: _creatorLoopChannelHold = true; break;
+            }
+        }
+        if (missile) _creatorLoopMissilePhase = true;
+
+        // ORDER MATTERS: the loop tick switches itself off (and stops all audio) when
+        // no phase is checked, so _creatorLoopOn must be set only once the boxes are.
+        _creatorLoopOn = true;
+        _creatorLoopNextAt = 0;
+        _creatorLoopCastAt = _creatorLoopMissileAt = _creatorLoopImpactAt = double.MaxValue;
     }
 
     private static string CreatorAudioLabel(CreatorAudioCue cue) => cue switch
@@ -2023,7 +2089,12 @@ public sealed partial class GameLoop
         float cs = CreatorUiScale;
         float s = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * cs;
         var cond = _creatorLayoutResetFrames > 0 ? ImGuiCond.Always : ImGuiCond.FirstUseEver;
-        ImGui.SetNextWindowPos(new Vector2(540f * s, 90f * s), cond);
+        // 540*s is dead centre of the focus layout's viewing column, and this picker
+        // is the ONLY route to a texture Swap - so it cannot just be suppressed there.
+        float swapX = SpellFocusActive
+            ? MathF.Max(12f, ImGui.GetIO().DisplaySize.X - SpellFocusPaneWidth - 430f * cs - 20f * s)
+            : 540f * s;
+        ImGui.SetNextWindowPos(new Vector2(swapX, 90f * s), cond);
         ImGui.SetNextWindowSize(new Vector2(430f * cs, 520f * cs), cond);
         ImGui.SetNextWindowSizeConstraints(new Vector2(300f * cs, 220f * cs),
             new Vector2(float.MaxValue, float.MaxValue));

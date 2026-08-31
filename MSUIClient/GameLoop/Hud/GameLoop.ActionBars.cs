@@ -575,9 +575,17 @@ public sealed partial class GameLoop
         DrawPerformanceMeter(bg, barMin, scale, display);
         DrawMainMenuBarArt(bg, barMin, scale);
 
-        Vector2 inputMin = new(barMin.X, display.Y - 86f * scale);
+        // The host used to be 86 tall, which reached 29 of the 36 logical pixels into the
+        // MultiBarBottomLeft/Right button row above it. Both this window and the ##MultiBar*-hit-*
+        // slot hosts are NoBringToFrontOnFocus, and ImGui push_fronts such a window to the BOTTOM
+        // of the display order at creation - so the later-created slot hosts sat UNDERNEATH this
+        // one, FindHoveredWindow returned ##main-action-bar for every pixel at or below
+        // display.Y - 86*scale, and only a 7px strip along the top of each multibar button still
+        // took a click. Nothing here is painted or submitted above display.Y - 54*scale (the
+        // quickslot ring, the highest of them), so the clamp costs no pixel and no hit rect.
+        Vector2 inputMin = new(barMin.X, display.Y - MainActionBarHostHeight * scale);
         ImGui.SetNextWindowPos(inputMin, ImGuiCond.Always);
-        ImGui.SetNextWindowSize(new Vector2(544f, 86f) * scale, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(new Vector2(544f, MainActionBarHostHeight) * scale, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
         ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
                                  ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground |
@@ -835,9 +843,9 @@ public sealed partial class GameLoop
         (string Name, int FirstSlot, bool Vertical, Vector2 Origin, BottomMultiActionBar? BindingBar)[] bars =
         [
             ("MultiBarBottomLeft", MultiActionBarUiLaw.BottomLeftBase, false,
-                new Vector2(barMin.X + 8 * scale, display.Y - 95 * scale), BottomMultiActionBar.Left),
+                new Vector2(barMin.X + 8 * scale, display.Y - MultiActionBarUiLaw.BottomRowRise * scale), BottomMultiActionBar.Left),
             ("MultiBarBottomRight", MultiActionBarUiLaw.BottomRightBase, false,
-                new Vector2(barMin.X + 518 * scale, display.Y - 95 * scale), BottomMultiActionBar.Right),
+                new Vector2(barMin.X + 518 * scale, display.Y - MultiActionBarUiLaw.BottomRowRise * scale), BottomMultiActionBar.Right),
             // These two were already implemented by MSUI. They are outside Benilla's requested
             // bottom-bar scope, so preserve them instead of deleting a present MSUI feature.
             ("MultiBarRight", 24, true,
@@ -877,6 +885,14 @@ public sealed partial class GameLoop
 
         // The authored 500x38 parent is not mouse-enabled. Give only live buttons a 36x36 input
         // host so hidden empty slots and the six-pixel gaps genuinely pass through to the world.
+        // Zeroing the three window styles is what makes that host actually BE 36x36: the default
+        // WindowPadding <8,8> insets a window's InnerClipRect (which clips the hover test) by 4px
+        // per side, and WindowMinSize <32,32> floors the host below UI scale 0.89. The stance bar
+        // (GameLoop.StanceBar.cs) and the pet bar (GameLoop.Pet.cs) already do this; this loop was
+        // the one that did not. The pushes must not straddle the ##{name} art window below.
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowMinSize, Vector2.Zero);
         for (int i = 0; i < MultiActionBarUiLaw.ButtonsPerBar; i++)
         {
             int slot = firstSlot + i;
@@ -901,6 +917,7 @@ public sealed partial class GameLoop
             }
             ImGui.End();
         }
+        ImGui.PopStyleVar(3);
 
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(logicalSize * scale, ImGuiCond.Always);
@@ -1307,8 +1324,8 @@ public sealed partial class GameLoop
         bool InRow(Vector2 origin) => MultiActionBarUiLaw.InHorizontalButton(
             mouse.X / scale, mouse.Y / scale, origin.X / scale, origin.Y / scale);
         Vector2 mainOrigin = new(barMin.X + 8 * scale, display.Y - 42 * scale);
-        Vector2 leftOrigin = new(barMin.X + 8 * scale, display.Y - 95 * scale);
-        Vector2 rightOrigin = new(barMin.X + 518 * scale, display.Y - 95 * scale);
+        Vector2 leftOrigin = new(barMin.X + 8 * scale, display.Y - MultiActionBarUiLaw.BottomRowRise * scale);
+        Vector2 rightOrigin = new(barMin.X + 518 * scale, display.Y - MultiActionBarUiLaw.BottomRowRise * scale);
         return InRow(mainOrigin) || InRow(leftOrigin) || InRow(rightOrigin);
     }
 

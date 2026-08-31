@@ -204,6 +204,12 @@ public sealed partial class GameLoop
             }
             else if (_creatorSearchOpen) _creatorSearchOpen = false;
             else if (_creatorUiOptionsOpen) _creatorUiOptionsOpen = false;
+            // NOTE: the Spell Workshop's focus layout deliberately has NO rung here.
+            // This ladder does not consume the key, so the press falls through to the
+            // vanilla game menu - one Escape would both open the menu and silently
+            // rebuild the workshop behind it, and a second would not undo it. The
+            // layout is left via the Spell icon, the header's "deck" button, or the
+            // Creator UI dials checkbox.
         }
     }
 
@@ -226,7 +232,9 @@ public sealed partial class GameLoop
         float cs = CreatorUiScale;
         float rowStride = CreatorResultRowHeight + ImGui.GetStyle().ItemSpacing.Y;
         float desired = MathF.Max(itemCount, 1) * rowStride + 14f * cs;
-        float cap = MathF.Max(ImGui.GetContentRegionAvail().Y * maxFraction, 150f * cs);
+        float cap = MathF.Max(
+            ImGui.GetContentRegionAvail().Y * (_creatorResultsFractionOverride ?? maxFraction),
+            150f * cs);
         float height = MathF.Min(desired, cap);
         ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.07f, 0.07f, 0.08f, 0.97f));
         return ImGui.BeginChild(id, new Vector2(0f, height), true);
@@ -252,6 +260,11 @@ public sealed partial class GameLoop
 
     private string? _creatorHeldDialId;
     private float _creatorHeldDialValue;
+
+    /// <summary>Set around a results list to override BeginCreatorResults' default
+    /// share of the region - the Spell Workshop's focus layout hosts the picker in
+    /// a FULL-HEIGHT pane, where 45% would crowd out every phase row below it.</summary>
+    private float? _creatorResultsFractionOverride;
 
     private bool CreatorDeferredDial(string id, string label, float lo, float hi,
         Func<float> get, Action<float> set, float itemWidth, string fmt = "%.2fx")
@@ -523,6 +536,22 @@ public sealed partial class GameLoop
             ImGui.TextDisabled(workspace
                 ? "Panels dock into the bottom deck; the right rail's Wins button also returns here."
                 : "Classic floating windows. Check to try the docked layout.");
+
+            if (workspace)
+            {
+                bool focus = creator.SpellFocus;
+                if (ImGui.Checkbox("Spell Workshop focus layout", ref focus))
+                {
+                    creator.SpellFocus = focus;
+                    if (focus) _spellFocusSuppressed = false;
+                    save = true;
+                }
+                ImGui.TextDisabled(focus
+                    ? "The Spell Workshop takes both sidebars - spell and phases left, the " +
+                      "selected phase's dials right - and stands the deck down, leaving the " +
+                      "centre clear to watch the spell play."
+                    : "The Spell Workshop uses the bottom deck like every other panel.");
+            }
 
             if (save) SettingsFile?.Save();
             EndCreatorContent();
@@ -846,10 +875,20 @@ public sealed partial class GameLoop
         foreach (var def in _creatorSectionDefs.ToList())
         {
             if (!IsSectionPopped(def.Panel, def.Id)) continue;
+            // The Spell Workshop's focus layout IS the home for every one of its
+            // sections and offers no tear-off corner, so a section popped in another
+            // layout must not float over the model here - and must not draw twice,
+            // which would run the model editor's rebuild against one doc in a single
+            // frame. The popped state is kept, and returns with the deck.
+            if (SpellFocusActive && def.Panel == "Spells") continue;
             string key = $"{def.Panel}/{def.Id}";
             _activePanelTune = def.Panel;   // popped windows follow their parent panel's dials
             var cond = _creatorLayoutResetFrames > 0 ? ImGuiCond.Always : ImGuiCond.FirstUseEver;
-            ImGui.SetNextWindowPos(new Vector2((340f + 30f * slot) * s, (100f + 30f * slot) * s), cond);
+            // Cascade clear of whatever owns the left edge - the classic 340*s lands
+            // UNDER the focus layout's far wider master pane.
+            float popLeft = SpellFocusActive ? SpellFocusPaneWidth + 20f * cs : 340f * s;
+            ImGui.SetNextWindowPos(
+                new Vector2(popLeft + 30f * slot * s, (100f + 30f * slot) * s), cond);
             ImGui.SetNextWindowSize(new Vector2(400f * cs, 340f * cs), cond);
             ImGui.SetNextWindowSizeConstraints(new Vector2(220f * cs, 140f * cs),
                 new Vector2(float.MaxValue, float.MaxValue));

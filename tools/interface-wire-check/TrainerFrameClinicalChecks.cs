@@ -98,6 +98,16 @@ internal static class TrainerFrameClinicalChecks
               TrainerFrameUiLaw.ServiceGroup(2, 0, wrapper, null).Name == "Recipes",
             "trainer taught-spell/group-type law drift");
 
+        IReadOnlyList<MSUIClient.Net.TrainerSpell> refreshed =
+            TrainerFrameUiLaw.MarkServiceUsed(
+            [
+                new(1424, 0, 100, false, false, 20, 0, 0, 0, 0, 0),
+                new(6673, 0, 10, false, false, 1, 0, 0, 0, 0, 0),
+            ], 1424);
+        Check(refreshed[0].State == TrainerFrameUiLaw.UsedState &&
+              refreshed[1].State == TrainerFrameUiLaw.AvailableState,
+            "trainer success must retire only the purchased service row");
+
         string root = ClientConfig.FindRepoRoot();
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Trainer.cs"));

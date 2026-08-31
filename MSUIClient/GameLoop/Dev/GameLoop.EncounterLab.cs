@@ -242,7 +242,7 @@ public sealed partial class GameLoop
 
         EncounterLibraryRef.Reload();
         if (EncounterData.Data is null && !EncounterData.Fetching)
-            EncounterData.BeginFetch(Settings.DevWindow.SuiBaseUrl);
+            EncounterData.BeginFetch(SuiWebAppUrl);
     }
 
     /// <summary>
@@ -1277,7 +1277,7 @@ public sealed partial class GameLoop
         }
         if (EncounterPanelButton("Refresh DB"))
         {
-            data.BeginFetch(Settings.DevWindow.SuiBaseUrl, forceRefresh: true);
+            data.BeginFetch(SuiWebAppUrl, forceRefresh: true);
             _encounterFacts = null;
         }
         if (offerMinimize)

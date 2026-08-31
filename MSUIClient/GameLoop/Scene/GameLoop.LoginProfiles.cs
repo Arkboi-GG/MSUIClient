@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Net.Sockets;
+using System.Text.Json;
 using ImGuiNET;
 using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
@@ -17,14 +18,26 @@ public sealed partial class GameLoop
     private LoginProfileSettings LoginProfiles =>
         SettingsFile?.LoginProfiles ?? _fallbackLoginProfiles;
 
+    /// <summary>The MangosSuperUI address every web-app call in the client uses.
+    /// Empty = not set up; callers must check before hitting the network.</summary>
+    private string SuiWebAppUrl => LoginProfiles.WebAppUrl;
+
     private bool _manageConnectionsOpen;
     private bool _launchConfigurationsOpen;
     private ConnectionProfileSetting? _connectionDraft;
     private LaunchConfigurationSetting? _launchDraft;
     private string _loginProfileStatus = "";
     private Task<string>? _connectionTestTask;
+
+    private bool _msuiWebOpen;
+    private string _msuiWebDraft = "";
+    private string _msuiWebStatus = "";
+    private Task<MsuiWebProbe>? _msuiWebProbeTask;
+    private readonly record struct MsuiWebProbe(bool Ok, string Url, string Message);
+
     private bool LoginConfigurationModalOpen =>
-        _launchMenuOpen || _manageConnectionsOpen || _launchConfigurationsOpen;
+        _launchMenuOpen || _manageConnectionsOpen || _launchConfigurationsOpen ||
+        _msuiWebOpen;
 
     private bool EnsureLoginProfilesInitialized()
     {
@@ -189,6 +202,7 @@ public sealed partial class GameLoop
         _manageConnectionsOpen = true;
         _launchConfigurationsOpen = false;
         _launchMenuOpen = false;
+        _msuiWebOpen = false;
     }
 
     private void OpenLaunchConfigurationManager()
@@ -199,6 +213,19 @@ public sealed partial class GameLoop
         _loginProfileStatus = "";
         _launchConfigurationsOpen = true;
         _manageConnectionsOpen = false;
+        _launchMenuOpen = false;
+        _msuiWebOpen = false;
+    }
+
+    /// <summary>EnsureLoginProfilesInitialized is deliberately NOT called - this modal
+    /// touches no connection or launch profile, only the web-app address.</summary>
+    private void OpenMsuiWebConnection()
+    {
+        _msuiWebDraft = SuiWebAppUrl;
+        _msuiWebStatus = "";
+        _msuiWebOpen = true;
+        _manageConnectionsOpen = false;
+        _launchConfigurationsOpen = false;
         _launchMenuOpen = false;
     }
 
@@ -216,6 +243,7 @@ public sealed partial class GameLoop
     {
         if (_manageConnectionsOpen) DrawManageConnectionsWindow();
         if (_launchConfigurationsOpen) DrawLaunchConfigurationsWindow();
+        if (_msuiWebOpen) DrawMsuiWebConnectionWindow();
     }
 
     private void DrawManageConnectionsWindow()
@@ -243,6 +271,222 @@ public sealed partial class GameLoop
             _manageConnectionsOpen = false;
 
         EndClassicProfileModal(modal);
+    }
+
+    // ── MSUI Web Connection ──────────────────────────────────────────────────
+    // Every label, hint and status line here is PAINTED with GlueText onto the
+    // modal's own draw list rather than built from ImGui widgets, matching
+    // DrawLoginFailureDialog and the Launch Options menu. The one exception is the
+    // address box's ImGui.InputText inside GlueAddressField: this client has no
+    // keyboard-driven edit box that avoids it (there is no InputQueueCharacters
+    // path anywhere in the tree), so it is a knowing, single, contained exception.
+
+    private void DrawMsuiWebConnectionWindow()
+    {
+        if (_skin is null) return;
+
+        // Harvest the probe BEFORE drawing, so the frame paints one consistent state.
+        if (_msuiWebProbeTask is { IsCompleted: true } finished)
+        {
+            _msuiWebProbeTask = null;
+            try { _msuiWebStatus = finished.GetAwaiter().GetResult().Message; }
+            catch (Exception ex) { _msuiWebStatus = $"Verify failed: {ex.Message}"; }
+        }
+
+        ClassicProfileModal modal = BeginClassicProfileModal(
+            "##msui-web-connection", "MSUI Web Connection", new Vector2(580f, 480f));
+        float s = modal.Scale;
+        ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        DrawClassicProfileInset(modal.FrameMin + new Vector2(22f, 52f) * s,
+            new Vector2(536f, 346f) * s);
+
+        const float contentX = 40f, wrapW = 496f;
+
+        // GlueText does not wrap, so paragraphs are pre-wrapped and drawn line by line.
+        float Paragraph(string text, float y, float px, Vector4 colour, float pitch)
+        {
+            foreach (string line in WrapTooltipText(text, "GameFontNormalLarge",
+                         s * px / 16f, wrapW * s))
+            {
+                GlueText(dl, line, modal.FrameMin.X + contentX * s,
+                    modal.FrameMin.Y + y * s, px * s, colour, 0);
+                y += pitch;
+            }
+            return y;
+        }
+
+        Paragraph("The MangosSuperUI web app is where finished spell designs land. " +
+                  "Point this client at it once and the Spell Workshop can push straight " +
+                  "into your database.", 66f, 13f, WowSkin.GlueGold, 16f);
+
+        GlueText(dl, "Web app address", modal.FrameMin.X + contentX * s,
+            modal.FrameMin.Y + 108f * s, 12f * s, WowSkin.GlueGold, 0);
+
+        Vector2 boxMin = modal.FrameMin + new Vector2(contentX, 126f) * s;
+        _skin.DrawBackdrop(dl, boxMin, boxMin + new Vector2(wrapW, 30f) * s,
+            WowSkin.GlueEditBox, WowSkin.GlueBoxFill, WowSkin.GlueBoxBorder);
+        _msuiWebDraft = GlueAddressField("msui-web-url", boxMin, wrapW * s, 30f * s, s,
+            _msuiWebDraft, out bool submitted);
+
+        GlueText(dl, "For example   http://192.168.0.2:5000",
+            modal.FrameMin.X + contentX * s, modal.FrameMin.Y + 162f * s,
+            11f * s, WowSkin.Muted, 0);
+        Paragraph("Host and port only - the client adds its own paths. http:// is assumed " +
+                  "if you leave the scheme off.", 176f, 11f, WowSkin.Muted, 14f);
+
+        float y = Paragraph("Without this, the Spell Workshop is purely visual. It still " +
+            "opens any spell, moves every dial, swaps textures and plays the result back - " +
+            "all of that is local and needs nothing.", 214f, 12f, WowSkin.GlueGold, 15f) + 6f;
+        y = Paragraph("What stops is delivery. \"Push to Completer\" has nowhere to send " +
+            "the design, so it never reaches Gameplay Tuning > Spells > Spell Completer, " +
+            "and never reaches the game database.", y, 12f, WowSkin.GlueGold, 15f) + 6f;
+        Paragraph("The NPC Dev window and Encounter Lab keep reading their local cache, so " +
+            "they carry on with whatever was last fetched.", y, 12f, WowSkin.GlueGold, 15f);
+
+        if (_msuiWebStatus.Length > 0)
+            Paragraph(_msuiWebStatus, 340f, 12.5f, WowSkin.GlueGold, 16f);
+
+        // A fixed 34 height, not GlueTune.ButtonHeightMul - matching the incumbents' closeSize.
+        void Button(string caption, float x, float w, bool enabled, Action onClick)
+        {
+            ImGui.SetCursorScreenPos(modal.FrameMin + new Vector2(x, 422f) * s);
+            if (_skin!.GlueButton(caption, new Vector2(w, 34f) * s, enabled,
+                    captionPx: 12f * s))
+                onClick();
+        }
+
+        bool probing = _msuiWebProbeTask is not null;
+        Button(probing ? "Verifying...##msui-web-verify" : "Verify##msui-web-verify",
+            106f, 132f, !probing && _msuiWebDraft.Trim().Length > 0,
+            () => { if (TryNormalizeWebAppUrl(_msuiWebDraft, out string u, out _)) StartMsuiWebProbe(u); });
+        Button("Save##msui-web-save", 248f, 108f, true, SaveMsuiWebDraft);
+        Button("Close##msui-web-close", 366f, 108f, true, () => _msuiWebOpen = false);
+
+        if (submitted) SaveMsuiWebDraft();
+        if (!ImGui.GetIO().WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Escape, false))
+            _msuiWebOpen = false;
+
+        EndClassicProfileModal(modal);
+    }
+
+    /// <summary>The inner half of ClassicTextField, absolutely positioned and drawing
+    /// no label of its own - the caller has already painted the box and the label.</summary>
+    private static string GlueAddressField(string id, Vector2 boxMin, float width,
+        float height, float s, string value, out bool submitted)
+    {
+        float inputOffsetY = MathF.Max(0f, (height - ImGui.GetFrameHeight()) * .5f);
+        ImGui.SetCursorScreenPos(boxMin + new Vector2(9f * s, inputOffsetY));
+        ImGui.SetNextItemWidth(width - 18f * s);
+        ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgActive, Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.Text, WowSkin.Normal);
+        submitted = ImGui.InputText($"##{id}", ref value, 160,
+            ImGuiInputTextFlags.EnterReturnsTrue);
+        ImGui.PopStyleColor(4);
+        return value;
+    }
+
+    /// <summary>Accepts what a person actually types ("192.168.0.2:5000") and reduces it
+    /// to scheme://authority, since every caller appends its own path.</summary>
+    private static bool TryNormalizeWebAppUrl(string raw, out string normalized,
+        out string? note)
+    {
+        note = null;
+        normalized = "";
+        string t = raw.Trim();
+        if (t.Length == 0) return false;
+        if (!t.Contains("://", StringComparison.Ordinal)) t = "http://" + t;
+        if (!Uri.TryCreate(t, UriKind.Absolute, out Uri? uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            return false;
+        if (uri.AbsolutePath.Trim('/').Length > 0)
+            note = "dropped the page path, the client adds its own";
+        normalized = $"{uri.Scheme}://{uri.Authority}";
+        return true;
+    }
+
+    private void SaveMsuiWebDraft()
+    {
+        if (!TryNormalizeWebAppUrl(_msuiWebDraft, out string url, out string? note))
+        {
+            _msuiWebStatus = _msuiWebDraft.Trim().Length == 0
+                ? "A web app address is required - for example http://192.168.0.2:5000."
+                : "That is not a valid address. Use http://host:port, for example " +
+                  "http://192.168.0.2:5000.";
+            return;
+        }
+        LoginProfiles.WebAppUrl = url;
+        _msuiWebDraft = url;
+        SettingsFile?.Save();
+        _msuiWebStatus = note is null ? $"Saved {url}." : $"Saved {url} - {note}.";
+        StartMsuiWebProbe(url);
+    }
+
+    /// <summary>The StartConnectionTest shape: fire a Task, harvest it in the draw loop.
+    /// A per-probe HttpClient, NOT SpellPushClient's pooled one - an 8 second timeout
+    /// there would leak into real pushes.</summary>
+    private void StartMsuiWebProbe(string url)
+    {
+        if (_msuiWebProbeTask is not null) return;
+        _msuiWebStatus = $"Contacting {url}...";
+        _msuiWebProbeTask = Task.Run(async () =>
+        {
+            using HttpClient http = MSUIClient.Net.WebAppHttp.Create(TimeSpan.FromSeconds(8));
+            try
+            {
+                using HttpResponseMessage resp = await http
+                    .GetAsync($"{url}/SpellCompleter/Pending").ConfigureAwait(false);
+                if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    return new MsuiWebProbe(false, url, $"{url} answered, but there is no " +
+                        "Spell Completer there. Check the address, or update MangosSuperUI.");
+                if (!resp.IsSuccessStatusCode)
+                    return new MsuiWebProbe(false, url, $"{url} answered HTTP " +
+                        $"{(int)resp.StatusCode}. That is not the MangosSuperUI web app.");
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!TryReadCompleterReply(body, out bool inboxOk, out string? inboxError))
+                    return new MsuiWebProbe(false, url, $"Something is running at {url}, " +
+                        "but it is not the MangosSuperUI web app.");
+                if (!inboxOk)
+                    return new MsuiWebProbe(false, url, $"MangosSuperUI answered at {url}, " +
+                        $"but its push inbox reported an error: {inboxError}");
+                return new MsuiWebProbe(true, url,
+                    $"Connected. The Spell Completer answered at {url}.");
+            }
+            catch (OperationCanceledException)
+            {
+                return new MsuiWebProbe(false, url, $"No answer from {url} - timed out after " +
+                    "8 seconds. Is the web app running, and is the address right?");
+            }
+            catch (Exception ex)
+            {
+                return new MsuiWebProbe(false, url, $"Could not reach {url}: {ex.Message}");
+            }
+        });
+    }
+
+    private static bool TryReadCompleterReply(string body, out bool ok, out string? error)
+    {
+        ok = false;
+        error = null;
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(body);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return false;
+            if (!root.TryGetProperty("success", out JsonElement success) ||
+                success.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                return false;
+            ok = success.GetBoolean();
+            if (!ok)
+                error = root.TryGetProperty("error", out JsonElement e)
+                    ? e.GetString() : "unspecified";
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private void DrawConnectionPicker(Vector2 panelMin, Vector2 panelSize, float s)

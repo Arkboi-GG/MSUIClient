@@ -19,6 +19,17 @@ public static class MultiActionBarUiLaw
     public const float BottomLeftRise = 17;
     public const float BottomBarGap = 10;
 
+    /// <summary>
+    /// Height of the bottom multibar row above the screen bottom, and of its lowest pixel. The
+    /// two bottom bars are authored 2px inside a 38-tall frame that rises <see cref="BottomRowRise"/>,
+    /// so their buttons occupy screen Y in [display.Y - BottomRowRise + 2, display.Y - BottomRowBottomRise].
+    /// MainMenuBar's own input host must stop AT BottomRowBottomRise: anything taller reaches into
+    /// this row, and because both are NoBringToFrontOnFocus windows (created bottom-of-stack in
+    /// reverse order) the older MainMenuBar host wins FindHoveredWindow and eats the row's clicks.
+    /// </summary>
+    public const float BottomRowRise = 95;
+    public const float BottomRowBottomRise = BottomRowRise - 2 - ButtonSize;
+
     public static int Base(BottomMultiActionBar bar) => bar == BottomMultiActionBar.Left
         ? BottomLeftBase : BottomRightBase;
 

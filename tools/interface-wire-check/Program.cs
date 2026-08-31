@@ -766,6 +766,13 @@ if (args.Contains("--imgui-policy-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--spell-focus-only", StringComparer.Ordinal))
+{
+    SpellFocusLayoutClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: SpellFocusLayout PASS");
+    return;
+}
+
 if (args.Contains("--binder-only", StringComparer.Ordinal))
 {
     BinderClinicalChecks.Run();

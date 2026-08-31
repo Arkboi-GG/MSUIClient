@@ -206,10 +206,11 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// The steed every new spawn is seated on — UNIT_FIELD_MOUNTDISPLAYID with no server to
-    /// set it. 10318 is the Mirage Raceway goblin rocket car, which is a mount like every
-    /// other 1.12 "vehicle". Riding one yourself is the mount toolkit's job, not this dial's.
+    /// set it. Defaults to 0 (no mount) so spawns stand on their own feet; dial in a display
+    /// id to seat new spawns. 10318 is the Mirage Raceway goblin rocket car, which is a mount
+    /// like every other 1.12 "vehicle". Riding one yourself is the mount toolkit's job.
     /// </summary>
-    private int _creatorMountDisplayId = 10318;
+    private int _creatorMountDisplayId = 0;
     private ulong _creatorNextSpawnGuid = CreatorDummyGuid;
     private readonly List<(ulong Guid, string Name, uint DisplayId)> _creatorSpawns = new();
 

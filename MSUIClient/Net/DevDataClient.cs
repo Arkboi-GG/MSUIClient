@@ -56,7 +56,7 @@ public sealed class DevDataClient
         string Source,          // "http" or "cache"
         string? Error);         // non-null = the fetch failed (result may be stale cache)
 
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private readonly HttpClient _http = WebAppHttp.Create(TimeSpan.FromSeconds(15));
     private readonly string _cachePath;
     private volatile TemplateResult? _templates;
     private Task? _fetching;

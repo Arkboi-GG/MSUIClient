@@ -139,8 +139,20 @@ public sealed partial class GameLoop
     private void ApplyTrainerSuccess(byte[] body)
     {
         TrainerResult result = TrainerPackets.ParseSuccess(body);
+        bool refreshed = false;
+        if (_trainer is { } trainer && trainer.TrainerGuid == result.TrainerGuid)
+        {
+            refreshed = trainer.Spells.Any(spell =>
+                spell.ServiceSpellId == result.ServiceSpellId &&
+                spell.State != TrainerFrameUiLaw.UsedState);
+            _trainer = trainer with
+            {
+                Spells = TrainerFrameUiLaw.MarkServiceUsed(
+                    trainer.Spells, result.ServiceSpellId),
+            };
+        }
         EmitInterface("trainer", "buy", "SUCCEEDED", result.TrainerGuid,
-            $"serviceSpell={result.ServiceSpellId};knownBefore={_trainerKnownBefore?.Count ?? _actions.KnownSpells.Count}");
+            $"serviceSpell={result.ServiceSpellId};knownBefore={_trainerKnownBefore?.Count ?? _actions.KnownSpells.Count};rowRefreshed={refreshed}");
     }
 
     private void ApplyTrainerFailure(byte[] body)
@@ -256,6 +268,7 @@ public sealed partial class GameLoop
         }
 
         int maximum=Math.Max(0,tree.Count-TrainerFrameUiLaw.VisibleRows);
+        _trainerScroll=Math.Clamp(_trainerScroll,0,maximum);
         if (ImGui.IsMouseHoveringRect(
                 origin + TrainerFrameUiLaw.ListWheel.Min * scale,
                 origin + TrainerFrameUiLaw.ListWheel.Max * scale, false))

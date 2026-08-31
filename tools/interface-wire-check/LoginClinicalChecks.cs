@@ -63,11 +63,16 @@ internal static class LoginClinicalChecks
         Check(runtime.Contains("GlueButton(\"Manage Connection\"", StringComparison.Ordinal) &&
               runtime.Contains("GlueButton(\"Launch Configurations\"",
                   StringComparison.Ordinal) &&
+              runtime.Contains("GlueButton(\"MSUI Web Connection\"",
+                  StringComparison.Ordinal) &&
+              // Bottom-anchored, so a third button cannot punch through the Remember
+              // Account Name checkbox at any GlueTune.ButtonHeightMul.
+              runtime.Contains("float menuBottom = 645f * s", StringComparison.Ordinal) &&
               runtime.Contains("new Vector2(176f * s, small.Y)",
                   StringComparison.Ordinal) &&
               !runtime.Contains("GlueMenuButton(\"Manage Account\"", StringComparison.Ordinal) &&
               !runtime.Contains("GlueMenuButton(\"Community Site\"", StringComparison.Ordinal),
-            "login connection/configuration menu replacement drift");
+            "login connection/configuration/web-connection menu replacement drift");
         Check(profiles.Contains("class GameLoop", StringComparison.Ordinal) &&
               profiles.Contains("EnsureLoginProfilesInitialized", StringComparison.Ordinal) &&
               profiles.Contains("_config.RealmdHost = connection.RealmdHost.Trim()",
@@ -88,17 +93,62 @@ internal static class LoginClinicalChecks
               profiles.Contains("\"scroll.dn.dn\"", StringComparison.Ordinal) &&
               profiles.Contains("_skin.GlueImageUv", StringComparison.Ordinal) &&
               profiles.Contains("boxMin.X + 11f * s", StringComparison.Ordinal) &&
+              profiles.Contains("OpenMsuiWebConnection", StringComparison.Ordinal) &&
+              profiles.Contains("/SpellCompleter/Pending", StringComparison.Ordinal) &&
+              profiles.Contains("LoginProfiles.WebAppUrl", StringComparison.Ordinal) &&
+              profiles.Contains("_msuiWebProbeTask", StringComparison.Ordinal) &&
+              profiles.Contains("TryNormalizeWebAppUrl", StringComparison.Ordinal) &&
               !profiles.Contains("ImGui.Combo", StringComparison.Ordinal) &&
               !profiles.Contains("ImGui.SetWindowFontScale(s)",
                   StringComparison.Ordinal) &&
               !profiles.Contains("ImGuiWindowFlags.NoCollapse", StringComparison.Ordinal) &&
               !profiles.Contains("ImGui.Selectable", StringComparison.Ordinal),
             "connection/launch profile runtime wiring drift");
+        // The account/password/Login cluster draws exactly where a login modal does, and
+        // left visible underneath it EATS the modal's clicks. Every login modal must
+        // therefore stand it down through LoginConfigurationModalOpen.
+        Check(profiles.Contains("_launchMenuOpen || _manageConnectionsOpen || " +
+                  "_launchConfigurationsOpen ||", StringComparison.Ordinal) &&
+              profiles.Contains("_msuiWebOpen;", StringComparison.Ordinal),
+            "MSUI web-connection modal must stand the login account cluster down");
         Check(creator.Contains("LoginUiLaw.LaunchOptions(disp, s)", StringComparison.Ordinal) &&
               creator.Contains("UseLaunchConfiguration(", StringComparison.Ordinal) &&
               !creator.Contains("float w = 420f * s", StringComparison.Ordinal) &&
               !creator.Contains("var bSize = new Vector2(250f * s", StringComparison.Ordinal),
             "launch-options modal geometry must stay in LoginUiLaw");
+
+        // Creator is an offline WORLD, not merely a sticky front-door selection. A client
+        // stopped during Live -> Creator remains in NetState.Disconnected; retaining it lets
+        // PumpNet run ResetSuiControl every frame, which clears CharacterController.Flying on
+        // the frame after F turns it on. The detach must happen before creator ownership is
+        // armed so LocalPlayerGuid also resolves to CreatorLocalGuid from the first world frame.
+        int enterOffline = creator.IndexOf("private void EnterOfflineWorld()",
+            StringComparison.Ordinal);
+        int stopNetwork = creator.IndexOf("_net?.Stop();", enterOffline,
+            StringComparison.Ordinal);
+        int disposeNetwork = creator.IndexOf("_net?.Dispose();", stopNetwork,
+            StringComparison.Ordinal);
+        int clearNetwork = creator.IndexOf("_net = null;", disposeNetwork,
+            StringComparison.Ordinal);
+        int armCreatorWorld = creator.IndexOf("_creatorWorldRequested = true;", clearNetwork,
+            StringComparison.Ordinal);
+        Check(enterOffline >= 0 && stopNetwork > enterOffline &&
+              disposeNetwork > stopNetwork && clearNetwork > disposeNetwork &&
+              armCreatorWorld > clearNetwork,
+            "creator-world entry must detach the live network client before arming the offline world");
+
+        int creatorSwitch = creator.IndexOf(
+            "else if (mode == LaunchModeCreator && !_worldLoadStarted)",
+            StringComparison.Ordinal);
+        int switchStop = creator.IndexOf("_net.Stop();", creatorSwitch,
+            StringComparison.Ordinal);
+        int switchDispose = creator.IndexOf("_net.Dispose();", switchStop,
+            StringComparison.Ordinal);
+        int switchClear = creator.IndexOf("_net = null;", switchDispose,
+            StringComparison.Ordinal);
+        Check(creatorSwitch >= 0 && switchStop > creatorSwitch &&
+              switchDispose > switchStop && switchClear > switchDispose,
+            "Live -> Creator must discard its stopped network client so Creator -> Client can rebuild");
 
         string settingsPath = Path.Combine(Path.GetTempPath(),
             $"msui-login-account-{Guid.NewGuid():N}.json");
@@ -121,10 +171,13 @@ internal static class LoginClinicalChecks
                 Password = "local-home-password", AutoEnterWorld = true,
                 Character = "Testwar",
             });
+            store.LoginProfiles.WebAppUrl = "http://127.0.0.1:5000";
             store.Save();
             SettingsStore restored = SettingsStore.Load(root, settingsPath);
             Check(restored.Settings.SavedAccountName == "RememberedAccount",
                 "Remember Account Name settings round-trip drift");
+            Check(restored.LoginProfiles.WebAppUrl == "http://127.0.0.1:5000",
+                "MSUI web app address round-trip drift");
             Check(restored.LoginProfiles.ActiveConnectionId == "home" &&
                   restored.LoginProfiles.ActiveLaunchConfigurationId == "raid" &&
                   restored.LoginProfiles.Connections is
@@ -138,6 +191,25 @@ internal static class LoginClinicalChecks
         finally
         {
             if (File.Exists(settingsPath)) File.Delete(settingsPath);
+        }
+
+        // The web-app address used to live in DevWindowSettings, where a preset load
+        // could stomp it. An existing file must carry forward EXACTLY once, and the
+        // legacy key must not survive to re-carry a later deliberate blanking.
+        string legacyPath = Path.Combine(Path.GetTempPath(),
+            $"msui-login-legacy-sui-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(legacyPath,
+                "{\"Settings\":{\"DevWindow\":{\"SuiBaseUrl\":\"http://192.168.0.2:5000\"}}}");
+            SettingsStore promoted = SettingsStore.Load(root, legacyPath);
+            Check(promoted.LoginProfiles.WebAppUrl == "http://192.168.0.2:5000" &&
+                  promoted.Settings.DevWindow.SuiBaseUrl is null,
+                "legacy DevWindow.SuiBaseUrl must promote to LoginProfiles.WebAppUrl exactly once");
+        }
+        finally
+        {
+            if (File.Exists(legacyPath)) File.Delete(legacyPath);
         }
     }
 

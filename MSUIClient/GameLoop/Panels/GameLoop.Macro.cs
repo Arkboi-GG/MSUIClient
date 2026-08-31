@@ -565,9 +565,13 @@ public sealed partial class GameLoop
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size * scale, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
+        // "Enter Macro Name" / "Choose an Icon" is a child dialog of MacroFrame and overlaps a
+        // 40px column of it. It must not carry NoBringToFrontOnFocus: that flag creates a window
+        // at the BOTTOM of the display order, and this popup is always created after its own
+        // owner, so it would open buried underneath the frame that spawned it.
         ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground |
-            ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoBringToFrontOnFocus;
+            ImGuiWindowFlags.NoNav;
         if (!ImGui.Begin("##macro-popup", flags))
         {
             ImGui.End();

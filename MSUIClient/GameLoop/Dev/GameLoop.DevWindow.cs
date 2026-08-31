@@ -37,7 +37,7 @@ public sealed partial class GameLoop
         _devWindowOpen = !_devWindowOpen;
         if (!_devWindowOpen) CancelDevEdit();   // never leave an armed mode eating clicks
         if (_devWindowOpen && DevData.Templates is null && !DevData.Fetching)
-            DevData.BeginFetchTemplates(Settings.DevWindow.SuiBaseUrl);
+            DevData.BeginFetchTemplates(SuiWebAppUrl);
     }
 
     // ── overlay focus set (the "Selected only" scope) ────────────────────────
@@ -116,7 +116,7 @@ public sealed partial class GameLoop
         if (!need) return;
         _devWorldFetchCheckedAt = NowSeconds();
         _devWorldFetchCentre = centre;
-        DevData.BeginFetchWorld(Settings.DevWindow.SuiBaseUrl, map, centre.X, centre.Y);
+        DevData.BeginFetchWorld(SuiWebAppUrl, map, centre.X, centre.Y);
     }
 
     /// <summary>The window shell: creator chrome, drawn from a mode-neutral BuildGui
@@ -181,9 +181,9 @@ public sealed partial class GameLoop
         ImGui.SameLine(MathF.Max(avail - buttonW, 0f));
         if (ImGui.SmallButton("Refresh DB") && !data.Fetching && !data.WorldFetching)
         {
-            data.BeginFetchTemplates(Settings.DevWindow.SuiBaseUrl, forceRefresh: true);
+            data.BeginFetchTemplates(SuiWebAppUrl, forceRefresh: true);
             Vector3 centre = _controller?.Position ?? Vector3.Zero;
-            data.BeginFetchWorld(Settings.DevWindow.SuiBaseUrl, _config.Start.Map,
+            data.BeginFetchWorld(SuiWebAppUrl, _config.Start.Map,
                 centre.X, centre.Y, forceRefresh: true);
         }
 
@@ -425,11 +425,16 @@ public sealed partial class GameLoop
         if (!ImGui.CollapsingHeader("Data source")) return;
         var dev = Settings.DevWindow;
 
-        string url = dev.SuiBaseUrl;
+        string url = SuiWebAppUrl;
         ImGui.SetNextItemWidth(CreatorControlWidth);
         if (ImGui.InputText("MangosSuperUI URL", ref url, 128))
-            dev.SuiBaseUrl = url;
-        if (ImGui.IsItemDeactivatedAfterEdit()) SettingsFile?.Save();
+            LoginProfiles.WebAppUrl = url;
+        if (ImGui.IsItemDeactivatedAfterEdit())
+        {
+            LoginProfiles.WebAppUrl = LoginProfiles.WebAppUrl.Trim().TrimEnd('/');
+            SettingsFile?.Save();
+        }
+        ImGui.TextDisabled("set on the login screen: MSUI Web Connection");
 
         ImGui.TextDisabled(DevData.CacheAge is { } age
             ? $"disk cache: dev-cache\\creature_template.csv ({DescribeAge(age)})"

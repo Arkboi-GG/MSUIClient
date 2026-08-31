@@ -38,7 +38,7 @@ public sealed class EncounterDataClient(string repoRoot)
         "creature_template",
     ];
 
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(30) };
+    private readonly HttpClient _http = WebAppHttp.Create(TimeSpan.FromSeconds(30));
     private readonly string _cacheDirectory = Path.Combine(repoRoot, "dev-cache");
     private volatile EncounterWorldData? _data;
     private Task? _fetching;

@@ -14,6 +14,12 @@ namespace MSUIClient;
 // full-width BOTTOM DECK that whatever rail button is pressed fills with its
 // controls. The world keeps the whole centre. Settings.Creator.Workspace turns
 // the whole thing off and the classic floating windows return unchanged.
+//
+// The Spell Workshop opts OUT of this shape into a third layout - two wide
+// master/detail panes and no deck at all, because it registers one section per
+// phase model and the deck's columns clip every one of them. See
+// GameLoop.Creator.SpellFocus.cs; DrawCreatorWorkspace hands off to it via a
+// single early return.
 // ─────────────────────────────────────────────────────────────────────────────
 
 public sealed partial class GameLoop
@@ -37,21 +43,33 @@ public sealed partial class GameLoop
     /// <summary>The docked workspace is on and this is a creator-world frame.</summary>
     private bool CreatorWorkspaceActive => _creatorWorldRequested && Settings.Creator.Workspace;
 
+    /// <summary>The square rail's width - the ONE home of the 64f literal.</summary>
+    private float WorkspaceRailWidth =>
+        64f * MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * CreatorBarScale;
+
     /// <summary>How far right-edge-anchored windows (the customizer, its slide-in
-    /// launcher) must move left so the right rail does not cover them.</summary>
-    private float WorkspaceRightInsetX => CreatorWorkspaceActive
-        ? 64f * MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * CreatorBarScale
-        : 0f;
+    /// launcher) must move left so the right rail does not cover them - or, in the
+    /// Spell Workshop's focus layout, the far wider right pane.</summary>
+    private float WorkspaceRightInsetX => !CreatorWorkspaceActive ? 0f
+        : SpellFocusActive ? SpellFocusPaneWidth
+        : WorkspaceRailWidth;
 
     private void DrawCreatorWorkspace()
     {
         var io = ImGui.GetIO();
         float s = MathF.Max(io.DisplaySize.Y / GlueCanvasH, 0.5f) * CreatorBarScale;
-        float railW = 64f * s;
+        float railW = WorkspaceRailWidth;
 
         // Ctrl+E can close the Lab underneath the encounter view.
         if (_workspaceView == WorkspaceView.Encounter && !_encounterLabOpen)
             _workspaceView = WorkspaceView.Root;
+
+        // The Spell Workshop's focus layout REPLACES this whole layout: one early
+        // return both swaps the rails for the two wide panes and suppresses the
+        // deck (DrawWorkspaceDeck is simply never reached). Note it does NOT write
+        // Settings.Creator.DeckFraction - a 0 there would clamp back to 0.16 below
+        // and permanently shrink the user's deck.
+        if (SpellFocusActive) { DrawCreatorSpellFocus(); return; }
 
         DrawWorkspaceLeftRail(railW, s);
         DrawWorkspaceRightRail(railW, s);
@@ -151,8 +169,12 @@ public sealed partial class GameLoop
         {
             void Panel(string label, string icon, CreatorPanel panel, string tip)
             {
-                if (WorkspaceRailButton(label, label, icon, railW, s, _creatorPanel == panel, tip))
-                    _creatorPanel = _creatorPanel == panel ? CreatorPanel.None : panel;
+                if (!WorkspaceRailButton(label, label, icon, railW, s, _creatorPanel == panel, tip))
+                    return;
+                _creatorPanel = _creatorPanel == panel ? CreatorPanel.None : panel;
+                // Opening a panel afresh clears a session-only focus opt-out, so
+                // Escape/"deck" suppress THIS visit to the workshop, not every later one.
+                if (_creatorPanel == panel) _spellFocusSuppressed = false;
             }
 
             Panel("Char", "INV_Misc_Head_Human_01", CreatorPanel.Character,
@@ -339,6 +361,21 @@ public sealed partial class GameLoop
             Row("?", "This window.");
             ImGui.Spacing();
 
+            Head("FOCUS MODE (the Spell Workshop)");
+            Row("What", "The whole workshop moves into ONE right sidebar - the spell, its " +
+                        "phases, then the selected phase's dials and images - and the deck " +
+                        "stands down, so everything left of it stays clear to watch the " +
+                        "spell play.");
+            Row("Phases", "Click a phase row to edit it. There are no tear-off corners here: " +
+                          "the sidebar is the home for every section.");
+            Row("Leaving", "The Spell icon closes the workshop. 'deck' returns it to the " +
+                           "rails+deck for this session (a 'focus' button in the deck header " +
+                           "brings it back). The UI dials' 'Spell Workshop focus layout' " +
+                           "checkbox is the permanent switch. Escape does NOT leave focus " +
+                           "mode - it keeps its normal meaning.");
+            Row("Width", "Drag the sidebar's left edge.");
+            ImGui.Spacing();
+
             Head("BOTTOM DECK");
             Row("Top edge", "Drag the deck's top edge to make it taller or shorter.");
             Row("dials", "Per-window size dials for whatever the deck is showing.");
@@ -441,9 +478,28 @@ public sealed partial class GameLoop
                         ? $"{definition.Name} · {_encounterOutcome}" : "no encounter loaded"
                     : CreatorPanelStatus(panelId);
             if (status.Length > 0) { ImGui.SameLine(); ImGui.TextDisabled(status); }
+            // The Spell Workshop can be sent BACK to its focus layout from here -
+            // otherwise the deck's own "deck" button and Escape would be one-way.
+            bool offerFocus = panelId == "Spells";
             float gearW = ImGui.CalcTextSize("dials").X + 16f * CreatorUiScale;
+            if (offerFocus) gearW += ImGui.CalcTextSize("focus").X + 24f * CreatorUiScale;
             ImGui.SameLine(MathF.Max(ImGui.GetCursorPosX(),
                 ImGui.GetWindowContentRegionMax().X - gearW));
+            if (offerFocus)
+            {
+                if (ImGui.SmallButton("focus"))
+                {
+                    _spellFocusSuppressed = false;
+                    if (!Settings.Creator.SpellFocus)
+                    {
+                        Settings.Creator.SpellFocus = true;
+                        SettingsFile?.Save();
+                    }
+                }
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("Give the workshop both sidebars and clear the centre.");
+                ImGui.SameLine();
+            }
             if (ImGui.SmallButton("dials"))
                 _openPanelTuneId = _openPanelTuneId is null ? _activePanelTune : null;
             ImGui.Separator();

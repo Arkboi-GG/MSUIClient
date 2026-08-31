@@ -119,7 +119,16 @@ public sealed partial class GameLoop
     {
         if (BuildCreatorSpellEntry(doc, tempName) is not { } spellEntry) return;
 
-        string url = Settings.DevWindow.SuiBaseUrl;
+        string url = SuiWebAppUrl;
+        if (url.Length == 0)
+        {
+            // BeginPush("") would build "/SpellCompleter/Push" and HttpClient throws the
+            // opaque "An invalid request URI was provided" - say the useful thing instead.
+            _creatorExportStatus = "No MSUI Web connection - set the web app address on " +
+                "the login screen (MSUI Web Connection), or in Data source below.";
+            Console.WriteLine($"[creator] {_creatorExportStatus}");
+            return;
+        }
         SpellPush.BeginPush(url, spellEntry);
         _creatorExportStatus = $"Pushing '{tempName}' to {url}…";
         Console.WriteLine($"[creator] {_creatorExportStatus}");
@@ -305,7 +314,15 @@ public sealed partial class GameLoop
             "file by hand, but only a PUSH carries the custom audio through.\n\n" +
             "Either way the design is complete: tuning data, patched models, recolored " +
             "images and custom audio. Same temp name = replace.\n\n" +
-            "Push: " + Settings.DevWindow.SuiBaseUrl + "\nFile: " + CreatorSessionPath);
+            "Push target: " + (SuiWebAppUrl.Length > 0
+                ? SuiWebAppUrl
+                : "not set up - login screen > MSUI Web Connection") +
+            "\nFile: " + CreatorSessionPath);
+
+        ImGui.TextDisabled(SuiWebAppUrl.Length > 0
+            ? $"Push target: {SuiWebAppUrl}"
+            : "No MSUI Web connection - pushing is off. Set the address on the login " +
+              "screen under 'MSUI Web Connection', or here in Data source.");
 
         ImGui.SetNextItemWidth(180f * cs);
         ImGui.InputText("##session-name", _creatorSessionNameBuf,
@@ -315,13 +332,20 @@ public sealed partial class GameLoop
         string tempName = BufToString(_creatorSessionNameBuf).Trim();
         bool nameOk = tempName.Length > 0;
         bool pushing = SpellPush.Pushing;
-        if (!nameOk || pushing) ImGui.BeginDisabled();
+        // Gated on the address being SET, never on a verify outcome: a probe can fail for
+        // reasons a push would survive, and the user must stay able to just try.
+        bool webOk = SuiWebAppUrl.Length > 0;
+        if (!nameOk || pushing || !webOk) ImGui.BeginDisabled();
         if (CreatorButton("Push to Completer"))
             PushCreatorSpell(doc, tempName);
-        if (!nameOk || pushing) ImGui.EndDisabled();
+        if (!nameOk || pushing || !webOk) ImGui.EndDisabled();
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip($"Send this design to {Settings.DevWindow.SuiBaseUrl}\n" +
-                "It shows up under Gameplay Tuning > Spells > Spell Completer.");
+            ImGui.SetTooltip(webOk
+                ? $"Send this design to {SuiWebAppUrl}\n" +
+                  "It shows up under Gameplay Tuning > Spells > Spell Completer.\n" +
+                  "Address: login screen > MSUI Web Connection."
+                : "No MSUI Web connection. Set the web app address on the login screen " +
+                  "under 'MSUI Web Connection', or in Data source below.");
 
         ImGui.SameLine();
         if (!nameOk) ImGui.BeginDisabled();
@@ -336,12 +360,17 @@ public sealed partial class GameLoop
             ImGui.SameLine();
             ImGui.TextDisabled("name it first");
         }
+        else if (!webOk)
+        {
+            ImGui.SameLine();
+            ImGui.TextDisabled("no web connection");
+        }
 
         // The push outcome, held until the next push replaces it. A failure names
         // the server, because the usual cause is that this machine cannot reach it.
         if (pushing)
         {
-            ImGui.TextDisabled($"pushing to {Settings.DevWindow.SuiBaseUrl}…");
+            ImGui.TextDisabled($"pushing to {SuiWebAppUrl}…");
         }
         else if (SpellPush.Result is { } push)
         {

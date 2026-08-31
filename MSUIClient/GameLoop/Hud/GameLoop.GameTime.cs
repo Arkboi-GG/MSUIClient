@@ -32,7 +32,11 @@ public sealed partial class GameLoop
         ImGui.SetNextWindowSize(hit.Size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
-        bool hostOpen = ImGui.Begin("##game-time-frame-host", VanillaWindowFlags);
+        // GameTimeFrame is the clock beside the minimap - standing furniture, not a UIPanel - so
+        // it keeps the display-back flag that VanillaWindowFlags no longer implies. It is the one
+        // consumer of that constant which is not a frame the player opens.
+        bool hostOpen = ImGui.Begin("##game-time-frame-host",
+            VanillaWindowFlags | ImGuiWindowFlags.NoBringToFrontOnFocus);
         ImGui.PopStyleVar();
         if (!hostOpen)
         {

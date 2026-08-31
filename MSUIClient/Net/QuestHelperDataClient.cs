@@ -31,7 +31,7 @@ public sealed class QuestHelperDataClient
         "npc_vendor",
     ];
 
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(2) };
+    private readonly HttpClient _http = WebAppHttp.Create(TimeSpan.FromMinutes(2));
     private volatile QuestHelperDataCatalog? _data;
     private Task? _fetching;
     private DateTime _nextFetchUtc;
