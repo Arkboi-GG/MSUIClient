@@ -9,7 +9,7 @@ namespace MSUIClient.Engine.UI;
 /// <see cref="FontObjectLaw"/> (the transcribed Fonts.xml); rendering follows the derived 1.12
 /// laws in <see cref="GameTextLaw"/>.
 ///
-/// RULES FOR PANEL CODE (see docs/current/ui/UI_TEXT_PARITY_PLAYBOOK.md)
+/// RULES FOR PANEL CODE
 ///   - Name the font object the panel's FrameXML names. Never hand-pick a height, shadow, or
 ///     outline at a call site - that is the "title drawn 14px white when the XML says 12px gold
 ///     shadowed" bug class.

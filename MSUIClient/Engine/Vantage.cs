@@ -10,7 +10,7 @@ namespace MSUIClient.Engine;
 /// geometry itself - world position, camera, time-of-day and every scene toggle.
 /// Load one and the frame is reproduced exactly, so a screenshot from Nico and a
 /// scene dump for the assistant describe the same instant and can both be lined
-/// up against the real 1.12 client. See FOUNDATION_PLAN.md and PLAN_01_VANTAGES.md.
+/// up against the real 1.12 client.
 ///
 /// This is a plain serializable object on purpose: the scene dump (step 2) embeds
 /// a Vantage as its reproducible half. Property defaults match the renderer and

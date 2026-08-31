@@ -1,18 +1,18 @@
 # tools/mpqpy — read the vanilla archives without a build
 
 A Python port of the client's own MPQ read path, so **format questions can be
-answered from Nico's real archives in an assistant sandbox, in minutes, without
+answered from local game archives in minutes, without
 compiling or launching anything.**
 
-Built 2026-07-26 during PLAN_15. Everything in that plan's §4 — the MLIQ
-coordinate convention, the tile unit, the flag encoding, the liquid-type
-mapping — came out of these two files. Two of those four answers contradicted
+The MLIQ coordinate convention, tile unit, flag encoding, and liquid-type
+
+mapping were all derived with these files. Two of those four answers contradicted
 comments that were sitting in `WmoReader.cs` at the time.
 
 ## Why this exists
 
 Every previous coordinate question on this project cost a round trip: write a
-hypothesis, ship code, wait for Nico to build and run it, read a console paste,
+hypothesis, ship code, wait for an operator to build and run it, read a console paste,
 repeat. The ADT placement space, the vmap internal space, the three model vertex
 conventions, the M2 collision hull — all of them were settled that way, several
 of them after two or three wrong guesses.
@@ -25,7 +25,7 @@ about 500 lines. **When the question is "what do the bytes say", read the bytes.
 | File | What it is |
 |---|---|
 | `mpq.py` | MPQ v1 reader. Port of `Formats/Mpq/MpqArchive.cs` + `MpqCrypto.cs` — same StormBuffer, same `HashString`, same block flags, same sector logic. Coverage matches the C#: stored, zlib (0x02), PKWARE (0x08 / implode), single-unit, encrypted. |
-| `wmoliq.py` | WMO group parser (MOGP header, MOVT bounds, MLIQ) plus the convention scorer that settled PLAN_15 §4.1. Useful as a worked example of the pattern. |
+| `wmoliq.py` | WMO group parser (MOGP header, MOVT bounds, MLIQ) plus the convention scorer used to settle the coordinate layout. Useful as a worked example of the pattern. |
 
 ## Use
 
@@ -37,25 +37,11 @@ data = a.read_file(r'World\wmo\Azeroth\Buildings\Stormwind\Stormwind_096.wmo')
 names = a.read_file('(listfile)')     # present in these archives, and worth reading first
 ```
 
-## Transfer limits, which decide what can be asked
+## Archive size and load order
 
-The device bridge caps a staged file at 400 MB. That is the real constraint on
-what this tool can answer:
+Some client archives are several gigabytes. Read them locally and avoid copying or
 
-| Archive | Size | Reachable |
-|---|---|---|
-| `dbc.MPQ` | 3.8 MB | yes |
-| `interface.MPQ` | 70 MB | yes |
-| `model.MPQ` | 191 MB | yes |
-| `wmo.MPQ` | 364 MB | yes, just |
-| `texture.MPQ` | 665 MB | **no** |
-| `terrain.MPQ` | 1.1 GB | **no** |
-| `patch.MPQ` | 2.1 GB | **no** |
-
-`patch.MPQ` being out of reach is why PLAN_15 §4.4 derives the liquid-type
-mapping from placement rather than reading `LiquidType.dbc` — that DBC is not in
-`dbc.MPQ`. It is also why anything needing patched data still has to go through a
-running client.
+committing game data into this repository.
 
 **Load order matters if you ever read more than one archive**: patches override
 base content, and the client's `MpqMount` applies them

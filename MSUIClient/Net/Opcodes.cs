@@ -563,7 +563,7 @@ public enum Op : ushort
     SMSG_TEXT_EMOTE              = 0x0105,
 
     // --- SuperUI CRPG/RTS control extension (SuperUI-Core fork only; above the
-    // vanilla table, see docs/SUI_WIRE_PROTOCOL.md in SuperUI-Core) ---
+    // vanilla table; values are shared with the matching server extension) ---
     CMSG_SUI_CONTROL_REQUEST     = 0x033C,
     CMSG_SUI_CONTROL_RELEASE     = 0x033D,
     CMSG_SUI_ORDER               = 0x033E,
@@ -588,8 +588,7 @@ public enum Op : ushort
     CMSG_SUI_PORTAL_READY        = 0x034E,
     SMSG_SUI_PORTAL_STATE        = 0x034F,
 
-    // 0x0350/0x0351 (848/849) are provisionally spoken for by the dynamic-combat
-    // rotation pair (docs/plans/DYNAMIC_COMBAT_RULES_AND_ENCOUNTER_INTELLIGENCE.md);
+    // 0x0350/0x0351 (848/849) are reserved for the dynamic-combat rotation pair;
     // PARTY_MEMBER_FACTS therefore starts one audited pair later.
     CMSG_SUI_MEMBER_FACTS        = 0x0352,
     SMSG_SUI_MEMBER_SPELLS       = 0x0353,

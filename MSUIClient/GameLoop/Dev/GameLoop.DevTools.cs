@@ -10,7 +10,7 @@ using MSUIClient.World.Wmo;
 namespace MSUIClient;
 
 // ============================================================================
-// DevTools - the switchable developer overlay layer (FOUNDATION_PLAN.md sec 12).
+// DevTools - the switchable developer overlay layer.
 //
 // Everything in this file is developer TOOLING: it observes/presents core state
 // and authors dev data (vantages now; the scene dump and override authoring
@@ -20,7 +20,7 @@ namespace MSUIClient;
 // ============================================================================
 public sealed partial class GameLoop
 {
-    // ---- Vantages: reproducible viewpoints (FOUNDATION_PLAN / PLAN_01) ----
+    // ---- Vantages: reproducible viewpoints --------------------------------
 
     /// <summary>
     /// Snapshot the current viewpoint - position, camera, time-of-day and every
@@ -197,7 +197,7 @@ public sealed partial class GameLoop
            $"shellGuard={v.WmoShellNearGuard:F0} impostorVerts={v.WmoImpostorMaxVertices} " +
            $"doodad={v.DoodadEnabled} doodadDist={v.DoodadDrawDistance:F0}";
 
-    // ---- Scene dump: coherent data output (FOUNDATION_PLAN / PLAN_02, step 2) ----
+    // ---- Scene dump: coherent data output ---------------------------------
 
     /// <summary>
     /// Write a structured JSON scene dump (dumps/&lt;name&gt;.json) plus a one-line

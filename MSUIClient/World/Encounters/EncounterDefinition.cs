@@ -14,9 +14,8 @@ namespace MSUIClient.World.Encounters;
 // scripting language — it gets an ability marked UnknownUnmodeled and shows up
 // in the coverage report as a hole. A visible hole beats a confident lie.
 //
-// Field names and the fidelity registry deliberately mirror
-// docs/plans/DYNAMIC_COMBAT_RULES_AND_ENCOUNTER_INTELLIGENCE.md §11.3-11.4 so
-// the two designs converge instead of forking.
+// Field names and the fidelity registry form the shared contract for encounter
+// authoring, simulation, and coverage reporting.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// <summary>

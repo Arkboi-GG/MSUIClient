@@ -10,8 +10,7 @@ namespace MSUIClient;
 // A purpose-built strategic surface that reuses the vanilla parchment art and
 // exact zone silhouettes: dual-continent hover shows the live bots/players
 // census (SMSG_SUI_ZONE_INTEL), while drill-in shows the owner's own
-// units, and click-to-fly for both units and open ground. Owner direction
-// 2026-08-12 (CRPG_RTS_WIP.md "Future design" Part 1).
+// units, and click-to-fly for both units and open ground.
 public sealed partial class GameLoop
 {
     // ── tier-2 RTS worldstate (SMSG_SUI_RTS_STATE; all zeros in vanilla) ─────

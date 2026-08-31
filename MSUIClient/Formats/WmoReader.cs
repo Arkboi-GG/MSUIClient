@@ -77,7 +77,7 @@ public class WmoReader
     // MOPR = portal-to-group references (8 bytes: portalIndex, groupIndex, side)
     // These are PARSED but not yet consumed: traversal is a separate step. Until
     // it exists the renderer keeps its existing per-group frustum/distance path,
-    // so adding these cannot change what draws. See PROJECT_HANDBOOK 3.26.
+    // so adding these cannot change what draws.
     private static readonly uint MAGIC_MOPV = ChunkId("MOPV");
     private static readonly uint MAGIC_MOPT = ChunkId("MOPT");
     private static readonly uint MAGIC_MOPR = ChunkId("MOPR");
@@ -419,7 +419,7 @@ public class WmoReader
                 // belong to this group: PortalStart is the first index into the
                 // root MOPR array, PortalCount how many. This is what a real
                 // traversal walks to move from cell to cell. Parsed now, unused
-                // until the traversal lands (PROJECT_HANDBOOK 3.26).
+                // until the traversal lands.
                 group.PortalStart = BitConverter.ToUInt16(data, chunkData + 0x24);
                 group.PortalCount = BitConverter.ToUInt16(data, chunkData + 0x26);
                 // MOGP +0x34 = groupLiquid (uint32 — LiquidType DBC id, used by MLIQ).

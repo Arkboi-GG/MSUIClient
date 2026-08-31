@@ -26,13 +26,12 @@ namespace MSUIClient;
 ///                  and that useful size is remembered in settings.json.
 ///
 /// THIS IS THE FIRST THING ON THE NON-DEVTOOLS SIDE OF THE SEAM
-///   FOUNDATION_PLAN section 12 says developer tooling ships off. DrawSettingsModal
-///   is called BEFORE Gui()'s early return so it survives a shipping build. Do not
+///   Developer tooling ships off. DrawSettingsModal is called BEFORE Gui()'s early return so it survives a shipping build. Do not
 ///   move it after that return and do not add a DevTools check to it.
 ///
 /// LIVE APPLY, NOT APPLY-ON-OK
 ///   Everything takes effect as you drag. This client's whole working method is
-///   by-eye A/B (handbook section 6) and an apply-on-OK dialog breaks it. The
+///   by-eye A/B and an apply-on-OK dialog breaks it. The
 ///   snapshot taken when the menu opens is what Cancel restores.
 ///
 /// WHAT CLOSES IT

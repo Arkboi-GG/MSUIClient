@@ -117,18 +117,12 @@ Desktop.ini
 .DS_Store
 
 # ── Documentation policy ─────────────────────────────────────────────────────
-# Keep detailed engineering notes under docs/. The repository root is reserved
-# for public entry points and build metadata.
-
-/docs/*
-!/docs/README.md
-!/docs/current/
-!/docs/current/**
-!/docs/systems/
-!/docs/systems/**
-!/docs/plans/
-!/docs/plans/**
-
+# Detailed plans, system records, handoffs, parity notes, and cross-repository
+# working documents are local development context. Public documentation belongs
+# in the curated root README.
+/docs/
+/PROJECT_HANDBOOK.md
+/SETUP.md
 # Explicitly local/disposable holding area.
 /can delete or move/
 
@@ -200,25 +194,18 @@ live-runs/N2-0-2-1-unit-frames-20260801-155000/
 /NIGHT_*/
 /_to_delete/
 
-# Benilla/MSUI clinical parity workspace. Snapshots, generated reports, packet
-# workspaces, copied source evidence, screenshots, and historical ledger
-# iterations are local/regenerable artifacts and must not enter Git. The
-# durable reviewed state is the current trace + claim ledger below.
-/parity/snapshots/
-/parity/reports/
-/parity/packets/
-/parity/claims/*
-!/parity/claims/current.jsonl
-/parity/traces/*
-!/parity/traces/current.jsonl
-/parity/config.local.json
-
-# Parity working data that stays out of history: archive/ is the retired
-# packet-machinery corpus (34k files, 1.2 GB), verification/ the raw triage
-# evidence batches (96 MB). The registry/ tree is the source of truth and IS
-# committed; these two are its bulk inputs, reproducible and unreviewable.
-parity/archive/
-parity/verification/
+# Benilla/MSUI parity registries, evidence, decisions, snapshots, and tools are
+# internal working material. They encode dated audit policy and are not public
+# product documentation or runtime input.
+/parity/
+/tools/docs/
+/tools/snapshot-parity/
+/tools/ui-parity/
+/tools/commander-map-clinical-check/
+/tools/rts-control-group-check/
+/tools/rts-move-order-check/
+/tools/sui-faction-control-source-check/
+/tools/vmangos-ra/
 
 # NPC dev window: cached DB exports (regenerated on demand from MangosSuperUI)
 /dev-cache/

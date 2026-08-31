@@ -14,9 +14,9 @@ the tree, the command above just works.
 
 ## Why it exists
 
-The settings UI was built twice from memory and got the texture paths and the
-nine-slice layout wrong both times — see `SYSTEM_SETTINGS_UI.md` §7. What settled
-it was reading `interface.MPQ` directly:
+The settings UI was initially built from memory and got both the texture paths and the
+
+nine-slice layout wrong. Reading `interface.MPQ` directly settled it:
 
 - `(listfile)` gave the real paths, and which remembered ones do not exist
 - **`Interface\FrameXML\` ships in the archive — 194 files of Blizzard's own UI

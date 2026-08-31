@@ -46,7 +46,7 @@ Every partial of `GameLoop` lives under `MSUIClient/GameLoop/` in exactly one bu
 | `GameLoop/CreatorMode/` | The in-client Creator mode (content/spell authoring UI) | Creator, Creator.Ui, Creator.Spells, Creator.World, Creator.Session, Creator.Probe |
 | `GameLoop/Dev/` | **All** diagnostics/instrumentation: dev windows, parity checks, probes, capture/batch harnesses, the hitch recorder. Ships in the binary but is not gameplay. | DevTools.\*, DevWindow.\*, \*Parity, \*Probe, LiveRun, Hitch, LightProbe, Portals (WMO-portal debug readout), HudPreview |
 
-**When in doubt about `Dev/`:** if the file only *observes and reports* (reads renderer/game state and prints, dumps, captures, or asserts) and nothing in core depends on it, it is `Dev/`. This is the FOUNDATION_PLAN §12 seam — *core decides, the dev layer observes.* If a change to a `Dev/` file alters what is on screen in normal play, the seam is broken.
+**When in doubt about `Dev/`:** if the file only *observes and reports* (reads renderer/game state and prints, dumps, captures, or asserts) and nothing in core depends on it, it is `Dev/`. The seam is: *core decides, the dev layer observes.* If a change to a `Dev/` file alters what is on screen in normal play, the seam is broken.
 
 ---
 
@@ -84,4 +84,4 @@ Every partial of `GameLoop` lives under `MSUIClient/GameLoop/` in exactly one bu
 
 ## 6. Authority
 
-This law governs **where code lives and how it is named**. It does not override the per-system ground truth in `docs/systems/SYSTEM_*.md` or the invariants in `PROJECT_HANDBOOK.md` §3 — those govern *how a system behaves*. If this law and a system doc disagree about behavior, the system doc wins; if they disagree about layout, this law wins and the system doc should be corrected.
+This law governs **where code lives and how it is named**. Runtime behavior remains defined by the source and its checks; this layout document does not override either.

@@ -168,8 +168,8 @@ public sealed partial class GameLoop
     ///
     ///   The call site's comment made it worse by asserting the opposite -
     ///   "Read-only: it feeds the probe panel and nothing else" - which is how a
-    ///   seam violation survives a reading. FOUNDATION_PLAN section 12: the
-    ///   DevTools flag may gate what you can SEE, never what the renderer does.
+    ///   seam violation survives a reading. The DevTools flag may gate what
+    ///   you can see, never what the renderer does.
     ///
     ///   The settings modal is what made this load-bearing: its Lighting page
     ///   offers "Use authored lighting data (Light.dbc)" in exactly the build

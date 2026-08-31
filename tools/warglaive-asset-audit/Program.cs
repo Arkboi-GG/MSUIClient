@@ -22,6 +22,12 @@ if (displayIds.Length == 0)
     .Order()
     .ToArray();
 Console.WriteLine($"[audit] D_02 display rows: {string.Join(", ", displayIds)}");
+foreach (uint candidateId in displayIds)
+{
+    ItemDisplayRow candidate = displays.Find(candidateId)!;
+    Console.WriteLine($"[candidate] display={candidate.Id} model='{candidate.ModelName1}' " +
+        $"texture='{candidate.ModelTexture1}'");
+}
 ItemDisplayRow[] customWeaponRows = displays.All
     .Where(row => row.ModelName1.StartsWith("SUI_W_",
         StringComparison.OrdinalIgnoreCase))
@@ -46,6 +52,7 @@ foreach (uint displayId in displayIds)
     string modelPath = $@"Item\ObjectComponents\Weapon\{modelStem}.m2";
     var modelFile = ReadWithFallback(mpq, modelPath) ??
         throw new InvalidOperationException($"Missing model for display {displayId}: {modelPath}");
+    Console.WriteLine($"[raw-model] path='{modelFile.Path}' <- {modelFile.File.Supplier} bytes={modelFile.File.Data.Length} version={BitConverter.ToUInt32(modelFile.File.Data, 4)} sha256={Sha(modelFile.File.Data)}");
     M2Model model = M2Reader.Parse(modelFile.File.Data) ??
         throw new InvalidOperationException($"Could not parse {modelFile.Path}");
 

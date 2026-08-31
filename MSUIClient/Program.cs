@@ -595,7 +595,7 @@ public sealed partial class GameLoop : IDisposable
     private const float DemandRescanDistance = 24f;
     private bool _demandStreamDoodads = true;
 
-    // Vantages: reproducible viewpoints (FOUNDATION_PLAN / PLAN_01, step 1).
+    // Vantages: reproducible viewpoints.
     private VantageStore? _vantages;
     private string _vantageNameInput = "";
     private bool _reloadVantageKeyDown;
@@ -2283,7 +2283,7 @@ public sealed partial class GameLoop : IDisposable
     }
 
     // Vantage capture / apply / echo moved to Program.DevTools.cs
-    // (dev layer, FOUNDATION_PLAN.md section 12).
+    // (developer-only layer).
 
     /// <summary>
     /// Identify the WMO group(s) under a screen pixel. Builds a pinhole ray from
@@ -3176,7 +3176,7 @@ public sealed partial class GameLoop : IDisposable
         // and no mode shows it over the glue front door.
         if (_creatorWorldRequested || CreatorLaunchActive || GlueFrontDoorActive) return;
 
-        // Master dev-tooling switch (FOUNDATION_PLAN.md section 12): the whole
+        // Master dev-tooling switch: the whole
         // in-game overlay is developer tooling and is skipped in a release build.
         if (!_config.DevTools || PlayerPanelOpen) return;
         if (_uiParityArmed) return;

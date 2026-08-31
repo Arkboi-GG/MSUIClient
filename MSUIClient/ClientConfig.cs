@@ -52,7 +52,7 @@ public sealed partial class ClientConfig
     /// Master switch for all developer tooling - the in-game overlay, scene
     /// dumps, vantage capture, the group picker and reason readouts. Everything
     /// behind this flag lives in the DevTools layer (Program.DevTools.cs) and is
-    /// meant to ship OFF in a release build; see FOUNDATION_PLAN.md section 12.
+    /// meant to ship OFF in a release build.
     /// Core rendering and movement do not depend on it.
     /// </summary>
     public bool DevTools { get; set; } = true;

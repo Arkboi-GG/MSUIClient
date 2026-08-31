@@ -51,7 +51,7 @@ namespace MSUIClient.Engine.UI;
 ///   Panels do not call this class directly - they draw through <see cref="GameText"/> with a
 ///   FrameXML font-object NAME, which resolves face/height/color/shadow/outline from
 ///   FontObjectLaw. Hand-picked properties at call sites are the bug class that motivated the
-///   registry; see docs/current/ui/UI_TEXT_PARITY_PLAYBOOK.md.
+///   this law.
 /// </summary>
 public static class GameTextLaw
 {

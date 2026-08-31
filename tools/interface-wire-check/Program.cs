@@ -4511,7 +4511,7 @@ Check((ushort)Op.CMSG_GMTICKET_CREATE == 517 && (ushort)Op.SMSG_GMTICKET_CREATE 
       (ushort)Op.CMSG_GMTICKET_DELETETICKET == 535 && (ushort)Op.CMSG_GMTICKET_SYSTEMSTATUS == 538,
       "help ticket opcodes");
 
-// ---- gameplay text migration fence (docs/current/ui/UI_TEXT_PARITY_PLAYBOOK.md) ------------
+// ---- gameplay text migration fence ---------------------------------------------------------
 // Gameplay panels must draw text through GameText/FontObjectLaw (the derived 1.12 text law),
 // never raw AddText(ImGui.GetFont(), ...) - that path scales the supersampled atlas and
 // reintroduces the unit mismatch and softness the law removed. This is a RATCHET: the baseline
@@ -4585,8 +4585,8 @@ foreach (string panelFile in Directory.GetFiles(panelSourceDir, "Program.*.cs"))
     int allowed = rawTextBaseline.GetValueOrDefault(name, 0);
     Check(raw <= allowed,
         $"{name}: {raw} raw AddText(ImGui.GetFont()) draw(s) exceed the migration baseline " +
-        $"of {allowed}. Draw gameplay text through GameText/FontObjectLaw " +
-        "(docs/current/ui/UI_TEXT_PARITY_PLAYBOOK.md); never add raw default-font draws.");
+        $"of {allowed}. Draw gameplay text through GameText/FontObjectLaw; " +
+        "never add raw default-font draws.");
     if (raw < allowed)
         Console.WriteLine($"[text-fence] {name} is below baseline ({raw}/{allowed}) - " +
                           "lower its entry in interface-wire-check to lock in the migration");

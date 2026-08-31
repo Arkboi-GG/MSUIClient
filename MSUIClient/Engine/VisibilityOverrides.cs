@@ -41,7 +41,7 @@ public sealed class VisibilityOverride
 /// courtyard, say), an entry here makes the frame correct anyway. The DATA is core
 /// and ships in a release; the click-to-author UI is dev-only. Persisted to
 /// visibility_overrides.json at the repo root and meant to be committed.
-/// See FOUNDATION_PLAN.md sec 3.5 / sec 12 and PLAN_04_OVERRIDE_DB.md.
+/// This is developer-only state; normal rendering never depends on it.
 /// </summary>
 public sealed class VisibilityOverrides
 {
