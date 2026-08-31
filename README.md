@@ -1,6 +1,6 @@
 # MSUIClient
 
-[Community Discord](https://discord.gg/AzCdnyPHPY) - Updates, questions, bugs, discussion, and development notes.
+[Community Discord](https://discord.gg/3u3tnMnweE) - Updates, questions, bugs, discussion, and development notes.
 
 [YouTube](https://www.youtube.com/@Yafrovon) - Walkthroughs, feature demos, and progress updates.
 
