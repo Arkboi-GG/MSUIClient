@@ -3057,11 +3057,18 @@ public sealed partial class GameLoop
             Character c = chars[i];
             var rMin = new Vector2(rowX, rowsTop + i * pitch);
             ImGui.SetCursorScreenPos(rMin);
-            if (ImGui.InvisibleButton($"##row{i}", new Vector2(rowW, rowH)))
+            bool rowClicked = ImGui.InvisibleButton($"##row{i}", new Vector2(rowW, rowH));
+            // InvisibleButton only returns true on the RELEASE of a click, one frame after
+            // IsMouseDoubleClicked goes true on the second click's PRESS - checking it nested
+            // inside the button's own return value compared two different frames and so never
+            // agreed, and a double-click on a row silently did nothing. IsItemHovered right after
+            // the button call is valid regardless of the button's own pressed/released timing.
+            bool rowDoubleClicked = ImGui.IsItemHovered() && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left);
+            if (rowClicked || rowDoubleClicked)
             {
                 _selectedChar = i;
                 RememberCharacterSelection(c.Guid);
-                if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) enterGuid = c.Guid;
+                if (rowDoubleClicked) enterGuid = c.Guid;
             }
             // Use the pre-panel snapshot, not ImGui.IsItemHovered / the live _selectedChar: the panel
             // hole above was cut from exactly these two, and a lit card with no hole (or vice versa)
