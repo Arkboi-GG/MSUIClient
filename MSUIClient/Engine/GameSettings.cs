@@ -421,6 +421,7 @@ public sealed class GameSettings
         public int WindowWidth { get; set; } = 1600;              // restart
         public int WindowHeight { get; set; } = 900;              // restart
         public bool Fullscreen { get; set; }                      // live (Alt+Enter toggles too)
+        public bool Maximized { get; set; }                       // live
         public bool VSync { get; set; } = true;                   // live
         public int MsaaSamples { get; set; } = 4;                 // restart
         public bool MultisamplingEnabled { get; set; } = true;    // live (the GL enable, not the count)

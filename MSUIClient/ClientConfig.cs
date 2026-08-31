@@ -81,6 +81,7 @@ public sealed partial class ClientConfig
         public int Height { get; set; } = 900;
         public bool VSync { get; set; } = true;
         public bool Fullscreen { get; set; }
+        public bool Maximized { get; set; }
         public string Title { get; set; } = "MSUI Client";
 
         /// <summary>

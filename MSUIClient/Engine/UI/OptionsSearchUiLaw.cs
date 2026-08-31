@@ -63,6 +63,7 @@ public static class OptionsSearchUiLaw
         "Instance cap", "Interface scale", "Interior brightness",
         "Interior cull (from outside)", "Interior doorway glow", "Light and shade",
         "Link the two interior brightnesses", "Match camera far plane to fog", "Max per cell",
+        "Maximized Window",
         "Multisample count", "Multisampling", "Native-resolution world canvas", "Near plane",
         "No-doodad mask", "Object detail", "Occlusion cull exterior (BVH)",
         "Occlusion min distance", "Opacity (deep)", "Painterly HUD", "Painterly world",
