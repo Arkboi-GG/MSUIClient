@@ -27,10 +27,10 @@
     .\setup-vmaps.ps1 -Wsl
 
 .EXAMPLE
-    .\setup-vmaps.ps1 -Wsl -Distro Ubuntu -WslPath /home/nico/vmangos/run/data/vmaps
+    .\setup-vmaps.ps1 -Wsl -Distro Ubuntu -WslPath /home/your-name/vmangos/run/data/vmaps
 
 .EXAMPLE
-    .\setup-vmaps.ps1 -Remote nico@192.168.0.2 -Force
+    .\setup-vmaps.ps1 -Remote user@example-host -RemotePath /path/to/vmaps -Force
 #>
 
 param(
@@ -38,8 +38,8 @@ param(
     [string] $Distro = "",
     [string] $WslPath = "~/vmangos/run/data/vmaps",
 
-    [string] $Remote = "wowvmangos@homeserver",
-    [string] $RemotePath = "/home/wowvmangos/vmangos/run/data/vmaps",
+    [string] $Remote = "",
+    [string] $RemotePath = "/path/to/vmaps",
     [string] $RemoteArchive = "/tmp/msui-vmaps.tar.gz",
 
     [string] $Destination,
@@ -161,6 +161,7 @@ if ($Wsl) {
 #  SSH MODE
 # ===========================================================================
 else {
+    if (-not $Remote) { Fail "Remote is required in SSH mode (for example, user@example-host)." }
     Require "ssh" "Install the Windows OpenSSH client (Settings > Optional Features)."
     Require "scp" "Install the Windows OpenSSH client (Settings > Optional Features)."
 

@@ -97,9 +97,15 @@ project.assets.json
 *.sln.docstates
 *.userprefs
 
-# Per-user assistant/editor state. Project-wide agent instructions belong in
-# AGENTS.md or .agents/, not in these local settings.
+# Per-user assistant/editor state.
 /.claude/
+
+# Local agent instructions and workspace state. These include machine-specific
+# paths and owner-only operational rules; they are not part of the public
+# client distribution.
+/AGENTS.md
+/.agents/
+/.codex/
 
 # ImGui writes window positions and sizes here at runtime.
 /imgui.ini
@@ -111,9 +117,8 @@ Desktop.ini
 .DS_Store
 
 # ── Documentation policy ─────────────────────────────────────────────────────
-# Root-level .md docs are tracked (owner decision 2026-08-11: feature handbooks
-# like NPC_DEV_WINDOW.md / CRPG_RTS_WIP.md live at the root and must be pushable).
-# Keep the root to REAL maintained docs - scratch notes go in /can delete or move/.
+# Keep detailed engineering notes under docs/. The repository root is reserved
+# for public entry points and build metadata.
 
 /docs/*
 !/docs/README.md
@@ -126,6 +131,19 @@ Desktop.ini
 
 # Explicitly local/disposable holding area.
 /can delete or move/
+
+# ── Local/generated client state ─────────────────────────────────────────────
+# These files are written by the client or generated from a particular server.
+# A public clone starts clean and creates them as needed.
+/botbars.json
+/keybindings.json
+/vantages.json
+/creator-creatures.tsv
+/creator-items.tsv
+/camera/
+/creator-exports/
+/dev-changes/
+/macros/
 
 # ── Scratch ──────────────────────────────────────────────────────────
 *.log

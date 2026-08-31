@@ -455,7 +455,7 @@ public sealed partial class GameLoop
 
     private void LoadVariantItemKnownIssues()
     {
-        string path = Path.Combine(_config.RepoRoot, "variant-items-known-issues.txt");
+        string path = Path.Combine(_config.RepoRoot, "data", "diagnostics", "variant-items-known-issues.txt");
         if (!File.Exists(path)) return;
         foreach (string sourceLine in File.ReadLines(path))
         {
@@ -475,7 +475,7 @@ public sealed partial class GameLoop
 
     private void LoadVariantBlankList(string fileName, HashSet<string> destination)
     {
-        string path = Path.Combine(_config.RepoRoot, fileName);
+        string path = Path.Combine(_config.RepoRoot, "data", "diagnostics", fileName);
         if (!File.Exists(path)) return;
         foreach (string sourceLine in File.ReadLines(path))
         {

@@ -2,9 +2,9 @@
 
 > **SUPERSEDED (2026-08-10) — TIER-1 MILESTONE ONLY.** This file describes the
 > v1.0 possession/free-view milestone and is not authoritative for Tier-2 RTS match
-> mechanics or status. Read [`CRPG_RTS_WIP.md`](../../CRPG_RTS_WIP.md) for the current
+> mechanics or status. Read [`CRPG_RTS_WIP.md`](CRPG_RTS_WIP.md) for the current
 > Tier-1 session record, binding owner decisions and open items, and
-> [`RTS_WORLDSTATE_PLAN.md`](../../RTS_WORLDSTATE_PLAN.md) for the current Tier-2
+> [`RTS_WORLDSTATE_PLAN.md`](../plans/RTS_WORLDSTATE_PLAN.md) for the current Tier-2
 > architecture and phase boundary. The repo paths below are stale (the SuperUI-Core
 > clone and brain worktree no longer exist locally; server source lives on the vmangos
 > box at `~/vmangos`, branch `development`), and a large later Tier-1 feature set

@@ -49,7 +49,7 @@ panel reproduces it exactly — verified 44/44 on 2026-07-26.
 | `Map.dbc` | 44 rows: id, **Directory** (the on-disk name), instanceType, display name | `MapTable`, `Formats/DbcReader.cs` |
 | `World\Maps\{dir}\{dir}.wdt` | which tiles exist, or the single global WMO | `Formats/WdtReader.cs` |
 | `AreaTrigger.dbc` | 432 trigger **volumes** — sphere or oriented box, both sides of every portal | `AreaTriggerTable`, `Formats/DbcReader.cs` |
-| `areatrigger_teleport.tsv` | where each trigger **sends** you | `Formats/AreaTriggerTeleport.cs` |
+| `data/reference/areatrigger_teleport.tsv` | where each trigger **sends** you | `Formats/AreaTriggerTeleport.cs` |
 
 ### 3.1 The client cannot tell you where a portal goes
 
@@ -62,7 +62,7 @@ Ruled out before reaching for the server, so nobody re-checks them:
 - **pfQuest's `areatrigger.lua`** carries only map-pin percentages.
 
 The destinations live in VMaNGOS's `areatrigger_teleport`. **This project talks
-to a VMaNGOS server, so we have it** — `areatrigger_teleport.tsv` is committed at
+to a VMaNGOS server, so we have it** — `data/reference/areatrigger_teleport.tsv` is committed at
 the repo root, raw `mysql -B` output so the dump itself is the provenance.
 
 The key is **`(id, patch)`, not `id`**. Six Dire Maul entrances appear twice —

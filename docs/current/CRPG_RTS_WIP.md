@@ -93,7 +93,7 @@ behavior; single selections are unchanged. No server or runtime-control change w
 
 ## 2026-08-25 (late) — PARTY QUESTING & VENDORING: plan + P1 (quest facts) BUILT
 
-New authority: [`docs/plans/PLAN_20_PARTY_QUESTING_AND_VENDORING.md`](docs/plans/PLAN_20_PARTY_QUESTING_AND_VENDORING.md).
+New authority: [`docs/plans/PLAN_20_PARTY_QUESTING_AND_VENDORING.md`](../plans/PLAN_20_PARTY_QUESTING_AND_VENDORING.md).
 
 The gap it closes: a bot in your control group was the ONLY bot in the world
 that could not quest or vendor. Conscription (order 11) fences the C# brain out

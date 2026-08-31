@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Keep this byte audit independent of the full client build/resource bundle. -->
+  <ItemGroup>
+    <Compile Include="..\..\MSUIClient\Formats\DbcReader.cs" Link="Formats\DbcReader.cs" />
+    <Compile Include="..\..\MSUIClient\Formats\M2Reader.cs" Link="Formats\M2Reader.cs" />
+    <Compile Include="..\..\MSUIClient\Formats\MpqMount.cs" Link="Formats\MpqMount.cs" />
+    <Compile Include="..\..\MSUIClient\Formats\Mpq\MpqArchive.cs" Link="Formats\Mpq\MpqArchive.cs" />
+    <Compile Include="..\..\MSUIClient\Formats\Mpq\MpqCrypto.cs" Link="Formats\Mpq\MpqCrypto.cs" />
+    <Compile Include="..\..\MSUIClient\Formats\Mpq\PkwareExplode.cs" Link="Formats\Mpq\PkwareExplode.cs" />
+  </ItemGroup>
+</Project>

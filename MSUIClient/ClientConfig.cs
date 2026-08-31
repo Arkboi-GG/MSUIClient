@@ -45,7 +45,7 @@ public sealed partial class ClientConfig
     public string? MmapPath { get; set; }
 
     /// <summary>realmd host, for Phase 2. Unused while the client is offline.</summary>
-    public string RealmdHost { get; set; } = "192.168.0.2";
+    public string RealmdHost { get; set; } = "127.0.0.1";
     public int RealmdPort { get; set; } = 3724;
 
     /// <summary>

@@ -136,7 +136,7 @@ violation — describe it.
 
 ## I. Deferred rulings (NOT part of this session — whenever, or never)
 
-The parked worklist lives in `portrait-known-blank.txt`: 10 AncientProtector,
+The parked worklist lives in `data/diagnostics/portrait-known-blank.txt`: 10 AncientProtector,
 2 MouthofKathune, 3 PortalofKathune, plus the dark-cohort-vs-real-1.12 question
 (one GM spawn) and the Kathune/AncientProtector visibility rulings. Nothing
 blocks on these.

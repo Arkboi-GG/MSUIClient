@@ -921,7 +921,7 @@ public sealed class GameSettings
         public float OverlayRange { get; set; } = 150f;
 
         /// <summary>MangosSuperUI base URL for DB reads (and later, change-set upload).</summary>
-        public string SuiBaseUrl { get; set; } = "http://192.168.0.2:5000";
+        public string SuiBaseUrl { get; set; } = "http://127.0.0.1:5000";
     }
 
     /// <summary>

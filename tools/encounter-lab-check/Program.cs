@@ -42,7 +42,7 @@ internal static class Program
         int liveAt = Array.FindIndex(args, a => a.Equals("--live", StringComparison.OrdinalIgnoreCase));
         if (liveAt >= 0)
         {
-            string baseUrl = liveAt + 1 < args.Length ? args[liveAt + 1] : "http://192.168.0.2:5000";
+            string baseUrl = liveAt + 1 < args.Length ? args[liveAt + 1] : "http://127.0.0.1:5000";
             LiveDataChecks(repoRoot, baseUrl).GetAwaiter().GetResult();
         }
         else Console.WriteLine("\n(skipping live DB checks — pass --live [baseUrl] to run them)");

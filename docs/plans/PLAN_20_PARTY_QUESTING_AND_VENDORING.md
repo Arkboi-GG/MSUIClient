@@ -23,7 +23,7 @@ Deployed is still not gate-verified. §6 remains the separate, unmet question.
 **Scope:** Player-led questing and vendoring for a party of AiBot companions inside
 the persistent MMO world, plus removal of the 20-quest log cap.
 
-Companion authorities: [`CRPG_RTS_WIP.md`](../../CRPG_RTS_WIP.md),
+Companion authorities: [`CRPG_RTS_WIP.md`](../current/CRPG_RTS_WIP.md),
 [`SYSTEM_CRPG_CONTROL_GROUPS.md`](../systems/SYSTEM_CRPG_CONTROL_GROUPS.md),
 [`CRPG_RTS_MMO_PARTY_COMMAND_UI.md`](../current/ui/CRPG_RTS_MMO_PARTY_COMMAND_UI.md).
 
@@ -100,7 +100,7 @@ conscripted bot past the fence.
   `PLAYER_QUEST_LOG_1_1 = 198`, three fields per slot. Owner-only: the server never
   streams these for anyone else, so a companion's log is structurally invisible.
 - **"Share Quest" is drawn permanently disabled**
-  ([`GameLoop.Quest.cs:997`](../../MSUIClient/GameLoop/Panels/GameLoop.Quest.cs:997)),
+  ([`GameLoop.Quest.cs:997`](../../MSUIClient/GameLoop/Panels/GameLoop.Quest.cs#L997)),
   and `CMSG_PUSHQUESTTOPARTY` is absent from
   [`Opcodes.cs`](../../MSUIClient/Net/Opcodes.cs) — even though the core implements
   `HandlePushQuestToParty` and `QuestShareInfo` in full.
@@ -117,7 +117,7 @@ rate-limited client pull, exact-length parsing, and **the server re-pushes truth
 after every mutation rather than the client guessing**
 ([`GameLoop.MemberFacts.cs`](../../MSUIClient/GameLoop/Scene/GameLoop.MemberFacts.cs)).
 `SMSG_SUI_SNAPSHOT` already carries each bot's **coinage**
-([`GameLoop.Control.cs:601`](../../MSUIClient/GameLoop/Scene/GameLoop.Control.cs:601)),
+([`GameLoop.Control.cs:601`](../../MSUIClient/GameLoop/Scene/GameLoop.Control.cs#L601)),
 so party purses are on the wire today.
 
 ### 3.4 The 20-quest cap is smaller than it looks

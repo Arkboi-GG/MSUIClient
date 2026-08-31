@@ -48,7 +48,7 @@ can build the feature without this conversation.
   the original "Required SuperUI-Core hooks" contract this feature realizes.
 - [`../../systems/SYSTEM_CRPG_CONTROL_GROUPS.md`](../../systems/SYSTEM_CRPG_CONTROL_GROUPS.md)
   — order wire (§5, §5b formations/sheath, §5c conscription).
-- [`../../../CRPG_RTS_WIP.md`](../../../CRPG_RTS_WIP.md) — dated session records
+- [`../CRPG_RTS_WIP.md`](../CRPG_RTS_WIP.md) — dated session records
   and deploy state.
 
 ## Why the client is already 90% ready

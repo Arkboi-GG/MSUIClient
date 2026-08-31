@@ -2,11 +2,11 @@
   "clientDataPath": "GameData\\Data",
   "vmapPath": null,
 
-  "realmdHost": "192.168.0.2",
+  "realmdHost": "127.0.0.1",
   "realmdPort": 3724,
 
   "server": {
-    "enabled": true,
+    "enabled": false,
     "autoConnect": false,
     "realPortals": true,
     "account": "",

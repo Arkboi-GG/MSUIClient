@@ -220,7 +220,7 @@ public sealed partial class GameLoop
 
     private void LoadBlankList(string fileName, string label, HashSet<string> destination)
     {
-        string path = Path.Combine(_config.RepoRoot, fileName);
+        string path = Path.Combine(_config.RepoRoot, "data", "diagnostics", fileName);
         if (!File.Exists(path))
         {
             Console.WriteLine($"[batch] {label} list missing: {path}");

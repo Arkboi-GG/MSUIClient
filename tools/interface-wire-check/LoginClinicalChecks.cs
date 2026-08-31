@@ -110,7 +110,7 @@ internal static class LoginClinicalChecks
             store.LoginProfiles.ActiveLaunchConfigurationId = "raid";
             store.LoginProfiles.Connections.Add(new ConnectionProfileSetting
             {
-                Id = "home", Name = "Home Server", RealmdHost = "192.168.0.2",
+                Id = "home", Name = "Home Server", RealmdHost = "127.0.0.1",
                 RealmdPort = 3724, Realm = "Barrens Chat", WorldPortFallback = 8085,
                 WorldUsesRealmdHost = true, TimeoutMs = 9000, RealPortals = true,
             });
@@ -128,7 +128,7 @@ internal static class LoginClinicalChecks
             Check(restored.LoginProfiles.ActiveConnectionId == "home" &&
                   restored.LoginProfiles.ActiveLaunchConfigurationId == "raid" &&
                   restored.LoginProfiles.Connections is
-                      [{ Name: "Home Server", RealmdHost: "192.168.0.2", RealmdPort: 3724 }] &&
+                      [{ Name: "Home Server", RealmdHost: "127.0.0.1", RealmdPort: 3724 }] &&
                   restored.LoginProfiles.LaunchConfigurations is
                       [{ Name: "Raid Night", AutoLogin: true, SavePassword: true,
                          Password: "local-home-password", AutoEnterWorld: true,

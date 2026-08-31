@@ -542,7 +542,7 @@ a design.** Ruled out on the way to the correction, so nobody re-treads it:
 | Source | Gives | Where |
 |---|---|---|
 | `AreaTrigger.dbc` | 432 trigger VOLUMES — sphere or oriented box, both sides of every portal | `AreaTriggerTable` in `Formats/DbcReader.cs` |
-| `areatrigger_teleport` | where each one sends you: target map, position, facing | `Formats/AreaTriggerTeleport.cs`, from `areatrigger_teleport.tsv` |
+| `areatrigger_teleport` | where each one sends you: target map, position, facing | `Formats/AreaTriggerTeleport.cs`, from `data/reference/areatrigger_teleport.tsv` |
 
 Most of the 432 are quest and script triggers. **The join is what turns the
 table into a set of doorways** — a trigger with no teleport row is not a portal.
@@ -605,7 +605,7 @@ repeated on the exact-position path rather than assumed unreachable.
 
 ## 16. Stage 2b validated against the data before it was ever run
 
-`areatrigger_teleport.tsv` landed 2026-07-25 (121 rows out of Nico's VMaNGOS
+`data/reference/areatrigger_teleport.tsv` landed 2026-07-25 (121 rows out of Nico's VMaNGOS
 world DB). The join was then checked in Python, reimplementing exactly what the
 C# does, **before the client was built** — the same move that settled the
 nine-slice in `SYSTEM_SETTINGS_UI`: when you cannot run the renderer, run the

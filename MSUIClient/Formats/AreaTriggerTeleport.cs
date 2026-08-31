@@ -70,14 +70,14 @@ public sealed class AreaTriggerTeleportTable
         => _byId.TryGetValue(triggerId, out var t) ? t : null;
 
     /// <summary>
-    /// Read the table from the repo root. Missing file is not an error - the
+    /// Read the table from data/reference under the repo root. Missing file is not an error - the
     /// client works without it, portals simply do not exist. Same contract as
     /// VantageStore and VisibilityOverrides: never throw on read.
     /// </summary>
     public static AreaTriggerTeleportTable Load(string repoRoot)
     {
         var table = new AreaTriggerTeleportTable();
-        string path = Path.Combine(repoRoot, FileName);
+        string path = Path.Combine(repoRoot, "data", "reference", FileName);
 
         if (!File.Exists(path))
         {

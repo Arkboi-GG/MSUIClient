@@ -7,7 +7,7 @@ not the separate Tier-2 RTS world or its worldstate/economy interface.
 
 ## Related material
 
-- [`CRPG_RTS_WIP.md`](../../../CRPG_RTS_WIP.md) — current Tier-1 decisions,
+- [`CRPG_RTS_WIP.md`](../CRPG_RTS_WIP.md) — current Tier-1 decisions,
   implementation record, and open work.
 - [`SYSTEM_CRPG_CONTROL_GROUPS.md`](../../systems/SYSTEM_CRPG_CONTROL_GROUPS.md)
   — current control-group behavior.

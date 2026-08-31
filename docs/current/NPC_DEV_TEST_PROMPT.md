@@ -10,7 +10,7 @@ and does not know the controls.** Your FIRST action, before any tool calls or qu
 **print the "CONTROLS & TEST SCRIPT" section below for the owner, verbatim.** Then stand
 by to fix whatever the test surfaces.
 
-Ground truth to load before fixing anything: repo-root **`NPC_DEV_WINDOW.md`** — the
+Ground truth to load before fixing anything: **[NPC_DEV_WINDOW.md](NPC_DEV_WINDOW.md)** — the
 architecture handbook (layer rules §2, file map §3, aggro math §5, HTTP contracts §7,
 edit spec as-built §10, deploy §12, verification §13, known limitations §14). Do not
 redesign owner decisions listed there. The vmangos box is `wowvmangos@192.168.0.2`

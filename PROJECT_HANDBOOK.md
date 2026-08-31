@@ -501,7 +501,7 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
 │   └── archive/                     local-only superseded evidence (Git-ignored)
 ├── tools/mpqpeek/                   read the client's own MPQs (Python, stdlib, read-only)
 │                                    find/cat/stat/png/cells - SYSTEM_SETTINGS_UI.md §7
-├── areatrigger_teleport.tsv         VMaNGOS dump; where each portal SENDS you
+├── data/                             committed runtime reference + diagnostic fixtures
 │                                    raw `mysql -B` output <- SYSTEM_INSTANCES.md §3.1
 ├── vantages.json                    saved reproducible viewpoints (§5.3)
 ├── dumps/                           scene dumps, one per vantage capture
@@ -657,9 +657,9 @@ same "where each responsibility ends" discipline §1.1 applies to code.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [`RTS_WORLDSTATE_PLAN.md`](RTS_WORLDSTATE_PLAN.md) | Authoritative Tier-2 RTS architecture, phase boundaries, ruleset laws, wire allocation and verification plan | R1 owner validation is partial; R2 source/build is complete and awaits owner deployment/live validation; R3-R4 and the win state remain plans |
+| [`RTS_WORLDSTATE_PLAN.md`](docs/plans/RTS_WORLDSTATE_PLAN.md) | Authoritative Tier-2 RTS architecture, phase boundaries, ruleset laws, wire allocation and verification plan | R1 owner validation is partial; R2 source/build is complete and awaits owner deployment/live validation; R3-R4 and the win state remain plans |
 | [`docs/systems/SYSTEM_RTS_R2.md`](docs/systems/SYSTEM_RTS_R2.md) | Canonical exhaustive record for R2 Honor, bot Heroes, faction-force discovery/direct control, exact three-repository diffs, wire, boot isolation and owner validation | All three source/build tracks pass; no install/runtime/DB action was taken, and owner live validation remains separate |
-| [`CRPG_RTS_WIP.md`](CRPG_RTS_WIP.md) | Current CRPG/Tier-1 session record, binding owner decisions and RTS implementation handoff | Living record; read with `RTS_WORLDSTATE_PLAN.md` before changing either RTS tier |
+| [`CRPG_RTS_WIP.md`](docs/current/CRPG_RTS_WIP.md) | Current CRPG/Tier-1 session record, binding owner decisions and RTS implementation handoff | Living record; read with `RTS_WORLDSTATE_PLAN.md` before changing either RTS tier |
 | `PROJECT_HANDBOOK.md` (this) | Cross-cutting ground truth, repo layout, startup order, history, working agreements, this map | Living index |
 | `SYSTEM_WATER.md` | **All** liquid: open-world MCLQ lakes/rivers/ocean/slime/magma **and WMO MLIQ canals, fountains, indoor pools**, the client's own animated liquid BLPs, per-type routing, underwater overlay | **Written (Draft 6)** — 2026-08-12. Draft 1's procedural Gerstner surface was **reversed**; read the doc before assuming waves. §7 is WMO liquid — **BUILT 2026-08-12 as a draw-only pass** (submersion for WMO liquid deliberately not wired); its §7.3 is the MLIQ-vs-MCLQ type trap that ships broken while looking fine in Stormwind |
 | `SYSTEM_WMO_INTERIOR_LIGHTING.md` | Interior walls/floors/ceilings: MOCV, `FixVertexColors`, the `x2` scale, the interior gate | **Written — signed off, do not re-open casually** |
