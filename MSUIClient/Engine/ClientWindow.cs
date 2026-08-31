@@ -117,11 +117,34 @@ public sealed class ClientWindow : IDisposable
             }
             else
             {
-                _window.WindowState = WindowState.Normal;
-                _window.Size = new Vector2D<int>(_config.Window.Width, _config.Window.Height);
+                // Leaving fullscreen returns to whichever windowed state was configured -
+                // Maximized if that is set, otherwise the configured windowed size.
+                _window.WindowState = _config.Window.Maximized ? WindowState.Maximized : WindowState.Normal;
+                if (!_config.Window.Maximized)
+                    _window.Size = new Vector2D<int>(_config.Window.Width, _config.Window.Height);
             }
             // The transition does not reliably raise FramebufferResize on every
             // driver - sync the viewport/aspect to the real framebuffer now.
+            if (_gl is not null) HandleResize(_window.FramebufferSize);
+        }
+    }
+
+    /// <summary>Maximized to the desktop work area, short of true fullscreen (Fullscreen picks the
+    /// monitor's own video mode and hides the taskbar; this keeps window chrome and just grows to
+    /// fill the screen). Ignored while <see cref="Fullscreen"/> is on - that state wins, and this
+    /// flag is simply what windowed mode returns to once Fullscreen is turned back off.</summary>
+    public bool Maximized
+    {
+        get => _window is not null
+            ? _window.WindowState == WindowState.Maximized
+            : _config.Window.Maximized;
+        set
+        {
+            _config.Window.Maximized = value;
+            if (_window is null || Fullscreen) return;
+            _window.WindowState = value ? WindowState.Maximized : WindowState.Normal;
+            if (!value)
+                _window.Size = new Vector2D<int>(_config.Window.Width, _config.Window.Height);
             if (_gl is not null) HandleResize(_window.FramebufferSize);
         }
     }
@@ -836,6 +859,11 @@ public sealed class ClientWindow : IDisposable
         {
             Fullscreen = true;
             Console.WriteLine($"[display] fullscreen at {_window.FramebufferSize.X}x{_window.FramebufferSize.Y}");
+        }
+        else if (_config.Window.Maximized && _window.WindowState != WindowState.Maximized)
+        {
+            Maximized = true;
+            Console.WriteLine($"[display] maximized at {_window.FramebufferSize.X}x{_window.FramebufferSize.Y}");
         }
     }
 

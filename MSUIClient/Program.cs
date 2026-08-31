@@ -359,6 +359,7 @@ public static partial class Program
         config.Window.Height = Math.Clamp(settings.Display.WindowHeight, 480, 4320);
         config.Window.VSync = settings.Display.VSync;
         config.Window.Fullscreen = settings.Display.Fullscreen;
+        config.Window.Maximized = settings.Display.Maximized;
         config.Window.UiScale = Math.Clamp(settings.Display.UiScale, 0.5f, 4f);
         config.Window.FontScale = Math.Clamp(
             settings.MenuLayout?.TextScale ?? settings.Display.FontScale, 0.5f, 3f);
