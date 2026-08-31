@@ -1,6 +1,6 @@
 # MSUIClient
 
-[Community Discord](https://discord.gg/AzCdnyPHPY) - Updates, questions, bugs, discussion, and development notes.
+[Community Discord](https://discord.gg/3u3tnMnweE) - Updates, questions, bugs, discussion, and development notes.
 
 [YouTube](https://www.youtube.com/@Yafrovon) - Walkthroughs, feature demos, and progress updates.
 
@@ -28,11 +28,12 @@ They are separate programs with clear boundaries. You do not need all three for 
 
 - Login, realm and launch profiles, character selection, character creation, and world entry.
 - Streamed Vanilla terrain, WMOs, doodads, characters, creatures, equipment, water, foliage, sky, lighting, weather, particles, collision, and spatial audio.
-- Movement, camera control, targeting, combat, spells, auras, action bars, cooldowns, loot, quests, a live Quest Helper, vendors, trainers, inventory, equipment, talents, maps, mail, auction, guild, group, and chat interfaces.
-- Portals, instances, transport, mounts, fishing, game objects, and the normal world interaction loop.
+- Movement, camera control, targeting, combat, spells, auras, action bars, cooldowns, loot, quests, a live Quest Helper, vendors, trainers, inventory, equipment, talents, maps, mail, auction, guild, group, and chat interfaces. 
 - Creator Mode for offline character, equipment, spell, creature, world, collision, and visual-effect work.
 - Live NPC development and structured handoff workflows with MangosSuperUI.
 - The verified start of the CRPG layer, including possession, free view, party following, bot bags, and character sheets.
+
+However! Much of this has plenty of bugs, as it is a VERY new project under heavy development. I cannot overstate this!
 
 RTS-style selection, control groups, formations, and party commands belong to the developing CRPG experience inside the normal MMO world. The separate RTS World concept, including Commander, Honor, Heroes, territory, and victory systems, is future work. It is not currently a playable game mode.
 
