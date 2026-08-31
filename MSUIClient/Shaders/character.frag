@@ -18,9 +18,13 @@
 in vec3 vWorldPos;
 in vec3 vNormal;
 in vec2 vUV;
+in vec2 vUV2;
 
 uniform sampler2D uTexture;
+uniform sampler2D uTexture2;
 uniform int   uHasTexture;
+uniform int   uHasTexture2;
+uniform int   uSteadyModulatedGlow;
 
 // Alpha below which a fragment is thrown away. Set PER BATCH: zero for a
 // texture with no alpha channel, a real cut for alpha-keyed geometry, and zero
@@ -86,6 +90,23 @@ void main()
     vec4 albedo = uHasTexture == 1
         ? texture(uTexture, vUV)
         : vec4(0.62, 0.60, 0.56, 1.0);
+    // WoW TextureCount=2 batches are one fixed-function MODULATE pass, not
+    // two framebuffer draws. The Warglaive's blend-4 UV0+UV1 form keeps the
+    // UV0 energy as a steady glow and layers the modulated UV1 wave over it.
+    if (uHasTexture2 == 1)
+    {
+        vec4 stage2 = texture(uTexture2, vUV2);
+        if (uSteadyModulatedGlow == 1)
+        {
+            vec4 wave = albedo * stage2;
+            albedo.rgb += wave.rgb;
+            albedo.a = max(albedo.a, wave.a);
+        }
+        else
+        {
+            albedo *= stage2;
+        }
+    }
 
     if (uAlphaCutoff > 0.0 && albedo.a < uAlphaCutoff) discard;
 

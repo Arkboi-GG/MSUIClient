@@ -1,10 +1,7 @@
-using System.IO.Compression;
-using System.Reflection;
-using System.Text;
-
 namespace MSUIClient.Formats;
 
-public readonly record struct QuestHelperSpawn(uint AreaId, float XPercent, float YPercent);
+/// <summary>One live realm spawn in native WoW world coordinates.</summary>
+public readonly record struct QuestHelperSpawn(uint MapId, float X, float Y);
 
 public sealed record QuestHelperSources(uint[] Units, uint[] Objects)
 {
@@ -22,38 +19,40 @@ public sealed record QuestHelperAvailableQuest(
     QuestHelperSources Sources);
 
 /// <summary>
-/// Compact, read-only Vanilla quest-location data. The shipped blob is generated offline from
-/// pfQuest's database; no Lua or addon runtime is loaded by the client. Runtime lookups are exact
-/// entry-id joins against the authoritative quest template already received from the server.
+/// Immutable Quest Helper snapshot assembled from the realm's live database exports. Quest state
+/// and quest text still come from the game protocol; this catalog supplies current relations and
+/// world positions that the stock query opcodes do not carry.
 /// </summary>
 public sealed class QuestHelperDataCatalog
 {
-    private const string ResourceSuffix = "Assets.QuestHelperData.bin.gz";
-    private readonly Dictionary<uint, QuestHelperSpawn[]> _units;
-    private readonly Dictionary<uint, QuestHelperSpawn[]> _objects;
-    private readonly Dictionary<uint, QuestHelperSources> _items;
-    private readonly Dictionary<uint, QuestHelperSources> _turnIns;
-    private readonly QuestHelperAvailableQuest[] _availableQuests;
+    private readonly IReadOnlyDictionary<uint, QuestHelperSpawn[]> _units;
+    private readonly IReadOnlyDictionary<uint, QuestHelperSpawn[]> _objects;
+    private readonly IReadOnlyDictionary<uint, QuestHelperSources> _items;
+    private readonly IReadOnlyDictionary<uint, QuestHelperSources> _turnIns;
 
-    private QuestHelperDataCatalog(Dictionary<uint, QuestHelperSpawn[]> units,
-        Dictionary<uint, QuestHelperSpawn[]> objects,
-        Dictionary<uint, QuestHelperSources> items,
-        Dictionary<uint, QuestHelperSources> turnIns,
-        QuestHelperAvailableQuest[] availableQuests)
+    internal QuestHelperDataCatalog(
+        IReadOnlyDictionary<uint, QuestHelperSpawn[]> units,
+        IReadOnlyDictionary<uint, QuestHelperSpawn[]> objects,
+        IReadOnlyDictionary<uint, QuestHelperSources> items,
+        IReadOnlyDictionary<uint, QuestHelperSources> turnIns,
+        QuestHelperAvailableQuest[] availableQuests,
+        DateTime fetchedUtc)
     {
         _units = units;
         _objects = objects;
         _items = items;
         _turnIns = turnIns;
-        _availableQuests = availableQuests;
+        AvailableQuests = availableQuests;
+        FetchedUtc = fetchedUtc;
     }
 
+    public DateTime FetchedUtc { get; }
     public int UnitEntryCount => _units.Count;
     public int ObjectEntryCount => _objects.Count;
     public int ItemSourceCount => _items.Count;
     public int TurnInCount => _turnIns.Count;
-    public int AvailableQuestCount => _availableQuests.Length;
-    public IReadOnlyList<QuestHelperAvailableQuest> AvailableQuests => _availableQuests;
+    public int AvailableQuestCount => AvailableQuests.Count;
+    public IReadOnlyList<QuestHelperAvailableQuest> AvailableQuests { get; }
 
     public IReadOnlyList<QuestHelperSpawn> UnitSpawns(uint entry) =>
         _units.TryGetValue(entry, out QuestHelperSpawn[]? value) ? value : [];
@@ -66,85 +65,4 @@ public sealed class QuestHelperDataCatalog
 
     public QuestHelperSources TurnInSources(uint questId) =>
         _turnIns.GetValueOrDefault(questId, QuestHelperSources.Empty);
-
-    public static QuestHelperDataCatalog LoadEmbedded()
-    {
-        Assembly assembly = typeof(QuestHelperDataCatalog).Assembly;
-        string? name = assembly.GetManifestResourceNames()
-            .FirstOrDefault(candidate => candidate.EndsWith(ResourceSuffix,
-                StringComparison.Ordinal));
-        if (name is null)
-            throw new InvalidDataException($"embedded quest-helper data '{ResourceSuffix}' is missing");
-        using Stream raw = assembly.GetManifestResourceStream(name)
-            ?? throw new InvalidDataException($"embedded quest-helper data '{name}' could not be opened");
-        using var gzip = new GZipStream(raw, CompressionMode.Decompress);
-        using var reader = new BinaryReader(gzip, Encoding.UTF8, leaveOpen: false);
-        if (Encoding.ASCII.GetString(reader.ReadBytes(4)) != "MSQH" || reader.ReadInt32() != 2)
-            throw new InvalidDataException("unsupported quest-helper data header");
-        return new(ReadSpawns(reader), ReadSpawns(reader),
-            ReadSources(reader), ReadSources(reader), ReadAvailableQuests(reader));
-    }
-
-    private static Dictionary<uint, QuestHelperSpawn[]> ReadSpawns(BinaryReader reader)
-    {
-        int count = SafeCount(reader.ReadInt32(), 100_000, "spawn entry");
-        var result = new Dictionary<uint, QuestHelperSpawn[]>(count);
-        for (int row = 0; row < count; row++)
-        {
-            uint entry = reader.ReadUInt32();
-            int points = SafeCount(reader.ReadInt32(), 1_000_000, "spawn point");
-            var values = new QuestHelperSpawn[points];
-            for (int point = 0; point < points; point++)
-                values[point] = new(reader.ReadUInt32(),
-                    reader.ReadUInt16() / 10f, reader.ReadUInt16() / 10f);
-            result.Add(entry, values);
-        }
-        return result;
-    }
-
-    private static Dictionary<uint, QuestHelperSources> ReadSources(BinaryReader reader)
-    {
-        int count = SafeCount(reader.ReadInt32(), 100_000, "source entry");
-        var result = new Dictionary<uint, QuestHelperSources>(count);
-        for (int row = 0; row < count; row++)
-        {
-            uint id = reader.ReadUInt32();
-            result.Add(id, new(ReadIds(reader), ReadIds(reader)));
-        }
-        return result;
-    }
-
-    private static uint[] ReadIds(BinaryReader reader)
-    {
-        int count = SafeCount(reader.ReadInt32(), 100_000, "source id");
-        var result = new uint[count];
-        for (int i = 0; i < count; i++) result[i] = reader.ReadUInt32();
-        return result;
-    }
-
-    private static QuestHelperAvailableQuest[] ReadAvailableQuests(BinaryReader reader)
-    {
-        int count = SafeCount(reader.ReadInt32(), 100_000, "available quest");
-        var result = new QuestHelperAvailableQuest[count];
-        for (int i = 0; i < count; i++)
-        {
-            uint questId = reader.ReadUInt32();
-            byte level = reader.ReadByte();
-            byte minimumLevel = reader.ReadByte();
-            uint raceMask = reader.ReadUInt32();
-            uint classMask = reader.ReadUInt32();
-            string title = reader.ReadString();
-            uint[] previous = ReadIds(reader);
-            result[i] = new(questId, level, minimumLevel, raceMask, classMask,
-                title, previous, new(ReadIds(reader), ReadIds(reader)));
-        }
-        return result;
-    }
-
-    private static int SafeCount(int value, int maximum, string label)
-    {
-        if (value < 0 || value > maximum)
-            throw new InvalidDataException($"quest-helper {label} count {value} is invalid");
-        return value;
-    }
 }

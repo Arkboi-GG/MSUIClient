@@ -2,6 +2,7 @@ using MSUIClient;
 using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
+using MSUIClient.Net;
 using System.Numerics;
 
 static void Check(bool condition, string message)
@@ -28,23 +29,27 @@ Check(QuestHelperUiLaw.LevelAppropriate(10, 8, 10) &&
       !QuestHelperUiLaw.MatchesMask(178, 1),
     "available-quest level/race eligibility drift");
 
-var area = new WorldMapAreaInfo(1, 0, 12, "Elwynn", -100, 100, -200, 200);
-Vector3 world = QuestHelperUiLaw.WorldPosition(area, new(12, 25, 75));
-Check(world == new Vector3(100, -50, 0), "zone-percent to native world-space mapping drift");
+Vector3 world = QuestHelperUiLaw.WorldPosition(new QuestHelperSpawn(0, 100, -50));
+Check(world == new Vector3(100, -50, 0), "native quest spawn coordinate mapping drift");
 
-QuestHelperDataCatalog data = QuestHelperDataCatalog.LoadEmbedded();
-Check(data.UnitEntryCount > 4_000 && data.ObjectEntryCount > 600 &&
-      data.ItemSourceCount > 1_400 && data.TurnInCount > 4_000 &&
-      data.AvailableQuestCount > 4_000,
-    "embedded Vanilla catalog is unexpectedly incomplete");
-Check(data.UnitSpawns(6).Any(spawn => spawn.AreaId == 12) &&
-      data.ItemSources(750).Units.Length > 0 &&
+var liveExports = new Dictionary<string, string>
+{
+    ["quest_template"] = "entry,patch,QuestLevel,MinLevel,RequiredRaces,RequiredClasses,Title,PrevQuestId,ReqItemId1\n7,10,10,1,0,0,Kobold Camp Cleanup,0,750\n",
+    ["creature_questrelation"] = "id,quest,patch_min,patch_max\n197,7,0,10\n",
+    ["creature_involvedrelation"] = "id,quest,patch_min,patch_max\n197,7,0,10\n",
+    ["creature"] = "guid,id,id2,id3,id4,id5,map,position_x,position_y,patch_min,patch_max\n1,197,0,0,0,0,0,100,-50,0,10\n",
+    ["creature_template"] = "entry,patch,loot_id\n197,10,197\n",
+    ["creature_loot_template"] = "entry,item,mincountOrRef,patch_min,patch_max\n197,750,1,0,10\n",
+};
+QuestHelperDataCatalog data = QuestHelperDataClient.ParseExports(liveExports);
+Check(data.UnitSpawns(197).Single() == new QuestHelperSpawn(0, 100, -50) &&
+      data.ItemSources(750).Units.Contains(197u) &&
       data.TurnInSources(7).Units.Contains(197u),
-    "known Kobold/Wolf Meat/quest-7 catalog joins failed");
+    "live Quest Helper realm-table joins failed");
 QuestHelperAvailableQuest quest7 = data.AvailableQuests.Single(row => row.QuestId == 7);
 Check(quest7.Sources.Units.Contains(197u) &&
       quest7.Title.Equals("Kobold Camp Cleanup", StringComparison.Ordinal),
-    "known available quest start/title join failed");
+    "live available quest start/title join failed");
 
 string root = ClientConfig.FindRepoRoot();
 (string markerProof, string markerMetrics) = QuestHelperMarkerVisualCheck.Run(root, Check);

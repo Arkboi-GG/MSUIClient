@@ -8,13 +8,13 @@ namespace MSUIClient;
 
 /// <summary>
 /// Native, map-only quest guidance. This layer owns neither quest state nor map state: it joins
-/// the existing authoritative quest log to a read-only location catalog and offers additive pins
+/// the existing authoritative quest log to live realm relations and offers additive pins
 /// to the two existing map renderers. Turning it off makes every method below a no-op.
 /// </summary>
 public sealed partial class GameLoop
 {
     private sealed record QuestHelperPin(uint QuestId, string Title, string Detail,
-        QuestHelperPinKind Kind, uint AreaId, float XPercent, float YPercent);
+        QuestHelperPinKind Kind, QuestHelperSpawn Spawn);
 
     private sealed class QuestHelperCluster
     {
@@ -27,8 +27,7 @@ public sealed partial class GameLoop
                 ? QuestHelperPinKind.Available : Pins[0].Kind;
     }
 
-    private QuestHelperDataCatalog? _questHelperData;
-    private bool _questHelperDataAttempted;
+    private readonly QuestHelperDataClient _questHelperDataClient = new();
     private List<QuestHelperPin> _questHelperPins = [];
     private double _questHelperPinsRefreshAt;
     private readonly HashSet<uint> _questHelperRewardedThisSession = [];
@@ -37,22 +36,9 @@ public sealed partial class GameLoop
 
     private QuestHelperDataCatalog? QuestHelperData()
     {
-        if (_questHelperDataAttempted) return _questHelperData;
-        _questHelperDataAttempted = true;
-        try
-        {
-            _questHelperData = QuestHelperDataCatalog.LoadEmbedded();
-            Console.WriteLine("[quest-helper] native data loaded: " +
-                $"{_questHelperData.UnitEntryCount} units, " +
-                $"{_questHelperData.ObjectEntryCount} objects, " +
-                $"{_questHelperData.ItemSourceCount} item sources, " +
-                $"{_questHelperData.TurnInCount} turn-ins");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[quest-helper] disabled: {ex.Message}");
-        }
-        return _questHelperData;
+        if (_questHelperDataClient.RefreshDue)
+            _questHelperDataClient.BeginFetch(_config.ResolvedDataServiceUrl);
+        return _questHelperDataClient.Data;
     }
 
     private IReadOnlyList<QuestHelperPin> ActiveQuestHelperPins()
@@ -81,7 +67,7 @@ public sealed partial class GameLoop
                 liveAvailableByUnitEntry.GetValueOrDefault(entity.Entry) || available;
         }
 
-        var seen = new HashSet<(uint Quest, QuestHelperPinKind Kind, uint Area,
+        var seen = new HashSet<(uint Quest, QuestHelperPinKind Kind, uint Map,
             int X10, int Y10, string Detail)>();
 
         void AddSpawns(uint questId, string title, string detail, QuestHelperPinKind kind,
@@ -94,12 +80,11 @@ public sealed partial class GameLoop
                 ? data.ObjectSpawns(entry) : data.UnitSpawns(entry);
             foreach (QuestHelperSpawn spawn in spawns)
             {
-                var key = (questId, kind, spawn.AreaId,
-                    (int)MathF.Round(spawn.XPercent * 10f),
-                    (int)MathF.Round(spawn.YPercent * 10f), detail);
+                var key = (questId, kind, spawn.MapId,
+                    (int)MathF.Round(spawn.X * 10f),
+                    (int)MathF.Round(spawn.Y * 10f), detail);
                 if (!seen.Add(key)) continue;
-                _questHelperPins.Add(new(questId, title, detail, kind, spawn.AreaId,
-                    spawn.XPercent, spawn.YPercent));
+                _questHelperPins.Add(new(questId, title, detail, kind, spawn));
             }
         }
 
@@ -289,27 +274,10 @@ public sealed partial class GameLoop
         var projected = new List<(QuestHelperPin, Vector2)>();
         foreach (QuestHelperPin pin in ActiveQuestHelperPins())
         {
-            Vector2 fraction;
-            if (area.AreaId != 0)
-            {
-                if (pin.AreaId != area.AreaId) continue;
-                fraction = new(pin.XPercent / 100f, pin.YPercent / 100f);
-            }
-            else
-            {
-                // A continent map has no AreaId. Lift the pin through its zone's authored
-                // WorldMapArea bounds into native world space, then project it into the
-                // continent bounds. This keeps distant active objectives discoverable without
-                // introducing an arrow or route surface.
-                if (_worldMapAreas?.TryGetArea(pin.AreaId,
-                        out WorldMapAreaInfo pinArea) != true || pinArea.MapId != area.MapId)
-                    continue;
-                Vector3 world = QuestHelperUiLaw.WorldPosition(pinArea,
-                    new(pin.AreaId, pin.XPercent, pin.YPercent));
-                if (!DeathFrameUiLaw.TryWorldMapFraction((int)pinArea.MapId, area.MapId,
-                        world, area.Left, area.Right, area.Top, area.Bottom, out fraction))
-                    continue;
-            }
+            Vector3 world = QuestHelperUiLaw.WorldPosition(pin.Spawn);
+            if (!DeathFrameUiLaw.TryWorldMapFraction((int)pin.Spawn.MapId, area.MapId,
+                    world, area.Left, area.Right, area.Top, area.Bottom, out Vector2 fraction))
+                continue;
             projected.Add((pin, WorldMapUiLaw.MapPoint(mapMin, mapSize,
                 fraction.X, fraction.Y)));
         }
@@ -351,10 +319,10 @@ public sealed partial class GameLoop
         float aperture = side * .5f * MinimapUiLaw.LandmarkEdgeRatio;
         Vector2 center = (mapMin + mapMax) * .5f;
         var projected = new List<(QuestHelperPin, Vector2)>();
-        foreach (QuestHelperPin pin in ActiveQuestHelperPins().Where(pin => pin.AreaId == areaId))
+        foreach (QuestHelperPin pin in ActiveQuestHelperPins()
+                     .Where(pin => pin.Spawn.MapId == area.MapId))
         {
-            Vector3 world = QuestHelperUiLaw.WorldPosition(area,
-                new(pin.AreaId, pin.XPercent, pin.YPercent));
+            Vector3 world = QuestHelperUiLaw.WorldPosition(pin.Spawn);
             Vector2 dot = center + new Vector2(
                 -(world.Y - playerPosition.Y), -(world.X - playerPosition.X)) * pixelsPerYard;
             if (Vector2.DistanceSquared(dot, center) <= aperture * aperture)

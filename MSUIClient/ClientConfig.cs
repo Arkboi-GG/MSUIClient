@@ -6,10 +6,11 @@ namespace MSUIClient;
 /// <summary>
 /// Runtime configuration, loaded from client-config.json.
 ///
-/// The native client reads the WoW MPQs DIRECTLY off local disk — no asset
-/// server, no bake step, no HTTP. That is the single biggest simplification
-/// over the abandoned browser build, where the whole export pipeline existed
-/// only because a browser cannot open an MPQ.
+/// The native client reads the WoW MPQs directly off local disk with no asset
+/// server or bake step. Live realm metadata such as Quest Helper may use the
+/// configured read-only data service; game assets never do. Direct archive access
+/// is the biggest simplification over the abandoned browser build, where the whole
+/// export pipeline existed only because a browser cannot open an MPQ.
 ///
 /// PATH RESOLUTION
 ///   Relative paths in this file resolve against the REPO ROOT, not the working
@@ -47,6 +48,13 @@ public sealed partial class ClientConfig
     /// <summary>realmd host, for Phase 2. Unused while the client is offline.</summary>
     public string RealmdHost { get; set; } = "127.0.0.1";
     public int RealmdPort { get; set; } = 3724;
+
+    /// <summary>MangosSuperUI base URL for live, read-only realm data such as Quest Helper.</summary>
+    public string DataServiceUrl { get; set; } = "";
+
+    [JsonIgnore]
+    public string ResolvedDataServiceUrl => string.IsNullOrWhiteSpace(DataServiceUrl)
+        ? $"http://{RealmdHost}:5000" : DataServiceUrl.TrimEnd('/');
 
     /// <summary>
     /// Master switch for all developer tooling - the in-game overlay, scene

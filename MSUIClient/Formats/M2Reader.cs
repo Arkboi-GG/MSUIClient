@@ -41,6 +41,20 @@ public class M2Model
                unchecked((ushort)TextureUnitLookup[(int)combo]) > 2;
     }
 
+    /// <summary>Resolve an authored texture-coordinate set for one batch unit.
+    /// Values 0 and 1 select UV0/UV1; values above 2 are generated coordinates.</summary>
+    public int GetTextureCoordinateForBatchUnit(M2Batch batch, int unit)
+    {
+        if (unit < 0 || unit >= Math.Max(1, (int)batch.TextureCount) ||
+            batch.TextureCoordIndex == ushort.MaxValue)
+            return 0;
+
+        long combo = (long)batch.TextureCoordIndex + unit;
+        return combo >= 0 && combo < TextureUnitLookup.Count
+            ? unchecked((ushort)TextureUnitLookup[(int)combo])
+            : 0;
+    }
+
     // ── Skeleton ─────────────────────────────────────────────────────────────
     public List<M2Bone> Bones { get; set; } = new();
     public List<short> KeyBoneLookup { get; set; } = new();
@@ -242,6 +256,20 @@ public class M2Model
         return t >= 0 && t < TextureTransforms.Count ? t : -1;
     }
 
+    /// <summary>Resolve one texture unit's animated transform. Multi-texture
+    /// batches carry one consecutive lookup entry per unit.</summary>
+    public int GetTextureTransformForBatchUnit(M2Batch batch, int unit)
+    {
+        if (TextureTransforms.Count == 0 || unit < 0 ||
+            unit >= Math.Max(1, (int)batch.TextureCount) ||
+            batch.TextureTransformIndex == ushort.MaxValue)
+            return -1;
+        int idx = batch.TextureTransformIndex + unit;
+        if (idx >= TextureTransformLookup.Count) return -1;
+        int t = TextureTransformLookup[idx];
+        return t >= 0 && t < TextureTransforms.Count ? t : -1;
+    }
+
     /// <summary>
     /// Find a sequence by its AnimationData.dbc ID (e.g. 0 = Stand, 4 = Walk).
     /// Returns the index into <see cref="Sequences"/>, or -1 if no sequence
@@ -343,6 +371,7 @@ public struct M2Vertex
     public float PosX, PosY, PosZ;
     public float NormX, NormY, NormZ;
     public float TexU, TexV;
+    public float TexU1, TexV1;
 
     public byte BoneWeight0, BoneWeight1, BoneWeight2, BoneWeight3;
     public byte BoneIndex0, BoneIndex1, BoneIndex2, BoneIndex3;
@@ -1884,6 +1913,8 @@ public class M2Reader
 
             float u = ReadFloat(data, off + 32);
             float v = ReadFloat(data, off + 36);
+            float u1 = ReadFloat(data, off + 40);
+            float v1 = ReadFloat(data, off + 44);
 
             model.Vertices.Add(new M2Vertex
             {
@@ -1895,6 +1926,8 @@ public class M2Reader
                 NormZ = -ny,
                 TexU = u,
                 TexV = v,
+                TexU1 = u1,
+                TexV1 = v1,
                 BoneWeight0 = bw0,
                 BoneWeight1 = bw1,
                 BoneWeight2 = bw2,

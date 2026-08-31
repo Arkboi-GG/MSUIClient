@@ -738,6 +738,10 @@ public sealed partial class GameLoop
             return;
         }
         _connectionDraft.RealmdHost = _connectionDraft.RealmdHost.Trim();
+        LaunchConfigurationSetting? activeLaunch = ActiveLaunchConfiguration();
+        bool updatesActiveConnection = activeLaunch is not null
+            ? activeLaunch.ConnectionId == _connectionDraft.Id
+            : LoginProfiles.ActiveConnectionId == _connectionDraft.Id;
         int index = LoginProfiles.Connections.FindIndex(p => p.Id == _connectionDraft.Id);
         ConnectionProfileSetting saved = Clone(_connectionDraft);
         if (index < 0) LoginProfiles.Connections.Add(saved);
@@ -745,8 +749,15 @@ public sealed partial class GameLoop
         if (useNow)
         {
             LoginProfiles.ActiveConnectionId = saved.Id;
-            LaunchConfigurationSetting? launch = ActiveLaunchConfiguration();
-            if (launch is not null) launch.ConnectionId = saved.Id;
+            if (activeLaunch is not null) activeLaunch.ConnectionId = saved.Id;
+        }
+
+        if (useNow || updatesActiveConnection)
+        {
+            // The network client captures its endpoint when it is constructed.
+            // Recreate it when the saved record backs the active launch profile;
+            // otherwise a changed host/port cannot take effect until a restart.
+            SettingsFile?.Save();
             RebuildNetworkClientForProfiles(allowAutoLogin: false);
         }
         else
@@ -825,6 +836,8 @@ public sealed partial class GameLoop
         }
         if (!_launchDraft.SavePassword) _launchDraft.Password = "";
         if (!_launchDraft.AutoEnterWorld) _launchDraft.Character = "";
+        bool updatesActiveLaunch =
+            LoginProfiles.ActiveLaunchConfigurationId == _launchDraft.Id;
         int index = LoginProfiles.LaunchConfigurations.FindIndex(
             p => p.Id == _launchDraft.Id);
         LaunchConfigurationSetting saved = Clone(_launchDraft);
@@ -834,6 +847,11 @@ public sealed partial class GameLoop
         {
             LoginProfiles.ActiveLaunchConfigurationId = saved.Id;
             LoginProfiles.ActiveConnectionId = saved.ConnectionId;
+        }
+
+        if (useNow || updatesActiveLaunch)
+        {
+            SettingsFile?.Save();
             RebuildNetworkClientForProfiles(allowAutoLogin: false);
         }
         else

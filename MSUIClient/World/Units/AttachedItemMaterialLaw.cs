@@ -41,14 +41,7 @@ public static class AttachedItemMaterialLaw
                     restingSequence, seconds);
         }
 
-        int textureTransform = model.GetTextureTransformForBatch(batch);
-        if (textureTransform >= 0 && textureTransform < model.TextureTransforms.Count)
-        {
-            Vector3 offset = M2TrackSampling.Vector(
-                model.TextureTransforms[textureTransform].Translation, model,
-                restingSequence, seconds, Vector3.Zero);
-            uvOffset = new Vector2(offset.X, offset.Y);
-        }
+        uvOffset = UvOffsetAt(model, batch, 0, seconds);
 
         if (!float.IsFinite(alpha)) alpha = 0f;
         if (!float.IsFinite(tint.X) || !float.IsFinite(tint.Y) || !float.IsFinite(tint.Z))
@@ -56,6 +49,21 @@ public static class AttachedItemMaterialLaw
         if (!float.IsFinite(uvOffset.X) || !float.IsFinite(uvOffset.Y))
             uvOffset = Vector2.Zero;
         return new(Vector3.Max(tint, Vector3.Zero), Math.Clamp(alpha, 0f, 1f), uvOffset);
+    }
+
+    /// <summary>Sample the authored UV translation for one texture unit.</summary>
+    public static Vector2 UvOffsetAt(M2Model model, M2Batch batch, int unit, float seconds)
+    {
+        int textureTransform = model.GetTextureTransformForBatchUnit(batch, unit);
+        if (textureTransform < 0 || textureTransform >= model.TextureTransforms.Count)
+            return Vector2.Zero;
+
+        Vector3 offset = M2TrackSampling.Vector(
+            model.TextureTransforms[textureTransform].Translation, model,
+            0, seconds, Vector3.Zero);
+        return float.IsFinite(offset.X) && float.IsFinite(offset.Y)
+            ? new Vector2(offset.X, offset.Y)
+            : Vector2.Zero;
     }
 
     public static int FogPolicy(int blendMode, bool unfogged) => unfogged ? 4 : blendMode switch

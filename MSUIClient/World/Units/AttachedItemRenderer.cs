@@ -59,14 +59,19 @@ public sealed class AttachedItemRenderer : IDisposable
     public const int AttachHipMain = 32;
     public const int AttachHipOff = 33;
 
-    /// <summary>Position(3), normal(3), UV(2), normalized bone weights(4), bone indices(4).</summary>
-    private const int FloatsPerVertex = 16;
+    /// <summary>Position(3), normal(3), UV0(2), normalized bone weights(4), bone indices(4), UV1(2).</summary>
+    private const int FloatsPerVertex = 18;
 
     internal sealed class Batch
     {
         public uint IndexStart;
         public uint IndexCount;
         public Texture? Texture;
+        public Texture? Texture2;
+        public bool FirstUsesUv1;
+        public bool SecondUsesUv1;
+        public bool SecondEnvironmentMapped;
+        public bool SteadyModulatedGlow;
         public bool TwoSided;
         public int BlendMode;
         public bool NoZWrite;
@@ -471,6 +476,7 @@ public sealed class AttachedItemRenderer : IDisposable
             vertices[o + 10] = skin.Weights.Z; vertices[o + 11] = skin.Weights.W;
             vertices[o + 12] = skin.Indices.X; vertices[o + 13] = skin.Indices.Y;
             vertices[o + 14] = skin.Indices.Z; vertices[o + 15] = skin.Indices.W;
+            vertices[o + 16] = v.TexU1; vertices[o + 17] = v.TexV1;
         }
 
         var indices = m2.Indices.ToArray();
@@ -502,6 +508,8 @@ public sealed class AttachedItemRenderer : IDisposable
         _gl.VertexAttribPointer(3, 4, VertexAttribPointerType.Float, false, stride, (void*)(8 * sizeof(float)));
         _gl.EnableVertexAttribArray(4);
         _gl.VertexAttribPointer(4, 4, VertexAttribPointerType.Float, false, stride, (void*)(12 * sizeof(float)));
+        _gl.EnableVertexAttribArray(5);
+        _gl.VertexAttribPointer(5, 2, VertexAttribPointerType.Float, false, stride, (void*)(16 * sizeof(float)));
 
         _gl.BindVertexArray(0);
 
@@ -536,25 +544,34 @@ public sealed class AttachedItemRenderer : IDisposable
             if (submesh.IndexCount == 0) continue;
             if (submesh.IndexStart + submesh.IndexCount > indices.Length) continue;
 
-            // ItemDisplayInfo's texture is a replacement only for the M2's empty type-2
-            // slot. Explicit M2 textures (ArmorReflect, Zap, runes, and similar overlays)
-            // must remain attached to their own authored batches.
-            Texture? slot = null;
-            bool hasTextureReference = false;
-            if (batch.TextureIndex < m2.TextureLookup.Count)
+            // ItemDisplayInfo's texture replaces only an empty Type-2 unit. Resolve every
+            // authored unit independently: Warglaive wave batches use two copies of their
+            // effect sheet with different UV sets, and dropping unit 1 drops the moving lines.
+            Texture? ResolveBatchTexture(int unit, bool allowDisplayFallback)
             {
-                int texIdx = m2.TextureLookup[batch.TextureIndex];
-                if (texIdx >= 0 && texIdx < m2.Textures.Count)
+                int lookup = batch.TextureIndex + unit;
+                if (lookup < m2.TextureLookup.Count)
                 {
-                    hasTextureReference = true;
-                    M2TextureRef textureRef = m2.Textures[texIdx];
-                    if (textureRef.Filename.Length > 0)
-                        slot = ResolveTexturePath(textureRef.Filename);
-                    else if (textureRef.Type == 2)
-                        slot = texture;
+                    int texIdx = m2.TextureLookup[lookup];
+                    if (texIdx >= 0 && texIdx < m2.Textures.Count)
+                    {
+                        M2TextureRef textureRef = m2.Textures[texIdx];
+                        if (textureRef.Filename.Length > 0)
+                            return ResolveTexturePath(textureRef.Filename);
+                        if (textureRef.Type == 2)
+                            return texture;
+                        return null;
+                    }
                 }
+                return allowDisplayFallback ? texture : null;
             }
-            if (!hasTextureReference) slot = texture;
+
+            Texture? slot = ResolveBatchTexture(0, allowDisplayFallback: true);
+            Texture? slot2 = batch.TextureCount > 1
+                ? ResolveBatchTexture(1, allowDisplayFallback: false)
+                : null;
+            int firstCoordinate = m2.GetTextureCoordinateForBatchUnit(batch, 0);
+            int secondCoordinate = m2.GetTextureCoordinateForBatchUnit(batch, 1);
 
             var renderFlags = batch.MaterialIndex < m2.RenderFlags.Count
                 ? m2.RenderFlags[batch.MaterialIndex]
@@ -565,6 +582,13 @@ public sealed class AttachedItemRenderer : IDisposable
                 IndexStart = submesh.IndexStart,
                 IndexCount = submesh.IndexCount,
                 Texture = slot,
+                Texture2 = slot2,
+                FirstUsesUv1 = firstCoordinate == 1,
+                SecondUsesUv1 = secondCoordinate == 1,
+                SecondEnvironmentMapped = m2.UsesEnvironmentMapForBatchUnit(batch, 1),
+                SteadyModulatedGlow = batch.TextureCount == 2 &&
+                    (renderFlags?.BlendingMode ?? 0) == 4 &&
+                    firstCoordinate == 0 && secondCoordinate == 1,
                 TwoSided = renderFlags?.TwoSided ?? false,
                 BlendMode = renderFlags?.BlendingMode ?? 0,
                 NoZWrite = renderFlags?.NoZWrite ?? false,
@@ -668,6 +692,7 @@ public sealed class AttachedItemRenderer : IDisposable
         shader.Set("uFogEnd", FogEnd);
         shader.Set("uFogColor", FogColor);
         shader.Set("uTexture", 0);
+        shader.Set("uTexture2", 1);
         float bodyAlpha = Math.Clamp(BodyAlpha, 0f, 1f);
         shader.Set("uBodyAlpha", bodyAlpha);
         shader.Set("uBodyTint", BodyTint);
@@ -784,13 +809,30 @@ public sealed class AttachedItemRenderer : IDisposable
                         shader.Set("uHasTexture", 0);
                         shader.Set("uAlphaCutoff", 0f);
                     }
+                    if (batch.Texture2 is not null)
+                    {
+                        batch.Texture2.Bind(1);
+                        shader.Set("uHasTexture2", 1);
+                    }
+                    else
+                    {
+                        shader.Set("uHasTexture2", 0);
+                    }
+                    shader.Set("uSteadyModulatedGlow", batch.SteadyModulatedGlow ? 1 : 0);
 
                     if (transparentPass) ApplyBlendMode(batch.BlendMode);
 
                     shader.Set("uBodyTint", BodyTint * material.Tint);
                     shader.Set("uBodyAlpha", bodyAlpha * material.Alpha);
                     shader.Set("uUvOffset", material.UvOffset);
+                    shader.Set("uUvOffset2", batch.Source is null
+                        ? Vector2.Zero
+                        : AttachedItemMaterialLaw.UvOffsetAt(
+                            mount.Model.Source, batch.Source, 1, modelTime));
+                    shader.Set("uUvSet", batch.FirstUsesUv1 ? 1 : 0);
+                    shader.Set("uUvSet2", batch.SecondUsesUv1 ? 1 : 0);
                     shader.Set("uEnvironmentMap", batch.EnvironmentMapped ? 1 : 0);
+                    shader.Set("uEnvironmentMap2", batch.SecondEnvironmentMapped ? 1 : 0);
                     // Generic environment/blend passes honor the authored UNLIT bit. The known
                     // Warglaive energy submesh is the narrow exception: keeping its base and line
                     // pass stable prevents the hand animation from becoming a whole-blade pulse.

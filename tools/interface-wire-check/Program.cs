@@ -2078,11 +2078,20 @@ Check(QuestHelperUiLaw.QuestComplete(1u << 24) &&
       QuestHelperUiLaw.ObjectiveEntry(unchecked((uint)-142702)) == 142702 &&
       QuestHelperUiLaw.ObjectiveIsObject(unchecked((uint)-142702)),
     "native Quest Helper objective decoding drift");
-QuestHelperDataCatalog questHelperData = QuestHelperDataCatalog.LoadEmbedded();
-Check(questHelperData.UnitSpawns(6).Count > 0 &&
-      questHelperData.ItemSources(750).Units.Length > 0 &&
+var questHelperExports = new Dictionary<string, string>
+{
+    ["quest_template"] = "entry,patch,QuestLevel,MinLevel,Title,ReqItemId1\n7,10,10,1,Kobold Camp Cleanup,750\n",
+    ["creature_questrelation"] = "id,quest,patch_min,patch_max\n197,7,0,10\n",
+    ["creature_involvedrelation"] = "id,quest,patch_min,patch_max\n197,7,0,10\n",
+    ["creature"] = "guid,id,map,position_x,position_y,patch_min,patch_max\n1,197,0,100,-50,0,10\n",
+    ["creature_template"] = "entry,patch,loot_id\n197,10,197\n",
+    ["creature_loot_template"] = "entry,item,mincountOrRef,patch_min,patch_max\n197,750,1,0,10\n",
+};
+QuestHelperDataCatalog questHelperData = QuestHelperDataClient.ParseExports(questHelperExports);
+Check(questHelperData.UnitSpawns(197).Single() == new QuestHelperSpawn(0, 100, -50) &&
+      questHelperData.ItemSources(750).Units.Contains(197u) &&
       questHelperData.TurnInSources(7).Units.Contains(197u),
-    "native Quest Helper embedded Vanilla data smoke check failed");
+    "native Quest Helper live realm-data joins failed");
 
 GameMenuEscapeState idleEscape = new(false, false, false, false, false, false,
     false, false, false, false, false);

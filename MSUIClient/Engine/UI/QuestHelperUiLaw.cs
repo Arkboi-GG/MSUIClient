@@ -53,10 +53,8 @@ public static class QuestHelperUiLaw
     public static bool LevelAppropriate(byte playerLevel, byte minimumLevel, byte questLevel) =>
         playerLevel >= minimumLevel && (questLevel == 0 || questLevel + 5 >= playerLevel);
 
-    public static Vector3 WorldPosition(in WorldMapAreaInfo area,
-        in QuestHelperSpawn spawn) => new(
-            area.Top + spawn.YPercent / 100f * (area.Bottom - area.Top),
-            area.Left + spawn.XPercent / 100f * (area.Right - area.Left), 0f);
+    public static Vector3 WorldPosition(in QuestHelperSpawn spawn) =>
+        new(spawn.X, spawn.Y, 0f);
 
     public static uint Color(QuestHelperPinKind kind) => kind switch
     {

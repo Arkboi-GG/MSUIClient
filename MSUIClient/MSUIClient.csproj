@@ -3,16 +3,17 @@
 	<!-- ══════════════════════════════════════════════════════════════════════
 	     MSUI Client — native C# client for VMaNGOS 1.12.1 (client build 5875).
 
-	     Fully standalone: no reference to MangosSuperUI or anything else.
+	     No source/project reference to MangosSuperUI is required; live realm
+	     metadata is consumed through its read-only HTTP API when configured.
 	     The Blizzard format readers live in Formats/ as this project's own
 	     source. They were originally written for the SuperUI web app; copies
 	     here are independent and will drift. That is the deliberate trade for
 	     an independent project — these are 2006 file formats that do not change,
 	     so drift costs little, but a real bug fix does have to be applied twice.
 
-	     Reads the WoW MPQs directly off local disk. No asset server, no bake
-	     step, no HTTP. Works natively in WoW world space (X north, Y west,
-	     Z up) with no coordinate conversion anywhere.
+	     Reads the WoW MPQs directly off local disk with no asset server or bake
+	     step. Game assets never travel over HTTP. Works natively in WoW world
+	     space (X north, Y west, Z up) with no coordinate conversion anywhere.
 	     ══════════════════════════════════════════════════════════════════════ -->
 
 	<PropertyGroup>
@@ -55,10 +56,6 @@
 
 	<ItemGroup>
 		<EmbeddedResource Include="Assets\msui-icon.png" />
-		<EmbeddedResource Include="Assets\QuestHelperData.bin.gz">
-			<LogicalName>MSUIClient.Assets.QuestHelperData.bin.gz</LogicalName>
-			<WithCulture>false</WithCulture>
-		</EmbeddedResource>
 	</ItemGroup>
 
 	<ItemGroup>

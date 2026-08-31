@@ -3741,6 +3741,8 @@ public sealed partial class CharacterRenderer : IDisposable
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uTexture", 0);
+        _shader.Set("uHasTexture2", 0);
+        _shader.Set("uSteadyModulatedGlow", 0);
         float bodyAlpha = state.ApplyBodyVisual ? Math.Clamp(state.BodyAlpha, 0f, 1f) : 1f;
         Vector3 bodyTint = state.ApplyBodyVisual ? state.BodyTint : Vector3.One;
         _shader.Set("uBodyAlpha", bodyAlpha);

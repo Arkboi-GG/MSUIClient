@@ -161,6 +161,20 @@ Require(fragmentShader.Contains("light = clamp(light, vec3(0.0), vec3(1.0));",
             StringComparison.Ordinal),
     "Model2 lighting is not clamped before albedo multiplication");
 
+Require(vertexShader.Contains("layout (location = 5) in vec2 aUV1;", StringComparison.Ordinal) &&
+        vertexShader.Contains("out vec2 vUV2;", StringComparison.Ordinal) &&
+        vertexShader.Contains("uUvSet2 != 0 ? aUV1 : aUV", StringComparison.Ordinal),
+    "attached-item vertex shader does not carry authored UV1 into texture unit 1");
+Require(fragmentShader.Contains("uniform sampler2D uTexture2;", StringComparison.Ordinal) &&
+        fragmentShader.Contains("vec4 wave = albedo * stage2;", StringComparison.Ordinal) &&
+        fragmentShader.Contains("albedo.rgb += wave.rgb;", StringComparison.Ordinal),
+    "attached-item fragment shader does not reconstruct the two-unit MODULATE pass");
+Require(renderer.Contains("batch.Texture2.Bind(1);", StringComparison.Ordinal) &&
+        renderer.Contains("GetTextureCoordinateForBatchUnit(batch, 1)", StringComparison.Ordinal) &&
+        renderer.Contains("AttachedItemMaterialLaw.UvOffsetAt(", StringComparison.Ordinal) &&
+        renderer.Contains("SteadyModulatedGlow = batch.TextureCount == 2", StringComparison.Ordinal),
+    "attached-item renderer does not bind or animate the second authored texture unit");
+
 Console.WriteLine($"[warglaive] PASS build-5875 environment UV={uv}; displays " +
     "30934/30935/30936 use the single-unit ArmorReflect3 reflection pass and the attached " +
     "renderer uses per-vertex reflected-position sampling with a model-scoped steady blade pass");

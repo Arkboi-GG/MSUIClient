@@ -52,6 +52,7 @@ uniform int uBoneCount;
 out vec3 vWorldPos;
 out vec3 vNormal;
 out vec2 vUV;
+out vec2 vUV2;
 
 vec3 skinPoint(vec3 p, int b)
 {
@@ -113,6 +114,7 @@ void main()
     vNormal = normalize(mat3(uModel) * normal);
 
     vUV = aUV;
+    vUV2 = aUV;
 
     // Use the CPU-precombined matrix for clip position. If model and view are
     // applied separately, the model step first adds the character's ~-8950
