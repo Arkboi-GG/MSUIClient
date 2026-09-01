@@ -2356,6 +2356,11 @@ public sealed partial class GameLoop : IDisposable
         Speed = _controller?.PlanarSpeed ?? 0f,
         Steering = _steering,
         HasIntent = _controller is not null,
+        // Gated on ServerRideMayOwnController for the same reason the ride itself is: in SUI
+        // modes a spline addressed to the session body must not drive a controller that is
+        // currently a possessed bot or the detached camera rig, so it must not animate one
+        // either. Same source the mount gait already reads.
+        CarriedSpeed = ServerRideMayOwnController ? _serverRideSpline?.AverageSpeed ?? 0f : 0f,
         };
     }
 

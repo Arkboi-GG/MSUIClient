@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine.UI;
 using MSUIClient.Net;
@@ -8,9 +8,17 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private sealed record DeleteItemConfirmation(
-        int Container, int Slot, string Name, byte Count);
+        int Container, int Slot, string Name, byte Count, uint Quality)
+    {
+        public bool NeedsTypedConfirmation =>
+            DeleteItemUiLaw.RequiresTypedConfirmation(Quality);
+    }
 
     private DeleteItemConfirmation? _deleteItemConfirmation;
+
+    /// <summary>What has been typed into the guarded popup's field this time round.</summary>
+    private string _deleteItemTypedConfirm = "";
+    private bool _deleteItemConfirmFocusRequested;
 
     private void TryOpenDeleteItemConfirmation()
     {
@@ -22,10 +30,17 @@ public sealed partial class GameLoop
             return;
 
         byte count = (byte)Math.Clamp(_carriedCount ?? 0, 0, byte.MaxValue);
-        _deleteItemConfirmation = new(_carriedContainer, _carriedSlot, item.Name, count);
+        _deleteItemConfirmation =
+            new(_carriedContainer, _carriedSlot, item.Name, count, item.Quality);
+        _deleteItemTypedConfirm = "";
         bool dead = _entities.TryGet(ControlledGuid, out WorldEntity player) && player.IsDead;
+        // Epic and above ask for the word; everything else keeps the plain 1.12 Yes/No.
+        bool guarded = _deleteItemConfirmation.NeedsTypedConfirmation;
+        _deleteItemConfirmFocusRequested = guarded;
         ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(
-            _staticPopupSlots, DeleteItemUiLaw.Definition, dead, dataToken: item.Name));
+            _staticPopupSlots,
+            guarded ? DeleteItemUiLaw.ConfirmDefinition : DeleteItemUiLaw.Definition,
+            dead, dataToken: item.Name));
     }
 
     private void AcceptDeleteItem()
@@ -37,6 +52,18 @@ public sealed partial class GameLoop
             InventoryUiLaw.ToWire(pending.Container, pending.Slot) is not { } wire)
         {
             CancelDeleteItem();
+            return;
+        }
+
+        // Belt and braces. The button is already withheld until the word matches, but the
+        // accept effect can also arrive from the field's own Enter key, and this is the last
+        // edge before an irreversible destroy.
+        if (pending.NeedsTypedConfirmation &&
+            !DeleteItemUiLaw.ConfirmSatisfied(_deleteItemTypedConfirm))
+        {
+            EmitInterface("inventory", "destroy", "REFUSED_UNCONFIRMED",
+                ResolveCarriedItem()?.Guid ?? 0,
+                $"quality={pending.Quality};name={SanitizeEvidence(pending.Name)}");
             return;
         }
 
@@ -52,6 +79,8 @@ public sealed partial class GameLoop
     {
         ClearCarriedItem();
         _deleteItemConfirmation = null;
+        _deleteItemTypedConfirm = "";
+        _deleteItemConfirmFocusRequested = false;
     }
 
     private float StaticPopupFirstHeight(float scale)
@@ -61,6 +90,8 @@ public sealed partial class GameLoop
         {
             PartyInvitePopupType => $"{first.DataToken ?? ""} invites you to a group.",
             DeleteItemUiLaw.PopupType => DeleteItemUiLaw.Text(first.DataToken ?? ""),
+            DeleteItemUiLaw.ConfirmPopupType =>
+                DeleteItemUiLaw.ConfirmText(first.DataToken ?? ""),
             DuelFrameUiLaw.RequestedPopupType =>
                 DuelFrameUiLaw.RequestedText(first.DataToken ?? ""),
             DuelFrameUiLaw.OutOfBoundsPopupType =>
@@ -104,11 +135,15 @@ public sealed partial class GameLoop
         if (popup is not { } visible || _deleteItemConfirmation is null || _skin is null) return;
 
         float scale = GameplayUiScale();
-        string text = DeleteItemUiLaw.Text(visible.Instance.DataToken ?? "");
+        bool guarded = visible.Instance.Definition.HasEditBox;
+        string text = guarded
+            ? DeleteItemUiLaw.ConfirmText(visible.Instance.DataToken ?? "")
+            : DeleteItemUiLaw.Text(visible.Instance.DataToken ?? "");
         string[] lines = WrapTooltipText(text, "GameFontHighlight", scale,
             DeleteItemUiLaw.TextWidth * scale).ToArray();
         float logicalTextHeight = lines.Length * GameText.LinePitch("GameFontHighlight", 1);
-        DeleteItemUiLaw.PopupLayout layout = DeleteItemUiLaw.Layout(logicalTextHeight);
+        DeleteItemUiLaw.PopupLayout layout =
+            DeleteItemUiLaw.Layout(logicalTextHeight, guarded);
         Vector2 origin = StaticPopupOrigin(visible.Slot, DeleteItemUiLaw.Width, scale);
         Vector2 size = layout.Size * scale;
 
@@ -134,16 +169,46 @@ public sealed partial class GameLoop
                 origin + DeleteItemUiLaw.TextLineCenter(layout,
                     GameText.LinePitch("GameFontHighlight", 1), i) * scale, scale);
 
+        bool entered = false;
+        if (guarded)
+        {
+            Vector2 editMin = origin + layout.EditBox.Min * scale;
+            DrawStaticPopupEditBoxBorder(draw, editMin, scale);
+            ImGui.SetCursorScreenPos(editMin + GuildFrameUiLaw.NarrowPopupEditTextOffset * scale);
+            ImGui.SetNextItemWidth(layout.EditBox.Width * scale);
+            ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
+            ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
+            ImGui.PushStyleColor(ImGuiCol.FrameBgActive, Vector4.Zero);
+            ImGui.PushStyleColor(ImGuiCol.Border, Vector4.Zero);
+            ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, Vector2.Zero);
+            if (_deleteItemConfirmFocusRequested)
+            {
+                ImGui.SetKeyboardFocusHere();
+                _deleteItemConfirmFocusRequested = false;
+            }
+            entered = ImGui.InputText("##delete-item-confirm-edit",
+                ref _deleteItemTypedConfirm, DeleteItemUiLaw.ConfirmMaxLetters,
+                ImGuiInputTextFlags.EnterReturnsTrue);
+            ImGui.PopStyleVar();
+            ImGui.PopStyleColor(4);
+        }
+
+        // The accept button is WITHHELD, not merely ignored, until the word is there: a
+        // clickable Yes on a legendary is the whole thing this popup exists to prevent.
+        bool armed = !guarded || DeleteItemUiLaw.ConfirmSatisfied(_deleteItemTypedConfirm);
         bool yes = DrawPartyInviteButton(draw, "StaticPopup1Button1", "Yes",
             origin + layout.Button1.Min * scale,
-            scale, capture: false, default);
+            scale, capture: false, default, enabled: armed);
         bool no = DrawPartyInviteButton(draw, "StaticPopup1Button2", "No",
             origin + layout.Button2.Min * scale,
             scale, capture: false, default);
         draw.PopClipRect();
         ImGui.End();
 
-        if (yes)
+        if (entered && armed)
+            ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Click(
+                _staticPopupSlots, visible.Slot, buttonIndex: 1));
+        else if (yes)
             ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Click(
                 _staticPopupSlots, visible.Slot, buttonIndex: 1));
         else if (no)

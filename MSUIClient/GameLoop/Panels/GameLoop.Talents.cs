@@ -347,8 +347,22 @@ public sealed partial class GameLoop
                 DrawArt(dl, @"Interface\Buttons\UI-Quickslot-Depress", min,
                     buttonRect.Size, s);
             if (ImGui.IsItemHovered())
-                DrawArt(dl, @"Interface\Buttons\ButtonHilight-Square", min,
-                    buttonRect.Size, s);
+            {
+                // NOT DrawArt. ButtonHilight-Square is ADD-authored: the BLP has no alpha
+                // channel at all (alphaDepth 0, RGB 0,0,0 to 41,60,107 — a dim blue glow on
+                // a pure black field), and ItemButtonTemplate.xml declares it
+                // alphaMode="ADD". Blitting it through the regular alpha draw list paints
+                // that opaque black field straight over the talent icon, so hovering
+                // BLACKED OUT the button instead of lighting it. Reported 2026-09-01.
+                // The action bar buttons — same ItemButtonTemplate, same texture — already
+                // go through BrightHighlightHandle, which is the mask built for exactly this.
+                // The pushed texture above stays on DrawArt: UI-Quickslot-Depress has a real
+                // 8-bit alpha channel and the template gives it no alphaMode.
+                uint highlight = _gameplayArt?.BrightHighlightHandle(
+                    @"Interface\Buttons\ButtonHilight-Square") ?? 0;
+                if (highlight != 0)
+                    dl.AddImage((nint)highlight, min, min + buttonRect.Size * s);
+            }
             if (ImGui.IsItemClicked() && eligible) SpendTalent(talent.Id);
             if (ImGui.IsItemHovered() && _skin is { } talentTooltipSkin)
             {

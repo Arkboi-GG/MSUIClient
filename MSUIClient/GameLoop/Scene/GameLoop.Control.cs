@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine;
@@ -289,6 +289,7 @@ public sealed partial class GameLoop
         _controlledBodyPending = false;
         _freecamRequested = false;
         _freeViewExitRequested = false;
+        _freeViewExitAttempts = 0;
         _freecamSelection.Clear();
         ClearRtsWaypointChain();
         ClearRtsAttackQueue();
@@ -376,6 +377,15 @@ public sealed partial class GameLoop
     private bool _freecamRightPanned;
     private bool _freecamRightWasDown;
     private bool _freeViewExitRequested;     // ...and this one asks to LEAVE it
+
+    /// <summary>
+    /// When the outstanding CMSG_SUI_CONTROL_RELEASE(0) went out, and how many times we have
+    /// asked. The Command View exit is the ONE control transition with no ControlState pending
+    /// value to hang the ordinary watchdog on - see UpdateControlInput.
+    /// </summary>
+    private double _freeViewExitRequestedAt;
+    private int _freeViewExitAttempts;
+    private const int FreeViewExitMaxAttempts = 3;
     private double _freecamPanAt;            // last edge-pan tick, for its own dt
     private const float FreecamEdgePanMargin = 14f;   // px from a screen edge that starts a pan
     private const float RtsMaxWheelAltitudeYards = 120f;
@@ -514,6 +524,7 @@ public sealed partial class GameLoop
                 result <= SuiAckReleasedFreecam;
             if (!staysInFreeView) SetFreeView(false);
             _freeViewExitRequested = false;
+            _freeViewExitAttempts = 0;
             _controlState = staysInFreeView ? ControlState.FreeCam : ControlState.OwnChar;
             // Same staleness on the way out: statuses answered for the released bot
             // must be re-asked for whoever the session acts as now.
@@ -1301,8 +1312,14 @@ public sealed partial class GameLoop
                 RequestControlRelease(toFreecam: true);
                 break;
             case ControlState.FreeCam:
-                // No pending state: stay in the fly rig until the ACK teleports us home.
+                // No pending ControlState: we stay in the fly rig until the ACK teleports us
+                // home. That means nothing local changes when this is sent, so an ACK that
+                // never arrives is indistinguishable from a keypress that never registered -
+                // which is exactly what it looked like. Stamped and watchdogged below; a
+                // fresh press is a fresh request, so the retry budget starts over.
                 _freeViewExitRequested = true;
+                _freeViewExitRequestedAt = NowSeconds();
+                _freeViewExitAttempts = 0;
                 _net.SuiControlRelease(0);
                 break;
         }
@@ -1331,6 +1348,41 @@ public sealed partial class GameLoop
             _freecamRequested = false;
             ClearRtsForceTakeControl();
             ShowUiError("No answer from the server (SUI control).");
+        }
+
+        // THE COMMAND VIEW EXIT NEEDS ITS OWN WATCHDOG, because it is the one transition that
+        // does not park input or enter a pending ControlState - so the block above can never
+        // cover it. Ctrl+F out of the sky rig sends CMSG_SUI_CONTROL_RELEASE(0) and changes
+        // nothing locally until the ACK comes back; if that ACK is late or lost the client sits
+        // in FreeCam forever, and every further press silently re-sends into the same hole.
+        // Reported 2026-09-01: "in big battles I can't Ctrl+F back to direct control, nothing
+        // happens" - which is the shape of an ACK starved by the same flood the order path
+        // already struggles with, not of a missed keypress.
+        //
+        // Re-ask before giving up: a dropped packet deserves another go, and the release is
+        // idempotent server-side (a second one on an already-released session is a no-op).
+        if (_freeViewExitRequested && _net is not null &&
+            NowSeconds() - _freeViewExitRequestedAt > ControlAckTimeoutSeconds)
+        {
+            if (_freeViewExitAttempts < FreeViewExitMaxAttempts)
+            {
+                _freeViewExitAttempts++;
+                _freeViewExitRequestedAt = NowSeconds();
+                _net.SuiControlRelease(0);
+                Console.WriteLine("[control] command-view exit unanswered after " +
+                    $"{ControlAckTimeoutSeconds:F0}s - re-asking " +
+                    $"({_freeViewExitAttempts}/{FreeViewExitMaxAttempts})");
+            }
+            else
+            {
+                // Give the key back rather than leaving it dead. The server owns where the
+                // body is, so forcing a local exit would desync; say so and let Ctrl+F retry.
+                _freeViewExitRequested = false;
+                _freeViewExitAttempts = 0;
+                Console.WriteLine("[control] command-view exit ABANDONED after " +
+                    $"{FreeViewExitMaxAttempts} attempt(s) - still in the sky rig");
+                ShowUiError("No answer from the server (SUI control).");
+            }
         }
 
         // A possess granted before the bot's entity streamed in leaves the body

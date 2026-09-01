@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Numerics;
 using Silk.NET.Input;
 using MSUIClient.Engine;
@@ -729,6 +729,32 @@ public sealed partial class GameLoop
             HashSet<GameBinding> resolved = ResolveBindingChord(
                 BindingChordLaw.Live(key, alt, control, shift));
             if (resolved.Count > 0) _bindingLatches[key] = resolved;
+        }
+
+        // ── presses that came and went inside one frame ──────────────────────────
+        //
+        // The scan above can only see keys that are STILL DOWN when it runs, so a tap that
+        // starts and ends between two frames never latches and the command never fires. That
+        // is a 33ms hole at 30fps and a much wider one in a 300-bot fight - the "I press
+        // Ctrl+F and nothing happens" report, and the same hole under every other binding.
+        //
+        // ClientWindow records those down edges as they arrive, with the modifiers as they
+        // were AT THAT INSTANT. Latch each one for exactly this frame: the key is already up,
+        // so the next scan takes the !down branch above and drops the latch, which turns one
+        // tap into exactly one BindingPressedEdge. A key that is still held is skipped here -
+        // the ordinary path already latched it, and latching twice would fire it twice.
+        IReadOnlyList<KeyValuePair<Key, ClientWindow.KeyPress>> taps =
+            _window.DrainPressedSinceScan();
+        if (!typing && !super)
+        {
+            foreach ((Key key, ClientWindow.KeyPress press) in taps)
+            {
+                if (BindingChordLaw.IsModifier(key) || press.Super) continue;
+                if (InputKeyDown(key) || _bindingLatches.ContainsKey(key)) continue;
+                HashSet<GameBinding> resolved = ResolveBindingChord(BindingChordLaw.Live(
+                    key, press.Alt, press.Control, press.Shift));
+                if (resolved.Count > 0) _bindingLatches[key] = resolved;
+            }
         }
 
         foreach (BindingPointerKey pointer in new[]

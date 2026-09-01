@@ -45,7 +45,11 @@ public sealed record NetSettings(
 
 public sealed class NetworkClient : IDisposable
 {
-    private const int MaxInboundPackets = 4096;
+    // Large open-world events can legitimately deliver many thousands of ordered object,
+    // movement and aura packets before the render thread finishes adopting the first burst.
+    // Dropping the oldest packet is unsafe because it may be a world boundary, so retain a
+    // generous bounded backlog and let the game loop's catch-up drain preserve wire order.
+    private const int MaxInboundPackets = 65_536;
     public const int PingIntervalMs = 30_000;
     public const int RttHistoryDepth = 16;
     private readonly NetSettings _cfg;
@@ -69,6 +73,7 @@ public sealed class NetworkClient : IDisposable
     private volatile string _status = "offline";
     public string Status => _status;
     public int LatencyMs => Volatile.Read(ref _latencyMs);
+    public int InboundPacketCount => _inbound.Count;
 
     public ulong PlayerGuid { get; private set; }
     public string PlayerName { get; private set; } = "";

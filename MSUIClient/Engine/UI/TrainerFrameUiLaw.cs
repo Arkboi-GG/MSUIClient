@@ -50,7 +50,27 @@ public static class TrainerFrameUiLaw
     public const float MoneyGap = 4f;
     public const float MoneyIconSize = 13f;
     public const int GreetingMaxLines = 2;
-    public const float ScrollHeight = 196f;
+    /// <summary>
+    /// The list scrollbar's full visual extent — up-button top to down-button bottom.
+    ///
+    /// MEASURED OFF BLIZZARD'S OWN ANCHORS, not by eye, and it has to be: this used to
+    /// be (310, 91) by 196, which overhung the list at BOTH ends — above its top border
+    /// and down across the horizontal divider into the detail pane. Reported 2026-09-01.
+    ///
+    /// ClassTrainerFrame.xml: ClassTrainerListScrollFrame is 296x184 anchored TOPRIGHT
+    /// to the frame at (-67, -96), so the list occupies x 21..317, y 96..280 in this
+    /// 384x512 logical space. UIPanelTemplates.xml UIPanelScrollFrameTemplate anchors
+    /// $parentScrollBar TOPLEFT to the scroll frame's TOPRIGHT at (6, -16) and
+    /// BOTTOMLEFT to its BOTTOMRIGHT at (6, 16) — so the 16-wide slider TRACK runs
+    /// x 323, y 112..264. UIPanelScrollBarTemplate then hangs the up button BOTTOM-to-TOP
+    /// and the down button TOP-to-BOTTOM of that track, each 16 tall, which puts the
+    /// assembly's outer edges back at exactly y 96 and y 280: the list's own bounds.
+    ///
+    /// x 323 is confirmed against the art as well as the anchors. MSUI does not draw
+    /// UI-ClassTrainer-ScrollBar; the gutter is baked into the shell quadrants, and
+    /// UI-ClassTrainer-TopRight's border bevel starts at logical x 340. A 16-wide bar
+    /// at 323 lands flush inside it. At 310 it sat 13px adrift, overlapping the rows.
+    public const float ScrollHeight = 184f;
     public const int DetailNameMaxLines = 2;
     public const int DetailRequirementMaxLines = 2;
     public const int DetailDescriptionMaxLines = 3;
@@ -74,7 +94,8 @@ public static class TrainerFrameUiLaw
         DropdownCapsuleUiLaw.TopRight(Width, 26, 64, 96);
     public static readonly LogicalRect ListWheel = new(22, 96, 293, 184);
     public static readonly Vector2 HeaderTextOffset = new(22, 2);
-    public static readonly Vector2 ScrollOrigin = new(310, 91);
+    /// <summary>Top-left of the scroll up button. See <see cref="ScrollHeight"/>.</summary>
+    public static readonly Vector2 ScrollOrigin = new(323, 96);
     public static readonly LogicalRect HorizontalBarLeft = new(15, 275, 256, 16);
     public static readonly LogicalRect HorizontalBarRight = new(271, 275, 75, 16);
     public static readonly Vector2 HorizontalBarLeftUvMin = Vector2.Zero;
@@ -219,6 +240,32 @@ public static class TrainerFrameUiLaw
         string Name, byte State, byte RequiredLevel);
     public readonly record struct TreeRow(bool Header, uint GroupKey, string Text,
         int ServiceIndex, byte State, bool Expanded);
+
+    /// <summary>
+    /// Where a fresh or invalidated selection lands: the first LEARNABLE service in display
+    /// order, or the first service of any state when nothing is learnable. -1 when the tree
+    /// holds no services at all.
+    ///
+    /// The reference spells this "select index 2" — the first row under the header —
+    /// (ClassTrainerFrame.lua:182, ClassTrainer_SelectFirstLearnableSkill) and gets away with
+    /// it because its sort puts available first. <see cref="BuildTree"/> orders by required
+    /// level FIRST and only breaks ties by state, so here the first row is routinely a red
+    /// one. Naming the green row is what makes this mean what the reference function's name
+    /// says, which is also what you want right after training a rank: the list re-sorts, the
+    /// rank you just bought drops out under the used filter, and the selection should land on
+    /// the next thing you can actually buy rather than on whatever now sorts first.
+    /// </summary>
+    public static int FirstLearnable(IReadOnlyList<TreeRow> tree)
+    {
+        int firstAny = -1;
+        foreach (TreeRow row in tree)
+        {
+            if (row.Header) continue;
+            if (row.State == AvailableState) return row.ServiceIndex;
+            if (firstAny < 0) firstAny = row.ServiceIndex;
+        }
+        return firstAny;
+    }
 
     public static IReadOnlyList<TreeRow> BuildTree(IEnumerable<ServiceNode> services,
         uint trainerType, IReadOnlySet<uint> collapsed, bool available, bool unavailable, bool used)

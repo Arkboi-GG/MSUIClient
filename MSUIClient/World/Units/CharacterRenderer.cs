@@ -171,8 +171,26 @@ public sealed partial class CharacterRenderer : IDisposable
         /// </summary>
         public bool HasIntent;
 
+        /// <summary>
+        /// Yards/sec the body is being carried at by something that is NOT your input: a
+        /// server-authored spline on your own mover. Charge and Intercept are the everyday
+        /// ones; a knockback and a taxi hop arrive the same way. 0 whenever input owns the body.
+        /// </summary>
+        public float CarriedSpeed;
+
+        /// <summary>
+        /// MOVING IS NOT THE SAME QUESTION AS "IS A KEY DOWN", AND READING IT THAT WAY IS WHAT
+        /// FROZE CHARGE. This was Forward/Strafe alone, so any travel you did not personally
+        /// command scored as standing still: ResolveMotion took the !Moving branch, hard-zeroed
+        /// the gait, and the body slid across the ground bolt upright at full speed. Reported
+        /// 2026-09-01 for Charge; every server-driven translation had it.
+        ///
+        /// The mount renderer already got this right — Program.cs takes
+        /// `_serverRideSpline?.AverageSpeed ?? controller.PlanarSpeed` for the mount's gait, so
+        /// the mount ran while its rider stood. CarriedSpeed feeds the character the same number.
+        /// </summary>
         public readonly bool Moving =>
-            MathF.Abs(Forward) > 0.01f || MathF.Abs(Strafe) > 0.01f;
+            MathF.Abs(Forward) > 0.01f || MathF.Abs(Strafe) > 0.01f || CarriedSpeed > 0.01f;
     }
 
     private enum SlotFill { Bound, BodySkin, Unbound }
@@ -3067,16 +3085,23 @@ public sealed partial class CharacterRenderer : IDisposable
             return;
         }
 
-        _groundSpeed = state.Speed;
-        _instantGroundSpeed = state.Speed;
-
         float length = MathF.Sqrt(state.Forward * state.Forward + state.Strafe * state.Strafe);
         if (length < 1e-6f)
         {
+            // Moving with no input of your own: a server ride owns the body (Charge, Intercept,
+            // a knockback, a taxi hop). Run straight ahead at the ride's speed — the ride drives
+            // the yaw too, so forward IS the direction of travel and there is nothing to strafe.
+            // state.Speed is the controller's own planar speed and reads 0 under a ride, which
+            // is why the gait rate has to come off CarriedSpeed here.
+            _groundSpeed = state.CarriedSpeed > 0.01f ? state.CarriedSpeed : state.Speed;
+            _instantGroundSpeed = _groundSpeed;
             _forwardness = 1f;
             _sideness = 0f;
             return;
         }
+
+        _groundSpeed = state.Speed;
+        _instantGroundSpeed = state.Speed;
 
         _forwardness = state.Forward / length;
         _sideness = state.Strafe / length;

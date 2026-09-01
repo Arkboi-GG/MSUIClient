@@ -140,6 +140,7 @@ public sealed partial class GameLoop
     {
         TrainerResult result = TrainerPackets.ParseSuccess(body);
         bool refreshed = false;
+        bool relisted = false;
         if (_trainer is { } trainer && trainer.TrainerGuid == result.TrainerGuid)
         {
             refreshed = trainer.Spells.Any(spell =>
@@ -150,9 +151,36 @@ public sealed partial class GameLoop
                 Spells = TrainerFrameUiLaw.MarkServiceUsed(
                     trainer.Spells, result.ServiceSpellId),
             };
+
+            // MARKING THE BOUGHT ROW USED IS NOT THE WHOLE UPDATE, AND THAT WAS THE BUG.
+            // Learning rank 6 is exactly what makes rank 7 learnable, but rank 7's red
+            // state byte came off the wire when the list was first sent and nothing here
+            // re-derived it — so the next rank stayed red until the frame was closed and
+            // reopened, which is the only thing that re-sent CMSG_TRAINER_LIST. Reported
+            // 2026-09-01.
+            //
+            // The reference reaches the same place from the other side: SMSG_TRAINER_LIST
+            // carries reqLevel/reqSkill/prev-rank per row precisely so the stock client can
+            // recompute state locally on TRAINER_UPDATE (ClassTrainerFrame.lua:14). We ask
+            // the server instead, and deliberately:
+            //
+            //   - vmangos computes state on GetSuiActor(), not on the commander. Under
+            //     possession the trainable set, known spells, skills and purse are the
+            //     BOT's, and a client-side recompute would have to duplicate that actor
+            //     resolution to stay right. This is the commander case, not an edge case.
+            //   - the reputation discount rides the same packet, so costs stay honest.
+            //   - GetTrainerSpellState reads a spell chain we would otherwise have to
+            //     mirror; one round trip is cheaper than a second implementation of it.
+            //
+            // The reply lands in ApplyTrainerList with a matching guid, so freshSession is
+            // false: no open sound, no scroll reset, no lost collapse state. _trainerSelected
+            // is a service index into a list the server rebuilds in the same order, so the
+            // selection survives — and when the bought rank drops out under the used filter,
+            // the visibleServices fallback reselects, which is what vanilla does too.
+            relisted = RequestTrainer(result.TrainerGuid);
         }
         EmitInterface("trainer", "buy", "SUCCEEDED", result.TrainerGuid,
-            $"serviceSpell={result.ServiceSpellId};knownBefore={_trainerKnownBefore?.Count ?? _actions.KnownSpells.Count};rowRefreshed={refreshed}");
+            $"serviceSpell={result.ServiceSpellId};knownBefore={_trainerKnownBefore?.Count ?? _actions.KnownSpells.Count};rowRefreshed={refreshed};relisted={relisted}");
     }
 
     private void ApplyTrainerFailure(byte[] body)
@@ -227,8 +255,14 @@ public sealed partial class GameLoop
             _trainerFilterUnavailable, _trainerFilterUsed);
         HashSet<int> visibleServices = tree.Where(row => !row.Header)
             .Select(row => row.ServiceIndex).ToHashSet();
+
+        // This used to be visibleServices.FirstOrDefault(-1), and a HashSet has no order to
+        // take a first of — bucket order is not tree order, so the row a lost selection landed
+        // on was effectively arbitrary. FirstLearnable reads the tree instead and prefers a
+        // green row, which is what should happen the moment a trained rank drops out of the
+        // list under the used filter.
         if (!visibleServices.Contains(_trainerSelected))
-            _trainerSelected = visibleServices.FirstOrDefault(-1);
+            _trainerSelected = TrainerFrameUiLaw.FirstLearnable(tree);
 
         foreach (TrainerFrameUiLaw.ArtPiece piece in TrainerFrameUiLaw.CollapseAllTabArt)
         {

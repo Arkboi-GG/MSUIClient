@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine.UI;
@@ -367,7 +367,7 @@ public sealed partial class GameLoop
                 if (!string.IsNullOrEmpty(effect.Value)) PlayUiSound(effect.Value);
                 continue;
             }
-            if (string.Equals(effect.Type, DeleteItemUiLaw.PopupType, StringComparison.Ordinal))
+            if (DeleteItemUiLaw.IsDeletePopupType(effect.Type))
             {
                 switch (effect.Kind)
                 {
@@ -541,9 +541,9 @@ public sealed partial class GameLoop
         for (int slot = 1; slot <= StaticPopupCoordinatorLaw.SlotCount; slot++)
             ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Advance(
                 _staticPopupSlots, slot, elapsedSeconds));
-        if (DeleteItemUiLaw.Visible(_staticPopupSlots) is not null && !HasCarriedItem)
+        if (DeleteItemUiLaw.Visible(_staticPopupSlots) is { } stale && !HasCarriedItem)
             ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.HideByType(
-                _staticPopupSlots, DeleteItemUiLaw.PopupType));
+                _staticPopupSlots, stale.Instance.Definition.Type));
     }
 
     private PartyMemberView BuildPartyMemberView(PartyMember member)
@@ -1273,15 +1273,22 @@ public sealed partial class GameLoop
                 _staticPopupSlots, visible.Slot, buttonIndex: 2));
     }
 
+    /// <summary>
+    /// <paramref name="enabled"/> false renders the button inert and greyed - the destroy
+    /// popup withholds Yes until the confirmation word is typed. The art here goes straight
+    /// onto the draw list, which BeginDisabled cannot dim, so the caption carries the state.
+    /// </summary>
     private bool DrawPartyInviteButton(ImDrawListPtr dl, string element, string caption,
-        Vector2 min, float s, bool capture, Vector4 clip)
+        Vector2 min, float s, bool capture, Vector4 clip, bool enabled = true)
     {
         Vector2 size = new Vector2(PartyFrameUiLaw.PopupButtonWidth,
             PartyFrameUiLaw.PopupButtonHeight) * s;
         ImGui.SetCursorScreenPos(min);
+        if (!enabled) ImGui.BeginDisabled();
         bool clicked = ImGui.InvisibleButton($"##party-{caption}", size);
-        bool held = ImGui.IsItemActive();
-        bool hovered = ImGui.IsItemHovered();
+        bool held = enabled && ImGui.IsItemActive();
+        bool hovered = enabled && ImGui.IsItemHovered();
+        if (!enabled) { ImGui.EndDisabled(); clicked = false; }
         bool pushed = PartyFrameUiLaw.InviteButtonPushed(held, hovered);
         string statePath = pushed
             ? @"Interface\Buttons\UI-DialogBox-Button-Down"
@@ -1295,7 +1302,8 @@ public sealed partial class GameLoop
             if (hi != 0) dl.AddImage((nint)hi, min, min + size,
                 Vector2.Zero, new Vector2(1f, .625f));
         }
-        string fontObject = hovered ? "GameFontHighlight" : "GameFontNormal";
+        string fontObject = !enabled ? "GameFontDisable"
+            : hovered ? "GameFontHighlight" : "GameFontNormal";
         GameText.DrawCentered(dl, fontObject, caption, min + size * .5f, s);
         if (capture)
         {

@@ -112,12 +112,35 @@ public sealed class TerrainTextures : IDisposable
         AdtTerrainReader.AdtResult adt, string clientDataPath, int col, int row)
     {
         // ── tileset array ────────────────────────────────────────────────────
+        //
+        // A GL array texture demands one size for every layer, and MTEX does not
+        // promise one. Most vanilla tilesets are uniformly 256x256, but the
+        // artists also reach for tiny utility fills — Generic\Black.blp is 16x16,
+        // The Blasted Lands\BlastedLandsBlack.blp is 8x8 — and a handful of
+        // ordinary ground textures ship at 128x128.
+        //
+        // THIS USED TO LET THE FIRST DECODED TEXTURE SET THE SIZE AND DROP EVERY
+        // TEXTURE THAT DISAGREED, AND MTEX ORDER IS NOT ON OUR SIDE. Whenever a
+        // 16x16 filler happened to lead the list, every real ground texture in the
+        // tile was skipped; its chunks then carried layer index -1, and terrain.frag
+        // falls back to proceduralAlbedo for those — a whole 533-yard ADT painted in
+        // flat slope-coloured grey and brown. Kalimdor_40_31 (southern Durotar, under
+        // Tiragarde Keep) and Kalimdor_38_40 (Dustwallow Marsh) lost all 256 chunks
+        // apiece that way; 79 more Kalimdor tiles quietly lost an overlay layer
+        // because the filler lost the coin toss instead.
+        //
+        // So the size is now CHOSEN rather than inherited from list order — the most
+        // common decoded size in the tile, largest wins a tie — and a texture that
+        // disagrees is RESAMPLED into it instead of dropped. Nothing is thrown away
+        // for having the wrong dimensions. The fillers this actually hits are flat
+        // single colours, so their resample is exact.
         var names = adt.Textures;
         var pixels = new List<byte[]>(names.Count);
         var kept = new List<string>(names.Count);
         var remap = new Dictionary<int, int>();      // MTEX index -> array layer
 
-        int expectedW = 0, expectedH = 0;
+        // Decode first, size second: the choice needs to see the whole tileset.
+        var decodedTextures = new List<(int Index, byte[] Bgra, int W, int H)>(names.Count);
 
         for (int i = 0; i < names.Count; i++)
         {
@@ -129,22 +152,27 @@ public sealed class TerrainTextures : IDisposable
             }
 
             var (bgra, w, h) = decoded.Value;
+            decodedTextures.Add((i, bgra, w, h));
+        }
 
-            if (expectedW == 0) { expectedW = w; expectedH = h; }
-            else if (w != expectedW || h != expectedH)
+        var (expectedW, expectedH) = ChooseTilesetSize(decodedTextures);
+
+        foreach (var (index, bgra, w, h) in decodedTextures)
+        {
+            byte[] layer = bgra;
+
+            if (w != expectedW || h != expectedH)
             {
-                // Array textures demand uniform dimensions. Vanilla tilesets are
-                // uniformly 256x256; anything else is an oddity worth seeing.
                 Console.WriteLine(
-                    $"[terrain] tile [{col},{row}] texture {names[i]} is {w}x{h}, " +
-                    $"expected {expectedW}x{expectedH} — skipped");
+                    $"[terrain] tile [{col},{row}] texture {names[index]} is {w}x{h}, " +
+                    $"tileset is {expectedW}x{expectedH} — resampled");
+                layer = Resample(bgra, w, h, expectedW, expectedH);
                 ArrayPool<byte>.Shared.Return(bgra);
-                continue;
             }
 
-            remap[i] = pixels.Count;
-            pixels.Add(bgra);
-            kept.Add(names[i]);
+            remap[index] = pixels.Count;
+            pixels.Add(layer);
+            kept.Add(names[index]);
         }
 
         // ── alpha/shadow arrays + per-chunk layer indices ───────────────────
@@ -219,6 +247,77 @@ public sealed class TerrainTextures : IDisposable
             Height = expectedH,
             Pooled = true,
         };
+    }
+
+    /// <summary>
+    /// The one size every layer of this tile's array texture will be: the size
+    /// most of the decoded textures already are, breaking a tie towards the
+    /// larger. A tie-break the other way would let one 16x16 filler in a
+    /// two-texture tile drag a real ground texture down to 16x16.
+    /// </summary>
+    private static (int Width, int Height) ChooseTilesetSize(
+        List<(int Index, byte[] Bgra, int W, int H)> decoded)
+    {
+        var votes = new Dictionary<(int W, int H), int>();
+        foreach (var t in decoded)
+            votes[(t.W, t.H)] = votes.GetValueOrDefault((t.W, t.H)) + 1;
+
+        (int W, int H) best = (0, 0);
+        int bestVotes = 0;
+
+        foreach (var (size, count) in votes)
+        {
+            if (count < bestVotes) continue;
+            if (count == bestVotes && (long)size.W * size.H <= (long)best.W * best.H) continue;
+            best = size;
+            bestVotes = count;
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// Box-filter resample of a BGRA image into a pooled buffer of the target
+    /// size. Averaging the source footprint is what a downscale needs; on an
+    /// upscale the footprint is under one texel and this degenerates to nearest,
+    /// which is exact for the flat-colour fillers that are the real callers here.
+    /// </summary>
+    private static byte[] Resample(byte[] src, int srcW, int srcH, int dstW, int dstH)
+    {
+        var dst = ArrayPool<byte>.Shared.Rent(dstW * dstH * 4);
+
+        for (int y = 0; y < dstH; y++)
+        {
+            int y0 = y * srcH / dstH;
+            int y1 = Math.Max(y0 + 1, (y + 1) * srcH / dstH);
+
+            for (int x = 0; x < dstW; x++)
+            {
+                int x0 = x * srcW / dstW;
+                int x1 = Math.Max(x0 + 1, (x + 1) * srcW / dstW);
+
+                int b = 0, g = 0, r = 0, a = 0, n = 0;
+
+                for (int sy = y0; sy < y1; sy++)
+                for (int sx = x0; sx < x1; sx++)
+                {
+                    int s = (sy * srcW + sx) * 4;
+                    b += src[s];
+                    g += src[s + 1];
+                    r += src[s + 2];
+                    a += src[s + 3];
+                    n++;
+                }
+
+                int d = (y * dstW + x) * 4;
+                dst[d] = (byte)(b / n);
+                dst[d + 1] = (byte)(g / n);
+                dst[d + 2] = (byte)(r / n);
+                dst[d + 3] = (byte)(a / n);
+            }
+        }
+
+        return dst;
     }
 
     public static TerrainTextures Upload(GL gl, Prepared prepared, GL? ownerGl = null)

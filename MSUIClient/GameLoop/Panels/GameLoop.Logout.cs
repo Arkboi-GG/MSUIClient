@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine;
@@ -150,6 +150,7 @@ public sealed partial class GameLoop
         ResetDeathRez();
         ResetHearth();
         ResetTaxi();
+        ResetSkillRankWatch();
         ResetGossip();
         ResetQuestSession(clearStatusStore: true);
         ResetMail();

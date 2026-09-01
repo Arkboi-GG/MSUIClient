@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Diagnostics;
 using Silk.NET.Input;
 using Silk.NET.Core;
@@ -235,6 +235,33 @@ public sealed class ClientWindow : IDisposable
 
     // Input state
     private readonly HashSet<Key> _held = [];
+
+    /// <summary>
+    /// Keys whose DOWN edge arrived since the last binding scan, with the modifier state as it
+    /// was at that instant.
+    ///
+    /// _held alone cannot answer "was this pressed?", only "is it down now". A tap that starts
+    /// and ends between two frames does Add-then-Remove before anything reads it, so the press
+    /// is simply gone - and the busier the scene, the longer the frame, the wider that hole.
+    /// At 30fps it is a 33ms window; in a 300-bot fight it is much worse. This is the record
+    /// that survives it, drained once per frame by UpdateBindingLatches.
+    ///
+    /// The modifiers are captured HERE rather than read at scan time on purpose: for a quick
+    /// Ctrl+F the Ctrl may also be released before the next frame, and a chord resolved against
+    /// scan-time modifiers would come out as a bare F.
+    /// </summary>
+    public readonly record struct KeyPress(bool Alt, bool Control, bool Shift, bool Super);
+
+    private readonly Dictionary<Key, KeyPress> _pressedSinceScan = [];
+
+    /// <summary>Take the presses seen since the last call and clear the record.</summary>
+    public IReadOnlyList<KeyValuePair<Key, KeyPress>> DrainPressedSinceScan()
+    {
+        if (_pressedSinceScan.Count == 0) return [];
+        var drained = _pressedSinceScan.ToArray();
+        _pressedSinceScan.Clear();
+        return drained;
+    }
     private Vector2 _lastMouse;
     private bool _mouseCaptured;
     private bool _skipNextDelta;
@@ -620,7 +647,7 @@ public sealed class ClientWindow : IDisposable
             // downstream that asks "is Ctrl/Shift/Alt down" then answered wrongly: chords
             // resolved to the wrong binding, and the free view's modifier-sensitive number keys
             // were the most visible casualty.
-            if (!focused) _held.Clear();
+            if (!focused) { _held.Clear(); _pressedSinceScan.Clear(); }
             Console.WriteLine($"[window] focus {(focused ? "gained" : "lost")}");
         };
         _window.Closing += HandleClosing;
@@ -727,7 +754,17 @@ public sealed class ClientWindow : IDisposable
 
         foreach (var kb in _input.Keyboards)
         {
-            kb.KeyDown += (_, key, _) => _held.Add(key);
+            kb.KeyDown += (keyboard, key, _) =>
+            {
+                // Repeat events land here too, but a held key is already visible to the scan
+                // through _held, so only the true down edge needs recording.
+                if (_held.Add(key) && !BindingChordLaw.IsModifier(key))
+                    _pressedSinceScan[key] = new KeyPress(
+                        keyboard.IsKeyPressed(Key.AltLeft) || keyboard.IsKeyPressed(Key.AltRight),
+                        keyboard.IsKeyPressed(Key.ControlLeft) || keyboard.IsKeyPressed(Key.ControlRight),
+                        keyboard.IsKeyPressed(Key.ShiftLeft) || keyboard.IsKeyPressed(Key.ShiftRight),
+                        keyboard.IsKeyPressed(Key.SuperLeft) || keyboard.IsKeyPressed(Key.SuperRight));
+            };
             kb.KeyUp += (_, key, _) => _held.Remove(key);
             // Alt+Enter: the universal fullscreen toggle, handled here so it
             // works on every screen including the glue front door.

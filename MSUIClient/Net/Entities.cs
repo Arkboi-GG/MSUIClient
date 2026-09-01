@@ -123,6 +123,24 @@ public sealed class EntityStore
     /// used on the wire path - the server's create/delete blocks go through Apply.</summary>
     public void AddSynthetic(WorldEntity entity) => _entities[entity.Guid] = entity;
 
+    /// <summary>
+    /// Values arrived for a guid we do not hold. Harmless on its own - the block is dropped -
+    /// but it is the footprint of a visibility race, so name it once per guid. Whoever reads
+    /// msui-console.log after the next "my portrait turned into a gnoll" gets the guid that
+    /// went missing instead of a theory about it.
+    /// </summary>
+    private readonly HashSet<ulong> _valuesForUnknownLogged = [];
+
+    private void NoteValuesForUnknownObject(ulong guid)
+    {
+        const int Cap = 32;
+        if (_valuesForUnknownLogged.Count >= Cap || !_valuesForUnknownLogged.Add(guid)) return;
+        Console.WriteLine(
+            $"[entities] values update for unstreamed object {guid:X16} - dropped " +
+            $"(no CREATE held; awaiting one)" +
+            (_valuesForUnknownLogged.Count == Cap ? " [further guids silenced]" : ""));
+    }
+
     /// <summary>Creator/DevTools: remove a locally synthesized entity.</summary>
     public bool RemoveSynthetic(ulong guid) => _entities.Remove(guid);
 
@@ -204,7 +222,28 @@ public sealed class EntityStore
                         ent.Fields.Merge(u.Fields);
                         if (ent.IsDead) ent.Spline = null;
                     }
-                    else _entities[u.Guid] = new WorldEntity { Guid = u.Guid, Fields = u.Fields, Entry = GuidInfo.Entry(u.Guid) ?? 0 };
+                    // A VALUES BLOCK IS NOT AN OBJECT ANNOUNCEMENT, AND TREATING IT AS ONE
+                    // BUILT A HUSK THAT THE UI THEN WORE.
+                    //
+                    // This used to fabricate a WorldEntity here. Nothing set Type, so it
+                    // defaulted to ObjectTypeId.Object — leaving IsPlayer, IsCreature AND
+                    // IsUnit all false on an object holding whatever partial fields that one
+                    // block happened to carry: no level, no PLAYER_VISIBLE_ITEM_*.
+                    //
+                    // DrawPlayerFrame resolves its subject with TryGet(ControlledGuid), so if
+                    // the husk landed on the guid you were driving the lookup SUCCEEDED and
+                    // the frame drew the husk: !IsPlayer sent the portrait down the non-player
+                    // fallback to TemporaryPortrait-Monster — which is a gnoll, read as Hogger
+                    // — with no level beside it, and the body rendered with no equipment.
+                    // Reported 2026-09-01 from RTS/Command View, where the camera routinely
+                    // ranges past the 100-yard visibility bubble and objects churn in and out.
+                    //
+                    // The server only sends values for objects already in your known set, so a
+                    // values block for a guid we do not hold is a visibility race against an
+                    // OutOfRange we already applied, not a new object. Dropping it is what the
+                    // class contract already said should happen: see AddSynthetic, "never used
+                    // on the wire path". The next CREATE brings the real object, typed.
+                    else NoteValuesForUnknownObject(u.Guid);
                 }
                 break;
             case UpdateKind.Movement:

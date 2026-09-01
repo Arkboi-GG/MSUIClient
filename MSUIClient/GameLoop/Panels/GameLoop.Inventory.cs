@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using System.Globalization;
 using System.Numerics;
 using ImGuiNET;
@@ -162,6 +162,7 @@ public sealed partial class GameLoop
         ObserveInventoryTransition();
         ObserveBagLocks();
         ObserveBankTransition();
+        ObserveSkillRankUps();
         ObserveProfessionSkillTransition();
         ObserveProfessionProductTransition();
         ObserveTalentTransition();
@@ -2375,9 +2376,9 @@ public sealed partial class GameLoop
 
     private void ResetPendingInventoryOps()
     {
-        if (DeleteItemUiLaw.Visible(_staticPopupSlots) is not null)
+        if (DeleteItemUiLaw.Visible(_staticPopupSlots) is { } openDestroy)
             ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.HideByType(
-                _staticPopupSlots, DeleteItemUiLaw.PopupType));
+                _staticPopupSlots, openDestroy.Instance.Definition.Type));
         _deleteItemConfirmation = null;
         _pendingBagLocks.Clear();
         _pendingInventoryTransition = null;

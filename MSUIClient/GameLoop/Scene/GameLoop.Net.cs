@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Diagnostics;
 using System.Text;
 using ImGuiNET;
@@ -27,6 +27,9 @@ public sealed partial class GameLoop
 {
     private const int NetDrainPacketBudget = 256;
     private const double NetDrainTimeBudgetMs = 2.0;
+    private const int NetDrainHighWaterMark = 1_024;
+    private const int NetDrainCatchUpPacketBudget = 4_096;
+    private const double NetDrainCatchUpTimeBudgetMs = 12.0;
 
     private NetworkClient? _net;
     private readonly WireRing _wire = new();
@@ -463,6 +466,7 @@ public sealed partial class GameLoop
             ResetMirrorTimers();
             ResetHearth();
             ResetTaxi();
+            ResetSkillRankWatch();
             ResetGossip();
             ResetGossipPoi();
             ResetVendor();
@@ -590,6 +594,9 @@ public sealed partial class GameLoop
         int updates = 0;
         int packetsDrained = 0;
         long drainStarted = Stopwatch.GetTimestamp();
+        bool catchUpDrain = loadActiveAtPumpEntry || net.InboundPacketCount >= NetDrainHighWaterMark;
+        int packetBudget = catchUpDrain ? NetDrainCatchUpPacketBudget : NetDrainPacketBudget;
+        double timeBudgetMs = catchUpDrain ? NetDrainCatchUpTimeBudgetMs : NetDrainTimeBudgetMs;
 
         if (_pendingObjectParse is { } parse)
         {
@@ -608,7 +615,7 @@ public sealed partial class GameLoop
         if (_pendingObjectUpdates is { } pending)
         {
             while (_pendingObjectUpdateIndex < pending.Count &&
-                   Stopwatch.GetElapsedTime(drainStarted).TotalMilliseconds < NetDrainTimeBudgetMs)
+                   Stopwatch.GetElapsedTime(drainStarted).TotalMilliseconds < timeBudgetMs)
                 ApplyUpdate(pending[_pendingObjectUpdateIndex++], _pendingObjectReceivedStamp);
             if (_pendingObjectUpdateIndex < pending.Count) goto FinishNetPump;
             pending.Clear();
@@ -619,8 +626,8 @@ public sealed partial class GameLoop
 
         bool parseStarted = false;
         bool worldBoundaryReached = false;
-        while (packetsDrained < NetDrainPacketBudget &&
-               Stopwatch.GetElapsedTime(drainStarted).TotalMilliseconds < NetDrainTimeBudgetMs &&
+        while (packetsDrained < packetBudget &&
+               Stopwatch.GetElapsedTime(drainStarted).TotalMilliseconds < timeBudgetMs &&
                net.TryDequeue(out ushort opcode, out byte[] body, out long receivedStamp))
         {
             packetsDrained++;
@@ -1761,7 +1768,8 @@ public sealed partial class GameLoop
     {
         _entities.TryGet(u.Guid, out WorldEntity? auraUnitBefore);
         bool? readsDeadBefore = auraUnitBefore?.Fields.ReadsDead;
-        uint? levelBefore = u.Kind == UpdateKind.Values && auraUnitBefore?.IsUnit == true
+        // PLAYERS ONLY - see the level-up guard below for why a creature must never reach it.
+        uint? levelBefore = u.Kind == UpdateKind.Values && auraUnitBefore?.IsPlayer == true
             ? auraUnitBefore.Fields.GetU32(ObjectFields.UNIT_LEVEL) : null;
         uint? playerFlagsBefore = auraUnitBefore?.IsPlayer == true
             ? auraUnitBefore.Fields.PlayerFlags : null;
@@ -1778,10 +1786,24 @@ public sealed partial class GameLoop
             ForgetCreatureVoiceState(u.Guids);
         }
         _entities.Apply(u, MovementInfo.ClientUptimeMs());
+        // A CREATURE'S LEVEL CHANGING IS NOT A LEVEL-UP, IT IS A RESPAWN, and this used to
+        // fire the hardcoded Unit Level Up kit on every one of them.
+        //
+        // vmangos re-rolls a creature's level every time it respawns - Creature::SelectLevel,
+        // `urand(level_min, level_max)` - so any creature whose template has a level RANGE
+        // (most of them) comes back at a new level. The corpse never left view, so that
+        // arrives as a VALUES update on an entity the client already holds, and the old test
+        // (any IsUnit, `newLevel != oldLevel`) read it as "this unit levelled". The kit then
+        // played straight over the two-second appear fade that CreatureRenderer had correctly
+        // armed on the dead-to-alive edge. Reported 2026-09-01.
+        //
+        // Two corrections, both needed: PLAYERS only, since nothing in 1.12 levels a creature
+        // up in front of you; and an INCREASE only, since a re-roll is as likely to go down
+        // and a level loss is not a celebration either.
         if (levelBefore is uint oldLevel &&
-            _entities.TryGet(u.Guid, out WorldEntity leveledUnit) && leveledUnit.IsUnit &&
+            _entities.TryGet(u.Guid, out WorldEntity leveledUnit) && leveledUnit.IsPlayer &&
             leveledUnit.Fields.GetU32(ObjectFields.UNIT_LEVEL) is uint newLevel &&
-            newLevel != oldLevel)
+            newLevel > oldLevel)
             PlayHardcodedUnitLevelUp(u.Guid, newLevel);
         if (u.Guid != 0 && _entities.TryGet(u.Guid, out WorldEntity updatedPlayer) &&
             updatedPlayer.IsPlayer && playerFlagsBefore != updatedPlayer.Fields.PlayerFlags)
