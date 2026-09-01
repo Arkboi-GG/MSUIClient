@@ -50,22 +50,27 @@ public sealed partial class GameLoop
     private double _rtsForceTakeControlAt;
     private const double RtsForceTakeControlTimeoutSeconds = 120.0;
 
+
+    // RTS Control Guide Help State
+    private bool _showControlGuide = true;      // Current visibility
+    private bool _enableControlGuide = true;    // Whether it exists at all
+
     /// <summary>
     /// The RTS camera is up: detached fly rig, marquee selection, order clicks, ground FX.
     ///
     /// DELIBERATELY INDEPENDENT of <see cref="_controlState"/>. Clicking an eligible toon from
     /// the sky takes control of it — its bars, bags and spells become the live HUD — but the
-    /// camera STAYS in the sky, because possession is a control decision and the free view is
+    /// camera STAYS in the sky, because possession is a control decision and the Command View is
     /// a camera decision. Ctrl+F is the only thing that puts the camera down. (Before this,
     /// <see cref="ControlState.FreeCam"/> conflated the two and every possess dropped you
-    /// out of the free view.)
+    /// out of the Command View.)
     /// </summary>
     private bool _freeView;
 
     /// <summary>
-    /// Raise or lower the free view, TELLING THE SERVER about the transition.
+    /// Raise or lower the Command View, TELLING THE SERVER about the transition.
     ///
-    /// The server has to know, because the free view is not just a client camera to it: while
+    /// The server has to know, because the Command View is not just a client camera to it: while
     /// it is up the server keeps a streaming eye under the camera, and treats a possessed bot
     /// as commanded-remotely — which deliberately runs that bot's OWN AI, on the reasoning
     /// that the client's movement stream is parked and nothing else would move it.
@@ -83,7 +88,7 @@ public sealed partial class GameLoop
         RefreshLootKneel();
         _freeViewExitRequested = false;
         // A vanilla world map left open would hijack the whole HUD via its
-        // fullscreen early-return; the free view has its own map (M → commander).
+        // fullscreen early-return; the Command View has its own map (M → commander).
         if (up) _worldMapOpen = false;
         // Force the next heartbeat: on the way up it rebuilds the eye the possess tore down,
         // and on the way down this IS the notification.
@@ -99,7 +104,7 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// Guid excluded from the streamed-player render pass because the first-person
-    /// CharacterRenderer body stands in for it. 0 in the free view: the rig is not standing
+    /// CharacterRenderer body stands in for it. 0 in the Command View: the rig is not standing
     /// anywhere, so everyone — own character and any possessed bot alike — renders from the
     /// entity stream where their body actually is.
     /// </summary>
@@ -126,7 +131,7 @@ public sealed partial class GameLoop
     private PlayerActions OwnActions => ActionsFor(LocalPlayerGuid);
 
     /// <summary>
-    /// The guid whose bars/spellbook/talents the HUD displays. In the free view a single
+    /// The guid whose bars/spellbook/talents the HUD displays. In the Command View a single
     /// selected party bot swaps its bars in (read-only inspection); otherwise the
     /// controlled unit's, exactly as before.
     /// </summary>
@@ -158,7 +163,7 @@ public sealed partial class GameLoop
     /// guid-less opcodes apply to <c>_player</c> = you, you remain your own self-mover, and the
     /// server accepts it (confirmed: no self-mover guard on cast, GetSuiActor→_player). Only a
     /// detached cursor commanding someone ELSE's body without possession is excluded. Use this for
-    /// the cast/item-use send gates so your own skills and bag items work in free view.
+    /// the cast/item-use send gates so your own skills and bag items work in Command View.
     /// </summary>
     private bool CanAuthorControlledOrSelf =>
         CanAuthorControlledGameplay || ControlledGuid == LocalPlayerGuid;
@@ -168,7 +173,7 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// Divinity-style cutaway subject: the commanded toon's position (eye height
-    /// added for the cell drop test) while the free view is up and the Settings
+    /// added for the cell drop test) while the Command View is up and the Settings
     /// checkbox is on; null otherwise. Fed to WmoRenderer.SetCutawaySubject once
     /// per frame — the single integration point for the whole feature.
     /// </summary>
@@ -182,7 +187,7 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// Which renderer owns the CONTROLLED unit's skeleton. Normally the first-person
-    /// CharacterRenderer; in the free view that body is not drawn at all — the driven unit
+    /// CharacterRenderer; in the Command View that body is not drawn at all — the driven unit
     /// streams in like any other player and CreatureRenderer owns it. Body animations
     /// (cast, channel, one-shots, wound reactions) have to follow, or they play on a body
     /// nobody is looking at and the commanded toon casts without moving a muscle.
@@ -192,7 +197,7 @@ public sealed partial class GameLoop
     private readonly record struct WorldBodyPose(Vector3 Position, float Orientation);
 
     /// <summary>
-    /// True only while the controller is physically driving the controlled body. Free View,
+    /// True only while the controller is physically driving the controlled body. Command View,
     /// pending hand-offs, parked movement, and fly rigs all leave body pose on the entity stream.
     /// </summary>
     private bool ControllerOwnsControlledBodyPose =>
@@ -212,7 +217,7 @@ public sealed partial class GameLoop
     /// <see cref="LocalPlayerGuid"/> is the logged-in session body that owns loot, quests,
     /// mail, NPC services, resurrection, and other non-proxied interactions. Both identities
     /// use this same pose rule. Only a stably embodied controlled unit may read the controller;
-    /// pending SUI states and Free View read the streamed entity instead.
+    /// pending SUI states and Command View read the streamed entity instead.
     /// </summary>
     private bool TryGetWorldBodyPose(ulong guid, out WorldBodyPose pose)
     {
@@ -229,7 +234,7 @@ public sealed partial class GameLoop
             return true;
         }
 
-        // Creator Free View has no server stream. The body remains exactly where the observer
+        // Creator Command View has no server stream. The body remains exactly where the observer
         // detached from it; the fly rig must still never become its interaction pose.
         if (_net is null && _freeView && guid == CreatorLocalGuid)
         {
@@ -263,7 +268,7 @@ public sealed partial class GameLoop
     /// <summary>
     /// The store the action-bar/spellbook/talent UI reads. Deliberately keeps the historical
     /// field name: every existing read of the single-character store now follows possession
-    /// (and, in the free view, the inspected selection).
+    /// (and, in the Command View, the inspected selection).
     /// </summary>
     private PlayerActions _actions => ActionsFor(BarsGuid);
 
@@ -271,7 +276,7 @@ public sealed partial class GameLoop
     private void ResetActionStores() => _actionsByGuid.Clear();
 
     /// <summary>
-    /// Session-loss reset. Possession and the free view both normally end on a server ACK;
+    /// Session-loss reset. Possession and the Command View both normally end on a server ACK;
     /// with the socket gone that ACK is never coming, so the client returns itself to its
     /// own character on the ground rather than stranding the fly rig with a parked stream.
     /// </summary>
@@ -364,7 +369,7 @@ public sealed partial class GameLoop
     private static readonly Vector3 RtsFriendlyTint = new(0.30f, 0.95f, 0.45f);
     private static readonly Vector3 RtsHostileTint = new(0.95f, 0.30f, 0.22f);
     private static readonly Vector3 RtsNeutralTint = new(0.95f, 0.85f, 0.25f);
-    private bool _freecamRequested;          // the in-flight release asked for the free view
+    private bool _freecamRequested;          // the in-flight release asked for the Command View
     // Right-button camera-look latch: true when the current right-hold flew the camera by
     // keyboard (WASD). The window's click-vs-drag test only measures MOUSE travel, so a
     // stationary right-hold + WASD would otherwise read as a click and fire a phantom order.
@@ -431,7 +436,7 @@ public sealed partial class GameLoop
             // first kill). Same for the party overlay's pull throttle.
             BumpQuestStatusReask();
             PokePartyGiverStatus();
-            // No-op on the camera while the free view is up (see SeatControllerOnControlled).
+            // No-op on the camera while the Command View is up (see SeatControllerOnControlled).
             SeatControllerOnControlled(x, y, z, o);
             _net?.SetActiveMover(guid);
             EnterPlayerAuraWorld(guid);
@@ -463,7 +468,7 @@ public sealed partial class GameLoop
         // character — that read as a momentary floor-drop.
         if (_freecamRequested && result is SuiAckFirstRelease or SuiAckReleasedFreecam)
         {
-            // Enter the free view: nobody is driven, the whole party (own character
+            // Enter the Command View: nobody is driven, the whole party (own character
             // included) runs on AI. The controller becomes the fly rig where it stands;
             // RenderSelfGuid goes 0 so everyone renders from the entity stream.
             // Same hand-off as a possess: RenderSelfGuid goes 0, so the driven body stops being
@@ -476,11 +481,11 @@ public sealed partial class GameLoop
             _movementSender.Parked = false;       // the Flying branch parks it from here
             if (_controller is not null) _controller.Flying = true;
             EnterPlayerAuraWorld(LocalPlayerGuid);
-            // Snapshots survive the free view: possession synced them, the
+            // Snapshots survive the Command View: possession synced them, the
             // Party Inventory browser keeps reading them with an age stamp.
             // Every chord in this line is now a binding, so the line READS the bindings.
             // A player who reseats Take Direct Control must not be told to Alt+click.
-            AddChatMessage($"Free view: {BindingHint(GameBinding.RtsSelect)} or drag to select " +
+            AddChatMessage($"Command View: {BindingHint(GameBinding.RtsSelect)} or drag to select " +
                 $"faction bots, {BindingHint(GameBinding.RtsSelectAdd)} adds, " +
                 $"{BindingHint(GameBinding.RtsOrderMove)} moves/attacks, " +
                 $"{BindingHint(GameBinding.CrpgTakeControl)} directly controls one, " +
@@ -497,10 +502,10 @@ public sealed partial class GameLoop
             SyncDrivenEntityToController();
             _controlTargetGuid = 0;
 
-            // A SOLICITED release (16/17) inside the free view is a control change only —
+            // A SOLICITED release (16/17) inside the Command View is a control change only —
             // clicking your own toon, or the release half of a bot-to-bot switch. The camera
             // stays in the sky. Only the FORCED codes (18+: death, teleport, group change)
-            // mean the server has put you back in your body, which ends the free view.
+            // mean the server has put you back in your body, which ends the Command View.
             //
             // ...UNLESS the release WAS the Ctrl+F that asked to leave. Both arrive as 16, so
             // the reason code cannot tell them apart — only the client knows which it sent,
@@ -541,7 +546,7 @@ public sealed partial class GameLoop
         }
 
         // Denial: fall back to whatever we were before the request (a free-view
-        // possess click drops back into the free view, not onto the own character).
+        // possess click drops back into the Command View, not onto the own character).
         if (_controlState == ControlState.PossessPending)
         {
             _controlState = _controlPendingReturn == ControlState.FreeCam
@@ -978,7 +983,7 @@ public sealed partial class GameLoop
     }
 
     /// <summary>
-    /// Leave the free view without a server ACK position: seat on the own character's
+    /// Leave the Command View without a server ACK position: seat on the own character's
     /// streamed entity (or just drop the rig in place when it isn't resident).
     /// </summary>
     private void ExitFreeCamLocally()
@@ -1019,7 +1024,7 @@ public sealed partial class GameLoop
     /// </summary>
     private void SyncDrivenEntityToController()
     {
-        // In the free view the controller is a CAMERA and drives nobody. Writing its position
+        // In the Command View the controller is a CAMERA and drives nobody. Writing its position
         // into a character would file that character in the sky — worse than the staleness.
         if (_freeView || _controller is null) return;
         // ONLY while the movement stream is actually live. Parked or flying means the server is
@@ -1040,7 +1045,7 @@ public sealed partial class GameLoop
     /// <summary>
     /// Snap the local, client-authoritative controller onto the ACK position.
     ///
-    /// NO-OP ON THE CAMERA IN THE FREE VIEW, and that is the whole mechanism behind
+    /// NO-OP ON THE CAMERA IN THE Command View, and that is the whole mechanism behind
     /// "possessing from the sky does not land you": every possess/release path funnels
     /// through here, so guarding it once keeps the fly rig, the parked movement stream
     /// and the hidden first-person body intact no matter which of them fired. The
@@ -1085,7 +1090,7 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// Ask the server for control of a bot (portrait Alt+click / cycle key /
-    /// explicit Free View Alt+click on a server-advertised same-faction bot).
+    /// explicit Command View Alt+click on a server-advertised same-faction bot).
     /// </summary>
     internal void RequestPossess(ulong guid)
     {
@@ -1094,7 +1099,7 @@ public sealed partial class GameLoop
         if (_controlState is not (ControlState.OwnChar or ControlState.FreeCam)) return;
         // Flush a MSG_MOVE_STOP at the own character's position BEFORE the request so no
         // in-flight movement straggles into the mover swap, then park the stream. (From
-        // the free view the stream is already silent — flags are clear, nothing flushes.)
+        // the Command View the stream is already silent — flags are clear, nothing flushes.)
         _movementSender.ParkForRoot(_net, _controller);
         _movementSender.Parked = true;
         _controlPendingReturn = _controlState;
@@ -1205,7 +1210,7 @@ public sealed partial class GameLoop
         _controlPendingReturn = ControlState.Possessing;
         _controlPendingSince = NowSeconds();
         _freecamRequested = toFreecam;
-        // Mode 1 means "I am NOT taking my body back". Releasing while the free view is up is
+        // Mode 1 means "I am NOT taking my body back". Releasing while the Command View is up is
         // exactly that, so it must go out as 1 even though the caller only asked to release:
         // SuiPossess::DoRelease answers mode 0 by running DetachUnattendedAI on the own
         // character and RemoveFreecamEye on the session. That is what left the abandoned
@@ -1215,11 +1220,11 @@ public sealed partial class GameLoop
     }
 
     /// <summary>
-    /// Ctrl+F: raise/lower the CRPG free view. From the own character or a possessed bot
-    /// the server keeps/attaches the unattended AI (release mode 1); from the free view a
+    /// Ctrl+F: raise/lower the CRPG Command View. From the own character or a possessed bot
+    /// the server keeps/attaches the unattended AI (release mode 1); from the Command View a
     /// plain release (mode 0) returns to manual control of the own character.
     /// </summary>
-    /// <summary>Where the creator-sandbox character stood when the free view went
+    /// <summary>Where the creator-sandbox character stood when the Command View went
     /// up, so the way down is an exact return — the offline twin of the live
     /// path's release-ACK teleport home.</summary>
     private Vector3 _creatorFreeViewReturn;
@@ -1231,7 +1236,7 @@ public sealed partial class GameLoop
         if (_controller is null) return;
 
         // Creator sandbox: no server, no control stream to park or release — the
-        // free view is PURELY a camera decision. Seat the rig where the character
+        // Command View is PURELY a camera decision. Seat the rig where the character
         // stands on the way up; put the character back exactly there on the way
         // down. Everything else (marquee, edge pan, wheel-fly, encounter-raid
         // orders) is already client-side and just works.
@@ -1340,7 +1345,7 @@ public sealed partial class GameLoop
         // chords that used to be hard-coded here: Ctrl+Tab and Ctrl+Shift+Tab cycle which BODY
         // you drive, plain Tab and Shift+Tab cycle the command-card PRIMARY through the current
         // selection. Tab can serve both ladders because enemy tab-targeting stands down in the
-        // free view (UpdateTargetBinding) and the card cycle only runs while it is up.
+        // Command View (UpdateTargetBinding) and the card cycle only runs while it is up.
         //
         // All four edges are taken unconditionally: BindingPressedEdge owns the was-down state,
         // so a frame that skips the call would let a key held across it fire again on release.
@@ -1354,6 +1359,13 @@ public sealed partial class GameLoop
         if (_freeView && (cardNext || cardPrevious) && _freecamSelection.Count > 0)
             CycleRtsPrimary(cardPrevious ? -1 : +1);
 
+        if (BindingPressedEdge(GameBinding.RtsFocusPrimary, typing))
+        {
+            Console.WriteLine($"[RTS] Focus binding fired freeView={_freeView}");
+            if (_freeView)
+                FocusRtsPrimaryCamera();
+        }
+
         // Possess-on-cast / possess-on-use / possess-on-open: fire a queued command-card ability,
         // quick-slot item, or bag window once control lands on the primary.
         TryFirePendingPrimaryCast();
@@ -1361,7 +1373,7 @@ public sealed partial class GameLoop
         TryFirePendingPrimaryBags();
         UpdateControlledInventoryRefresh();   // re-sync a possessed bot's bags after a consumable use
 
-        // Free view toggle, Ctrl+F by default (plain F stays the local fly toggle — Program.cs
+        // Command View toggle, Ctrl+F by default (plain F stays the local fly toggle — Program.cs
         // asks THIS binding whether the press was already spoken for, so a rebind moves both
         // halves together). Works in the creator sandbox too: there it is purely a camera
         // decision, and it is how the Encounter Lab's raid gets commanded.
@@ -1377,7 +1389,7 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// Free-view marquee lifecycle, run every frame from the input chain. The window's
-    /// FreeSelectMode keeps the LEFT button out of camera look while the free view is up,
+    /// FreeSelectMode keeps the LEFT button out of camera look while the Command View is up,
     /// so a left-drag over the world becomes the RTS selection rectangle. The queued
     /// world click that the release still produces is swallowed via
     /// <see cref="_freecamMarqueeConsumedClick"/> (drag travel never accumulates when the
@@ -1436,14 +1448,14 @@ public sealed partial class GameLoop
         // the map's click-to-fly depends on it (TakeFreeFlightScroll still runs
         // so a wheel tick over the map is consumed, not banked for landing).
         float wheel = _window.TakeFreeFlightScroll();
-        // Alt+wheel zooms the orbit boom instead of flying the rig. Free view otherwise freezes
+        // Alt+wheel zooms the orbit boom instead of flying the rig. Command View otherwise freezes
         // the boom at whatever distance it held on entry - plain wheel is spent on altitude, and
-        // the CAMERAZOOMIN/OUT binding is gated off while free view is up - so without this you
+        // the CAMERAZOOMIN/OUT binding is gated off while Command View is up - so without this you
         // can never pull in closer than the distance you toggled in at. Wheel up (positive) =
         // zoom in, matching normal camera mode, under the same Min/MaxDistance clamp.
         // Which wheel command owns this tick is a BINDING question now (RTS Controls: Commander
         // Zoom In/Out, Fly Camera Forward/Back). The chords are matched exactly against the
-        // modifiers held beside the tick — the free view spends its wheel through
+        // modifiers held beside the tick — the Command View spends its wheel through
         // ClientWindow.TakeFreeFlightScroll, a different accumulator from the one the global
         // latch pulses, so this cannot go through BindingDown.
         BindingPointerKey wheelDirection = wheel > 0f
@@ -1464,7 +1476,7 @@ public sealed partial class GameLoop
             if (wheel > 0f) _window.Camera.Zoom(wheel);
             // Under a terrain shell (Ironforge, Undercity, a cave) the height field is OVERHEAD,
             // so "Z minus terrain" is a negative number and this collapsed to its 2-yard floor -
-            // the wheel crawled the moment you raised the free view indoors. Keep the mid-altitude
+            // the wheel crawled the moment you raised the Command View indoors. Keep the mid-altitude
             // fallback there, exactly as when the sample misses entirely.
             float? ground = _controller.GroundZ;
             if (ground is null && !_controller.UnderTerrainShell)
@@ -1804,7 +1816,7 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// RTS edge scroll: the pointer within a few pixels of a screen edge slides the fly rig
-    /// that way, camera-relative, so the free view is drivable without touching the keyboard.
+    /// that way, camera-relative, so the Command View is drivable without touching the keyboard.
     ///
     /// Speed scales with altitude above the ground the way every RTS does it — a map-level
     /// camera has to cover map-level distances, and the same yards/second that reads as a
@@ -1954,7 +1966,7 @@ public sealed partial class GameLoop
             return;
         }
 
-        // The free view's gestures are bindings now (RTS Controls / CRPG Controls). Resolve
+        // The Command View's gestures are bindings now (RTS Controls / CRPG Controls). Resolve
         // them once, here, against the modifiers CAPTURED WITH THE CLICK: the queued-click
         // drain runs a frame or more after the press that classified it, so the live keyboard
         // is the wrong question (releasing Shift before the button already had to be handled).
@@ -1977,7 +1989,7 @@ public sealed partial class GameLoop
                 _freecamMarqueeConsumedClick = false;
                 return;
             }
-            // Benilla targeting freezes the hovered subject on mouse-down. Free View shares
+            // Benilla targeting freezes the hovered subject on mouse-down. Command View shares
             // that gesture law: the normal target router has already consumed the press pick,
             // so re-picking here on release would lose moving bots and units whose posed mesh
             // changed while the button was held.
@@ -2086,12 +2098,12 @@ public sealed partial class GameLoop
         }
 
         // SHIFT, not Ctrl, is the shipped default for queue-this-order: Ctrl is the
-        // control-chord modifier (Ctrl+F, Ctrl+Tab), so entering the free view with Ctrl still
+        // control-chord modifier (Ctrl+F, Ctrl+Tab), so entering the Command View with Ctrl still
         // down turned the very first right-click into a chained waypoint instead of a move.
         // Shift is also what every RTS uses, so the collision fix is the conventional binding —
         // and it is now only the DEFAULT of Chain Waypoint, which the player may reseat.
         bool queue = gestureQueue;
-        // The commanded toon is ordered like any other member — no filtering. In the free view
+        // The commanded toon is ordered like any other member — no filtering. In the Command View
         // a possessed bot IS orderable: SuiPossess::orderBot waives its IsPossessed() bail when
         // the possessor holds a freecam eye, because the conflict that bail guards (a server
         // MOVE_TO fighting the client's movement stream) cannot arise when the client's
@@ -2249,7 +2261,7 @@ public sealed partial class GameLoop
                 RequestPossess(guid);
                 break;
             case ControlState.FreeCam:
-                // Clicked the own character with nobody possessed. In the free view that is
+                // Clicked the own character with nobody possessed. In the Command View that is
                 // already the state; landing on it is Ctrl+F's job, not a click's.
                 break;
             case ControlState.Possessing when guid == LocalPlayerGuid:
@@ -2412,52 +2424,185 @@ public sealed partial class GameLoop
         }
     }
 
-    /// <summary>Small HUD line while controlling a bot or waiting on the server.</summary>
+    // RTS Control Guide Overlay
     private void DrawControlBanner()
     {
+
+        bool shouldShow = _freeView ||
+            _controlState == ControlState.Possessing ||
+            _controlState == ControlState.PossessPending ||
+            _controlState == ControlState.ReleasePending;
+
+        if (!shouldShow)
+            return;
+
         DrawRtsControlGroups();
         DrawRtsCommandShelf();
 
-        // The free view is a camera mode, so it prefixes rather than replaces: you can be
-        // in the sky AND commanding a toon, and the banner has to say both.
-        string text;
+        // Only the help panel is controlled by this
+        if (!_enableControlGuide)
+            return;
+
+        var io = ImGui.GetIO();
+
+        // Collapsed state
+        if (!_showControlGuide)
+        {
+            ImGui.SetNextWindowPos(
+                new Vector2(
+                    io.DisplaySize.X - 20,
+                    io.DisplaySize.Y - 20),
+                ImGuiCond.Always,
+                new Vector2(1f, 1f));
+
+            ImGui.Begin("RTS Control Guide Toggle",
+                ImGuiWindowFlags.NoDecoration |
+                ImGuiWindowFlags.AlwaysAutoResize |
+                ImGuiWindowFlags.NoMove);
+
+            if (ImGui.Button("Control Guide"))
+                _showControlGuide = true;
+
+            ImGui.End();
+
+            return;
+        }
+
+
+        // Expanded state
+        ImGui.SetNextWindowPos(
+            new Vector2(
+                io.DisplaySize.X - 20,
+                io.DisplaySize.Y - 20),
+            ImGuiCond.Always,
+            new Vector2(1f, 1f));
+
+        ImGui.Begin("Control Guide",
+            ImGuiWindowFlags.NoDecoration |
+            ImGuiWindowFlags.AlwaysAutoResize |
+            ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoNav |
+            ImGuiWindowFlags.NoFocusOnAppearing |
+            ImGuiWindowFlags.NoBringToFrontOnFocus);
+
+
+        if (ImGui.Button("Hide"))
+        {
+            _showControlGuide = false;
+        }
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Disable"))
+        {
+            ImGui.OpenPopup("Disable Control Guide Confirmation");
+        }
+
+
+        bool disablePopupOpen = true;
+
+        if (ImGui.BeginPopupModal(
+            "Disable Control Guide Confirmation",
+            ref disablePopupOpen,
+            ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            ImGui.Text("Disable the Control Guide completely?");
+            ImGui.Text("You will not see this guide again unless re-enabled.");
+
+            ImGui.Separator();
+
+            if (ImGui.Button("Yes, Disable"))
+            {
+                _enableControlGuide = false;
+                ImGui.CloseCurrentPopup();
+            }
+
+            ImGui.SameLine();
+
+            if (ImGui.Button("Cancel"))
+            {
+                ImGui.CloseCurrentPopup();
+            }
+
+            ImGui.EndPopup();
+        }
+
+
+        ImGui.Separator();
+
+        ImGui.TextColored(
+            new Vector4(0.25f, 0.8f, 1f, 1f),
+            "Control Guide");
+
+        ImGui.Separator();
+
+
         if (_freeView)
         {
             string who = _controlState == ControlState.Possessing
-                ? $"commanding {ResolveUnitName(_controlTargetGuid)}"
+                ? $"Commanding {ResolveUnitName(_controlTargetGuid)}"
                 : BarsReadOnly
-                    ? $"{ResolveUnitName(BarsGuid)} selected — abilities on the console"
-                    : $"{BindingHint(GameBinding.RtsSelect)}/drag: select · " +
-                      $"{BindingHint(GameBinding.RtsSelectAdd)}: add · " +
+                    ? $"{ResolveUnitName(BarsGuid)} Selected"
+                    : $"{BindingHint(GameBinding.RtsSelect)}/drag: select\n" +
+                      $"{BindingHint(GameBinding.RtsSelectAdd)}: add\n" +
                       $"{BindingHint(GameBinding.CrpgTakeControl)}: direct control";
-            text = $"Free view — {who} · {BindingHint(GameBinding.RtsOrderMove)}: move/attack · " +
-                $"{BindingHint(GameBinding.RtsOrderQueueWaypoint)}: chain waypoints · " +
-                $"{BindingHint(GameBinding.RtsRecallGroup1)}-{BindingHint(GameBinding.RtsRecallGroup10)}: " +
-                $"pick group · {BindingHint(GameBinding.RtsSaveGroup1)}-" +
-                $"{BindingHint(GameBinding.RtsSaveGroup10)}: save group · " +
-                $"{BindingHint(GameBinding.RtsToggleFreeView)}: land";
-        }
-        else text = _controlState switch
-        {
-            ControlState.Possessing =>
-                $"Controlling {ResolveUnitName(_controlTargetGuid)} — " +
-                $"{BindingHint(GameBinding.CrpgCycleControlNext)} to switch, " +
-                $"{BindingHint(GameBinding.RtsToggleFreeView)} free view",
-            ControlState.PossessPending => "Taking control…",
-            ControlState.ReleasePending => "Releasing control…",
-            _ => "",
-        };
-        if (text.Length == 0) return;
 
-        var io = ImGui.GetIO();
-        var draw = ImGui.GetForegroundDrawList();
-        Vector2 size = ImGui.CalcTextSize(text);
-        var pos = new Vector2((io.DisplaySize.X - size.X) * 0.5f, 24f);
-        draw.AddRectFilled(pos - new Vector2(8, 4), pos + size + new Vector2(8, 4), 0x99000000u, 4f);
-        draw.AddText(pos, 0xFF40D0FFu, text);
+            ImGui.Text($"Command View — {who}");
+
+            ImGui.Separator();
+
+            ImGui.Text(
+                $"{BindingHint(GameBinding.RtsOrderMove)}: Move/Attack");
+
+            ImGui.Text(
+                $"{BindingHint(GameBinding.RtsOrderQueueWaypoint)}: Chain Waypoints");
+
+            ImGui.Text(
+                $"{BindingHint(GameBinding.RtsRecallGroup1)}-" +
+                $"{BindingHint(GameBinding.RtsRecallGroup10)}: Select Control Group");
+
+            ImGui.Text(
+                $"{BindingHint(GameBinding.RtsSaveGroup1)}-" +
+                $"{BindingHint(GameBinding.RtsSaveGroup10)}: Set Control Group");
+
+            ImGui.Text(
+                $"{BindingHint(GameBinding.RtsToggleFreeView)}: Exit Command View");
+        }
+        else
+        {
+            switch (_controlState)
+            {
+                case ControlState.Possessing:
+
+                    ImGui.Text(
+                        $"Controlling {ResolveUnitName(_controlTargetGuid)}");
+
+                    ImGui.Text(
+                        $"{BindingHint(GameBinding.CrpgCycleControlNext)}: Switch Character");
+
+                    ImGui.Text(
+                        $"{BindingHint(GameBinding.RtsToggleFreeView)}: Command View");
+
+                    break;
+
+                case ControlState.PossessPending:
+
+                    ImGui.Text("Taking control…");
+
+                    break;
+
+                case ControlState.ReleasePending:
+
+                    ImGui.Text("Releasing control…");
+
+                    break;
+            }
+        }
+
+        ImGui.End();
 
         if (_controlState == ControlState.Possessing)
-            DrawBotBarLayerToggle(pos.Y + size.Y + 12f);
+            DrawBotBarLayerToggle(io.DisplaySize.Y - 80);
     }
 
     /// <summary>
@@ -2466,23 +2611,41 @@ public sealed partial class GameLoop
     /// </summary>
     private void DrawBotBarLayerToggle(float y)
     {
+        if (_freeView) return; // Hide bot bar edit target UI in Command Camera
+
         var io = ImGui.GetIO();
         string className = BotClassName(ControlledGuid, ResolveUnitName(ControlledGuid));
-        ImGui.SetNextWindowPos(new Vector2(io.DisplaySize.X * 0.5f, y), ImGuiCond.Always,
+        ImGui.SetNextWindowPos(new Vector2(io.DisplaySize.X * 0.5f, y - 20), ImGuiCond.Always,
             new Vector2(0.5f, 0f));
         ImGui.SetNextWindowBgAlpha(0.55f);
+
         if (ImGui.Begin("##botbar-layer", ImGuiWindowFlags.NoDecoration |
             ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings |
             ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoFocusOnAppearing))
         {
             ImGui.TextUnformatted("Bar edits save to:");
             ImGui.SameLine();
-            if (ImGui.RadioButton("this bot", !_botBarSaveToClass)) _botBarSaveToClass = false;
+            if (ImGui.RadioButton("this bot", !_botBarSaveToClass))
+                _botBarSaveToClass = false;
+
             ImGui.SameLine();
+
             if (ImGui.RadioButton(className.Length != 0 ? $"all {className}s" : "class",
-                    _botBarSaveToClass))
+                _botBarSaveToClass))
                 _botBarSaveToClass = true;
         }
+
         ImGui.End();
     }
+
+    private void FocusRtsPrimaryCamera()
+    {
+        ulong guid = RtsPrimaryGuid;
+        if (guid == 0) return;
+
+        FocusRtsCameraOnUnit(guid);
+    }
+
 }
+
+

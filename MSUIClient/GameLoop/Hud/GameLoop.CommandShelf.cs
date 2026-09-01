@@ -522,21 +522,29 @@ public sealed partial class GameLoop
 
             if (hovered)
                 HoverTip($"{ResolveUnitName(guid)} — {(int)(hp * 100)}%\n" +
-                    "Click: make primary · Double-click: center camera · Shift+click: drop");
-            if (hovered && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) focusPick = guid;
+                    "Click: make primary · Double-click: select only this unit · Shift+click: drop");
+
+            if (hovered && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
+            {
+                focusPick = guid;
+            }
             else if (ImGui.IsItemClicked())
             {
-                if (_rtsUnitCastSpellId != 0) TryCommitRtsUnitCastTarget(guid);
-                else if (ImGui.GetIO().KeyShift) dropPick = guid;
-                else primaryPick = guid;
+                if (_rtsUnitCastSpellId != 0)
+                    TryCommitRtsUnitCastTarget(guid);
+                else if (ImGui.GetIO().KeyShift)
+                    dropPick = guid;
+                else
+                    primaryPick = guid;
             }
         }
 
         // Mutations after the loop — never mutate the selection mid-iteration.
         if (focusPick != 0)
         {
+            _freecamSelection.Clear();
+            _freecamSelection.Add(focusPick);
             _rtsPrimaryGuid = focusPick;
-            FocusRtsCameraOnUnit(focusPick);
         }
         else if (dropPick != 0)
         {
@@ -552,7 +560,7 @@ public sealed partial class GameLoop
         if (VanillaButton(dl, "##console-bags", "Bags", rowPos, new Vector2(58f, 20f), scale))
         {
             if (_partyInventoryOpen) _partyInventoryOpen = false;   // second press closes it
-            else OpenPartyInventory(_freecamSelection.Count == 1 ? _freecamSelection[0] : LocalPlayerGuid);
+            else OpenPartyInventory(RtsPrimaryGuid != 0 ? RtsPrimaryGuid : LocalPlayerGuid);
         }
         if (ImGui.IsItemHovered())
             HoverTip("Party Inventory — everyone's bags and equipment, side by side");
@@ -733,6 +741,13 @@ public sealed partial class GameLoop
             else
                 dl.AddRectFilled(content, content + portraitSize, 0xd01a222a);
         }
+
+        ImGui.SetCursorScreenPos(content);
+        ImGui.InvisibleButton($"##primary-camera-{guid}", portraitSize);
+
+        if (ImGui.IsItemClicked())
+            FocusRtsCameraOnUnit(guid);
+
         // Static class-colour frame on the primary selected card (issue #15) — the animated
         // four-dot marker lives on the mini squad portrait instead.
         DrawClassPortraitBorderRect(dl, content, content + portraitSize, guid, scale);
@@ -1103,8 +1118,8 @@ public sealed partial class GameLoop
                         }
                         break;
                     }
-            else
-                BeginRtsPatrolAuthoring(subjects);
+                    else
+                        BeginRtsPatrolAuthoring(subjects);
         }
         if (CardButton("##card-line", ConsoleIconLine,
                 "Line: standing army — ranks of five facing you,\nformed where the squad stands", any) &&
@@ -1220,3 +1235,5 @@ public sealed partial class GameLoop
             _freecamSelection.Remove(dropPick);
     }
 }
+
+

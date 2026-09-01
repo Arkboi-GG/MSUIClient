@@ -18,6 +18,7 @@ public sealed partial class GameLoop
     private int _rtsControlGroupCommandIndex = -1;
     private int _rtsControlGroupMemberOffset;
     private bool _rtsControlGroupCommandOpen;
+    private bool _showRtsControlGroups = true;
     private string _rtsControlGroupStatus = string.Empty;
     private double _rtsControlGroupStatusAt;
 
@@ -104,6 +105,7 @@ public sealed partial class GameLoop
         _rtsControlGroupCommandIndex = -1;
         _rtsControlGroupMemberOffset = 0;
         _rtsControlGroupCommandOpen = false;
+        _showRtsControlGroups = true;
         _rtsControlGroupStatus = string.Empty;
         _rtsControlGroupStatusAt = 0;
         _factionControlGroupsProbeSent = false;
@@ -446,6 +448,12 @@ public sealed partial class GameLoop
     {
         if (!_freeView) return;
 
+        if (!_showRtsControlGroups)
+        {
+            DrawRtsControlGroupsRestoreButton();
+            return;
+        }
+
         var active = new List<int>();
         for (int i = 0; i < _rtsControlGroups.Length; i++)
             if (_rtsControlGroups[i].Count > 0) active.Add(i);
@@ -466,15 +474,42 @@ public sealed partial class GameLoop
         int perRow = Math.Max(1, (int)((display.X - 16f + gap) / (cardWidth + gap)));
         int rowCount = (active.Count + perRow - 1) / perRow;
         int widestRow = Math.Min(active.Count, perRow);
-        float railWidth = widestRow * cardWidth + Math.Max(0, widestRow - 1) * gap;
+        float headerMinWidth = 220f * scale;
+        float contentWidth = widestRow * cardWidth + Math.Max(0, widestRow - 1) * gap;
+        float railWidth = MathF.Max(contentWidth, headerMinWidth);
         ImGui.SetNextWindowPos(new Vector2(MathF.Max(8f, (display.X - railWidth) * 0.5f),
             78f * scale), ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0.78f);
         ImGuiWindowFlags cardFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.AlwaysAutoResize |
-            ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoFocusOnAppearing;
+            ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoFocusOnAppearing |
+            ImGuiWindowFlags.NoResize;
+
+        ImGui.SetNextWindowSizeConstraints(
+            new Vector2(headerMinWidth, 0),
+            new Vector2(float.MaxValue, float.MaxValue));
+
+        ImGui.SetNextWindowSize(
+            new Vector2(railWidth, 0),
+            ImGuiCond.Always);
+
         if (ImGui.Begin("##rts-control-groups", cardFlags))
         {
+            float buttonWidth = 55f * scale;
+
+            ImGui.TextUnformatted("Control Groups");
+
+            ImGui.SameLine(ImGui.GetWindowWidth() - buttonWidth -
+                ImGui.GetStyle().WindowPadding.X);
+
+            if (ImGui.Button("Hide", new Vector2(buttonWidth, 0)))
+            {
+                _showRtsControlGroups = false;
+                _rtsControlGroupCommandOpen = false;
+            }
+
+            ImGui.Separator();
+
             for (int position = 0; position < active.Count; position++)
             {
                 int index = active[position];
@@ -496,6 +531,28 @@ public sealed partial class GameLoop
 
         DrawRtsControlGroupCommandPalette(scale, display,
             (132f + Math.Max(0, rowCount - 1) * 44f) * scale);
+    }
+
+    private void DrawRtsControlGroupsRestoreButton()
+    {
+        float scale = GameplayUiScale();
+        Vector2 display = ImGui.GetIO().DisplaySize;
+
+        ImGui.SetNextWindowPos(
+            new Vector2(display.X - (175f * scale), 25f * scale),
+            ImGuiCond.Always);
+
+        ImGui.Begin("##rts-control-groups-hidden",
+            ImGuiWindowFlags.NoDecoration |
+            ImGuiWindowFlags.AlwaysAutoResize |
+            ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings |
+            ImGuiWindowFlags.NoNav);
+
+        if (ImGui.Button("Control Groups"))
+            _showRtsControlGroups = true;
+
+        ImGui.End();
     }
 
     private void DrawRtsControlGroupCommandPalette(float scale, Vector2 display, float top)
@@ -619,12 +676,15 @@ public sealed partial class GameLoop
             {
                 bool selectedThisGroup = SameRtsMembers(_freecamSelection, members);
                 bool routeForThisGroup = SameRtsMembers(_rtsWaypointSubjects, members);
+
                 members.Clear();
                 SyncRtsConscription();
+
                 if (selectedThisGroup) _freecamSelection.Clear();
                 _rtsControlGroupCommandOpen = false;
                 _rtsControlGroupCommandIndex = -1;
                 _rtsControlGroupMemberOffset = 0;
+
                 if (routeForThisGroup) ClearRtsWaypointChain();
             }
         }

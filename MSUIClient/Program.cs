@@ -1729,9 +1729,9 @@ public sealed partial class GameLoop : IDisposable
         }
         _flyKeyDown = flyKey;
 
-        // Ctrl+C keeps the developer collision toggle; plain C belongs to the
-        // real character sheet, matching the 1.12 default binding.
-        bool collisionKey = _window.IsDown(Key.C) &&
+        // Ctrl+W toggles developer collision wireframe.
+        // Plain W remains the normal movement binding.
+        bool collisionKey = _window.IsDown(Key.W) &&
                             (_window.IsDown(Key.ControlLeft) || _window.IsDown(Key.ControlRight));
         if (collisionKey && !_collisionKeyDown && _collisionDebug is not null && _config.DevTools && !typing)
         {

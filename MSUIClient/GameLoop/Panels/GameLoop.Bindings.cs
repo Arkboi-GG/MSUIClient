@@ -65,7 +65,7 @@ public sealed partial class GameLoop
         RtsOrderFormationLine, RtsOrderFormationCircle, RtsOrderSheath,
         RtsCommanderMap, RtsCastOnPrimary,
         RtsRigForward, RtsRigBackward, RtsBoomZoomIn, RtsBoomZoomOut,
-        RtsEncounterLab, RtsUndoWaypoint,
+        RtsEncounterLab, RtsUndoWaypoint, RtsFocusPrimary,
         CrpgCycleControlNext, CrpgCycleControlPrevious, CrpgTakeControl,
     }
 
@@ -249,6 +249,7 @@ public sealed partial class GameLoop
         ("RTS Controls", GameBinding.RtsBoomZoomOut, "Commander Zoom Out", Key.Unknown),
         ("RTS Controls", GameBinding.RtsEncounterLab, "Encounter Lab", Key.Unknown),
         ("RTS Controls", GameBinding.RtsUndoWaypoint, "Undo Waypoint", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsFocusPrimary, "Focus Camera on Primary Selection", Key.C),
         ("CRPG Controls", GameBinding.CrpgTakeControl, "Take Direct Control", Key.Unknown),
         ("CRPG Controls", GameBinding.CrpgCycleControlNext, "Control Next Character", Key.Unknown),
         ("CRPG Controls", GameBinding.CrpgCycleControlPrevious, "Control Previous Character", Key.Unknown),
@@ -557,6 +558,8 @@ public sealed partial class GameLoop
             new BindingChord(Key.E, Control: true), default);
         _bindings[GameBinding.RtsUndoWaypoint] = new(
             new BindingChord(Key.Z, Control: true), default);
+        _bindings[GameBinding.RtsFocusPrimary] = new(
+            new BindingChord(Key.C, Control: true), default);
         _bindings[GameBinding.CrpgTakeControl] = new(
             BindingChordLaw.LivePointer(BindingPointerKey.Button1, true, false, false), default);
         _bindings[GameBinding.CrpgCycleControlNext] = new(
