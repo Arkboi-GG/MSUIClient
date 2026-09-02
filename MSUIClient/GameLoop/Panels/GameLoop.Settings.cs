@@ -2106,6 +2106,16 @@ public sealed partial class GameLoop
             }
             EndBox();
 
+            BeginBox("looting", "Looting");
+            {
+                Check("Auto Loot", () => s.Controls.AutoLoot,
+                    v => s.Controls.AutoLoot = v,
+                    "Right-click on a corpse or chest takes everything in it at once, the way" +
+                    " the later expansions did. Hold Shift to open the loot window instead." +
+                    " Untick for the 1.12 window, where Shift-click loots all.");
+            }
+            EndBox();
+
             BeginBox("action-bars", "Action Bars");
             {
                 Check("Lock ActionBars", () => s.Controls.LockActionBars,
@@ -2222,6 +2232,16 @@ public sealed partial class GameLoop
                 Slider("cv-cut", "Cut height", () => s.Controls.CommandViewCutHeight,
                     v => s.Controls.CommandViewCutHeight = Math.Clamp(v, 2f, 12f), 2f, 12f, "{0:F1} yd",
                     "How far above the commanded unit's feet the slice sits.");
+                Check("Cut what hides the party", () => s.Controls.CommandViewSightCut,
+                    v => s.Controls.CommandViewSightCut = v,
+                    "Carve a tunnel through any building, roof, tree or prop standing" +
+                    " between the camera and a party member, so the party is never" +
+                    " hidden. Terrain is left alone. On by default.");
+                Check("Primary AI fights for it", () => s.Controls.CommandViewPrimaryAi,
+                    v => { s.Controls.CommandViewPrimaryAi = v; _cvManualSentAt = 0; },
+                    "Off: the primary selection is yours alone - it moves on orders and" +
+                    " does nothing else until you press a key. On: its server AI keeps" +
+                    " fighting for it. Also the tablet at the bottom right.");
                 Check("Cut buildings away in the free view", () => s.Controls.FreeViewCutaway,
                     v => s.Controls.FreeViewCutaway = v,
                     "Divinity-style: while you command a toon that is indoors, its\n" +

@@ -116,7 +116,7 @@ public sealed partial class GameLoop
             knowsSkinning, CanAttack(unit),
             serviceKind is not null,
             unit.NpcFlags, questStatus, distanceSquared, actor.Fields.CombatReach,
-            unit.Fields.CombatReach, autoLoot: false, ImGui.GetIO().KeyShift);
+            unit.Fields.CombatReach, autoLoot: Settings.Controls.AutoLoot, ImGui.GetIO().KeyShift);
         if (state is not null) stem = state.Value.Stem;
         DrawBagHoverCursor(stem);
     }

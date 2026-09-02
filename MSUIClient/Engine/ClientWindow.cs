@@ -464,6 +464,15 @@ public sealed class ClientWindow : IDisposable
     /// This avoids changing Point -> Loot -> Point inside every frame, which Windows exposes as a
     /// rapidly flickering cursor even though the final classification is stable.
     /// </summary>
+    private string _hardwareCursorCandidateKey = "";
+    private int _hardwareCursorCandidateFrames;
+    private bool _softwareCursorRequested;
+    private bool _softwareCursorActive;
+
+    /// <summary>A drawn (software) cursor owns the pointer this frame: the OS pointer is hidden so
+    /// the two are never both visible (owner, 2026-09-02: "needs to be either/or").</summary>
+    public void RequestSoftwareCursor() => _softwareCursorRequested = true;
+
     public bool UseHardwareCursor(string key, in HardwareCursorImage image)
     {
         if (_mouse is null || _mouseCaptured || string.IsNullOrWhiteSpace(key)) return false;
@@ -481,11 +490,38 @@ public sealed class ClientWindow : IDisposable
         try
         {
             ICursor cursor = _mouse.Cursor;
+            bool softwareNow = _softwareCursorRequested;
+            _softwareCursorRequested = false;
+            if (softwareNow && !_mouseCaptured)
+            {
+                if (!_softwareCursorActive || cursor.CursorMode != CursorMode.Hidden)
+                {
+                    cursor.CursorMode = CursorMode.Hidden;
+                    _softwareCursorActive = true;
+                    CursorModeName = "Software";
+                }
+                return;
+            }
+            if (_softwareCursorActive && !_mouseCaptured)
+            {
+                cursor.CursorMode = CursorMode.Normal;
+                _softwareCursorActive = false;
+            }
             if (_hardwareCursorRequested && _hardwareCursorProposal is { } image)
             {
                 cursor.CursorMode = CursorMode.Normal;
-                if (!_hardwareCursorKey.Equals(_hardwareCursorProposalKey,
-                        StringComparison.OrdinalIgnoreCase) || cursor.Type != CursorType.Custom)
+                // Hysteresis: a stem must hold for two frames before the OS cursor is rebuilt.
+                // Rebuilding on every one-frame flicker leaked into a black square at the pointer.
+                if (_hardwareCursorCandidateKey.Equals(_hardwareCursorProposalKey, StringComparison.OrdinalIgnoreCase))
+                    _hardwareCursorCandidateFrames++;
+                else
+                {
+                    _hardwareCursorCandidateKey = _hardwareCursorProposalKey;
+                    _hardwareCursorCandidateFrames = 1;
+                }
+                bool settled = _hardwareCursorCandidateFrames >= 2 || _hardwareCursorKey.Length == 0;
+                if (settled && (!_hardwareCursorKey.Equals(_hardwareCursorProposalKey,
+                        StringComparison.OrdinalIgnoreCase) || cursor.Type != CursorType.Custom))
                 {
                     cursor.Image = new RawImage(image.Width, image.Height, image.Rgba);
                     cursor.HotspotX = 0;

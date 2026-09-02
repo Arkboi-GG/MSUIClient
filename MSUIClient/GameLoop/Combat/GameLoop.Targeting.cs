@@ -498,17 +498,22 @@ public sealed partial class GameLoop
     /// Prefers the collision mesh; falls back to marching the camera ray against the
     /// terrain heightfield and bisecting the crossing.
     /// </summary>
-    private bool TryPickGround(Vector2 pixel, out Vector3 point)
+    private bool TryPickGround(Vector2 pixel, out Vector3 point) =>
+        TryPickGround(pixel, out point, out _);
+
+    /// <summary><paramref name="onTerrain"/>: the hit was the height field, not building or
+    /// prop geometry - the Command View order gate treats a roof differently from a hill.</summary>
+    private bool TryPickGround(Vector2 pixel, out Vector3 point, out bool onTerrain)
     {
         point = default;
+        onTerrain = false;
         var ray = _window.Camera.ScreenPointToRay(pixel, _window.FramebufferSize);
         if (ray is null) return false;
         (Vector3 origin, Vector3 direction) = ray.Value;
         const float maxDistance = 250f;
         // Command View cut plane: geometry sliced out of the picture is sliced out of the pick
         // too, or a move order from above lands on the roof the player cannot see.
-        WorldCut? cut = _freeView ? _wmo?.ActiveCut : null;
-        bool CutAway(Vector3 p) => cut is WorldCut c && p.Z > c.CutZ && c.Contains(p.X, p.Y);
+        bool CutAway(Vector3 p) => CommandViewCutAway(p);
         Vector3 castFrom = origin;
         float remaining = maxDistance;
         for (int pass = 0; pass < 8 && _collision is not null; pass++)
@@ -542,9 +547,32 @@ public sealed partial class GameLoop
                 }
                 Vector3 found = origin + direction * hi;
                 point = found with { Z = _terrain.SampleHeight(found.X, found.Y) ?? found.Z };
+                onTerrain = true;
                 return true;
             }
             previous = t;
+        }
+        return false;
+    }
+
+    /// <summary>A world point the Command View cut plane has carved out of the picture.</summary>
+    private bool CommandViewCutAway(Vector3 p) =>
+        _freeView && _wmo?.ActiveCut is WorldCut c && p.Z > c.CutZ && c.Contains(p.X, p.Y);
+
+    /// <summary>Solid world between the eye and a point <paramref name="reach"/> along the ray,
+    /// ignoring geometry the cut plane has removed.</summary>
+    private bool CommandViewOccluded(Vector3 origin, Vector3 direction, float reach)
+    {
+        if (_collision is null) return false;
+        Vector3 from = origin;
+        float remaining = reach;
+        for (int pass = 0; pass < 8 && remaining > 0f; pass++)
+        {
+            if (_collision.Raycast(from, direction, remaining) is not { } hit) return false;
+            if (!CommandViewCutAway(hit.Point)) return hit.Distance < remaining;
+            float advance = hit.Distance + 0.05f;
+            from += direction * advance;
+            remaining -= advance;
         }
         return false;
     }
@@ -628,8 +656,11 @@ public sealed partial class GameLoop
             }
         }
 
-        if (picked != 0 && _collision?.Raycast(origin, direction, nearest) is { } worldHit &&
-            worldHit.Distance < nearest)
+        // World geometry between the eye and the unit hides it from the pick - except geometry
+        // the Command View cut away, which is still in the collision world. A corpse under a
+        // roof or a mob under a cave ceiling was unhoverable from the sky until this looked
+        // through the cut (owner, 2026-09-02: no loot cursor, sword half the time).
+        if (picked != 0 && CommandViewOccluded(origin, direction, nearest))
             return 0;
         if (picked != 0) hitDistance = nearest;
         return picked;

@@ -213,8 +213,8 @@ public sealed partial class GameLoop
         ("RTS Controls", GameBinding.RtsSelectAdd, "Add to Selection / Queue Attack", Key.Unknown),
         ("RTS Controls", GameBinding.RtsOrderMove, "Move / Attack Order", Key.Unknown),
         ("RTS Controls", GameBinding.RtsOrderQueueWaypoint, "Chain Waypoint / Orient", Key.Unknown),
-        ("RTS Controls", GameBinding.RtsCyclePrimaryNext, "Next Command Card", Key.Unknown),
-        ("RTS Controls", GameBinding.RtsCyclePrimaryPrevious, "Previous Command Card", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsCyclePrimaryNext, "Next Primary (cycle the party)", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsCyclePrimaryPrevious, "Previous Primary", Key.Unknown),
         ("RTS Controls", GameBinding.RtsSaveGroup1, "Save Control Group 1", Key.Unknown),
         ("RTS Controls", GameBinding.RtsSaveGroup2, "Save Control Group 2", Key.Unknown),
         ("RTS Controls", GameBinding.RtsSaveGroup3, "Save Control Group 3", Key.Unknown),
@@ -493,9 +493,12 @@ public sealed partial class GameLoop
         // both M - so this is the established idiom, not a new one.)
         _bindings[GameBinding.RtsToggleFreeView] = new(
             new BindingChord(Key.F, Control: true), default);
-        _bindings[GameBinding.RtsCyclePrimaryNext] = new(new BindingChord(Key.Tab), default);
+        // Q / Shift+Q (owner, 2026-09-02): Tab is the quintessential enemy target key and stays
+        // one in the Command View; the primary walks on Q. Q is also StrafeLeft in first person,
+        // the same shipped-pair idiom as ToggleMusic / OpenWorldMap on M.
+        _bindings[GameBinding.RtsCyclePrimaryNext] = new(new BindingChord(Key.Q), default);
         _bindings[GameBinding.RtsCyclePrimaryPrevious] = new(
-            new BindingChord(Key.Tab, Shift: true), default);
+            new BindingChord(Key.Q, Shift: true), default);
         _bindings[GameBinding.RtsSelect] = new(
             BindingChordLaw.LivePointer(BindingPointerKey.Button1, false, false, false), default);
         _bindings[GameBinding.RtsSelectAdd] = new(
@@ -849,10 +852,10 @@ public sealed partial class GameLoop
         // Ctrl+Tab is the control-cycle chord (Program.Control.cs); with Ctrl held the
         // target binding must not also fire.
         bool ctrlHeld = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
-        // In the free view Tab / Shift+Tab drive the command-card PRIMARY instead (see
-        // UpdateControlInput); tab-targeting an enemy is pointless while commanding a group.
-        bool down = BindingDown(GameBinding.TargetNearestEnemy) && !ctrlHeld && !_freeView;
-        bool previous = BindingDown(GameBinding.TargetPreviousEnemy) && !ctrlHeld && !_freeView;
+        // Tab targets enemies in the Command View too (owner, 2026-09-02), measured from the
+        // primary; the primary itself cycles on Q (RtsCyclePrimaryNext).
+        bool down = BindingDown(GameBinding.TargetNearestEnemy) && !ctrlHeld;
+        bool previous = BindingDown(GameBinding.TargetPreviousEnemy) && !ctrlHeld;
         if (!typing && _net is { IsInWorld: true } && _controller is not null)
         {
             if (previous && !_targetPreviousWasDown) CycleEnemyTarget(reverse: true);
@@ -978,7 +981,14 @@ public sealed partial class GameLoop
 
     private void CycleEnemyTarget(bool reverse)
     {
-        if (!TryGetControlledBodyPose(out WorldBodyPose body)) return;
+        WorldBodyPose body;
+        if (_freeView)
+        {
+            // Command View: the primary is the body that fights, so nearest means nearest to it.
+            ulong anchor = RtsPrimaryGuid != 0 ? RtsPrimaryGuid : ControlledGuid;
+            if (!TryGetWorldBodyPose(anchor, out body)) return;
+        }
+        else if (!TryGetControlledBodyPose(out body)) return;
         Vector2 viewport = ImGuiNET.ImGui.GetIO().DisplaySize;
         List<TargetCycleLaw.Candidate> candidates = [];
         foreach (WorldEntity unit in _entities.Units)

@@ -20,6 +20,22 @@ public readonly record struct WorldCut(Vector2 Min, Vector2 Max, float CutZ)
     public bool Contains(float x, float y) =>
         x >= Min.X && x <= Max.X && y >= Min.Y && y <= Max.Y;
 
+    /// <summary>Most sight lines a frame carries; the shaders declare the same count.</summary>
+    public const int MaxSightLines = 8;
+
+    /// <summary>A sight tunnel is this wide at the camera and this narrow at the unit, so the
+    /// floor 1.5 yd under a unit's chest and the wall behind it are never carved.</summary>
+    public const float SightRadiusNear = 3.0f;
+    public const float SightRadiusFar = 0.7f;
+
+    /// <summary>Canopy cut: doodads (trees, props) within this many yards of a party member are
+    /// sliced above the cut height, the way a building is - a tunnel alone left the tree's
+    /// crown hiding the party (owner, 2026-09-02).</summary>
+    public const float CanopyRadius = 9f;
+
+    /// <summary>Only party members this close to the camera get a tunnel.</summary>
+    public const float SightRangeYards = 120f;
+
     /// <summary>The camera EYE may not sink under the cut (looking up at sliced faces from
     /// beneath is exactly the "weird underneath" view the cut exists to avoid). The rig is the
     /// orbit target, so its floor is the eye floor minus the boom's height above the target.</summary>

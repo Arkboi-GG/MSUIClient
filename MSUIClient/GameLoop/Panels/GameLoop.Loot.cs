@@ -41,8 +41,12 @@ public sealed partial class GameLoop
 
     /// <summary>Right-click on a dead, lootable corpse. The kneel plays optimistically at the
     /// send (the reference arms its loot latch at the CMSG_LOOT send site, 0x5df253).</summary>
+    private bool _lootAutoAllArmed;
+
     private bool RequestLoot(ulong guid)
     {
+        // Auto Loot (Interface Options): decided at request time, Shift inverts.
+        _lootAutoAllArmed = Settings.Controls.AutoLoot != ImGui.GetIO().KeyShift;
         // Loot is _player-scoped server-side: looting "as the bot" would flow into the
         // session character's distant bags. The bot loots autonomously after release.
         if (ControlledGuid != LocalPlayerGuid)
@@ -127,8 +131,12 @@ public sealed partial class GameLoop
                 $"lootType={lootType};error={error};money={gold};items={items.Count}");
         if (lootType == 0)
         {
+            // A walk-then-loot still retrying (Command View): a range/facing refusal is the race
+            // being retried, not news for the player.
+            bool retrying = _cvPendingLootGuid == guid && error is 4 or 5;
             // The error shape. Refusals surface as the red error text the 1.12 client shows.
-            ShowUiError(LootPackets.ErrorText(error));
+            if (!retrying) ShowUiError(LootPackets.ErrorText(error));
+            if (_cvPendingLootGuid == guid && !retrying) _cvPendingLootGuid = 0;
             if (_lootPendingGuid == guid) _lootPendingGuid = 0;
             RefreshLootKneel();
             EmitInterface("loot", "response", "REFUSED", guid, $"error={error};text={SanitizeEvidence(LootPackets.ErrorText(error))}");
@@ -148,6 +156,12 @@ public sealed partial class GameLoop
         _lootPendingGuid = admission.NextLatch;
         RefreshLootKneel();
         _loot.Open(guid, lootType, gold, items);
+        if (_cvPendingLootGuid == guid) _cvPendingLootGuid = 0;   // walk-then-loot delivered
+        if (_lootAutoAllArmed)
+        {
+            _lootAutoAllArmed = false;
+            TakeAllLoot();
+        }
         LootFrameUiLaw.OpenPresentation openPresentation =
             LootFrameUiLaw.OnShow(lootType, items.Count, gold);
         if (openPresentation.SoundCue is { } cue)

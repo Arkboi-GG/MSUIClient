@@ -609,6 +609,19 @@ public sealed class WmoRenderer : IDisposable
     private const float CutPlaneFootprintCapYards = 45f; // half-extent cap around the subject
     private string _cutPlaneLoggedState = "off";
 
+    /// <summary>World-space chest points of the party members the line-of-sight cut protects
+    /// (Engine/WorldCut.cs). Empty = no tunnels. Set by GameLoop once per frame.</summary>
+    public List<Vector3> SightTargets { get; } = [];
+
+    private void SetSightUniforms(Vector3 cameraPosition)
+    {
+        int count = Math.Min(SightTargets.Count, WorldCut.MaxSightLines);
+        _shader.Set("uSightCount", count);
+        for (int i = 0; i < count; i++)
+            _shader.Set($"uSightTo[{i}]", SightTargets[i] - cameraPosition);
+        _shader.Set("uSightRadius", new Vector2(WorldCut.SightRadiusNear, WorldCut.SightRadiusFar));
+    }
+
     /// <summary>The interior cut resolved by the last <see cref="UpdateCameraCell"/>, or null.
     /// GameLoop hands it to the terrain and doodad renderers and floors the free-view rig on it.</summary>
     public WorldCut? ActiveCut { get; private set; }
@@ -4160,6 +4173,7 @@ public sealed class WmoRenderer : IDisposable
         _shader.Set("uCutActive", ActiveCut is not null ? 1 : 0);
         _shader.Set("uCutRect", ActiveCut?.RelativeRect(camera.Position) ?? Vector4.Zero);
         _shader.Set("uCutZ", ActiveCut?.RelativeZ(camera.Position) ?? 0f);
+        SetSightUniforms(camera.Position);
         _shader.Set("uSunDirection", SunDirection);
         _shader.Set("uSunColor", SunColor);
         _shader.Set("uSunIntensity", SunIntensity);
