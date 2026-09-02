@@ -1427,7 +1427,7 @@ public sealed partial class GameLoop
                 {
                     var spellAction = new ActionSlot(ActionSlot.Spell, _draggingSpellId);
                     PlaceActionPayload(receiveSlot, spellAction);
-                    
+
                 }
             }
 
@@ -1440,6 +1440,15 @@ public sealed partial class GameLoop
 
             _actionCursor = null;
         }
+        else if (HasCarriedItem)
+        {
+            // Inventory items use the carried-item cursor, not the action cursor.
+            // Claim the release here so dropping onto a hotbar slot does not require
+            // a second click to route through ConsumeActionButtonClick().
+            if (receiveSlot >= 0)
+                PlaceCarriedItemOnAction(receiveSlot);
+        }
+
         _pressedActionSlot = -1;
     }
 
