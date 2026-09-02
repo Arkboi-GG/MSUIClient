@@ -1404,8 +1404,9 @@ public sealed partial class GameLoop
             {
                 var macroAction = new ActionSlot(ActionSlot.Macro, _draggingMacroId);
                 PlaceActionPayload(receiveSlot, macroAction);
-                _draggingMacroId = 0;
             }
+
+            _draggingMacroId = 0;
             _pressedMacroId = 0;
         }
         else if (_draggingSpellId != 0)
@@ -1426,14 +1427,18 @@ public sealed partial class GameLoop
                 {
                     var spellAction = new ActionSlot(ActionSlot.Spell, _draggingSpellId);
                     PlaceActionPayload(receiveSlot, spellAction);
-                    _draggingSpellId = 0;
+                    
                 }
             }
+
+            _draggingSpellId = 0;
         }
-        else if (_actionCursor is { } held && !_actionCursorChangedThisFrame &&
-                 receiveSlot >= 0)
+        else if (_actionCursor is { } held && !_actionCursorChangedThisFrame)
         {
-            PlaceActionPayload(receiveSlot, held);
+            if (receiveSlot >= 0)
+                PlaceActionPayload(receiveSlot, held);
+
+            _actionCursor = null;
         }
         _pressedActionSlot = -1;
     }
