@@ -13,6 +13,12 @@ in vec3 vNormal;
 in vec2 vUV;
 in vec4 vColor;
 
+
+// Command View interior cut (Engine/WorldCut.cs): camera-relative footprint (minX, minY, maxX,
+// maxY) and cut height. Fragments inside the footprint and above the height are discarded.
+uniform int   uCutActive;
+uniform vec4  uCutRect;
+uniform float uCutZ;
 uniform sampler2D uTexture;
 uniform int   uHasTexture;
 
@@ -94,6 +100,9 @@ out vec4 FragColor;
 
 void main()
 {
+    if (uCutActive == 1 && vWorldPos.z > uCutZ &&
+        vWorldPos.x > uCutRect.x && vWorldPos.x < uCutRect.z &&
+        vWorldPos.y > uCutRect.y && vWorldPos.y < uCutRect.w) discard;
     vec4 albedo = uHasTexture == 1
         ? texture(uTexture, vUV)
         : vec4(0.62, 0.60, 0.56, 1.0);

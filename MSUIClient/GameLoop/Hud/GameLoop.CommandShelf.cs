@@ -39,6 +39,22 @@ public sealed partial class GameLoop
     /// <summary>Move the primary one slot through the current selection (Tab / Shift+Tab).</summary>
     private void CycleRtsPrimary(int dir)
     {
+        // Sticky lock (owner, 2026-09-01): Tab walks the whole party roster, selected or not, and
+        // the lock jumps with it - the new unit is pulled into the selection as primary.
+        if (CommandViewLocked)
+        {
+            var roster = FreeCamSelectableGuids()
+                .Where(g => _entities.TryGet(g, out WorldEntity u) && !u.IsDead).ToList();
+            if (roster.Count == 0) return;
+            int at = roster.IndexOf(RtsPrimaryGuid != 0 ? RtsPrimaryGuid : _cvFollowGuid);
+            if (at < 0) at = 0;
+            ulong next = roster[((at + dir) % roster.Count + roster.Count) % roster.Count];
+            if (!_freecamSelection.Contains(next)) _freecamSelection.Insert(0, next);
+            _rtsPrimaryGuid = next;
+            if (SingleCharacterBagsOpen && _rtsPrimaryGuid != ControlledGuid)
+                BeginControlHandover(_rtsPrimaryGuid);
+            return;
+        }
         if (_freecamSelection.Count == 0) return;
         int idx = _freecamSelection.IndexOf(RtsPrimaryGuid);
         if (idx < 0) idx = 0;

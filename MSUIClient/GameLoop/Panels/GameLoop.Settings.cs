@@ -2214,6 +2214,14 @@ public sealed partial class GameLoop
                     "the mouse orbit around it, the wheel zooms, movement keys are parked" +
                     " until you release. Also the tablet\n" +
                     "at the bottom right of the Command View, and Ctrl+L.");
+                Check("Cut the roof off your building", () => s.Controls.CommandViewCutPlane,
+                    v => s.Controls.CommandViewCutPlane = v,
+                    "Slice the building the commanded unit is in at a fixed height above" +
+                    " its feet: roof and upper walls vanish, floor and lower walls stay," +
+                    " and the camera keeps above the slice. On by default.");
+                Slider("cv-cut", "Cut height", () => s.Controls.CommandViewCutHeight,
+                    v => s.Controls.CommandViewCutHeight = Math.Clamp(v, 2f, 12f), 2f, 12f, "{0:F1} yd",
+                    "How far above the commanded unit's feet the slice sits.");
                 Check("Cut buildings away in the free view", () => s.Controls.FreeViewCutaway,
                     v => s.Controls.FreeViewCutaway = v,
                     "Divinity-style: while you command a toon that is indoors, its\n" +

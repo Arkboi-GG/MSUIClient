@@ -916,6 +916,15 @@ public sealed class GameSettings
         /// (eased), the mouse still turns around it, keys/wheel adjust the framing. Toggled from
         /// the on-screen tablet, Ctrl+L, or here.</summary>
         public bool CommandViewLockOnPrimary { get; set; }
+
+        /// <summary>Cut the roof and upper walls off the building the commanded unit is in
+        /// (Engine/WorldCut.cs) so the Command View sees the room from above. Shipped OFF as an
+        /// experiment, then made the STANDARD by owner decision later the same day (2026-09-01)
+        /// once the captures held up; still a toggle.</summary>
+        public bool CommandViewCutPlane { get; set; } = true;
+
+        /// <summary>Height of the cut above the commanded unit's feet, in yards.</summary>
+        public float CommandViewCutHeight { get; set; } = 4.5f;
     }
 
     /// <summary>

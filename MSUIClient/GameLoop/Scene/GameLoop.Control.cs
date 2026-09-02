@@ -177,6 +177,19 @@ public sealed partial class GameLoop
     /// checkbox is on; null otherwise. Fed to WmoRenderer.SetCutawaySubject once
     /// per frame — the single integration point for the whole feature.
     /// </summary>
+    /// <summary>
+    /// Cut-plane subject: the primary selection's feet (or the controlled unit's) while the
+    /// Command View is up and the experiment toggle is on; null otherwise. Fed to
+    /// WmoRenderer.SetCutPlaneSubject once per frame.
+    /// </summary>
+    private Vector3? CommandViewCutSubject()
+    {
+        if (!_freeView || !Settings.Controls.CommandViewCutPlane) return null;
+        ulong guid = RtsPrimaryGuid != 0 ? RtsPrimaryGuid : ControlledGuid;
+        if (guid == 0 || !_entities.TryGet(guid, out WorldEntity unit)) return null;
+        return unit.Position;
+    }
+
     private Vector3? FreeViewCutawaySubject()
     {
         if (!_freeView || !Settings.Controls.FreeViewCutaway) return null;
@@ -1408,7 +1421,7 @@ public sealed partial class GameLoop
 
         bool cardNext = BindingPressedEdge(GameBinding.RtsCyclePrimaryNext, typing);
         bool cardPrevious = BindingPressedEdge(GameBinding.RtsCyclePrimaryPrevious, typing);
-        if (_freeView && (cardNext || cardPrevious) && _freecamSelection.Count > 0)
+        if (_freeView && (cardNext || cardPrevious) && (_freecamSelection.Count > 0 || CommandViewLocked))
             CycleRtsPrimary(cardPrevious ? -1 : +1);
 
         if (BindingPressedEdge(GameBinding.RtsLockCameraPrimary, typing) && _freeView)
@@ -1479,6 +1492,8 @@ public sealed partial class GameLoop
             return;
         }
 
+        EnforceStickyLock();
+
         // Re-assert the rig every frame rather than only on entry: a possess from the sky
         // runs ApplyControlledCharacter, which puts the controller back on the ground.
         // _character.Enabled is deliberately NOT touched — the world pass skips the body on
@@ -1491,6 +1506,12 @@ public sealed partial class GameLoop
             // Command View scheme law (Interface Options → Command View): under the knob
             // schemes the mouse may not tilt the view, and the knob's angle is re-asserted
             // every frame — a possess-from-the-sky or a tilt in first person cannot leak in.
+            // Cut plane up: the rig stays above the cut, so the camera never looks up at the
+            // sliced faces from underneath (the "weird underneath" view).
+            if (_wmo?.ActiveCut is WorldCut activeCut &&
+                _controller.Position.Z < activeCut.RigFloor(_window.Camera.Distance, _window.Camera.Pitch))
+                _controller.Position = new Vector3(_controller.Position.X, _controller.Position.Y,
+                    activeCut.RigFloor(_window.Camera.Distance, _window.Camera.Pitch));
             CommandViewScheme scheme = Settings.Controls.CommandViewScheme;
             bool pitchLocked = CommandViewLaw.PitchLocked(scheme);
             _window.LookPitchLocked = pitchLocked;
@@ -1974,7 +1995,25 @@ public sealed partial class GameLoop
 
     /// <summary>The camera is riding the primary selection (setting on, free view up, a live primary).</summary>
     private bool CommandViewLocked =>
-        _freeView && Settings.Controls.CommandViewLockOnPrimary && RtsPrimaryGuid != 0;
+        _freeView && Settings.Controls.CommandViewLockOnPrimary && (_cvFollowGuid != 0 || RtsPrimaryGuid != 0);
+
+    /// <summary>
+    /// STICKY lock (owner, 2026-09-01): while locked, the ridden unit cannot be un-selected by a
+    /// stray click or marquee, and stays the primary. Only an explicit primary change (Tab or a
+    /// portrait click, which set <see cref="_rtsPrimaryGuid"/> to another SELECTED unit) retargets
+    /// the lock; releasing it is the only way off. Runs every free-view frame.
+    /// </summary>
+    private void EnforceStickyLock()
+    {
+        if (!Settings.Controls.CommandViewLockOnPrimary || _cvFollowGuid == 0) return;
+        if (!_entities.TryGet(_cvFollowGuid, out WorldEntity ridden) || ridden.IsDead)
+            return;                                    // gone or dead: CommandViewCameraTarget drops it
+        bool explicitRetarget = _rtsPrimaryGuid != 0 && _rtsPrimaryGuid != _cvFollowGuid &&
+            _freecamSelection.Contains(_rtsPrimaryGuid);
+        if (explicitRetarget) return;                  // Tab / portrait click: the lock follows
+        if (!_freecamSelection.Contains(_cvFollowGuid)) _freecamSelection.Insert(0, _cvFollowGuid);
+        _rtsPrimaryGuid = _cvFollowGuid;
+    }
 
     /// <summary>
     /// The Command View's camera target for this frame. Unlocked: the rig, eased through
@@ -1989,7 +2028,8 @@ public sealed partial class GameLoop
         Vector3 rig = _controller.Position;
 
         if (Settings.Controls.CommandViewLockOnPrimary &&
-            _entities.TryGet(RtsPrimaryGuid, out WorldEntity unit) && !unit.IsDead)
+            _entities.TryGet(RtsPrimaryGuid != 0 ? RtsPrimaryGuid : _cvFollowGuid, out WorldEntity unit) &&
+            !unit.IsDead)
         {
             if (_cvFollowGuid != unit.Guid)
             {
@@ -2010,6 +2050,9 @@ public sealed partial class GameLoop
             // Parked dead on the unit: movement input is zeroed upstream (Program.cs), the wheel
             // zooms the boom, and every turn (A/D or the mouse) orbits this point.
             Vector3 anchor = unit.Position;
+            // Cut plane up: the eye stays above the slice even while parked on a unit under it.
+            if (_wmo?.ActiveCut is WorldCut lockCut)
+                anchor.Z = MathF.Max(anchor.Z, lockCut.RigFloor(_window.Camera.Distance, _window.Camera.Pitch));
             Vector3 eased = CommandViewLaw.Smooth(_cvSmoothedTarget ?? anchor, anchor, dt,
                 CommandViewLaw.FollowTau);
             _controller.Position = eased;     // the rig itself rides along: wheel/pan/heartbeat agree

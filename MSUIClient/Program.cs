@@ -1853,6 +1853,10 @@ public sealed partial class GameLoop : IDisposable
             forward = 0f;
             strafe = 0f;
             turn = typing ? 0f : Math.Clamp(BindingAxis(GameBinding.TurnLeft, GameBinding.TurnRight), -1f, 1f);
+            // Under the sidestep schemes A means "camera goes left around the unit" - the eye
+            // moves left, so the heading swings RIGHT. Classic keeps A = turn left, as its
+            // A/D already mean turning. Owner call 2026-09-01: "standard with locked needs A/D swapped".
+            if (commandViewSwap) turn = -turn;
         }
 
         ApplyAutoFollowInput(ref forward, dt, typing, mouseSteering);
@@ -2161,7 +2165,12 @@ public sealed partial class GameLoop : IDisposable
         Vector3? cutawaySubject = FreeViewCutawaySubject();
         _wmo?.SetCutawaySubject(cutawaySubject, cutawaySubject is Vector3 cutXy
             ? _terrain?.SampleHeight(cutXy.X, cutXy.Y) : null);
+        _wmo?.SetCutPlaneSubject(CommandViewCutSubject(), Settings.Controls.CommandViewCutHeight);
         _wmo?.UpdateCameraCell(portalEye, _terrain?.SampleHeight(portalEye.X, portalEye.Y));
+        // The cut resolved by the cell update is one world-space rule shared by three renderers.
+        WorldCut? activeCut = _wmo?.ActiveCut;
+        if (_terrain is not null) _terrain.Cut = activeCut;
+        if (_doodads is not null) _doodads.Cut = activeCut;
 
         bool weatherCameraInterior = _wmo?.CameraGroup is { IsExterior: false };
         bool weatherExteriorVisible = _wmo?.CameraExteriorPortalVisible ?? true;
@@ -2425,7 +2434,10 @@ public sealed partial class GameLoop : IDisposable
     {
         var cam = _window.Camera;
 
-        if (!_config.Camera.Collision)
+        // Command View: the rig is a ghost (FlyCollide is hard-false), so the boom is too. A
+        // boom that ducked trees behind the rig pushed the camera "in front" while panning, and
+        // with the cut plane up it ducked under a roof that is no longer in the picture.
+        if (!_config.Camera.Collision || _freeView)
         {
             cam.EffectiveDistance = cam.Distance;
             return;

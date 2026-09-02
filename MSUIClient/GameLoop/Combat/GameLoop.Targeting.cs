@@ -505,17 +505,32 @@ public sealed partial class GameLoop
         if (ray is null) return false;
         (Vector3 origin, Vector3 direction) = ray.Value;
         const float maxDistance = 250f;
-        if (_collision?.Raycast(origin, direction, maxDistance) is { } hit)
+        // Command View cut plane: geometry sliced out of the picture is sliced out of the pick
+        // too, or a move order from above lands on the roof the player cannot see.
+        WorldCut? cut = _freeView ? _wmo?.ActiveCut : null;
+        bool CutAway(Vector3 p) => cut is WorldCut c && p.Z > c.CutZ && c.Contains(p.X, p.Y);
+        Vector3 castFrom = origin;
+        float remaining = maxDistance;
+        for (int pass = 0; pass < 8 && _collision is not null; pass++)
         {
-            point = hit.Point;
-            return true;
+            if (_collision.Raycast(castFrom, direction, remaining) is not { } hit) break;
+            if (!CutAway(hit.Point))
+            {
+                point = hit.Point;
+                return true;
+            }
+            float advance = hit.Distance + 0.05f;
+            castFrom += direction * advance;
+            remaining -= advance;
+            if (remaining <= 0f) break;
         }
         if (_terrain is null) return false;
         float previous = 0f;
         for (float t = 1f; t <= maxDistance; t += 1f)
         {
             Vector3 sample = origin + direction * t;
-            if (_terrain.SampleHeight(sample.X, sample.Y) is float ground && sample.Z <= ground)
+            if (_terrain.SampleHeight(sample.X, sample.Y) is float ground && sample.Z <= ground &&
+                !CutAway(sample with { Z = ground }))
             {
                 float lo = previous, hi = t;
                 for (int i = 0; i < 16; i++)

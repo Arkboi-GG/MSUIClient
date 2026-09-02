@@ -31,6 +31,10 @@ public readonly record struct TerrainSurfaceSample(
 /// </summary>
 public sealed class TerrainRenderer : IDisposable
 {
+    /// <summary>The Command View interior cut for this frame (Engine/WorldCut.cs), or null.
+    /// Set by GameLoop from WmoRenderer.ActiveCut after the cell update.</summary>
+    public WorldCut? Cut { get; set; }
+
     private readonly GL _gl;
     private readonly ClientConfig _config;
     private readonly GpuUploadWorker _uploads;
@@ -891,6 +895,9 @@ public sealed class TerrainRenderer : IDisposable
         _shader.Set("uWorldClipPlane", worldClipPlane is { IsValid: true } clip
             ? clip.RelativeEquation(camera.Position)
             : new Vector4(0f, 0f, 0f, 1f));
+        _shader.Set("uCutActive", Cut is not null ? 1 : 0);
+        _shader.Set("uCutRect", Cut?.RelativeRect(camera.Position) ?? Vector4.Zero);
+        _shader.Set("uCutZ", Cut?.RelativeZ(camera.Position) ?? 0f);
         _shader.Set("uCameraPos", Vector3.Zero);
         // Normalised HERE, not per pixel. The shader used to call normalize() on
         // this every fragment — on a uniform, over a surface that covers most of

@@ -599,6 +599,27 @@ public sealed class WmoRenderer : IDisposable
 
     private Vector3? _cutawaySubject;
     private float? _cutawaySubjectTerrainZ;
+
+    // ── Cut plane (Engine/WorldCut.cs) ──────────────────────────────────────────────────────
+    private Vector3? _cutPlaneSubject;
+    private float _cutPlaneHeight = 4.5f;
+    private (int InstanceId, HashSet<int> Groups)? _cutPlaneGroups;
+    private readonly HashSet<GroupMesh> _cutPlaneMeshes = [];   // the opened cells, for the batch loop
+    private const float CutPlaneReachYards = 35f;        // cells further than this stay roofed
+    private const float CutPlaneFootprintCapYards = 45f; // half-extent cap around the subject
+    private string _cutPlaneLoggedState = "off";
+
+    /// <summary>The interior cut resolved by the last <see cref="UpdateCameraCell"/>, or null.
+    /// GameLoop hands it to the terrain and doodad renderers and floors the free-view rig on it.</summary>
+    public WorldCut? ActiveCut { get; private set; }
+
+    /// <summary>Feed the commanded unit's feet (or null to switch the cut off) and the cut height
+    /// above them, once per frame before <see cref="UpdateCameraCell"/>.</summary>
+    public void SetCutPlaneSubject(Vector3? feet, float height)
+    {
+        _cutPlaneSubject = feet;
+        _cutPlaneHeight = height;
+    }
     private (int InstanceId, HashSet<int> Groups)? _cutaway;
     private string _cutawayLoggedState = "off";
 
@@ -765,6 +786,94 @@ public sealed class WmoRenderer : IDisposable
         {
             _cutawayLoggedState = cutawayState;
             Console.WriteLine($"[cutaway] {cutawayState}");
+        }
+
+        ResolveCutPlane();
+    }
+
+    /// <summary>
+    /// The cut plane's footprint: the true-interior (0x2000) cell the subject stands in plus every
+    /// interior cell reachable from it through portals WITHOUT crossing a non-interior group (so a
+    /// Stormwind inn stops at its own door and never floods into the streets). Its world XY bounds,
+    /// padded a yard, form the footprint; the cut sits <see cref="_cutPlaneHeight"/> above the feet.
+    /// A subject standing outdoors, or in a shell/street cell, gets no cut at all.
+    /// </summary>
+    private void ResolveCutPlane()
+    {
+        ActiveCut = null;
+        _cutPlaneGroups = null;
+        _cutPlaneMeshes.Clear();
+        string state = "off";
+        if (_cutPlaneSubject is Vector3 feet)
+        {
+            state = "no-interior-cell";
+            Vector3 probe = feet + new Vector3(0f, 0f, 1.5f);
+            float bestDrop = float.MaxValue;
+            foreach (var instance in _instances)
+            {
+                if (!Matrix4x4.Invert(instance.Transform, out var inv)) continue;
+                var local = Vector3.Transform(probe, inv);
+                var seeds = FindCameraSeeds(instance.Model, local, null, out float drop, out _);
+                if (seeds.Length == 0 || drop >= bestDrop) continue;
+                var seedGroup = instance.Model.Groups.FirstOrDefault(g => g.GroupIndex == seeds[0]);
+                // A true interior only: not a shell, and not an exterior-lit street cell (0x40) -
+                // Stormwind's streets are flagged interior too, and seeding or flooding through
+                // them turned the AH's cut into a slice across the whole city (capture 2026-09-01).
+                if (seedGroup is null || (seedGroup.GroupFlags & 0x2000u) == 0 ||
+                    (seedGroup.GroupFlags & 0x40u) != 0)
+                {
+                    state = $"not-interior:{seedGroup?.GroupName ?? "?"}";
+                    continue;
+                }
+                bestDrop = drop;
+
+                var byFile = new Dictionary<int, GroupMesh>(instance.Model.Groups.Count);
+                foreach (var g in instance.Model.Groups) byFile[g.GroupIndex] = g;
+                var reached = new HashSet<int>();
+                var stack = new Stack<int>();
+                stack.Push(seedGroup.GroupIndex);
+                Vector3 min = new(float.MaxValue), max = new(float.MinValue);
+                while (stack.Count > 0)
+                {
+                    int gi = stack.Pop();
+                    if (reached.Contains(gi) || !byFile.TryGetValue(gi, out var gm)) continue;
+                    var (gMin, gMax) = TransformedBounds(gm, instance.Transform);
+                    // Only cells near the subject open up: a mine's far galleries and an inn's
+                    // distant wings keep their roofs, so the hole in the world stays local.
+                    if (gi != seedGroup.GroupIndex && DistanceToBox(feet, gMin, gMax) > CutPlaneReachYards)
+                        continue;
+                    reached.Add(gi);
+                    _cutPlaneMeshes.Add(gm);
+                    min = Vector3.Min(min, gMin);
+                    max = Vector3.Max(max, gMax);
+                    int start = gm.PortalStart;
+                    int end = Math.Min(gm.PortalStart + gm.PortalCount, instance.Model.PortalRefs.Count);
+                    for (int i = Math.Max(0, start); i < end; i++)
+                    {
+                        int nb = instance.Model.PortalRefs[i].GroupIndex;
+                        if (nb == 0xFFFF || reached.Contains(nb)) continue;
+                        if (byFile.TryGetValue(nb, out var nbGroup) &&
+                            (nbGroup.GroupFlags & 0x2000u) != 0 && (nbGroup.GroupFlags & 0x40u) == 0)
+                            stack.Push(nb);
+                    }
+                }
+                const float pad = 1f;
+                // Hard cap on the footprint as well, whatever the cell bounds say.
+                min = Vector3.Max(min, feet - new Vector3(CutPlaneFootprintCapYards));
+                max = Vector3.Min(max, feet + new Vector3(CutPlaneFootprintCapYards));
+                ActiveCut = new WorldCut(
+                    new Vector2(min.X - pad, min.Y - pad), new Vector2(max.X + pad, max.Y + pad),
+                    feet.Z + _cutPlaneHeight);
+                _cutPlaneGroups = (instance.Id, reached);
+                state = $"engaged:{System.IO.Path.GetFileName(instance.Path)}/{seedGroup.GroupName} " +
+                    $"cells={reached.Count} cutZ={feet.Z + _cutPlaneHeight:0.#} " +
+                    $"footprint=({min.X:0},{min.Y:0})-({max.X:0},{max.Y:0})";
+            }
+        }
+        if (state != _cutPlaneLoggedState)
+        {
+            _cutPlaneLoggedState = state;
+            Console.WriteLine($"[cutplane] {state}");
         }
     }
 
@@ -4048,6 +4157,9 @@ public sealed class WmoRenderer : IDisposable
             : new Vector4(0f, 0f, 0f, 1f));
         _shader.Set("uUseInstancing", 0);
         _shader.Set("uCameraPos", Vector3.Zero);
+        _shader.Set("uCutActive", ActiveCut is not null ? 1 : 0);
+        _shader.Set("uCutRect", ActiveCut?.RelativeRect(camera.Position) ?? Vector4.Zero);
+        _shader.Set("uCutZ", ActiveCut?.RelativeZ(camera.Position) ?? 0f);
         _shader.Set("uSunDirection", SunDirection);
         _shader.Set("uSunColor", SunColor);
         _shader.Set("uSunIntensity", SunIntensity);
@@ -4151,6 +4263,10 @@ public sealed class WmoRenderer : IDisposable
             if (_cutaway is { } cut && cut.InstanceId == instance.Id &&
                 cut.Groups.Count > 0)
                 reachable = cut.Groups;
+            // Cut plane: the opened interior must DRAW even though the camera is above the roof
+            // and no doorway is in view — union its cells into whatever the portal flood reaches.
+            HashSet<int>? cutPlaneCells = _cutPlaneGroups is { } cp && cp.InstanceId == instance.Id
+                ? cp.Groups : null;
             if (reachable is null
                 && UsePortalCulling
                 && instance.Model.Portals.Count > 0
@@ -4172,6 +4288,15 @@ public sealed class WmoRenderer : IDisposable
                 }
                 if (reachable is { Count: 0 }) reachable = null;
                 PortalReachedLastFrame = reachable?.Count ?? 0;
+            }
+            if (cutPlaneCells is not null)
+            {
+                var opened = reachable is null ? new HashSet<int>() : new HashSet<int>(reachable);
+                if (reachable is null)
+                    foreach (var g in instance.Model.Groups)
+                        if ((g.GroupFlags & 0x08u) != 0) opened.Add(g.GroupIndex);
+                opened.UnionWith(cutPlaneCells);
+                reachable = opened;
             }
             _portalVisible[instance.Id] = reachable;
 
@@ -4350,7 +4475,11 @@ public sealed class WmoRenderer : IDisposable
                             bound = true;
                         }
 
-                        bool twoSided = batch.TwoSided || ForceTwoSided;
+                        // Cut plane: the opened cells draw two-sided. From above, the camera looks
+                        // at the BACK of the near walls; culled, they vanished with the angle and
+                        // the room read as a floor floating on the street (owner, 2026-09-01).
+                        bool twoSided = batch.TwoSided || ForceTwoSided ||
+                            (_cutPlaneMeshes.Count > 0 && _cutPlaneMeshes.Contains(group));
 
                         if (twoSided && cullingOn)
                         {
