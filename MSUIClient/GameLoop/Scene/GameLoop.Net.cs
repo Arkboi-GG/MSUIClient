@@ -2372,9 +2372,16 @@ public sealed partial class GameLoop
         // for the InWorld branch below: DrawCombatHud starts its own cursor-authority
         // frame right after, which simply resets and refines this same proposal further
         // (item-hover cursors etc.).
-        _window.BeginHardwareCursorFrame();
-        TryUseHardwareCursor(WorldCursorKind.Point.ToString());
-        _window.EndHardwareCursorFrame();
+        // In world this is NOT harmless any more: the commit now holds a stem for two frames
+        // before rebuilding the OS cursor, and a second Point frame every game frame made the
+        // proposals alternate Point/Attack so the sword and loot bag never settled in first
+        // person (owner, 2026-09-02). DrawCombatHud owns the cursor in world.
+        if (_net?.IsInWorld != true)
+        {
+            _window.BeginHardwareCursorFrame();
+            TryUseHardwareCursor(WorldCursorKind.Point.ToString());
+            _window.EndHardwareCursorFrame();
+        }
 
         // Offline HUD preview (Program.HudPreview.cs) - draws the real gameplay
         // frames against a synthetic player so UI work is checkable in the same

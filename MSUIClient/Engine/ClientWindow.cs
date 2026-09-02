@@ -473,6 +473,9 @@ public sealed class ClientWindow : IDisposable
     /// the two are never both visible (owner, 2026-09-02: "needs to be either/or").</summary>
     public void RequestSoftwareCursor() => _softwareCursorRequested = true;
 
+    /// <summary>Dev: log every hardware cursor commit decision.</summary>
+    public bool CursorTrace { get; set; }
+
     public bool UseHardwareCursor(string key, in HardwareCursorImage image)
     {
         if (_mouse is null || _mouseCaptured || string.IsNullOrWhiteSpace(key)) return false;
@@ -520,6 +523,8 @@ public sealed class ClientWindow : IDisposable
                     _hardwareCursorCandidateFrames = 1;
                 }
                 bool settled = _hardwareCursorCandidateFrames >= 2 || _hardwareCursorKey.Length == 0;
+                if (CursorTrace)
+                    Console.WriteLine($"[cursor] proposal={_hardwareCursorProposalKey} candidateFrames={_hardwareCursorCandidateFrames} settled={settled} key={_hardwareCursorKey} type={cursor.Type}");
                 if (settled && (!_hardwareCursorKey.Equals(_hardwareCursorProposalKey,
                         StringComparison.OrdinalIgnoreCase) || cursor.Type != CursorType.Custom))
                 {
