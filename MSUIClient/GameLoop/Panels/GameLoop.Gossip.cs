@@ -177,8 +177,10 @@ public sealed partial class GameLoop
     {
         GossipPoi poi = GossipPackets.ParsePoi(body);
         _gossipPoi = poi;
-        _gossipPoiMapId = _net?.Player?.Map ??
-            checked((uint)Math.Max(0, _config.Start.Map));
+        // Stamp with the LIVE map (adopted on every worldport), never the roster snapshot:
+        // the minimap tests this against _config.Start.Map, so a snapshot stamp could never
+        // match again after the first map change and the guard-directions pin vanished.
+        _gossipPoiMapId = checked((uint)Math.Max(0, _config.Start.Map));
         EmitInterface("gossip", "poi", "DECODED", _gossipMenu?.SourceGuid ?? 0,
             $"map={_gossipPoiMapId};x={poi.Position.X:R};y={poi.Position.Y:R};" +
             $"icon={poi.Icon};flags=0x{poi.Flags:X8};data={poi.Data};" +

@@ -197,6 +197,8 @@ public class WmoReader
                         Texture1Offset = BitConverter.ToUInt32(data, mOfs + 0x18),
                         GroundType = BitConverter.ToUInt32(data, mOfs + 0x20),
                         Texture2Offset = BitConverter.ToUInt32(data, mOfs + 0x24),
+                        SidnColor = new System.Numerics.Vector3(
+                            data[mOfs + 0x12] / 255f, data[mOfs + 0x11] / 255f, data[mOfs + 0x10] / 255f),
                     });
                 }
             }
@@ -917,6 +919,18 @@ public class WmoMaterial
     public string Texture2Name { get; set; } = "";
     public bool IsNoCull => (Flags & 0x04) != 0; // two-sided
     public bool IsTransparent => BlendMode != 0;
+    /// <summary>MOMT F_UNLIT (0x01): drawn at texture brightness, no scene light — lamp glass, glow panes.</summary>
+    public bool IsUnlit => (Flags & 0x01) != 0;
+    /// <summary>MOMT F_SIDN (0x10): self-illuminated day/night — the window-glows-at-night mechanism.</summary>
+    public bool IsSidn => (Flags & 0x10) != 0;
+    /// <summary>MOMT F_WINDOW (0x20).</summary>
+    public bool IsWindow => (Flags & 0x20) != 0;
+    /// <summary>
+    /// MOMT+0x10 SIDN emissive colour (BGRA on disk, RGB here, 0..1). The reference's per-frame
+    /// updater scales it by the night fraction and adds it as the material EMISSION on lit batches.
+    /// Meaningless (usually zero) when <see cref="IsSidn"/> is clear.
+    /// </summary>
+    public System.Numerics.Vector3 SidnColor { get; set; }
 }
 
 public class WmoGroupData

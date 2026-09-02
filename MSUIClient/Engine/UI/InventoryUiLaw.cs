@@ -11,6 +11,10 @@ namespace MSUIClient.Engine.UI;
 public static class InventoryUiLaw
 {
     public const int EmptyContainer = int.MinValue;
+    /// <summary>INVTYPE_AMMO — loads the ammo slot via CMSG_SET_AMMO, never AUTOEQUIP.</summary>
+    public const uint InventoryTypeAmmo = 24;
+    /// <summary>The share window's leash when the giver is a PLAYER (QUEST_SHARE_DISTANCE).</summary>
+    public const float QuestShareDistance = 14f;
     public const int EquipmentContainer = -100;
     public const int BankBagEquipmentContainer = -101;
     public const int BankContainer = -1;

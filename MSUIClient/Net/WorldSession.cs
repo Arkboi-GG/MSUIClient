@@ -416,6 +416,36 @@ public sealed class WorldSession : IDisposable
     /// <summary>Vanilla quest sharing. Ordinary 1.12 traffic, not a SuperUI
     /// extension: real party members get the real confirmation dialog, and
     /// AiBot companions answer it through their own AI.</summary>
+    /// <summary>
+    /// MSG_QUEST_PUSH_RESULT (client → server): u64 sharer, u8 QuestShareMessages. The receiver's
+    /// answer to a shared quest — the server relays it to the sharer and clears its share latch.
+    /// 3 = DECLINE_QUEST, 5 = BUSY. Never sent for an NPC giver.
+    /// </summary>
+    public void QuestPushResult(ulong sharer, byte message)
+    {
+        var w = new PacketWriter(9);
+        w.WriteU64(sharer); w.WriteU8(message);
+        SendPacket((ushort)Op.MSG_QUEST_PUSH_RESULT, w.ToArray());
+    }
+
+    /// <summary>CMSG_SUMMON_RESPONSE: u64 summoner — accept a summon (a decline sends nothing).</summary>
+    public void SummonResponse(ulong summoner)
+    { var w = new PacketWriter(8); w.WriteU64(summoner); SendPacket((ushort)Op.CMSG_SUMMON_RESPONSE, w.ToArray()); }
+
+    /// <summary>CMSG_QUEST_CONFIRM_ACCEPT: u32 quest — join an escort/party-accept quest a member started.</summary>
+    public void QuestConfirmAccept(uint questId)
+    { var w = new PacketWriter(4); w.WriteU32(questId); SendPacket((ushort)Op.CMSG_QUEST_CONFIRM_ACCEPT, w.ToArray()); }
+
+    /// <summary>CMSG_SELF_RES: empty — the server casts PLAYER_SELF_RES_SPELL (soulstone, reincarnation).</summary>
+    public void SelfRes() => SendPacket((ushort)Op.CMSG_SELF_RES, Array.Empty<byte>());
+
+    /// <summary>CMSG_LOOT_MASTER_GIVE: u64 loot, u8 slot, u64 target.</summary>
+    public void LootMasterGive(ulong lootGuid, byte slot, ulong target)
+    {
+        var w = new PacketWriter(17); w.WriteU64(lootGuid); w.WriteU8(slot); w.WriteU64(target);
+        SendPacket((ushort)Op.CMSG_LOOT_MASTER_GIVE, w.ToArray());
+    }
+
     public void PushQuestToParty(uint questId)
     {
         var w = new PacketWriter(4);
@@ -1277,12 +1307,12 @@ public sealed class WorldSession : IDisposable
     }
 
     public void AuctionHello(ulong guid) => SendPacket((ushort)Op.MSG_AUCTION_HELLO, BuildAuctionGuidBody(guid));
-    public void AuctionBrowse(ulong guid, uint page, string search, uint itemClass = uint.MaxValue)
-        => SendPacket((ushort)Op.CMSG_AUCTION_LIST_ITEMS, BuildAuctionBrowseBody(guid, page, search, itemClass));
-    public void AuctionOwnerList(ulong guid, uint page)
-        => SendPacket((ushort)Op.CMSG_AUCTION_LIST_OWNER_ITEMS, BuildAuctionPageBody(guid, page));
-    public void AuctionBidderList(ulong guid, uint page)
-        => SendPacket((ushort)Op.CMSG_AUCTION_LIST_BIDDER_ITEMS, BuildAuctionPageBody(guid, page));
+    public void AuctionBrowse(ulong guid, in AuctionBrowseQuery query)
+        => SendPacket((ushort)Op.CMSG_AUCTION_LIST_ITEMS, BuildAuctionBrowseBody(guid, query));
+    public void AuctionOwnerList(ulong guid, uint listFrom)
+        => SendPacket((ushort)Op.CMSG_AUCTION_LIST_OWNER_ITEMS, BuildAuctionPageBody(guid, listFrom));
+    public void AuctionBidderList(ulong guid, uint listFrom, IReadOnlyList<uint>? refreshIds = null)
+        => SendPacket((ushort)Op.CMSG_AUCTION_LIST_BIDDER_ITEMS, BuildAuctionBidderBody(guid, listFrom, refreshIds));
     public void AuctionBid(ulong guid, uint id, uint price)
         => SendPacket((ushort)Op.CMSG_AUCTION_PLACE_BID, BuildAuctionBidBody(guid, id, price));
     public void AuctionCancel(ulong guid, uint id)
@@ -1297,12 +1327,36 @@ public sealed class WorldSession : IDisposable
     { var w = new PacketWriter(16); w.WriteU64(guid); w.WriteU32(id); w.WriteU32(price); return w.ToArray(); }
     public static byte[] BuildAuctionSellBody(ulong guid, ulong item, uint bid, uint buyout, uint durationMinutes)
     { var w = new PacketWriter(32); w.WriteU64(guid); w.WriteU64(item); w.WriteU32(bid); w.WriteU32(buyout); w.WriteU32(durationMinutes); return w.ToArray(); }
-    public static byte[] BuildAuctionBrowseBody(ulong guid, uint page, string search,
-        uint itemClass = uint.MaxValue)
+    /// <summary>
+    /// CMSG_AUCTION_LIST_BIDDER_ITEMS (vmangos AuctionListBidderItem::ReadFromWorldPacket):
+    /// u64 auctioneer, u32 listfrom, u32 count, count × u32 auctionId. The count word is
+    /// ALWAYS present — the old 12-byte page body under-read it, vmangos's read check refused
+    /// the packet, and the Bids tab could never be answered. The id list is a refresh set
+    /// (the server emits those rows first, then every auction the player holds the bid on).
+    /// </summary>
+    public static byte[] BuildAuctionBidderBody(ulong guid, uint listFrom, IReadOnlyList<uint>? refreshIds)
     {
-        var w = new PacketWriter(42 + search.Length); w.WriteU64(guid); w.WriteU32(page); w.WriteCString(search);
-        w.WriteU8(0); w.WriteU8(0); w.WriteU32(uint.MaxValue); w.WriteU32(itemClass);
-        w.WriteU32(uint.MaxValue); w.WriteU32(uint.MaxValue); w.WriteU8(0); return w.ToArray();
+        int count = refreshIds?.Count ?? 0;
+        var w = new PacketWriter(16 + 4 * count);
+        w.WriteU64(guid); w.WriteU32(listFrom); w.WriteU32((uint)count);
+        for (int i = 0; i < count; i++) w.WriteU32(refreshIds![i]);
+        return w.ToArray();
+    }
+
+    /// <summary>
+    /// CMSG_AUCTION_LIST_ITEMS (vmangos AuctionListItems::ReadFromWorldPacket): u64 auctioneer,
+    /// u32 listfrom (a ROW offset — page × 50, not a page index), cstring name, u8 levelmin,
+    /// u8 levelmax, u32 slotId, u32 mainCategory, u32 subCategory, u32 quality, u8 usable.
+    /// 0xFFFFFFFF / 0 are the "no filter" sentinels; quality is a MINIMUM; the level pair gates
+    /// RequiredLevel; usable drops what the actor's CanUseItem refuses.
+    /// </summary>
+    public static byte[] BuildAuctionBrowseBody(ulong guid, in AuctionBrowseQuery q)
+    {
+        var w = new PacketWriter(42 + q.Search.Length); w.WriteU64(guid); w.WriteU32(q.ListFrom);
+        w.WriteCString(q.Search);
+        w.WriteU8(q.LevelMin); w.WriteU8(q.LevelMax); w.WriteU32(q.InventoryType);
+        w.WriteU32(q.ItemClass); w.WriteU32(q.Subclass); w.WriteU32(q.Quality);
+        w.WriteU8(q.UsableOnly ? (byte)1 : (byte)0); return w.ToArray();
     }
 
     public static byte[] BuildTrainerListBody(ulong guid)

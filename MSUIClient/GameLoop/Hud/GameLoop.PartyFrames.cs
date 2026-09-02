@@ -171,7 +171,14 @@ public sealed partial class GameLoop
         _partyMembers.Clear();
         _partyMembers.AddRange(next);
         foreach (PartyMember member in next)
+        {
+            // The roster carries the NAME, so the query is not asked for the name: it is asked
+            // for the (race, class, gender) triple behind the party frame's portrait stand-in
+            // and the raid grid's class column. Seeding the name cache alone suppressed the
+            // ask-once query, so an unstreamed member had no portrait. 2026-09-01.
+            if (!_playerTraits.ContainsKey(member.Guid)) _net?.NameQuery(member.Guid);
             if (!_playerNames.ContainsKey(member.Guid)) _playerNames[member.Guid] = member.Name;
+        }
         _partyOwnFlags = wire.OwnFlags;
         _partyRosterRevision++;
         _partyLeaderGuid = wire.LeaderGuid;
@@ -465,6 +472,11 @@ public sealed partial class GameLoop
                     StringComparison.Ordinal))
             {
                 ApplyGuildAddRankPopupEffect(effect);
+                continue;
+            }
+            if (ConfirmPopupUiLaw.IsConfirmPopup(effect.Type))
+            {
+                ApplyConfirmPopupEffect(effect);
                 continue;
             }
             if (!string.Equals(effect.Type, PartyInvitePopupType, StringComparison.Ordinal)) continue;

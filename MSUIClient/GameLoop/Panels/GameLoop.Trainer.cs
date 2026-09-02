@@ -189,6 +189,14 @@ public sealed partial class GameLoop
         string reason = result.Error switch { 0 => "UNAVAILABLE", 1 => "NOT_ENOUGH_MONEY", 2 => "NOT_ENOUGH_SKILL", _ => $"ERROR_{result.Error}" };
         EmitInterface("trainer", "buy", "FAILED", result.TrainerGuid,
             $"serviceSpell={result.ServiceSpellId};reason={reason}");
+        // The refusal reaches the PLAYER, not just the dev log (it used to be a silent no-op).
+        // vmangos sends 0 unavailable / 1 money / 2 skill; the reference raises UI_ERROR_MESSAGE.
+        ShowUiError(result.Error switch
+        {
+            1 => InventoryGlobalString("ERR_NOT_ENOUGH_MONEY", "You don't have enough money."),
+            2 => InventoryGlobalString("ERR_CANT_EQUIP_SKILL", "You aren't skilled enough to learn that."),
+            _ => InventoryGlobalString("ERR_SPELL_UNLEARNED_S", "You can't learn that yet.").Replace("%s", "").Trim(),
+        });
     }
 
     private void ObserveTrainerLearned(uint spellId)

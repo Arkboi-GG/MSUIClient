@@ -544,9 +544,19 @@ public sealed partial class GameLoop
         if (row.IsCoin) TakeLootMoney();
         else
         {
-            uint displayInfoId = 0;
+            uint displayInfoId = 0; byte slotType = 0;
             foreach (LootItem item in _loot.Items)
-                if (item.Slot == row.WireSlot) { displayInfoId = item.DisplayInfoId; break; }
+                if (item.Slot == row.WireSlot) { displayInfoId = item.DisplayInfoId; slotType = item.SlotType; break; }
+            // LOOT_SLOT_MASTER (2): the master looter ASSIGNS this row rather than taking it —
+            // the candidate menu (SMSG_LOOT_MASTER_LIST) picks who, then CMSG_LOOT_MASTER_GIVE.
+            // A plain take on a master row was refused by the server without a word.
+            if (slotType == 2 && _lootMasterCandidates.Count > 0)
+            {
+                _lootMasterMenuSlot = row.WireSlot;
+                _lootMasterMenuOrigin = ImGui.GetMousePos();
+                EmitInterface("loot", "master-menu", "OPEN", _loot.Source, $"slot={row.WireSlot}");
+                return;
+            }
             if (displayInfoId != 0) PlayItemPickupSound(displayInfoId);
             bool sent = _net.AutostoreLootItem(row.WireSlot);
             EmitInterface("loot", "item", sent ? "SENT" : "SEND_FAILED", _loot.Source,

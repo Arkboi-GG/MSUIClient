@@ -2091,7 +2091,7 @@ public sealed partial class GameLoop
             instance?.Fields.ItemStackCount ?? 0, locked, tradePlacement);
         if (click == InventoryUiLaw.SlotClickAction.TradePlace &&
             InventoryUiLaw.ToWire(container, slot) is { } trade)
-            PlaceTradeItem(trade.Bag, trade.Slot);
+            PlaceTradeItem(trade.Bag, trade.Slot, instance);
         else if (click == InventoryUiLaw.SlotClickAction.Split)
             OpenStackSplit(container, slot, (int)(instance?.Fields.ItemStackCount ?? 0),
                 new(max.X, min.Y));
@@ -2111,9 +2111,18 @@ public sealed partial class GameLoop
             if (instance is not null && item is not null && InventoryUiLaw.ToWire(container, slot) is { } wire)
             {
                 if (_vendor is not null) SellToOpenVendor(instance.Guid);
-                else if (_bankOpen) DepositBankItem(wire.Bag, wire.Slot, instance);
+                else if (_bankOpen)
+                {
+                    // Direction follows the SOURCE: an item already in the bank (vault or a bank
+                    // bag, containers 5..10) comes OUT with CMSG_AUTOSTORE_BANK_ITEM; anything
+                    // else goes IN with CMSG_AUTOBANK_ITEM. Bank-bag right-clicks used to send
+                    // the deposit opcode for an item that was already deposited. 2026-09-01.
+                    bool withdrawing = container == InventoryUiLaw.BankContainer || container is >= 5 and <= 10;
+                    if (withdrawing) _net.AutostoreBankItem(wire.Bag, wire.Slot);
+                    else DepositBankItem(wire.Bag, wire.Slot, instance);
+                }
                 else if (_mailOpen && _mailTab == 1) AttachMailItem(instance.Guid, instance.Entry);
-                else if (_auctionOpen && _auctionTab == 2) _auctionSellEntry = instance.Entry;
+                else if (_auctionOpen && _auctionTab == 2) StageAuctionSellItem(container, slot, instance);
                 else if (instance.Fields.ItemTextId != 0)
                     OpenItemTextLetter(instance, item);
                 else if (item.PageText != 0)
@@ -2142,6 +2151,13 @@ public sealed partial class GameLoop
                         _lootPendingGuid = instance.Guid;
                         _net.OpenItem(wire.Bag, wire.Slot);
                     }
+                }
+                else if (item.InventoryType == InventoryUiLaw.InventoryTypeAmmo)
+                {
+                    // Ammo loads the quiver slot with CMSG_SET_AMMO, never AUTOEQUIP (the
+                    // reference's single auto-equip sender forks INVTYPE_AMMO out first; sending
+                    // the equip opcode for arrows just earned a server refusal). 2026-09-01.
+                    if (CanAuthorControlledOrSelf) _net.SetAmmo(item.Entry);
                 }
                 else if (item.InventoryType != 0)
                 {
@@ -2203,8 +2219,9 @@ public sealed partial class GameLoop
         }
         if (count > 1)
         {
+            // ItemButtonTemplate: Count BOTTOMRIGHT (-5, 2) — the parity proof below says so too.
             GameText.DrawRightAligned(dl, "NumberFontNormal", count.ToString(),
-                new Vector2(max.X - 4f * scale,
+                new Vector2(max.X - 5f * scale,
                     max.Y - GameText.EmPixels("NumberFontNormal", scale) - 2f * scale), scale);
             if (parityProof)
                 CollectUiParityDraw(parityButton + "Count", "FontString", min, max - min, parityButton,

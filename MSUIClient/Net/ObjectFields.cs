@@ -488,6 +488,8 @@ public sealed class ObjectFields
     public uint TalentPoints => GetU32(PLAYER_CHARACTER_POINTS1) ?? 0;
     public uint FreeProfessions => GetU32(PLAYER_CHARACTER_POINTS2) ?? 0;
     public uint Coinage => GetU32(PLAYER_COINAGE) ?? 0;
+    /// <summary>PLAYER_SELF_RES_SPELL (UNIT_END + 0x40C = 1218, PRIVATE): the soulstone / Reincarnation spell the release dialog may cast via CMSG_SELF_RES.</summary>
+    public uint PlayerSelfResSpell => GetU32(1218) ?? 0;
     public byte PlayerComboPoints => (byte)((GetU32(PLAYER_FIELD_BYTES) ?? 0) >> 8);
     public ulong PlayerComboTarget => GetGuid(PLAYER_FIELD_COMBO_TARGET) ?? 0;
     public byte BankBagSlotCount => (byte)((GetU32(PLAYER_BYTES_2) ?? 0) >> 16);

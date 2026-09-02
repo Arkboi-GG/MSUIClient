@@ -271,6 +271,21 @@ public sealed class WorldAtmosphere
     public Vector3 FogColor { get; private set; } = DayFog;
     public Vector3 SkyColor => FogColor;
     public float SunIntensity { get; private set; } = 0.90f;
+    /// <summary>
+    /// The SIDN night fraction the reference scales window glow by: 1 overnight, 0 all day,
+    /// ramping 20:30→21:30 and 06:00→07:00 (benilla wow_light.grade.x). Independent of the
+    /// lighting mode — a lit window is a clock fact, not a sun fact.
+    /// </summary>
+    public float NightFraction { get; private set; }
+
+    public static float NightFractionAt(float hours)
+    {
+        float h = ((hours % 24f) + 24f) % 24f;
+        if (h >= 21.5f || h < 6f) return 1f;
+        if (h >= 20.5f) return (h - 20.5f);          // 20:30 → 21:30 ramps up
+        if (h < 7f) return 1f - (h - 6f);            // 06:00 → 07:00 ramps down
+        return 0f;
+    }
     public float AmbientIntensity { get; private set; } = 0.64f;
 
     public float ShaderFogStart => FogEnabled ? MathF.Min(FogStart, FogEnd - 1f) : 100_000f;
@@ -279,6 +294,7 @@ public sealed class WorldAtmosphere
 
     public void Evaluate()
     {
+        NightFraction = NightFractionAt(TimeOfDayHours);
         TimeOfDayHours = WrapHours(TimeOfDayHours);
 
         // Authored path. The sun DIRECTION is still computed, because Light.dbc

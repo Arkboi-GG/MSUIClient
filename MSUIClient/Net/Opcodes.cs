@@ -207,6 +207,16 @@ public enum Op : ushort
     CMSG_QUEST_CONFIRM_ACCEPT      = 0x019B,
     CMSG_PUSHQUESTTOPARTY          = 0x019D,
     MSG_QUEST_PUSH_RESULT          = 0x0276,
+    SMSG_QUEST_CONFIRM_ACCEPT      = 0x019C,   // escort quests: u32 quest, cstring title, u64 starter
+    SMSG_SUMMON_REQUEST            = 0x02AB,   // u64 summoner, u32 zone, u32 timeoutMs
+    CMSG_SUMMON_RESPONSE           = 0x02AC,   // u64 summoner (accept); decline sends nothing
+    CMSG_SELF_RES                  = 0x02B3,   // empty; server casts PLAYER_SELF_RES_SPELL
+    CMSG_LOOT_MASTER_GIVE          = 0x02A3,   // u64 loot, u8 slot, u64 target
+    SMSG_LOOT_MASTER_LIST          = 0x02A4,   // u8 count, count × u64 candidate
+    SMSG_SERVER_MESSAGE            = 0x0291,   // u32 type, cstring text
+    SMSG_ZONE_UNDER_ATTACK         = 0x0254,   // u32 areaId
+    SMSG_DEFENSE_MESSAGE           = 0x033B,   // u32 zoneId, u32 len, cstring text
+    SMSG_CHAT_RESTRICTED           = 0x02FD,   // empty
 
     // --- Vendor ---
     CMSG_LIST_INVENTORY           = 0x019E,

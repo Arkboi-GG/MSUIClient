@@ -95,6 +95,10 @@ public sealed class WmoRenderer : IDisposable
         public uint IndexCount;
         public Texture? Texture;
         public bool TwoSided;
+        /// <summary>MOMT F_UNLIT: texture brightness, no scene light (lamp glass, glow panes).</summary>
+        public bool Unlit;
+        /// <summary>MOMT F_SIDN emissive colour, added × the night fraction on lit lanes; zero when clear.</summary>
+        public Vector3 Sidn;
 
         /// <summary>
         /// Whether this batch's texture actually carries alpha. The cutoff
@@ -1736,6 +1740,8 @@ public sealed class WmoRenderer : IDisposable
     public Vector3 SunDirection { get; set; } = Vector3.Normalize(new Vector3(0.45f, 0.35f, 0.82f));
     public Vector3 SunColor { get; set; } = new(1.00f, 0.95f, 0.85f);
     public float SunIntensity { get; set; } = 1.15f;
+    /// <summary>1 overnight, 0 by day: scales the SIDN window glow (WorldAtmosphere.NightFraction).</summary>
+    public float NightFraction { get; set; }
     public Vector3 AmbientColor { get; set; } = new(0.42f, 0.50f, 0.60f);
     public float AmbientIntensity { get; set; } = 0.85f;
     public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
@@ -3186,6 +3192,84 @@ public sealed class WmoRenderer : IDisposable
         return placed;
     }
 
+    /// <summary>
+    /// Dev probe: every authored group face of every resident WMO instance within
+    /// <paramref name="radius"/> of a world point, with its MOPY flags and material id, plus how
+    /// many of that instance's faces reached the walking collision. Re-reads the group files, so
+    /// it shows what the DATA says regardless of what the gather kept.
+    /// </summary>
+    public void DumpFacesNear(Vector3 worldPos, float radius)
+    {
+        foreach (Instance instance in _instances)
+            if (Vector3.Distance(instance.Origin, worldPos) < 80f)
+                Console.WriteLine($"[wmo-faces] nearby instance {instance.Path} id={instance.Id} origin=({instance.Origin.X:F0},{instance.Origin.Y:F0},{instance.Origin.Z:F0}) bbox=({instance.WorldMin.X:F0},{instance.WorldMin.Y:F0},{instance.WorldMin.Z:F0})..({instance.WorldMax.X:F0},{instance.WorldMax.Y:F0},{instance.WorldMax.Z:F0}) groups={instance.Model.Groups.Count}");
+        foreach (Instance instance in _instances)
+        {
+            if (worldPos.X < instance.WorldMin.X - radius || worldPos.X > instance.WorldMax.X + radius ||
+                worldPos.Y < instance.WorldMin.Y - radius || worldPos.Y > instance.WorldMax.Y + radius ||
+                worldPos.Z < instance.WorldMin.Z - radius || worldPos.Z > instance.WorldMax.Z + radius) continue;
+            int collisionTris = instance.Model.Groups.Sum(g => g.CollisionTriangles.Length) / 3;
+            Console.WriteLine($"[wmo-faces] instance {instance.Path} id={instance.Id} groups={instance.Model.Groups.Count} collisionTris={collisionTris} bbox=({instance.WorldMin.X:F0},{instance.WorldMin.Y:F0},{instance.WorldMin.Z:F0})..({instance.WorldMax.X:F0},{instance.WorldMax.Y:F0},{instance.WorldMax.Z:F0})");
+            byte[]? rootBytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, instance.Path);
+            WmoRootData? root = rootBytes is null ? null : WmoReader.ParseRoot(rootBytes);
+            if (root is null) { Console.WriteLine("[wmo-faces]   root unreadable"); continue; }
+            string stem = instance.Path[..^4];
+            int printed = 0;
+            for (int g = 0; g < (int)root.NGroups && printed < 200; g++)
+            {
+                byte[]? groupBytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, $"{stem}_{g:D3}.wmo");
+                if (groupBytes is null) { Console.WriteLine($"[wmo-faces]   g{g} unreadable"); continue; }
+                WmoGroupData group;
+                try { group = WmoReader.ParseGroup(groupBytes, root.Flags); } catch (Exception e) { Console.WriteLine($"[wmo-faces]   g{g} parse failed: {e.Message}"); continue; }
+                int tris = group.Indices.Count / 3;
+                int nearAny = 0; float zMin = float.MaxValue, zMax = float.MinValue;
+                for (int t = 0; t < tris; t++)
+                {
+                    int j0 = group.Indices[t * 3]; if (j0 >= group.Vertices.Count) continue;
+                    var (vx, vy, vz) = group.Vertices[j0];
+                    Vector3 w = Vector3.Transform(new Vector3(vx, vy, vz), instance.Transform);
+                    if (Vector3.Distance(w, worldPos) > radius * 2f) continue;
+                    nearAny++; zMin = MathF.Min(zMin, w.Z); zMax = MathF.Max(zMax, w.Z);
+                }
+                if (nearAny > 0) Console.WriteLine($"[wmo-faces]   g{g} \"{group.GroupName}\" gflags=0x{group.GroupFlags:X}: {nearAny} face(s) within {radius * 2f:F0} yd, z {zMin:F1}..{zMax:F1}");
+                for (int t = 0; t < tris && printed < 200; t++)
+                {
+                    int i0 = group.Indices[t * 3], i1 = group.Indices[t * 3 + 1], i2 = group.Indices[t * 3 + 2];
+                    if (i0 >= group.Vertices.Count || i1 >= group.Vertices.Count || i2 >= group.Vertices.Count) continue;
+                    var (ax, ay, az) = group.Vertices[i0]; var (bx, by, bz) = group.Vertices[i1]; var (cx, cy, cz) = group.Vertices[i2];
+                    Vector3 a = Vector3.Transform(new Vector3(ax, ay, az), instance.Transform);
+                    Vector3 b = Vector3.Transform(new Vector3(bx, by, bz), instance.Transform);
+                    Vector3 c = Vector3.Transform(new Vector3(cx, cy, cz), instance.Transform);
+                    Vector3 centre = (a + b + c) / 3f;
+                    if (Vector3.Distance(centre, worldPos) > radius) continue;
+                    (byte flags, byte material) = t < group.TriMaterials.Count ? group.TriMaterials[t] : ((byte)0xFF, (byte)0xFF);
+                    Vector3 n = Vector3.Normalize(Vector3.Cross(b - a, c - a));
+                    Console.WriteLine($"[wmo-faces]   g{g} \"{group.GroupName}\" gflags=0x{group.GroupFlags:X} tri{t} mopy=0x{flags:X2} mat={material} n=({n.X:F2},{n.Y:F2},{n.Z:F2}) a=({a.X:F1},{a.Y:F1},{a.Z:F2}) b=({b.X:F1},{b.Y:F1},{b.Z:F2}) c=({c.X:F1},{c.Y:F1},{c.Z:F2})");
+                    printed++;
+                }
+            }
+            Console.WriteLine($"[wmo-faces]   {printed} face(s) within {radius:F1} yd (data)");
+            // The RENDER mesh the picker keeps (what is on screen), per resident group.
+            int rendered = 0;
+            for (int gi = 0; gi < instance.Model.Groups.Count; gi++)
+            {
+                GroupMesh mesh = instance.Model.Groups[gi];
+                int near = 0;
+                for (int t = 0; t + 2 < mesh.PickIndices.Length; t += 3)
+                {
+                    Vector3 a = Vector3.Transform(mesh.PickPositions[mesh.PickIndices[t]], instance.Transform);
+                    if (Vector3.Distance(a, worldPos) <= radius) near++;
+                }
+                if (near > 0)
+                {
+                    rendered += near;
+                    Console.WriteLine($"[wmo-faces]   render group#{gi} has {near} face(s) near; collisionTris={mesh.CollisionTriangles.Length / 3} cameraOnly={mesh.CameraOnlyTriangles.Length / 3} pick={mesh.PickIndices.Length / 3}");
+                }
+            }
+            Console.WriteLine($"[wmo-faces]   {rendered} render face(s) within {radius:F1} yd across {instance.Model.Groups.Count} group(s)");
+        }
+    }
+
     public void AppendCollision(CollisionWorld world)
     {
         int placed = 0, triangles = 0, skipped = 0;
@@ -3332,6 +3416,11 @@ public sealed class WmoRenderer : IDisposable
                 IndexCount = b.IndexCount,
                 Texture = texture,
                 TwoSided = material?.IsNoCull ?? false,
+                // The window/lamp law (reference glMaterialfv(GL_EMISSION)): UNLIT batches ignore
+                // the scene light, SIDN batches add their authored colour × the night fraction.
+                // Neither used to reach the shader, so every pane and lamp head went dark at night.
+                Unlit = material?.IsUnlit ?? false,
+                Sidn = material is { IsSidn: true } ? material.SidnColor : Vector3.Zero,
                 // WoWee follows MOMT, rather than guessing from BLP contents:
                 // mode 0 is opaque, mode 1 is alpha-key, modes 2+ blend.
                 // Cutting every texture that merely contains alpha is what
@@ -4275,6 +4364,8 @@ public sealed class WmoRenderer : IDisposable
                         }
 
                         _shader.Set("uBatchType", UseVertexColors ? batch.Type : 3);
+                        _shader.Set("uUnlit", batch.Unlit ? 1 : 0);
+                        _shader.Set("uSidn", batch.Sidn * NightFraction);
 
                         if (batch.Texture is not null)
                         {

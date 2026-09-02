@@ -67,6 +67,7 @@ public sealed partial class GameLoop
         RtsRigForward, RtsRigBackward, RtsBoomZoomIn, RtsBoomZoomOut,
         RtsEncounterLab, RtsUndoWaypoint, RtsFocusPrimary,
         CrpgCycleControlNext, CrpgCycleControlPrevious, CrpgTakeControl,
+        RtsLockCameraPrimary,
     }
 
     private static GameBinding RtsSaveGroupBinding(int index) =>
@@ -250,6 +251,7 @@ public sealed partial class GameLoop
         ("RTS Controls", GameBinding.RtsEncounterLab, "Encounter Lab", Key.Unknown),
         ("RTS Controls", GameBinding.RtsUndoWaypoint, "Undo Waypoint", Key.Unknown),
         ("RTS Controls", GameBinding.RtsFocusPrimary, "Focus Camera on Primary Selection", Key.C),
+        ("RTS Controls", GameBinding.RtsLockCameraPrimary, "Lock Camera on Primary Selection", Key.L),
         ("CRPG Controls", GameBinding.CrpgTakeControl, "Take Direct Control", Key.Unknown),
         ("CRPG Controls", GameBinding.CrpgCycleControlNext, "Control Next Character", Key.Unknown),
         ("CRPG Controls", GameBinding.CrpgCycleControlPrevious, "Control Previous Character", Key.Unknown),
@@ -566,6 +568,8 @@ public sealed partial class GameLoop
             new BindingChord(Key.Tab, Control: true), default);
         _bindings[GameBinding.CrpgCycleControlPrevious] = new(
             new BindingChord(Key.Tab, Control: true, Shift: true), default);
+        _bindings[GameBinding.RtsLockCameraPrimary] = new(
+            new BindingChord(Key.L, Control: true), default);
     }
 
     private Key BoundKey(GameBinding binding)

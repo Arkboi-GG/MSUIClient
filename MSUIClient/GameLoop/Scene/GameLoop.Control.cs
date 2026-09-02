@@ -1411,6 +1411,9 @@ public sealed partial class GameLoop
         if (_freeView && (cardNext || cardPrevious) && _freecamSelection.Count > 0)
             CycleRtsPrimary(cardPrevious ? -1 : +1);
 
+        if (BindingPressedEdge(GameBinding.RtsLockCameraPrimary, typing) && _freeView)
+            ToggleCommandViewLock();
+
         if (BindingPressedEdge(GameBinding.RtsFocusPrimary, typing))
         {
             Console.WriteLine($"[RTS] Focus binding fired freeView={_freeView}");
@@ -1452,6 +1455,10 @@ public sealed partial class GameLoop
         _window.FreeSelectMode = _freeView;
         if (!_freeView)
         {
+            _window.LookPitchLocked = false;
+            _cvSmoothedTarget = null;         // next Command View starts on the rig, no glide-in
+            _cvFollowGuid = 0;
+            _cvFollowRigLast = null;
             _window.TakeFreeFlightScroll();   // discard a leftover final-frame wheel tick
             _freecamDragOrigin = null;
             _freecamDragActive = false;
@@ -1481,6 +1488,15 @@ public sealed partial class GameLoop
             _controller.Flying = true;
             // The RTS camera never sinks beneath the map; plain F fly stays unclamped.
             _controller.FlyFloorClearance = 2f;
+            // Command View scheme law (Interface Options → Command View): under the knob
+            // schemes the mouse may not tilt the view, and the knob's angle is re-asserted
+            // every frame — a possess-from-the-sky or a tilt in first person cannot leak in.
+            CommandViewScheme scheme = Settings.Controls.CommandViewScheme;
+            bool pitchLocked = CommandViewLaw.PitchLocked(scheme);
+            _window.LookPitchLocked = pitchLocked;
+            if (pitchLocked)
+                _window.Camera.Pitch = CommandViewLaw.PitchRadians(
+                    Settings.Controls.CommandViewPitchDegrees);
             // The round-15 floating-body camera (walls/ceilings stop the rig) is OFF:
             // detaching under any WMO geometry — indoors, gate arches, city overhangs —
             // hit an invisible "fake ceiling" (owner, 2026-08-11 evening). The rig is a
@@ -1520,6 +1536,11 @@ public sealed partial class GameLoop
         {
             _window.Camera.Zoom(wheel);
         }
+        else if (wheel != 0f && !_commanderMapOpen && CommandViewLocked)
+        {
+            // Locked on the primary: the rig may not leave it, so the wheel works the boom.
+            _window.Camera.Zoom(wheel);
+        }
         else if (wheel != 0f && !_commanderMapOpen && rigFly && _controller is not null)
         {
             // Pulling toward the battlefield also shortens the orbit boom. Previously the
@@ -1536,7 +1557,11 @@ public sealed partial class GameLoop
             float altitude = ground is float floor
                 ? MathF.Max(2f, _controller.Position.Z - floor) : 10f;
             float step = Math.Clamp(altitude * 0.30f, 2.5f, 40f);
-            Vector3 delta = _window.Camera.Forward * (wheel * step);
+            // RTS scheme: the wheel is an elevator (wheel up = descend toward the field), not a
+            // flight along the view — Warcraft's zoom, with the view angle left to the knob.
+            Vector3 delta = CommandViewLaw.WheelIsVertical(Settings.Controls.CommandViewScheme)
+                ? new Vector3(0f, 0f, -wheel * step)
+                : _window.Camera.Forward * (wheel * step);
             if (wheel < 0f)
             {
                 // Also cap cumulative wheel retreat. This closes the horizontal-look and
@@ -1567,7 +1592,8 @@ public sealed partial class GameLoop
             }
         }
 
-        if (!_commanderMapOpen) UpdateFreeCamEdgePan();
+        if (!_commanderMapOpen && Settings.Controls.CommandViewEdgePan && !CommandViewLocked)
+            UpdateFreeCamEdgePan();
         UpdateRtsWaypointProgress();
         UpdateRtsAttackQueue();
 
@@ -1922,6 +1948,210 @@ public sealed partial class GameLoop
     }
 
     /// <summary>
+    /// RTS scheme turning: swing the rig around the ground point it was looking at so a turn
+    /// keeps the battlefield under the camera (<see cref="CommandViewLaw.OrbitRig"/>).
+    /// <paramref name="yawDelta"/> is this frame's whole heading change (keys + mouse), already
+    /// applied to the camera. Goes through FlyMove like every other rig move.
+    /// </summary>
+    private void OrbitCommandViewRig(float yawDelta)
+    {
+        if (_controller is null || yawDelta == 0f || !float.IsFinite(yawDelta)) return;
+        float? ground = _controller.GroundZ;
+        if (ground is null && !_controller.UnderTerrainShell)
+            ground = _terrain?.SampleHeight(_controller.Position.X, _controller.Position.Y);
+        float altitude = ground is float floor ? MathF.Max(0f, _controller.Position.Z - floor) : 10f;
+        Vector3 target = CommandViewLaw.OrbitRig(_controller.Position,
+            _window.Camera.Yaw - yawDelta, yawDelta, altitude, _window.Camera.Pitch);
+        Vector3 delta = target - _controller.Position;
+        if (delta.LengthSquared() > 1e-8f) _controller.FlyMove(delta);
+    }
+
+    // ── Command View camera glide + primary lock ──────────────────────────────────────────────
+    private float _commandViewYawDelta;          // this frame's heading change (keys + mouse)
+    private Vector3? _cvSmoothedTarget;          // where the camera is (eased), null = not started
+    private ulong _cvFollowGuid;                 // unit the lock is riding, 0 = not engaged
+    private Vector3? _cvFollowRigLast;           // rig position the lock last wrote
+
+    /// <summary>The camera is riding the primary selection (setting on, free view up, a live primary).</summary>
+    private bool CommandViewLocked =>
+        _freeView && Settings.Controls.CommandViewLockOnPrimary && RtsPrimaryGuid != 0;
+
+    /// <summary>
+    /// The Command View's camera target for this frame. Unlocked: the rig, eased through
+    /// <see cref="CommandViewLaw.Smooth"/> when smoothing is on (off = the old hard coupling).
+    /// Locked: the rig RIDES the primary — unit position plus a framing offset that every rig move
+    /// (keys, wheel, edge pan, focus) adjusts and every turn rotates, so the mouse orbits the unit
+    /// and the party stays tracked as it walks. Always eased: that is what makes it nice.
+    /// </summary>
+    private Vector3 CommandViewCameraTarget(float dt, float yawDelta)
+    {
+        if (_controller is null) return _window.Camera.Target;
+        Vector3 rig = _controller.Position;
+
+        if (Settings.Controls.CommandViewLockOnPrimary &&
+            _entities.TryGet(RtsPrimaryGuid, out WorldEntity unit) && !unit.IsDead)
+        {
+            if (_cvFollowGuid != unit.Guid)
+            {
+                _cvFollowGuid = unit.Guid;
+                _cvFollowRigLast = rig;
+            }
+            if (_cvFollowRigLast is Vector3 last &&
+                (rig - last).Length() > CommandViewLaw.FollowBreakYards)
+            {
+                // Commander-map fly: they meant to leave. Let go rather than yank them back.
+                Settings.Controls.CommandViewLockOnPrimary = false;
+                _cvFollowGuid = 0;
+                _cvFollowRigLast = null;
+                _cvSmoothedTarget = rig;
+                return rig;
+            }
+
+            // Parked dead on the unit: movement input is zeroed upstream (Program.cs), the wheel
+            // zooms the boom, and every turn (A/D or the mouse) orbits this point.
+            Vector3 anchor = unit.Position;
+            Vector3 eased = CommandViewLaw.Smooth(_cvSmoothedTarget ?? anchor, anchor, dt,
+                CommandViewLaw.FollowTau);
+            _controller.Position = eased;     // the rig itself rides along: wheel/pan/heartbeat agree
+            _cvFollowRigLast = eased;
+            _cvSmoothedTarget = eased;
+            return eased;
+        }
+
+        _cvFollowGuid = 0;
+        _cvFollowRigLast = null;
+        if (!Settings.Controls.CommandViewSmoothing)
+        {
+            _cvSmoothedTarget = rig;
+            return rig;
+        }
+        Vector3 glide = CommandViewLaw.Smooth(_cvSmoothedTarget ?? rig, rig, dt,
+            CommandViewLaw.SmoothingTau);
+        _cvSmoothedTarget = glide;
+        return glide;
+    }
+
+    /// <summary>Ctrl+L / tablet button: lock or release the camera on the primary selection.</summary>
+    private void ToggleCommandViewLock()
+    {
+        if (!_freeView) return;
+        bool on = !Settings.Controls.CommandViewLockOnPrimary;
+        if (on && RtsPrimaryGuid == 0)
+        {
+            ShowUiError("Select a unit to lock the camera on.");
+            return;
+        }
+        Settings.Controls.CommandViewLockOnPrimary = on;
+        if (!on) _cvFollowGuid = 0;
+        CommitSettings();
+    }
+
+    // ── Command View camera tablet: lock row + view-angle knob ────────────────────────────────
+    private const float AngleKnobWidth = 176f;    // logical px, × UI scale
+    private const float AngleKnobHeight = 30f;    // one row
+
+    /// <summary>
+    /// The small "View angle" slider at the bottom right of the free view (Interface Options →
+    /// Command View → "View-angle knob on screen"). Only the knob schemes show it: under
+    /// Classic the mouse owns the pitch. Returns its scaled height so the control guide can
+    /// stack above it, or 0 when it is not drawn.
+    /// </summary>
+    private float DrawCommandViewAngleKnob()
+    {
+        if (!_freeView || !Settings.Controls.CommandViewAngleKnob) return 0f;
+        // The angle row only under the knob schemes; the lock row is always there.
+        bool angleRow = CommandViewLaw.PitchLocked(Settings.Controls.CommandViewScheme);
+
+        float scale = GameplayUiScale();
+        var io = ImGui.GetIO();
+        Vector2 size = new Vector2(AngleKnobWidth, AngleKnobHeight * (angleRow ? 2f : 1f)) * scale;
+        ImGui.SetNextWindowPos(new Vector2(io.DisplaySize.X - 20f, io.DisplaySize.Y - 20f),
+            ImGuiCond.Always, new Vector2(1f, 1f));
+        ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0f);
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoNav |
+            ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoScrollbar |
+            ImGuiWindowFlags.NoBringToFrontOnFocus;
+        if (!ImGui.Begin("##cv-angle-knob", flags)) { ImGui.End(); return size.Y; }
+
+        ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        Vector2 min = ImGui.GetWindowPos();
+        Vector2 max = min + size;
+        // Same carved-stone tablet as the command console: this is furniture, not a tooltip.
+        DrawRtsConsoleBackdrop(dl, min, max, scale);
+
+        float rule = MathF.Max(1f, scale);
+
+        // Row 1: lock on primary. A gilt pip that fills when the camera is riding the unit.
+        {
+            bool locked = CommandViewLocked;
+            ulong primary = RtsPrimaryGuid;
+            string label = locked ? $"Locked: {ResolveUnitName(primary)}"
+                : primary != 0 ? "Lock on primary" : "Lock on primary (select a unit)";
+            label = GameText.EllipsizeToBox("GameFontNormalSmall", label, AngleKnobWidth - 40f, AngleKnobHeight, scale);
+            Vector2 rowMin = min;
+            Vector2 rowMax = new Vector2(max.X, min.Y + AngleKnobHeight * scale);
+            ImGui.SetCursorScreenPos(rowMin);
+            ImGui.InvisibleButton("##cv-lock-row", rowMax - rowMin);
+            if (ImGui.IsItemClicked()) ToggleCommandViewLock();
+            bool hot = ImGui.IsItemHovered();
+            var pip = new Vector2(min.X + 16f * scale, min.Y + AngleKnobHeight * 0.5f * scale);
+            dl.AddCircleFilled(pip, 6f * scale,
+                locked ? PainterlyGoldLit : hot ? PainterlyGoldShade : PainterlyFrameInner);
+            dl.AddCircle(pip, 6f * scale, locked ? PainterlyFrameRule : PainterlyFrameOuter, 0, rule);
+            GameText.Draw(dl, "GameFontNormalSmall", label,
+                new Vector2(min.X + 28f * scale, min.Y + 8f * scale), scale,
+                locked ? PainterlyGoldLit : null);
+            if (hot) HoverTip(locked
+                ? "Release the camera (Ctrl+L)."
+                : "Park the camera on the primary selection: it tracks the unit as it\n" +
+                  "moves, A/D and the mouse orbit around it, the wheel zooms. Movement " +
+                  "keys are parked until you release (Ctrl+L).");
+        }
+        if (!angleRow) { ImGui.End(); return size.Y; }
+
+        float rowTop = min.Y + AngleKnobHeight * scale;
+        dl.AddLine(new Vector2(min.X + 6f * scale, rowTop), new Vector2(max.X - 6f * scale, rowTop),
+            PainterlyFrameOuter, rule);
+        GameText.Draw(dl, "GameFontNormalSmall", "View angle", new Vector2(min.X + 9f * scale, rowTop + 8f * scale), scale);
+
+        float trackX0 = min.X + 78f * scale;
+        float trackX1 = max.X - 42f * scale;
+        float trackY = rowTop + AngleKnobHeight * 0.5f * scale;
+        dl.AddRectFilled(new Vector2(trackX0, trackY - 2f * scale), new Vector2(trackX1, trackY + 2f * scale),
+            PainterlyFrameOuter);
+        dl.AddLine(new Vector2(trackX0, trackY + 2f * scale), new Vector2(trackX1, trackY + 2f * scale),
+            PainterlyGoldShade, rule);
+
+        // The track is the hit area: press or drag anywhere along it to set the angle. The
+        // ImGui window under the pointer already keeps the press from becoming a world click.
+        ImGui.SetCursorScreenPos(new Vector2(trackX0 - 8f * scale, rowTop));
+        ImGui.InvisibleButton("##cv-angle-track", new Vector2(trackX1 - trackX0 + 16f * scale, AngleKnobHeight * scale));
+        if (ImGui.IsItemActive())
+        {
+            float u = Math.Clamp((io.MousePos.X - trackX0) / MathF.Max(1f, trackX1 - trackX0), 0f, 1f);
+            Settings.Controls.CommandViewPitchDegrees = CommandViewLaw.MinPitchDegrees +
+                u * (CommandViewLaw.MaxPitchDegrees - CommandViewLaw.MinPitchDegrees);
+        }
+        if (ImGui.IsItemDeactivated()) CommitSettings();
+
+        float degrees = CommandViewLaw.ClampPitchDegrees(Settings.Controls.CommandViewPitchDegrees);
+        float t = (degrees - CommandViewLaw.MinPitchDegrees) /
+            (CommandViewLaw.MaxPitchDegrees - CommandViewLaw.MinPitchDegrees);
+        var handle = new Vector2(trackX0 + t * (trackX1 - trackX0), trackY);
+        dl.AddCircleFilled(handle, 6f * scale, ImGui.IsItemHovered() || ImGui.IsItemActive()
+            ? PainterlyGoldLit : PainterlyFrameRule);
+        dl.AddCircle(handle, 6f * scale, PainterlyFrameOuter, 0, rule);
+
+        GameText.DrawRightAligned(dl, "GameFontNormalSmall", $"{degrees:0}°",
+            new Vector2(max.X - 9f * scale, trackY - GameText.EmPixels("GameFontNormalSmall", scale) * 0.5f),
+            scale);
+        ImGui.End();
+        return size.Y;
+    }
+
+    /// <summary>
     /// Own/party characters plus genuine same-faction bots advertised by the
     /// server. The force roster is an affordance only; the server revalidates
     /// possession and every explicit order.
@@ -2185,6 +2415,10 @@ public sealed partial class GameLoop
             else if (svcKind == WorldCursorKind.Taxi) RequestTaxiMap(picked);
             else if (svcKind == WorldCursorKind.Buy && (svcNpc.NpcFlags & NpcBanker) != 0)
                 RequestBank(picked);
+            // Possessed: the driven bot walks up to the auctioneer and the server's
+            // GetSuiActor-threaded auction handlers act on ITS purse and bags.
+            else if (svcKind == WorldCursorKind.Buy && (svcNpc.NpcFlags & NpcAuctioneer) != 0)
+                RequestAuction(picked);
             else RequestGossip(picked);
             return;
         }
@@ -2490,12 +2724,16 @@ public sealed partial class GameLoop
 
         DrawRtsControlGroups();
         DrawRtsCommandShelf();
+        // The view-angle knob is its own furniture (Interface Options -> Command View), NOT part
+        // of the help panel: it must survive the guide's Hide/Disable. The guide stacks above it.
+        float knobHeight = DrawCommandViewAngleKnob();
 
         // Only the help panel is controlled by this
         if (!_enableControlGuide)
             return;
 
         var io = ImGui.GetIO();
+        float guideBottom = io.DisplaySize.Y - 20 - (knobHeight > 0f ? knobHeight + 8f : 0f);
 
         // Collapsed state
         if (!_showControlGuide)
@@ -2503,7 +2741,7 @@ public sealed partial class GameLoop
             ImGui.SetNextWindowPos(
                 new Vector2(
                     io.DisplaySize.X - 20,
-                    io.DisplaySize.Y - 20),
+                    guideBottom),
                 ImGuiCond.Always,
                 new Vector2(1f, 1f));
 
@@ -2525,7 +2763,7 @@ public sealed partial class GameLoop
         ImGui.SetNextWindowPos(
             new Vector2(
                 io.DisplaySize.X - 20,
-                io.DisplaySize.Y - 20),
+                guideBottom),
             ImGuiCond.Always,
             new Vector2(1f, 1f));
 
@@ -2602,6 +2840,29 @@ public sealed partial class GameLoop
             ImGui.Text($"Command View — {who}");
 
             ImGui.Separator();
+
+            // Movement lines follow the scheme picked in Interface Options → Command View.
+            CommandViewScheme guideScheme = Settings.Controls.CommandViewScheme;
+            bool guideSwap = CommandViewLaw.TurnKeysStrafe(guideScheme);
+            ImGui.Text(
+                $"{BindingHint(GameBinding.MoveForward)}/{BindingHint(GameBinding.MoveBackward)}: " +
+                (CommandViewLaw.OrbitsFocus(guideScheme) ? "Pan Forward/Back" : "Fly Forward/Back"));
+            ImGui.Text(guideSwap
+                ? $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Sidestep"
+                : $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Turn   " +
+                  $"{BindingHint(GameBinding.StrafeLeft)}/{BindingHint(GameBinding.StrafeRight)}: Sidestep");
+            ImGui.Text(CommandViewLaw.PitchLocked(guideScheme)
+                ? (CommandViewLaw.OrbitsFocus(guideScheme)
+                    ? "Right-drag: Orbit   PageUp/PageDown: View Angle"
+                    : "Right-drag: Turn   PageUp/PageDown: View Angle")
+                : "Right-drag: Look Around");
+            ImGui.Text(CommandViewLaw.WheelIsVertical(guideScheme)
+                ? "Wheel: Raise/Lower Camera"
+                : "Wheel: Fly Toward/Away");
+            ImGui.Text(CommandViewLocked
+                ? $"{BindingHint(GameBinding.RtsLockCameraPrimary)}: Release Camera   " +
+                  $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Orbit"
+                : $"{BindingHint(GameBinding.RtsLockCameraPrimary)}: Lock Camera on Primary");
 
             ImGui.Text(
                 $"{BindingHint(GameBinding.RtsOrderMove)}: Move/Attack");

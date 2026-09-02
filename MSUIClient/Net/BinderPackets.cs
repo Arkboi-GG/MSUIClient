@@ -4,7 +4,13 @@ namespace MSUIClient.Net;
 
 public readonly record struct BinderConfirmPacket(ulong BinderGuid);
 public readonly record struct PlayerBoundPacket(ulong BinderGuid, uint AreaId);
-public readonly record struct BindPointPacket(Vector3 Position, uint MapId);
+/// <summary>
+/// SMSG_BINDPOINTUPDATE: x, y, z, mapId, areaId (vmangos BindpointUpdate::AppendBodyTo,
+/// Packets/Misc.cpp). The trailing AreaTable id is what the "$z" home token names. It used
+/// to be missing here, so RequireConsumed threw on every login ("4 trailing byte(s)" in
+/// msui-console.log) and the bind point was never stored. Reported 2026-09-01.
+/// </summary>
+public readonly record struct BindPointPacket(Vector3 Position, uint MapId, uint AreaId);
 
 /// <summary>Exact build-5875 binder packet bodies.</summary>
 public static class BinderPackets
@@ -29,7 +35,8 @@ public static class BinderPackets
     {
         var reader = new PacketReader(body.ToArray());
         var packet = new BindPointPacket(
-            new Vector3(reader.ReadF32(), reader.ReadF32(), reader.ReadF32()), reader.ReadU32());
+            new Vector3(reader.ReadF32(), reader.ReadF32(), reader.ReadF32()),
+            reader.ReadU32(), reader.ReadU32());
         RequireConsumed(reader, nameof(BindPointPacket));
         return packet;
     }

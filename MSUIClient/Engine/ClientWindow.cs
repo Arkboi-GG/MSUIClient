@@ -355,6 +355,14 @@ public sealed class ClientWindow : IDisposable
     /// </summary>
     public bool FreeSelectMode { get; set; }
 
+    /// <summary>Command View schemes that make the view angle a knob: a right-drag turns but
+    /// never tilts, so the accumulated mouse pitch is dropped instead of applied.</summary>
+    public bool LookPitchLocked { get; set; }
+
+    /// <summary>The mouse-look yaw (radians) applied to the camera this frame — the RTS scheme
+    /// swings the rig around its ground focus by this much on top of the keyboard turn.</summary>
+    public float AppliedLookYaw { get; private set; }
+
     /// <summary>
     /// An armed in-world editor owns left press/drag/release gestures. This is
     /// separate from <see cref="FreeSelectMode"/> because editing a waypoint in
@@ -1061,7 +1069,8 @@ public sealed class ClientWindow : IDisposable
 
         PollMouse();
 
-        Camera.Rotate(_pendingYaw, _pendingPitch);
+        AppliedLookYaw = _pendingYaw;
+        Camera.Rotate(_pendingYaw, LookPitchLocked ? 0f : _pendingPitch);
         Camera.RotateView(_pendingOrbitYaw);
         // In the free view the wheel belongs to the FLY RIG (altitude), not the orbit boom. Normal
         // camera zoom is dispatched later through the rebindable CAMERAZOOMIN/OUT commands.

@@ -69,6 +69,30 @@ public sealed partial class GameLoop
             bool sent = send(net); outcome = sent ? "SENT" : "SEND_FAILED";
             detail = "giver=item;rangeGate=bypassed";
         }
+        else if (GuidInfo.IsPlayer(guid))
+        {
+            // A SHARED quest: the details packet's giver is the sharing party member (vmangos
+            // QuestHandler.cpp:450), and the accept goes back addressed to that player. This
+            // branch used to fall through to "descriptorMissing", so a shared quest could be
+            // read but never accepted. The leash is QUEST_SHARE_DISTANCE, not the NPC gate.
+            if (TryGetInteractionBodyPose(out WorldBodyPose body) &&
+                _entities.TryGet(guid, out WorldEntity sharer))
+            {
+                float distance = Vector3.Distance(body.Position, sharer.Position);
+                if (distance <= InventoryUiLaw.QuestShareDistance)
+                {
+                    bool sent = send(net); outcome = sent ? "SENT" : "SEND_FAILED";
+                    detail = $"giver=player;distance={distance:R}";
+                }
+                else { outcome = "REFUSED_RANGE"; detail = $"giver=player;distance={distance:R};limit={InventoryUiLaw.QuestShareDistance:R}"; }
+            }
+            else
+            {
+                // The sharer may be out of view range; the server enforces the distance anyway.
+                bool sent = send(net); outcome = sent ? "SENT" : "SEND_FAILED";
+                detail = "giver=player;unstreamed";
+            }
+        }
         else if (TryGetInteractionBodyPose(out WorldBodyPose sessionBody) &&
             _entities.TryGet(guid, out WorldEntity npc) && npc.IsCreature && !npc.IsDead &&
             (npc.NpcFlags & NpcQuestGiver) != 0)
@@ -95,6 +119,9 @@ public sealed partial class GameLoop
         uint quest = _questDetails.QuestId;
         SnapshotQuestEconomy();
         bool sent = QuestGate(giver, "accept", n => n.QuestgiverAccept(giver, quest));
+        // An accepted share is answered by the accept packet itself; the close below must
+        // not also send DECLINE back to the sharer.
+        if (sent) _questShareAnswered = true;
         // Build 5875 closes on the click itself; it does not wait for an accept response.
         CloseQuestNpcFrame(playSound: true);
         // PLAN_20 P2/P3: a quest accepted past the twenty update-field slots has no
@@ -343,6 +370,15 @@ public sealed partial class GameLoop
     private void ApplyQuestDetails(byte[] body)
     {
         QuestDetails parsed = QuestPackets.ParseDetails(body);
+        // A share landing on an already-open quest window is refused as BUSY and the current
+        // panel stays; the reference never replaces a window the player is reading.
+        if (GuidInfo.IsPlayer(parsed.GiverGuid) && QuestNpcPanelNow() != QuestNpcPanel.None)
+        {
+            _net?.QuestPushResult(parsed.GiverGuid, QuestPushBusy);
+            EmitInterface("quest", "share-answer", "BUSY", parsed.GiverGuid, $"quest={parsed.QuestId}");
+            return;
+        }
+        _questShareAnswered = false;
         bool opening = BeginQuestNpcPanel(parsed.GiverGuid);
         _questDetails = parsed; _questList = null; _questOffer = null; _questRequestItems = null;
         _questNpcScroll = 0; _questRewardChoice = -1;
@@ -461,9 +497,21 @@ public sealed partial class GameLoop
     private ulong QuestGiverGuid() => _questList?.GiverGuid ?? _questDetails?.GiverGuid ??
         _questRequestItems?.GiverGuid ?? _questOffer?.GiverGuid ?? 0;
 
+    /// <summary>Set once a shared quest's details have been answered (accepted or declined).</summary>
+    private bool _questShareAnswered;
+
     private void CloseQuestNpcFrame(bool playSound)
     {
         bool wasOpen = QuestNpcPanelNow() != QuestNpcPanel.None;
+        // A shared quest that closes unanswered — Decline, Escape, walking away — tells the
+        // sharer so: MSG_QUEST_PUSH_RESULT{sharer, DECLINE_QUEST}. Without it the sharer sat on
+        // "Sharing quest with X…" forever and the server's share latch was never released.
+        if (_questDetails is { } details && GuidInfo.IsPlayer(details.GiverGuid) && !_questShareAnswered)
+        {
+            _net?.QuestPushResult(details.GiverGuid, QuestPushDeclined);
+            EmitInterface("quest", "share-answer", "DECLINED", details.GiverGuid, $"quest={details.QuestId}");
+        }
+        _questShareAnswered = false;
         _questList = null; _questDetails = null; _questRequestItems = null; _questOffer = null;
         _questNpcScroll = 0; _questRewardChoice = -1;
         _questNpcContentHeight = QuestFrameUiLaw.ScrollHeight;
@@ -522,12 +570,18 @@ public sealed partial class GameLoop
         else if (!TryGetInteractionBodyPose(out WorldBodyPose sessionBody))
             return false;
         else if (!_entities.TryGet(giver, out WorldEntity npc))
-            reason = "giver-despawned";
+            reason = GuidInfo.IsPlayer(giver) ? "" : "giver-despawned";   // a sharer may be out of view range
         else
         {
             float distanceSquared = Vector3.DistanceSquared(sessionBody.Position, npc.Position);
-            if (!NpcSessionUiLaw.InRange(distanceSquared))
-                reason = $"rangeSquared={distanceSquared:R};limitSquared={NpcSessionUiLaw.ServiceRangeSquared:R}";
+            // A PLAYER giver (a shared quest) leashes at QUEST_SHARE_DISTANCE, not the 5.5 yd NPC
+            // gate — a party member ten yards away had the share window torn down the frame
+            // after it opened.
+            float limitSquared = GuidInfo.IsPlayer(giver)
+                ? InventoryUiLaw.QuestShareDistance * InventoryUiLaw.QuestShareDistance
+                : NpcSessionUiLaw.ServiceRangeSquared;
+            if (distanceSquared > limitSquared)
+                reason = $"rangeSquared={distanceSquared:R};limitSquared={limitSquared:R}";
         }
         if (reason.Length == 0) return false;
         EmitInterface("quest", "lifecycle-close", "CLOSED", giver, reason);

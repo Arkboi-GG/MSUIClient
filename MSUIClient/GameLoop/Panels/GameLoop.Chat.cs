@@ -1326,7 +1326,9 @@ public sealed partial class GameLoop
             (ChatFrameLaw.MsgType type, string? target, string message) = ParseChatCommand(raw);
             // The server echoes our own line back as SMSG_MESSAGECHAT, so there is
             // no local echo here - it appears when the round-trip lands.
-            if (message.Length > 0) _net?.SendChat((uint)type, target, message);
+            // A bare /afk or /dnd is a TOGGLE with an empty message; everything else needs text.
+            if (message.Length > 0 || type is ChatFrameLaw.MsgType.Afk or ChatFrameLaw.MsgType.Dnd)
+                _net?.SendChat((uint)type, target, message);
         }
     }
 
@@ -1358,7 +1360,43 @@ public sealed partial class GameLoop
             }
             return true;
         }
-        if (command is "/raidinfo" or "/raid" or "/saved")
+        // The shipped 1.12 verbs that had no arm at all (2026-09-01): each routes to the same
+        // action its FrameXML slash handler runs.
+        switch (command)
+        {
+            case "/logout" or "/camp":
+                RequestLogout(quitting: false); return true;
+            case "/quit" or "/exit":
+                RequestLogout(quitting: true); return true;
+            case "/inspect":
+                if (_selectionGuid != 0) RequestInspect(_selectionGuid);
+                return true;
+            case "/trade":
+                if (_selectionGuid != 0 && _selectionGuid != ControlledGuid) RequestTradeWith(_selectionGuid);
+                return true;
+            case "/duel":
+                if (_selectionGuid != 0) StartDuelWith(_selectionGuid);
+                return true;
+            case "/friend" or "/addfriend":
+                if (args.Trim().Length > 0) _net?.AddFriend(args.Trim());
+                else { _socialOpen = true; _socialPage = 0; }
+                return true;
+            case "/ignore" or "/addignore":
+                if (args.Trim().Length > 0) _net?.AddIgnore(args.Trim());
+                return true;
+            case "/who":
+                _socialOpen = true; _socialPage = 1;
+                SendWhoFilter(args.Trim());
+                return true;
+            case "/readycheck" or "/rc":
+                _net?.StartReadyCheck(); return true;
+            case "/convertraid" or "/raidconvert":
+                _net?.GroupRaidConvert(); return true;
+        }
+        // "/raid <message>" is RAID CHAT (SLASH_RAID); only the bare verb opens the Raid Info
+        // panel. Matching "/raid" regardless of its arguments made raid chat unreachable
+        // except through "/ra". Reported 2026-09-01.
+        if (command is "/raidinfo" or "/saved" || command == "/raid" && string.IsNullOrWhiteSpace(args))
         {
             // Raid Info (spec P1): the saved-instance list + reset timers. Toggle the
             // panel; opening it pulls a fresh SMSG_RAID_INSTANCE_INFO.
@@ -1702,8 +1740,13 @@ public sealed partial class GameLoop
             case "/o" or "/officer": return (ChatFrameLaw.MsgType.Officer, null, rest);
             case "/p" or "/party": return (ChatFrameLaw.MsgType.Party, null, rest);
             case "/raid" or "/ra": return (ChatFrameLaw.MsgType.Raid, null, rest);
-            case "/e" or "/em" or "/emote":
+            // SLASH_RAID_WARNING / SLASH_EMOTE4 / SLASH_AFK / SLASH_DND — shipped 1.12 verbs that
+            // had no send arm (the inbound AFK/DND lines rendered, but nothing could set them).
+            case "/rw" or "/raidwarning": return (ChatFrameLaw.MsgType.RaidWarning, null, rest);
+            case "/e" or "/em" or "/emote" or "/me":
                 return (ChatFrameLaw.MsgType.Emote, null, rest);
+            case "/afk" or "/away": return (ChatFrameLaw.MsgType.Afk, null, rest);
+            case "/dnd" or "/busy": return (ChatFrameLaw.MsgType.Dnd, null, rest);
             case "/bg" or "/battleground":
                 return (ChatFrameLaw.MsgType.Battleground, null, rest);
             case "/w" or "/whisper" or "/tell" or "/t":

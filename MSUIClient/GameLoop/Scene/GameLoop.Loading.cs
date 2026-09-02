@@ -40,6 +40,12 @@ public sealed partial class GameLoop
     private LoadingScreen? _loadScreen;
     private int? _loadScreenMapId;
     private bool _worldLoading;
+    /// <summary>
+    /// A load cycle has completed at least once this session. The dev runner's ready gate needs
+    /// it: between InWorld and the first BeginWorldLoad, _worldLoading is still false, and a
+    /// bootstrap teleport fired in that gap used to land on a load that had not begun.
+    /// </summary>
+    private bool _worldLoadedOnce;
     private int? _worldLoadingMapId;
     private float _loadProgress;
     private float _loadCurtainAlpha = 1f;
@@ -190,7 +196,14 @@ public sealed partial class GameLoop
         // PumpNet can receive another enter-world notification while this load
         // is already active. Re-entering would dispose the curtain and reset all
         // phase state mid-drain, so the active map owns exactly one load cycle.
-        if (_worldLoading && _worldLoadingMapId == _config.Start.Map) return;
+        // ...EXCEPT a relocation. A same-map teleport that lands while this load is still
+        // streaming tears the resident scene down, nulls the resident centre and re-enters
+        // here with a NEW Start (Net.cs MSG_MOVE_TELEPORT_ACK). Refusing that re-entry kept
+        // the old centre streaming while the reveal gate tested the new spawn, so the curtain
+        // stayed up forever ("BLOCKED - no loaded terrain or collision support"). A duplicate
+        // enter-world notification still has its resident centre set and still returns.
+        // Reported 2026-09-01.
+        if (_worldLoading && _worldLoadingMapId == _config.Start.Map && _residentCentre is not null) return;
 
         _worldLoadingMapId = _config.Start.Map;
         _loadCentre = _residentCentre
@@ -826,6 +839,7 @@ public sealed partial class GameLoop
                 {
                     ExitLoadTimelinePhase("condition-met");
                     _worldLoading = false;
+                    _worldLoadedOnce = true;
                     _worldLoadingMapId = null;
                     _loadPhase = WorldLoadPhase.Done;
                     _loadScreen?.Dispose();

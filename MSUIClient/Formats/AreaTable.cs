@@ -100,6 +100,15 @@ public sealed class AreaTableCatalog
     public uint? ExplorationFlag(uint areaId) =>
         _rows.TryGetValue(areaId, out var row) ? row.ExploreFlag : null;
 
+    /// <summary>The first row (file order) carrying every bit of <paramref name="flagBits"/> — e.g. the 0x200 city-word sentinel.</summary>
+    public uint? FirstIdWithFlag(uint flagBits)
+    {
+        uint? best = null;
+        foreach ((uint id, var row) in _rows)
+            if ((row.Flags & flagBits) == flagBits && (best is null || id < best)) best = id;
+        return best;
+    }
+
     public uint? Flags(uint areaId) =>
         _rows.TryGetValue(areaId, out var row) ? row.Flags : null;
 

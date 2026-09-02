@@ -336,6 +336,11 @@ public sealed class NetworkClient : IDisposable
         IReadOnlyList<PartyQuestSubject> subjects) =>
         InWorld(s => s.SuiPartyQuest(action, questId, npcGuid, subjects));
     public bool PushQuestToParty(uint questId) => InWorld(s => s.PushQuestToParty(questId));
+    public bool QuestPushResult(ulong sharer, byte message) => InWorld(s => s.QuestPushResult(sharer, message));
+    public bool SummonResponse(ulong summoner) => InWorld(s => s.SummonResponse(summoner));
+    public bool QuestConfirmAccept(uint questId) => InWorld(s => s.QuestConfirmAccept(questId));
+    public bool SelfRes() => InWorld(s => s.SelfRes());
+    public bool LootMasterGive(ulong lootGuid, byte slot, ulong target) => InWorld(s => s.LootMasterGive(lootGuid, slot, target));
     public bool SuiPortalPrepare(uint requestId, ulong portalGuid, ushort requestFlags = 0) =>
         InWorld(s => s.SuiPortalPrepare(requestId, portalGuid, requestFlags));
     public bool SuiPortalPrepare(PortalPreparePacket packet) =>
@@ -582,10 +587,11 @@ public sealed class NetworkClient : IDisposable
     public bool ItemTextQuery(uint textId, uint mailId) => InWorld(s => s.ItemTextQuery(textId, mailId));
     public bool QueryNextMailTime() => InWorld(s => s.QueryNextMailTime());
     public bool AuctionHello(ulong guid) => InWorld(s => s.AuctionHello(guid));
-    public bool AuctionBrowse(ulong guid, uint page, string search, uint itemClass = uint.MaxValue) =>
-        InWorld(s => s.AuctionBrowse(guid, page, search, itemClass));
-    public bool AuctionOwnerList(ulong guid, uint page) => InWorld(s => s.AuctionOwnerList(guid, page));
-    public bool AuctionBidderList(ulong guid, uint page) => InWorld(s => s.AuctionBidderList(guid, page));
+    public bool AuctionBrowse(ulong guid, AuctionBrowseQuery query) =>
+        InWorld(s => s.AuctionBrowse(guid, query));
+    public bool AuctionOwnerList(ulong guid, uint listFrom) => InWorld(s => s.AuctionOwnerList(guid, listFrom));
+    public bool AuctionBidderList(ulong guid, uint listFrom, IReadOnlyList<uint>? refreshIds = null) =>
+        InWorld(s => s.AuctionBidderList(guid, listFrom, refreshIds));
     public bool AuctionBid(ulong guid, uint id, uint price) => InWorld(s => s.AuctionBid(guid, id, price));
     public bool AuctionCancel(ulong guid, uint id) => InWorld(s => s.AuctionCancel(guid, id));
     public bool AuctionSell(ulong guid, ulong item, uint bid, uint buyout, uint duration) => InWorld(s => s.AuctionSell(guid, item, bid, buyout, duration));

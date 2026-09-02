@@ -2184,6 +2184,36 @@ public sealed partial class GameLoop
                     "hello when picked, yes on an order, charge or open fire on an attack,\n" +
                     "no on a refusal — and a companion clicked one time too many gets\n" +
                     "properly annoyed.");
+            }
+            EndBox();
+
+            BeginBox("command-view", "Command View");
+            {
+                CommandViewSchemeRow(s.Controls);
+                Slider("cv-pitch", "View angle", () => s.Controls.CommandViewPitchDegrees,
+                    v => s.Controls.CommandViewPitchDegrees = CommandViewLaw.ClampPitchDegrees(v),
+                    CommandViewLaw.MinPitchDegrees, CommandViewLaw.MaxPitchDegrees, "{0:F0} deg",
+                    "How steeply the Command View looks down under the Strafe and RTS\n" +
+                    "schemes (the mouse never tilts it there). The on-screen knob and\n" +
+                    "PageUp / PageDown turn the same setting.");
+                Check("View-angle knob on screen", () => s.Controls.CommandViewAngleKnob,
+                    v => s.Controls.CommandViewAngleKnob = v,
+                    "A small View angle slider at the bottom right of the Command View.\n" +
+                    "Hidden under the Classic scheme, where the mouse owns the angle.");
+                Check("Pan at the screen edges", () => s.Controls.CommandViewEdgePan,
+                    v => s.Controls.CommandViewEdgePan = v,
+                    "Rest the pointer on a screen edge to slide the camera that way,\n" +
+                    "RTS style.");
+                Check("Smooth camera motion", () => s.Controls.CommandViewSmoothing,
+                    v => s.Controls.CommandViewSmoothing = v,
+                    "A little glide on the Command View camera: it settles after the\n" +
+                    "rig instead of stopping dead. Untick for the direct camera.");
+                Check("Lock camera on the primary selection", () => s.Controls.CommandViewLockOnPrimary,
+                    v => s.Controls.CommandViewLockOnPrimary = v,
+                    "The camera parks on the primary and tracks it as it moves. A/D and\n" +
+                    "the mouse orbit around it, the wheel zooms, movement keys are parked" +
+                    " until you release. Also the tablet\n" +
+                    "at the bottom right of the Command View, and Ctrl+L.");
                 Check("Cut buildings away in the free view", () => s.Controls.FreeViewCutaway,
                     v => s.Controls.FreeViewCutaway = v,
                     "Divinity-style: while you command a toon that is indoors, its\n" +
@@ -2753,6 +2783,24 @@ public sealed partial class GameLoop
         Tip(CameraFollowLaw.Description(order[selected]));
         if (!changed) return false;
         controls.CameraFollowStyle = order[selected];
+        ApplySettings(Settings);
+        return true;
+    }
+
+    /// <summary>Interface Options → Command View → control scheme (see <see cref="CommandViewLaw"/>).</summary>
+    private bool CommandViewSchemeRow(GameSettings.ControlSettings controls)
+    {
+        IReadOnlyList<CommandViewScheme> order = CommandViewLaw.DisplayOrder;
+        CommandViewScheme current = CommandViewLaw.Normalize(controls.CommandViewScheme);
+        int selected = 0;
+        for (int i = 0; i < order.Count; i++)
+            if (order[i] == current) { selected = i; break; }
+        string[] labels = order.Select(CommandViewLaw.Label).ToArray();
+        bool changed = ComboWithCaption(
+            "command-view-scheme", "Control scheme", ref selected, labels);
+        Tip(CommandViewLaw.Description(order[selected]));
+        if (!changed) return false;
+        controls.CommandViewScheme = order[selected];
         ApplySettings(Settings);
         return true;
     }

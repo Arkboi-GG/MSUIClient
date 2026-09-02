@@ -53,8 +53,12 @@ public sealed partial class GameLoop
 
     private void DrawWorldMapFrame()
     {
-        if (!_worldMapOpen || _gameplayArt is null || _net is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+        if (!_worldMapOpen || _gameplayArt is null || _net is null) return;
+        // The exploration mask is the SESSION character's private field set (a possessed
+        // bot's PLAYER_EXPLORED_ZONES never streams to the commander), so the overlays stay
+        // yours whoever you are driving. It is not a gate on the frame: in the Command View
+        // the own body can be unstreamed far away, and the map must still open.
+        bool haveSessionPlayer = _entities.TryGet(_net.PlayerGuid, out WorldEntity sessionPlayer);
         Vector2 display = ImGui.GetIO().DisplaySize;
         WorldMapUiLaw.FrameLayout frame = WorldMapUiLaw.Frame(display);
         if (!BeginVanillaWindow("##world-map", frame.LogicalOrigin, frame.LogicalSize,
@@ -76,9 +80,17 @@ public sealed partial class GameLoop
         EnsureWorldMapAreas();
         EnsureAreaTableForMinimap();
         EnsureWorldMapSupportingData();
-        uint playerMap = _net.Player?.Map ?? 0;
+        // LIVE map, not the roster row. _net.Player is the SMSG_CHAR_ENUM snapshot, written
+        // once at character pick and never again; the map you are actually on is adopted
+        // into _config.Start.Map on LOGIN_VERIFY_WORLD / NEW_WORLD and by every local travel
+        // path (portals, instances, creator). Reading the snapshot here meant the marker
+        // compared the displayed zone's map against the LOGIN map, so the first boat, portal
+        // or instance killed the player arrow for the rest of the session. Reported 2026-09-01.
+        uint playerMap = checked((uint)Math.Max(0, _config.Start.Map));
         uint currentZoneId = _areas?.ParentZoneId(_minimapAreaId) ?? 0;
-        if (currentZoneId == 0) currentZoneId = _net.Player?.Zone ?? 0;
+        // The roster zone is only meaningful while still on the roster map.
+        if (currentZoneId == 0 && _net.Player is { } roster && roster.Map == playerMap)
+            currentZoneId = roster.Zone;
         uint viewedAreaId = _worldMapSelectedAreaId != 0
             ? _worldMapSelectedAreaId : currentZoneId;
         WorldMapAreaInfo area = default;
@@ -113,8 +125,8 @@ public sealed partial class GameLoop
         }
         dl.PopClipRect();
 
-        if (haveArea)
-            DrawWorldMapExploredOverlays(dl, area, player.Fields, mapMin, mapSize, s);
+        if (haveArea && haveSessionPlayer)
+            DrawWorldMapExploredOverlays(dl, area, sessionPlayer.Fields, mapMin, mapSize, s);
 
         ImGui.SetCursorScreenPos(mapMin);
         ImGui.InvisibleButton("##world-map-detail", mapSize);
@@ -156,15 +168,20 @@ public sealed partial class GameLoop
             CloseWorldMapDropdowns();
         }
 
-        Vector3 playerPosition = player.Position;
-        if (haveMapArea && !string.IsNullOrWhiteSpace(area.Directory) && area.MapId == playerMap)
+        // The marker is the body being DRIVEN, read the same way the minimap reads it: the
+        // controller while it owns the body (client-authoritative movement), the entity
+        // stream otherwise (free view, possessed bot pose while rooted, etc). Possessing a
+        // bot, that is the bot. The object-store entity for the own body stops updating the
+        // moment control moves elsewhere, which froze the arrow at the possession spot.
+        if (haveMapArea && !string.IsNullOrWhiteSpace(area.Directory) && area.MapId == playerMap &&
+            TryGetWorldBodyPose(ControlledGuid, out WorldBodyPose drivenBody))
         {
-            float fx = (playerPosition.Y - area.Left) / (area.Right - area.Left);
-            float fy = (playerPosition.X - area.Top) / (area.Bottom - area.Top);
+            float fx = (drivenBody.Position.Y - area.Left) / (area.Right - area.Left);
+            float fy = (drivenBody.Position.X - area.Top) / (area.Bottom - area.Top);
             if (fx is >= 0f and <= 1f && fy is >= 0f and <= 1f)
             {
                 Vector2 marker = WorldMapUiLaw.MapPoint(mapMin, mapSize, fx, fy);
-                DrawMinimapPlayerArrow(dl, player.Orientation, marker, s);
+                DrawMinimapPlayerArrow(dl, drivenBody.Orientation, marker, s);
             }
         }
         DrawWorldMapQuestHelperPins(dl, haveMapArea, area, mapMin, mapSize, s);

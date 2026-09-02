@@ -2484,6 +2484,18 @@ public sealed class DoodadRenderer : IDisposable
         return solid;
     }
 
+    /// <summary>Dev probe: doodad placements whose origin lies within <paramref name="radius"/> of a world point.</summary>
+    public void DumpInstancesNear(Vector3 worldPos, float radius)
+    {
+        foreach (var (model, instances) in _byModel)
+            foreach (var instance in instances)
+            {
+                Vector3 origin = instance.Transform.Translation;
+                if (Vector3.Distance(origin, worldPos) > radius) continue;
+                Console.WriteLine($"[doodads-near] {instance.Path} origin=({origin.X:F1},{origin.Y:F1},{origin.Z:F2}) collisionTris={model.CollisionTriangles.Length / 3} live={instance.LiveCollision}");
+            }
+    }
+
     public void AppendCollision(CollisionWorld world)
     {
         int solid = 0, triangles = 0;

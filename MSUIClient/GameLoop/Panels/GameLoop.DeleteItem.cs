@@ -96,6 +96,9 @@ public sealed partial class GameLoop
                 DuelFrameUiLaw.RequestedText(first.DataToken ?? ""),
             DuelFrameUiLaw.OutOfBoundsPopupType =>
                 DuelFrameUiLaw.OutOfBoundsText(first.TimeLeft),
+            ConfirmPopupUiLaw.SummonPopupType => SummonPromptText(),
+            ConfirmPopupUiLaw.QuestAcceptPopupType => QuestConfirmPromptText(),
+            ConfirmPopupUiLaw.ReadyCheckPopupType => ReadyCheckPromptText(),
             FriendsFrameUiLaw.AddFriendPopupType => FriendsFrameUiLaw.AddFriendPopupText,
             FriendsFrameUiLaw.AddIgnorePopupType => FriendsFrameUiLaw.AddIgnorePopupText,
             CharacterBindingsUiLaw.PopupType => CharacterBindingsUiLaw.ConfirmText,

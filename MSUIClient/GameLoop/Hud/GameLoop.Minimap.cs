@@ -164,6 +164,11 @@ public sealed partial class GameLoop
                 StepMinimapZoom(zoomIn: true, insideWmo);
             else if (wheel < 0)
                 StepMinimapZoom(zoomIn: false, insideWmo);
+            // Minimap_OnClick: a left-click on the map while grouped pings the spot for the party.
+            if (ImGui.IsMouseClicked(ImGuiMouseButton.Left) && !ImGui.GetIO().WantCaptureMouse)
+                SendMinimapPing(ImGui.GetMousePos(), new Vector2(playerPosition.X, playerPosition.Y),
+                    (mapMin + mapMax) * .5f, mapMax.X - mapMin.X,
+                    insideWmo ? interiorRadius : MinimapUiLaw.OutdoorRadius(_minimapZoom));
         }
 
         float? interiorBlipRadius = insideWmo ? interiorRadius : null;
@@ -175,6 +180,7 @@ public sealed partial class GameLoop
             dl, playerPosition, mapMin, mapMax, s, interiorBlipRadius);
         DrawMinimapPlayerArrow(dl, playerOrientation, (mapMin + mapMax) * .5f, s);
         DrawMinimapPartyDots(dl, playerPosition, mapMin, mapMax, s, interiorBlipRadius);
+        DrawMinimapPings(dl, playerPosition, mapMin, mapMax, s, interiorBlipRadius);
         DrawMinimapCorpseMarker(dl, playerPosition, mapMin, mapMax, s,
             interiorBlipRadius);
         MinimapResourceTooltipCandidate? resourceTooltip =
@@ -1385,6 +1391,9 @@ public sealed partial class GameLoop
         if (reportedZoneId == 0 || reportedZoneId == _minimapReportedZoneId) return;
         _minimapReportedZoneId = reportedZoneId;
         _net?.ZoneUpdate(reportedZoneId);
+        // The reference re-walks its zone channels inside UpdateZoneText on every zone change,
+        // right before ZONE_CHANGED_NEW_AREA fires — the same edge as the ZONEUPDATE above.
+        RefreshZoneChannels(reportedZoneId);
         EmitInterface("minimap", "area", "UPDATED", _net?.PlayerGuid ?? 0,
             $"map={mapName};tile={projection.TileColumn}|{projection.TileRow};" +
             $"chunk={projection.ChunkX}|{projection.ChunkY};area={areaId};" +

@@ -32,10 +32,12 @@ public static class AuctionFrameUiLaw
     public static readonly LogicalRect Frame = new(0, 0, 832, 447);
     public static readonly LogicalRect Host = new(0, 0, 832, 479);
     public static readonly LogicalRect Close = new(803, 8, 32, 32);
+    /// <summary>AuctionPortraitTexture: 58×58 at TOPLEFT (12,-8), BACKGROUND layer — the auctioneer's face under the ring.</summary>
+    public static readonly LogicalRect Portrait = new(12, 8, 58, 58);
     public static readonly Vector2 TitleCenter = new(379, 18);
     public static readonly Vector2 FilterTitleCenter = new(85, 85);
     public static readonly Vector2 NameLabel = new(80, 41);
-    public static readonly LogicalRect Search = new(83, 57, 150, 20);
+    public static readonly LogicalRect Search = new(83, 57, 140, 20);
     public static readonly LogicalRect SearchButton = new(634, 47, 80, 22);
 
     public static readonly ArtPiece[] BrowseArt =
@@ -175,12 +177,111 @@ public static class AuctionFrameUiLaw
             new(.828125f, 1)),
     ];
 
-    public static string TimeLeftText(uint milliseconds) => milliseconds switch
+    // ── Browse filters (reference AuctionFrame.xml anchors) ──────────────────────────────
+    public static readonly LogicalRect BrowseName = new(83, 57, 140, 16);
+    public static readonly Vector2 LevelRangeLabel = new(230, 36);
+    public static readonly LogicalRect MinLevel = new(233, 53, 25, 16);
+    public static readonly Vector2 LevelHyphen = new(260, 54);
+    public static readonly LogicalRect MaxLevel = new(270, 53, 25, 16);
+    public static readonly Vector2 UsableLabel = new(485, 56);
+    public static readonly Vector2 UsableCheck = new(558, 50);
+    public static readonly Vector2 RarityLabel = new(322, 36);
+    /// <summary>The rarity capsule: anchored under the level label's right edge.</summary>
+    public static readonly DropdownCapsuleUiLaw.Layout RarityDropDown =
+        DropdownCapsuleUiLaw.At(300, 50, 80);
+    public static readonly string[] RarityRows = ["All", "Poor", "Common", "Uncommon", "Rare", "Epic"];
+    public static readonly Vector2 SearchCountCenter = new(496, 388);
+    public const int BrowseVisibleRows = 8;
+    public const int ListVisibleRows = 9;
+    public const int FilterVisibleRows = 15;
+    public const float FilterIndent = 14f;
+    public const float PageButtonSize = 32f;
+    /// <summary>The reference's ten auctionable classes, in its menu order.</summary>
+    public static readonly uint[] AuctionClasses = [2, 4, 1, 0, 7, 6, 11, 9, 5, 15];
+    /// <summary>The fourteen equip slots the Armor filter offers, as inventory type ids.</summary>
+    public static readonly (string Name, uint InventoryType)[] ArmorInventoryTypes =
+    [
+        ("Head", 1), ("Neck", 2), ("Shoulder", 3), ("Shirt", 4), ("Chest", 5), ("Waist", 6),
+        ("Legs", 7), ("Feet", 8), ("Wrist", 9), ("Hands", 10), ("Finger", 11), ("Trinket", 12),
+        ("Back", 16), ("Held In Off-hand", 23),
+    ];
+    public const double BrowseThrottleSeconds = 5.0;
+    public const uint TimeLeftShortMs = 30 * 60 * 1000;
+    public const uint TimeLeftMediumMs = 2 * 60 * 60 * 1000;
+    public const uint TimeLeftLongMs = 8 * 60 * 60 * 1000;
+    /// <summary>
+    /// Past this the wire's remaining time is an underflow, not a duration: the server writes
+    /// (expireTime − now) × 1000 unclamped and sweeps expiry on a 60 s timer, so an auction that
+    /// ran out a minute ago arrives near 4.29 billion. Longest auction is 24 h; anything past a
+    /// week reads as EXPIRED, never as "Very Long".
+    /// </summary>
+    public const uint TimeLeftImplausibleMs = 7 * 24 * 60 * 60 * 1000;
+
+    /// <summary>Row seat for the page turners: the LAST visible row of the tab.</summary>
+    public static LogicalRect PagerRow(int tab) => tab switch
     {
-        0 => "",
-        <= 30 * 60 * 1000 => "Short",
-        <= 2 * 60 * 60 * 1000 => "Medium",
-        <= 12 * 60 * 60 * 1000 => "Long",
+        1 => BidRow(ListVisibleRows - 1),
+        2 => OwnerRow(ListVisibleRows - 1),
+        _ => AuctionRow(BrowseVisibleRows - 1),
+    };
+    public static int VisibleRows(int tab) => tab == 0 ? BrowseVisibleRows : ListVisibleRows;
+
+    /// <summary>The reference's four AUCTION_TIME_LEFT buckets, 1..4, from the wire milliseconds.</summary>
+    public static int TimeLeftBucket(uint milliseconds)
+    {
+        if (milliseconds >= TimeLeftImplausibleMs) return 1;
+        if (milliseconds < TimeLeftShortMs) return 1;
+        if (milliseconds < TimeLeftMediumMs) return 2;
+        if (milliseconds < TimeLeftLongMs) return 3;
+        return 4;
+    }
+
+    public static string TimeLeftText(uint milliseconds) => TimeLeftBucket(milliseconds) switch
+    {
+        1 => "Short",
+        2 => "Medium",
+        3 => "Long",
         _ => "Very Long",
+    };
+
+    /// <summary>
+    /// The client's own deposit arithmetic (CalculateAuctionDeposit): floor(rate × stackValue /
+    /// 100) × floor(minutes / 120), truncation and all — a 9c stack at 5% deposits 0, not 1.
+    /// Rate is the house's AuctionHouse.dbc DepositPercent (5 faction, 25 Blackwater).
+    /// </summary>
+    public static uint Deposit(uint depositPercent, uint sellPrice, uint count, uint minutes)
+    {
+        ulong stackValue = (ulong)sellPrice * Math.Max(1u, count);
+        ulong perPeriod = depositPercent * stackValue / 100;
+        return (uint)Math.Min(uint.MaxValue, perPeriod * (minutes / 120));
+    }
+
+    /// <summary>The next bid the server accepts: max(opening price, current bid + increment).</summary>
+    public static uint MinimumBid(uint startBid, uint currentBid, uint minIncrement) =>
+        currentBid == 0 ? startBid : Math.Max(startBid, currentBid + minIncrement);
+
+    /// <summary>
+    /// The reference's bid gate: not already the high bidder, not your own auction, and the
+    /// purse covers what you offer.
+    /// </summary>
+    public static bool CanBid(bool highBidder, bool ownAuction, uint money, uint offered) =>
+        !highBidder && !ownAuction && offered > 0 && money >= offered;
+
+    /// <summary>Buyout gate: the purse covers it, or you hold the bid and the refund closes the gap.</summary>
+    public static bool CanBuyout(bool highBidder, bool ownAuction, uint money, uint currentBid,
+        uint buyout) =>
+        !ownAuction && buyout > 0 && (money >= buyout || highBidder && (ulong)money + currentBid >= buyout);
+
+    /// <summary>Create-auction validation: a buyout below the opening bid is refused (AuctionsBuyoutErrorText).</summary>
+    public static bool CreateAllowed(bool haveItem, uint startBid, uint buyout) =>
+        haveItem && startBid > 0 && (buyout == 0 || buyout >= startBid) && startBid <= 2_000_000_000;
+
+    /// <summary>Header index → sort key, per tab.</summary>
+    public static string SortKey(int tab, int header) => (tab, header) switch
+    {
+        (0, 0) => "name", (0, 1) => "level", (0, 2) => "duration", (0, 3) => "seller", (0, 4) => "bid",
+        (1, 0) => "name", (1, 1) => "level", (1, 2) => "duration", (1, 3) => "buyout", (1, 4) => "status", (1, 5) => "bid",
+        (2, 0) => "name", (2, 1) => "duration", (2, 2) => "bidder", (2, 3) => "bid",
+        _ => "",
     };
 }

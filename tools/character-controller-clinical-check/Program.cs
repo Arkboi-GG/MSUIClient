@@ -17,6 +17,8 @@ VerifyFloorEdgeKeepsFootprintSupport();
 VerifySunkenSupportIsRecovered();
 VerifyChestHighWallBlocksTheSweep();
 VerifyAtomicLowStepClimbs();
+VerifyStaircaseClimbs();
+VerifyBeveledKerbAndStairsClimb();
 VerifyRampStillWalkable();
 VerifyWalkableAdtTerrainClimbs();
 VerifySteepAdtTerrainBlocksWalking();
@@ -338,6 +340,69 @@ static void VerifyAtomicLowStepClimbs()
     for (int i = 0; i < 60; i++) blocked.Update(1f / 60f, forward);
     Require(blocked.Position.X < 0f && MathF.Abs(blocked.Position.Z - 10f) < 0.01f,
         $"atomic step committed without landing headroom at {blocked.Position}");
+}
+
+// STORMWIND STAIRS. Reported 2026-09-01: the short flights in front of the Trade District
+// shops (four 0.45 yd risers on 0.6 yd treads) could not be walked; the player had to jump.
+// One curb climbs (VerifyAtomicLowStepClimbs), a FLIGHT must too.
+static void VerifyStaircaseClimbs()
+{
+    var collision = new CollisionWorld();
+    const float rise = 0.45f, tread = 0.35f;
+    AddFloor(collision, -10f, 0f, -4f, 4f, 10f);
+    for (int i = 0; i < 4; i++)
+    {
+        float x = i * tread, z = 10f + i * rise;
+        AddWallAtX(collision, x, -4f, 4f, z, z + rise);
+        AddFloor(collision, x, i == 3 ? 40f : x + tread, -4f, 4f, z + rise);
+    }
+    collision.Build();
+
+    CharacterController controller = CreateController(CreateTerrain(height: 5f), collision);
+    controller.Teleport(-2f, 0f, 10f);
+    controller.Update(1f / 60f, default);
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    for (int i = 0; i < 90; i++) controller.Update(1f / 60f, forward);
+    Require(controller.Position.X > 3f,
+        $"staircase stalled at X={controller.Position.X:F3} Z={controller.Position.Z:F3}");
+    Require(controller.Grounded && MathF.Abs(controller.Position.Z - 11.8f) < 0.02f,
+        $"staircase landed at Z={controller.Position.Z:F3}, expected 11.8");
+}
+
+// The kerb benilla profiled in the Trade District (decision 1121): a 0.28 yd sidewalk whose
+// riser is a ~61 degree BEVEL (face normal z=+0.49), steeper than the 50 degree walk limit, so
+// it reads as a wall and must be stepped; then a flight of the same bevelled risers.
+static void VerifyBeveledKerbAndStairsClimb()
+{
+    var kerb = new CollisionWorld();
+    AddFloor(kerb, -10f, 0.29f, -4f, 4f, 10f);
+    AddSlopeAtX(kerb, 0.29f, 0.446f, -4f, 4f, 10f, 10.28f);
+    AddFloor(kerb, 0.446f, 40f, -4f, 4f, 10.28f);
+    kerb.Build();
+    CharacterController c = CreateController(CreateTerrain(height: 5f), kerb);
+    c.Teleport(-1f, 0f, 10f);
+    c.Update(1f / 60f, default);
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    for (int i = 0; i < 60; i++) c.Update(1f / 60f, forward);
+    Require(c.Position.X > 2f && MathF.Abs(c.Position.Z - 10.28f) < 0.02f,
+        $"bevelled kerb stalled at {c.Position}");
+
+    var stairs = new CollisionWorld();
+    const float rise = 0.45f, tread = 0.35f, bevel = 0.15f;
+    AddFloor(stairs, -10f, 0f, -4f, 4f, 10f);
+    for (int i = 0; i < 4; i++)
+    {
+        float x = i * tread, z = 10f + i * rise;
+        AddSlopeAtX(stairs, x, x + bevel, -4f, 4f, z, z + rise);
+        AddFloor(stairs, x + bevel, i == 3 ? 40f : x + tread, -4f, 4f, z + rise);
+    }
+    stairs.Build();
+    CharacterController d = CreateController(CreateTerrain(height: 5f), stairs);
+    d.Teleport(-1f, 0f, 10f);
+    d.Update(1f / 60f, default);
+    for (int i = 0; i < 120; i++) d.Update(1f / 60f, forward);
+    Require(d.Position.X > 3f && MathF.Abs(d.Position.Z - 11.8f) < 0.02f,
+        $"bevelled staircase stalled at {d.Position}");
 }
 static void VerifyRampStillWalkable()
 {
@@ -670,6 +735,15 @@ static void AddFloor(CollisionWorld collision, float minX, float maxX,
         new Vector3(maxX, maxY, height), new Vector3(minX, maxY, height));
 }
 
+
+static void AddSlopeAtX(CollisionWorld collision, float x0, float x1,
+    float minY, float maxY, float z0, float z1)
+{
+    collision.AddTriangle(new Vector3(x0, minY, z0),
+        new Vector3(x0, maxY, z0), new Vector3(x1, maxY, z1));
+    collision.AddTriangle(new Vector3(x0, minY, z0),
+        new Vector3(x1, maxY, z1), new Vector3(x1, minY, z1));
+}
 static void AddWallAtX(CollisionWorld collision, float x,
     float minY, float maxY, float minZ, float maxZ)
 {

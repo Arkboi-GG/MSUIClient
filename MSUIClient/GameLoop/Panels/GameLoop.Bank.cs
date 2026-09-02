@@ -110,8 +110,19 @@ public sealed partial class GameLoop
     {
         if (body.Length < 4) return;
         uint result = BitConverter.ToUInt32(body, 0);
-        EmitInterface("bank", "buy-result", result == 0 ? "SUCCESS" : $"FAILED-{result}", _bankSource,
+        // vmangos BuyBankSlotResult: 0 too many, 1 insufficient funds, 2 not a banker, 3 OK.
+        // Success is observed on the descriptor; the three refusals are told to the player
+        // (they used to vanish into the dev log — the confirm closed and nothing happened).
+        EmitInterface("bank", "buy-result", result == 3 ? "SUCCESS" : $"FAILED-{result}", _bankSource,
             $"result={result};slotBefore={_bankSlotCountBefore}");
+        string? refusal = result switch
+        {
+            0 => InventoryGlobalString("ERR_BANKSLOT_FAILED_TOO_MANY", "You cannot buy any more bank slots."),
+            1 => InventoryGlobalString("ERR_BANKSLOT_INSUFFICIENT_FUNDS", "You don't have enough money to buy that bank slot."),
+            2 => InventoryGlobalString("ERR_BANKSLOT_NOTBANKER", "You must be at a banker to buy a bank slot."),
+            _ => null,
+        };
+        if (refusal is not null) ShowUiError(refusal);
     }
 
     private bool DepositBankItem(byte sourceBag, byte sourceSlot, WorldEntity item)

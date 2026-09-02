@@ -417,7 +417,7 @@ public sealed partial class GameLoop
                 if (CanAuthorControlledGameplay && UnitPopupRowEnabled(row))
                 {
                     _tradePartnerGuid = guid;
-                    _net?.InitiateTrade(guid);
+                    RequestTradeWith(guid);
                 }
                 break;
             case UnitPopupRow.Follow:

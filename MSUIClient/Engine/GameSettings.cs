@@ -893,6 +893,29 @@ public sealed class GameSettings
         /// its own view and you fly through the door to see the next one (owner
         /// decision 2026-08-11, replacing the cutaway).</summary>
         public bool FreeViewCameraCollision { get; set; } = true;
+
+        /// <summary>Interface Options → Command View: which keys/mouse law drives the free-view
+        /// rig (<see cref="Engine.CommandViewScheme"/>). First-person play is untouched.</summary>
+        public CommandViewScheme CommandViewScheme { get; set; } = CommandViewScheme.Strafe;
+
+        /// <summary>The free view's downward view angle in degrees for the schemes that lock
+        /// the mouse out of pitch. Also set from the on-screen knob and PageUp/PageDown.</summary>
+        public float CommandViewPitchDegrees { get; set; } = CommandViewLaw.DefaultPitchDegrees;
+
+        /// <summary>Show the small view-angle knob at the bottom right of the free view.</summary>
+        public bool CommandViewAngleKnob { get; set; } = true;
+
+        /// <summary>Pan the free-view rig when the pointer rests on a screen edge.</summary>
+        public bool CommandViewEdgePan { get; set; } = true;
+
+        /// <summary>Glide the Command View camera after the rig instead of hard-coupling it
+        /// (<see cref="CommandViewLaw.SmoothingTau"/>). Off = the pre-2026-09 direct camera.</summary>
+        public bool CommandViewSmoothing { get; set; } = true;
+
+        /// <summary>Lock the Command View camera on the primary selection: the rig rides the unit
+        /// (eased), the mouse still turns around it, keys/wheel adjust the framing. Toggled from
+        /// the on-screen tablet, Ctrl+L, or here.</summary>
+        public bool CommandViewLockOnPrimary { get; set; }
     }
 
     /// <summary>

@@ -21,6 +21,8 @@ public sealed partial class GameLoop
     private readonly HashSet<uint> _guildIdentityQueried = [];
     private readonly string[] _guildRankNames = new string[10];
     private uint _guildId;
+    /// <summary>Every guild the server has named for us, own or foreign (SMSG_GUILD_QUERY_RESPONSE).</summary>
+    private readonly Dictionary<uint, string> _guildNamesById = [];
     private string _guildName = "";
     private bool _guildOpen;
     private string _guildMotd = "";
@@ -83,6 +85,9 @@ public sealed partial class GameLoop
         for (int i = 0; i < 5; i++) r.ReadU32(); // tabard symbol/color/border/background
         if (r.Remaining != 0)
             throw new InvalidDataException($"SMSG_GUILD_QUERY_RESPONSE trailing={r.Remaining}");
+        // Every answered guild is remembered by id — another player's guild (inspect, /who,
+        // nameplates) used to be thrown away because only the own guild was kept.
+        _guildNamesById[guildId] = name;
         if (guildId != CurrentGuildId()) return;
         _guildId = guildId;
         _guildName = name;

@@ -1,6 +1,7 @@
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine.UI;
+using MSUIClient.Formats;
 using MSUIClient.Net;
 
 namespace MSUIClient;
@@ -421,17 +422,33 @@ public sealed partial class GameLoop
         bool accept = false;
         bool cancel = false;
         int buttons = DeathButtonCount(dialog.Kind);
+        // Self-resurrection (soulstone, Reincarnation, Ankh): PLAYER_SELF_RES_SPELL names the
+        // spell, and the Release dialog grows a second button carrying its name that sends
+        // CMSG_SELF_RES. The dialog used to offer Release alone. 2026-09-01.
+        string? selfRes = null;
+        if (dialog.Kind == DeathDialogKind.Release && player.Fields.PlayerSelfResSpell is uint selfResSpell && selfResSpell != 0)
+        {
+            selfRes = _spellCatalog?.TryGet(selfResSpell, out SpellInfo selfResInfo) == true
+                ? selfResInfo.Name : "Use Soulstone";
+            buttons = 2;
+        }
         if (buttons >= 1)
             accept = DrawDeathDialogButton(draw, 1, buttons, DeathPrimaryButton(dialog.Kind),
                 frame.Min + DeathFrameUiLaw.ButtonMin(1, buttons, logicalWidth, textHeight) * scale,
                 scale, dialog.AcceptEnabled);
         if (buttons == 2)
-            cancel = DrawDeathDialogButton(draw, 2, buttons, DeathSecondaryButton(dialog.Kind),
+            cancel = DrawDeathDialogButton(draw, 2, buttons, selfRes ?? DeathSecondaryButton(dialog.Kind),
                 frame.Min + DeathFrameUiLaw.ButtonMin(2, buttons, logicalWidth, textHeight) * scale,
                 scale, true);
         ImGui.End();
 
         if (accept) AcceptDeathDialog(dialog.Kind);
+        else if (cancel && selfRes is not null)
+        {
+            bool sent = _net?.SelfRes() == true;
+            EmitInterface("death-rez", "self-res", sent ? "SENT" : "SEND_FAILED", LocalPlayerGuid,
+                $"spell={player.Fields.PlayerSelfResSpell};wire=CMSG_SELF_RES");
+        }
         else if (cancel) CancelDeathDialog(dialog.Kind);
     }
 

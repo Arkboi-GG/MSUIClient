@@ -298,6 +298,12 @@ public sealed partial class GameLoop
                     else if (service == WorldCursorKind.Taxi) RequestTaxiMap(picked);
                     else if (service == WorldCursorKind.Buy &&
                              (npc.NpcFlags & NpcBanker) != 0) RequestBank(picked);
+                    // The auctioneer shares the Buy cursor with the banker (benilla
+                    // target/click.rs: Buy + AUCTIONEER => MSG_AUCTION_HELLO). Without this
+                    // arm it fell to gossip and the auction house could only be opened from
+                    // the dev console. Reported 2026-09-01.
+                    else if (service == WorldCursorKind.Buy &&
+                             (npc.NpcFlags & NpcAuctioneer) != 0) RequestAuction(picked);
                     else RequestGossip(picked);
                 }
                 else if (_entities.TryGet(picked, out WorldEntity player) && player.IsPlayer)

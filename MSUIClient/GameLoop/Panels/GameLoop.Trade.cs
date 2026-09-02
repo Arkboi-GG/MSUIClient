@@ -21,6 +21,17 @@ public sealed partial class GameLoop
     private readonly TradeItem?[] _tradeMine = new TradeItem?[7];
     private readonly TradeItem?[] _tradeTheirs = new TradeItem?[7];
 
+    /// <summary>Our own CMSG_INITIATE_TRADE is in flight — the reply is not a request to answer.</summary>
+    private bool _tradeInitiateInFlight;
+
+    /// <summary>Ask another player to trade (the unit popup's Trade row).</summary>
+    private bool RequestTradeWith(ulong guid)
+    {
+        bool sent = _net?.InitiateTrade(guid) == true;
+        if (sent) { _tradeInitiateInFlight = true; _tradePartnerGuid = guid; }
+        return sent;
+    }
+
     private void ApplyTradeStatus(byte[] body)
     {
         TradePackets.Status wire = TradePackets.ParseStatus(body);
@@ -36,10 +47,7 @@ public sealed partial class GameLoop
         else switch (status)
         {
             case 1:
-                _tradePartnerGuid = wire.Partner;
-                if (!_playerNames.ContainsKey(_tradePartnerGuid))
-                    _net?.NameQuery(_tradePartnerGuid);
-                _net?.BeginTrade();
+                AnswerTradeRequest(wire.Partner);
                 break;
             case 2:
                 _tradeOpen = true; _tradeAccepted = _tradePartnerAccepted = false;
@@ -78,19 +86,81 @@ public sealed partial class GameLoop
         _tradeAccepted = _tradePartnerAccepted = false;
     }
 
+    /// <summary>
+    /// TRADE_STATUS_BEGIN_TRADE — someone wants to trade. The reference's ladder, in order:
+    /// our own initiate in flight (the echo of our request: answer nothing), the initiator on
+    /// the ignore list (CMSG_IGNORE_TRADE), not a streamed player (nothing), we are dead, our
+    /// body is not ours to author, the auction house is open (CMSG_BUSY_TRADE); only then
+    /// CMSG_BEGIN_TRADE. Every incoming request used to be accepted unconditionally, and a
+    /// request landing mid-trade overwrote the partner. Reported 2026-09-01.
+    /// </summary>
+    private void AnswerTradeRequest(ulong initiator)
+    {
+        if (_tradeInitiateInFlight)
+        {
+            // The server echoes BEGIN_TRADE (partner guid 0) to the initiator; the window
+            // opens on OPEN_WINDOW once the other side accepts. Nothing to answer.
+            EmitInterface("trade", "request", "OWN-INITIATE", _tradePartnerGuid, "reply=none");
+            return;
+        }
+        if (_tradeOpen)
+        {
+            // A request cannot address a player mid-trade (the server refuses it as BUSY),
+            // but a stale one must never replace the live partner.
+            _net?.BusyTrade();
+            EmitInterface("trade", "request", "BUSY-IN-TRADE", initiator, "reply=CMSG_BUSY_TRADE");
+            return;
+        }
+        if (_ignored.Contains(initiator))
+        {
+            _net?.IgnoreTrade();
+            EmitInterface("trade", "request", "IGNORED", initiator, "reply=CMSG_IGNORE_TRADE");
+            return;
+        }
+        if (!_entities.TryGet(initiator, out WorldEntity who) || !who.IsPlayer)
+        {
+            EmitInterface("trade", "request", "UNSTREAMED", initiator, "reply=none");
+            return;
+        }
+        bool selfDead = _entities.TryGet(ControlledGuid, out WorldEntity self) && self.IsDead;
+        if (selfDead || !CanAuthorControlledOrSelf || _auctionOpen)
+        {
+            _net?.BusyTrade();
+            EmitInterface("trade", "request", "BUSY", initiator,
+                $"reply=CMSG_BUSY_TRADE;dead={selfDead};authorable={CanAuthorControlledOrSelf};auction={_auctionOpen}");
+            return;
+        }
+        _tradePartnerGuid = initiator;
+        if (!_playerNames.ContainsKey(_tradePartnerGuid)) _net?.NameQuery(_tradePartnerGuid);
+        _net?.BeginTrade();
+        EmitInterface("trade", "request", "ACCEPTED", initiator, "reply=CMSG_BEGIN_TRADE");
+    }
+
     private void ResetTrade()
     {
+        _tradeInitiateInFlight = false;
         _tradeOpen = false; _tradePartnerGuid = 0;
         _tradeMoney = 0; _tradePartnerMoney = 0; _tradePlaceSlot = -1;
         _tradeMineEnchantSpell = _tradePartnerEnchantSpell = 0;
         _tradeAccepted = _tradePartnerAccepted = false; Array.Clear(_tradeMine); Array.Clear(_tradeTheirs);
     }
 
-    private bool PlaceTradeItem(byte bag, byte slot)
+    private bool PlaceTradeItem(byte bag, byte slot, WorldEntity? instance)
     {
         if (!_tradeOpen || _tradePlaceSlot is < 0 or > 6 || _net is null) return false;
         bool sent = _net.SetTradeItem((byte)_tradePlaceSlot, bag, slot);
-        if (sent) _tradePlaceSlot = -1;
+        if (sent)
+        {
+            // OUR column is filled here, not off the wire: vmangos echoes
+            // SMSG_TRADE_STATUS_EXTENDED only to the PARTNER (TradeData::SetItem → Update(true)),
+            // so waiting for a their_window=0 frame left our six slots blank and made the
+            // occupied-slot click (CMSG_CLEAR_TRADE_ITEM) unreachable. Reported 2026-09-01.
+            if (instance is not null)
+                _tradeMine[_tradePlaceSlot] = new(instance.Entry, Math.Max(1, instance.Fields.ItemStackCount),
+                    instance.Fields.ItemMaxDurability, instance.Fields.ItemDurability);
+            _tradeAccepted = _tradePartnerAccepted = false;
+            _tradePlaceSlot = -1;
+        }
         return sent;
     }
 
@@ -184,7 +254,8 @@ public sealed partial class GameLoop
         DrawTradeCoin(dl, 2, origin + TradeFrameUiLaw.PlayerCopperCoin * s, s);
         if (!changed) return;
         _tradeMoney = TradeFrameUiLaw.ComposeMoney(gold, silver, copper);
-        _net?.SetTradeGold((uint)_tradeMoney);
+        if (_net?.SetTradeGold((uint)_tradeMoney) == true)
+            _tradeAccepted = _tradePartnerAccepted = false;   // any change un-accepts both sides
     }
 
     private void DrawTradeMoney(ImDrawListPtr dl, uint copper, Vector2 rightTop, float s)
@@ -285,7 +356,12 @@ public sealed partial class GameLoop
         if (mine && ImGui.IsItemClicked())
         {
             if (row is null) _tradePlaceSlot = slot;
-            else { _net?.ClearTradeItem((byte)slot); _tradePlaceSlot = -1; }
+            else if (_net?.ClearTradeItem((byte)slot) == true)
+            {
+                _tradeMine[slot] = null;
+                _tradeAccepted = _tradePartnerAccepted = false;
+                _tradePlaceSlot = -1;
+            }
         }
     }
 

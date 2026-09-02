@@ -267,6 +267,7 @@ public sealed partial class GameLoop
             DrawPartyInvite();
             DrawGuildInvitePopup();
             DrawDuelPopups();
+            DrawConfirmPopups();
             DrawDeleteItemConfirmation();
             DrawCharacterBindingsConfirmation();
             DrawSocialNamePopup();

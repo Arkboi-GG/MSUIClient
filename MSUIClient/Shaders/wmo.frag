@@ -36,6 +36,8 @@ uniform vec3  uFogColor;
 // Which MOBA run this batch came from: 1 transparent, 2 interior, 3 exterior.
 // See WmoRenderer.Batch.Type. Anything other than 1 or 2 lights by daylight.
 uniform int   uBatchType;
+uniform int   uUnlit;   // MOMT F_UNLIT: texture brightness, no scene light
+uniform vec3  uSidn;    // MOMT F_SIDN emissive × night fraction (zero by day / when clear)
 
 // The classic render path's overbright factor. Blizzard halves MOCV at load
 // and doubles it at draw, so the authored range is [0, 2], not [0, 1].
@@ -142,6 +144,12 @@ void main()
         float atten = clamp(1.0 - pd / uPortalLightRadius, 0.0, 1.0);
         lighting += uPortalLightColor * (atten * atten);
     }
+
+    // The window/glass law: SIDN glow is a material EMISSION added inside the lit sum
+    // (tex × (lit + sidn·night)) — warm panes overnight, nothing by day; UNLIT draws the
+    // texture as authored (lamp heads, glow panes) regardless of the scene light.
+    lighting += uSidn;
+    if (uUnlit == 1) lighting = vec3(1.0);
 
     vec3 lit = albedo.rgb * lighting;
 

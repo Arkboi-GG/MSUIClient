@@ -128,7 +128,9 @@ public sealed partial class GameLoop
 
     private bool RequestMail(ulong guid)
     {
-        if (_net is null || !TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
+        // The mailbox belongs to the body standing at it: the possessed bot while driving one
+        // (the server threads the mail handlers through GetSuiActor), else the session player.
+        if (_net is null || !TryGetInteractionBodyPose(out WorldBodyPose sessionBody) ||
             !_entities.TryGet(guid, out WorldEntity mailbox) || !mailbox.IsGameObject ||
             mailbox.GameObjectType != 19 ||
             !NpcSessionUiLaw.InRange(
@@ -220,7 +222,7 @@ public sealed partial class GameLoop
         // Synthetic/live-run mail panels deliberately have no world mailbox. Only enforce
         // the vanilla five-yard auto-close rule for a panel opened from a real mailbox.
         if (_mailboxGuid == 0) return;
-        if (!TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return;
+        if (!TryGetInteractionBodyPose(out WorldBodyPose sessionBody)) return;
         bool sourceAvailable = _entities.TryGet(_mailboxGuid, out WorldEntity mailbox);
         float distanceSquared = sourceAvailable
             ? Vector3.DistanceSquared(sessionBody.Position, mailbox.Position)

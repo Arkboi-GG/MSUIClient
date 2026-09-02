@@ -474,6 +474,8 @@ public sealed partial class GameLoop
             ResetMail();
             _net.QueryNextMailTime();
             ResetAuction();
+            ResetConfirms();
+            ResetZoneChannels();
             ResetGuild();
             ResetTabard();
             _creaturesLogged = 0;
@@ -806,15 +808,13 @@ public sealed partial class GameLoop
                         ApplyPartyMemberStats(body, fullSnapshot: true);
                         break;
                     case Op.MSG_MINIMAP_PING:
-                        // Frozen Benilla validates this rebroadcast but has no apply/UI consumer.
-                        _ = PartyFramePacketLaw.ParseMinimapPing(body);
+                        ApplyMinimapPing(body);
                         break;
                     case Op.MSG_RAID_TARGET_UPDATE:
                         ApplyPartyRaidTargetUpdate(body);
                         break;
                     case Op.MSG_RAID_READY_CHECK:
-                        // Frozen Benilla validates ready-check shapes but intentionally ignores them.
-                        _ = PartyFramePacketLaw.ParseReadyCheck(body);
+                        ApplyReadyCheck(body);
                         break;
                     case Op.SMSG_PET_SPELLS:
                         ApplyPetSpells(body);
@@ -1692,8 +1692,33 @@ public sealed partial class GameLoop
                         HandleRandomRoll(body);
                         break;
                     case Op.SMSG_NOTIFICATION:
-                        HandleNotification(body);      // clean system line
+                        // The reference routes this to the red UIErrorsFrame (handler 0x401800 →
+                        // UI_ERROR_MESSAGE), not the chat frame; vmangos SetGameMaster sends BOTH a
+                        // SysMessage and a Notification, so a chat sink printed "GM mode is ON" twice.
+                        ShowUiError(new PacketReader(body).ReadCString());
                         ObserveGmChatResponse(body);   // devtools GM-mode probe (no display)
+                        break;
+                    case Op.SMSG_SUMMON_REQUEST:
+                        ApplySummonRequest(body);
+                        break;
+                    case Op.SMSG_QUEST_CONFIRM_ACCEPT:
+                        ApplyQuestConfirmAccept(body);
+                        break;
+                    case Op.SMSG_LOOT_MASTER_LIST:
+                        ApplyLootMasterList(body);
+                        break;
+                    case Op.SMSG_SERVER_MESSAGE:
+                        ApplyServerMessage(body);
+                        break;
+                    case Op.SMSG_ZONE_UNDER_ATTACK:
+                        ApplyZoneUnderAttack(body);
+                        break;
+                    case Op.SMSG_DEFENSE_MESSAGE:
+                        ApplyDefenseMessage(body);
+                        break;
+                    case Op.SMSG_CHAT_RESTRICTED:
+                        ShowUiError(InventoryGlobalString("ERR_CHAT_RESTRICTED",
+                            "Your account has been restricted from chat."));
                         break;
                     case Op.SMSG_TEXT_EMOTE:
                         HandleTextEmoteReceive(body);

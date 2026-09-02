@@ -99,7 +99,9 @@ public sealed partial class GameLoop
         }
         if (_liveSteps is not null && _liveRunElapsed > _liveRunOptions.TimeoutSeconds)
         { FinishLiveBootstrap("TIMEOUT", "protocol exceeded its separate run timeout"); return; }
-        if (_net is not { IsInWorld:true } || _worldLoading || _controller is null || _character is null) return;
+        // _worldLoadedOnce: between InWorld and the first BeginWorldLoad the loading flag is
+        // still false, and the arena teleport used to fire into that gap.
+        if (_net is not { IsInWorld:true } || _worldLoading || !_worldLoadedOnce || _controller is null || _character is null) return;
         if (_liveTeleportSent)
         {
             // Once the protocol has started it owns position. Do not keep testing
@@ -749,16 +751,27 @@ public sealed partial class GameLoop
                 case "auction":
                     string[] auction = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     if (auction[1].Equals("open", StringComparison.OrdinalIgnoreCase)) Log(RequestAuction(_selectionGuid), line);
-                    else if (auction[1].Equals("browse", StringComparison.OrdinalIgnoreCase)) Log(BrowseAuctions(), line);
-                    else if (auction[1].Equals("owner", StringComparison.OrdinalIgnoreCase)) Log(RequestOwnerAuctions(), line);
+                    else if (auction[1].Equals("browse", StringComparison.OrdinalIgnoreCase)) Log(BrowseAuctions(0), line);
+                    else if (auction[1].Equals("owner", StringComparison.OrdinalIgnoreCase)) Log(RequestOwnerAuctions(0), line);
+                    else if (auction[1].Equals("bidder", StringComparison.OrdinalIgnoreCase)) Log(RequestBidderAuctions(0), line);
                     else if (auction[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateAuctionFlow(); Log(true, line); }
-                    else if (auction[1].Equals("bid-first", StringComparison.OrdinalIgnoreCase) && _auctions.Count > 0)
-                    { AuctionRow row = _auctions[0]; Log(BidAuction(row.Id, Math.Max(row.StartBid, row.Bid + row.MinIncrement)), line); }
-                    else if (auction[1].Equals("cancel-first", StringComparison.OrdinalIgnoreCase) && _auctions.Count > 0)
-                        Log(CancelAuction(_auctions[0].Id), line);
-                    else if (auction[1].Equals("create", StringComparison.OrdinalIgnoreCase) && auction.Length == 6)
+                    else if (auction[1].Equals("bid-first", StringComparison.OrdinalIgnoreCase) && _auctionLists[0].Rows.Count > 0)
+                    { AuctionListEntry row = _auctionLists[0].Rows[0]; Log(BidAuction(0, row.Id, AuctionFrameUiLaw.MinimumBid(row.StartBid, row.Bid, row.MinIncrement)), line); }
+                    else if (auction[1].Equals("cancel-first", StringComparison.OrdinalIgnoreCase) && _auctionLists[2].Rows.Count > 0)
+                        Log(CancelAuction(_auctionLists[2].Rows[0].Id), line);
+                    else if (auction[1].Equals("stage", StringComparison.OrdinalIgnoreCase) && auction.Length == 4)
+                    {
+                        // "auction stage <container> <slot>" seats that bag slot of the DRIVEN body in the sell slot.
+                        int container = int.Parse(auction[2], CultureInfo.InvariantCulture), slot = int.Parse(auction[3], CultureInfo.InvariantCulture);
+                        WorldEntity? staged = ResolveInventoryItem(container, slot);
+                        if (staged is not null)
+                        { _carriedContainer = container; _carriedSlot = slot; AttachAuctionSellItem(staged); }
+                        Log(staged is not null, $"{line} -> {(staged is null ? "empty" : $"item {staged.Entry} x{staged.Fields.ItemStackCount}")}");
+                    }
+                    else if (auction[1].Equals("create", StringComparison.OrdinalIgnoreCase) && auction.Length == 5)
+                        // "auction create <bid> <buyout> <minutes>" sells whatever sits in the sell slot.
                         Log(CreateAuction(uint.Parse(auction[2], CultureInfo.InvariantCulture), uint.Parse(auction[3], CultureInfo.InvariantCulture),
-                            uint.Parse(auction[4], CultureInfo.InvariantCulture), uint.Parse(auction[5], CultureInfo.InvariantCulture)), line);
+                            uint.Parse(auction[4], CultureInfo.InvariantCulture)), line);
                     else Log(false, $"unknown {line}");
                     break;
                 case "profession":
@@ -970,6 +983,37 @@ public sealed partial class GameLoop
                     }
                     Log(groundOk, line);
                     break;
+                case "cv-probe":
+                {
+                    // Command View scheme probe: what the rig and camera are doing right now.
+                    var cam = _window.Camera;
+                    if (p.Length > 1 && p[1] == "lock" && _freeView)
+                    {
+                        // Dev shortcut: make the own character the primary and engage the lock.
+                        _freecamSelection.Clear();
+                        _freecamSelection.Add(LocalPlayerGuid);
+                        _rtsPrimaryGuid = LocalPlayerGuid;
+                        if (!Settings.Controls.CommandViewLockOnPrimary) ToggleCommandViewLock();
+                    }
+                    string lockInfo = "";
+                    if (_entities.TryGet(RtsPrimaryGuid, out WorldEntity primaryUnit))
+                    {
+                        Vector3 rel = (_controller?.Position ?? Vector3.Zero) - primaryUnit.Position;
+                        float bearing = MathF.Atan2(rel.Y, rel.X) - cam.Yaw;
+                        lockInfo = $" locked={CommandViewLocked} unit=({primaryUnit.Position.X:0.##},{primaryUnit.Position.Y:0.##}) " +
+                            $"offsetLen={new Vector2(rel.X, rel.Y).Length():0.##} bearing={MathF.Atan2(MathF.Sin(bearing), MathF.Cos(bearing)):0.###}";
+                    }
+                    string probe = $"freeView={_freeView} scheme={Settings.Controls.CommandViewScheme} " +
+                        $"camTarget=({cam.Target.X:0.##},{cam.Target.Y:0.##},{cam.Target.Z:0.##}) smoothing={Settings.Controls.CommandViewSmoothing}{lockInfo} " +
+                        $"knobDeg={Settings.Controls.CommandViewPitchDegrees:0.##} pitchLocked={_window.LookPitchLocked} " +
+                        $"camYaw={cam.Yaw:0.####} camPitch={cam.Pitch:0.####} camDist={cam.Distance:0.##} " +
+                        $"rig=({_controller?.Position.X:0.##},{_controller?.Position.Y:0.##},{_controller?.Position.Z:0.##}) " +
+                        $"flying={_controller?.Flying} moveF={_moveForward:0.##} moveS={_moveStrafe:0.##} " +
+                        $"guideEnabled={_enableControlGuide}";
+                    EmitInterface("cv-probe", "sample", "OK", _net?.PlayerGuid ?? 0, probe);
+                    Log(true, $"{line} => {probe}");
+                    break;
+                }
                 case "camera":
                     string[] camArgs = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     if (_window?.Camera is { } liveCam)
@@ -1076,6 +1120,21 @@ public sealed partial class GameLoop
                     break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
                 case "move-trace": if(p[1]=="start") StartMovementTrace(p[2]); else StopMovementTrace(); Log(true,line); break;
+                case "wmo-faces-at":
+                {
+                    // "wmo-faces-at x,y,z,r" — one comma token, the runner splits on the first spaces only.
+                    float[] q = p[1].Split(',').Select(v => float.Parse(v, CultureInfo.InvariantCulture)).ToArray();
+                    _wmo?.DumpFacesNear(new Vector3(q[0], q[1], q[2]), q[3]);
+                    Log(true, line); break;
+                }
+                case "wmo-faces":
+                    if (_controller is not null)
+                    {
+                        float r = float.Parse(p[1], CultureInfo.InvariantCulture);
+                        _wmo?.DumpFacesNear(_controller.Position, r);
+                        _doodads?.DumpInstancesNear(_controller.Position, p.Length > 2 ? float.Parse(p[2], CultureInfo.InvariantCulture) : r * 3f);
+                    }
+                    Log(true, line); break;
                 case "wire-trace":
                     if(p[1]=="start") Log(true,$"{line} path={_wireLog.Start(_config.RepoRoot)}");
                     else { _wireLog.Stop(); Log(true,line); }

@@ -1811,17 +1811,28 @@ public sealed partial class GameLoop : IDisposable
         // mid-fight.
         bool mouseSteering = _window.MouseRightDown;
 
+        // Command View schemes (Interface Options → Command View): every scheme but Classic
+        // puts the sidestep on the Turn keys (A/D) while the free view is up and leaves the
+        // Strafe keys (Q/E) OUT of the camera entirely — owner call 2026-09-01: people want
+        // those keys for command hotkeys, so turning is the right-drag. First person untouched.
+        CommandViewScheme commandViewScheme = Settings.Controls.CommandViewScheme;
+        bool commandViewSwap = _freeView && CommandViewLaw.TurnKeysStrafe(commandViewScheme);
+
         bool bindingTurnLeft = !typing && BindingDown(GameBinding.TurnLeft);
         bool bindingTurnRight = !typing && BindingDown(GameBinding.TurnRight);
         bool bindingStrafeLeft = !typing && BindingDown(GameBinding.StrafeLeft);
         bool bindingStrafeRight = !typing && BindingDown(GameBinding.StrafeRight);
 
         float turn = 0f;
-        if (!typing && !mouseSteering) turn += BindingAxis(GameBinding.TurnLeft, GameBinding.TurnRight);
+        if (!typing && !mouseSteering && !commandViewSwap)
+            turn += BindingAxis(GameBinding.TurnLeft, GameBinding.TurnRight);
         turn = Math.Clamp(turn, -1f, 1f);
 
-        float strafe = typing ? 0f : BindingAxis(GameBinding.StrafeRight, GameBinding.StrafeLeft);
-        if (!typing && mouseSteering) strafe += BindingAxis(GameBinding.TurnRight, GameBinding.TurnLeft);
+        float strafe = typing ? 0f : commandViewSwap
+            ? BindingAxis(GameBinding.TurnRight, GameBinding.TurnLeft)
+            : BindingAxis(GameBinding.StrafeRight, GameBinding.StrafeLeft);
+        if (!typing && mouseSteering && !commandViewSwap)
+            strafe += BindingAxis(GameBinding.TurnRight, GameBinding.TurnLeft);
         strafe = Math.Clamp(strafe, -1f, 1f);
 
         // Up and down arrows walk, like vanilla. Combined with W/S rather than
@@ -1833,6 +1844,16 @@ public sealed partial class GameLoop : IDisposable
                 bothButtons: _window.MouseLeftDown && _window.MouseRightDown,
                 autorun: _autorunToggled),
             -1f, 1f);
+
+        // Command View lock: the rig is PARKED on the primary. No translation at all until the
+        // lock is released, and A/D become the orbit (whatever the scheme), so you can walk the
+        // camera around the primary's epicentre while the tracking holds. Q/E stay free.
+        if (_freeView && CommandViewLocked)
+        {
+            forward = 0f;
+            strafe = 0f;
+            turn = typing ? 0f : Math.Clamp(BindingAxis(GameBinding.TurnLeft, GameBinding.TurnRight), -1f, 1f);
+        }
 
         ApplyAutoFollowInput(ref forward, dt, typing, mouseSteering);
 
@@ -1878,6 +1899,11 @@ public sealed partial class GameLoop : IDisposable
         float turnRate = baseTurnRate * (translating ? TurnRateMoving : 1f) * MountTurnMultiplier();
 
         if (turn != 0f) _window.Camera.Rotate(turn * turnRate * dt, 0f);
+        // RTS scheme: a turn — keyboard here, the mouse's share already applied by the window —
+        // orbits the rig around the ground it looks at instead of spinning it in place.
+        _commandViewYawDelta = turn * turnRate * dt + _window.AppliedLookYaw;
+        if (_freeView && CommandViewLaw.OrbitsFocus(commandViewScheme) && !CommandViewLocked)
+            OrbitCommandViewRig(_commandViewYawDelta);
 
         // Drunkenness belongs to the logged-in player even while another unit is possessed.
         // Current Benilla adds this pulse to movement facing (unless a keyboard turn is held)
@@ -1896,7 +1922,17 @@ public sealed partial class GameLoop : IDisposable
 
         // Look up and down without the mouse. Rotate clamps pitch either way.
         float tilt = typing ? 0f : _window.Axis(Key.PageUp, Key.PageDown);
-        if (tilt != 0f) _window.Camera.Rotate(0f, tilt * _turnSpeed * 0.6f * dt);
+        if (tilt != 0f)
+        {
+            // Under the knob schemes the view angle IS the knob: PageUp/PageDown turn it, and
+            // the free-view frame re-asserts the camera pitch from it.
+            if (_freeView && CommandViewLaw.PitchLocked(commandViewScheme))
+                Settings.Controls.CommandViewPitchDegrees = CommandViewLaw.ClampPitchDegrees(
+                    Settings.Controls.CommandViewPitchDegrees +
+                    tilt * _turnSpeed * 0.6f * dt * 180f / MathF.PI);
+            else
+                _window.Camera.Rotate(0f, tilt * _turnSpeed * 0.6f * dt);
+        }
 
         // The animation layer is driven from intent, not from displacement, so
         // it needs to know what was pressed and whether the aim is being steered.
@@ -2063,8 +2099,11 @@ public sealed partial class GameLoop : IDisposable
         AdvanceMovementSuiteAfterSample();
         _characterUpdateMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
 
-        // The camera orbits the character's feet; Camera.EyeHeight does the rest.
-        _window.Camera.Target = _controller.Position;
+        // The camera orbits the character's feet; Camera.EyeHeight does the rest. In the
+        // Command View the target is the eased rig, or the locked primary (GameLoop.Control.cs).
+        _window.Camera.Target = _freeView
+            ? CommandViewCameraTarget(dt, _commandViewYawDelta)
+            : _controller.Position;
         UpdateViewSubject();
 
         // 1.12 cameraSmoothStyle: command-word EDGES arm one cosine-smoothed return. This is not
@@ -2948,6 +2987,7 @@ public sealed partial class GameLoop : IDisposable
         void ApplyWmo(WmoRenderer renderer)
         {
             renderer.SunDirection = _atmosphere.SunDirection;
+            renderer.NightFraction = _atmosphere.NightFraction;
             renderer.SunColor = _atmosphere.SunColor;
             renderer.SunIntensity = _atmosphere.SunIntensity;
             renderer.AmbientColor = _atmosphere.AmbientColor;

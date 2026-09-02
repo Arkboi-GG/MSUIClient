@@ -787,7 +787,7 @@ public sealed class CharacterController
                 return;
             }
 
-            if (TryStepUp(move)) return;
+            if (TryStepUp(move, wall.Distance)) return;
 
             // This is the surface that actually stops the character. Record it
             // before sliding, because after the slide the information is gone.
@@ -915,15 +915,64 @@ public sealed class CharacterController
     /// and settles onto a higher walkable floor; any failed phase leaves the
     /// original position untouched so walls and pinches remain ordinary slides.
     /// </summary>
-    private bool TryStepUp(Vector3 move)
+    /// <summary>
+    /// A FLIGHT of steps needs two looks, not one. The fixed body-scale advance (1.19 yd) that
+    /// certifies a lone curb lands three treads up a steep staircase — the Stormwind Trade
+    /// District shop steps, 0.45 yd risers on 0.35 yd treads — where the rise exceeds StepHeight
+    /// and the climb is refused, so the player had to jump every flight. Reported 2026-09-01.
+    /// The second look advances just past the blocking riser's edge onto its own tread.
+    /// </summary>
+    private bool TryStepUp(Vector3 move, float wallDistance = float.PositiveInfinity)
     {
         if (!Grounded || !HasGeometryCollision) return false;
-
         float travel = new Vector2(move.X, move.Y).Length();
         if (travel <= 1e-6f) return false;
+        _stepWallDistance = wallDistance;
+        float far = MathF.Max(travel, StepUpAdvance);
+        if (TryStepUpBy(move, far)) return true;
+        string farVerdict = _stepVerdict;
+        // Just past the riser's edge: the tread begins at the face, so the target centre only
+        // needs a small margin beyond it (the feet may overlap the edge; Position is then seated
+        // on the tread).
+        float near = MathF.Max(travel, wallDistance + MathF.Min(0.15f, _opts.Radius * 0.5f));
+        bool nearOk = float.IsFinite(wallDistance) && near < far - 1e-3f && TryStepUpBy(move, near);
+        if (!nearOk)
+        {
+            // Throttled diagnostic: what refused the climb, and the wall the sweep hit. This is
+            // the number a "won't step up this curb" report is about.
+            double now = Environment.TickCount64 / 1000.0;
+            if (now - _stepLogAt > 0.5)
+            {
+                _stepLogAt = now;
+                Console.WriteLine($"[step] refused at ({Position.X:F1},{Position.Y:F1},{Position.Z:F2}) wall={wallDistance:F2} " +
+                    $"far[{farVerdict}] near[{_stepVerdict}] block n=({LastBlockNormal.X:F2},{LastBlockNormal.Y:F2},{LastBlockNormal.Z:F2}) p.z={LastBlockPoint.Z:F2}");
+                // The surface profile ahead (benilla's `stup` scan): the collision floor under a
+                // down-ray every 0.1 yd along the input direction, as height above the feet.
+                Vector3 dir = new(move.X / travel, move.Y / travel, 0f);
+                var profile = new System.Text.StringBuilder("[step] profile ahead:");
+                for (int i = 0; i <= 16; i++)
+                {
+                    float d = i * 0.1f;
+                    Vector3 from = Position + dir * d + Vector3.UnitZ * 2.5f;
+                    string cell = RaycastGeometry(from, Down, 4f) is { } h
+                        ? $"{(from.Z - h.Distance - Position.Z):+0.00;-0.00}/{h.Normal.Z:F2}" : "--";
+                    profile.Append($" {d:F1}:{cell}");
+                }
+                Console.WriteLine(profile.ToString());
+            }
+        }
+        return nearOk;
+    }
 
+    private double _stepLogAt;
+    private string _stepVerdict = "";
+    private float _stepWallDistance = float.PositiveInfinity;
+
+    private bool TryStepUpBy(Vector3 move, float advance)
+    {
+        float travel = new Vector2(move.X, move.Y).Length();
         Vector3 direction = new(move.X / travel, move.Y / travel, 0f);
-        float advance = MathF.Max(travel, StepUpAdvance);
+        _stepVerdict = "";
 
         // Sweep the raised body before asking what floor lies below it. A point
         // ray alone can certify a tread through a wall or beneath a low lintel.
@@ -933,6 +982,13 @@ public sealed class CharacterController
             _opts.Height * 0.5f,
             _opts.Height * 0.9f,
         ];
+        // The raised sweep CLIPS the advance instead of refusing it (benilla mover::step_up:
+        // `fwd = cast(raised, dir * advance).map_or(advance, |h| h.distance)`). On a flight of
+        // steps the raised body meets the NEXT riser within the advance; refusing on that hit
+        // is what made every staircase a jump, since the far look always sees another riser.
+        // Advancing only as far as the free run and settling there lands on the tread in
+        // between — the atomic climb, one tread per frame.
+        float clipped = advance;
         foreach (float height in bodyBands)
         {
             Vector3 origin = Position +
@@ -940,22 +996,25 @@ public sealed class CharacterController
             if (RaycastGeometry(origin, direction, advance + _opts.Radius) is not { } hit)
                 continue;
             if (MathF.Abs(hit.Normal.Z) <= _minGroundZ)
-                return false;
+                clipped = MathF.Min(clipped, MathF.Max(0f, hit.Distance - _opts.Radius));
         }
+        if (clipped < 0.05f) { _stepVerdict = $"no-run advance={advance:F2} clipped={clipped:F2}"; return false; }
+        advance = clipped;
 
         Vector3 target = Position + direction * advance;
         Vector3 probe = target + Vector3.UnitZ * (_opts.StepHeight + GroundContactEpsilon);
         float settleReach = _opts.StepHeight +
                             advance * StepSlopeRatio + StepSnapSlack +
                             GroundContactEpsilon;
-        if (RaycastGeometry(probe, Down, settleReach) is not { } down ||
-            down.Normal.Z <= _minGroundZ)
-            return false;
+        if (RaycastGeometry(probe, Down, settleReach) is not { } down)
+        { _stepVerdict = $"no-floor advance={advance:F2} reach={settleReach:F2}"; return false; }
+        if (down.Normal.Z <= _minGroundZ)
+        { _stepVerdict = $"steep-floor advance={advance:F2} nz={down.Normal.Z:F2} dist={down.Distance:F2}"; return false; }
 
         float stepTop = probe.Z - down.Distance;
         float rise = stepTop - Position.Z;
         if (rise <= GroundContactEpsilon || rise > _opts.StepHeight)
-            return false;
+        { _stepVerdict = $"rise advance={advance:F2} rise={rise:F2}"; return false; }
 
         // The top of the capsule must be able to make the same rise. Probe the
         // centre and a footprint cross so an overhang cannot accept the feet and
@@ -983,10 +1042,21 @@ public sealed class CharacterController
                 Position.Z + _opts.Height - GroundContactEpsilon);
             if (RaycastGeometry(head, Vector3.UnitZ, rise + GroundContactEpsilon) is { } ceiling &&
                 ceiling.Distance < rise)
-                return false;
+            { _stepVerdict = $"headroom advance={advance:F2} rise={rise:F2} ceiling={ceiling.Distance:F2}"; return false; }
         }
 
-        Position = new Vector3(target.X, target.Y, stepTop);
+        // The climb is atomic for physics (one frame, no mid-riser state to be caught in) but
+        // the EYE eases: the render/camera height starts where the feet were and catches up over
+        // a few frames, so a flight of steps reads as walking up rather than a series of hops.
+        // COMMIT ONLY THIS FRAME'S TRAVEL. The probe advance certified the tread; it is not the
+        // move. Landing the body a full probe length forward was the "teleport up the stairs":
+        // a walk into a riser should lift you over the lip where you are and let the next frames
+        // walk on. The front of the footprint sits over the tread edge and the ground resolver's
+        // footprint support holds it there.
+        float commit = MathF.Min(advance, MathF.Max(travel,
+            (float.IsFinite(_stepWallDistance) ? _stepWallDistance : advance) - _opts.Radius * 0.7f + 0.02f));
+        Vector3 landed = Position + direction * MathF.Max(0f, commit);
+        Position = new Vector3(landed.X, landed.Y, stepTop);
         Velocity.Z = 0f;
         Grounded = true;
         return true;
