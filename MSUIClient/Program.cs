@@ -2165,7 +2165,9 @@ public sealed partial class GameLoop : IDisposable
         Vector3? cutawaySubject = FreeViewCutawaySubject();
         _wmo?.SetCutawaySubject(cutawaySubject, cutawaySubject is Vector3 cutXy
             ? _terrain?.SampleHeight(cutXy.X, cutXy.Y) : null);
-        _wmo?.SetCutPlaneSubject(CommandViewCutSubject(), Settings.Controls.CommandViewCutHeight);
+        Vector3? cutPlaneSubject = CommandViewCutSubject();
+        _wmo?.SetCutPlaneSubject(cutPlaneSubject, Settings.Controls.CommandViewCutHeight,
+            cutPlaneSubject is Vector3 cutFeet ? _terrain?.SampleHeight(cutFeet.X, cutFeet.Y) : null);
         _wmo?.UpdateCameraCell(portalEye, _terrain?.SampleHeight(portalEye.X, portalEye.Y));
         // The cut resolved by the cell update is one world-space rule shared by three renderers.
         WorldCut? activeCut = _wmo?.ActiveCut;
@@ -2177,6 +2179,16 @@ public sealed partial class GameLoop : IDisposable
             _doodads.SightTargets.Clear();
             CollectCommandViewSightTargets(_window.Camera.Position, _wmo.SightTargets);
             _doodads.SightTargets.AddRange(_wmo.SightTargets);
+            if (_terrain is not null)
+            {
+                // The terrain leg of the roof cut stops at the commanded unit's depth: the hill
+                // between the camera and the unit opens, the hill behind the unit stays, so the
+                // cut is never a window onto the world beyond (owner, 2026-09-02). Terrain gets
+                // no sight tunnels: the boom march keeps the camera-to-rig line above ground.
+                _terrain.CutMaxDistance = cutPlaneSubject is Vector3 cutSubject
+                    ? Vector3.Distance(cutSubject, _window.Camera.Position) + 6f
+                    : float.MaxValue;
+            }
             _doodads.CanopyCutHeight = Settings.Controls.CommandViewCutHeight;
         }
 
@@ -2442,10 +2454,15 @@ public sealed partial class GameLoop : IDisposable
     {
         var cam = _window.Camera;
 
-        // Command View: the rig is a ghost (FlyCollide is hard-false), so the boom is too. A
-        // boom that ducked trees behind the rig pushed the camera "in front" while panning, and
-        // with the cut plane up it ducked under a roof that is no longer in the picture.
-        if (!_config.Camera.Collision || _freeView)
+        // Command View: the rig is a ghost (FlyCollide is hard-false) and the boom ignores
+        // buildings and trees - a boom that ducked trees behind the rig pushed the camera "in
+        // front" while panning, and with the cut plane up it ducked under a roof that is no
+        // longer in the picture. TERRAIN still stops it (owner, 2026-09-02): a boom that put the
+        // eye inside a hillside turned the hill into a window onto the world beyond, because a
+        // height field has no inside to draw. The march below pulls the eye in along the boom
+        // until it clears the ground, so the rig stays framed and the shot simply tightens.
+        // A rig under the terrain (a cave) keeps the overhead exemption below.
+        if (!_config.Camera.Collision)
         {
             cam.EffectiveDistance = cam.Distance;
             return;
@@ -2456,7 +2473,7 @@ public sealed partial class GameLoop : IDisposable
         float clearance = _config.Camera.Clearance;
         float allowed = cam.Distance;
 
-        if (_collision is { IsEmpty: false })
+        if (!_freeView && _collision is { IsEmpty: false })
         {
             var hit = _collision.Raycast(eye, dir, cam.Distance + clearance);
             if (hit is not null) allowed = MathF.Min(allowed, hit.Value.Distance - clearance);

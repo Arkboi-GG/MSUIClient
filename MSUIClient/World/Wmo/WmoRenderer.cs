@@ -603,6 +603,8 @@ public sealed class WmoRenderer : IDisposable
     // ── Cut plane (Engine/WorldCut.cs) ──────────────────────────────────────────────────────
     private Vector3? _cutPlaneSubject;
     private float _cutPlaneHeight = 4.5f;
+    private float? _cutPlaneTerrainZ;                    // terrain under the subject, world Z
+    private const float CutPlaneMaxFeetDrop = 4.5f;      // probe is 1.5 yd over the feet; more is a storey below
     private (int InstanceId, HashSet<int> Groups)? _cutPlaneGroups;
     private readonly HashSet<GroupMesh> _cutPlaneMeshes = [];   // the opened cells, for the batch loop
     private const float CutPlaneReachYards = 35f;        // cells further than this stay roofed
@@ -628,9 +630,10 @@ public sealed class WmoRenderer : IDisposable
 
     /// <summary>Feed the commanded unit's feet (or null to switch the cut off) and the cut height
     /// above them, once per frame before <see cref="UpdateCameraCell"/>.</summary>
-    public void SetCutPlaneSubject(Vector3? feet, float height)
+    public void SetCutPlaneSubject(Vector3? feet, float height, float? terrainWorldZ = null)
     {
         _cutPlaneSubject = feet;
+        _cutPlaneTerrainZ = terrainWorldZ;
         _cutPlaneHeight = height;
     }
     private (int InstanceId, HashSet<int> Groups)? _cutaway;
@@ -683,6 +686,7 @@ public sealed class WmoRenderer : IDisposable
     /// Recomputed once per frame; read by the HUD and, later, by traversal.
     /// </summary>
     public CameraCell? CameraGroup { get; private set; }
+
 
     /// <summary>
     /// True when the camera is outdoors, or an exterior-flagged group is in the
@@ -826,8 +830,18 @@ public sealed class WmoRenderer : IDisposable
             {
                 if (!Matrix4x4.Invert(instance.Transform, out var inv)) continue;
                 var local = Vector3.Transform(probe, inv);
-                var seeds = FindCameraSeeds(instance.Model, local, null, out float drop, out _);
+                // Terrain under the feet, in the instance's space, so the seed search keeps its outside
+                // verdict. Without it a unit standing on the hill OVER the Deadmines dropped straight
+                // through the ground into cave1_19 and the cut sliced the hillside off, showing the
+                // world behind it (owner, 2026-09-02). The other two seed callers already pass this.
+                float? terrainLocalZ = _cutPlaneTerrainZ is float tz
+                    ? Vector3.Transform(new Vector3(probe.X, probe.Y, tz), inv).Z
+                    : null;
+                var seeds = FindCameraSeeds(instance.Model, local, terrainLocalZ, out float drop, out _);
                 if (seeds.Length == 0 || drop >= bestDrop) continue;
+                // The subject must STAND in the cell: a drop far beyond the probe height means the
+                // floor found is a storey (or a cave) below its feet, not the one it is on.
+                if (drop > CutPlaneMaxFeetDrop) { state = $"floor-too-far:{drop:0.#}"; continue; }
                 var seedGroup = instance.Model.Groups.FirstOrDefault(g => g.GroupIndex == seeds[0]);
                 // A true interior only: not a shell, and not an exterior-lit street cell (0x40) -
                 // Stormwind's streets are flagged interior too, and seeding or flooding through
