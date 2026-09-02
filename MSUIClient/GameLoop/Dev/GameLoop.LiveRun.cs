@@ -1,3 +1,4 @@
+using MSUIClient.World.Units;
 using System.Globalization;
 using System.Numerics;
 using System.Text.Json;
@@ -994,6 +995,45 @@ public sealed partial class GameLoop
                         _freecamSelection.Add(LocalPlayerGuid);
                         _rtsPrimaryGuid = LocalPlayerGuid;
                         if (!Settings.Controls.CommandViewLockOnPrimary) ToggleCommandViewLock();
+                    }
+                    if (p.Length > 1 && p[1] == "loot")
+                    {
+                        // Nearest dead lootable creature: does the hover pick find it at its own
+                        // screen point, what cursor would the law show, and does a loot request go?
+                        WorldEntity? corpse = null; float best = float.MaxValue;
+                        Vector3 me = _controller?.Position ?? Vector3.Zero;
+                        if (_entities.TryGet(LocalPlayerGuid, out WorldEntity selfUnit)) me = selfUnit.Position;
+                        foreach (WorldEntity u in _entities.Units)
+                        {
+                            if (!u.IsCreature || !u.IsDead) continue;
+                            float d = Vector3.DistanceSquared(u.Position, me);
+                            if (d < best) { best = d; corpse = u; }
+                        }
+                        string lootProbe;
+                        if (corpse is null) lootProbe = "no corpse";
+                        else
+                        {
+                            Vector2 vp = ImGuiNET.ImGui.GetIO().DisplaySize;
+                            bool onScreen = _window.Camera.TryProjectToScreen(corpse.Position + new Vector3(0f, 0f, 0.5f), vp, out Vector2 px, out _);
+                            ulong pickedAt = onScreen ? PickUnit(px) : 0;
+                            bool reach = CommandViewLootInReach(corpse);
+                            string poseInfo = "pose=none";
+                            if (_creatures?.TryGetSpellPose(corpse.Guid, out SpellUnitPose cp) == true)
+                            {
+                                var (o, d) = _window.Camera.ScreenPointToRay(px, _window.FramebufferSize) ?? (Vector3.Zero, Vector3.UnitZ);
+                                bool exact = TargetMeshPickLaw.TryPick(cp, o, d, false, out float he);
+                                bool infl = TargetMeshPickLaw.TryPick(cp, o, d, true, out float hi);
+                                poseInfo = $"pose=ok boundsR={cp.PickBoundsRadius:0.##} boundsC=({cp.PickBoundsCenter.X:0.#},{cp.PickBoundsCenter.Y:0.#},{cp.PickBoundsCenter.Z:0.#}) " +
+                                    $"exact={exact}/{he:0.#} inflated={infl}/{hi:0.#} verts={cp.Model?.Vertices.Count}";
+                            }
+                            lootProbe = poseInfo + " ";
+                            lootProbe += $"corpse=0x{corpse.Guid:X} lootable={corpse.Fields.Lootable} dist={MathF.Sqrt(best):0.##} " +
+                                $"onScreen={onScreen} px=({px.X:0},{px.Y:0}) pickedAt=0x{pickedAt:X} inReach={reach} " +
+                                $"selfPose={TryGetSessionBodyPose(out _)} requested={(corpse.Fields.Lootable && RequestLoot(corpse.Guid))}";
+                        }
+                        EmitInterface("cv-probe", "loot", "OK", _net?.PlayerGuid ?? 0, lootProbe);
+                        Log(true, $"{line} => {lootProbe}");
+                        break;
                     }
                     string lockInfo = "";
                     if (_entities.TryGet(RtsPrimaryGuid, out WorldEntity primaryUnit))

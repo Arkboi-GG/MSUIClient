@@ -1421,7 +1421,7 @@ public sealed partial class GameLoop
 
         bool cardNext = BindingPressedEdge(GameBinding.RtsCyclePrimaryNext, typing);
         bool cardPrevious = BindingPressedEdge(GameBinding.RtsCyclePrimaryPrevious, typing);
-        if (_freeView && (cardNext || cardPrevious) && (_freecamSelection.Count > 0 || CommandViewLocked))
+        if (_freeView && (cardNext || cardPrevious))
             CycleRtsPrimary(cardPrevious ? -1 : +1);
 
         if (BindingPressedEdge(GameBinding.RtsLockCameraPrimary, typing) && _freeView)
@@ -1468,6 +1468,8 @@ public sealed partial class GameLoop
         _window.FreeSelectMode = _freeView;
         if (!_freeView)
         {
+            SyncManualPrimary();              // hands the last primary back to its AI
+            _cvMirroredTarget = 0;
             _window.LookPitchLocked = false;
             _cvSmoothedTarget = null;         // next Command View starts on the rig, no glide-in
             _cvFollowGuid = 0;
@@ -1634,6 +1636,9 @@ public sealed partial class GameLoop
                 }
             }
         }
+        SyncManualPrimary();   // after the cam heartbeat: the server attaches your body's AI on it
+        UpdateCommandViewPendingLoot();
+        MirrorPrimaryTarget();
 
         bool leftDown = _window.MouseLeftDown;
         Vector2 mouse = _window.MousePosition;
@@ -1993,6 +1998,150 @@ public sealed partial class GameLoop
     private ulong _cvFollowGuid;                 // unit the lock is riding, 0 = not engaged
     private Vector3? _cvFollowRigLast;           // rig position the lock last wrote
 
+    // ── Command View order gate ───────────────────────────────────────────────────────────────
+    /// <summary>Furthest a move or waypoint may land from the primary (owner, 2026-09-02: "I
+    /// shouldn't be allowed to click anything that isn't somehow nearish me").</summary>
+    private const float CommandViewOrderReachYards = 40f;
+
+    /// <summary>
+    /// Whether a ground pick may become an order. Two refusals: too far from the primary, and a
+    /// roof - building or prop geometry more than a storey above the primary's feet that is not
+    /// part of the room the primary stands in. Terrain at any height stays orderable (hills), as
+    /// does anything inside the open room (its upper floor, its stairs).
+    /// </summary>
+    private bool CommandViewOrderPointAllowed(Vector3 point, bool onTerrain, out string refusal)
+    {
+        refusal = "";
+        ulong primary = RtsPrimaryGuid != 0 ? RtsPrimaryGuid : ControlledGuid;
+        if (primary == 0 || !_entities.TryGet(primary, out WorldEntity unit)) return true;
+        float dx = point.X - unit.Position.X, dy = point.Y - unit.Position.Y;
+        if (dx * dx + dy * dy > CommandViewOrderReachYards * CommandViewOrderReachYards)
+        {
+            refusal = $"Too far from {ResolveUnitName(primary)}.";
+            return false;
+        }
+        if (!onTerrain && point.Z > unit.Position.Z + 3.5f)
+        {
+            bool insideOwnRoom = _wmo?.ActiveCut is WorldCut c && c.Contains(point.X, point.Y);
+            if (!insideOwnRoom)
+            {
+                refusal = "Can't reach that.";
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // ── Command View target mirror ────────────────────────────────────────────────────────────
+    // The unit that fights is the primary, and its target lives server-side (UNIT_FIELD_TARGET);
+    // the client's selection is the commander's view. Casting a hotkey with no client selection
+    // failed "no target" while the primary was plainly swinging at something (owner, 2026-09-02).
+    // While the commander has not picked a target of his own, the primary's victim becomes it.
+    private ulong _cvMirroredTarget;
+
+    private void MirrorPrimaryTarget()
+    {
+        ulong primary = RtsPrimaryGuid != 0 ? RtsPrimaryGuid : ControlledGuid;
+        if (primary == 0 || !_entities.TryGet(primary, out WorldEntity unit)) return;
+        ulong served = unit.Fields.Target ?? 0;
+        if (served == 0 || served == primary || served == _selectionGuid) return;
+        if (_selectionGuid != 0 && _selectionGuid != _cvMirroredTarget) return;   // commander's own pick wins
+        if (!_entities.TryGet(served, out WorldEntity victim) || victim.IsDead) return;
+        CommitSelection(served, beginAttack: false);
+        _cvMirroredTarget = served;
+    }
+
+    // ── Command View loot-on-arrival ──────────────────────────────────────────────────────────
+    private ulong _cvPendingLootGuid;
+    private double _cvPendingLootAt;
+
+    private bool CommandViewLootInReach(WorldEntity corpse) =>
+        TryGetSessionBodyPose(out WorldBodyPose body) &&
+        _entities.TryGet(LocalPlayerGuid, out WorldEntity self) &&
+        Vector3.DistanceSquared(body.Position, corpse.Position) <=
+            WorldCursorUiLaw.UnitMeleeReachSquared(self.Fields.CombatReach, corpse.Fields.CombatReach);
+
+    /// <summary>A right-clicked corpse out of reach: the character was sent walking; open the
+    /// loot the moment it is close enough, or forget it after ten seconds.</summary>
+    private double _cvPendingLootNotBefore;
+    private int _cvPendingLootAttempts;
+
+    private void UpdateCommandViewPendingLoot()
+    {
+        if (_cvPendingLootGuid == 0) return;
+        double now = NowSeconds();
+        if (!_freeView || ControlledGuid != LocalPlayerGuid || now - _cvPendingLootAt > 15.0 ||
+            _cvPendingLootAttempts >= 8 ||
+            !_entities.TryGet(_cvPendingLootGuid, out WorldEntity corpse) || !corpse.IsDead ||
+            !corpse.Fields.Lootable)
+        {
+            _cvPendingLootGuid = 0;
+            return;
+        }
+        // The body is walked by a server spline the client only mirrors: ask once it has STOPPED
+        // beside the corpse, and keep asking on a short cadence until the loot opens - the first
+        // ask on arrival raced the server's own position and came back "too far away"
+        // (owner, 2026-09-02). The pending guid is cleared by ApplyLootResponse on success.
+        if (!CommandViewLootInReach(corpse)) return;
+        if (_entities.TryGet(LocalPlayerGuid, out WorldEntity self) && self.IsMoving) return;
+        if (now < _cvPendingLootNotBefore) return;
+        _cvPendingLootNotBefore = now + 0.5;
+        _cvPendingLootAttempts++;
+        RequestLoot(_cvPendingLootGuid);
+    }
+
+    // ── Manual primary (owner, 2026-09-01: "primary should always be user controlled") ────────
+    // The server bot brain that lets a unit take RTS orders also fought for it. ORDER_MANUAL
+    // stands that brain down for the primary selection; ORDER_AUTO hands a unit back the moment
+    // it stops being the primary. Re-sent every 3 s so an AI attached after the order (your own
+    // body gets one on free-view entry) hears it.
+    private const byte SuiOrderManual = 13;
+    private const byte SuiOrderAuto = 14;
+    private ulong _cvManualGuid;
+    private double _cvManualSentAt;
+
+    /// <summary>
+    /// Line-of-sight cut subjects: every selectable party unit alive and within range of the
+    /// camera, chest height, capped at the shader's segment count. Empty unless the Command View
+    /// is up and the toggle is on.
+    /// </summary>
+    private void CollectCommandViewSightTargets(Vector3 camera, List<Vector3> into)
+    {
+        if (!_freeView || !Settings.Controls.CommandViewSightCut) return;
+        float range2 = WorldCut.SightRangeYards * WorldCut.SightRangeYards;
+        foreach (ulong guid in FreeCamSelectableGuids())
+        {
+            if (into.Count >= WorldCut.MaxSightLines) break;
+            if (!_entities.TryGet(guid, out WorldEntity unit) || unit.IsDead) continue;
+            Vector3 chest = unit.Position + new Vector3(0f, 0f, 1.2f);
+            if (Vector3.DistanceSquared(chest, camera) > range2) continue;
+            into.Add(chest);
+        }
+    }
+
+    /// <summary>Tablet / options: flip whether the primary's AI fights for it.</summary>
+    private void ToggleCommandViewPrimaryAi()
+    {
+        Settings.Controls.CommandViewPrimaryAi = !Settings.Controls.CommandViewPrimaryAi;
+        _cvManualSentAt = 0;   // resend the order now
+        CommitSettings();
+    }
+
+    private void SyncManualPrimary()
+    {
+        if (_net is null) return;
+        ulong primary = _freeView && !Settings.Controls.CommandViewPrimaryAi
+            ? (RtsPrimaryGuid != 0 ? RtsPrimaryGuid : _cvFollowGuid) : 0;
+        double now = NowSeconds();
+        if (primary == _cvManualGuid && (primary == 0 || now - _cvManualSentAt < 3.0)) return;
+        if (_cvManualGuid != 0 && _cvManualGuid != primary && _entities.TryGet(_cvManualGuid, out _))
+            _net.SuiOrder(SuiOrderAuto, [_cvManualGuid], 0, 0f, 0f, 0f);
+        if (primary != 0)
+            _net.SuiOrder(SuiOrderManual, [primary], 0, 0f, 0f, 0f);
+        _cvManualGuid = primary;
+        _cvManualSentAt = now;
+    }
+
     /// <summary>The camera is riding the primary selection (setting on, free view up, a live primary).</summary>
     private bool CommandViewLocked =>
         _freeView && Settings.Controls.CommandViewLockOnPrimary && (_cvFollowGuid != 0 || RtsPrimaryGuid != 0);
@@ -2107,7 +2256,7 @@ public sealed partial class GameLoop
 
         float scale = GameplayUiScale();
         var io = ImGui.GetIO();
-        Vector2 size = new Vector2(AngleKnobWidth, AngleKnobHeight * (angleRow ? 2f : 1f)) * scale;
+        Vector2 size = new Vector2(AngleKnobWidth, AngleKnobHeight * (angleRow ? 3f : 2f)) * scale;
         ImGui.SetNextWindowPos(new Vector2(io.DisplaySize.X - 20f, io.DisplaySize.Y - 20f),
             ImGuiCond.Always, new Vector2(1f, 1f));
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
@@ -2152,9 +2301,29 @@ public sealed partial class GameLoop
                   "moves, A/D and the mouse orbit around it, the wheel zooms. Movement " +
                   "keys are parked until you release (Ctrl+L).");
         }
+        // Row 2: primary AI on/off.
+        {
+            float aiTop = min.Y + AngleKnobHeight * scale;
+            dl.AddLine(new Vector2(min.X + 6f * scale, aiTop), new Vector2(max.X - 6f * scale, aiTop),
+                PainterlyFrameOuter, rule);
+            bool aiOn = Settings.Controls.CommandViewPrimaryAi;
+            ImGui.SetCursorScreenPos(new Vector2(min.X, aiTop));
+            ImGui.InvisibleButton("##cv-primary-ai", new Vector2(size.X, AngleKnobHeight * scale));
+            if (ImGui.IsItemClicked()) ToggleCommandViewPrimaryAi();
+            bool aiHot = ImGui.IsItemHovered();
+            var aiPip = new Vector2(min.X + 16f * scale, aiTop + AngleKnobHeight * 0.5f * scale);
+            dl.AddCircleFilled(aiPip, 6f * scale,
+                aiOn ? PainterlyGoldLit : aiHot ? PainterlyGoldShade : PainterlyFrameInner);
+            dl.AddCircle(aiPip, 6f * scale, aiOn ? PainterlyFrameRule : PainterlyFrameOuter, 0, rule);
+            GameText.Draw(dl, "GameFontNormalSmall", aiOn ? "Primary AI: on" : "Primary AI: off (yours)",
+                new Vector2(min.X + 28f * scale, aiTop + 8f * scale), scale, aiOn ? PainterlyGoldLit : null);
+            if (aiHot) HoverTip(aiOn
+                ? "The primary's AI fights for it. Click: the primary does only what you order and press."
+                : "The primary is yours: it moves on orders and does nothing else until you press a key. Click: let its AI fight.");
+        }
         if (!angleRow) { ImGui.End(); return size.Y; }
 
-        float rowTop = min.Y + AngleKnobHeight * scale;
+        float rowTop = min.Y + AngleKnobHeight * 2f * scale;
         dl.AddLine(new Vector2(min.X + 6f * scale, rowTop), new Vector2(max.X - 6f * scale, rowTop),
             PainterlyFrameOuter, rule);
         GameText.Draw(dl, "GameFontNormalSmall", "View angle", new Vector2(min.X + 9f * scale, rowTop + 8f * scale), scale);
@@ -2449,6 +2618,31 @@ public sealed partial class GameLoop
         // Only while possessing: a plain commander (not driving anyone) keeps the
         // order behaviour below, because unpossessed the server would run the
         // interaction on your own logged-in character.
+        // Right-click on a lootable corpse (owner, 2026-09-02): loot it as your own character.
+        // In reach it opens now; out of reach the character walks there and the loot opens on
+        // arrival (RTS style), since loot is session-scoped and cannot be done "as a bot".
+        if (picked != 0 && !queue && ControlledGuid == LocalPlayerGuid &&
+            _entities.TryGet(picked, out WorldEntity lootCorpse) && lootCorpse.IsCreature &&
+            lootCorpse.IsDead && lootCorpse.Fields.Lootable)
+        {
+            if (CommandViewLootInReach(lootCorpse))
+            {
+                _cvPendingLootGuid = 0;
+                RequestLoot(picked);
+            }
+            else
+            {
+                _cvPendingLootGuid = picked;
+                _cvPendingLootAt = NowSeconds();
+                _cvPendingLootNotBefore = 0;
+                _cvPendingLootAttempts = 0;
+                _net?.SuiOrder(0 /* ORDER_MOVE */, [LocalPlayerGuid], 0,
+                    lootCorpse.Position.X, lootCorpse.Position.Y, lootCorpse.Position.Z);
+                _rtsMoveMarkers.Add((lootCorpse.Position, NowSeconds(), RtsNeutralTint));
+            }
+            return;
+        }
+
         if (_controlState == ControlState.Possessing && picked != 0 &&
             _entities.TryGet(picked, out WorldEntity svcNpc) && svcNpc.IsCreature &&
             !svcNpc.IsDead && WorldCursorServiceKind(svcNpc) is { } svcKind)
@@ -2494,8 +2688,13 @@ public sealed partial class GameLoop
                 AddChatMessage($"{OrderSubjectLabel(subjects)}: attack {ResolveWorldUnitName(picked)}!");
             }
         }
-        else if (TryPickGround(click.Position, out System.Numerics.Vector3 point))
+        else if (TryPickGround(click.Position, out System.Numerics.Vector3 point, out bool onTerrain))
         {
+            if (!CommandViewOrderPointAllowed(point, onTerrain, out string refusal))
+            {
+                ShowUiError(refusal);
+                return;
+            }
             ClearRtsAttackQueue();
             if (queue)
             {
@@ -2902,6 +3101,8 @@ public sealed partial class GameLoop
             ImGui.Text(CommandViewLaw.WheelIsVertical(guideScheme)
                 ? "Wheel: Raise/Lower Camera"
                 : "Wheel: Fly Toward/Away");
+            ImGui.Text($"{BindingHint(GameBinding.TargetNearestEnemy)}: Target Enemy   " +
+                $"{BindingHint(GameBinding.RtsCyclePrimaryNext)}: Next Primary");
             ImGui.Text(CommandViewLocked
                 ? $"{BindingHint(GameBinding.RtsLockCameraPrimary)}: Release Camera   " +
                   $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Orbit"

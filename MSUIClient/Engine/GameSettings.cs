@@ -925,6 +925,21 @@ public sealed class GameSettings
 
         /// <summary>Height of the cut above the commanded unit's feet, in yards.</summary>
         public float CommandViewCutHeight { get; set; } = 4.5f;
+
+        /// <summary>Line-of-sight cut (Engine/WorldCut.cs, SightLine): static geometry between the
+        /// camera and any party member is carved away so the party is never hidden behind a
+        /// roof, a tree or a wall. Toggle; on by default (owner, 2026-09-01).</summary>
+        public bool CommandViewSightCut { get; set; } = true;
+
+        /// <summary>Whether the primary selection's server AI keeps fighting for it. OFF means the
+        /// primary is yours alone: it moves on orders and does nothing else until you press a
+        /// key (ORDER_MANUAL). ON hands its actions back to the AI (ORDER_AUTO). Owner, 2026-09-01:
+        /// "primary should always be user controlled", then "on or off, as a toggle".</summary>
+        public bool CommandViewPrimaryAi { get; set; }
+
+        /// <summary>Auto Loot (the 2.0+ interface option, made the default here per owner
+        /// 2026-09-02): a right-click loot takes everything at once; Shift inverts it.</summary>
+        public bool AutoLoot { get; set; } = true;
     }
 
     /// <summary>

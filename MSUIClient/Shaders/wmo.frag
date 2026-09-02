@@ -19,6 +19,13 @@ in vec4 vColor;
 uniform int   uCutActive;
 uniform vec4  uCutRect;
 uniform float uCutZ;
+
+// Command View line-of-sight cut (Engine/WorldCut.cs): camera-relative segments from the eye
+// (origin) to each party member's chest. A fragment inside a tunnel around a segment, nearer
+// than the unit, is discarded; the tunnel tapers from uSightRadius.x at the eye to .y at the unit.
+uniform int   uSightCount;
+uniform vec3  uSightTo[8];
+uniform vec2  uSightRadius;
 uniform sampler2D uTexture;
 uniform int   uHasTexture;
 
@@ -103,6 +110,15 @@ void main()
     if (uCutActive == 1 && vWorldPos.z > uCutZ &&
         vWorldPos.x > uCutRect.x && vWorldPos.x < uCutRect.z &&
         vWorldPos.y > uCutRect.y && vWorldPos.y < uCutRect.w) discard;
+    for (int i = 0; i < uSightCount; i++)
+    {
+        vec3 b = uSightTo[i];
+        float len2 = max(dot(b, b), 1e-4);
+        float t = clamp(dot(vWorldPos, b) / len2, 0.0, 1.0);
+        if (t >= 0.985) continue;
+        float d = length(vWorldPos - b * t);
+        if (d < mix(uSightRadius.x, uSightRadius.y, t)) discard;
+    }
     vec4 albedo = uHasTexture == 1
         ? texture(uTexture, vUV)
         : vec4(0.62, 0.60, 0.56, 1.0);

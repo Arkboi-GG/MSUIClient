@@ -43,6 +43,23 @@ public sealed class DoodadRenderer : IDisposable
     /// Set by GameLoop from WmoRenderer.ActiveCut after the cell update.</summary>
     public WorldCut? Cut { get; set; }
 
+    /// <summary>World-space chest points of the party members the line-of-sight cut protects
+    /// (Engine/WorldCut.cs). Empty = no tunnels. Set by GameLoop once per frame.</summary>
+    public List<Vector3> SightTargets { get; } = [];
+
+    /// <summary>Canopy cut height above a party member's feet (the Command View cut height).</summary>
+    public float CanopyCutHeight { get; set; } = 4.5f;
+
+    private void SetSightUniforms(Vector3 cameraPosition)
+    {
+        int count = Math.Min(SightTargets.Count, WorldCut.MaxSightLines);
+        _shader.Set("uSightCount", count);
+        for (int i = 0; i < count; i++)
+            _shader.Set($"uSightTo[{i}]", SightTargets[i] - cameraPosition);
+        _shader.Set("uSightRadius", new Vector2(WorldCut.SightRadiusNear, WorldCut.SightRadiusFar));
+        _shader.Set("uCanopy", new Vector3(WorldCut.CanopyRadius, CanopyCutHeight, 1.2f));
+    }
+
     /// <summary>Position(3) + Normal(3) + UV(2).</summary>
     private const int FloatsPerVertex = 8;
 
@@ -2879,6 +2896,7 @@ public sealed class DoodadRenderer : IDisposable
         _shader.Set("uCutActive", Cut is not null ? 1 : 0);
         _shader.Set("uCutRect", Cut?.RelativeRect(camera.Position) ?? Vector4.Zero);
         _shader.Set("uCutZ", Cut?.RelativeZ(camera.Position) ?? 0f);
+        SetSightUniforms(camera.Position);
         // uUseInstancing is set per pass below (1 for RenderInstanced, 0 for the
         // per-instance GameObject-pose pass), not once for the whole frame.
         _shader.Set("uCameraPos", Vector3.Zero);

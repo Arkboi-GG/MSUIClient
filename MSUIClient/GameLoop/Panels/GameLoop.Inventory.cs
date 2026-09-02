@@ -2334,10 +2334,16 @@ public sealed partial class GameLoop
     private void DrawBagHoverCursor(string stem)
     {
         if (_gameplayArt is null) return;
-        if (TryUseHardwareCursor(stem)) return;
+        // Command View: software cursor only. The OS cursor is rebuilt on every stem change and
+        // a click-storm over the field (Point/Attack/Point...) produced a black square at the
+        // pointer and a sword that showed only half the time (owner, 2026-09-02). The drawn
+        // cursor is one frame behind and never wrong.
+        if (!_freeView && TryUseHardwareCursor(stem)) return;
         uint cursor = _gameplayArt.Handle($@"Interface\Cursor\{stem}");
         if (cursor == 0) return;
+        ImGui.GetIO().ConfigFlags &= ~ImGuiConfigFlags.NoMouseCursorChange;
         ImGui.SetMouseCursor(ImGuiMouseCursor.None);
+        if (_freeView) _window.RequestSoftwareCursor();
         Vector2 min = ImGui.GetIO().MousePos;
         float size = 32f * Math.Clamp(GameplayUiScale() * Settings.Display.CursorScale, .5f, 4f);
         ImGui.GetForegroundDrawList().AddImage((nint)cursor, min, min + new Vector2(size));

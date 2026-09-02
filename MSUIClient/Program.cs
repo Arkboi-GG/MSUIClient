@@ -2171,6 +2171,14 @@ public sealed partial class GameLoop : IDisposable
         WorldCut? activeCut = _wmo?.ActiveCut;
         if (_terrain is not null) _terrain.Cut = activeCut;
         if (_doodads is not null) _doodads.Cut = activeCut;
+        if (_wmo is not null && _doodads is not null)
+        {
+            _wmo.SightTargets.Clear();
+            _doodads.SightTargets.Clear();
+            CollectCommandViewSightTargets(_window.Camera.Position, _wmo.SightTargets);
+            _doodads.SightTargets.AddRange(_wmo.SightTargets);
+            _doodads.CanopyCutHeight = Settings.Controls.CommandViewCutHeight;
+        }
 
         bool weatherCameraInterior = _wmo?.CameraGroup is { IsExterior: false };
         bool weatherExteriorVisible = _wmo?.CameraExteriorPortalVisible ?? true;
