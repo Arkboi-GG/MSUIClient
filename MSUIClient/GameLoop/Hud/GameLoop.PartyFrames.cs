@@ -733,6 +733,9 @@ public sealed partial class GameLoop
         ImGui.InvisibleButton($"##party-member-hit-{index + 1}", frameSize,
             ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
         bool hovered = ImGui.IsItemHovered();
+        // The party frames are the surface hovercast exists for - healing without ever
+        // moving your target off the thing you are fighting.
+        NoteHovercastFrameHover(view.Member.Guid, hovered);
         if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
         {
             _partyPressIndex = index;
