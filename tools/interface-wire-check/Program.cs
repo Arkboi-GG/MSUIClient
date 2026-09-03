@@ -455,16 +455,24 @@ static void CheckOptionsSearch()
     Check(chat.Any(g => g.Page == OptionsSearchPage.Video &&
               g.Entries.Any(e => e.Label == "Unlock chat frame")),
         "options search cannot find 'Unlock chat frame' on the Video page");
+    // "quest helper" tokenizes to QUEST HELPER / QUEST / HELPER, so any page carrying a
+    // quest word answers it. That used to be AddOns alone, which is why this asserted a
+    // single group; the Interface page gained "Questing", "Auto track quests" and "Quest
+    // tracker" with quest tracking, and two groups is now the CORRECT result. The intent
+    // being guarded is that Quest Helper is reachable on the AddOns page, not that it is
+    // the only thing the query finds.
     OptionsSearchGroup[] questHelper = OptionsSearchUiLaw.Find("quest helper");
-    Check(questHelper.Length == 1 && questHelper[0].Page == OptionsSearchPage.AddOns &&
-          questHelper[0].Entries.Any(entry => entry.Label == "Quest Helper"),
+    Check(questHelper.Any(group => group.Page == OptionsSearchPage.AddOns &&
+              group.Entries.Any(entry => entry.Label == "Quest Helper")),
         "options search cannot find the native Quest Helper on the AddOns page");
+    // Same tokenization as above: the QUEST token also reaches the AddOns page's Quest
+    // Helper, so this query legitimately returns two groups. Assert reachability on the
+    // Interface page rather than exclusivity.
     OptionsSearchGroup[] automaticQuestTracking =
         OptionsSearchUiLaw.Find("automatic quest tracking");
-    Check(automaticQuestTracking.Length == 1 &&
-          automaticQuestTracking[0].Page == OptionsSearchPage.Interface &&
-          automaticQuestTracking[0].Entries.Any(entry =>
-              entry.Label == "Automatic Quest Tracking"),
+    Check(automaticQuestTracking.Any(group =>
+              group.Page == OptionsSearchPage.Interface &&
+              group.Entries.Any(entry => entry.Label == "Automatic Quest Tracking")),
         "options search cannot find Automatic Quest Tracking on the Interface page");
 
     // The Escape menu's layout gear must sit in the frame's INTERIOR. GameMenuFrame.xml declares
