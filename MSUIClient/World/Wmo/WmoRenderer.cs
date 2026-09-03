@@ -615,6 +615,11 @@ public sealed class WmoRenderer : IDisposable
     /// (Engine/WorldCut.cs). Empty = no tunnels. Set by GameLoop once per frame.</summary>
     public List<Vector3> SightTargets { get; } = [];
 
+    /// <summary>The Command View's camera-side slice around the primary (Engine/WorldCut.cs),
+    /// or null. Set by GameLoop once per frame after the cell update; only meaningful while
+    /// <see cref="ActiveCut"/> supplies the footprint.</summary>
+    public WorldSlice? Slice { get; set; }
+
     private void SetSightUniforms(Vector3 cameraPosition)
     {
         int count = Math.Min(SightTargets.Count, WorldCut.MaxSightLines);
@@ -622,6 +627,18 @@ public sealed class WmoRenderer : IDisposable
         for (int i = 0; i < count; i++)
             _shader.Set($"uSightTo[{i}]", SightTargets[i] - cameraPosition);
         _shader.Set("uSightRadius", new Vector2(WorldCut.SightRadiusNear, WorldCut.SightRadiusFar));
+        SetSliceUniforms(cameraPosition);
+    }
+
+    private void SetSliceUniforms(Vector3 cameraPosition)
+    {
+        _shader.Set("uSliceActive", Slice is not null ? 1 : 0);
+        if (Slice is not WorldSlice slice) return;
+        _shader.Set("uSliceDir", slice.Forward);
+        _shader.Set("uSliceDepth", slice.Depth);
+        _shader.Set("uSliceFloorZ", slice.RelativeFloorZ(cameraPosition));
+        _shader.Set("uSliceCentre", slice.RelativeCentre(cameraPosition));
+        _shader.Set("uSliceRadius", WorldSlice.Radius);
     }
 
     /// <summary>The interior cut resolved by the last <see cref="UpdateCameraCell"/>, or null.

@@ -50,6 +50,10 @@ public sealed class DoodadRenderer : IDisposable
     /// <summary>Canopy cut height above a party member's feet (the Command View cut height).</summary>
     public float CanopyCutHeight { get; set; } = 4.5f;
 
+    /// <summary>The Command View's camera-side slice around the primary (Engine/WorldCut.cs),
+    /// copied from WmoRenderer.Slice by GameLoop once per frame; null = off.</summary>
+    public WorldSlice? Slice { get; set; }
+
     private void SetSightUniforms(Vector3 cameraPosition)
     {
         int count = Math.Min(SightTargets.Count, WorldCut.MaxSightLines);
@@ -58,6 +62,14 @@ public sealed class DoodadRenderer : IDisposable
             _shader.Set($"uSightTo[{i}]", SightTargets[i] - cameraPosition);
         _shader.Set("uSightRadius", new Vector2(WorldCut.SightRadiusNear, WorldCut.SightRadiusFar));
         _shader.Set("uCanopy", new Vector3(WorldCut.CanopyRadius, CanopyCutHeight, 1.2f));
+
+        _shader.Set("uSliceActive", Slice is not null ? 1 : 0);
+        if (Slice is not WorldSlice slice) return;
+        _shader.Set("uSliceDir", slice.Forward);
+        _shader.Set("uSliceDepth", slice.Depth);
+        _shader.Set("uSliceFloorZ", slice.RelativeFloorZ(cameraPosition));
+        _shader.Set("uSliceCentre", slice.RelativeCentre(cameraPosition));
+        _shader.Set("uSliceRadius", WorldSlice.Radius);
     }
 
     /// <summary>Position(3) + Normal(3) + UV(2).</summary>

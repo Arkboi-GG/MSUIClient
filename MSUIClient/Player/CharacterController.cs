@@ -838,6 +838,8 @@ public sealed class CharacterController
         // contour nor its chunk fence may be projected downward into the room.
         bool IsProvenOverheadShell(in TerrainSurfaceSample surface) =>
             _underTerrainShell && surface.Height - Position.Z > UndergroundSlack;
+        bool IsWmoSupportedLip(in TerrainSurfaceSample surface, Vector2 point) =>
+            CollisionWalkwayDisplacesSteepTerrain(surface, point.X, point.Y);
         bool FenceActive(in TerrainSurfaceSample surface) =>
             !IsProvenOverheadShell(surface) && surface.Impassable &&
             Position.Z + _opts.Height >= surface.ChunkMinimumHeight - TerrainSkin;
@@ -880,6 +882,7 @@ public sealed class CharacterController
         TerrainSurfaceSample face = default;
         bool contact = false;
         if (haveTarget && !IsProvenOverheadShell(targetSurface) &&
+            !IsWmoSupportedLip(targetSurface, requested) &&
             targetSurface.Normal.Z < _minGroundZ &&
             Position.Z <= targetSurface.Height + TerrainSkin)
         {
@@ -887,6 +890,7 @@ public sealed class CharacterController
             contact = true;
         }
         else if (haveStart && !IsProvenOverheadShell(startSurface) &&
+                 !IsWmoSupportedLip(startSurface, start) &&
                  startSurface.Normal.Z < _minGroundZ &&
                  Position.Z <= startSurface.Height + TerrainSkin)
         {
@@ -907,6 +911,33 @@ public sealed class CharacterController
         LastBlockNormal = face.Normal;
         LastBlockTriangle = -1;
         LastBlockAgeSeconds = 0f;
+    }
+
+    /// <summary>
+    /// A walkable collision floor continuing beneath a steep ADT face proves
+    /// that the face is the lip/shell around an authored WMO entrance, not an
+    /// outdoor hillside the character is trying to climb.  This proof is local
+    /// to the requested footprint and deliberately requires a floor within the
+    /// ordinary step/snap band; a bridge somewhere below a mountain cannot
+    /// disable terrain collision from a distance.
+    /// </summary>
+    private bool CollisionWalkwayDisplacesSteepTerrain(
+        in TerrainSurfaceSample terrain, float worldX, float worldY)
+    {
+        if (!HasGeometryCollision || terrain.Normal.Z >= _minGroundZ)
+            return false;
+
+        float lift = MathF.Max(_opts.StepHeight, GroundContactEpsilon);
+        float depth = lift + _opts.GroundSnapDistance + GroundContactEpsilon;
+        Vector3 origin = new(worldX, worldY, Position.Z + lift);
+        if (RaycastGeometry(origin, Down, depth) is not { } hit ||
+            hit.Normal.Z <= _minGroundZ)
+            return false;
+
+        float floorZ = origin.Z - hit.Distance;
+        return floorZ >= Position.Z - _opts.GroundSnapDistance - TerrainSkin &&
+               floorZ <= Position.Z + _opts.StepHeight + TerrainSkin &&
+               terrain.Height > floorZ + TerrainSkin;
     }
 
     /// <summary>
@@ -1181,7 +1212,9 @@ public sealed class CharacterController
         else if (_underTerrainShell && sampledTerrainZ is not null && !terrainIsOverhead)
             _underTerrainShell = false;
 
-        bool ignoreTerrainShell = _underTerrainShell && terrainIsOverhead;
+        bool collisionWalkway = haveTerrain &&
+            CollisionWalkwayDisplacesSteepTerrain(terrainSurface, Position.X, Position.Y);
+        bool ignoreTerrainShell = (_underTerrainShell && terrainIsOverhead) || collisionWalkway;
 
         bool steepContact = haveTerrain && !ignoreTerrainShell &&
                             terrainSurface.Normal.Z < _minGroundZ &&
@@ -1194,7 +1227,9 @@ public sealed class CharacterController
             sampledTerrainZ = haveTerrain ? terrainSurface.Height : null;
             terrainIsOverhead = sampledTerrainZ is float movedSurface &&
                                 movedSurface - Position.Z > UndergroundSlack;
-            ignoreTerrainShell = _underTerrainShell && terrainIsOverhead;
+            collisionWalkway = haveTerrain &&
+                CollisionWalkwayDisplacesSteepTerrain(terrainSurface, Position.X, Position.Y);
+            ignoreTerrainShell = (_underTerrainShell && terrainIsOverhead) || collisionWalkway;
         }
 
         bool terrainSteep = haveTerrain && !ignoreTerrainShell &&

@@ -245,7 +245,7 @@ public sealed partial class GameLoop
         _auctionOpen || _mailOpen || _gossipMenu is not null || _gossipGreeting is not null ||
         QuestNpcPanelNow() != QuestNpcPanel.None ||
         _vendor is not null || _trainer is not null || _gameObjectGuid != 0 || _worldMapOpen ||
-        _commanderMapOpen || _rtsControlGroupCommandOpen ||
+        _commanderMapOpen || _rtsControlGroupCommandOpen || _companionsOpen ||
         _macroOpen || _helpOpen || _socialOpen || _guildOpen || _professionOpen || _bankOpen ||
         _tabardOpen || _taxiOpen && !_taxiLocked || _talentOpen || _questLogOpen ||
         _spellbookOpen || _characterOpen || _backpackOpen || _keyringOpen ||
@@ -263,6 +263,7 @@ public sealed partial class GameLoop
         if (CloseItemRefTooltip()) return true;
         if (_dressUpOpen) { CloseDressUp(); return true; }
         if (_rtsControlGroupCommandOpen) { _rtsControlGroupCommandOpen = false; return true; }
+        if (_companionsOpen) { _companionsOpen = false; return true; }
         if (_bindingCapture is not null) { _bindingCapture = null; return true; }
         if (_keybindingsOpen)
         {
@@ -2234,9 +2235,10 @@ public sealed partial class GameLoop
                     "How far above the commanded unit's feet the slice sits.");
                 Check("Cut what hides the party", () => s.Controls.CommandViewSightCut,
                     v => s.Controls.CommandViewSightCut = v,
-                    "Carve a tunnel through any building, roof, tree or prop standing" +
-                    " between the camera and a party member, so the party is never" +
-                    " hidden. Terrain is left alone. On by default.");
+                    "Carve through any building, roof, tree or prop between the camera" +
+                    " and the party, and open the camera side of the primary's building" +
+                    " down to a low plinth so a stairwell reads. Terrain is left alone." +
+                    " On by default.");
                 Check("Primary AI fights for it", () => s.Controls.CommandViewPrimaryAi,
                     v => { s.Controls.CommandViewPrimaryAi = v; _cvManualSentAt = 0; },
                     "Off: the primary selection is yours alone - it moves on orders and" +

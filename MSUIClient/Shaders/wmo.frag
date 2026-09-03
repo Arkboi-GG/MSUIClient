@@ -26,6 +26,17 @@ uniform float uCutZ;
 uniform int   uSightCount;
 uniform vec3  uSightTo[8];
 uniform vec2  uSightRadius;
+
+// Command View primary slice (Engine/WorldCut.cs, WorldSlice): inside the cut footprint, within
+// uSliceRadius of uSliceCentre (camera-relative XY), a fragment above uSliceFloorZ whose depth
+// along uSliceDir is less than uSliceDepth is discarded - the near half of a stairwell goes,
+// the floor and the far-side flight stay.
+uniform int   uSliceActive;
+uniform vec3  uSliceDir;
+uniform float uSliceDepth;
+uniform float uSliceFloorZ;
+uniform vec2  uSliceCentre;
+uniform float uSliceRadius;
 uniform sampler2D uTexture;
 uniform int   uHasTexture;
 
@@ -107,9 +118,20 @@ out vec4 FragColor;
 
 void main()
 {
-    if (uCutActive == 1 && vWorldPos.z > uCutZ &&
+    if (uCutActive == 1 &&
         vWorldPos.x > uCutRect.x && vWorldPos.x < uCutRect.z &&
-        vWorldPos.y > uCutRect.y && vWorldPos.y < uCutRect.w) discard;
+        vWorldPos.y > uCutRect.y && vWorldPos.y < uCutRect.w)
+    {
+        // Roof plane: everything above the cut height.
+        if (vWorldPos.z > uCutZ) discard;
+        // Primary slice: everything on the camera side of the primary, above its plinth.
+        if (uSliceActive == 1 && vWorldPos.z > uSliceFloorZ &&
+            dot(vWorldPos, uSliceDir) < uSliceDepth)
+        {
+            vec2 sliceFlat = vWorldPos.xy - uSliceCentre;
+            if (dot(sliceFlat, sliceFlat) < uSliceRadius * uSliceRadius) discard;
+        }
+    }
     for (int i = 0; i < uSightCount; i++)
     {
         vec3 b = uSightTo[i];

@@ -1411,6 +1411,13 @@ public sealed partial class GameLoop
             else OpenStableForTarget();
             return true;
         }
+        if (command is "/companions" or "/comp")
+        {
+            // Companions (COMPANIONS v1): summon/dismiss the account's own alts as
+            // AI party members. Toggle the window; opening it pulls a fresh list.
+            ToggleCompanionsPanel();
+            return true;
+        }
         if (ChatChannelLaw.TryResolveAdmin(_chatChannels, command, args, out var channelAdmin))
         {
             if (channelAdmin.Channel.Length > 0)

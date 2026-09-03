@@ -1671,6 +1671,12 @@ if (args.Contains("--party-quest-acts-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--companions-only", StringComparer.Ordinal))
+{
+    CompanionClinicalChecks.Run();
+    return;
+}
+
 if (args.Contains("--rts-ability-target-only", StringComparer.Ordinal))
 {
     string data = Path.Combine(ClientConfig.FindRepoRoot(), "GameData", "Data");
@@ -3317,7 +3323,11 @@ Check(WorldSession.BuildAuctionBidBody(trainerGuid, 7, 123)
       .SequenceEqual(Convert.FromHexString("0100008F030030F1070000007B000000")), "auction bid body");
 Check(WorldSession.BuildAuctionSellBody(trainerGuid, 9, 100, 200, 720).Length == 28,
       "auction sell fixed body");
-var browseReader = new PacketReader(WorldSession.BuildAuctionBrowseBody(trainerGuid, 50, "Sword"));
+// BuildAuctionBrowseBody takes the typed query now; the fixture keeps the same
+// row-offset / search / no-filter values the old positional call expressed.
+var browseReader = new PacketReader(WorldSession.BuildAuctionBrowseBody(trainerGuid,
+    new AuctionBrowseQuery(50, "Sword", 0, 0, AuctionBrowseQuery.Any, AuctionBrowseQuery.Any,
+        AuctionBrowseQuery.Any, 0, false)));
 Check(browseReader.ReadU64() == trainerGuid && browseReader.ReadU32() == 50 && browseReader.ReadCString() == "Sword" &&
       browseReader.ReadU8() == 0 && browseReader.ReadU8() == 0 && browseReader.ReadU32() == uint.MaxValue,
       "auction browse page/search/filter order");
@@ -4640,6 +4650,7 @@ PartyQuestActsClinicalChecks.Run();
 PartyGiverStatusClinicalChecks.Run();
 PartyLeadClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
+CompanionClinicalChecks.Run();
 // The ImGui-widget ratchet only ratchets if the DEFAULT run enforces it; behind
 // --imgui-policy-only alone, an enrolled panel could regress unnoticed.
 GameplayImguiPolicyClinicalChecks.Run();

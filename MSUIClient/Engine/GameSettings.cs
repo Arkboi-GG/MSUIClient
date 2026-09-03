@@ -931,6 +931,11 @@ public sealed class GameSettings
         /// roof, a tree or a wall. Toggle; on by default (owner, 2026-09-01).</summary>
         public bool CommandViewSightCut { get; set; } = true;
 
+        /// <summary>Commander Guide panel width in logical px, set by dragging its left edge.
+        /// 0 = size to the longest line. Clamped at draw time between the content width and
+        /// the screen centre (owner, 2026-09-02).</summary>
+        public float CommandViewGuideWidth { get; set; }
+
         /// <summary>Whether the primary selection's server AI keeps fighting for it. OFF means the
         /// primary is yours alone: it moves on orders and does nothing else until you press a
         /// key (ORDER_MANUAL). ON hands its actions back to the AI (ORDER_AUTO). Owner, 2026-09-01:

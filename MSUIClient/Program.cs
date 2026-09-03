@@ -2165,7 +2165,8 @@ public sealed partial class GameLoop : IDisposable
         Vector3? cutawaySubject = FreeViewCutawaySubject();
         _wmo?.SetCutawaySubject(cutawaySubject, cutawaySubject is Vector3 cutXy
             ? _terrain?.SampleHeight(cutXy.X, cutXy.Y) : null);
-        Vector3? cutPlaneSubject = CommandViewCutSubject();
+        Vector3? primarySubject = CommandViewPrimarySubject();
+        Vector3? cutPlaneSubject = Settings.Controls.CommandViewCutPlane ? primarySubject : null;
         _wmo?.SetCutPlaneSubject(cutPlaneSubject, Settings.Controls.CommandViewCutHeight,
             cutPlaneSubject is Vector3 cutFeet ? _terrain?.SampleHeight(cutFeet.X, cutFeet.Y) : null);
         _wmo?.UpdateCameraCell(portalEye, _terrain?.SampleHeight(portalEye.X, portalEye.Y));
@@ -2179,6 +2180,13 @@ public sealed partial class GameLoop : IDisposable
             _doodads.SightTargets.Clear();
             CollectCommandViewSightTargets(_window.Camera.Position, _wmo.SightTargets);
             _doodads.SightTargets.AddRange(_wmo.SightTargets);
+            // The camera-side slice around the primary (WorldSlice): part of "Cut what hides the
+            // party", and it needs the roof cut's footprint, so it is off whenever that is.
+            _wmo.Slice = activeCut is not null && Settings.Controls.CommandViewSightCut &&
+                primarySubject is Vector3 sliceFeet
+                    ? WorldSlice.From(_window.Camera.Position, _window.Camera.Forward, sliceFeet)
+                    : null;
+            _doodads.Slice = _wmo.Slice;
             if (_terrain is not null)
             {
                 // The terrain leg of the roof cut stops at the commanded unit's depth: the hill

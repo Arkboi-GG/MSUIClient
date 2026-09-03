@@ -51,6 +51,14 @@ uniform float uCutZ;
 uniform int   uSightCount;
 uniform vec3  uSightTo[8];
 uniform vec2  uSightRadius;
+// Command View primary slice (Engine/WorldCut.cs, WorldSlice) - see wmo.frag; props on the
+// near half of a stairwell go with the treads they stand on.
+uniform int   uSliceActive;
+uniform vec3  uSliceDir;
+uniform float uSliceDepth;
+uniform float uSliceFloorZ;
+uniform vec2  uSliceCentre;
+uniform float uSliceRadius;
 // Canopy cut: uCanopy.xy = radius / height above the feet; feet are uSightTo minus the chest lift.
 uniform vec3  uCanopy;      // x = radius, y = cut height above feet, z = chest lift
 uniform vec3  uCameraPos;
@@ -136,9 +144,18 @@ out vec4 FragColor;
 
 void main()
 {
-    if (uCutActive == 1 && vWorldPos.z > uCutZ &&
+    if (uCutActive == 1 &&
         vWorldPos.x > uCutRect.x && vWorldPos.x < uCutRect.z &&
-        vWorldPos.y > uCutRect.y && vWorldPos.y < uCutRect.w) discard;
+        vWorldPos.y > uCutRect.y && vWorldPos.y < uCutRect.w)
+    {
+        if (vWorldPos.z > uCutZ) discard;
+        if (uSliceActive == 1 && vWorldPos.z > uSliceFloorZ &&
+            dot(vWorldPos, uSliceDir) < uSliceDepth)
+        {
+            vec2 sliceFlat = vWorldPos.xy - uSliceCentre;
+            if (dot(sliceFlat, sliceFlat) < uSliceRadius * uSliceRadius) discard;
+        }
+    }
     for (int i = 0; i < uSightCount; i++)
     {
         vec3 b = uSightTo[i];
