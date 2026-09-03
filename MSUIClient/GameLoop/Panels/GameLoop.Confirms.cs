@@ -183,6 +183,17 @@ public sealed partial class GameLoop
             ApplyCommandViewNpcChoice(effect.Kind);
             return;
         }
+        if (effect.Type == ConfirmPopupUiLaw.DisableControlGuidePopupType)
+        {
+            // Only an explicit Disable turns the guide off; Escape, Cancel and an override all
+            // leave it as it was.
+            if (effect.Kind == StaticPopupCoordinatorLaw.EffectKind.Accept)
+            {
+                _enableControlGuide = false;
+                _showControlGuide = false;
+            }
+            return;
+        }
         bool summon = effect.Type == ConfirmPopupUiLaw.SummonPopupType;
         if (effect.Type == ConfirmPopupUiLaw.ReadyCheckPopupType)
         {
@@ -237,6 +248,7 @@ public sealed partial class GameLoop
         DrawConfirmPopup(ConfirmPopupUiLaw.QuestAcceptPopupType);
         DrawConfirmPopup(ConfirmPopupUiLaw.ReadyCheckPopupType);
         DrawConfirmPopup(ConfirmPopupUiLaw.GiverChoicePopupType);
+        DrawConfirmPopup(ConfirmPopupUiLaw.DisableControlGuidePopupType);
         DrawLootMasterMenu();
     }
 
@@ -256,6 +268,7 @@ public sealed partial class GameLoop
             ConfirmPopupUiLaw.ReadyCheckPopupType => ReadyCheckPromptText(),
             ConfirmPopupUiLaw.GiverChoicePopupType => ConfirmPopupUiLaw.GiverChoiceText(
                 ResolveWorldUnitName(_cvGiverChoiceGuid), _cvGiverChoiceOptions),
+            ConfirmPopupUiLaw.DisableControlGuidePopupType => ConfirmPopupUiLaw.DisableControlGuideText,
             _ => QuestConfirmPromptText(),
         };
         (string acceptCaption, string declineCaption) = ConfirmPopupUiLaw.Captions(type);

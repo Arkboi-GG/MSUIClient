@@ -166,8 +166,14 @@ public sealed partial class GameLoop
         // may seed the display flood without changing the zone-text room.
         UpdateMinimapArea(projection, _minimapAreaInterior);
 
-        Vector2 guideTabMin = new(mapMin.X + 4f * s, mapMax.Y - 26f * s);
-        Vector2 guideTabMax = guideTabMin + new Vector2(66f, 22f) * s;
+        // Command View: a GUIDE tab mortised into the square map's lower-left edge. Body play:
+        // a CONTROL GUIDE tab hung under the round map, in the band the open guide occupies
+        // (GameLoop.Control.cs, ControlGuideBodyTop) - never an ImGui button over the bars.
+        Vector2 guideTabSize = ControlGuideMinimapTabSize(s);
+        Vector2 guideTabMin = _freeView
+            ? new(mapMin.X + 4f * s, mapMax.Y - 26f * s)
+            : (root + new Vector2((192f - ControlGuideBodyTabWidth) * .5f, 194f)) * s;
+        Vector2 guideTabMax = guideTabMin + guideTabSize;
         bool guideTabHovered = ControlGuideMinimapTabVisible &&
             ImGui.IsMouseHoveringRect(guideTabMin, guideTabMax, false);
         if (ImGui.IsMouseHoveringRect(mapMin, mapMax, false) && !guideTabHovered)
@@ -294,29 +300,38 @@ public sealed partial class GameLoop
         }
     }
 
-    /// <summary>The hidden Commander Guide restores from a small tab mortised into the minimap's
-    /// lower-left edge. It remains available when the map body is collapsed, where its caller
-    /// places it immediately below the surviving zone strip.</summary>
+    /// <summary>The hidden guide restores from a small vanilla tab on the minimap: "GUIDE"
+    /// mortised into the square map's lower-left edge in the Command View, "CONTROL GUIDE"
+    /// hung under the round map in body play while a body is driven. It remains available when
+    /// the map body is collapsed, where its caller places it immediately below the surviving
+    /// zone strip. Owner 2026-09-03: the ImGui restore button over the action bars is gone.</summary>
     private bool ControlGuideMinimapTabVisible =>
-        _freeView && _enableControlGuide && !_showControlGuide;
+        ControlGuideApplies && _enableControlGuide && !_showControlGuide;
+
+    private const float ControlGuideBodyTabWidth = 110f;
+
+    private Vector2 ControlGuideMinimapTabSize(float s) =>
+        new Vector2(_freeView ? 66f : ControlGuideBodyTabWidth, 22f) * s;
 
     private void DrawControlGuideMinimapTab(ImDrawListPtr dl, Vector2 min, float s)
     {
         if (!ControlGuideMinimapTabVisible) return;
 
-        Vector2 size = new Vector2(66f, 22f) * s;
+        Vector2 size = ControlGuideMinimapTabSize(s);
         Vector2 max = min + size;
         bool hovered = ImGui.IsMouseHoveringRect(min, max, false);
         DrawRtsConsoleBackdrop(dl, min, max, s);
         if (hovered)
             dl.AddRect(min + new Vector2(3f) * s, max - new Vector2(3f) * s,
                 PainterlyGoldLit, 0f, ImDrawFlags.None, MathF.Max(1f, s));
-        GameText.DrawCentered(dl, "GameFontNormalSmall", "GUIDE", (min + max) * .5f, s,
-            hovered ? PainterlyGoldLit : PainterlyFrameRule);
+        GameText.DrawCentered(dl, "GameFontNormalSmall", _freeView ? "GUIDE" : "CONTROL GUIDE",
+            (min + max) * .5f, s, hovered ? PainterlyGoldLit : PainterlyFrameRule);
 
         if (!hovered) return;
         OfferPreservedSharedGameTooltipRenderer(new("commander-guide", 1),
-            () => HoverTip("Commander Guide\nShow Command View controls"));
+            () => HoverTip(_freeView
+                ? "Commander Guide\nShow Command View controls"
+                : "Control Guide\nShow direct-control keys"));
         if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
             _showControlGuide = true;
     }

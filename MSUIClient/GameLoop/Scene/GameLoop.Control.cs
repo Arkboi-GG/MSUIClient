@@ -3315,16 +3315,22 @@ public sealed partial class GameLoop
         }
     }
 
+    /// <summary>Body-play seat of the control guide: just under the 192-tall minimap cluster.
+    /// The minimap's restore tab for a hidden guide hangs in the same band.</summary>
+    private const float ControlGuideBodyTop = 200f;
+
+    /// <summary>The control guide has something to say: the Command View is up, or a body
+    /// other than your own is (about to be) driven. Shared with the minimap's restore tab.</summary>
+    private bool ControlGuideApplies =>
+        _freeView ||
+        _controlState == ControlState.Possessing ||
+        _controlState == ControlState.PossessPending ||
+        _controlState == ControlState.ReleasePending;
+
     // RTS Control Guide Overlay
     private void DrawControlBanner()
     {
-
-        bool shouldShow = _freeView ||
-            _controlState == ControlState.Possessing ||
-            _controlState == ControlState.PossessPending ||
-            _controlState == ControlState.ReleasePending;
-
-        if (!shouldShow)
+        if (!ControlGuideApplies)
             return;
 
         DrawRtsControlGroups();
@@ -3338,37 +3344,13 @@ public sealed partial class GameLoop
             return;
 
         var io = ImGui.GetIO();
-        float guideBottom = io.DisplaySize.Y - 20 - (knobHeight > 0f ? knobHeight + 8f : 0f);
 
-        // Collapsed state
+        // Collapsed state: the restore affordance is a vanilla tab on the minimap in BOTH
+        // views (GameLoop.Minimap.cs, DrawControlGuideMinimapTab) - mortised into the square
+        // map's lower-left edge in the Command View, hung under the round map in body play.
+        // Owner 2026-09-03: no ImGui button floating over the action bars when Hide is pressed.
         if (!_showControlGuide)
-        {
-            // Commander View owns a permanent minimap dock. Its lower-left GUIDE tab is the
-            // restore affordance, so hiding this panel does not leave a loose ImGui button
-            // floating over the lock/AI tablet. Possessed play has no such dock and keeps the
-            // compact fallback below.
-            if (_freeView)
-                return;
-
-            ImGui.SetNextWindowPos(
-                new Vector2(
-                    io.DisplaySize.X - 20,
-                    guideBottom),
-                ImGuiCond.Always,
-                new Vector2(1f, 1f));
-
-            ImGui.Begin("RTS Control Guide Toggle",
-                ImGuiWindowFlags.NoDecoration |
-                ImGuiWindowFlags.AlwaysAutoResize |
-                ImGuiWindowFlags.NoMove);
-
-            if (ImGui.Button("Control Guide"))
-                _showControlGuide = true;
-
-            ImGui.End();
-
             return;
-        }
 
 
         // Expanded state: fixed carved furniture instead of ImGui's default debug-window skin.
@@ -3396,14 +3378,17 @@ public sealed partial class GameLoop
         }
         else
             guideSize = new Vector2(330f, 112f) * scale;
-        // Authored stacked above the camera tablet when that is drawn, else in the tablet's
-        // corner - but its OWN frame in the layout registry (owner, 2026-09-03: the guide is
-        // moved on its own, it does not ride the tablet).
+        // Two authored placements of one registered frame. Body play: under the minimap, top
+        // right, clear of the action bars and bags it used to cover when a Ctrl+Tab brought it
+        // up (owner, 2026-09-03). Command View: stacked above the camera tablet when that is
+        // drawn, else in the tablet's corner - its OWN frame in the layout registry (owner,
+        // 2026-09-03: the guide is moved on its own, it does not ride the tablet).
         float guideLift = knobHeight > 0f ? knobHeight / scale + 8f : 0f;
         HudFrameResult guide = HudFrame("control-guide",
             _freeView ? "Commander guide" : "Control guide",
-            HudPlacement.At(HudAnchor.BottomRight, -20f, -20f - guideLift),
-            guideSize / scale);
+            HudPlacement.At(HudAnchor.TopRight, -8f, ControlGuideBodyTop),
+            guideSize / scale,
+            authoredCommand: HudPlacement.At(HudAnchor.BottomRight, -20f, -20f - guideLift));
         if (guide.Hidden) return;   // hidden in the active HUD layout (Edit Mode's Hide)
         ImGui.SetNextWindowPos(guide.ScreenMin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(guideSize, ImGuiCond.Always);
@@ -3438,38 +3423,15 @@ public sealed partial class GameLoop
                 new Vector2(guideMax.X - 124f * scale, guideMin.Y + 6f * scale),
                 new Vector2(48f, 20f), scale))
             _showControlGuide = false;
+        // Disable asks through the stock StaticPopup (GameLoop.Confirms.cs answers it), not an
+        // ImGui modal - owner 2026-09-03, same rule as the restore tab.
         if (VanillaButton(guideDraw, "##control-guide-disable", "Disable",
                 new Vector2(guideMax.X - 70f * scale, guideMin.Y + 6f * scale),
                 new Vector2(62f, 20f), scale))
-            ImGui.OpenPopup("Disable Control Guide Confirmation");
-
-
-        bool disablePopupOpen = true;
-
-        if (ImGui.BeginPopupModal(
-            "Disable Control Guide Confirmation",
-            ref disablePopupOpen,
-            ImGuiWindowFlags.AlwaysAutoResize))
         {
-            ImGui.Text("Disable the Control Guide completely?");
-            ImGui.Text("You will not see this guide again unless re-enabled.");
-
-            ImGui.Separator();
-
-            if (ImGui.Button("Yes, Disable"))
-            {
-                _enableControlGuide = false;
-                ImGui.CloseCurrentPopup();
-            }
-
-            ImGui.SameLine();
-
-            if (ImGui.Button("Cancel"))
-            {
-                ImGui.CloseCurrentPopup();
-            }
-
-            ImGui.EndPopup();
+            bool dead = _entities.TryGet(ControlledGuid, out WorldEntity guidePlayer) && guidePlayer.IsDead;
+            ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(
+                _staticPopupSlots, ConfirmPopupUiLaw.DisableControlGuideDefinition, dead));
         }
 
 

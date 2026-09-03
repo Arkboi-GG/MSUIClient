@@ -56,13 +56,55 @@ public static class KeyBindingsUiLaw
     /// instead of trusting the scale. Found by audit, 2026-08-26.
     /// </summary>
     public static Vector2 WindowOrigin(float logicalDisplayWidth, float logicalDisplayHeight)
+        => WindowOrigin(logicalDisplayWidth, logicalDisplayHeight, 0f);
+
+    /// <summary>Centred on the WIDENED frame (see <see cref="ClampExtraWidth"/>).</summary>
+    public static Vector2 WindowOrigin(float logicalDisplayWidth, float logicalDisplayHeight, float extra)
     {
-        float x = MathF.Max(0f, (logicalDisplayWidth - FrameSize.X) * 0.5f);
+        float x = MathF.Max(0f, (logicalDisplayWidth - FrameSizeWith(extra).X) * 0.5f);
         float y = float.IsFinite(logicalDisplayHeight)
             ? Math.Clamp(FrameTop, 0f, MathF.Max(0f, logicalDisplayHeight - FrameSize.Y))
             : FrameTop;
         return new Vector2(x, y);
     }
+
+    // -- MSUI: a wider frame ---------------------------------------------------------------
+    // Vanilla's 640-wide frame gives the command column 175 px, which MSUI's longer commander
+    // rows outgrow (owner, 2026-09-03: "needs to be wider / resizeable"). The frame may be
+    // widened by dragging its right border; EVERY extra pixel goes to the command column, so
+    // the key columns, the scroll bar, the right-hand art slices and the right-anchored footer
+    // buttons all shift right by the same amount and the art's carved scroll slot stays under
+    // the bar. The gap between the Top/Bot slices and the TopRight/BotRight slices is filled
+    // by the middle half of Top/Bot (their interior stone), stretched.
+    public const float MaxExtraWidth = 640f;
+
+    public static float ClampExtraWidth(float requested, float logicalDisplayWidth)
+    {
+        float room = MathF.Max(0f, logicalDisplayWidth - FrameSize.X);
+        float ceiling = MathF.Min(MaxExtraWidth, room);
+        return float.IsFinite(requested) ? Math.Clamp(requested, 0f, ceiling) : 0f;
+    }
+
+    public static Vector2 FrameSizeWith(float extra) => FrameSize + new Vector2(extra, 0f);
+    public static Vector2 RightShift(float extra) => new(extra, 0f);
+    /// <summary>Width the command label may use before it is ellipsized (a 4 px gutter).</summary>
+    public static float CommandColumnWidth(float extra) => PrimaryKey.X - 4f + extra;
+    /// <summary>The drag handle: the frame's right border band, full interior height.</summary>
+    public static Rect ResizeGrip(float extra) => new(VisibleRightEdge - 14f + extra, 53f, 14f, 390f);
+    /// <summary>The hover rule drawn along the grip: 4 px inside its right edge, 8 px shy of
+    /// both ends (screen pixels in, screen pixels out).</summary>
+    public static (Vector2 A, Vector2 B) ResizeGripRule(Vector2 gripMin, Vector2 gripMax, float scale)
+    {
+        float x = gripMax.X - 4f * scale;
+        return (new Vector2(x, gripMin.Y + 8f * scale), new Vector2(x, gripMax.Y - 8f * scale));
+    }
+    /// <summary>The stretched interior strips that fill the widened gap (logical rects; empty at 0).</summary>
+    public static Rect StretchTop(float extra) => new(512f, 0f, extra, 256f);
+    public static Rect StretchBottom(float extra) => new(512f, 256f, extra, 256f);
+    public static Vector2 StretchUv0 => new(0.25f, 0f);
+    public static Vector2 StretchUv1 => new(0.75f, 1f);
+    /// <summary>Art slices anchored to the frame's RIGHT edge (they move with the extra width).</summary>
+    public static bool ArtIsRightAnchored(ArtSlice slice) => slice.Offset.X >= 512f;
 
     public static Vector2 TitleCenter => new(320, 26);
     // MSUI adds a search box and a character-specific toggle that vanilla has no room for, so
@@ -84,10 +126,15 @@ public static class KeyBindingsUiLaw
     public static Vector2 CommandTextOffset => new(0, 6.5f);
     public static Rect PrimaryKey => new(175, 1, 180, 22);
     public static Rect SecondaryKey => new(355, 1, 180, 22);
-    // Scroll frame right edge is 562 (2 + 560); UIPanelScrollFrameTemplate hangs the bar at
-    // TOPRIGHT +6 with width 16, so 568..584 - on the border decoration, inside the artwork.
-    public static Vector2 ScrollMinimum => new(568, 104);
-    public const float ScrollHeight = 345f;
+    // KeyBindingFrame.xml: KeyBindingFrameScrollFrame (FauxScrollFrameTemplate) is TOPLEFT
+    // (2,-53), 560x390, so its right edge is 562 and it spans y 53..443. UIPanelScrollFrameTemplate
+    // hangs the bar at TOPRIGHT +(6,-16) / BOTTOMRIGHT +(6,16), width 16, with the up button
+    // anchored BOTTOM to the bar's TOP and the down button TOP to its BOTTOM: so the up button
+    // sits flush at y 53, the down button ends at 443, x 568..584 - the carved slot in the
+    // TopRight/BotRight art. It had been seated on MSUI's row band (104, 345 tall) instead,
+    // which left the arrows floating mid-slot (owner, 2026-09-03: "not inside its slots").
+    public static Vector2 ScrollMinimum => new(568, 53);
+    public const float ScrollHeight = 390f;
     public static Vector2 FeedbackCenter => new(320, 458);
     public static Vector2 CharacterSpecificMinimum => new(360, 60);
     // BOTTOMLEFT (10,21) and BOTTOMRIGHT (-50,21) with 130x22 buttons: y = 512-21-22 = 469,

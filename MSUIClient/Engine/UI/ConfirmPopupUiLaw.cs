@@ -130,11 +130,25 @@ public static class ConfirmPopupUiLaw
         new(DuelFrameUiLaw.PopupWidth,
             StaticPopupCoordinatorLaw.Height(textHeight, GiverChoiceButtonsHeight(optionCount)));
 
+    /// <summary>The control guide's Disable button asks here (a stock yes/no StaticPopup, not an
+    /// ImGui modal - owner 2026-09-03). Accept turns the guide off for the session.</summary>
+    public const string DisableControlGuidePopupType = "CV_DISABLE_CONTROL_GUIDE";
+    public const string DisableControlGuideText =
+        "Disable the Control Guide completely?\nYou will not see it again this session unless re-enabled.";
+    public const string DisableText = "Disable";
+    public const string CancelText = "Cancel";
+
+    public static readonly StaticPopupCoordinatorLaw.Definition DisableControlGuideDefinition = new(
+        DisableControlGuidePopupType, HideOnEscape: true, HasAccept: true, HasCancel: true);
+
     public static bool IsConfirmPopup(string type) =>
-        type is SummonPopupType or QuestAcceptPopupType or ReadyCheckPopupType or GiverChoicePopupType;
+        type is SummonPopupType or QuestAcceptPopupType or ReadyCheckPopupType or GiverChoicePopupType
+            or DisableControlGuidePopupType;
 
     public static (string Accept, string Decline) Captions(string type) =>
-        type == ReadyCheckPopupType ? (ReadyText, NotReadyText) : (AcceptText, DeclineText);
+        type == ReadyCheckPopupType ? (ReadyText, NotReadyText)
+        : type == DisableControlGuidePopupType ? (DisableText, CancelText)
+        : (AcceptText, DeclineText);
 
     /// <summary>GlobalStrings READY_CHECK_MESSAGE with the starter filled.</summary>
     public static string ReadyCheckText(string format, string starter)

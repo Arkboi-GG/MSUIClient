@@ -46,22 +46,39 @@ public sealed partial class GameLoop
         // edge. The origin is in LOGICAL units, so divide the framebuffer back through the scale
         // before centring, or the frame drifts right as the window grows.
         Vector2 logicalDisplay = s > 0f ? ImGui.GetIO().DisplaySize / s : KeyBindingsUiLaw.FrameSize;
+        // The frame may be widened by dragging its right border (KeyBindingsUiLaw): every
+        // extra pixel goes to the command column, so everything right of it shifts by dx.
+        float extra = KeyBindingsUiLaw.ClampExtraWidth(Settings.Controls.KeyBindingsExtraWidth,
+            logicalDisplay.X);
+        Vector2 dx = KeyBindingsUiLaw.RightShift(extra);
         if (!BeginVanillaWindow("##keybindings",
-                KeyBindingsUiLaw.WindowOrigin(logicalDisplay.X, logicalDisplay.Y),
-                KeyBindingsUiLaw.FrameSize, out ImDrawListPtr dl,
+                KeyBindingsUiLaw.WindowOrigin(logicalDisplay.X, logicalDisplay.Y, extra),
+                KeyBindingsUiLaw.FrameSizeWith(extra), out ImDrawListPtr dl,
                 out Vector2 origin, out s, movable: true))
         { ImGui.End(); return; }
 
         foreach (KeyBindingsUiLaw.ArtSlice piece in KeyBindingsUiLaw.Art)
-            DrawArt(dl, piece.Path, origin + piece.Offset * s, piece.Size, s);
+        {
+            Vector2 shift = KeyBindingsUiLaw.ArtIsRightAnchored(piece) ? dx : Vector2.Zero;
+            DrawArt(dl, piece.Path, origin + (piece.Offset + shift) * s, piece.Size, s);
+        }
+        if (extra > 0f)
+        {
+            KeyBindingsUiLaw.Rect top = KeyBindingsUiLaw.StretchTop(extra);
+            KeyBindingsUiLaw.Rect bottom = KeyBindingsUiLaw.StretchBottom(extra);
+            DrawArtUv(dl, @"Interface\KeyBindingFrame\UI-KeyBindingFrame-Top",
+                origin + top.Min * s, top.Size, s, KeyBindingsUiLaw.StretchUv0, KeyBindingsUiLaw.StretchUv1);
+            DrawArtUv(dl, @"Interface\KeyBindingFrame\UI-KeyBindingFrame-Bot",
+                origin + bottom.Min * s, bottom.Size, s, KeyBindingsUiLaw.StretchUv0, KeyBindingsUiLaw.StretchUv1);
+        }
         GameText.DrawCentered(dl, KeyBindingsUiLaw.TitleFont, "Key Bindings",
-            origin + KeyBindingsUiLaw.TitleCenter * s, s);
+            origin + (KeyBindingsUiLaw.TitleCenter + dx * .5f) * s, s);
         GameText.Draw(dl, KeyBindingsUiLaw.ColumnHeaderFont, "Command",
             origin + KeyBindingsUiLaw.CommandTitle * s, s);
         GameText.DrawCentered(dl, KeyBindingsUiLaw.ColumnHeaderFont, "Key 1",
-            origin + KeyBindingsUiLaw.KeyOneCenter * s, s);
+            origin + (KeyBindingsUiLaw.KeyOneCenter + dx) * s, s);
         GameText.DrawCentered(dl, KeyBindingsUiLaw.ColumnHeaderFont, "Key 2",
-            origin + KeyBindingsUiLaw.KeyTwoCenter * s, s);
+            origin + (KeyBindingsUiLaw.KeyTwoCenter + dx) * s, s);
 
         KeyBindingsUiLaw.Rect search = KeyBindingsUiLaw.Search;
         if (VanillaInputText(dl, "##binding-search", _bindingSearch,
@@ -94,7 +111,7 @@ public sealed partial class GameLoop
         // scrolls the same way while claiming no id at all - the pattern the skill list already
         // uses for the same reason (GameLoop.CharacterPage.cs). Reported 2026-08-26.
         Vector2 wheelMin = origin + KeyBindingsUiLaw.Rows.Min * s;
-        Vector2 wheelMax = wheelMin + KeyBindingsUiLaw.Rows.Size * s;
+        Vector2 wheelMax = wheelMin + (KeyBindingsUiLaw.Rows.Size + dx) * s;
         if (_bindingCapture is null && ImGui.IsMouseHoveringRect(wheelMin, wheelMax, false) &&
             ImGui.GetIO().MouseWheel != 0)
             _bindingScroll = KeyBindingsUiLaw.ClampScroll(
@@ -109,7 +126,7 @@ public sealed partial class GameLoop
             {
                 ImGui.SetCursorScreenPos(rowMin);
                 ImGui.InvisibleButton($"##binding-category-{row.Category}",
-                    KeyBindingsUiLaw.RowHitSize * s);
+                    (KeyBindingsUiLaw.RowHitSize + dx) * s);
                 bool headerHovered = ImGui.IsItemHovered();
                 if (query.Length == 0 && ImGui.IsItemClicked(ImGuiMouseButton.Left) &&
                     !_collapsedBindingCategories.Add(row.Category))
@@ -130,17 +147,20 @@ public sealed partial class GameLoop
                     rowMin + KeyBindingsUiLaw.HeaderTextOffset * s, s);
                 continue;
             }
-            GameText.Draw(dl, KeyBindingsUiLaw.CommandFont, row.Label,
+            GameText.Draw(dl, KeyBindingsUiLaw.CommandFont,
+                GameText.EllipsizeToBox(KeyBindingsUiLaw.CommandFont, row.Label,
+                    KeyBindingsUiLaw.CommandColumnWidth(extra), KeyBindingsUiLaw.RowPitch, s),
                 rowMin + KeyBindingsUiLaw.CommandTextOffset * s, s);
             BindingPair pair = BoundKeys(row.Binding);
-            DrawBindingKeyButton(dl, origin, s, rowMin, row.Binding, 1, pair.Primary);
-            DrawBindingKeyButton(dl, origin, s, rowMin, row.Binding, 2, pair.Secondary);
+            DrawBindingKeyButton(dl, origin, s, rowMin + dx * s, row.Binding, 1, pair.Primary);
+            DrawBindingKeyButton(dl, origin, s, rowMin + dx * s, row.Binding, 2, pair.Secondary);
         }
 
         DrawVanillaScrollBar(dl, "##binding-scrollbar",
-            origin + KeyBindingsUiLaw.ScrollMinimum * s,
+            origin + (KeyBindingsUiLaw.ScrollMinimum + dx) * s,
             KeyBindingsUiLaw.ScrollHeight, s, _bindingScroll,
             KeyBindingsUiLaw.MaximumScroll(visibleRows.Count), v => _bindingScroll = v);
+        DrawKeybindingsResizeGrip(dl, origin, s, extra, logicalDisplay.X);
 
         if (_bindingCapture is not null)
         {
@@ -184,11 +204,11 @@ public sealed partial class GameLoop
 
         if (_bindingFeedback.Length > 0 && ImGui.GetTime() < _bindingFeedbackUntil)
             GameText.DrawCentered(dl, "GameFontNormalSmall", _bindingFeedback,
-                origin + KeyBindingsUiLaw.FeedbackCenter * s, s, 0xff2020ff);
+                origin + (KeyBindingsUiLaw.FeedbackCenter + dx * .5f) * s, s, 0xff2020ff);
 
         bool wasCharacterSpecific = _characterSpecificBindings;
         bool toggledCharacterSpecific = VanillaCheckButton(dl, "##character-bindings",
-            origin + KeyBindingsUiLaw.CharacterSpecificMinimum * s,
+            origin + (KeyBindingsUiLaw.CharacterSpecificMinimum + dx) * s,
             "Character Specific Key Bindings", s, ref _characterSpecificBindings);
         if (toggledCharacterSpecific)
         {
@@ -212,16 +232,16 @@ public sealed partial class GameLoop
                 KeyBindingsUiLaw.Defaults.Size, s)) ResetBindingsToDefaults();
         bool canUnbind = _bindingCapture is not null;
         if (VanillaButton(dl, "Unbind##bindings", "Unbind",
-                origin + KeyBindingsUiLaw.Unbind.Min * s,
+                origin + (KeyBindingsUiLaw.Unbind.Min + dx) * s,
                 KeyBindingsUiLaw.Unbind.Size, s, canUnbind) &&
             _bindingCapture is { } unbind)
         { _bindings[unbind] = BoundKeys(unbind).With(_bindingCaptureSlot, default); _bindingCapture = null; }
         if (VanillaButton(dl, "Okay##bindings", "Okay",
-                origin + KeyBindingsUiLaw.Okay.Min * s,
+                origin + (KeyBindingsUiLaw.Okay.Min + dx) * s,
                 KeyBindingsUiLaw.Okay.Size, s))
         { SaveBindings(); _bindingSnapshot = null; _keybindingsOpen = false; }
         if (VanillaButton(dl, "Cancel##bindings", "Cancel",
-                origin + KeyBindingsUiLaw.Cancel.Min * s,
+                origin + (KeyBindingsUiLaw.Cancel.Min + dx) * s,
                 KeyBindingsUiLaw.Cancel.Size, s))
         {
             if (_bindingSnapshot is not null)
@@ -229,6 +249,51 @@ public sealed partial class GameLoop
             _bindingSnapshot = null; _keybindingsOpen = false;
         }
         ImGui.End();
+    }
+
+    private bool _keybindingsResizing;
+    private float _keybindingsResizeStartMouseX;
+    private float _keybindingsResizeStartExtra;
+
+    /// <summary>Drag the frame's right border to widen it (KeyBindingsUiLaw.ResizeGrip). The
+    /// width persists in settings; the drag ends with one commit, like the Commander Guide's.</summary>
+    private void DrawKeybindingsResizeGrip(ImDrawListPtr dl, Vector2 origin, float s, float extra,
+        float logicalDisplayWidth)
+    {
+        KeyBindingsUiLaw.Rect grip = KeyBindingsUiLaw.ResizeGrip(extra);
+        Vector2 min = origin + grip.Min * s;
+        Vector2 max = min + grip.Size * s;
+        Vector2 mouse = ImGui.GetIO().MousePos;
+        bool hovered = ImGui.IsMouseHoveringRect(min, max, false);
+        if (hovered && !_keybindingsResizing && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        {
+            _keybindingsResizing = true;
+            _keybindingsResizeStartMouseX = mouse.X;
+            _keybindingsResizeStartExtra = extra;
+        }
+        if (_keybindingsResizing)
+        {
+            if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
+                Settings.Controls.KeyBindingsExtraWidth = KeyBindingsUiLaw.ClampExtraWidth(
+                    _keybindingsResizeStartExtra + (mouse.X - _keybindingsResizeStartMouseX) / s,
+                    logicalDisplayWidth);
+            else
+            {
+                _keybindingsResizing = false;
+                CommitSettings();
+            }
+        }
+        if (!hovered && !_keybindingsResizing) return;
+        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeEW);
+        (Vector2 a, Vector2 b) = KeyBindingsUiLaw.ResizeGripRule(min, max, s);
+        dl.AddLine(a, b, PainterlyGoldLit, MathF.Max(1f, s));
+    }
+
+    private void DrawArtUv(ImDrawListPtr dl, string path, Vector2 min, Vector2 size, float s,
+        Vector2 uv0, Vector2 uv1)
+    {
+        uint art = _gameplayArt?.Handle(path) ?? 0;
+        if (art != 0) dl.AddImage((nint)art, min, min + size * s, uv0, uv1);
     }
 
     private void DrawBindingKeyButton(ImDrawListPtr dl, Vector2 origin, float s, Vector2 rowMin,

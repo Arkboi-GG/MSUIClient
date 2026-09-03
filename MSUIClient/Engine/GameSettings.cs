@@ -1061,6 +1061,10 @@ public sealed class GameSettings
         /// the screen centre (owner, 2026-09-02).</summary>
         public float CommandViewGuideWidth { get; set; }
 
+        /// <summary>Extra logical width added to the Key Bindings frame by dragging its right
+        /// border (KeyBindingsUiLaw.ClampExtraWidth). 0 = vanilla's 640. Owner, 2026-09-03.</summary>
+        public float KeyBindingsExtraWidth { get; set; }
+
         /// <summary>Whether the primary selection's server AI keeps fighting for it. OFF means the
         /// primary is yours alone: it moves on orders and does nothing else until you press a
         /// key (ORDER_MANUAL). ON hands its actions back to the AI (ORDER_AUTO). Owner, 2026-09-01:

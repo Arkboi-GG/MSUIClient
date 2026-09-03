@@ -97,6 +97,28 @@ internal static class BindingChordClinicalChecks
               KeyBindingsUiLaw.MatchesSearch("Action Bar", "Action Button 1", "button") &&
               !KeyBindingsUiLaw.MatchesSearch("Movement", "Jump", "spell"),
             "keybindings shell/search/collapse geometry law drifted");
+        // The scroll bar sits in the art's carved slot exactly where KeyBindingFrame.xml puts
+        // it: the 560x390 faux scroll frame at (2,-53) hangs the bar at TOPRIGHT +6, so the up
+        // button is flush at y 53 and the down button ends at 443 (2026-09-03).
+        Check(KeyBindingsUiLaw.ScrollMinimum == new System.Numerics.Vector2(568, 53) &&
+              KeyBindingsUiLaw.ScrollHeight == 390f,
+            "keybindings scroll bar left its FrameXML slot");
+        // Widening: clamped to the screen and a ceiling, every extra pixel to the command column.
+        Check(KeyBindingsUiLaw.ClampExtraWidth(200f, 1600f) == 200f &&
+              KeyBindingsUiLaw.ClampExtraWidth(-5f, 1600f) == 0f &&
+              KeyBindingsUiLaw.ClampExtraWidth(float.NaN, 1600f) == 0f &&
+              KeyBindingsUiLaw.ClampExtraWidth(900f, 1600f) == 640f &&
+              KeyBindingsUiLaw.ClampExtraWidth(300f, 700f) == 60f &&
+              KeyBindingsUiLaw.FrameSizeWith(120f) == new System.Numerics.Vector2(760, 512) &&
+              KeyBindingsUiLaw.WindowOrigin(1600f, float.PositiveInfinity, 120f) ==
+                  new System.Numerics.Vector2(420, 100) &&
+              KeyBindingsUiLaw.CommandColumnWidth(120f) == 291f &&
+              KeyBindingsUiLaw.StretchTop(120f) == new KeyBindingsUiLaw.Rect(512, 0, 120, 256) &&
+              KeyBindingsUiLaw.ResizeGrip(0f).X + KeyBindingsUiLaw.ResizeGrip(0f).Width ==
+                  KeyBindingsUiLaw.VisibleRightEdge &&
+              KeyBindingsUiLaw.ArtIsRightAnchored(KeyBindingsUiLaw.Art[2]) &&
+              !KeyBindingsUiLaw.ArtIsRightAnchored(KeyBindingsUiLaw.Art[1]),
+            "keybindings widening law drifted");
     }
 
     /// <summary>
