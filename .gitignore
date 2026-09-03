@@ -100,10 +100,10 @@ project.assets.json
 # Per-user assistant/editor state.
 /.claude/
 
-# Local agent instructions and workspace state. These include machine-specific
-# paths and owner-only operational rules; they are not part of the public
-# client distribution.
-/AGENTS.md
+# Agent workspace state. AGENTS.md (the standing brief) and POSSESS_LAW.md are
+# TRACKED since 2026-09-03 so the rules travel with the repo; machine-specific
+# facts (box IP, ssh host, install one-liner) live in the ignored AGENTS.local.md.
+/AGENTS.local.md
 /.agents/
 /.codex/
 
