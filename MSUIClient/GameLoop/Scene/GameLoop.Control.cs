@@ -480,6 +480,11 @@ public sealed partial class GameLoop
             SeatControllerOnControlled(x, y, z, o);
             _net?.SetActiveMover(guid);
             EnterPlayerAuraWorld(guid);
+            // [SUI] Body-scoped session UI changes hands with the body: the pet bar is
+            // rebuilt from the driven bot's SMSG_PET_SPELLS (pushed after the grant
+            // snapshot), the loot window and bank session belong to the body that
+            // opened them (the server force-releases a possessed bot's loot on grant).
+            ResetBodySessionUiOnControlChange();
             ApplyControlledCharacter();
             AddChatMessage(_freeView
                 ? $"Commanding {ResolveUnitName(guid)} — bars and bags are live, camera stays up."
@@ -563,6 +568,9 @@ public sealed partial class GameLoop
             SeatControllerOnControlled(x, y, z, o);
             _net?.SetActiveMover(LocalPlayerGuid);
             EnterPlayerAuraWorld(LocalPlayerGuid);
+            // [SUI] Same hand-over on the way out: the server re-sends the own
+            // character's pet bar after this ack and released the bot's loot before it.
+            ResetBodySessionUiOnControlChange();
             // Retention: the released bot's snapshot stays for the browser.
             ApplyControlledCharacter();
             if (wasPossessing)
@@ -754,6 +762,44 @@ public sealed partial class GameLoop
             case Op.SMSG_TRAINER_BUY_FAILED:
                 ApplyTrainerFailure(inner);
                 break;
+            // [SUI] loot: LootHandler runs as the driven bot and Player::SendLoot* emit
+            // on the LOOTER's session, so the whole loot window round-trip of a corpse
+            // the bot kneels at arrives here. Same parsers as the direct dispatch; the
+            // loot state is session-wide (one window), keyed by the corpse guid.
+            case Op.SMSG_LOOT_RESPONSE:
+                ApplyLootResponse(inner);
+                break;
+            case Op.SMSG_LOOT_RELEASE_RESPONSE:
+                ApplyLootReleaseResponse(inner);
+                break;
+            case Op.SMSG_LOOT_REMOVED:
+                ApplyLootRemoved(inner);
+                break;
+            case Op.SMSG_LOOT_CLEAR_MONEY:
+                ApplyLootClearMoney();
+                break;
+            case Op.SMSG_LOOT_MONEY_NOTIFY:
+                break; // the bot's purse rides its re-snapshot; nothing to do
+            case Op.SMSG_ITEM_PUSH_RESULT:
+                // The server skips the commander's direct group-broadcast copy while
+                // possessing, so this mirrored one is the only "You receive loot" line.
+                ApplyItemPushResult(inner);
+                break;
+            // [SUI] pet: PetHandler runs as the driven bot; its pet bar/mode/feedback
+            // frames address the pet owner's (the bot's) session. The bar is reset on
+            // every control change (ApplySuiControlAck) and rebuilt from these.
+            case Op.SMSG_PET_SPELLS:
+                ApplyPetSpells(inner);
+                break;
+            case Op.SMSG_PET_MODE:
+                ApplyPetMode(inner);
+                break;
+            case Op.SMSG_PET_ACTION_FEEDBACK:
+                ApplyPetActionFeedback(inner);
+                break;
+            case Op.SMSG_PET_CAST_FAILED:
+                ApplyPetCastFailed(inner);
+                break;
             default:
                 break;
         }
@@ -819,6 +865,11 @@ public sealed partial class GameLoop
         // buyback section recreated that same item as a buyback entity, the
         // "sold" item visibly stayed in the bag until the next control swap.
         for (int slot = 0; slot <= 38; slot++)          // equipment, bag slots, backpack
+            bot.Fields.SetGuid((ushort)(ObjectFields.PLAYER_INV_SLOT_HEAD + slot * 2), 0);
+        // [SUI] Snapshot v4 (2026-09-03): bank items 39-62 and bank bags 63-68 ride
+        // the same bag-255 rows (owner-only PLAYER_BANK_SLOT_* / PLAYER_BANK_BAG_SLOT_*
+        // fields), so the BankFrame renders a driven bot's bank. Zeroed the same way.
+        for (int slot = 39; slot <= 68; slot++)         // bank items, bank bag slots
             bot.Fields.SetGuid((ushort)(ObjectFields.PLAYER_INV_SLOT_HEAD + slot * 2), 0);
         for (int slot = 81; slot <= 96; slot++)         // keyring
             bot.Fields.SetGuid((ushort)(ObjectFields.PLAYER_INV_SLOT_HEAD + slot * 2), 0);
@@ -889,7 +940,10 @@ public sealed partial class GameLoop
                 // Contents of an equipped bag; the bag row itself came earlier in the
                 // stream. If it did NOT, the item cannot be filed anywhere and simply
                 // vanishes -- indistinguishable from "the bag is empty", so count it.
-                ulong bagGuid = bot.Fields.PlayerInventorySlot(bag);
+                // Equipped bags sit at slots 19-22, bank bags at 63-68 (snapshot v4).
+                ulong bagGuid = bag is >= 63 and <= 68
+                    ? bot.Fields.PlayerBankBagSlot(bag - 63)
+                    : bot.Fields.PlayerInventorySlot(bag);
                 if (bagGuid != 0 && _entities.TryGet(bagGuid, out WorldEntity bagEntity))
                 {
                     bagEntity.Fields.SetGuid((ushort)(ObjectFields.CONTAINER_SLOT_1 + slot * 2), itemGuid);
@@ -2354,7 +2408,6 @@ public sealed partial class GameLoop
         bool questsAllowed = kind != CommandViewInteractKind.Quests ||
             (_controlState != ControlState.Possessing && _partyGiverQuestsAvailable);
         if (!_freeView || expired || _cvPendingInteractAttempts >= 8 || !questsAllowed ||
-            (kind == CommandViewInteractKind.Loot && ControlledGuid != LocalPlayerGuid) ||
             (_cvPendingInteractAttempts > 0 && CommandViewInteractDelivered(kind, guid)))
         {
             // A party walk that ran out the clock with a straggler still opens for whoever made

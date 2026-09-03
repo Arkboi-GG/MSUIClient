@@ -24,10 +24,13 @@ public sealed partial class GameLoop
             _bankPrices = BankBagSlotPriceTable.Parse(bytes);
     }
 
+    // [SUI] The bank acts as the DRIVEN body: the server's banker/bank-slot handlers run
+    // as GetSuiActor(), the driven bot's bank slots ride its snapshot (v4 bank rows) and
+    // every read below keys on ControlledGuid (== the session player unpossessed).
     private bool RequestBank(ulong guid)
     {
         WorldEntity? banker = null;
-        bool eligible = TryGetSessionBodyPose(out WorldBodyPose sessionBody) &&
+        bool eligible = TryGetInteractionBodyPose(out WorldBodyPose sessionBody) &&
                         _entities.TryGet(guid, out banker) && banker.IsCreature &&
                         !banker.IsDead && (banker.NpcFlags & NpcBanker) != 0 &&
                         NpcSessionUiLaw.InRange(
@@ -41,7 +44,7 @@ public sealed partial class GameLoop
     private bool UpdateBankLifecycle()
     {
         if (!_bankOpen ||
-            !TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return false;
+            !TryGetInteractionBodyPose(out WorldBodyPose sessionBody)) return false;
         ulong sourceGuid = _bankSource;
         bool sourceAvailable = _entities.TryGet(sourceGuid, out WorldEntity banker);
         float distanceSquared = sourceAvailable
@@ -71,7 +74,7 @@ public sealed partial class GameLoop
             PlayUiSound(BankFrameUiLaw.OpenSound, BankFrameUiLaw.SoundCategory);
         }
         int occupied = 0;
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player))
             occupied = Enumerable.Range(0, 24).Count(i => player.Fields.PlayerBankSlot(i) != 0);
         EmitInterface("bank", "open", "OPEN", _bankSource, $"occupied={occupied};body={Convert.ToHexString(body.AsSpan(0, 8))}");
     }
@@ -140,7 +143,7 @@ public sealed partial class GameLoop
     // source-only auto-bank wire as the production inventory context action.
     private bool DepositBankEntry(uint entry)
     {
-        if (!_bankOpen || _net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        if (!_bankOpen || _net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
         int from = Enumerable.Range(0, 16).FirstOrDefault(i =>
         {
             ulong guid = player.Fields.PlayerBackpackSlot(i);
@@ -168,7 +171,7 @@ public sealed partial class GameLoop
     // bank right-clicks already know the precise index and bypass this lookup.
     private bool WithdrawBankEntry(uint entry)
     {
-        if (!_bankOpen || _net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        if (!_bankOpen || _net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
         int from = Enumerable.Range(0, 24).FirstOrDefault(i =>
         {
             ulong guid = player.Fields.PlayerBankSlot(i);
@@ -181,7 +184,7 @@ public sealed partial class GameLoop
 
     private bool BuyNextBankSlot()
     {
-        if (!_bankOpen || _net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        if (!_bankOpen || _net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
         _bankSlotCountBefore = player.Fields.BankBagSlotCount;
         bool sent = _net.BuyBankSlot(_bankSource);
         uint price = _bankPrices?.Price(_bankSlotCountBefore + 1) ?? 0;
@@ -194,7 +197,7 @@ public sealed partial class GameLoop
     private void ObserveBankTransition()
     {
         if (_pendingBankTransition is not { } pending || _net is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
         bool complete = pending.Kind switch
         {
             "deposit" => Enumerable.Range(0, 24).Any(i => player.Fields.PlayerBankSlot(i) == pending.ItemGuid),
@@ -223,7 +226,7 @@ public sealed partial class GameLoop
     private void DrawBankFrame()
     {
         if (!_bankOpen || _net is null || _gameplayArt is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
         float s = GameplayUiScale();
         Vector2 origin = UiPanelFrameOrigin(UiPanelOwnershipRegistry[5], s);
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);

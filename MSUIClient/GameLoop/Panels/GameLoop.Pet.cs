@@ -243,7 +243,8 @@ public sealed partial class GameLoop
     {
         if (_spellCatalog is null) return 0;
         uint result = 0;
-        foreach (uint spellId in OwnActions.KnownSpells.OrderBy(id => id))
+        // The driven body's spellbook (== OwnActions unpossessed).
+        foreach (uint spellId in _actions.KnownSpells.OrderBy(id => id))
             if (_spellCatalog.TryGet(spellId, out SpellInfo spell) &&
                 FeedPetLaw.IsFeedPetSpell(spell))
                 result = spellId;
@@ -257,7 +258,7 @@ public sealed partial class GameLoop
             return false;
         uint spellId = FeedPetSpell();
         if (!FeedPetLaw.CanFeed(pet.Guid, _petGuid, pet.Fields.CreatedBySpell,
-                pet.Fields.CreatedBy, LocalPlayerGuid, spellId, item.Guid) ||
+                pet.Fields.CreatedBy, ControlledGuid, spellId, item.Guid) ||
             !_net.CastSpellOnItem(spellId, item.Guid))
             return false;
 
@@ -268,6 +269,19 @@ public sealed partial class GameLoop
     }
 
     private bool PetActionBarVisible => _petGuid != 0;
+
+    /// <summary>
+    /// [SUI] Control changed hands: the pet bar, loot window and bank session are
+    /// body-scoped. The server pushes the new body's SMSG_PET_SPELLS right after the
+    /// control ack (grant: the bot's, mirrored; release: the own character's), so an
+    /// empty bar here means "this body has no pet", never a stale one.
+    /// </summary>
+    private void ResetBodySessionUiOnControlChange()
+    {
+        ResetPetActionBar();
+        ClearLootOnControlChange();
+        CloseBankSession(playSound: false);
+    }
 
     private void StopPetAttackForOldTargetChange(ulong previous, ulong current)
     {

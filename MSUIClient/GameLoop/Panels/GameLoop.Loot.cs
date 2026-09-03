@@ -14,6 +14,9 @@ public sealed partial class GameLoop
 {
     private readonly LootState _loot = new();
     private ulong _lootPendingGuid;
+    /// <summary>The streamed body currently wearing the loot kneel (0 = none); cleared when
+    /// control moves to another body so a released bot never stays knelt.</summary>
+    private ulong _lootKneelBodyGuid;
     private Vector3 _lootOpenedAt;
     private bool _lootOpenedAtKnown;
     private int _lootPage = 1;
@@ -47,13 +50,10 @@ public sealed partial class GameLoop
     {
         // Auto Loot (Interface Options): decided at request time, Shift inverts.
         _lootAutoAllArmed = Settings.Controls.AutoLoot != ImGui.GetIO().KeyShift;
-        // Loot is _player-scoped server-side: looting "as the bot" would flow into the
-        // session character's distant bags. The bot loots autonomously after release.
-        if (ControlledGuid != LocalPlayerGuid)
-        {
-            ShowUiError("Cannot loot while controlling a bot.");
-            return false;
-        }
+        // [SUI] Loot acts as the DRIVEN body: the server's LootHandler runs as
+        // GetSuiActor() and mirrors the bot's loot frames back (SMSG_SUI_PROXY), so a
+        // possessed bot kneels, takes into ITS bags and releases. Range gates at that
+        // body — the parked commander may be a continent away.
         bool eligible = _entities.TryGet(guid, out WorldEntity source) && source.IsCreature &&
                         source.IsDead && source.Fields.Lootable;
         if (_net is null || !eligible)
@@ -62,11 +62,11 @@ public sealed partial class GameLoop
                 $"inWorld={_net?.IsInWorld == true};entity={source is not null};dead={source?.IsDead == true};lootable={source?.Fields.Lootable == true}");
             return false;
         }
-        if (!TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
-            !_entities.TryGet(LocalPlayerGuid, out WorldEntity sessionPlayer))
+        if (!TryGetInteractionBodyPose(out WorldBodyPose sessionBody) ||
+            !_entities.TryGet(ControlledGuid, out WorldEntity sessionPlayer))
         {
             EmitInterface("loot", "request", "REFUSED_NO_BODY", guid,
-                "sessionBody=false");
+                $"interactionBody=false;controlled=0x{ControlledGuid:X}");
             return false;
         }
         float distanceSquared = Vector3.DistanceSquared(sessionBody.Position, source.Position);
@@ -111,16 +111,43 @@ public sealed partial class GameLoop
         }
         bool kneeling = LootLatchLaw.ShouldKneel(
             _lootPendingGuid, kind, gameObjectType, unitHealth);
+        // The kneel belongs to the body that sent CMSG_LOOT: the driven bot while
+        // possessing (== LocalPlayerGuid otherwise). A body that knelt under the
+        // previous control state stands up first.
+        if (_lootKneelBodyGuid != 0 && _lootKneelBodyGuid != ControlledGuid)
+        {
+            _creatures?.SetLootKneel(_lootKneelBodyGuid, false);
+            _lootKneelBodyGuid = 0;
+        }
         if (ControlledBodyIsStreamed)
         {
             if (_character is not null) _character.LootKneel = false;
-            _creatures?.SetLootKneel(LocalPlayerGuid, kneeling);
+            _creatures?.SetLootKneel(ControlledGuid, kneeling);
+            _lootKneelBodyGuid = kneeling ? ControlledGuid : 0;
         }
         else
         {
-            _creatures?.SetLootKneel(LocalPlayerGuid, false);
+            _creatures?.SetLootKneel(ControlledGuid, false);
+            _lootKneelBodyGuid = 0;
             if (_character is not null) _character.LootKneel = kneeling;
         }
+    }
+
+    /// <summary>
+    /// [SUI] Control changed hands (possess / release): the loot window, its latch and
+    /// the kneel belong to the body that opened it. Local only — the server has already
+    /// force-released a possessed bot's loot and the own character's window, if any,
+    /// is the unattended AI's to close.
+    /// </summary>
+    private void ClearLootOnControlChange()
+    {
+        if (_loot.IsOpen) EmitInterface("loot", "release", "CONTROL_CHANGE", _loot.Source, "local=true");
+        _loot.Clear();
+        _lootPendingGuid = 0;
+        _lootOpenedAtKnown = false;
+        _lootMoneyPending = false;
+        _lootAutoAllArmed = false;
+        RefreshLootKneel();
     }
 
     private void ApplyLootResponse(byte[] body)
@@ -167,9 +194,9 @@ public sealed partial class GameLoop
         if (openPresentation.SoundCue is { } cue)
             PlayUiSound(cue, LootFrameUiLaw.SoundCategory);
         _lootPage = 1;
-        _lootOpenedAtKnown = TryGetSessionBodyPose(out WorldBodyPose sessionBody);
+        _lootOpenedAtKnown = TryGetInteractionBodyPose(out WorldBodyPose sessionBody);
         if (_lootOpenedAtKnown) _lootOpenedAt = sessionBody.Position;
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player))
             _lootMoneyBefore = player.Fields.Coinage;
         EmitInterface("loot", "response", items.Count == 0 && gold == 0 ? "EMPTY" : "OPEN", guid,
             $"type={lootType};money={gold};items={items.Count};slots={string.Join(',', items.Select(i => i.Slot))}");
@@ -217,7 +244,9 @@ public sealed partial class GameLoop
         if (_net is null || body.Length < 41) return;
         var r = new PacketReader(body);
         ulong player = r.ReadU64();
-        if (player != _net.PlayerGuid) return;
+        // The driven bot's pushes arrive mirrored with ITS guid (the server skips the
+        // commander's direct group-broadcast copy while possessing).
+        if (player != _net.PlayerGuid && player != ControlledGuid) return;
         uint received = r.ReadU32();
         uint created = r.ReadU32();
         uint showInChat = r.ReadU32();
@@ -263,7 +292,7 @@ public sealed partial class GameLoop
     private bool TakeLootMoney()
     {
         if (_net is null || !_loot.IsOpen || _loot.Gold == 0) return false;
-        if (_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) _lootMoneyBefore = player.Fields.Coinage;
+        if (_entities.TryGet(ControlledGuid, out WorldEntity player)) _lootMoneyBefore = player.Fields.Coinage;
         _lootMoneyExpected = _loot.Gold;
         _lootMoneyPending = _net.LootMoney();
         EmitInterface("loot", "money", _lootMoneyPending ? "SENT" : "SEND_FAILED", _loot.Source,
@@ -332,10 +361,10 @@ public sealed partial class GameLoop
             else _pendingReceives[i] = (entry, count, tries - 1);
         }
 
-        if (_lootMoneyPending && _net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player) &&
+        if (_lootMoneyPending && _net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player) &&
             player.Fields.Coinage >= _lootMoneyBefore + _lootMoneyExpected)
         {
-            EmitInterface("loot", "economy", "VERIFIED", _net.PlayerGuid,
+            EmitInterface("loot", "economy", "VERIFIED", ControlledGuid,
                 $"money={_lootMoneyBefore}->{player.Fields.Coinage};expected={_lootMoneyExpected}");
             _lootMoneyPending = false;
         }
@@ -349,7 +378,7 @@ public sealed partial class GameLoop
         // Corpse despawned under us, or the player walked away: release. The real client
         // stands you up and closes on movement; distance is our movement proxy.
         if (!_entities.TryGet(_loot.Source, out _)) { ReleaseLoot(); return; }
-        if (_lootOpenedAtKnown && TryGetSessionBodyPose(out WorldBodyPose sessionBody) &&
+        if (_lootOpenedAtKnown && TryGetInteractionBodyPose(out WorldBodyPose sessionBody) &&
             Vector3.DistanceSquared(sessionBody.Position, _lootOpenedAt) > 2.25f)
             ReleaseLoot();
     }
