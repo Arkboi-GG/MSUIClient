@@ -16,6 +16,9 @@ public sealed partial class GameLoop
         bool offHand = (swing.HitInfo & 0x0004u) != 0;
         bool landedHit = swing.Damage > 0 && swing.VictimState is 0 or 1;
         QueueMeleeSound(swing);
+        // The Swing Timer rail reads the same typed event and the same offhand bit, rather
+        // than the localized chat text its 1.12 addon had to parse.
+        NoteSwingTimerMelee(swing);
 
         if (swing.Attacker == ControlledGuid && !ControlledBodyIsStreamed)
             _character?.TriggerCombatSwing(offHand);

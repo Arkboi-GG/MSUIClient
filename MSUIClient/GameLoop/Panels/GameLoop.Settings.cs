@@ -2354,6 +2354,86 @@ public sealed partial class GameLoop
                     "when they are added to the native data bundle.");
             }
             EndBox();
+
+            var swing = addOns.SwingTimer ??= new GameSettings.SwingTimerSettings();
+            BeginBox("swing-timer", "Swing Timer");
+            {
+                Check("Enable Swing Timer", () => swing.Enabled,
+                    value => swing.Enabled = value,
+                    "One rail showing when your next auto-attack lands. Cursors sweep from " +
+                    "just-swung on the left to ready on the right.");
+                ImGui.TextWrapped(
+                    "Main hand blue, off hand gold, ranged green. Melee and ranged cannot " +
+                    "both run in 1.12, so the rail follows whichever you are using.");
+                ImGui.Spacing();
+
+                bool on = swing.Enabled;
+                if (!on) ImGui.BeginDisabled();
+
+                Check("Unlock rail (drag to move)", () => swing.Unlocked,
+                    value => swing.Unlocked = value,
+                    "Shows a drag handle and keeps the rail visible while idle.");
+                if (swing.OffsetX != 0f || swing.OffsetY != 0f)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("Reset position##swing-timer-reset"))
+                    {
+                        swing.OffsetX = 0f;
+                        swing.OffsetY = 0f;
+                        SettingsFile?.Save();
+                    }
+                }
+
+                Slider("swing-timer-width", "Width", () => swing.Width,
+                    v => swing.Width = SwingTimerLaw.ClampWidth(v),
+                    SwingTimerLaw.MinimumWidth, SwingTimerLaw.MaximumWidth, "{0:0}");
+                Slider("swing-timer-height", "Height", () => swing.Height,
+                    v => swing.Height = SwingTimerLaw.ClampHeight(v),
+                    SwingTimerLaw.MinimumHeight, SwingTimerLaw.MaximumHeight, "{0:0}");
+                Slider("swing-timer-scale", "Scale", () => swing.Scale,
+                    v => swing.Scale = SwingTimerLaw.ClampScale(v),
+                    SwingTimerLaw.MinimumScale, SwingTimerLaw.MaximumScale, "{0:0.00}",
+                    "Multiplies the global Interface scale.");
+
+                ImGui.Spacing();
+                Check("Track melee swings", () => swing.TrackMelee,
+                    value => swing.TrackMelee = value,
+                    "Main hand, plus an off-hand cursor whenever you are dual-wielding.");
+                Check("Track ranged shots", () => swing.TrackRanged,
+                    value => swing.TrackRanged = value,
+                    "Auto Shot and wand Shoot.");
+                Check("Hide when idle", () => swing.HideWhenIdle,
+                    value => swing.HideWhenIdle = value,
+                    "Hide the rail when nothing is swinging. Unlocking always shows it.");
+                Check("Show seconds remaining", () => swing.ShowText,
+                    value => swing.ShowText = value);
+
+                if (!on || !swing.TrackRanged) ImGui.BeginDisabled();
+                Check("Show the ranged aim band", () => swing.ShowAimBand,
+                    value => swing.ShowAimBand = value,
+                    "Marks the last half second of a ranged reload, where moving costs you " +
+                    "the shot. Real ranged weapons only - wands have no aim penalty.");
+                Slider("swing-timer-travel", "Projectile travel nudge",
+                    () => swing.RangedTravelSeconds,
+                    v => swing.RangedTravelSeconds = SwingTimerLaw.ClampTravel(v),
+                    SwingTimerLaw.MinimumTravelSeconds, SwingTimerLaw.MaximumTravelSeconds,
+                    "{0:0.00}s",
+                    "Manual head start on ranged shots to account for arrow flight time.");
+                if (!on || !swing.TrackRanged) ImGui.EndDisabled();
+
+                Check("Compensate for latency", () => swing.CompensateLatency,
+                    value => swing.CompensateLatency = value,
+                    "Start each swing already part-way along, by half the measured round " +
+                    "trip - the time the packet reporting it spent in flight.");
+
+                if (!on) ImGui.EndDisabled();
+
+                ImGui.Spacing();
+                ImGui.TextDisabled(
+                    "Swings are read from the server's own combat packets, including which " +
+                    "hand struck, so off-hand timing is reported rather than guessed.");
+            }
+            EndBox();
         }
         ImGui.EndChild();
 

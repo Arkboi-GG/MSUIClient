@@ -196,6 +196,7 @@ public sealed partial class GameLoop
             DrawZoneTextSplash();
             DrawAutoFollowStatus();
             DrawPlayerFrame();
+            DrawSwingTimer();
             DrawTargetFrame();
             DrawPetFrameAndActionBar();
             DrawStanceBar();
