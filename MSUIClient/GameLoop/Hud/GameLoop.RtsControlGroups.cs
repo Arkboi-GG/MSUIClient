@@ -462,6 +462,10 @@ public sealed partial class GameLoop
         Vector2 display = ImGui.GetIO().DisplaySize;
         if (active.Count == 0)
         {
+            // Nothing to draw, but the editor still needs somewhere to put the rail.
+            if (_hudEditMode)
+                HudFrame("control-group-rail", "Control groups", HudPlacement.At(HudAnchor.Top, 0f, 78f),
+                    new Vector2(220f, _rtsControlGroupRailHeight));
             const string hint = "Shift+1-0: recall · Ctrl+1-0: save selected faction bots";
             Vector2 size = ImGui.CalcTextSize(hint);
             ImGui.GetForegroundDrawList().AddText(
@@ -477,8 +481,9 @@ public sealed partial class GameLoop
         float headerMinWidth = 220f * scale;
         float contentWidth = widestRow * cardWidth + Math.Max(0, widestRow - 1) * gap;
         float railWidth = MathF.Max(contentWidth, headerMinWidth);
-        ImGui.SetNextWindowPos(new Vector2(MathF.Max(8f, (display.X - railWidth) * 0.5f),
-            78f * scale), ImGuiCond.Always);
+        ImGui.SetNextWindowPos(HudFrame("control-group-rail", "Control groups",
+            HudPlacement.At(HudAnchor.Top, 0f, 78f),
+            new Vector2(railWidth / scale, _rtsControlGroupRailHeight)).ScreenMin, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0.78f);
         ImGuiWindowFlags cardFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.AlwaysAutoResize |
@@ -495,6 +500,7 @@ public sealed partial class GameLoop
 
         if (ImGui.Begin("##rts-control-groups", cardFlags))
         {
+            _rtsControlGroupRailHeight = ImGui.GetWindowSize().Y / scale;
             float buttonWidth = 55f * scale;
 
             ImGui.TextUnformatted("Control Groups");
@@ -533,14 +539,24 @@ public sealed partial class GameLoop
             (132f + Math.Max(0, rowCount - 1) * 44f) * scale);
     }
 
+    // Content-sized furniture (AlwaysAutoResize): the layout registry needs a rect before the
+    // window has laid itself out, so each remembers its last logical size, seeded with a guess.
+    private float _rtsControlGroupRailHeight = 60f;
+    private Vector2 _rtsControlGroupRestoreSize = new(128f, 28f);
+    private Vector2 _rtsControlGroupPaletteSize = new(330f, 150f);
+
+    private HudFrameResult RtsCommandPaletteFrame(float scale, float top) =>
+        HudFrame("command-palette", "Command palette",
+            HudPlacement.At(HudAnchor.TopRight, -338f, top / scale, pivot: HudAnchor.TopLeft),
+            _rtsControlGroupPaletteSize);
+
     private void DrawRtsControlGroupsRestoreButton()
     {
         float scale = GameplayUiScale();
-        Vector2 display = ImGui.GetIO().DisplaySize;
 
-        ImGui.SetNextWindowPos(
-            new Vector2(display.X - (175f * scale), 25f * scale),
-            ImGuiCond.Always);
+        ImGui.SetNextWindowPos(HudFrame("control-groups-restore", "Control groups (hidden)",
+            HudPlacement.At(HudAnchor.TopRight, -175f, 25f, pivot: HudAnchor.TopLeft),
+            _rtsControlGroupRestoreSize).ScreenMin, ImGuiCond.Always);
 
         ImGui.Begin("##rts-control-groups-hidden",
             ImGuiWindowFlags.NoDecoration |
@@ -549,6 +565,7 @@ public sealed partial class GameLoop
             ImGuiWindowFlags.NoSavedSettings |
             ImGuiWindowFlags.NoNav);
 
+        _rtsControlGroupRestoreSize = ImGui.GetWindowSize() / scale;
         if (ImGui.Button("Control Groups"))
             _showRtsControlGroups = true;
 
@@ -559,11 +576,14 @@ public sealed partial class GameLoop
     {
         int index = _rtsControlGroupCommandIndex;
         if (!_rtsControlGroupCommandOpen || (uint)index >= (uint)_rtsControlGroups.Length ||
-            _rtsControlGroups[index].Count == 0) return;
+            _rtsControlGroups[index].Count == 0)
+        {
+            if (_hudEditMode) RtsCommandPaletteFrame(scale, top);   // editable while closed
+            return;
+        }
 
         List<ulong> members = _rtsControlGroups[index];
-        ImGui.SetNextWindowPos(new Vector2(MathF.Max(8f, display.X - 338f * scale),
-            top), ImGuiCond.Always);
+        ImGui.SetNextWindowPos(RtsCommandPaletteFrame(scale, top).ScreenMin, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0.94f);
         ImGuiWindowFlags flags = ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.AlwaysAutoResize |
@@ -572,6 +592,7 @@ public sealed partial class GameLoop
         if (ImGui.Begin($"Control Group {number}##rts-control-group-command",
                 ref _rtsControlGroupCommandOpen, flags))
         {
+            _rtsControlGroupPaletteSize = ImGui.GetWindowSize() / scale;
             int visible = RtsControlGroupVisibleCount(members);
             ImGui.Text($"{members.Count} faction bots  ·  {visible} nearby");
             ImGui.TextDisabled("RightClick still moves/attacks this selection.");

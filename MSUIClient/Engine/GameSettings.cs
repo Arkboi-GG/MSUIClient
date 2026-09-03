@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using MSUIClient.Engine.UI;
 
 namespace MSUIClient.Engine;
 
@@ -88,8 +89,10 @@ public sealed class GameSettings
     /// v8: Escape/Options menu scale became independent from gameplay Interface scale.
     /// v9: Escape/Options text scale moved beside its independent chrome scale.
     /// v10: vanilla Camera Following Style became a persisted Smart/Always/Never control.
-    /// v11: cursor scale and movable gameplay-frame positions became persistent.</summary>
-    public int Version { get; set; } = 11;
+    /// v11: cursor scale and movable gameplay-frame positions became persistent.
+    /// v12: HUD layouts (PLAN_21) replaced the chat-only offset; a Version 11 chat offset
+    ///      migrates into a Custom layout.</summary>
+    public int Version { get; set; } = 12;
 
     /// <summary>Name of the preset last selected, or "Custom". Cosmetic; the values below are the truth.</summary>
     public string ActivePreset { get; set; } = "Custom";
@@ -279,13 +282,7 @@ public sealed class GameSettings
         public bool QuestHelper { get; set; } = true;
     }
 
-    /// <summary>Player-placed gameplay frames, stored in logical pixels so UI scaling is neutral.</summary>
-    public sealed class HudLayoutSettings
-    {
-        public bool ChatUnlocked { get; set; }
-        public float ChatOffsetX { get; set; }
-        public float ChatOffsetY { get; set; }
-    }
+    // Player-placed HUD frames: HudLayoutSettings lives in Engine/UI/HudLayoutLaw.cs (PLAN_21).
 
     /// <summary>
     /// The mount workbench, persisted. Two halves that answer different questions:
@@ -934,6 +931,16 @@ public sealed class GameSettings
         /// camera and any party member is carved away so the party is never hidden behind a
         /// roof, a tree or a wall. Toggle; on by default (owner, 2026-09-01).</summary>
         public bool CommandViewSightCut { get; set; } = true;
+
+        /// <summary>Party sight (World/PartySight.cs): the world is cut so the camera sees
+        /// everything the primary can see - the primary's own view, reprojected to the camera.
+        /// A character at a cave mouth opens the hillside over the cave floor it is looking at.
+        /// Experimental and OFF by default since the same evening: its pixel-exact edges read
+        /// as "weird edges" live, and the owner asked for the proximity roof cut instead
+        /// (WmoRenderer.ResolveCutPlane, "treat the immediate 10 yards as cut ceilings"). Renamed from
+        /// CommandViewPartySight the same night so a settings.json that saved the old default (true)
+        /// no longer switches it on.</summary>
+        public bool CommandViewPartySightExperimental { get; set; }
 
         /// <summary>Commander Guide panel width in logical px, set by dragging its left edge.
         /// 0 = size to the longest line. Clamped at draw time between the content width and
@@ -1592,8 +1599,15 @@ public sealed class SettingsStore
         if (s.Version < 11)
         {
             s.Display.CursorScale = 1f;
-            s.HudLayout ??= new GameSettings.HudLayoutSettings();
+            s.HudLayout ??= new HudLayoutSettings();
             s.Version = 11;
+        }
+
+        if (s.Version < 12)
+        {
+            s.HudLayout ??= new HudLayoutSettings();
+            HudLayoutLaw.Migrate11To12(s.HudLayout);
+            s.Version = 12;
         }
 
     }

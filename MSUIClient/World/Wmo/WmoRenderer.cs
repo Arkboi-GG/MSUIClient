@@ -244,6 +244,8 @@ public sealed class WmoRenderer : IDisposable
         /// simply cannot exist if there is only one chain.
         /// </summary>
         public Vector3[] CollisionTriangles = [];
+        /// <summary>Collision-only faces (MOPY material 0xFF): solid but never drawn.</summary>
+        public Vector3[] BlockerTriangles = [];
         public int CollisionSkipped;
 
         /// <summary>
@@ -286,6 +288,9 @@ public sealed class WmoRenderer : IDisposable
         public bool UploadAccepted;
         public Model Model = new();
         public List<Vector3> Collision = [];
+        /// <summary>MOPY material 0xFF faces: solid, never drawn (invisible walls, door blockers).
+        /// Kept apart so party sight can treat them as blockers only (World/PartySight.cs).</summary>
+        public List<Vector3> Blockers = [];
         public int NextGroup;
         public int Skipped;
         public int MissingFiles, Unparsed, Empty, Antiportal, Unbuilt, BatchesDropped;
@@ -645,6 +650,9 @@ public sealed class WmoRenderer : IDisposable
     /// GameLoop hands it to the terrain and doodad renderers and floors the free-view rig on it.</summary>
     public WorldCut? ActiveCut { get; private set; }
 
+    /// <summary>Command View party sight (World/PartySight.cs); null = never consulted.</summary>
+    public PartySightPass? PartySight { get; set; }
+
     /// <summary>Feed the commanded unit's feet (or null to switch the cut off) and the cut height
     /// above them, once per frame before <see cref="UpdateCameraCell"/>.</summary>
     public void SetCutPlaneSubject(Vector3? feet, float height, float? terrainWorldZ = null)
@@ -653,6 +661,69 @@ public sealed class WmoRenderer : IDisposable
         _cutPlaneTerrainZ = terrainWorldZ;
         _cutPlaneHeight = height;
     }
+
+    // ── Party sight: the primary's rooms must DRAW ─────────────────────────────────────────
+    // Portal culling draws the interior cells reachable from the CAMERA's cell; from the sky
+    // that is the exterior shell and whatever doorway is in view. Party sight cuts the roof
+    // wherever the primary sees the floor beneath, and that floor is in a cell the camera never
+    // reached - so the cut opened onto nothing (sky through a cave roof, capture 2026-09-02).
+    // Same remedy as the roof plane: the cells around the subject join the reachable set.
+    private Vector3? _sightSubject;
+    private float? _sightTerrainZ;
+    private Dictionary<int, HashSet<int>>? _sightGroups;   // instance id -> groups to draw
+    private const float SightReachYards = 100f;   // >= PartySightPass.Range, so every seen cell draws
+
+    /// <summary>Feed the party sight subject's feet (null = off) once per frame before
+    /// <see cref="UpdateCameraCell"/>, the way <see cref="SetCutPlaneSubject"/> is fed.</summary>
+    public void SetPartySightSubject(Vector3? feet, float? terrainWorldZ = null)
+    {
+        _sightSubject = feet;
+        _sightTerrainZ = terrainWorldZ;
+    }
+
+    private string _sightLoggedState = "";
+
+    /// <summary>
+    /// Every group of every building within <see cref="SightReachYards"/> of the subject, by
+    /// distance alone - no cell election, no portal flood. The subject at a cave MOUTH stands
+    /// on terrain outside any cell (the owner's exact case), so a seed search finds nothing;
+    /// and this is only a "draw these" set, not a footprint: an interior the primary cannot
+    /// see stays behind opaque walls or is discarded by the sight rule itself, so drawing a
+    /// few extra rooms costs GPU, never correctness.
+    /// </summary>
+    private void ResolveSightGroups()
+    {
+        _sightGroups = null;
+        string state = "off";
+        if (_sightSubject is Vector3 feet)
+        {
+            state = "no-building-in-reach";
+            int buildings = 0, cells = 0;
+            foreach (var instance in _instances)
+            {
+                if (DistanceToBox(feet, instance.WorldMin, instance.WorldMax) > SightReachYards) continue;
+                HashSet<int>? reached = null;
+                foreach (var g in instance.Model.Groups)
+                {
+                    if (g.IsDistanceLod) continue;
+                    var (gMin, gMax) = TransformedBounds(g, instance.Transform);
+                    if (DistanceToBox(feet, gMin, gMax) > SightReachYards) continue;
+                    (reached ??= []).Add(g.GroupIndex);
+                }
+                if (reached is null) continue;
+                (_sightGroups ??= [])[instance.Id] = reached;
+                buildings++;
+                cells += reached.Count;
+            }
+            if (buildings > 0) state = $"engaged: {buildings} building(s), {cells} cell(s)";
+        }
+        if (state != _sightLoggedState)
+        {
+            _sightLoggedState = state;
+            Console.WriteLine($"[party-sight] rooms {state}");
+        }
+    }
+
     private (int InstanceId, HashSet<int> Groups)? _cutaway;
     private string _cutawayLoggedState = "off";
 
@@ -823,6 +894,7 @@ public sealed class WmoRenderer : IDisposable
         }
 
         ResolveCutPlane();
+        ResolveSightGroups();
     }
 
     /// <summary>
@@ -913,6 +985,36 @@ public sealed class WmoRenderer : IDisposable
                     $"cells={reached.Count} cutZ={feet.Z + _cutPlaneHeight:0.#} " +
                     $"footprint=({min.X:0},{min.Y:0})-({max.X:0},{max.Y:0})";
             }
+
+            // PROXIMITY fallback (owner, 2026-09-02: "character is on floor, so treat the
+            // immediate 10 yards around it as cut ceilings ... any time characters are near
+            // buildings/caves - so on true open ground, a hill wouldn't react like that"). No
+            // interior cell under the feet (a cave mouth, a porch, a doorway) but a building
+            // within reach: cut everything above the head in a square around the unit. Terrain
+            // included, through the same uniforms. Nothing near = nothing cut.
+            if (ActiveCut is null)
+            {
+                string? nearest = null;
+                float nearestDistance = float.MaxValue;
+                foreach (var instance in _instances)
+                {
+                    float d = DistanceToBox(feet, instance.WorldMin, instance.WorldMax);
+                    if (d <= CutPlaneProximityYards && d < nearestDistance)
+                    {
+                        nearestDistance = d;
+                        nearest = System.IO.Path.GetFileName(instance.Path);
+                    }
+                }
+                if (nearest is not null)
+                {
+                    ActiveCut = new WorldCut(
+                        new Vector2(feet.X - CutPlaneProximityRadius, feet.Y - CutPlaneProximityRadius),
+                        new Vector2(feet.X + CutPlaneProximityRadius, feet.Y + CutPlaneProximityRadius),
+                        feet.Z + _cutPlaneHeight);
+                    state = $"proximity:{nearest} dist={nearestDistance:0.#} radius={CutPlaneProximityRadius:0} " +
+                        $"cutZ={feet.Z + _cutPlaneHeight:0.#}";
+                }
+            }
         }
         if (state != _cutPlaneLoggedState)
         {
@@ -920,6 +1022,12 @@ public sealed class WmoRenderer : IDisposable
             Console.WriteLine($"[cutplane] {state}");
         }
     }
+
+    /// <summary>A building's bounds this close to the unit's feet engages the proximity cut.</summary>
+    private const float CutPlaneProximityYards = 12f;
+
+    /// <summary>Half-extent of the proximity cut's square footprint around the unit.</summary>
+    private const float CutPlaneProximityRadius = 15f;
 
     /// <summary>
     /// Resolve the interior WMO cell beneath an arbitrary world position without
@@ -3096,18 +3204,18 @@ public sealed class WmoRenderer : IDisposable
             }
 
             var groupCollision = new List<Vector3>();
-            CollectCollision(group, groupCollision, ref job.Skipped);
+            CollectCollision(group, groupCollision, job.Collision, job.Blockers, ref job.Skipped);
             mesh.CollisionTriangles = [.. groupCollision];
             var cameraOnlyCollision = new List<Vector3>();
             CollectCameraOnlyCollision(group, cameraOnlyCollision);
             mesh.CameraOnlyTriangles = [.. cameraOnlyCollision];
             CollectFootstepSurfaces(group, ready.Root, mesh);
-            job.Collision.AddRange(groupCollision);
             return false;
         }
 
         var model = job.Model;
         model.CollisionTriangles = [.. job.Collision];
+        model.BlockerTriangles = [.. job.Blockers];
         model.CollisionSkipped = job.Skipped;
 
         if (job.IndicesTotal > 0 && job.IndicesCovered < job.IndicesTotal)
@@ -3208,7 +3316,12 @@ public sealed class WmoRenderer : IDisposable
     /// out of one vertex array. That is exactly how the 1.12 client does it,
     /// and why it never needed a separate collision file.
     /// </summary>
-    private static void CollectCollision(WmoGroupData group, List<Vector3> into, ref int skipped)
+    /// <param name="into">Every solid face (the group's own list: cells, floors, physics).</param>
+    /// <param name="blockers">The material-0xFF subset, solid but never drawn - the world upload
+    /// keeps them as a separate source so party sight never opens a hole onto one.</param>
+    private static void CollectCollision(WmoGroupData group, List<Vector3> into, List<Vector3> drawn,
+        List<Vector3> blockers,
+        ref int skipped)
     {
         int triangles = group.Indices.Count / 3;
 
@@ -3217,10 +3330,12 @@ public sealed class WmoRenderer : IDisposable
             // A group without MOPY is treated as fully solid rather than
             // silently non-collidable: walking through a building is a much
             // worse failure than colliding with a moulding.
+            bool blocker = false;
             if (t < group.TriMaterials.Count)
             {
-                var (flags, _) = group.TriMaterials[t];
+                var (flags, material) = group.TriMaterials[t];
                 if ((flags & 0x04) != 0) { skipped++; continue; }
+                blocker = material == 0xFF;
             }
 
             int i0 = group.Indices[t * 3];
@@ -3237,6 +3352,12 @@ public sealed class WmoRenderer : IDisposable
             into.Add(new Vector3(a.x, a.y, a.z));
             into.Add(new Vector3(b.x, b.y, b.z));
             into.Add(new Vector3(c.x, c.y, c.z));
+            var side = blocker ? blockers : drawn;
+            {
+                side.Add(new Vector3(a.x, a.y, a.z));
+                side.Add(new Vector3(b.x, b.y, b.z));
+                side.Add(new Vector3(c.x, c.y, c.z));
+            }
         }
     }
 
@@ -3339,6 +3460,11 @@ public sealed class WmoRenderer : IDisposable
 
             into.Add(new CollisionBatch(
                 tris, instance.Transform, instance.Path, instance.Model.CollisionSkipped));
+            // Collision-only faces as their own batch/source: solid for physics, never a
+            // party sight target (World/PartySight.cs).
+            if (instance.Model.BlockerTriangles.Length >= 3)
+                into.Add(new CollisionBatch(
+                    instance.Model.BlockerTriangles, instance.Transform, instance.Path + "#blocker", 0));
             placed++;
         }
 
@@ -3443,6 +3569,22 @@ public sealed class WmoRenderer : IDisposable
                     Vector3.Transform(tris[i + 2], m),
                     source);
                 triangles++;
+            }
+
+            // Collision-only faces under their own source, so party sight can tell them apart.
+            var blockers = instance.Model.BlockerTriangles;
+            if (blockers.Length >= 3)
+            {
+                int blockerSource = world.RegisterSource(Path.GetFileName(instance.Path) + "#blocker");
+                for (int i = 0; i + 2 < blockers.Length; i += 3)
+                {
+                    world.AddTriangle(
+                        Vector3.Transform(blockers[i], m),
+                        Vector3.Transform(blockers[i + 1], m),
+                        Vector3.Transform(blockers[i + 2], m),
+                        blockerSource);
+                    triangles++;
+                }
             }
 
             skipped += instance.Model.CollisionSkipped;
@@ -4205,6 +4347,7 @@ public sealed class WmoRenderer : IDisposable
         _shader.Set("uCutRect", ActiveCut?.RelativeRect(camera.Position) ?? Vector4.Zero);
         _shader.Set("uCutZ", ActiveCut?.RelativeZ(camera.Position) ?? 0f);
         SetSightUniforms(camera.Position);
+        PartySight?.Apply(_shader, camera.Position);
         _shader.Set("uSunDirection", SunDirection);
         _shader.Set("uSunColor", SunColor);
         _shader.Set("uSunIntensity", SunIntensity);
@@ -4334,13 +4477,17 @@ public sealed class WmoRenderer : IDisposable
                 if (reachable is { Count: 0 }) reachable = null;
                 PortalReachedLastFrame = reachable?.Count ?? 0;
             }
-            if (cutPlaneCells is not null)
+            // Party sight: the subject's own cells draw too, or the sight cut opens onto sky.
+            HashSet<int>? sightCells = null;
+            _sightGroups?.TryGetValue(instance.Id, out sightCells);
+            if (cutPlaneCells is not null || sightCells is not null)
             {
                 var opened = reachable is null ? new HashSet<int>() : new HashSet<int>(reachable);
                 if (reachable is null)
                     foreach (var g in instance.Model.Groups)
                         if ((g.GroupFlags & 0x08u) != 0) opened.Add(g.GroupIndex);
-                opened.UnionWith(cutPlaneCells);
+                if (cutPlaneCells is not null) opened.UnionWith(cutPlaneCells);
+                if (sightCells is not null) opened.UnionWith(sightCells);
                 reachable = opened;
             }
             _portalVisible[instance.Id] = reachable;

@@ -451,10 +451,15 @@ static void CheckOptionsSearch()
     // The chat-frame controls must be REACHABLE. They were absent from the catalog entirely,
     // so searching "chat" in the options page never offered the switch that moves the chat
     // window - and the checkbox itself sat eighth inside the Display box. Reported 2026-08-26.
+    // PLAN_21: the chat-only mover became the HUD layout editor on the Interface page, and
+    // "chat" must still lead there.
     OptionsSearchGroup[] chat = OptionsSearchUiLaw.Find("chat");
-    Check(chat.Any(g => g.Page == OptionsSearchPage.Video &&
-              g.Entries.Any(e => e.Label == "Unlock chat frame")),
-        "options search cannot find 'Unlock chat frame' on the Video page");
+    Check(chat.Any(g => g.Page != OptionsSearchPage.Video &&
+              g.Entries.Any(e => e.Label == "Move chat")),
+        "options search cannot find 'Move chat' on the Interface page");
+    OptionsSearchGroup[] hudLayout = OptionsSearchUiLaw.Find("hud layout");
+    Check(hudLayout.Any(g => g.Entries.Any(e => e.Label == "Edit HUD layout")),
+        "options search cannot find 'Edit HUD layout'");
     OptionsSearchGroup[] questHelper = OptionsSearchUiLaw.Find("quest helper");
     Check(questHelper.Length == 1 && questHelper[0].Page == OptionsSearchPage.AddOns &&
           questHelper[0].Entries.Any(entry => entry.Label == "Quest Helper"),
@@ -777,6 +782,13 @@ if (args.Contains("--spell-focus-only", StringComparer.Ordinal))
 {
     SpellFocusLayoutClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: SpellFocusLayout PASS");
+    return;
+}
+
+if (args.Contains("--hud-layout-only", StringComparer.Ordinal))
+{
+    HudLayoutClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: HudLayout PASS");
     return;
 }
 
@@ -4665,5 +4677,7 @@ CompanionClinicalChecks.Run();
 // --imgui-policy-only alone, an enrolled panel could regress unnoticed.
 GameplayImguiPolicyClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: GameplayImguiPolicy PASS");
+HudLayoutClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: HudLayout PASS");
 
 Console.WriteLine("interface wire checks passed: minimap projection/area/zone + action icons + gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + social + trade + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding + gameplay-text fence");

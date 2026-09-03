@@ -14,17 +14,11 @@ public sealed partial class GameLoop
         if (combatEvent is not CombatMeleeSwing swing || _net is null) return;
 
         bool offHand = (swing.HitInfo & 0x0004u) != 0;
-        bool landedHit = swing.Damage > 0 && swing.VictimState is 0 or 1;
         QueueMeleeSound(swing);
 
         if (swing.Attacker == ControlledGuid && !ControlledBodyIsStreamed)
             _character?.TriggerCombatSwing(offHand);
         else
             _creatures?.TriggerCombatSwing(swing.Attacker, offHand);
-
-        if (swing.Victim == ControlledGuid && !ControlledBodyIsStreamed)
-            _character?.TriggerCombatReaction(swing.VictimState, landedHit);
-        else
-            _creatures?.TriggerCombatReaction(swing.Victim, swing.VictimState, landedHit);
     }
 }

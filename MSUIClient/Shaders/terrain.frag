@@ -29,6 +29,32 @@ uniform float uCutZ;
 // The hill behind the unit stays, so the cut never becomes a window onto the world beyond it
 // (owner, 2026-09-02: "see the primary's world EXCEPT the thing between the camera and it").
 uniform float uCutMaxDist;
+
+// Party sight (World/PartySight.cs): the picture is the camera's own view plus the primary's,
+// nothing else. uPartySightCube: distance from the primary's eye to the nearest solid in every
+// direction. uPartySeenDepth: distance to the nearest surface the primary sees under this pixel
+// (0 = none). uPartyPlainDepth: distance to the nearest solid the camera would see uncut.
+// A fragment the primary sees stays. One it cannot see is CUT when nearer than the seen surface
+// (it hides the primary's view), kept when it is what the camera sees anyway, and FOGGED when
+// it is only visible because a cut opened onto it. All positions camera-relative, like vWorldPos.
+uniform int         uPartySightActive;
+uniform samplerCube uPartySightCube;    // unit 6
+uniform sampler2D   uPartySeenDepth;    // unit 7: exact
+uniform sampler2D   uPartyPlainDepth;   // unit 8
+uniform sampler2D   uPartySeenDilated;  // unit 9: seen, grown a few pixels (the rim)
+uniform vec3        uPartySightEye;
+uniform float       uPartySightBias;
+
+// Unblocked from the primary's eye, AND the side the camera looks at is the side the eye is on
+// (a thin roof's top is not seen from below; its underside is). n: this face's normal from
+// screen derivatives, oriented toward the camera by the caller.
+bool PartySightSees(vec3 p, vec3 n)
+{
+    vec3 d = p - uPartySightEye;
+    if (length(d) > texture(uPartySightCube, d).r + uPartySightBias) return false;
+    return dot(n, -d) > 0.0;
+}
+
 uniform vec3  uCameraPos;
 uniform vec3  uSunDirection;         // points TOWARD the sun, normalised
 uniform vec3  uSunColor;
@@ -92,6 +118,23 @@ vec3 proceduralAlbedo(vec3 n)
 
 void main()
 {
+    // Derivatives first, before any discard, so the face normal is always defined.
+    vec3 partyN = normalize(vNormal);   // vertex normal: derivatives hatch at grazing angles
+    if (dot(partyN, -vWorldPos) < 0.0) partyN = -partyN;
+    float partyFog = 0.0;   // 1 = painted flat fog-of-war colour (unseen, behind a cut)
+    if (uPartySightActive == 1 && !PartySightSees(vWorldPos, partyN))
+    {
+        float partyDist = length(vWorldPos);
+        ivec2 partyPx = ivec2(gl_FragCoord.xy);
+        float partySeen = texelFetch(uPartySeenDepth, partyPx, 0).r;
+        float partyRim  = texelFetch(uPartySeenDilated, partyPx, 0).r;
+        float partyPlain = texelFetch(uPartyPlainDepth, partyPx, 0).r;
+        // In front of the primary's view: cut. On the rim of the opening (a sliver the exact
+        // test misses, or the far map through the hole): painted fog, never sky.
+        if (partySeen > 0.0 && partyDist < partySeen - 0.3) discard;
+        else if (partyRim > 0.0 && partyDist < partyRim - 2.0) partyFog = 0.92;
+        else if (partyPlain > 0.0 && partyDist > partyPlain + 2.0) partyFog = 0.92;
+    }
     if (uCutActive == 1 && vWorldPos.z > uCutZ && length(vWorldPos) < uCutMaxDist &&
         vWorldPos.x > uCutRect.x && vWorldPos.x < uCutRect.z &&
         vWorldPos.y > uCutRect.y && vWorldPos.y < uCutRect.w) discard;
@@ -208,5 +251,5 @@ void main()
     // default framebuffer never composites terrain by alpha, so this does not
     // change ordinary rendering; the post pass uses it to keep ground texture
     // quieter than characters and architecture.
-    FragColor = vec4(color, 0.22);
+    FragColor = vec4(mix(color, vec3(0.04, 0.035, 0.05), partyFog), 0.22);
 }

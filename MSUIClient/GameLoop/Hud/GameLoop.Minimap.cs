@@ -60,9 +60,11 @@ public sealed partial class GameLoop
         // WC3 console law (owner 2026-08-25): in the free view the minimap is
         // command furniture — SQUARE, docked to the bottom-LEFT corner (the
         // chat frame lifts above it); top-right belongs to normal body play.
-        Vector2 root = _freeView
-            ? new(8f, logicalDisplay.Y - 200f)
-            : new(logicalDisplay.X - 192f, 0f);
+        // Two authored placements of one registered frame (PLAN_21): top-right flush in body
+        // play, 8 px in from the bottom-left corner in the Command View.
+        Vector2 root = HudFrame("minimap", "Minimap",
+            HudPlacement.At(HudAnchor.TopRight, 0f, 0f), new Vector2(192f, 192f),
+            authoredCommand: HudPlacement.At(HudAnchor.BottomLeft, 8f, -8f)).LogicalOrigin;
         Vector2 rootPx = root * s;
         ImDrawListPtr dl = ImGui.GetBackgroundDrawList();
 

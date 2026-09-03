@@ -525,6 +525,19 @@ public sealed partial class GameLoop
         (Vector3 origin, Vector3 direction) = ray.Value;
         const float maxDistance = 250f;
 
+        // Party sight (World/PartySight.cs): the click lands on what the PICTURE shows under the
+        // cursor - the pass reads its own buffers back there each frame. The CPU rules below
+        // approximate the shaders; this is the shaders' own answer (owner, 2026-09-02: "it
+        // doesn't land where your cursor is").
+        if (_freeView && _partySight is { Engaged: true } sight &&
+            sight.TryPickDistance(pixel, out float sightDistance) && sightDistance <= maxDistance)
+        {
+            point = origin + direction * sightDistance;
+            onTerrain = _terrain?.SampleHeight(point.X, point.Y) is float sightGround &&
+                MathF.Abs(sightGround - point.Z) < 0.5f;
+            return true;
+        }
+
         bool haveCollision = TryPickCollisionSurface(origin, direction, maxDistance,
             out Vector3 collisionPoint, out float collisionDistance);
         // Only the stretch in front of the collision hit can beat it.
@@ -562,7 +575,7 @@ public sealed partial class GameLoop
         for (int pass = 0; pass < CommandViewCutSkipPasses; pass++)
         {
             if (_collision.Raycast(castFrom, direction, remaining) is not { } hit) return false;
-            if (!CommandViewCollisionCutAway(hit.Point))
+            if (!CommandViewCollisionCutAway(hit.Point, hit.Normal))
             {
                 point = hit.Point;
                 distance = travelled + hit.Distance;
@@ -588,10 +601,21 @@ public sealed partial class GameLoop
         distance = float.PositiveInfinity;
         if (_terrain is null || maxDistance <= 0f) return false;
         float previous = 0f;
+        // A hit is a CROSSING from above the height field to below it, never "below it". Inside
+        // a cave the whole ray runs under the hill's height field; "below = hit" reported the hill
+        // surface overhead at every step, the roof cut skipped each, and the first survivor was
+        // the hillside beyond the cut - the click walked the character outside and back up
+        // (owner, 2026-09-03). The origin's own side seeds the state.
+        bool wasAbove = _terrain.SampleHeight(origin.X, origin.Y) is not float originGround ||
+                        origin.Z > originGround;
         for (float t = 1f; t <= maxDistance; t += 1f)
         {
             Vector3 sample = origin + direction * t;
-            if (_terrain.SampleHeight(sample.X, sample.Y) is float ground && sample.Z <= ground &&
+            float? sampleGround = _terrain.SampleHeight(sample.X, sample.Y);
+            bool below = sampleGround is float sg && sample.Z <= sg;
+            bool crossing = below && wasAbove;
+            wasAbove = !below;
+            if (crossing && sampleGround is float ground &&
                 !CommandViewTerrainCutAway(sample with { Z = ground }))
             {
                 float lo = previous, hi = t;
@@ -632,16 +656,18 @@ public sealed partial class GameLoop
     /// above lands on the roof the player cannot see. The doodad-only canopy mask cannot safely
     /// apply to source-agnostic collision hits.
     /// </summary>
-    private bool CommandViewCollisionCutAway(Vector3 point)
+    private bool CommandViewCollisionCutAway(Vector3 point, Vector3? normal = null)
     {
         if (!_freeView || _wmo is null) return false;
         Vector3 camera = _window.Camera.Position;
         if (_wmo.ActiveCut is WorldCut cut)
         {
             if (cut.Cuts(point)) return true;
-            if (_wmo.Slice is WorldSlice slice && slice.Cuts(camera, cut, point)) return true;
+            if (_wmo.Slice is WorldSlice slice && slice.Cuts(camera, cut, point, normal)) return true;
         }
-        return WorldCut.SightCutsAny(camera, point, _wmo.SightTargets);
+        if (WorldCut.SightCutsAny(camera, point, _wmo.SightTargets)) return true;
+        // Party sight (GameLoop.PartySight.cs): the primary's view, reprojected.
+        return PartySightCutAway(point);
     }
 
     /// <summary>
@@ -650,9 +676,11 @@ public sealed partial class GameLoop
     /// </summary>
     private bool CommandViewTerrainCutAway(Vector3 point) =>
         _freeView &&
-        _terrain?.Cut is WorldCut cut &&
-        cut.Cuts(point) &&
-        Vector3.Distance(_window.Camera.Position, point) < _terrain.CutMaxDistance;
+        (_terrain?.Cut is WorldCut cut &&
+         cut.Cuts(point) &&
+         Vector3.Distance(_window.Camera.Position, point) < _terrain.CutMaxDistance ||
+         // Party sight opens terrain too (the hill over the cave the primary is looking into).
+         PartySightCutAway(point));
 
     /// <summary>Solid world between the eye and a point <paramref name="reach"/> along the ray,
     /// ignoring geometry the cut plane has removed.</summary>
@@ -664,7 +692,7 @@ public sealed partial class GameLoop
         for (int pass = 0; pass < CommandViewCutSkipPasses && remaining > 0f; pass++)
         {
             if (_collision.Raycast(from, direction, remaining) is not { } hit) return false;
-            if (!CommandViewCollisionCutAway(hit.Point)) return hit.Distance < remaining;
+            if (!CommandViewCollisionCutAway(hit.Point, hit.Normal)) return hit.Distance < remaining;
             float advance = hit.Distance + 0.05f;
             from += direction * advance;
             remaining -= advance;

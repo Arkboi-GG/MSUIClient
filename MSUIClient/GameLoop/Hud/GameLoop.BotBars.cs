@@ -318,8 +318,7 @@ public sealed partial class GameLoop
     private float PartyDragDistance(int index)
     {
         float scale = GameplayUiScale();
-        Vector2 from = new Vector2(PartyFrameUiLaw.FirstX + 47,
-            PartyFrameUiLaw.MemberY(index) + 15) * scale;
+        Vector2 from = (PartyMemberLogicalOrigin(index) + new Vector2(47, 15)) * scale;
         return (ImGui.GetIO().MousePos - from).Length();
     }
 
@@ -327,7 +326,7 @@ public sealed partial class GameLoop
     {
         float scale = GameplayUiScale();
         Vector2 mouse = ImGui.GetIO().MousePos;
-        Vector2 min = new Vector2(-19, 4) * scale;      // the player frame's authored origin
+        Vector2 min = _playerFrameOrigin * scale;       // the player frame's resolved origin
         Vector2 size = new Vector2(232, 100) * scale;
         return mouse.X >= min.X && mouse.X <= min.X + size.X &&
                mouse.Y >= min.Y && mouse.Y <= min.Y + size.Y;
@@ -365,8 +364,7 @@ public sealed partial class GameLoop
     private void DrawPartyRoleMedallion(int index, string role)
     {
         float s = GameplayUiScale();
-        Vector2 center = new Vector2(PartyFrameUiLaw.FirstX + 44,
-            PartyFrameUiLaw.MemberY(index) + 43) * s;
+        Vector2 center = (PartyMemberLogicalOrigin(index) + new Vector2(44, 43)) * s;
         DrawRoleMedallion(ImGui.GetForegroundDrawList(), center, 8f * s, role, s);
     }
 
@@ -401,9 +399,8 @@ public sealed partial class GameLoop
             string role = doc.BotRoles.GetValueOrDefault(member.Name, "DPS");
             DrawPartyRoleMedallion(i, role);
 
-            Vector2 pos = new Vector2(
-                PartyFrameUiLaw.FirstX + PartyFrameUiLaw.FrameWidth + 6,
-                PartyFrameUiLaw.MemberY(i) + 4) * scale;
+            Vector2 pos = (PartyMemberLogicalOrigin(i) +
+                new Vector2(PartyFrameUiLaw.FrameWidth + 6, 4)) * scale;
             ImGui.SetNextWindowPos(pos, ImGuiCond.Always);
             ImGui.SetNextWindowBgAlpha(0.35f);
             ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
@@ -573,13 +570,13 @@ public sealed partial class GameLoop
         float scale = GameplayUiScale();
         var draw = ImGui.GetForegroundDrawList();
         // Anchor rail: just left of the portraits, starting under the player frame.
-        float railX = (PartyFrameUiLaw.FirstX + 2) * scale;
-        Vector2 previous = new(railX, 96f * scale);   // player frame's lower edge
+        float railX = (_partyFramesOrigin.X + 2) * scale;
+        Vector2 previous = new(railX, (_playerFrameOrigin.Y + 92f) * scale);   // player frame's lower edge
         const uint beadColor = 0xFFC8DCF0;            // ABGR pale steel
         const uint beadShadow = 0x88000000;
         for (int i = 0; i < members.Length; i++)
         {
-            Vector2 at = new(railX, (PartyFrameUiLaw.MemberY(i) + 15) * scale);
+            Vector2 at = new(railX, (PartyMemberLogicalOrigin(i).Y + 15) * scale);
             if (PartyMemberLinked(members[i].Name))
             {
                 // Beads along the segment read as chain links without heavy art.
@@ -610,8 +607,7 @@ public sealed partial class GameLoop
         if (_partyPressIndex < 0 || _partyPressIndex >= members.Length ||
             _partyPressButton != PartyPointerButton.Left) return;
         float scale = GameplayUiScale();
-        Vector2 from = new Vector2(PartyFrameUiLaw.FirstX + 47,
-            PartyFrameUiLaw.MemberY(_partyPressIndex) + 15) * scale;
+        Vector2 from = (PartyMemberLogicalOrigin(_partyPressIndex) + new Vector2(47, 15)) * scale;
         Vector2 mouse = ImGui.GetIO().MousePos;
         if ((mouse - from).Length() < 20f * scale) return;
         var draw = ImGui.GetForegroundDrawList();

@@ -121,9 +121,17 @@ public readonly record struct WorldSlice(Vector3 Forward, float Depth, float Flo
             new Vector2(primaryFeet.X, primaryFeet.Y));
     }
 
-    /// <summary>Exact CPU counterpart of the shader slice, for picking.</summary>
-    public bool Cuts(Vector3 camera, WorldCut footprint, Vector3 point)
+    /// <summary>Faces this upright (|normal.z| at or above it) are floor-like and never sliced:
+    /// the slice removes a shaft's near walls, not a ramp or a sloping cave floor rising toward
+    /// the camera (owner, 2026-09-03). Same constant as wmo.frag / doodad.frag.</summary>
+    public const float FloorLikeNormalZ = 0.6f;
+
+    /// <summary>Exact CPU counterpart of the shader slice, for picking. <paramref name="normal"/>
+    /// is the face normal when the caller has one (collision hits do; winding is not consistent,
+    /// so only its magnitude is judged).</summary>
+    public bool Cuts(Vector3 camera, WorldCut footprint, Vector3 point, Vector3? normal = null)
     {
+        if (normal is Vector3 n && MathF.Abs(n.Z) >= FloorLikeNormalZ) return false;
         if (point.Z <= FloorZ || !footprint.InsideFootprint(point)) return false;
         if (Vector3.Dot(point - camera, Forward) >= Depth) return false;
         Vector2 flat = new(point.X - Centre.X, point.Y - Centre.Y);

@@ -345,6 +345,11 @@ public sealed partial class CharacterRenderer : IDisposable
     private float _globalTime;
     private float _clipRate = 1f;
     private M2Animator.Clip? _combatAction;
+    // A landed-hit wound is a secondary blend, not an action-track replacement. Keeping its
+    // clip and clock separate lets an in-flight swing continue to its authored $CAH impact key.
+    private M2Animator.Clip? _combatReaction;
+    private float _combatReactionTime;
+    private bool _combatReactionMasked;
     private M2Animator.Clip? _spellHold;
     // Upper-body action mask (seated eat/drink/emote). While the server holds us in a ground
     // stand-state, _combatAction is layered onto the SpineLow subtree over the seated base
@@ -365,6 +370,7 @@ public sealed partial class CharacterRenderer : IDisposable
     public long CombatActionsTriggered { get; private set; }
     public string CurrentAnimation => _clip?.Name ?? "none";
     public string CurrentActionAnimation => _combatAction?.Name ?? "none";
+    public string CurrentReactionAnimation => _combatReaction?.Name ?? "none";
     public string CurrentSpellHoldAnimation => _spellHold?.Name ?? "none";
     public string CurrentPresentationAnimation =>
         _spellHold?.Name ?? _combatAction?.Name ?? _clip?.Name ?? "none";
@@ -2694,6 +2700,18 @@ public sealed partial class CharacterRenderer : IDisposable
 
         DriveBodyHeading(dt, state, airborne);
 
+        // Benilla's byte-reconstructed wound slot is independent of the base/action clock:
+        // it decays over one wound-clip span and releases without ever stopping the swing below.
+        if (_combatReaction is not null)
+        {
+            _combatReactionTime += dt;
+            if (_combatReactionTime >= _combatReaction.DurationSeconds)
+            {
+                _combatReaction = null;
+                _combatReactionTime = 0f;
+            }
+        }
+
         // A looping one-shot (Dance, AnimID 69) is a state, not a burst - it must
         // keep cycling until something else interrupts it (movement, another
         // action). Only a non-looping clip's own duration ends it here; the
@@ -2818,6 +2836,11 @@ public sealed partial class CharacterRenderer : IDisposable
     public void TriggerCombatSwing(bool offHand)
     {
         if (_animator is null) return;
+        // A fresh primary play on the same bones evicts the vanilla secondary wound slot. This
+        // keeps a prior flinch from bleeding into the next attack while still allowing a wound
+        // received during this swing to blend over it.
+        _combatReaction = null;
+        _combatReactionTime = 0f;
         bool twoHand = Equipment.Pieces.Any(p => p.InventoryType == CharacterEquipment.Slot.TwoHand);
         bool mainWeapon = Equipment.Pieces.Any(p => p.InventoryType is
             CharacterEquipment.Slot.Weapon or CharacterEquipment.Slot.MainHand);
@@ -2841,7 +2864,7 @@ public sealed partial class CharacterRenderer : IDisposable
             _ when landedHit => 9,
             _ => -1,
         };
-        _combatAction = requested switch
+        M2Animator.Clip? reaction = requested switch
         {
             30 => _animator.Resolve("player", ActionAnimationTrack, 30, false, 9),
             20 => _animator.Resolve("player", ActionAnimationTrack, 20, false, 21, 22, 23, 9),
@@ -2849,7 +2872,24 @@ public sealed partial class CharacterRenderer : IDisposable
             9 => _animator.Resolve("player", ActionAnimationTrack, 9, false),
             _ => null,
         };
-        if (_combatAction is not null) CombatActionsTriggered++;
+        if (reaction is null) return;
+
+        if (requested == 9)
+        {
+            // CombatWound uses the reference client's secondary slot. Mid-swing the current
+            // bone-0 clip is not a Ready stance, so the wound is SpineLow-masked and the attack
+            // continues underneath. Between swings, Ready1H/2H (25-29) flinches full-body.
+            _combatReaction = reaction;
+            _combatReactionTime = 0f;
+            _combatReactionMasked = _clip?.AnimationId is not (>= 25 and <= 29);
+            CombatActionsTriggered++;
+            return;
+        }
+
+        // Dodge/parry/block are primary defense animations in the reference client, not wound
+        // blends, so retain their existing action-track replacement behaviour.
+        _combatAction = reaction;
+        CombatActionsTriggered++;
         RestartCombatAction();
     }
 
@@ -3742,7 +3782,9 @@ public sealed partial class CharacterRenderer : IDisposable
                                    rightOverlay, _sheathOverlayTime,
                                    leftOverlay, _sheathOverlayTime,
                                    _torsoOverlayForRender, _actionOverlayTime,
-                                   _globalTime, _skin);
+                                   _globalTime, _skin,
+                                   _combatReaction, _combatReactionTime,
+                                   CombatReactionWeight(), _combatReactionMasked);
             }
             M2Animator.Pack(_skin, Math.Min(bones, M2Animator.MaxBones), _packed);
         }
@@ -3832,6 +3874,18 @@ public sealed partial class CharacterRenderer : IDisposable
             _attached.BodyTint = bodyTint;
         }
         _attached?.Render(camera, modelTransform, _m2, _skin, state.Guid, _globalTime);
+    }
+
+    /// <summary>
+    /// Vanilla's wound secondary starts at 75% and smoothstep-decays to zero over the clip.
+    /// Keeping this in the renderer makes the lifetime and the sampled pose share one clock.
+    /// </summary>
+    private float CombatReactionWeight()
+    {
+        if (_combatReaction is null || _combatReaction.DurationSeconds <= 0f) return 0f;
+        float remaining = Math.Clamp(
+            1f - _combatReactionTime / _combatReaction.DurationSeconds, 0f, 1f);
+        return (3f - 2f * remaining) * remaining * remaining * 0.75f;
     }
 
     public IReadOnlyList<ItemGlowPlacement> ItemGlowPlacements =>

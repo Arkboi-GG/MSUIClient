@@ -179,6 +179,9 @@ public sealed partial class GameLoop
     private Vector3? CommandViewPrimarySubject()
     {
         if (!_freeView) return null;
+        // Creator sandbox: no entity stream; the "primary" is where the character stood when
+        // the view went up (ToggleFreeView parks it there and returns it there).
+        if (_net is not { IsInWorld: true }) return CreatorInWorld ? _creatorFreeViewReturn : null;
         ulong guid = RtsPrimaryGuid != 0 ? RtsPrimaryGuid : ControlledGuid;
         if (guid == 0 || !_entities.TryGet(guid, out WorldEntity unit)) return null;
         return unit.Position;
@@ -1666,7 +1669,7 @@ public sealed partial class GameLoop
         if (rightDown && IsMoving()) _freecamRightPanned = true;
         _freecamRightWasDown = rightDown;
 
-        if (leftDown && _freecamDragOrigin is null && !_commanderMapOpen &&
+        if (leftDown && _freecamDragOrigin is null && !_commanderMapOpen && !_hudEditMode &&
             _rtsUnitCastSpellId == 0 &&
             !_window.MouseCaptured && !ImGui.GetIO().WantCaptureMouse)
             _freecamDragOrigin = mouse;
@@ -1953,6 +1956,8 @@ public sealed partial class GameLoop
         float dt = (float)Math.Clamp(now - previous, 0.0, 0.1);
         if (dt <= 0f) return;
 
+        // HUD layout Edit Mode: a frame dragged toward an edge must not pan the camera.
+        if (_hudEditMode) return;
         if (_freecamDragActive || _window.MouseCaptured || ImGui.GetIO().WantCaptureMouse) return;
 
         Vector2 display = ImGui.GetIO().DisplaySize;
@@ -2457,8 +2462,8 @@ public sealed partial class GameLoop
         float scale = GameplayUiScale();
         var io = ImGui.GetIO();
         Vector2 size = new Vector2(AngleKnobWidth, AngleKnobHeight * (angleRow ? 3f : 2f)) * scale;
-        ImGui.SetNextWindowPos(new Vector2(io.DisplaySize.X - 20f, io.DisplaySize.Y - 20f),
-            ImGuiCond.Always, new Vector2(1f, 1f));
+        ImGui.SetNextWindowPos(HudFrame("angle-knob", "Camera tablet",
+            HudPlacement.At(HudAnchor.BottomRight, -20f, -20f), size / scale).ScreenMin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
         ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
@@ -2639,6 +2644,8 @@ public sealed partial class GameLoop
     /// </summary>
     private void HandleFreeCamWorldClick(WorldMouseClick click, TargetPressPick pressPick = default)
     {
+        // HUD layout Edit Mode: clicks move frames, never dispatch orders.
+        if (_hudEditMode) return;
         // A live waypoint-orient spin: the next click of ANY button sets the facing and
         // ends the session (the grab began on an earlier Shift+Right-click on the dot).
         if (_encounterOrientSpinning) { EndEncounterOrientSpin(commit: true); return; }
@@ -3226,12 +3233,14 @@ public sealed partial class GameLoop
         }
         else
             guideSize = new Vector2(330f, 112f) * scale;
-        ImGui.SetNextWindowPos(
-            new Vector2(
-                io.DisplaySize.X - 20,
-                guideBottom),
-            ImGuiCond.Always,
-            new Vector2(1f, 1f));
+        // Authored stacked above the camera tablet when that is drawn, else in the tablet's
+        // corner - but its OWN frame in the layout registry (owner, 2026-09-03: the guide is
+        // moved on its own, it does not ride the tablet).
+        float guideLift = knobHeight > 0f ? knobHeight / scale + 8f : 0f;
+        ImGui.SetNextWindowPos(HudFrame("control-guide",
+            _freeView ? "Commander guide" : "Control guide",
+            HudPlacement.At(HudAnchor.BottomRight, -20f, -20f - guideLift),
+            guideSize / scale).ScreenMin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(guideSize, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
 

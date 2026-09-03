@@ -20,6 +20,9 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private bool _companionsOpen;
+    /// <summary>Last logical window size: the layout registry places the frame before
+    /// ImGui has sized it, and the player may have resized it.</summary>
+    private Vector2 _companionsLogicalSize = new(420f, 380f);
 
     /// <summary>First visible row when the list is taller than the window.</summary>
     private int _companionsScroll;
@@ -48,18 +51,23 @@ public sealed partial class GameLoop
         if (!_companionsOpen || _net is null || _gameplayArt is null) return;
         float scale = GameplayUiScale();
 
-        ImGui.SetNextWindowSize(new Vector2(420f, 380f) * scale, ImGuiCond.FirstUseEver);
+        // Placed by the HUD layout registry (PLAN_21): centred by default, movable in Edit Mode,
+        // never by an ImGui title-bar drag (NoMove).
+        ImGui.SetNextWindowPos(HudFrame("companions", "Companions",
+            HudPlacement.At(HudAnchor.Center, 0f, 0f), _companionsLogicalSize).ScreenMin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(_companionsLogicalSize * scale, ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSizeConstraints(
             new Vector2(380f, 220f) * scale, new Vector2(float.MaxValue, float.MaxValue));
         ImGui.SetNextWindowBgAlpha(0f);
         if (!ImGui.Begin("###companions", ref _companionsOpen,
                 ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoBackground |
                 ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar |
-                ImGuiWindowFlags.NoScrollWithMouse))
+                ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.NoMove))
         {
             ImGui.End();
             return;
         }
+        _companionsLogicalSize = ImGui.GetWindowSize() / scale;
         DrawVanillaPanelChrome("Companions", scale, ref _companionsOpen);
 
         ImDrawListPtr dl = ImGui.GetWindowDrawList();

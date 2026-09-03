@@ -47,6 +47,9 @@ public sealed class DoodadRenderer : IDisposable
     /// (Engine/WorldCut.cs). Empty = no tunnels. Set by GameLoop once per frame.</summary>
     public List<Vector3> SightTargets { get; } = [];
 
+    /// <summary>Command View party sight (World/PartySight.cs); null = never consulted.</summary>
+    public PartySightPass? PartySight { get; set; }
+
     /// <summary>Canopy cut height above a party member's feet (the Command View cut height).</summary>
     public float CanopyCutHeight { get; set; } = 4.5f;
 
@@ -2909,6 +2912,7 @@ public sealed class DoodadRenderer : IDisposable
         _shader.Set("uCutRect", Cut?.RelativeRect(camera.Position) ?? Vector4.Zero);
         _shader.Set("uCutZ", Cut?.RelativeZ(camera.Position) ?? 0f);
         SetSightUniforms(camera.Position);
+        PartySight?.Apply(_shader, camera.Position);
         // uUseInstancing is set per pass below (1 for RenderInstanced, 0 for the
         // per-instance GameObject-pose pass), not once for the whole frame.
         _shader.Set("uCameraPos", Vector3.Zero);
