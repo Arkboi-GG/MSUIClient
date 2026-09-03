@@ -178,6 +178,11 @@ public sealed partial class GameLoop
     /// <summary>The coordinator's effects for the confirm popups.</summary>
     private void ApplyConfirmPopupEffect(StaticPopupCoordinatorLaw.Effect effect)
     {
+        if (effect.Type == ConfirmPopupUiLaw.GiverChoicePopupType)
+        {
+            ApplyCommandViewGiverChoice(effect.Kind);
+            return;
+        }
         bool summon = effect.Type == ConfirmPopupUiLaw.SummonPopupType;
         if (effect.Type == ConfirmPopupUiLaw.ReadyCheckPopupType)
         {
@@ -231,6 +236,7 @@ public sealed partial class GameLoop
         DrawConfirmPopup(ConfirmPopupUiLaw.SummonPopupType);
         DrawConfirmPopup(ConfirmPopupUiLaw.QuestAcceptPopupType);
         DrawConfirmPopup(ConfirmPopupUiLaw.ReadyCheckPopupType);
+        DrawConfirmPopup(ConfirmPopupUiLaw.GiverChoicePopupType);
         DrawLootMasterMenu();
     }
 
@@ -245,9 +251,13 @@ public sealed partial class GameLoop
         {
             ConfirmPopupUiLaw.SummonPopupType => SummonPromptText(),
             ConfirmPopupUiLaw.ReadyCheckPopupType => ReadyCheckPromptText(),
+            ConfirmPopupUiLaw.GiverChoicePopupType => ConfirmPopupUiLaw.GiverChoiceText(
+                ResolveWorldUnitName(_cvGiverChoiceGuid), _cvGiverChoiceCaption),
             _ => QuestConfirmPromptText(),
         };
-        (string acceptCaption, string declineCaption) = ConfirmPopupUiLaw.Captions(type);
+        (string acceptCaption, string declineCaption) = type == ConfirmPopupUiLaw.GiverChoicePopupType
+            ? (ConfirmPopupUiLaw.GiverChoiceQuestsText, _cvGiverChoiceCaption)
+            : ConfirmPopupUiLaw.Captions(type);
         string[] lines = WrapTooltipText(text, "GameFontHighlight", scale,
             DuelFrameUiLaw.PopupTextWidth * scale).ToArray();
         float logicalTextHeight = lines.Length * GameText.LinePitch("GameFontHighlight", 1);

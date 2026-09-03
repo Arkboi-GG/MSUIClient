@@ -1651,7 +1651,7 @@ public sealed partial class GameLoop
             }
         }
         SyncManualPrimary();   // after the cam heartbeat: the server attaches your body's AI on it
-        UpdateCommandViewPendingLoot();
+        UpdateCommandViewPendingInteraction();
         MirrorPrimaryTarget();
 
         bool leftDown = _window.MouseLeftDown;
@@ -2064,43 +2064,215 @@ public sealed partial class GameLoop
         _cvMirroredTarget = served;
     }
 
-    // ── Command View loot-on-arrival ──────────────────────────────────────────────────────────
-    private ulong _cvPendingLootGuid;
-    private double _cvPendingLootAt;
+    // ── Command View walk-then-interact ───────────────────────────────────────────────────────
+    // A right-click on a corpse, a service NPC (vendor / trainer / banker / auctioneer / flight
+    // master / gossip) or a usable game object in the Command View is an INTERACTION, never a
+    // ground move: the acting body is sent walking and the interaction opens on arrival. Before
+    // this only corpses walked; a vendor click fell through to a ground order under the NPC and
+    // the server answered "no path to that spot" (owner, 2026-09-02: "it should just path there
+    // and open it ... same fix, applied really to any interaction").
+    private enum CommandViewInteractKind { Loot, Service, GameObject }
 
-    private bool CommandViewLootInReach(WorldEntity corpse) =>
-        TryGetSessionBodyPose(out WorldBodyPose body) &&
-        _entities.TryGet(LocalPlayerGuid, out WorldEntity self) &&
-        Vector3.DistanceSquared(body.Position, corpse.Position) <=
-            WorldCursorUiLaw.UnitMeleeReachSquared(self.Fields.CombatReach, corpse.Fields.CombatReach);
+    private ulong _cvPendingInteractGuid;
+    private CommandViewInteractKind _cvPendingInteractKind;
+    private double _cvPendingInteractAt;
+    private double _cvPendingInteractNotBefore;
+    private int _cvPendingInteractAttempts;
 
-    /// <summary>A right-clicked corpse out of reach: the character was sent walking; open the
-    /// loot the moment it is close enough, or forget it after ten seconds.</summary>
-    private double _cvPendingLootNotBefore;
-    private int _cvPendingLootAttempts;
+    /// <summary>How close the walker stops short of the subject: a corpse is stood on (melee
+    /// reach), a person or object is approached to talking distance.</summary>
+    private const float CommandViewServiceApproachYards = 2.5f;
 
-    private void UpdateCommandViewPendingLoot()
-    {
-        if (_cvPendingLootGuid == 0) return;
-        double now = NowSeconds();
-        if (!_freeView || ControlledGuid != LocalPlayerGuid || now - _cvPendingLootAt > 15.0 ||
-            _cvPendingLootAttempts >= 8 ||
-            !_entities.TryGet(_cvPendingLootGuid, out WorldEntity corpse) || !corpse.IsDead ||
-            !corpse.Fields.Lootable)
+    /// <summary>The body that performs the interaction: loot is always the session character;
+    /// an NPC service is the driven bot while possessing, else the session character (the
+    /// server runs the handlers on it); a game object follows the same rule UseGameObject uses
+    /// (mail and text are session-scoped, everything else is the controlled body).</summary>
+    private ulong CommandViewInteractWalker(CommandViewInteractKind kind, WorldEntity subject) =>
+        kind switch
         {
-            _cvPendingLootGuid = 0;
+            CommandViewInteractKind.Loot => LocalPlayerGuid,
+            CommandViewInteractKind.Service =>
+                _controlState == ControlState.Possessing ? ControlledGuid : LocalPlayerGuid,
+            _ => subject.GameObjectType is 9 or 19 ? LocalPlayerGuid : ControlledGuid,
+        };
+
+    private bool CommandViewInteractInReach(CommandViewInteractKind kind, WorldEntity subject)
+    {
+        ulong walker = CommandViewInteractWalker(kind, subject);
+        if (!TryGetWorldBodyPose(walker, out WorldBodyPose body)) return false;
+        float distanceSquared = Vector3.DistanceSquared(body.Position, subject.Position);
+        switch (kind)
+        {
+            case CommandViewInteractKind.Loot:
+                return _entities.TryGet(walker, out WorldEntity self) &&
+                    distanceSquared <= WorldCursorUiLaw.UnitMeleeReachSquared(
+                        self.Fields.CombatReach, subject.Fields.CombatReach);
+            case CommandViewInteractKind.Service:
+                return NpcSessionUiLaw.InRange(distanceSquared);
+            default:
+                float limit = IsStockPortalEntry(subject.Entry)
+                    ? MagePortalClickInteractDistance : GameObjectInteractDistance;
+                return distanceSquared <= limit * limit;
+        }
+    }
+
+    private bool CommandViewInteractSubjectValid(CommandViewInteractKind kind, WorldEntity subject) =>
+        kind switch
+        {
+            CommandViewInteractKind.Loot => subject.IsCreature && subject.IsDead && subject.Fields.Lootable,
+            CommandViewInteractKind.Service =>
+                subject.IsCreature && !subject.IsDead && WorldCursorServiceKind(subject) is not null,
+            _ => subject.IsGameObject,
+        };
+
+    /// <summary>Whether the pending interaction has visibly landed, so the arrival retry stops.
+    /// Loot is cleared by ApplyLootResponse itself; a service is delivered once any NPC panel is
+    /// up; a game object once its use was queued (UseGameObject's return clears the pending) or
+    /// the mail panel opened. Only consulted AFTER the first ask, so a panel left open from
+    /// before the click never swallows the interaction.</summary>
+    private bool CommandViewInteractDelivered(CommandViewInteractKind kind, ulong guid) =>
+        kind switch
+        {
+            CommandViewInteractKind.Service =>
+                _vendor is not null || _trainer is not null || _gossipMenu is not null ||
+                _bankOpen || _auctionOpen || _mailOpen || _taxiMasterGuid == guid,
+            CommandViewInteractKind.GameObject => _mailOpen,
+            _ => false,
+        };
+
+    /// <summary>The service the pending interaction was CHOSEN for (the giver chooser), else null
+    /// = the NPC's own cursor verdict. A flight master with a quest verdicts Speak, and Speak
+    /// would open gossip, not the flight map the player picked.</summary>
+    private WorldCursorKind? _cvPendingInteractService;
+
+    // ── Quest giver who is also something else (owner, 2026-09-02: "FP Map or Quest List?") ──
+    // Thor in Sentinel Hill is a flight master AND a quest giver: the commander quest window
+    // (Model B) took every quest-giver click, so the flight path could never be discovered from
+    // the sky. A giver with a second service raises a small two-button StaticPopup instead.
+    private ulong _cvGiverChoiceGuid;
+    private WorldCursorKind _cvGiverChoiceService;
+    private string _cvGiverChoiceCaption = "";
+
+    private void RaiseCommandViewGiverChoice(ulong guid, WorldEntity npc, WorldCursorKind service)
+    {
+        _cvGiverChoiceGuid = guid;
+        _cvGiverChoiceService = service;
+        _cvGiverChoiceCaption = ConfirmPopupUiLaw.GiverChoiceServiceCaption(service, npc.NpcFlags);
+        CommitSelection(guid, beginAttack: false);
+        ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(
+            _staticPopupSlots, ConfirmPopupUiLaw.GiverChoiceDefinition, playerDeadOrGhost: false,
+            dataToken: guid.ToString()));
+    }
+
+    /// <summary>Button 1 = the commander quest window; button 2 = walk up and open the other
+    /// service. Escape or a replacing popup = nothing.</summary>
+    private void ApplyCommandViewGiverChoice(StaticPopupCoordinatorLaw.EffectKind kind)
+    {
+        // The coordinator streams every lifecycle effect here (Show, PrepareContent, OnShow...);
+        // only the answers consume the pending giver.
+        ulong guid = _cvGiverChoiceGuid;
+        switch (kind)
+        {
+            case StaticPopupCoordinatorLaw.EffectKind.Accept:
+                RequestGiverQuests(guid);
+                _cvGiverChoiceGuid = 0;
+                break;
+            case StaticPopupCoordinatorLaw.EffectKind.CancelClicked:
+                if (_entities.TryGet(guid, out WorldEntity npc) && npc.IsCreature && !npc.IsDead)
+                    BeginCommandViewInteraction(CommandViewInteractKind.Service, guid, npc,
+                        _cvGiverChoiceService);
+                _cvGiverChoiceGuid = 0;
+                break;
+            case StaticPopupCoordinatorLaw.EffectKind.CancelWithoutReason:
+            case StaticPopupCoordinatorLaw.EffectKind.CancelOverride:
+            case StaticPopupCoordinatorLaw.EffectKind.CancelTimeout:
+                _cvGiverChoiceGuid = 0;
+                break;
+        }
+    }
+
+    /// <summary>Route a service NPC to its panel, the same dispatch the grounded right-click
+    /// uses: vendor, flight master, banker, auctioneer, otherwise gossip.</summary>
+    private bool OpenCommandViewService(ulong guid, WorldEntity npc)
+    {
+        if ((_cvPendingInteractService ?? WorldCursorServiceKind(npc)) is not { } kind) return false;
+        CommitSelection(guid, beginAttack: false);
+        if (kind == WorldCursorKind.Pickup) return RequestVendor(guid);
+        if (kind == WorldCursorKind.Taxi) return RequestTaxiMap(guid);
+        if (kind == WorldCursorKind.Buy && (npc.NpcFlags & NpcBanker) != 0) return RequestBank(guid);
+        // Possessed: the driven bot walks up to the auctioneer and the server's
+        // GetSuiActor-threaded auction handlers act on ITS purse and bags.
+        if (kind == WorldCursorKind.Buy && (npc.NpcFlags & NpcAuctioneer) != 0) return RequestAuction(guid);
+        return RequestGossip(guid);
+    }
+
+    /// <summary>Arm a walk-then-interact on <paramref name="guid"/>: in reach it opens on the
+    /// next frame; out of reach the acting body is ordered to walk up to it first. The walk
+    /// stops short of a person or object at talking distance rather than on top of it.</summary>
+    private void BeginCommandViewInteraction(CommandViewInteractKind kind, ulong guid, WorldEntity subject,
+        WorldCursorKind? service = null)
+    {
+        _cvPendingInteractGuid = guid;
+        _cvPendingInteractKind = kind;
+        _cvPendingInteractService = service;
+        _cvPendingInteractAt = NowSeconds();
+        _cvPendingInteractNotBefore = 0;
+        _cvPendingInteractAttempts = 0;
+        if (CommandViewInteractInReach(kind, subject)) return;
+        ulong walker = CommandViewInteractWalker(kind, subject);
+        Vector3 destination = subject.Position;
+        if (kind != CommandViewInteractKind.Loot &&
+            TryGetWorldBodyPose(walker, out WorldBodyPose body))
+        {
+            Vector3 toBody = body.Position - subject.Position;
+            toBody.Z = 0f;
+            float length = toBody.Length();
+            if (length > CommandViewServiceApproachYards)
+                destination += toBody * (CommandViewServiceApproachYards / length);
+        }
+        _net?.SuiOrder(0 /* ORDER_MOVE */, [walker], 0, destination.X, destination.Y, destination.Z);
+        _rtsMoveMarkers.Add((subject.Position, NowSeconds(), RtsNeutralTint));
+        if (kind == CommandViewInteractKind.Service)
+            AddChatMessage($"{ResolveUnitName(walker)}: to {ResolveWorldUnitName(guid)}.");
+    }
+
+    private void UpdateCommandViewPendingInteraction()
+    {
+        if (_cvPendingInteractGuid == 0) return;
+        double now = NowSeconds();
+        CommandViewInteractKind kind = _cvPendingInteractKind;
+        if (!_freeView || now - _cvPendingInteractAt > 15.0 || _cvPendingInteractAttempts >= 8 ||
+            (kind == CommandViewInteractKind.Loot && ControlledGuid != LocalPlayerGuid) ||
+            !_entities.TryGet(_cvPendingInteractGuid, out WorldEntity subject) ||
+            !CommandViewInteractSubjectValid(kind, subject) ||
+            (_cvPendingInteractAttempts > 0 && CommandViewInteractDelivered(kind, _cvPendingInteractGuid)))
+        {
+            _cvPendingInteractGuid = 0;
             return;
         }
         // The body is walked by a server spline the client only mirrors: ask once it has STOPPED
-        // beside the corpse, and keep asking on a short cadence until the loot opens - the first
-        // ask on arrival raced the server's own position and came back "too far away"
-        // (owner, 2026-09-02). The pending guid is cleared by ApplyLootResponse on success.
-        if (!CommandViewLootInReach(corpse)) return;
-        if (_entities.TryGet(LocalPlayerGuid, out WorldEntity self) && self.IsMoving) return;
-        if (now < _cvPendingLootNotBefore) return;
-        _cvPendingLootNotBefore = now + 0.5;
-        _cvPendingLootAttempts++;
-        RequestLoot(_cvPendingLootGuid);
+        // beside the subject, and keep asking on a short cadence until the interaction opens -
+        // the first ask on arrival raced the server's own position and came back "too far away"
+        // (owner, 2026-09-02).
+        if (!CommandViewInteractInReach(kind, subject)) return;
+        ulong walker = CommandViewInteractWalker(kind, subject);
+        if (_entities.TryGet(walker, out WorldEntity body) && body.IsMoving) return;
+        if (now < _cvPendingInteractNotBefore) return;
+        _cvPendingInteractNotBefore = now + 0.5;
+        _cvPendingInteractAttempts++;
+        ulong guid = _cvPendingInteractGuid;
+        switch (kind)
+        {
+            case CommandViewInteractKind.Loot:
+                RequestLoot(guid);                      // cleared by ApplyLootResponse
+                break;
+            case CommandViewInteractKind.Service:
+                OpenCommandViewService(guid, subject);  // cleared once a panel is up
+                break;
+            default:
+                if (UseGameObject(guid)) _cvPendingInteractGuid = 0;
+                break;
+        }
     }
 
     // ── Manual primary (owner, 2026-09-01: "primary should always be user controlled") ────────
@@ -2636,16 +2808,10 @@ public sealed partial class GameLoop
             ShowUiError($"Orders are limited to {RtsControlGroupLaw.MaximumWireSubjects} " +
                 "explicit bots; this order uses the first entries in the selection.");
 
+        float pickedUnitHit = float.PositiveInfinity;
         ulong picked = pressPick.Armed
             ? pressPick.UnitGuid
-            : PickUnit(click.Position);
-        // [SUI] P4b: while DRIVING a party bot from the sky, a right-click on a
-        // service NPC is an INTERACTION as that bot (its quest giver / vendor /
-        // trainer / banker), not an RTS order — the same routing the grounded
-        // target handler uses, and gated at the bot by TryGetInteractionBodyPose.
-        // Only while possessing: a plain commander (not driving anyone) keeps the
-        // order behaviour below, because unpossessed the server would run the
-        // interaction on your own logged-in character.
+            : PickUnit(click.Position, out pickedUnitHit);
         // Right-click on a lootable corpse (owner, 2026-09-02): loot it as your own character.
         // In reach it opens now; out of reach the character walks there and the loot opens on
         // arrival (RTS style), since loot is session-scoped and cannot be done "as a bot".
@@ -2653,51 +2819,50 @@ public sealed partial class GameLoop
             _entities.TryGet(picked, out WorldEntity lootCorpse) && lootCorpse.IsCreature &&
             lootCorpse.IsDead && lootCorpse.Fields.Lootable)
         {
-            if (CommandViewLootInReach(lootCorpse))
-            {
-                _cvPendingLootGuid = 0;
-                RequestLoot(picked);
-            }
-            else
-            {
-                _cvPendingLootGuid = picked;
-                _cvPendingLootAt = NowSeconds();
-                _cvPendingLootNotBefore = 0;
-                _cvPendingLootAttempts = 0;
-                _net?.SuiOrder(0 /* ORDER_MOVE */, [LocalPlayerGuid], 0,
-                    lootCorpse.Position.X, lootCorpse.Position.Y, lootCorpse.Position.Z);
-                _rtsMoveMarkers.Add((lootCorpse.Position, NowSeconds(), RtsNeutralTint));
-            }
+            BeginCommandViewInteraction(CommandViewInteractKind.Loot, picked, lootCorpse);
             return;
         }
 
-        if (_controlState == ControlState.Possessing && picked != 0 &&
-            _entities.TryGet(picked, out WorldEntity svcNpc) && svcNpc.IsCreature &&
-            !svcNpc.IsDead && WorldCursorServiceKind(svcNpc) is { } svcKind)
-        {
-            CommitSelection(picked, beginAttack: false);
-            if (svcKind == WorldCursorKind.Pickup) RequestVendor(picked);
-            else if (svcKind == WorldCursorKind.Taxi) RequestTaxiMap(picked);
-            else if (svcKind == WorldCursorKind.Buy && (svcNpc.NpcFlags & NpcBanker) != 0)
-                RequestBank(picked);
-            // Possessed: the driven bot walks up to the auctioneer and the server's
-            // GetSuiActor-threaded auction handlers act on ITS purse and bags.
-            else if (svcKind == WorldCursorKind.Buy && (svcNpc.NpcFlags & NpcAuctioneer) != 0)
-                RequestAuction(picked);
-            else RequestGossip(picked);
-            return;
-        }
         // [SUI] Model B: NOT driving anyone — a right-click on a QUEST GIVER opens the
         // commander quest window (per-member eligibility cards + accept-for-party),
-        // no possession needed. Move the party by right-clicking the ground beside it,
-        // the RTS convention; vendor/trainer stay possession-only and fall through.
+        // no possession needed. A giver who is ALSO a flight master / vendor / trainer /
+        // banker / innkeeper... asks first (owner, 2026-09-02: Thor's flight path could not be
+        // discovered because the quest window took the click): "Quests" or the other service.
         if (_controlState != ControlState.Possessing && _partyGiverQuestsAvailable &&
-            picked != 0 && _entities.TryGet(picked, out WorldEntity giverNpc) &&
+            picked != 0 && !queue && _entities.TryGet(picked, out WorldEntity giverNpc) &&
             giverNpc.IsCreature && !giverNpc.IsDead &&
             (giverNpc.NpcFlags & NpcQuestGiver) != 0)
         {
-            CommitSelection(picked, beginAttack: false);
-            RequestGiverQuests(picked);
+            if (ConfirmPopupUiLaw.GiverSecondaryService(giverNpc.NpcFlags) is { } secondary)
+                RaiseCommandViewGiverChoice(picked, giverNpc, secondary);
+            else
+            {
+                CommitSelection(picked, beginAttack: false);
+                RequestGiverQuests(picked);
+            }
+            return;
+        }
+        // A right-click on a SERVICE NPC (vendor / trainer / banker / auctioneer / flight master /
+        // gossip) is an interaction, never a ground order: the acting body walks up and the panel
+        // opens on arrival. Driving a party bot ([SUI] P4b) the interaction is the bot's — the
+        // server runs the handlers as GetSuiActor; a plain commander interacts as the logged-in
+        // character, which is what standing next to a vendor from the sky means (owner,
+        // 2026-09-02: "it should just path there and open it").
+        if (picked != 0 && !queue && _entities.TryGet(picked, out WorldEntity svcNpc) &&
+            svcNpc.IsCreature && !svcNpc.IsDead && WorldCursorServiceKind(svcNpc) is not null)
+        {
+            BeginCommandViewInteraction(CommandViewInteractKind.Service, picked, svcNpc);
+            return;
+        }
+        // A usable game object (mailbox, chest, lever, portal...) strictly in front of any unit:
+        // the same walk-then-use, gated by UseGameObject's own type/lock/body rules on arrival.
+        ulong goPicked = pressPick.Armed
+            ? pressPick.GameObjectGuid
+            : PickGameObject(click.Position, picked == 0 ? float.PositiveInfinity : pickedUnitHit, out _);
+        if (goPicked != 0 && !queue && _entities.TryGet(goPicked, out WorldEntity clickedGo) &&
+            clickedGo.IsGameObject && GameObjectHighlightable(clickedGo))
+        {
+            BeginCommandViewInteraction(CommandViewInteractKind.GameObject, goPicked, clickedGo);
             return;
         }
         if (picked != 0 && _entities.TryGet(picked, out WorldEntity target) &&

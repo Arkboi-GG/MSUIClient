@@ -35,8 +35,44 @@ public static class ConfirmPopupUiLaw
         ReadyCheckPopupType, HideOnEscape: true, HasAccept: true, HasCancel: true,
         TimeoutSeconds: ReadyCheckTimeoutSeconds, EntrySound: "ReadyCheck");
 
+    /// <summary>Command View: a right-clicked quest giver who is ALSO a vendor / flight master /
+    /// trainer / banker / innkeeper... The commander quest window is the party's quest route, so
+    /// the stock gossip menu (which would list both) is not what opens; instead a small chooser
+    /// asks which of the two the click meant (owner, 2026-09-02: "FP Map or Quest List?").
+    /// Button 1 = the quest window, button 2 = the other service. No timeout.</summary>
+    public const string GiverChoicePopupType = "CV_GIVER_CHOICE";
+    public const string GiverChoiceQuestsText = "Quests";
+
+    public static readonly StaticPopupCoordinatorLaw.Definition GiverChoiceDefinition = new(
+        GiverChoicePopupType, HideOnEscape: true, HasAccept: true, HasCancel: true);
+
+    /// <summary>The second button's caption for the service a quest giver also offers.</summary>
+    public static string GiverChoiceServiceCaption(WorldCursorKind service, uint npcFlags) =>
+        service switch
+        {
+            WorldCursorKind.Taxi => "Flight Map",
+            WorldCursorKind.Pickup => "Browse Goods",
+            WorldCursorKind.Trainer => "Training",
+            WorldCursorKind.Buy when (npcFlags & WorldCursorUiLaw.Banker) != 0 => "Bank",
+            WorldCursorKind.Buy => "Auction House",
+            WorldCursorKind.Interact => "Innkeeper",
+            _ => "Talk",
+        };
+
+    /// <summary>The service a quest giver ALSO offers, judged on the flag ladder with the
+    /// quest-giver and gossip bits masked off; null when there is nothing but quests.</summary>
+    public static WorldCursorKind? GiverSecondaryService(uint npcFlags) =>
+        WorldCursorUiLaw.ServiceKind(
+            npcFlags & ~(WorldCursorUiLaw.Gossip | WorldCursorUiLaw.Questgiver), null);
+
+    public static string GiverChoiceText(string npcName, string serviceCaption)
+    {
+        string who = string.IsNullOrWhiteSpace(npcName) ? "This NPC" : npcName.Trim();
+        return $"{who}: quests, or {serviceCaption.ToLowerInvariant()}?";
+    }
+
     public static bool IsConfirmPopup(string type) =>
-        type is SummonPopupType or QuestAcceptPopupType or ReadyCheckPopupType;
+        type is SummonPopupType or QuestAcceptPopupType or ReadyCheckPopupType or GiverChoicePopupType;
 
     public static (string Accept, string Decline) Captions(string type) =>
         type == ReadyCheckPopupType ? (ReadyText, NotReadyText) : (AcceptText, DeclineText);

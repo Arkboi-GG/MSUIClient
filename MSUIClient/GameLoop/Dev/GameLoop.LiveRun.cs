@@ -1053,7 +1053,7 @@ public sealed partial class GameLoop
                             Vector2 vp = ImGuiNET.ImGui.GetIO().DisplaySize;
                             bool onScreen = _window.Camera.TryProjectToScreen(corpse.Position + new Vector3(0f, 0f, 0.5f), vp, out Vector2 px, out _);
                             ulong pickedAt = onScreen ? PickUnit(px) : 0;
-                            bool reach = CommandViewLootInReach(corpse);
+                            bool reach = CommandViewInteractInReach(CommandViewInteractKind.Loot, corpse);
                             string poseInfo = "pose=none";
                             if (_creatures?.TryGetSpellPose(corpse.Guid, out SpellUnitPose cp) == true)
                             {
