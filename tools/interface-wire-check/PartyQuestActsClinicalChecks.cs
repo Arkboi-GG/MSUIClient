@@ -133,7 +133,7 @@ internal static class PartyQuestActsClinicalChecks
         Check(partyLog.Contains("private bool PartyQuestMayAbandon(ulong guid, in PartyQuestCell cell) =>",
                   StringComparison.Ordinal) &&
               partyLog.Contains("cell.Held && !cell.Rewarded &&", StringComparison.Ordinal) &&
-              partyLog.Contains("IsRtsGroupableBot(guid) && _partyQuestActsAvailable",
+              partyLog.Contains("HasMemberQuestFacts(guid) && _partyQuestActsAvailable",
                   StringComparison.Ordinal) &&
               partyLog.Contains("if (PartyQuestMayAbandon(guid, cell))", StringComparison.Ordinal),
             "the Party Quest Log may only offer Abandon for a quest the subject still " +
@@ -186,6 +186,27 @@ internal static class PartyQuestActsClinicalChecks
               rail.Contains("QuestRewardName(labelRow)", StringComparison.Ordinal),
             "every choice row must be NAMED in the board's left gutter; an icon grid with " +
             "no names is not a reward picker, it is five identical squares");
+        Check(rail.Contains("DrawQuestRewardMemberHeader", StringComparison.Ordinal) &&
+              rail.Contains("Level {level} {className}", StringComparison.Ordinal),
+            "each reward column must identify its member with a non-overlapping header that " +
+            "includes the available level and class");
+        Check(rail.Contains("BuildQuestRewardBoardLayout", StringComparison.Ordinal) &&
+              rail.Contains("GameText.MeasureWidth(\"GameFontNormalSmall\", rewardName, s)",
+                  StringComparison.Ordinal) &&
+              rail.Contains("GameText.MeasureWidth(\"GameFontNormalSmall\", name, s)",
+                  StringComparison.Ordinal),
+            "the reward board must size its item gutter and member columns from their actual " +
+            "labels instead of letting names overlap or clipping every long reward name");
+        Check(rail.Contains("QuestRailReadyToTurnIn(member.Guid, questId)",
+                  StringComparison.Ordinal) &&
+              rail.Contains("entry.Complete && !entry.Failed && !entry.Rewarded",
+                  StringComparison.Ordinal) &&
+              rail.Contains("QuestRailSubjects(included, withRewards: true)",
+                  StringComparison.Ordinal) &&
+              acts.Contains("RequestPartyQuestFacts(\"party quest turned in\")",
+                  StringComparison.Ordinal),
+            "the reward board and its request must exclude members who are incomplete, failed, " +
+            "or already rewarded, then refresh facts after a successful party turn-in");
         Check(rail.Contains("bool acting = accepting || panel == QuestNpcPanel.Reward;",
                   StringComparison.Ordinal),
             "the Progress panel must not offer a party turn-in — it forces auto-pick for " +

@@ -23,6 +23,8 @@ VerifyRampStillWalkable();
 VerifyWalkableAdtTerrainClimbs();
 VerifySteepAdtTerrainBlocksWalking();
 VerifySteepAdtTerrainDoesNotBankJumps();
+VerifyWmoFloorCrossesSteepCaveLip();
+VerifyDistantCollisionFloorDoesNotOpenHillside();
 VerifyOverheadSteepTerrainDoesNotWallInterior();
 VerifyImpassableMcnkIsOneWay();
 VerifyContinuousInteriorEntryRetainsTerrainShell(CreateTerrain(height: 100f));
@@ -502,6 +504,51 @@ static void VerifySteepAdtTerrainDoesNotBankJumps()
         $"repeated steep-terrain jumps banked landing height {highestLanding:F3}");
     Require(controller.Position.X < -23f,
         $"repeated steep-terrain jumps climbed through the face to X={controller.Position.X:F3}");
+}
+
+static void VerifyWmoFloorCrossesSteepCaveLip()
+{
+    // Real mountain-cave entrances cut the ADT away a few yards after the WMO
+    // floor begins.  Before the controller has accumulated a full yard of
+    // under-terrain separation, the last steep terrain fan at the lip must not
+    // become an invisible wall across that continuing collision floor.
+    TerrainRenderer terrain = CreateTerrainGrid((worldX, _) =>
+        10f + MathF.Max(0f, worldX + 25f) * MathF.Tan(55f * MathF.PI / 180f));
+    var collision = new CollisionWorld();
+    AddFloor(collision, -40f, 0f, -20f, 0f, 10f);
+    collision.Build();
+
+    CharacterController controller = CreateController(terrain, collision);
+    controller.Teleport(-30f, -10f, 10f);
+    controller.Update(1f / 60f, default);
+
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    for (int i = 0; i < 150; i++) controller.Update(1f / 60f, forward);
+
+    Require(controller.Position.X > -16f,
+        $"WMO-supported cave lip became an invisible terrain wall at X={controller.Position.X:F3}");
+    Require(controller.Grounded && controller.GroundSource == "collision" &&
+            MathF.Abs(controller.Position.Z - 10f) < 0.01f,
+        $"cave-lip traversal left its WMO floor at {controller.Position} " +
+        $"from {controller.GroundSource}");
+}
+
+static void VerifyDistantCollisionFloorDoesNotOpenHillside()
+{
+    TerrainRenderer terrain = CreateTerrainGrid((worldX, _) =>
+        10f + MathF.Max(0f, worldX + 25f) * MathF.Tan(55f * MathF.PI / 180f));
+    var collision = new CollisionWorld();
+    AddFloor(collision, -40f, 0f, -20f, 0f, 0f);
+    collision.Build();
+
+    CharacterController controller = CreateController(terrain, collision);
+    controller.Teleport(-30f, -10f, 10f);
+    controller.Update(1f / 60f, default);
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    for (int i = 0; i < 180; i++) controller.Update(1f / 60f, forward);
+
+    Require(controller.Position.X < -23f,
+        $"distant collision floor incorrectly opened a steep hillside at X={controller.Position.X:F3}");
 }
 
 static void VerifyOverheadSteepTerrainDoesNotWallInterior()

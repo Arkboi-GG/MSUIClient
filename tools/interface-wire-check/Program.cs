@@ -459,6 +459,13 @@ static void CheckOptionsSearch()
     Check(questHelper.Length == 1 && questHelper[0].Page == OptionsSearchPage.AddOns &&
           questHelper[0].Entries.Any(entry => entry.Label == "Quest Helper"),
         "options search cannot find the native Quest Helper on the AddOns page");
+    OptionsSearchGroup[] automaticQuestTracking =
+        OptionsSearchUiLaw.Find("automatic quest tracking");
+    Check(automaticQuestTracking.Length == 1 &&
+          automaticQuestTracking[0].Page == OptionsSearchPage.Interface &&
+          automaticQuestTracking[0].Entries.Any(entry =>
+              entry.Label == "Automatic Quest Tracking"),
+        "options search cannot find Automatic Quest Tracking on the Interface page");
 
     // The Escape menu's layout gear must sit in the frame's INTERIOR. GameMenuFrame.xml declares
     // a Backdrop with EdgeSize 32, and WowSkin.Dialog carries the same 32 (drawn at
@@ -1668,6 +1675,12 @@ if (args.Contains("--party-quest-acts-only", StringComparer.Ordinal))
     PartyGiverStatusClinicalChecks.Run();
     PartyLeadClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
+    return;
+}
+
+if (args.Contains("--companions-only", StringComparer.Ordinal))
+{
+    CompanionClinicalChecks.Run();
     return;
 }
 
@@ -3317,7 +3330,11 @@ Check(WorldSession.BuildAuctionBidBody(trainerGuid, 7, 123)
       .SequenceEqual(Convert.FromHexString("0100008F030030F1070000007B000000")), "auction bid body");
 Check(WorldSession.BuildAuctionSellBody(trainerGuid, 9, 100, 200, 720).Length == 28,
       "auction sell fixed body");
-var browseReader = new PacketReader(WorldSession.BuildAuctionBrowseBody(trainerGuid, 50, "Sword"));
+// BuildAuctionBrowseBody takes the typed query now; the fixture keeps the same
+// row-offset / search / no-filter values the old positional call expressed.
+var browseReader = new PacketReader(WorldSession.BuildAuctionBrowseBody(trainerGuid,
+    new AuctionBrowseQuery(50, "Sword", 0, 0, AuctionBrowseQuery.Any, AuctionBrowseQuery.Any,
+        AuctionBrowseQuery.Any, 0, false)));
 Check(browseReader.ReadU64() == trainerGuid && browseReader.ReadU32() == 50 && browseReader.ReadCString() == "Sword" &&
       browseReader.ReadU8() == 0 && browseReader.ReadU8() == 0 && browseReader.ReadU32() == uint.MaxValue,
       "auction browse page/search/filter order");
@@ -3647,7 +3664,10 @@ Check(inspectSource.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[11], s
       inspectSource.Contains("ImGui.SetNextWindowPos(tooltipPosition, ImGuiCond.Always)",
           StringComparison.Ordinal),
     "inspect selected-tab/rotation/slot layer/label/enchant/tooltip production wiring drift");
-Check(inspectTargetingSource.Contains("OpenUnitPopup(picked, which, click.Position, InspectBinding.Target);",
+Check(inspectTargetingSource.Contains(
+          "Settings.Controls.WorldPlayerContextMenus", StringComparison.Ordinal) &&
+      inspectTargetingSource.Contains(
+          "OpenUnitPopup(picked, which, click.Position, InspectBinding.Target);",
           StringComparison.Ordinal) &&
       inspectPartySource.Contains("InspectBinding.Party(hoveredIndex));",
           StringComparison.Ordinal) &&
@@ -4640,6 +4660,7 @@ PartyQuestActsClinicalChecks.Run();
 PartyGiverStatusClinicalChecks.Run();
 PartyLeadClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
+CompanionClinicalChecks.Run();
 // The ImGui-widget ratchet only ratchets if the DEFAULT run enforces it; behind
 // --imgui-policy-only alone, an enrolled panel could regress unnoticed.
 GameplayImguiPolicyClinicalChecks.Run();

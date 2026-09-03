@@ -82,6 +82,7 @@ public sealed partial class GameLoop
             if (ImGui.IsMouseHoveringRect(stripMin, stripMax, false) &&
                 ImGui.IsMouseClicked(ImGuiMouseButton.Left))
                 SetMinimapVisible(true);
+            DrawControlGuideMinimapTab(dl, (root + new Vector2(6f, 34f)) * s, s);
             UpdateAndQueueMinimapResourceTooltip(null);
             return;
         }
@@ -157,7 +158,11 @@ public sealed partial class GameLoop
         // may seed the display flood without changing the zone-text room.
         UpdateMinimapArea(projection, _minimapAreaInterior);
 
-        if (ImGui.IsMouseHoveringRect(mapMin, mapMax, false))
+        Vector2 guideTabMin = new(mapMin.X + 4f * s, mapMax.Y - 26f * s);
+        Vector2 guideTabMax = guideTabMin + new Vector2(66f, 22f) * s;
+        bool guideTabHovered = ControlGuideMinimapTabVisible &&
+            ImGui.IsMouseHoveringRect(guideTabMin, guideTabMax, false);
+        if (ImGui.IsMouseHoveringRect(mapMin, mapMax, false) && !guideTabHovered)
         {
             float wheel = ImGui.GetIO().MouseWheel;
             if (wheel > 0)
@@ -262,6 +267,8 @@ public sealed partial class GameLoop
         DrawMinimapZoneText(dl, root, player, s);
         DrawMinimapTracking(dl, root, player, s);
         DrawMinimapMail(dl, root, s);
+        DrawMinimapCompanionsButton(dl, root, mapMin, mapMax, s, squareMap);
+        DrawControlGuideMinimapTab(dl, guideTabMin, s);
 
         Vector2 toggleMin = (root + new Vector2(161, -3)) * s;
         DrawMinimapButton(dl, root + new Vector2(161, -3),
@@ -277,6 +284,33 @@ public sealed partial class GameLoop
                 texture: @"Interface\Buttons\UI-Panel-MinimizeButton-Up", strata: "BACKGROUND");
             MarkUiParityFrameComplete();
         }
+    }
+
+    /// <summary>The hidden Commander Guide restores from a small tab mortised into the minimap's
+    /// lower-left edge. It remains available when the map body is collapsed, where its caller
+    /// places it immediately below the surviving zone strip.</summary>
+    private bool ControlGuideMinimapTabVisible =>
+        _freeView && _enableControlGuide && !_showControlGuide;
+
+    private void DrawControlGuideMinimapTab(ImDrawListPtr dl, Vector2 min, float s)
+    {
+        if (!ControlGuideMinimapTabVisible) return;
+
+        Vector2 size = new Vector2(66f, 22f) * s;
+        Vector2 max = min + size;
+        bool hovered = ImGui.IsMouseHoveringRect(min, max, false);
+        DrawRtsConsoleBackdrop(dl, min, max, s);
+        if (hovered)
+            dl.AddRect(min + new Vector2(3f) * s, max - new Vector2(3f) * s,
+                PainterlyGoldLit, 0f, ImDrawFlags.None, MathF.Max(1f, s));
+        GameText.DrawCentered(dl, "GameFontNormalSmall", "GUIDE", (min + max) * .5f, s,
+            hovered ? PainterlyGoldLit : PainterlyFrameRule);
+
+        if (!hovered) return;
+        OfferPreservedSharedGameTooltipRenderer(new("commander-guide", 1),
+            () => HoverTip("Commander Guide\nShow Command View controls"));
+        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+            _showControlGuide = true;
     }
 
     /// <summary>
@@ -412,6 +446,81 @@ public sealed partial class GameLoop
             OfferPreservedSharedGameTooltipRenderer(new("minimap-mail", 1),
                 () => HoverTip(prepared));
         }
+    }
+
+    /// <summary>Companions minimap button art: the LibDBIcon look — the stock tracking ring
+    /// (52 px art, 33 px button, 18 px icon at +7/+6, exactly the MiniMapMailFrame geometry
+    /// above) around a vanilla "prayer" icon that reads as a group of people.</summary>
+    private const string CompanionsMinimapIcon = @"Interface\Icons\Spell_Holy_PrayerofFortitude";
+
+    /// <summary>Round view: button centre sits ON the ring at this angle, measured the
+    /// LibDBIcon way (degrees, 0 = east/3 o'clock, counter-clockwise, y-up) at radius 80 px
+    /// from the map centre. 200° is the lower-left arc, the only stretch free of the
+    /// tracking button (~142°), the mail icon (~40°), the zoom pair (~300°-320°), the
+    /// toggle X and the zone strip.</summary>
+    private const float CompanionsMinimapAngleDegrees = 200f;
+    private const float CompanionsMinimapRingRadius = 80f;
+
+    /// <summary>
+    /// The Companions window's entry point as an ADDON-STYLE minimap button (owner
+    /// 2026-09-02: "attached to the minimap the way addons are"). Round view: a LibDBIcon
+    /// button riding the ring's lower-left arc. Command View (square map docked
+    /// bottom-left): hugs the frame's RIGHT edge just under the title strip so it reads as
+    /// bolted onto the map. Painterly's square map is top-right, so there it hangs off the
+    /// LEFT edge instead. Draw-list images + a hit rect, like the other minimap buttons.
+    /// Deliberately NOT collected into the FrameXML parity set — it is an addon extra,
+    /// not a stock 1.12 element, so a parity diff must never expect it.
+    /// </summary>
+    private void DrawMinimapCompanionsButton(ImDrawListPtr dl, Vector2 root, Vector2 mapMin,
+        Vector2 mapMax, float s, bool squareMap)
+    {
+        if (_gameplayArt is null) return;
+        // `frame` is the 33x33 button's top-left in logical px; the ring art and the icon
+        // hang off it with the mail frame's offsets, so the icon centre is frame + (16, 15).
+        Vector2 frame;
+        if (!squareMap)
+        {
+            Vector2 mapCenter = (mapMin + mapMax) * .5f / s;
+            (float sin, float cos) = MathF.SinCos(CompanionsMinimapAngleDegrees * MathF.PI / 180f);
+            // Screen y grows downward, so a y-up angle flips the sine.
+            Vector2 center = mapCenter + CompanionsMinimapRingRadius * new Vector2(cos, -sin);
+            frame = center - new Vector2(16f, 15f);
+        }
+        else
+        {
+            // DrawSquareMinimapFrame's outer edge is the map rect grown by 2*pad (pad = 3 px),
+            // with the 22 px title strip above it. The button STRADDLES that edge the way a
+            // LibDBIcon button straddles the round ring: icon centre 6 px outside the bevel, so
+            // the ring art overlaps the frame and reads as bolted on. A gap beside the frame
+            // read as a loose button (owner, 2026-09-02: "not attached to the minimap").
+            const float overhang = 6f;
+            float pad = MathF.Max(1f, 3f * s) / s;
+            float outerTop = mapMin.Y / s - pad * 2f;
+            float outerRight = mapMax.X / s + pad * 2f;
+            float outerLeft = mapMin.X / s - pad * 2f;
+            frame = _freeView
+                ? new Vector2(outerRight + overhang - 16f, outerTop + 4f)
+                : new Vector2(outerLeft - overhang - 16f, outerTop + 4f);
+        }
+
+        bool available = _companionsAvailable;
+        uint icon = _gameplayArt.CircularHandle(CompanionsMinimapIcon);
+        if (icon != 0)
+            dl.AddImage((nint)icon, (frame + new Vector2(7, 6)) * s,
+                (frame + new Vector2(25, 24)) * s, Vector2.Zero, Vector2.One,
+                // Dimmed when the server lacks the bit; still clickable so the window can
+                // explain rather than a dead button explaining nothing.
+                available ? 0xffffffffu : 0xff6a6a6au);
+        DrawMinimapTexture(dl, frame, Vector2.Zero, new(52),
+            @"Interface\Minimap\MiniMap-TrackingBorder", Vector2.Zero, Vector2.One);
+        Vector2 hitMin = frame * s;
+        if (!ImGui.IsMouseHoveringRect(hitMin, hitMin + new Vector2(33) * s, false)) return;
+        string prepared = available
+            ? "Companions\nSummon your own characters as party members"
+            : "Companions\nThis server does not support companions";
+        OfferPreservedSharedGameTooltipRenderer(new("minimap-companions", 1),
+            () => HoverTip(prepared));
+        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left)) ToggleCompanionsPanel();
     }
 
     private IEnumerable<Vector2> PartyMinimapPositions()

@@ -24,8 +24,8 @@ public sealed partial class GameLoop
         // OpenBags must stay OUTSIDE the ShapeshiftButton1..BonusActionButton10 run:
         // ResetBindingsToDefaults applies Control:true to that whole enum RANGE, so a member
         // landing inside it would silently default to Ctrl+I instead of I.
-        OpenBackpack, OpenBags, OpenCharacter, OpenSkills,
-        OpenSpellbook, OpenPetSpellbook, OpenTalents, OpenQuestLog, OpenSocial,
+        OpenBackpack, OpenBags, OpenPartyInventory, OpenCharacter, OpenSkills,
+        OpenSpellbook, OpenPetSpellbook, OpenTalents, OpenQuestLog, OpenPartyQuestLog, OpenSocial,
         OpenSocialFriends, OpenSocialWho, OpenSocialGuild, OpenWorldMap, ToggleMinimap,
         Sheath, ToggleUi,
         Screenshot,
@@ -149,11 +149,13 @@ public sealed partial class GameLoop
         ("Interface", GameBinding.OpenCharacter, "Character Info", Key.C),
         ("Interface", GameBinding.OpenBackpack, "Open Backpack (Shift: all bags)", Key.B),
         ("Interface", GameBinding.OpenBags, "Inventory (party bags in Free View)", Key.I),
+        ("Interface", GameBinding.OpenPartyInventory, "Party Inventory", Key.Unknown),
         ("Interface", GameBinding.OpenSkills, SkillFrameUiLaw.BindingLabel, Key.K),
         ("Interface", GameBinding.OpenPetSpellbook, "Pet Spellbook", Key.P),
         ("Interface", GameBinding.OpenSpellbook, "Spellbook", Key.P),
         ("Interface", GameBinding.OpenTalents, "Talents", Key.N),
         ("Interface", GameBinding.OpenQuestLog, "Quest Log", Key.L),
+        ("Interface", GameBinding.OpenPartyQuestLog, "Party Quest Log", Key.Unknown),
         ("Interface", GameBinding.ToggleMinimap, "Toggle Minimap", Key.Unknown),
         ("Interface", GameBinding.OpenWorldMap, "World Map", Key.M),
         ("Interface", GameBinding.OpenSocial, "Social", Key.O),
@@ -433,6 +435,12 @@ public sealed partial class GameLoop
                 Control: row.Binding is >= GameBinding.ShapeshiftButton1 and
                     <= GameBinding.BonusActionButton10,
                 Shift: row.Binding == GameBinding.OpenPetSpellbook), default);
+        // Dedicated party panels work in every in-world camera/control mode. Keep the
+        // familiar plain I/L bindings intact and give the party variants adjacent chords.
+        _bindings[GameBinding.OpenPartyInventory] = new(
+            new BindingChord(Key.I, Shift: true), default);
+        _bindings[GameBinding.OpenPartyQuestLog] = new(
+            new BindingChord(Key.L, Shift: true), default);
         _bindings[GameBinding.ToggleAutorun] = new(
             new BindingChord(Key.NumLock),
             BindingChordLaw.LivePointer(BindingPointerKey.Button4, false, false, false));

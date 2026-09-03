@@ -26,14 +26,26 @@ public sealed partial class GameLoop
     private const float QuestRailRowPitch = 36f;
 
     private const float QuestRewardBoardPad = 10f;
+    private const float QuestRewardContentInset = 8f;
+    private const float QuestRewardTopInset = 8f;
+    private const float QuestRewardBottomInset = 14f;
     private const float QuestRewardColumnWidth = 47f;
+    private const float QuestRewardMemberColumnMinWidth = 70f;
     /// <summary>Left gutter naming each choice row's item. Every member is being
     /// offered the SAME choice list, so the name belongs once per row rather than
     /// crammed into every cell — and without it the board was five identical
     /// unlabelled boxes.</summary>
     private const float QuestRewardNameColumnWidth = 116f;
     private const float QuestRewardHeadHeight = 16f;
-    private const float QuestRewardMemberHeight = 32f;
+    private const float QuestRewardMemberHeight = 56f;
+    private const float QuestRewardPortraitSize = 28f;
+
+    private readonly record struct QuestRewardBoardLayout(
+        float NameColumnWidth,
+        float MemberColumnWidth,
+        float ContentWidth,
+        float WindowWidth,
+        float WindowHeight);
 
     /// <summary>Companions ticked for the next act. Sticky across frames so a
     /// deselection survives the panel redrawing every frame.</summary>
@@ -53,10 +65,11 @@ public sealed partial class GameLoop
 
     private bool QuestRailIncluded(ulong guid) => !_questRailExcluded.Contains(guid);
 
-    private List<PartyQuestSubject> QuestRailSubjects(bool withRewards)
+    private List<PartyQuestSubject> QuestRailSubjects(
+        IEnumerable<(ulong Guid, string Name)> members, bool withRewards)
     {
         var subjects = new List<PartyQuestSubject>();
-        foreach ((ulong guid, _) in QuestRailMembers())
+        foreach ((ulong guid, _) in members)
         {
             if (!QuestRailIncluded(guid)) continue;
             byte choice = withRewards && _questRailRewardChoice.TryGetValue(guid, out byte pick)
@@ -84,6 +97,7 @@ public sealed partial class GameLoop
         if (_freeView) return;
         QuestNpcPanel panel = QuestNpcPanelNow();
         if (panel is QuestNpcPanel.None or QuestNpcPanel.Greeting) return;
+        bool reward = panel == QuestNpcPanel.Reward;
 
         List<(ulong Guid, string Name)> members = QuestRailMembers();
         if (members.Count == 0) return;
@@ -92,27 +106,33 @@ public sealed partial class GameLoop
             _questDetails?.QuestId ?? 0;
         if (questId == 0) return;
 
+        // A reward picker is only useful for members who are actually ready to
+        // turn this quest in. Rewarded entries deliberately remain in the facts
+        // snapshot while another party member still holds the quest, so the
+        // ordinary party roster alone is too broad here.
+        if (reward)
+            members = members.Where(member =>
+                QuestRailReadyToTurnIn(member.Guid, questId)).ToList();
+        if (members.Count == 0) return;
+
         float s = GameplayUiScale();
         Vector2 origin = UiPanelFrameOrigin(UiPanelOwnershipRegistry[7], s);
-        bool reward = panel == QuestNpcPanel.Reward;
 
         int choices = reward
             ? Math.Min(_questOffer?.ChoiceRewards.Count ?? 0, QuestFrameUiLaw.MaxItems) : 0;
-        int included = QuestRailSubjects(withRewards: false).Count;
         // ONE resolution point for the questgiver. The four panel states are
         // mutually exclusive and each nulls the others, so reading only two of
         // the three records silently yielded 0 on the reward panel.
         ulong giver = _questOffer?.GiverGuid ?? _questRequestItems?.GiverGuid ??
             _questDetails?.GiverGuid ?? 0;
         if (giver == 0) return;                  // nothing to act on, and no window open yet
-        float width = reward && choices > 0
-            ? 2 * QuestRewardBoardPad + QuestRewardNameColumnWidth +
-              Math.Max(1, included) * QuestRewardColumnWidth
-            : QuestRailWidth;
+        QuestRewardBoardLayout rewardLayout = reward && choices > 0
+            ? BuildQuestRewardBoardLayout(members, choices, giver, s)
+            : default;
+        float width = reward && choices > 0 ? rewardLayout.WindowWidth : QuestRailWidth;
         float height = QuestRailHeaderHeight + members.Count * QuestRailRowPitch + 30f;
         if (reward && choices > 0)
-            height = QuestRewardHeadHeight + QuestRewardMemberHeight +
-                choices * QuestRewardColumnWidth + 30f;
+            height = rewardLayout.WindowHeight;
 
         ImGui.SetNextWindowPos(origin + new Vector2(QuestRailX, QuestRailTop) * s,
             ImGuiCond.Always);
@@ -133,7 +153,7 @@ public sealed partial class GameLoop
         Vector2 c0 = min + new Vector2(8f, 8f) * s;
 
         if (reward && choices > 0)
-            DrawQuestRewardBoard(dl, c0, s, members, choices, questId, giver);
+            DrawQuestRewardBoard(dl, c0, s, members, choices, questId, giver, rewardLayout);
         else
             DrawQuestRailRoster(dl, c0, s, members, panel, questId, giver);
 
@@ -186,7 +206,7 @@ public sealed partial class GameLoop
             y += QuestRailRowPitch;
         }
 
-        int count = QuestRailSubjects(withRewards: false).Count;
+        int count = QuestRailSubjects(members, withRewards: false).Count;
         Vector2 buttonMin = c0 + new Vector2(0, y + 4f) * s;
         var buttonSize = new Vector2(QuestRailWidth - 16f, 22f);
         if (!acting)
@@ -201,7 +221,7 @@ public sealed partial class GameLoop
         {
             RequestPartyQuestAct(
                 accepting ? PartyQuestWire.ActionAccept : PartyQuestWire.ActionTurnIn,
-                questId, giver, QuestRailSubjects(withRewards: false));
+                questId, giver, QuestRailSubjects(members, withRewards: false));
         }
     }
 
@@ -211,9 +231,12 @@ public sealed partial class GameLoop
     /// Your own picker stays exactly where vanilla puts it, untouched.
     /// </summary>
     private void DrawQuestRewardBoard(ImDrawListPtr dl, Vector2 c0, float s,
-        List<(ulong Guid, string Name)> members, int choices, uint questId, ulong giver)
+        List<(ulong Guid, string Name)> members, int choices, uint questId, ulong giver,
+        QuestRewardBoardLayout layout)
     {
-        GameText.Draw(dl, "GameFontNormalSmall", "Their rewards", c0, s, VanillaGold);
+        Vector2 board0 = c0 +
+            new Vector2(QuestRewardContentInset, QuestRewardTopInset) * s;
+        GameText.Draw(dl, "GameFontNormalSmall", "Their rewards", board0, s, VanillaGold);
 
         var included = members.Where(m => QuestRailIncluded(m.Guid)).ToList();
 
@@ -230,22 +253,20 @@ public sealed partial class GameLoop
                 k * QuestRewardColumnWidth + (QuestFrameUiLaw.ItemIcon - 10f) / 2f;
             GameText.Draw(dl, "GameFontNormalSmall",
                 GameText.EllipsizeToBox("GameFontNormalSmall", rewardName,
-                    QuestRewardNameColumnWidth - 10f, 11f, s),
-                c0 + new Vector2(0f, labelY) * s, s, rewardColor);
+                    layout.NameColumnWidth - 10f, 11f, s),
+                board0 + new Vector2(0f, labelY) * s, s, rewardColor);
         }
 
-        float colX = QuestRewardNameColumnWidth + QuestRewardBoardPad - 8f;
+        float colX = layout.NameColumnWidth + QuestRewardBoardPad;
         foreach ((ulong guid, string name) in included)
         {
-            DrawQuestRailPortrait(dl, guid,
-                c0 + new Vector2(colX + 11.5f, QuestRewardHeadHeight) * s, 24f * s);
-            GameText.Draw(dl, "GameFontNormalSmall",
-                GameText.EllipsizeToBox("GameFontNormalSmall", name, 45f, 11f, s),
-                c0 + new Vector2(colX, QuestRewardHeadHeight + 25f) * s, s, 0xffd8e0e6);
+            DrawQuestRewardMemberHeader(dl, board0, s, colX, layout.MemberColumnWidth,
+                guid, name);
 
             for (int k = 0; k < choices; k++)
             {
-                Vector2 cellMin = c0 + new Vector2(colX + 4f,
+                float iconX = colX + (layout.MemberColumnWidth - QuestFrameUiLaw.ItemIcon) / 2f;
+                Vector2 cellMin = board0 + new Vector2(iconX,
                     QuestRewardHeadHeight + QuestRewardMemberHeight +
                     k * QuestRewardColumnWidth) * s;
                 var cellSize = new Vector2(QuestFrameUiLaw.ItemIcon, QuestFrameUiLaw.ItemIcon) * s;
@@ -281,7 +302,7 @@ public sealed partial class GameLoop
                     else HoverTip("Retrieving item information...");
                 }
             }
-            colX += QuestRewardColumnWidth;
+            colX += layout.MemberColumnWidth;
         }
 
         // Members with no explicit pick are sent as "auto" — the server's own
@@ -291,14 +312,105 @@ public sealed partial class GameLoop
         if (autos > 0)
             GameText.Draw(dl, "GameFontNormalSmall",
                 autos == included.Count ? "all on auto-pick" : $"{autos} on auto-pick",
-                c0 + new Vector2(0, y - 14f) * s, s, 0xff9aa4ab);
+                board0 + new Vector2(0, y - 14f) * s, s, 0xff9aa4ab);
 
-        Vector2 buttonMin = c0 + new Vector2(0, y + 4f) * s;
-        var buttonSize = new Vector2(Math.Max(90f, included.Count * QuestRewardColumnWidth), 22f);
-        if (VanillaButton(dl, "##quest-party-turnin", $"Turn in all ({included.Count})",
+        string buttonCaption = $"Turn in all ({included.Count})";
+        float buttonWidth = MathF.Min(layout.ContentWidth, MathF.Max(150f,
+            GameText.MeasureWidth("GameFontNormal", buttonCaption, s) / s + 32f));
+        float buttonX = MathF.Max(0f, (layout.ContentWidth - buttonWidth) / 2f);
+        Vector2 buttonMin = board0 + new Vector2(buttonX, y + 4f) * s;
+        var buttonSize = new Vector2(buttonWidth, 22f);
+        if (VanillaButton(dl, "##quest-party-turnin", buttonCaption,
                 buttonMin, buttonSize, s, enabled: included.Count > 0) && included.Count > 0)
             RequestPartyQuestAct(PartyQuestWire.ActionTurnIn, questId, giver,
-                QuestRailSubjects(withRewards: true));
+                QuestRailSubjects(included, withRewards: true));
+    }
+
+    /// <summary>Measure this offer rather than forcing every quest, item name and
+    /// party name into the same narrow board. Widths stay bounded so an unusually
+    /// long localized item name cannot consume the whole screen.</summary>
+    private QuestRewardBoardLayout BuildQuestRewardBoardLayout(
+        List<(ulong Guid, string Name)> members, int choices, ulong giver, float s)
+    {
+        float nameWidth = QuestRewardNameColumnWidth;
+        for (int k = 0; k < choices; k++)
+        {
+            QuestRewardItem row = _questOffer!.ChoiceRewards[k];
+            if (_items is not null && _net is not null)
+                _items.Require(row.ItemId, giver, _net);
+            (string rewardName, _) = QuestRewardName(row);
+            nameWidth = MathF.Max(nameWidth,
+                GameText.MeasureWidth("GameFontNormalSmall", rewardName, s) / s + 14f);
+        }
+        nameWidth = MathF.Min(nameWidth, 210f);
+
+        float memberWidth = QuestRewardMemberColumnMinWidth;
+        foreach ((ulong guid, string name) in members.Where(m => QuestRailIncluded(m.Guid)))
+        {
+            string detail = QuestRewardMemberDetail(guid, name);
+            memberWidth = MathF.Max(memberWidth,
+                GameText.MeasureWidth("GameFontNormalSmall", name, s) / s + 10f);
+            if (detail.Length > 0)
+                memberWidth = MathF.Max(memberWidth,
+                    GameText.MeasureWidth("GameFontNormalSmall", detail, s) / s + 10f);
+        }
+        memberWidth = MathF.Min(memberWidth, 112f);
+
+        int included = members.Count(m => QuestRailIncluded(m.Guid));
+        float contentWidth = nameWidth + QuestRewardBoardPad +
+            Math.Max(1, included) * memberWidth;
+        float windowWidth = contentWidth + 2f * QuestRewardContentInset + 16f;
+        // c0 already sits eight units inside the skin. Account explicitly for
+        // the top inset, button gap/height and a larger lower safe area so the
+        // text and button never touch the ornamental frame at fractional scales.
+        float windowHeight = 8f + QuestRewardTopInset + QuestRewardHeadHeight +
+            QuestRewardMemberHeight + choices * QuestRewardColumnWidth +
+            4f + 22f + QuestRewardBottomInset;
+        return new(nameWidth, memberWidth, contentWidth, windowWidth, windowHeight);
+    }
+
+    private void DrawQuestRewardMemberHeader(ImDrawListPtr dl, Vector2 c0, float s,
+        float x, float width, ulong guid, string name)
+    {
+        float portraitX = x + (width - QuestRewardPortraitSize) / 2f;
+        DrawQuestRailPortrait(dl, guid,
+            c0 + new Vector2(portraitX, QuestRewardHeadHeight) * s,
+            QuestRewardPortraitSize * s);
+
+        DrawQuestRewardCenteredText(dl, c0, s, x, width,
+            QuestRewardHeadHeight + QuestRewardPortraitSize + 2f, name, 0xffd8e0e6);
+        string detail = QuestRewardMemberDetail(guid, name);
+        if (detail.Length > 0)
+            DrawQuestRewardCenteredText(dl, c0, s, x, width,
+                QuestRewardHeadHeight + QuestRewardPortraitSize + 15f,
+                detail, 0xff9aa4ab);
+    }
+
+    private static void DrawQuestRewardCenteredText(ImDrawListPtr dl, Vector2 c0,
+        float s, float x, float width, float y, string text, uint color)
+    {
+        string shown = GameText.EllipsizeToBox("GameFontNormalSmall", text,
+            width - 6f, 11f, s);
+        float textWidth = GameText.MeasureWidth("GameFontNormalSmall", shown, s) / s;
+        GameText.Draw(dl, "GameFontNormalSmall", shown,
+            c0 + new Vector2(x + (width - textWidth) / 2f, y) * s, s, color);
+    }
+
+    private string QuestRewardMemberDetail(ulong guid, string name)
+    {
+        uint level = 0;
+        if (_entities.TryGet(guid, out WorldEntity entity) && entity.IsPlayer)
+            level = entity.Level;
+        if (level == 0 && _partyStats.TryGetValue(guid, out PartyMemberStatsSnapshot stats))
+            level = stats.Level ?? 0;
+
+        string className = BotClassName(guid, name);
+        if (className.Length == 0 && _playerTraits.TryGetValue(guid, out PlayerTraits traits))
+            className = ClassIdName(traits.Class);
+
+        if (level != 0 && className.Length != 0) return $"Level {level} {className}";
+        if (level != 0) return $"Level {level}";
+        return className;
     }
 
     /// <summary>
@@ -352,4 +464,8 @@ public sealed partial class GameLoop
         }
         return HasMemberQuestFacts(guid) ? "not in their log" : "log not synced";
     }
+
+    private bool QuestRailReadyToTurnIn(ulong guid, uint questId) =>
+        MemberQuestEntries(guid).Any(entry =>
+            entry.QuestId == questId && entry.Complete && !entry.Failed && !entry.Rewarded);
 }

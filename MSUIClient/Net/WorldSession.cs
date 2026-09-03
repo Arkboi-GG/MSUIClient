@@ -275,6 +275,13 @@ public sealed class WorldSession : IDisposable
     }
 
     /// <summary>
+    /// Companion act (COMPANIONS v1): 1 summon, 2 dismiss, 3 list (guid 0). Callers gate
+    /// on capability bit 7 — never send before the server has advertised it.
+    /// </summary>
+    public void SuiCompanion(byte action, ulong guid) =>
+        SendPacket((ushort)Op.CMSG_SUI_COMPANION, CompanionWire.BuildRequest(action, guid));
+
+    /// <summary>
     /// RTS order. Empty subjects retains the legacy "whole real party" meaning;
     /// callers for temporary groups must always send a nonempty explicit list.
     /// </summary>

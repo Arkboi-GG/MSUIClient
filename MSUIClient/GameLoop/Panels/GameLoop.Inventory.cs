@@ -21,6 +21,7 @@ public sealed partial class GameLoop
     private bool _backpackOpen;
     private bool _backpackKeyWasDown;
     private bool _openBagsKeyWasDown;
+    private bool _partyInventoryKeyWasDown;
     private int _carriedContainer = InventoryUiLaw.EmptyContainer;
     private int _carriedSlot = -1;
     private int? _carriedCount;
@@ -145,6 +146,16 @@ public sealed partial class GameLoop
             else ToggleEveryCarriedBag();
         }
         _openBagsKeyWasDown = bagsDown;
+
+        bool partyBagsDown = BindingDown(GameBinding.OpenPartyInventory);
+        if (partyBagsDown && !_partyInventoryKeyWasDown && !typing &&
+            _net is { IsInWorld: true })
+        {
+            if (_partyInventoryOpen) _partyInventoryOpen = false;
+            else OpenPartyInventory(_freecamSelection.Count == 1
+                ? _freecamSelection[0] : LocalPlayerGuid);
+        }
+        _partyInventoryKeyWasDown = partyBagsDown;
     }
 
     private void DiscoverItemTemplates()
@@ -296,6 +307,14 @@ public sealed partial class GameLoop
         if (_net is null || _items is null || _character is not { Loaded: true } ||
             ControlledGuid != LocalPlayerGuid ||
             !_entities.TryGet(LocalPlayerGuid, out WorldEntity player)) return;
+        // An async appearance diff queued by ApplyServerCharacter is still in flight. It
+        // finalizes with the kit it was QUEUED with - the roster fallback (sheath 0) whenever
+        // the item templates had not landed yet - and installs that kit over whatever is on the
+        // body at that moment. Installing the inventory-object kit now would be undone 100-200 ms
+        // later while the signature stayed settled, so nothing ever put it back: the staff sat
+        // on the over-the-shoulder point instead of the large-weapon back point (2026-09-02).
+        // Wait for the job to land, then this pass wins by running last.
+        if (!_character.AppearanceReady) return;
         var resolved = new List<(int Slot, ItemTemplate Item)>();
         var hash = new HashCode();
         for (int slot = 0; slot < 19; slot++)

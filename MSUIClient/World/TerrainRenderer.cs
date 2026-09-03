@@ -35,6 +35,12 @@ public sealed class TerrainRenderer : IDisposable
     /// Set by GameLoop from WmoRenderer.ActiveCut after the cell update.</summary>
     public WorldCut? Cut { get; set; }
 
+
+    /// <summary>Roof cut, terrain leg: only ground closer to the camera than this many yards is
+    /// opened, so the hill BEHIND the commanded unit stays and the cut is never a window onto
+    /// the world beyond it. Set by GameLoop from the cut subject each frame.</summary>
+    public float CutMaxDistance { get; set; } = float.MaxValue;
+
     private readonly GL _gl;
     private readonly ClientConfig _config;
     private readonly GpuUploadWorker _uploads;
@@ -898,6 +904,7 @@ public sealed class TerrainRenderer : IDisposable
         _shader.Set("uCutActive", Cut is not null ? 1 : 0);
         _shader.Set("uCutRect", Cut?.RelativeRect(camera.Position) ?? Vector4.Zero);
         _shader.Set("uCutZ", Cut?.RelativeZ(camera.Position) ?? 0f);
+        _shader.Set("uCutMaxDist", CutMaxDistance);
         _shader.Set("uCameraPos", Vector3.Zero);
         // Normalised HERE, not per pixel. The shader used to call normalize() on
         // this every fragment — on a uniform, over a surface that covers most of

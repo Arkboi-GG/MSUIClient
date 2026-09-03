@@ -31,6 +31,7 @@ public sealed partial class GameLoop
     private bool _actionCursorChangedThisFrame;
     private bool _mainMenuMicroPressedThroughModal;
     private readonly bool[] _microBindingWasDown = new bool[3];
+    private bool _partyQuestLogKeyWasDown;
     private Vector2 _actionPressPosition;
     private PreparedSharedSpellTooltip? _hoveredActionSpellTooltip;
     private int _hoveredActionSlot = -1;
@@ -154,6 +155,15 @@ public sealed partial class GameLoop
 
     private void UpdateMicroMenuBindingInput(bool typing)
     {
+        bool partyQuestLogDown = BindingDown(GameBinding.OpenPartyQuestLog);
+        if (partyQuestLogDown && !_partyQuestLogKeyWasDown && !typing &&
+            _net is { IsInWorld: true })
+        {
+            if (_partyQuestLogOpen) _partyQuestLogOpen = false;
+            else OpenPartyQuestLog();
+        }
+        _partyQuestLogKeyWasDown = partyQuestLogDown;
+
         (GameBinding Binding, MicroMenuButtonId Button)[] bindings =
         [
             (GameBinding.OpenTalents, MicroMenuButtonId.Talents),
@@ -1404,8 +1414,9 @@ public sealed partial class GameLoop
             {
                 var macroAction = new ActionSlot(ActionSlot.Macro, _draggingMacroId);
                 PlaceActionPayload(receiveSlot, macroAction);
-                _draggingMacroId = 0;
             }
+
+            _draggingMacroId = 0;
             _pressedMacroId = 0;
         }
         else if (_draggingSpellId != 0)
@@ -1426,15 +1437,28 @@ public sealed partial class GameLoop
                 {
                     var spellAction = new ActionSlot(ActionSlot.Spell, _draggingSpellId);
                     PlaceActionPayload(receiveSlot, spellAction);
-                    _draggingSpellId = 0;
+
                 }
             }
+
+            _draggingSpellId = 0;
         }
-        else if (_actionCursor is { } held && !_actionCursorChangedThisFrame &&
-                 receiveSlot >= 0)
+        else if (_actionCursor is { } held && !_actionCursorChangedThisFrame)
         {
-            PlaceActionPayload(receiveSlot, held);
+            if (receiveSlot >= 0)
+                PlaceActionPayload(receiveSlot, held);
+
+            _actionCursor = null;
         }
+        else if (HasCarriedItem)
+        {
+            // Inventory items use the carried-item cursor, not the action cursor.
+            // Claim the release here so dropping onto a hotbar slot does not require
+            // a second click to route through ConsumeActionButtonClick().
+            if (receiveSlot >= 0)
+                PlaceCarriedItemOnAction(receiveSlot);
+        }
+
         _pressedActionSlot = -1;
     }
 

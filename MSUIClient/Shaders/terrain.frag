@@ -24,6 +24,11 @@ uniform sampler2DArray uShadowArray; // unit 2 - one 64x64 MCSH mask per chunk
 uniform int   uCutActive;
 uniform vec4  uCutRect;
 uniform float uCutZ;
+
+// Roof cut, terrain leg: only ground CLOSER to the camera than the commanded unit is opened.
+// The hill behind the unit stays, so the cut never becomes a window onto the world beyond it
+// (owner, 2026-09-02: "see the primary's world EXCEPT the thing between the camera and it").
+uniform float uCutMaxDist;
 uniform vec3  uCameraPos;
 uniform vec3  uSunDirection;         // points TOWARD the sun, normalised
 uniform vec3  uSunColor;
@@ -87,7 +92,7 @@ vec3 proceduralAlbedo(vec3 n)
 
 void main()
 {
-    if (uCutActive == 1 && vWorldPos.z > uCutZ &&
+    if (uCutActive == 1 && vWorldPos.z > uCutZ && length(vWorldPos) < uCutMaxDist &&
         vWorldPos.x > uCutRect.x && vWorldPos.x < uCutRect.z &&
         vWorldPos.y > uCutRect.y && vWorldPos.y < uCutRect.w) discard;
     vec3 n = normalize(vNormal);

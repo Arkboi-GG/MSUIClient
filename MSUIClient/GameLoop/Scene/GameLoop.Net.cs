@@ -1177,6 +1177,9 @@ public sealed partial class GameLoop
                     case Op.SMSG_SUI_CONTROL_ROSTER:
                         ApplySuiControlRoster(body);
                         break;
+                    case Op.SMSG_SUI_COMPANION:
+                        ApplySuiCompanion(body);
+                        break;
                     case Op.SMSG_SUI_PROXY:
                         ApplySuiProxy(body);
                         break;

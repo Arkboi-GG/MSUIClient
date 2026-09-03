@@ -172,24 +172,24 @@ public sealed partial class GameLoop
     private bool BarsReadOnly => BarsGuid != ControlledGuid || !CanAuthorControlledGameplay;
 
     /// <summary>
-    /// Divinity-style cutaway subject: the commanded toon's position (eye height
-    /// added for the cell drop test) while the Command View is up and the Settings
-    /// checkbox is on; null otherwise. Fed to WmoRenderer.SetCutawaySubject once
-    /// per frame — the single integration point for the whole feature.
+    /// Primary Command View subject: the primary selection's feet (or the controlled unit's)
+    /// while Command View is up. The roof plane and the camera-side slice (Engine/WorldCut.cs)
+    /// are gated by their own Settings toggles in Program.cs.
     /// </summary>
-    /// <summary>
-    /// Cut-plane subject: the primary selection's feet (or the controlled unit's) while the
-    /// Command View is up and the experiment toggle is on; null otherwise. Fed to
-    /// WmoRenderer.SetCutPlaneSubject once per frame.
-    /// </summary>
-    private Vector3? CommandViewCutSubject()
+    private Vector3? CommandViewPrimarySubject()
     {
-        if (!_freeView || !Settings.Controls.CommandViewCutPlane) return null;
+        if (!_freeView) return null;
         ulong guid = RtsPrimaryGuid != 0 ? RtsPrimaryGuid : ControlledGuid;
         if (guid == 0 || !_entities.TryGet(guid, out WorldEntity unit)) return null;
         return unit.Position;
     }
 
+    /// <summary>
+    /// Divinity-style cutaway subject: the commanded toon's position (eye height
+    /// added for the cell drop test) while the Command View is up and the Settings
+    /// checkbox is on; null otherwise. Fed to WmoRenderer.SetCutawaySubject once
+    /// per frame — the single integration point for the whole feature.
+    /// </summary>
     private Vector3? FreeViewCutawaySubject()
     {
         if (!_freeView || !Settings.Controls.FreeViewCutaway) return null;
@@ -318,6 +318,7 @@ public sealed partial class GameLoop
         ResetPartyGiverStatus();
         ResetPartyGiverQuests();
         ResetPartyLead();
+        ResetCompanions();
         ResetPartyQuestActs();
         PurgeSuiSnapshot();
         _movementSender.Parked = false;
@@ -405,7 +406,20 @@ public sealed partial class GameLoop
     private float _rtsWheelRetreatYards;
     private const byte SuiRosterControllable = 0x01;
     private const byte SuiRosterPossessed = 0x02;
+    // COMPANIONS v1: this member is one of YOUR summoned alts. Only ever set for the
+    // owner (other humans see 0); the server also sets 0x01 on it so possession and
+    // orders work unchanged.
+    private const byte SuiRosterOwnCompanion = 0x08;
     private const double ControlAckTimeoutSeconds = 3.0;
+
+    /// <summary>True when the control roster marks this guid as one of the local player's own companions.</summary>
+    private bool IsOwnCompanion(ulong guid)
+    {
+        if (guid == 0) return false;
+        foreach ((ulong rosterGuid, byte flags) in _suiRoster)
+            if (rosterGuid == guid) return (flags & SuiRosterOwnCompanion) != 0;
+        return false;
+    }
 
     /// <summary>SMSG_SUI_CONTROL_ROSTER: which group members are possessable bots.</summary>
     private void ApplySuiControlRoster(byte[] body)
@@ -2985,6 +2999,13 @@ public sealed partial class GameLoop
         // Collapsed state
         if (!_showControlGuide)
         {
+            // Commander View owns a permanent minimap dock. Its lower-left GUIDE tab is the
+            // restore affordance, so hiding this panel does not leave a loose ImGui button
+            // floating over the lock/AI tablet. Possessed play has no such dock and keeps the
+            // compact fallback below.
+            if (_freeView)
+                return;
+
             ImGui.SetNextWindowPos(
                 new Vector2(
                     io.DisplaySize.X - 20,
@@ -3006,34 +3027,73 @@ public sealed partial class GameLoop
         }
 
 
-        // Expanded state
+        // Expanded state: fixed carved furniture instead of ImGui's default debug-window skin.
+        float scale = GameplayUiScale();
+        // Command View: the panel sizes itself to its longest line (no line may clip) and to its
+        // line count; the player may drag its left edge wider, never past the screen's centre
+        // (owner, 2026-09-02: "too wide ... resizable, min width the longest sentence").
+        string[] guideLines = _freeView ? CommandViewGuideLines() : [];
+        string guideStatus = _freeView ? $"COMMAND VIEW  ·  {CommandViewGuideStatus()}" : "";
+        float guideMinWidth = 0f, guideMaxWidth = 0f;
+        Vector2 guideSize;
+        if (_freeView)
+        {
+            float content = GameText.MeasureWidth("GameFontNormalSmall", guideStatus, scale) / scale;
+            foreach (string line in guideLines)
+                content = MathF.Max(content, MeasureControlGuideLine(line, scale) / scale);
+            float header = 14f + GameText.MeasureWidth("GameFontNormal", "COMMANDER GUIDE", scale) / scale
+                + 8f + ControlGuideHeaderButtonsWidth;
+            guideMinWidth = MathF.Ceiling(MathF.Max(content + 2f * ControlGuideTextInset, header));
+            guideMaxWidth = MathF.Max(guideMinWidth, (io.DisplaySize.X * 0.5f - 20f) / scale);
+            float width = Settings.Controls.CommandViewGuideWidth > 0f
+                ? Math.Clamp(Settings.Controls.CommandViewGuideWidth, guideMinWidth, guideMaxWidth)
+                : guideMinWidth;
+            guideSize = new Vector2(width, 69f + guideLines.Length * ControlGuideLinePitch + 13f) * scale;
+        }
+        else
+            guideSize = new Vector2(330f, 112f) * scale;
         ImGui.SetNextWindowPos(
             new Vector2(
                 io.DisplaySize.X - 20,
                 guideBottom),
             ImGuiCond.Always,
             new Vector2(1f, 1f));
+        ImGui.SetNextWindowSize(guideSize, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0f);
 
-        ImGui.Begin("Control Guide",
+        ImGui.Begin("##control-guide",
             ImGuiWindowFlags.NoDecoration |
-            ImGuiWindowFlags.AlwaysAutoResize |
             ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings |
+            ImGuiWindowFlags.NoScrollbar |
             ImGuiWindowFlags.NoNav |
             ImGuiWindowFlags.NoFocusOnAppearing |
             ImGuiWindowFlags.NoBringToFrontOnFocus);
 
+        ImDrawListPtr guideDraw = ImGui.GetWindowDrawList();
+        Vector2 guideMin = ImGui.GetWindowPos();
+        Vector2 guideMax = guideMin + guideSize;
+        DrawRtsConsoleBackdrop(guideDraw, guideMin, guideMax, scale);
 
-        if (ImGui.Button("Hide"))
-        {
+        float rule = MathF.Max(1f, scale);
+        float headerBottom = guideMin.Y + 32f * scale;
+        guideDraw.AddRectFilled(guideMin + new Vector2(5f) * scale,
+            new Vector2(guideMax.X - 5f * scale, headerBottom), PainterlyFrameTitle);
+        guideDraw.AddLine(new Vector2(guideMin.X + 7f * scale, headerBottom),
+            new Vector2(guideMax.X - 7f * scale, headerBottom), PainterlyFrameOuter, rule * 2f);
+        guideDraw.AddLine(new Vector2(guideMin.X + 7f * scale, headerBottom - rule),
+            new Vector2(guideMax.X - 7f * scale, headerBottom - rule), PainterlyGoldShade, rule);
+        GameText.Draw(guideDraw, "GameFontNormal", _freeView ? "COMMANDER GUIDE" : "CONTROL GUIDE",
+            guideMin + new Vector2(14f, 9f) * scale, scale, PainterlyGoldLit);
+
+        if (VanillaButton(guideDraw, "##control-guide-hide", "Hide",
+                new Vector2(guideMax.X - 124f * scale, guideMin.Y + 6f * scale),
+                new Vector2(48f, 20f), scale))
             _showControlGuide = false;
-        }
-
-        ImGui.SameLine();
-
-        if (ImGui.Button("Disable"))
-        {
+        if (VanillaButton(guideDraw, "##control-guide-disable", "Disable",
+                new Vector2(guideMax.X - 70f * scale, guideMin.Y + 6f * scale),
+                new Vector2(62f, 20f), scale))
             ImGui.OpenPopup("Disable Control Guide Confirmation");
-        }
 
 
         bool disablePopupOpen = true;
@@ -3065,98 +3125,47 @@ public sealed partial class GameLoop
         }
 
 
-        ImGui.Separator();
-
-        ImGui.TextColored(
-            new Vector4(0.25f, 0.8f, 1f, 1f),
-            "Control Guide");
-
-        ImGui.Separator();
-
-
         if (_freeView)
         {
-            string who = _controlState == ControlState.Possessing
-                ? $"Commanding {ResolveUnitName(_controlTargetGuid)}"
-                : BarsReadOnly
-                    ? $"{ResolveUnitName(BarsGuid)} Selected"
-                    : $"{BindingHint(GameBinding.RtsSelect)}/drag: select\n" +
-                      $"{BindingHint(GameBinding.RtsSelectAdd)}: add\n" +
-                      $"{BindingHint(GameBinding.CrpgTakeControl)}: direct control";
+            GameText.Draw(guideDraw, "GameFontNormalSmall", guideStatus,
+                guideMin + new Vector2(ControlGuideTextInset, 42f) * scale, scale, PainterlyGoldLit);
+            float statusRuleY = guideMin.Y + 61f * scale;
+            guideDraw.AddLine(new Vector2(guideMin.X + 12f * scale, statusRuleY),
+                new Vector2(guideMax.X - 12f * scale, statusRuleY), PainterlyFrameOuter, rule);
 
-            ImGui.Text($"Command View — {who}");
-
-            ImGui.Separator();
-
-            // Movement lines follow the scheme picked in Interface Options → Command View.
-            CommandViewScheme guideScheme = Settings.Controls.CommandViewScheme;
-            bool guideSwap = CommandViewLaw.TurnKeysStrafe(guideScheme);
-            ImGui.Text(
-                $"{BindingHint(GameBinding.MoveForward)}/{BindingHint(GameBinding.MoveBackward)}: " +
-                (CommandViewLaw.OrbitsFocus(guideScheme) ? "Pan Forward/Back" : "Fly Forward/Back"));
-            ImGui.Text(guideSwap
-                ? $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Sidestep"
-                : $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Turn   " +
-                  $"{BindingHint(GameBinding.StrafeLeft)}/{BindingHint(GameBinding.StrafeRight)}: Sidestep");
-            ImGui.Text(CommandViewLaw.PitchLocked(guideScheme)
-                ? (CommandViewLaw.OrbitsFocus(guideScheme)
-                    ? "Right-drag: Orbit   PageUp/PageDown: View Angle"
-                    : "Right-drag: Turn   PageUp/PageDown: View Angle")
-                : "Right-drag: Look Around");
-            ImGui.Text(CommandViewLaw.WheelIsVertical(guideScheme)
-                ? "Wheel: Raise/Lower Camera"
-                : "Wheel: Fly Toward/Away");
-            ImGui.Text($"{BindingHint(GameBinding.TargetNearestEnemy)}: Target Enemy   " +
-                $"{BindingHint(GameBinding.RtsCyclePrimaryNext)}: Next Primary");
-            ImGui.Text(CommandViewLocked
-                ? $"{BindingHint(GameBinding.RtsLockCameraPrimary)}: Release Camera   " +
-                  $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Orbit"
-                : $"{BindingHint(GameBinding.RtsLockCameraPrimary)}: Lock Camera on Primary");
-
-            ImGui.Text(
-                $"{BindingHint(GameBinding.RtsOrderMove)}: Move/Attack");
-
-            ImGui.Text(
-                $"{BindingHint(GameBinding.RtsOrderQueueWaypoint)}: Chain Waypoints");
-
-            ImGui.Text(
-                $"{BindingHint(GameBinding.RtsRecallGroup1)}-" +
-                $"{BindingHint(GameBinding.RtsRecallGroup10)}: Select Control Group");
-
-            ImGui.Text(
-                $"{BindingHint(GameBinding.RtsSaveGroup1)}-" +
-                $"{BindingHint(GameBinding.RtsSaveGroup10)}: Set Control Group");
-
-            ImGui.Text(
-                $"{BindingHint(GameBinding.RtsToggleFreeView)}: Exit Command View");
+            Vector2 linePos = guideMin + new Vector2(ControlGuideTextInset, 69f) * scale;
+            foreach (string line in guideLines)
+            {
+                DrawControlGuideLine(guideDraw, line, linePos, scale);
+                linePos.Y += ControlGuideLinePitch * scale;
+            }
+            DrawControlGuideResizeGrip(guideDraw, guideMin, guideMax, scale, guideMinWidth, guideMaxWidth);
         }
         else
         {
+            Vector2 linePos = guideMin + new Vector2(15f, 43f) * scale;
             switch (_controlState)
             {
                 case ControlState.Possessing:
-
-                    ImGui.Text(
-                        $"Controlling {ResolveUnitName(_controlTargetGuid)}");
-
-                    ImGui.Text(
-                        $"{BindingHint(GameBinding.CrpgCycleControlNext)}: Switch Character");
-
-                    ImGui.Text(
-                        $"{BindingHint(GameBinding.RtsToggleFreeView)}: Command View");
-
+                    GameText.Draw(guideDraw, "GameFontNormalSmall",
+                        $"CONTROLLING  ·  {ResolveUnitName(_controlTargetGuid)}", linePos, scale,
+                        PainterlyGoldLit);
+                    linePos.Y += 22f * scale;
+                    DrawControlGuideLine(guideDraw,
+                        $"{BindingHint(GameBinding.CrpgCycleControlNext)}: Switch character", linePos, scale);
+                    linePos.Y += 16f * scale;
+                    DrawControlGuideLine(guideDraw,
+                        $"{BindingHint(GameBinding.RtsToggleFreeView)}: Command View", linePos, scale);
                     break;
 
                 case ControlState.PossessPending:
-
-                    ImGui.Text("Taking control…");
-
+                    GameText.Draw(guideDraw, "GameFontNormalSmall", "Taking control…", linePos,
+                        scale, PainterlyGoldLit);
                     break;
 
                 case ControlState.ReleasePending:
-
-                    ImGui.Text("Releasing control…");
-
+                    GameText.Draw(guideDraw, "GameFontNormalSmall", "Releasing control…", linePos,
+                        scale, PainterlyGoldLit);
                     break;
             }
         }
@@ -3165,6 +3174,129 @@ public sealed partial class GameLoop
 
         if (_controlState == ControlState.Possessing)
             DrawBotBarLayerToggle(io.DisplaySize.Y - 80);
+    }
+
+    /// <summary>Draw a guide row in the UI's FrameXML font objects: the binding through the first
+    /// colon is gilt, while the action remains the warmer highlight text used by vanilla panels.</summary>
+    private static void DrawControlGuideLine(ImDrawListPtr dl, string text, Vector2 pos, float scale)
+    {
+        int colon = text.IndexOf(':');
+        if (colon <= 0)
+        {
+            GameText.Draw(dl, "GameFontHighlightSmall", text, pos, scale);
+            return;
+        }
+
+        string binding = text[..(colon + 1)];
+        string action = text[(colon + 1)..];
+        GameText.Draw(dl, "GameFontNormalSmall", binding, pos, scale, PainterlyGoldLit);
+        GameText.Draw(dl, "GameFontHighlightSmall", action,
+            pos + new Vector2(GameText.MeasureWidth("GameFontNormalSmall", binding, scale), 0f), scale);
+    }
+
+    /// <summary>Device-pixel width of a guide row as <see cref="DrawControlGuideLine"/> lays it out.</summary>
+    private static float MeasureControlGuideLine(string text, float scale)
+    {
+        int colon = text.IndexOf(':');
+        if (colon <= 0) return GameText.MeasureWidth("GameFontHighlightSmall", text, scale);
+        return GameText.MeasureWidth("GameFontNormalSmall", text[..(colon + 1)], scale)
+            + GameText.MeasureWidth("GameFontHighlightSmall", text[(colon + 1)..], scale);
+    }
+
+    // Commander Guide layout (logical px): text inset from the panel edge, row pitch, the room
+    // the Hide/Disable pair takes from the right edge, and the width of the left-edge drag grip.
+    private const float ControlGuideTextInset = 15f;
+    private const float ControlGuideLinePitch = 16f;
+    private const float ControlGuideHeaderButtonsWidth = 124f;
+    private const float ControlGuideGripWidth = 8f;
+    private bool _controlGuideResizing;
+    private float _controlGuideResizeStartMouseX;
+    private float _controlGuideResizeStartWidth;
+
+    /// <summary>The Commander Guide's status line: who the Command View is acting for.</summary>
+    private string CommandViewGuideStatus() =>
+        _controlState == ControlState.Possessing
+            ? $"Commanding {ResolveUnitName(_controlTargetGuid)}"
+            : BarsReadOnly
+                ? $"{ResolveUnitName(BarsGuid)} Selected"
+                : "Selection ready";
+
+    /// <summary>The Commander Guide's rows. Movement lines follow the scheme picked in Interface
+    /// Options → Command View; the lock row follows the camera's lock state.</summary>
+    private string[] CommandViewGuideLines()
+    {
+        CommandViewScheme guideScheme = Settings.Controls.CommandViewScheme;
+        bool guideSwap = CommandViewLaw.TurnKeysStrafe(guideScheme);
+        return
+        [
+            $"{BindingHint(GameBinding.RtsSelect)}/drag: Select    {BindingHint(GameBinding.RtsSelectAdd)}: Add",
+            $"{BindingHint(GameBinding.CrpgTakeControl)}: Direct control",
+            $"{BindingHint(GameBinding.MoveForward)}/{BindingHint(GameBinding.MoveBackward)}: " +
+                (CommandViewLaw.OrbitsFocus(guideScheme) ? "Pan forward/back" : "Fly forward/back"),
+            guideSwap
+                ? $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Sidestep"
+                : $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Turn    " +
+                  $"{BindingHint(GameBinding.StrafeLeft)}/{BindingHint(GameBinding.StrafeRight)}: Sidestep",
+            CommandViewLaw.PitchLocked(guideScheme)
+                ? (CommandViewLaw.OrbitsFocus(guideScheme)
+                    ? "Right-drag: Orbit    PageUp/PageDown: View angle"
+                    : "Right-drag: Turn    PageUp/PageDown: View angle")
+                : "Right-drag: Look around",
+            CommandViewLaw.WheelIsVertical(guideScheme)
+                ? "Wheel: Raise/lower camera"
+                : "Wheel: Fly toward/away",
+            $"{BindingHint(GameBinding.TargetNearestEnemy)}: Target enemy    " +
+                $"{BindingHint(GameBinding.RtsCyclePrimaryNext)}: Next primary",
+            CommandViewLocked
+                ? $"{BindingHint(GameBinding.RtsLockCameraPrimary)}: Release camera    " +
+                  $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Orbit"
+                : $"{BindingHint(GameBinding.RtsLockCameraPrimary)}: Lock camera on primary",
+            $"{BindingHint(GameBinding.RtsOrderMove)}: Move / attack",
+            $"{BindingHint(GameBinding.RtsOrderQueueWaypoint)}: Chain waypoints",
+            $"{BindingHint(GameBinding.RtsRecallGroup1)}-{BindingHint(GameBinding.RtsRecallGroup10)}: Select control group",
+            $"{BindingHint(GameBinding.RtsSaveGroup1)}-{BindingHint(GameBinding.RtsSaveGroup10)}: Set control group",
+            $"{BindingHint(GameBinding.RtsToggleFreeView)}: Exit Command View",
+        ];
+    }
+
+    /// <summary>
+    /// Drag the Commander Guide's LEFT edge (the panel is anchored bottom-right) to set its width;
+    /// the result persists in Settings. Clamped to the content width and the screen centre, so a
+    /// row can never clip and the panel can never cross the middle of the screen. No ImGui widget:
+    /// a hover rect, the mouse buttons and a gilt rule on the draw list.
+    /// </summary>
+    private void DrawControlGuideResizeGrip(ImDrawListPtr dl, Vector2 min, Vector2 max, float scale,
+        float minWidth, float maxWidth)
+    {
+        Vector2 mouse = ImGui.GetIO().MousePos;
+        Vector2 gripMax = new(min.X + ControlGuideGripWidth * scale, max.Y);
+        bool hovered = ImGui.IsMouseHoveringRect(min, gripMax, false);
+        if (hovered && !_controlGuideResizing && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        {
+            _controlGuideResizing = true;
+            _controlGuideResizeStartMouseX = mouse.X;
+            _controlGuideResizeStartWidth = (max.X - min.X) / scale;
+        }
+        if (_controlGuideResizing)
+        {
+            if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
+            {
+                // Right-anchored: dragging LEFT widens.
+                float width = _controlGuideResizeStartWidth +
+                    (_controlGuideResizeStartMouseX - mouse.X) / scale;
+                Settings.Controls.CommandViewGuideWidth = Math.Clamp(width, minWidth, maxWidth);
+            }
+            else
+            {
+                _controlGuideResizing = false;
+                CommitSettings();
+            }
+        }
+        if (!hovered && !_controlGuideResizing) return;
+        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeEW);
+        float x = min.X + 3f * scale;
+        dl.AddLine(new Vector2(x, min.Y + 8f * scale), new Vector2(x, max.Y - 8f * scale),
+            PainterlyGoldLit, MathF.Max(1f, scale));
     }
 
     /// <summary>

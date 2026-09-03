@@ -85,13 +85,14 @@ public static class OptionsSearchUiLaw
 
     private static readonly string[] InterfaceLabels =
     [
-        "Mouse", "Nameplates", "Chat Bubbles", "Floating Text", "CRPG / RTS", "Camera", "Current keys",
+        "Mouse", "MSUI Options", "Nameplates", "Chat Bubbles", "Floating Text", "CRPG / RTS", "Camera", "Current keys",
+        "Questing", "Automatic Quest Tracking", "Auto track quests", "Quest tracker",
         "Camera collision", "Camera Following Style", "Collision clearance", "Cut buildings away in the free view",
         "Eye height", "Free-view camera collides with the world", "Invert vertical look",
         "Lock ActionBars", "Max camera distance", "Mouse sensitivity", "NPC Names", "Party chat bubbles",
         "Player Names", "Raw cursor", "Restore speed", "RTS commands on party portraits",
         "Show Cloak", "Show Helm", "Show Own Name", "Speech bubbles", "Sticky Targeting", "Turn speed",
-        "Loot messages", "Entering / leaving combat",
+        "Loot messages", "Entering / leaving combat", "Right-click player models for menu",
     ];
 
     private static readonly string[] SoundLabels =

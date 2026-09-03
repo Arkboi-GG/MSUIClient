@@ -175,7 +175,9 @@ internal static class PartyQuestClinicalChecks
         // Companion credit produces NO server push of any kind.
         Check(questFacts.Contains("private void RefreshPartyQuestFactsWhileWatched()",
                   StringComparison.Ordinal) &&
-              questFacts.Contains("RefreshPartyQuestFactsWhileWatched();", StringComparison.Ordinal),
+              questFacts.Contains("RefreshPartyQuestFactsWhileWatched();", StringComparison.Ordinal) &&
+              questFacts.Contains("bool partyTrackerVisible = _questWatches.Count > 0",
+                  StringComparison.Ordinal),
             "the facts must refresh while a surface is displaying them; without it a " +
             "companion's counters are frozen for as long as you watch them");
         Check(partyPanel.Contains("MemberQuestLogAge(guid)", StringComparison.Ordinal),
@@ -271,6 +273,13 @@ internal static class PartyQuestClinicalChecks
                   StringComparison.Ordinal),
             "the free-view L fork must sit in the binding loop, not inside " +
             "ActivateMicroMenuButton, which the micro-menu mouse clicks share");
+        Check(bars.Contains("BindingDown(GameBinding.OpenPartyQuestLog)", StringComparison.Ordinal) &&
+              questPanel.Contains("AppendPartyQuestWatchLines(lines, owners);",
+                  StringComparison.Ordinal) &&
+              partyPanel.Contains(
+                  "private IEnumerable<(string Text, bool Finished)> PartyQuestObjectiveLines(",
+                  StringComparison.Ordinal),
+            "the party quest log shortcut and per-member tracked objective wiring drift");
     }
 
     private static void WriteEntry(PacketWriter w, uint questId, byte status, byte flags,

@@ -10,6 +10,8 @@ I built it because MangosSuperUI and SuperUI-Core eventually reached a point whe
 
 It is playable, but it is not finished. It is esentially in an alpha stage, and has many rough edges. There are still rendering, animation, audio, collision, interface, gameplay, and protocol edge cases to find. This is also its own implementation. I am not going to claim perfect original-client parity where it does not exist.
 
+Many thanks to [Benilla](https://github.com/samwhosung/benilla) from whose work I am able to utilizie large portions of the normal single player MMO work and speed up development.
+
 <!-- SCREENSHOT PLACEHOLDER
 Show current normal MMO gameplay in a recognizable Vanilla location, with the world, characters, equipment, and interface visible without debug clutter.
 -->
