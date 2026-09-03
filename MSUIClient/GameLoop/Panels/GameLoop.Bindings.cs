@@ -749,6 +749,13 @@ public sealed partial class GameLoop
     /// commands or manufactures a second press. Entering a typing owner clears latches while the
     /// physical-state scan continues, so leaving chat cannot consume an already-held key.
     /// </summary>
+    /// <summary>Whether the previous latch scan ran with the world live, and when. The scan
+    /// does not run through the glue and loading screens, so a relog leaves the flag true
+    /// from the previous session: a gap longer than a second between scans is a boundary too.</summary>
+    private bool _bindingScanWasInWorld;
+    private double _bindingScanLastAt = double.NegativeInfinity;
+    private const double BindingScanGapSeconds = 1.0;
+
     private void UpdateBindingLatches(bool typing)
     {
         EnsureBindingsLoaded();
@@ -757,6 +764,25 @@ public sealed partial class GameLoop
         bool shift = InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight);
         bool super = InputKeyDown(Key.SuperLeft) || InputKeyDown(Key.SuperRight);
         bool pointerBlocked = typing || ImGuiNET.ImGui.GetIO().WantCaptureMouse;
+        // World entry is a press boundary. Enter World is the character screen's default
+        // button, so the Enter that confirmed it is usually still held on the first frame the
+        // world is live - and Enter is also Open Chat. Whether that press latched during the
+        // glue screens or is first seen here, it must not count: on the rising edge every key
+        // already down is recorded as held-before-entry and nothing resolves until it is
+        // released and pressed again. Owner report 2026-09-03: "half the time on relog the
+        // chat box opens when you enter the world".
+        bool inWorld = _net is { IsInWorld: true } || CreatorInWorld;
+        double scanNow = NowSeconds();
+        bool worldEntry = inWorld &&
+            (!_bindingScanWasInWorld || scanNow - _bindingScanLastAt > BindingScanGapSeconds);
+        _bindingScanWasInWorld = inWorld;
+        _bindingScanLastAt = scanNow;
+        if (worldEntry)
+        {
+            _bindingLatches.Clear();
+            _bindingPointerLatches.Clear();
+            _bindingEdgeHeld.Clear();
+        }
         _bindingPointerPulse.Clear();
         if (typing) _bindingLatches.Clear();
         if (pointerBlocked) _bindingPointerLatches.Clear();
@@ -772,6 +798,7 @@ public sealed partial class GameLoop
                 continue;
             }
             _bindingPhysicalDown.Add(key);
+            if (worldEntry) continue;   // held before the world was live: not a press
             if (wasDown || typing || super) continue;
 
             HashSet<GameBinding> resolved = ResolveBindingChord(
