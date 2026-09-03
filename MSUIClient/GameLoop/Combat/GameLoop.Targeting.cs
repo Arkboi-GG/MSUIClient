@@ -173,7 +173,8 @@ public sealed partial class GameLoop
             }
         }
 
-        if (!_window.MouseCaptured && !ImGui.GetIO().WantCaptureMouse && !_settingsOpen)
+        if (!_window.MouseCaptured && !ImGui.GetIO().WantCaptureMouse && !_settingsOpen &&
+            !IsQuestWatchTitleAt(_window.MousePosition))
         {
             _hoveredGuid = PickUnit(_window.MousePosition, out float unitHit);
             // Vanilla nearest-wins: a gameobject hovers only when its hit is
@@ -192,7 +193,8 @@ public sealed partial class GameLoop
         // Armed ground AoE: track the terrain point under the cursor every frame so the
         // render pass can draw the 1.12 targeting rune circle there in realtime.
         _groundCursorPoint = _groundCastSpell != 0 && !_window.MouseCaptured &&
-            !ImGui.GetIO().WantCaptureMouse && TryPickGround(_window.MousePosition, out Vector3 aim)
+            !ImGui.GetIO().WantCaptureMouse && !IsQuestWatchTitleAt(_window.MousePosition) &&
+            TryPickGround(_window.MousePosition, out Vector3 aim)
             ? aim : null;
 
         // Targeting-cursor mode (armed ground AoE): a world left-click binds the terrain
@@ -207,6 +209,8 @@ public sealed partial class GameLoop
             if (click.Button == MouseButton.Left) _leftTargetPressPick = default;
             else _rightTargetPressPick = default;
             if (_settingsOpen || ImGui.GetIO().WantCaptureMouse) continue;
+            if (TryToggleQuestWatchAt(
+                click.Position, click.Button == MouseButton.Left)) continue;
             // NPC dev window: an armed edit mode (waypoint drawing / spawn move) owns
             // every world click, ahead of the free-view router - no stray RTS orders
             // while placing path nodes. No-op unless a mode is armed.
@@ -309,7 +313,11 @@ public sealed partial class GameLoop
                 else if (_entities.TryGet(picked, out WorldEntity player) && player.IsPlayer)
                 {
                     CommitSelection(picked, beginAttack: false);
-                    if (UnitFrameMenuWhich(player) is { } which)
+                    // Portrait right-click always owns the menu. World-model right-click is
+                    // selection-only by default, but MSUI Options can opt back into the same
+                    // party/player/self menu at the pointer.
+                    if (Settings.Controls.WorldPlayerContextMenus &&
+                        UnitFrameMenuWhich(player) is { } which)
                         OpenUnitPopup(picked, which, click.Position, InspectBinding.Target);
                 }
                 else CommitSelection(picked, beginAttack: true); // empty right preserves

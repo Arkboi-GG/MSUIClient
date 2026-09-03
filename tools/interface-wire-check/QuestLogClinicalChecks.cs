@@ -39,9 +39,7 @@ internal static class QuestLogClinicalChecks
               QuestFrameUiLaw.QuestWatchLineTop(0, true, true) == 14 &&
               QuestFrameUiLaw.QuestWatchLineTop(26, true, false) == 31 &&
               QuestFrameUiLaw.QuestWatchLineTop(26, false, false) == 27 &&
-              QuestFrameUiLaw.AutoQuestWatchSeconds == 300 &&
-              QuestFrameUiLaw.AutoWatchEvictionCandidate(new Dictionary<uint, double>
-                  { [7] = 40, [9] = 12, [11] = 80 }) == 9,
+              QuestFrameUiLaw.AutoQuestWatchSeconds == 300,
             "quest-log modal/list law drift");
         QuestLogicalRect countPill = QuestFrameUiLaw.QuestLogCountPillRect(50);
         Vector2 countText = QuestFrameUiLaw.QuestLogCountTextMin(countPill, 30, 20);
@@ -372,7 +370,27 @@ internal static class QuestLogClinicalChecks
                   StringComparison.Ordinal) &&
               questFacts.Contains("destination.Add((entry.Slot, entry.QuestId,",
                   StringComparison.Ordinal) &&
-              runtime.Contains("_questWatches.RemoveAll(id => !now.Contains(id));",
+              runtime.Contains("_questWatches.RemoveAll(id => !watchableNow.Contains(id));",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("_questAutoWatchPending.Add(questId);", StringComparison.Ordinal) &&
+              runtime.Contains("if (!Settings.Controls.AutomaticQuestTracking)",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("AppendPartyQuestWatchLines(lines, owners);",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("$\" - {name}: {text}\"", StringComparison.Ordinal) &&
+              runtime.Contains("private readonly HashSet<uint> _questWatchCollapsed",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("private readonly List<QuestWatchTitleHit> _questWatchTitleHits",
+                  StringComparison.Ordinal) &&
+              !runtime.Contains("MaxQuestWatches", StringComparison.Ordinal) &&
+              !runtime.Contains("You may only watch", StringComparison.Ordinal) &&
+              runtime.Contains("private bool TryToggleQuestWatchAt(Vector2 position, bool leftClick)",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("_questWatchTitleHits.Add(hit);", StringComparison.Ordinal) &&
+              !runtime.Contains("##quest-watch-title-", StringComparison.Ordinal) &&
+              runtime.Contains("_questWatchCollapsed.Remove(line.QuestId)",
+                  StringComparison.Ordinal) &&
+              runtime.Contains("if (!collapsed && lines.Count < QuestFrameUiLaw.MaxQuestWatchLines)",
                   StringComparison.Ordinal) &&
               runtime.Contains("QuestFrameUiLaw.ShouldPlayQuestAddedSound(",
                   StringComparison.Ordinal) &&

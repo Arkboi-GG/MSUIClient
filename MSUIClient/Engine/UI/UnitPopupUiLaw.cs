@@ -9,7 +9,7 @@ public enum UnitPopupSubmenu { None, LootMethod, LootThreshold, RaidTargetIcon }
 public enum UnitPopupRow
 {
     PetPaperDoll, PetRename, PetAbandon, PetDismiss,
-    Whisper, Inspect, Invite, Uninvite, Promote, Leave, GuildPromote, GuildLeave,
+    Whisper, Inspect, Invite, Uninvite, Promote, ClaimLead, Leave, GuildPromote, GuildLeave,
     Trade, Follow, Duel,
     LootMethod, LootThreshold, LootPromote, RaidTargetIcon,
     FreeForAll, RoundRobin, MasterLooter, GroupLoot, NeedBeforeGreed,
@@ -33,7 +33,8 @@ public static class UnitPopupUiLaw
 
     private static readonly UnitPopupRow[] SelfMenu =
         [UnitPopupRow.LootMethod, UnitPopupRow.LootThreshold, UnitPopupRow.LootPromote,
-         UnitPopupRow.Leave, UnitPopupRow.RaidTargetIcon, UnitPopupRow.Cancel];
+         UnitPopupRow.ClaimLead, UnitPopupRow.Leave, UnitPopupRow.RaidTargetIcon,
+         UnitPopupRow.Cancel];
     private static readonly UnitPopupRow[] PetMenu =
         [UnitPopupRow.PetPaperDoll, UnitPopupRow.PetRename, UnitPopupRow.PetAbandon,
          UnitPopupRow.PetDismiss, UnitPopupRow.Cancel];
@@ -106,6 +107,7 @@ public static class UnitPopupUiLaw
             UnitPopupRow.Invite => "Invite",
             UnitPopupRow.Uninvite => "Uninvite",
             UnitPopupRow.Promote => "Promote to leader",
+            UnitPopupRow.ClaimLead => "Claim Party Lead",
             UnitPopupRow.Leave => "Leave Party",
             UnitPopupRow.GuildPromote => "Promote to Guild Master",
             UnitPopupRow.GuildLeave => "Leave Guild",
@@ -184,6 +186,7 @@ public static class UnitPopupUiLaw
             UnitPopupRow.Inspect => canCooperate,
         UnitPopupRow.Invite => canCooperate && !unitInParty,
         UnitPopupRow.Promote or UnitPopupRow.Uninvite => inParty && isLeader,
+        UnitPopupRow.ClaimLead => inParty && !isLeader,
         UnitPopupRow.Leave or UnitPopupRow.LootMethod or UnitPopupRow.LootThreshold => inParty,
         UnitPopupRow.LootPromote => inParty && isLeader && lootMethod == 2 && !unitIsLootMaster,
         // Leader-or-assistant matches the server exactly: HandleRaidTargetUpdateOpcode
@@ -202,6 +205,7 @@ public static class UnitPopupUiLaw
         UnitPopupRow.Whisper => connected,
         UnitPopupRow.Trade => distanceSquared < TradeDistanceSq,
         UnitPopupRow.Uninvite or UnitPopupRow.Promote => inParty && isLeader,
+        UnitPopupRow.ClaimLead => inParty && !isLeader,
         UnitPopupRow.Leave => inParty,
         _ => true,
     };

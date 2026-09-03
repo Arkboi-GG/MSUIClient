@@ -17,6 +17,8 @@ internal static class TargetClickClinicalChecks
             "Sticky Targeting must not invent a selection");
         Check(!new GameSettings.ControlSettings().StickyTargeting,
             "Sticky Targeting default must preserve reference deselectOnClick=1");
+        Check(!new GameSettings.ControlSettings().WorldPlayerContextMenus,
+            "world-model player menus must remain opt-in; portrait menus are the shipped default");
 
         string root = ClientConfig.FindRepoRoot();
         string target = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop",
@@ -31,6 +33,20 @@ internal static class TargetClickClinicalChecks
         Check(settings.Contains("Check(\"Sticky Targeting\"", StringComparison.Ordinal) &&
               search.Contains("\"Sticky Targeting\"", StringComparison.Ordinal),
             "Sticky Targeting Interface option/search wiring drifted");
+        Check(target.Contains("Settings.Controls.WorldPlayerContextMenus", StringComparison.Ordinal) &&
+              target.Contains("OpenUnitPopup(picked, which, click.Position, InspectBinding.Target);",
+                  StringComparison.Ordinal) &&
+              settings.Contains("BeginBox(\"msui-options\", \"MSUI Options\")",
+                  StringComparison.Ordinal) &&
+              settings.Contains("Check(\"Right-click player models for menu\"",
+                  StringComparison.Ordinal) &&
+              search.Contains("\"Right-click player models for menu\"", StringComparison.Ordinal),
+            "world-model player menu toggle or its MSUI Options/search wiring drifted");
+        Check(target.Contains("TryToggleQuestWatchAt(", StringComparison.Ordinal) &&
+              target.Contains("click.Position, click.Button == MouseButton.Left", StringComparison.Ordinal) &&
+              target.IndexOf("TryToggleQuestWatchAt(", StringComparison.Ordinal) <
+              target.IndexOf("HandleDevEditClick(click)", StringComparison.Ordinal),
+            "quest-watch title clicks must be consumed before world click routing");
     }
 
     private static void Check(bool condition, string message)

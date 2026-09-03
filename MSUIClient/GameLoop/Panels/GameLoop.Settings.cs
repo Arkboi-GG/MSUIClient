@@ -176,6 +176,7 @@ public sealed partial class GameLoop
                     _deathRezOpen ||
                     StaticPopupCoordinatorLaw.AnyVisible(_staticPopupSlots) ||
                     _questAbandonConfirmation is not null ||
+                    _partyQuestAbandonConfirmation is not null ||
                     _mailConfirmation is not null || _enchantConfirmation is not null ||
                     _skillUnlearnConfirmation is not null,
                 _settingsOpen && _menuPage != MenuPage.GameMenu,
@@ -2106,6 +2107,17 @@ public sealed partial class GameLoop
             }
             EndBox();
 
+            BeginBox("msui-options", "MSUI Options");
+            {
+                Check("Right-click player models for menu",
+                    () => s.Controls.WorldPlayerContextMenus,
+                    value => s.Controls.WorldPlayerContextMenus = value,
+                    "Open the player interaction menu when you right-click a player's model " +
+                    "in the world. When disabled, world-model right-click only selects them; " +
+                    "right-clicking a player or party portrait still opens the menu.");
+            }
+            EndBox();
+
             BeginBox("looting", "Looting");
             {
                 Check("Auto Loot", () => s.Controls.AutoLoot,
@@ -2113,6 +2125,16 @@ public sealed partial class GameLoop
                     "Right-click on a corpse or chest takes everything in it at once, the way" +
                     " the later expansions did. Hold Shift to open the loot window instead." +
                     " Untick for the 1.12 window, where Shift-click loots all.");
+            }
+            EndBox();
+
+            BeginBox("questing", "Questing");
+            {
+                Check("Automatic Quest Tracking", () => s.Controls.AutomaticQuestTracking,
+                    v => s.Controls.AutomaticQuestTracking = v,
+                    "Automatically add accepted quests with objectives to the tracker and\n" +
+                    "temporarily show quests when their objectives advance. Shift-clicked\n" +
+                    "quests are manual watches and remain until you remove them.");
             }
             EndBox();
 
