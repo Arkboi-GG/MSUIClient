@@ -461,13 +461,15 @@ static void CheckOptionsSearch()
     Check(hudLayout.Any(g => g.Entries.Any(e => e.Label == "Edit HUD layout")),
         "options search cannot find 'Edit HUD layout'");
     // "quest helper" tokenizes to QUEST HELPER / QUEST / HELPER, so any page carrying a
-    // quest word answers it. Assert AddOns reachability rather than exclusivity.
+    // quest word answers it. The intent being guarded is that Quest Helper remains reachable
+    // on the AddOns page, not that it is the only thing the query finds.
     OptionsSearchGroup[] questHelper = OptionsSearchUiLaw.Find("quest helper");
     Check(questHelper.Any(group => group.Page == OptionsSearchPage.AddOns &&
               group.Entries.Any(entry => entry.Label == "Quest Helper")),
         "options search cannot find the native Quest Helper on the AddOns page");
-    // The QUEST token also reaches the AddOns page's Quest Helper, so this query legitimately
-    // returns multiple groups. Guard the intended Interface entry rather than the group count.
+    // Same tokenization as above: the QUEST token also reaches the AddOns page's Quest
+    // Helper, so this query legitimately returns two groups. Assert reachability on the
+    // Interface page rather than exclusivity.
     OptionsSearchGroup[] automaticQuestTracking =
         OptionsSearchUiLaw.Find("automatic quest tracking");
     Check(automaticQuestTracking.Any(group =>
@@ -834,6 +836,13 @@ if (args.Contains("--stance-bar-only", StringComparer.Ordinal))
 {
     StanceBarClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: StanceBar PASS");
+    return;
+}
+
+if (args.Contains("--player-power-bars-only", StringComparer.Ordinal))
+{
+    PlayerPowerBarsClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: PlayerPowerBars PASS");
     return;
 }
 
@@ -4689,6 +4698,8 @@ PartyQuestActsClinicalChecks.Run();
 PartyGiverStatusClinicalChecks.Run();
 PartyLeadClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
+PlayerPowerBarsClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: PlayerPowerBars PASS");
 HovercastClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: Hovercast PASS");
 CompanionClinicalChecks.Run();

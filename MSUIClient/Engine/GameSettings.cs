@@ -281,6 +281,10 @@ public sealed class GameSettings
         /// <summary>Active-objective and ready-to-turn-in pins on the world map and minimap.</summary>
         public bool QuestHelper { get; set; } = true;
 
+        /// <summary>Movable player health/power bars with combo pips and the energy tick
+        /// sweep. Its own class because this one is configurable rather than a plain switch.</summary>
+        public PlayerPowerBarsSettings PowerBars { get; set; } = new();
+
         /// <summary>Cast on the unit under the cursor instead of the current target, without
         /// changing target. Off by default: it changes what an action key already does, and a
         /// switch everyone receives should not silently rebind a press nobody asked to move.</summary>
@@ -293,6 +297,51 @@ public sealed class GameSettings
 
         /// <summary>The melee/ranged auto-attack swing rail.</summary>
         public SwingTimerSettings SwingTimer { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Player Power Bars. Every number here is a player preference, not a tuning constant:
+    /// the point of the feature is that the bars go where you want them, at the size you
+    /// want, showing what you want. Offsets are logical UI units so changing Interface
+    /// scale does not move the frame.
+    /// </summary>
+    public sealed class PlayerPowerBarsSettings
+    {
+        /// <summary>Off by default. The player frame already shows health and power; this
+        /// is a second, movable display, and a shipped feature should not add furniture to
+        /// someone's screen uninvited.</summary>
+        public bool Enabled { get; set; }
+
+        /// <summary>Drag the bars to move them. Locked hides the handle and the outline.</summary>
+        public bool Unlocked { get; set; }
+
+        public float OffsetX { get; set; }
+        public float OffsetY { get; set; }
+
+        public float Width { get; set; } = 200f;
+        public float HealthHeight { get; set; } = 20f;
+        public float PowerHeight { get; set; } = 14f;
+        public float Spacing { get; set; } = 2f;
+        public float Scale { get; set; } = 1f;
+
+        /// <summary>Write the value on each bar.</summary>
+        public bool ShowText { get; set; } = true;
+
+        /// <summary>Write it as a percentage instead of value / max.</summary>
+        public bool ShowPercent { get; set; }
+
+        /// <summary>Combo pips above the bars. The client already draws the authored vanilla
+        /// combo frame by the target frame; this is the copy that travels with these bars,
+        /// for players who move them near the crosshair. Opt-in so it is never a duplicate
+        /// nobody asked for.</summary>
+        public bool ShowCombo { get; set; }
+
+        /// <summary>The energy regen-tick sweep across the power bar.</summary>
+        public bool ShowTickBar { get; set; } = true;
+
+        /// <summary>Seconds per server regen tick. 2.0 is this server's hardcoded value
+        /// (Player::RegenerateAll); exposed because a fork can change it.</summary>
+        public float TickSeconds { get; set; } = 2f;
     }
 
     /// <summary>
