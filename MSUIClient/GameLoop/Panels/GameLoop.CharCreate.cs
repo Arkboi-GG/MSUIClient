@@ -1151,11 +1151,14 @@ internal sealed class CharCreateState
 
     public IReadOnlyList<byte> RaceClasses(CharCreateCatalog? cat) => ClassesForRace(cat, Race);
 
-    // benilla race_classes fallback (all classes) only when the catalog is missing.
+    // Fallback only when the catalog is missing: the 1.12 creatable table (benilla fell back to
+    // every class, which offers pairings the server refuses).
     private static IReadOnlyList<byte> ClassesForRace(CharCreateCatalog? cat, byte race)
     {
         var list = cat?.ClassesForRace(race);
-        return list is { Count: > 0 } ? list : new byte[] { 1, 2, 3, 4, 5, 7, 8, 9, 11 };
+        if (list is { Count: > 0 }) return list;
+        return CharCreateCatalog.Creatable112.TryGetValue(race, out byte[]? classes)
+            ? classes : new byte[] { 1 };
     }
 
     public int[] DialCounts(CharCreateCatalog? cat) => cat?.DialCounts(Race, Sex) ?? new[] { 1, 1, 1, 1, 1 };

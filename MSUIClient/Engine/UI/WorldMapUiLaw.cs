@@ -100,6 +100,31 @@ public static class WorldMapUiLaw
     public static Vector2 MapPoint(Vector2 mapMin, Vector2 mapSize, float x, float y) =>
         new(mapMin.X + x * mapSize.X, mapMin.Y + y * mapSize.Y);
 
+    /// <summary>
+    /// Project the live controlled-body pose onto the map currently being
+    /// viewed. This deliberately accepts a fresh position every frame: opening
+    /// WorldMapFrame does not snapshot or park the character in MSUI.
+    /// </summary>
+    public static bool TryPlayerMarker(uint bodyMap, uint viewedMap, Vector3 bodyPosition,
+        float left, float right, float top, float bottom,
+        Vector2 mapMin, Vector2 mapSize, out Vector2 marker)
+    {
+        marker = default;
+        float width = right - left;
+        float height = bottom - top;
+        if (bodyMap != viewedMap || !float.IsFinite(bodyPosition.X) ||
+            !float.IsFinite(bodyPosition.Y) || !float.IsFinite(width) ||
+            !float.IsFinite(height) || MathF.Abs(width) < float.Epsilon ||
+            MathF.Abs(height) < float.Epsilon)
+            return false;
+
+        float x = (bodyPosition.Y - left) / width;
+        float y = (bodyPosition.X - top) / height;
+        if (x is < 0f or > 1f || y is < 0f or > 1f) return false;
+        marker = MapPoint(mapMin, mapSize, x, y);
+        return true;
+    }
+
     public static TooltipSeat CorpseTooltipSeat(Vector2 markerMin, Vector2 markerSize,
         Vector2 mapMin, Vector2 mapSize)
     {

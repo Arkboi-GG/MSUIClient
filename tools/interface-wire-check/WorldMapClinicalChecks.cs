@@ -62,6 +62,20 @@ internal static class WorldMapClinicalChecks
                   new WorldMapUiLaw.TooltipSeat(new Vector2(216, 300), Vector2.UnitY),
             "world-map capsule slices, row furniture, or map projection drift");
 
+        Check(WorldMapUiLaw.TryPlayerMarker(1, 1, new Vector3(25, 50, 3),
+                  0, 100, 0, 100, new Vector2(10, 20), new Vector2(1000, 600),
+                  out Vector2 firstMarker) && firstMarker == new Vector2(510, 170) &&
+              WorldMapUiLaw.TryPlayerMarker(1, 1, new Vector3(50, 75, 3),
+                  0, 100, 0, 100, new Vector2(10, 20), new Vector2(1000, 600),
+                  out Vector2 movedMarker) && movedMarker == new Vector2(760, 320) &&
+              movedMarker != firstMarker &&
+              !WorldMapUiLaw.TryPlayerMarker(1, 0, new Vector3(50, 75, 3),
+                  0, 100, 0, 100, Vector2.Zero, Vector2.One, out _),
+            "live player marker stopped following body movement or leaked across maps");
+        Check(!GameplayInputLaw.BlocksMovement(wantsKeyboard: true, wantsTextInput: false,
+                settingsModalOpen: false, bindingCaptureActive: false),
+            "fullscreen world-map keyboard focus blocked live character movement");
+
         string root = ClientConfig.FindRepoRoot();
         string map = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.WorldMap.cs"));
@@ -70,8 +84,11 @@ internal static class WorldMapClinicalChecks
         Check(map.Contains("DrawWorldMapExploredOverlays", StringComparison.Ordinal) &&
               map.Contains("DrawWorldMapAreaHighlight", StringComparison.Ordinal) &&
               map.Contains("_worldMapHits?.TryResolveArea", StringComparison.Ordinal) &&
-              map.Contains("DrawMinimapPlayerArrow(dl, player.Orientation", StringComparison.Ordinal),
-            "world-map exploration, click/hover, or facing-arrow wiring drift");
+              map.Contains("TryGetWorldBodyPose(ControlledGuid", StringComparison.Ordinal) &&
+              map.Contains("WorldMapUiLaw.TryPlayerMarker", StringComparison.Ordinal) &&
+              map.Contains("DrawMinimapPlayerArrow(dl, drivenBody.Orientation",
+                  StringComparison.Ordinal),
+            "world-map exploration, click/hover, or live facing-arrow wiring drift");
         Check(map.Contains("DrawWorldMapDropdownCapsule", StringComparison.Ordinal) &&
               map.Contains("WorldMapUiLaw.Frame(display)", StringComparison.Ordinal) &&
               map.Contains("WorldMapUiLaw.Continent", StringComparison.Ordinal) &&

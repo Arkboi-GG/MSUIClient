@@ -36,8 +36,31 @@ public sealed class CharCreateCatalog
     public const string CharStartOutfitPath = @"DBFilesClient\CharStartOutfit.dbc";
     public const string ChrRacesPath = @"DBFilesClient\ChrRaces.dbc";
 
-    // race -> valid classes (ascending file order, deduped) from CharBaseInfo.dbc.
+    // race -> valid classes (ascending file order, deduped) from CharBaseInfo.dbc, filtered by
+    // Creatable112.
     private readonly Dictionary<byte, List<byte>> _classes = new();
+
+    /// <summary>The race/class pairings a 1.12 character can actually be created as (ChrRaces
+    /// id -> ChrClasses ids). The stock archives are NOT the whole truth here: build 5875's
+    /// CharBaseInfo.dbc carries 41 rows and CharStartOutfit.dbc dresses all of them, and the
+    /// 41st is a Dwarf MAGE - leftover data the live 1.12 client never offered and that no
+    /// server's playercreateinfo has a row for, so creating one only ever answers "Error
+    /// creating character" (owner, 2026-09-03: "Dwarf mages in our client... we need to fix
+    /// that"). Everything the DBC lists is intersected with this table.</summary>
+    public static readonly IReadOnlyDictionary<byte, byte[]> Creatable112 = new Dictionary<byte, byte[]>
+    {
+        [1] = [1, 2, 4, 5, 8, 9],       // Human: Warrior Paladin Rogue Priest Mage Warlock
+        [2] = [1, 3, 4, 7, 9],          // Orc: Warrior Hunter Rogue Shaman Warlock
+        [3] = [1, 2, 3, 4, 5],          // Dwarf: Warrior Paladin Hunter Rogue Priest (no Mage)
+        [4] = [1, 3, 4, 5, 11],         // Night Elf: Warrior Hunter Rogue Priest Druid
+        [5] = [1, 4, 5, 8, 9],          // Undead: Warrior Rogue Priest Mage Warlock
+        [6] = [1, 3, 7, 11],            // Tauren: Warrior Hunter Shaman Druid
+        [7] = [1, 4, 8, 9],             // Gnome: Warrior Rogue Mage Warlock
+        [8] = [1, 3, 4, 5, 7, 8],       // Troll: Warrior Hunter Rogue Priest Shaman Mage
+    };
+
+    public static bool IsCreatable112(byte race, byte cls) =>
+        Creatable112.TryGetValue(race, out byte[]? classes) && Array.IndexOf(classes, cls) >= 0;
     // (race, sex) -> [skin, face, hairStyle, hairColor, facialHair] counts.
     private readonly Dictionary<(byte Race, byte Sex), int[]> _dials = new();
     // (race, class, sex) -> the level-1 starting outfit as (ItemDisplayInfo id, InventoryType) pairs.
@@ -119,7 +142,8 @@ public sealed class CharCreateCatalog
         });
     }
 
-    // CharBaseInfo.dbc: WDBC header then recordCount * 2 bytes = (raceId, classId).
+    // CharBaseInfo.dbc: WDBC header then recordCount * 2 bytes = (raceId, classId). Rows the
+    // live game could never create (the stray Dwarf Mage) are dropped - see Creatable112.
     private void ParseBaseInfo(byte[] d)
     {
         if (!ValidWdbc(d)) return;
@@ -131,6 +155,11 @@ public sealed class CharCreateCatalog
             int p = dataOff + r * recordSize;
             if (p + 1 >= d.Length) break;
             byte race = d[p], cls = d[p + 1];
+            if (!IsCreatable112(race, cls))
+            {
+                Console.WriteLine($"[charcreate] CharBaseInfo row race={race} class={cls} is not creatable in 1.12 - dropped");
+                continue;
+            }
             if (!_classes.TryGetValue(race, out var list)) { list = new List<byte>(); _classes[race] = list; }
             if (!list.Contains(cls)) list.Add(cls);
         }

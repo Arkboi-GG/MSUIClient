@@ -2076,13 +2076,18 @@ public sealed partial class GameLoop
     // this only corpses walked; a vendor click fell through to a ground order under the NPC and
     // the server answered "no path to that spot" (owner, 2026-09-02: "it should just path there
     // and open it ... same fix, applied really to any interaction").
-    private enum CommandViewInteractKind { Loot, Service, GameObject }
+    // Quests = the commander quest window (Model B): the PARTY walks to the giver and the window
+    // opens once they are there (owner, 2026-09-03: "that shouldn't happen until the characters
+    // are at the NPC").
+    private enum CommandViewInteractKind { Loot, Service, GameObject, Quests }
 
     private ulong _cvPendingInteractGuid;
     private CommandViewInteractKind _cvPendingInteractKind;
     private double _cvPendingInteractAt;
     private double _cvPendingInteractNotBefore;
     private int _cvPendingInteractAttempts;
+    /// <summary>Quests only: everyone ordered to the giver (your own character first).</summary>
+    private readonly List<ulong> _cvPendingInteractWalkers = [];
 
     /// <summary>How close the walker stops short of the subject: a corpse is stood on (melee
     /// reach), a person or object is approached to talking distance.</summary>
@@ -2096,6 +2101,9 @@ public sealed partial class GameLoop
         kind switch
         {
             CommandViewInteractKind.Loot => LocalPlayerGuid,
+            // The server resolves the commander quest window against the REQUESTER and demands
+            // the requester at the giver; the companions only need to be near the requester.
+            CommandViewInteractKind.Quests => LocalPlayerGuid,
             CommandViewInteractKind.Service =>
                 _controlState == ControlState.Possessing ? ControlledGuid : LocalPlayerGuid,
             _ => subject.GameObjectType is 9 or 19 ? LocalPlayerGuid : ControlledGuid,
@@ -2114,6 +2122,8 @@ public sealed partial class GameLoop
                         self.Fields.CombatReach, subject.Fields.CombatReach);
             case CommandViewInteractKind.Service:
                 return NpcSessionUiLaw.InRange(distanceSquared);
+            case CommandViewInteractKind.Quests:
+                return NpcSessionUiLaw.InRange(distanceSquared) && CommandViewPartyAtSubject(subject);
             default:
                 float limit = IsStockPortalEntry(subject.Entry)
                     ? MagePortalClickInteractDistance : GameObjectInteractDistance;
@@ -2127,6 +2137,8 @@ public sealed partial class GameLoop
             CommandViewInteractKind.Loot => subject.IsCreature && subject.IsDead && subject.Fields.Lootable,
             CommandViewInteractKind.Service =>
                 subject.IsCreature && !subject.IsDead && WorldCursorServiceKind(subject) is not null,
+            CommandViewInteractKind.Quests =>
+                subject.IsCreature && !subject.IsDead && (subject.NpcFlags & NpcQuestGiver) != 0,
             _ => subject.IsGameObject,
         };
 
@@ -2142,87 +2154,136 @@ public sealed partial class GameLoop
                 _vendor is not null || _trainer is not null || _gossipMenu is not null ||
                 _bankOpen || _auctionOpen || _mailOpen || _taxiMasterGuid == guid,
             CommandViewInteractKind.GameObject => _mailOpen,
+            CommandViewInteractKind.Quests => _giverQuestsOpen && _giverQuestsGiverGuid == guid,
             _ => false,
         };
 
-    /// <summary>The service the pending interaction was CHOSEN for (the giver chooser), else null
-    /// = the NPC's own cursor verdict. A flight master with a quest verdicts Speak, and Speak
+    /// <summary>The route the pending interaction was CHOSEN for (the NPC chooser), else null =
+    /// the NPC's own cursor verdict. A flight master with a quest verdicts Speak, and Speak
     /// would open gossip, not the flight map the player picked.</summary>
-    private WorldCursorKind? _cvPendingInteractService;
+    private ConfirmPopupUiLaw.NpcServiceRoute? _cvPendingInteractRoute;
 
-    // ── Quest giver who is also something else (owner, 2026-09-02: "FP Map or Quest List?") ──
+    // ── An NPC that offers more than one thing (owner, 2026-09-02: "FP Map or Quest List?";
+    // 2026-09-03: "apply the flight master fix to any NPC that has more than 1 option") ────────
     // Thor in Sentinel Hill is a flight master AND a quest giver: the commander quest window
     // (Model B) took every quest-giver click, so the flight path could never be discovered from
-    // the sky. A giver with a second service raises a small two-button StaticPopup instead.
+    // the sky; a vendor who also trains hid the training the same way. Any NPC with two or more
+    // distinct offers raises a chooser (one button each) instead of guessing.
     private ulong _cvGiverChoiceGuid;
-    private WorldCursorKind _cvGiverChoiceService;
-    private string _cvGiverChoiceCaption = "";
+    private List<ConfirmPopupUiLaw.NpcOption> _cvGiverChoiceOptions = [];
+    private int _cvGiverChoicePicked = -1;
 
-    private void RaiseCommandViewGiverChoice(ulong guid, WorldEntity npc, WorldCursorKind service)
+    private void RaiseCommandViewNpcChoice(ulong guid, List<ConfirmPopupUiLaw.NpcOption> options)
     {
         _cvGiverChoiceGuid = guid;
-        _cvGiverChoiceService = service;
-        _cvGiverChoiceCaption = ConfirmPopupUiLaw.GiverChoiceServiceCaption(service, npc.NpcFlags);
+        _cvGiverChoiceOptions = options;
+        _cvGiverChoicePicked = -1;
         CommitSelection(guid, beginAttack: false);
         ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(
             _staticPopupSlots, ConfirmPopupUiLaw.GiverChoiceDefinition, playerDeadOrGhost: false,
             dataToken: guid.ToString()));
     }
 
-    /// <summary>Button 1 = the commander quest window; button 2 = walk up and open the other
-    /// service. Escape or a replacing popup = nothing.</summary>
-    private void ApplyCommandViewGiverChoice(StaticPopupCoordinatorLaw.EffectKind kind)
+    /// <summary>Accept = the option recorded by whichever chooser button was clicked (every
+    /// chooser button is an Accept): walk up and open it. Escape or a replacing popup = nothing.</summary>
+    private void ApplyCommandViewNpcChoice(StaticPopupCoordinatorLaw.EffectKind kind)
     {
         // The coordinator streams every lifecycle effect here (Show, PrepareContent, OnShow...);
-        // only the answers consume the pending giver.
+        // only the answers consume the pending NPC.
         ulong guid = _cvGiverChoiceGuid;
         switch (kind)
         {
             case StaticPopupCoordinatorLaw.EffectKind.Accept:
-                RequestGiverQuests(guid);
+                if (_cvGiverChoicePicked >= 0 && _cvGiverChoicePicked < _cvGiverChoiceOptions.Count &&
+                    _entities.TryGet(guid, out WorldEntity npc) && npc.IsCreature && !npc.IsDead)
+                    BeginCommandViewNpcRoute(guid, npc, _cvGiverChoiceOptions[_cvGiverChoicePicked].Route);
                 _cvGiverChoiceGuid = 0;
+                _cvGiverChoicePicked = -1;
                 break;
             case StaticPopupCoordinatorLaw.EffectKind.CancelClicked:
-                if (_entities.TryGet(guid, out WorldEntity npc) && npc.IsCreature && !npc.IsDead)
-                    BeginCommandViewInteraction(CommandViewInteractKind.Service, guid, npc,
-                        _cvGiverChoiceService);
-                _cvGiverChoiceGuid = 0;
-                break;
             case StaticPopupCoordinatorLaw.EffectKind.CancelWithoutReason:
             case StaticPopupCoordinatorLaw.EffectKind.CancelOverride:
             case StaticPopupCoordinatorLaw.EffectKind.CancelTimeout:
                 _cvGiverChoiceGuid = 0;
+                _cvGiverChoicePicked = -1;
                 break;
         }
+    }
+
+    /// <summary>Walk up and open one of the NPC's offers: the commander quest window walks the
+    /// party (Quests); every other route is the acting body's Service interaction.</summary>
+    private void BeginCommandViewNpcRoute(ulong guid, WorldEntity npc, ConfirmPopupUiLaw.NpcServiceRoute route)
+    {
+        if (route == ConfirmPopupUiLaw.NpcServiceRoute.CommanderQuests)
+            BeginCommandViewInteraction(CommandViewInteractKind.Quests, guid, npc,
+                walkers: CommandViewQuestWalkers());
+        else
+            BeginCommandViewInteraction(CommandViewInteractKind.Service, guid, npc, route);
+    }
+
+    /// <summary>Who walks to a quest giver for the commander quest window: the highlighted set
+    /// (the RTS convention), or the whole party when nothing is highlighted — and ALWAYS your
+    /// own character, because the server resolves the window against the requester and demands
+    /// the requester at the giver (companions need only be within quest-share distance of
+    /// you).</summary>
+    private List<ulong> CommandViewQuestWalkers()
+    {
+        var walkers = new List<ulong>();
+        if (LocalPlayerGuid != 0) walkers.Add(LocalPlayerGuid);
+        IEnumerable<ulong> chosen = _freecamSelection.Count > 0
+            ? _freecamSelection
+            : _partyMembers.Select(member => member.Guid);
+        foreach (ulong guid in RtsControlGroupLaw.NormalizeMembers(chosen))
+            if (guid != 0 && !walkers.Contains(guid)) walkers.Add(guid);
+        return walkers;
     }
 
     /// <summary>Route a service NPC to its panel, the same dispatch the grounded right-click
     /// uses: vendor, flight master, banker, auctioneer, otherwise gossip.</summary>
     private bool OpenCommandViewService(ulong guid, WorldEntity npc)
     {
-        if ((_cvPendingInteractService ?? WorldCursorServiceKind(npc)) is not { } kind) return false;
+        if ((_cvPendingInteractRoute ?? CommandViewDefaultRoute(npc)) is not { } route) return false;
         CommitSelection(guid, beginAttack: false);
-        if (kind == WorldCursorKind.Pickup) return RequestVendor(guid);
-        if (kind == WorldCursorKind.Taxi) return RequestTaxiMap(guid);
-        if (kind == WorldCursorKind.Buy && (npc.NpcFlags & NpcBanker) != 0) return RequestBank(guid);
-        // Possessed: the driven bot walks up to the auctioneer and the server's
-        // GetSuiActor-threaded auction handlers act on ITS purse and bags.
-        if (kind == WorldCursorKind.Buy && (npc.NpcFlags & NpcAuctioneer) != 0) return RequestAuction(guid);
-        return RequestGossip(guid);
+        return route switch
+        {
+            ConfirmPopupUiLaw.NpcServiceRoute.Vendor => RequestVendor(guid),
+            ConfirmPopupUiLaw.NpcServiceRoute.Taxi => RequestTaxiMap(guid),
+            ConfirmPopupUiLaw.NpcServiceRoute.Bank => RequestBank(guid),
+            // Possessed: the driven bot walks up to the auctioneer and the server's
+            // GetSuiActor-threaded auction handlers act on ITS purse and bags.
+            ConfirmPopupUiLaw.NpcServiceRoute.Auction => RequestAuction(guid),
+            _ => RequestGossip(guid),
+        };
     }
+
+    /// <summary>The NPC's own cursor verdict as a route (lowest flag bit wins, as on the ground).</summary>
+    private ConfirmPopupUiLaw.NpcServiceRoute? CommandViewDefaultRoute(WorldEntity npc) =>
+        WorldCursorServiceKind(npc) switch
+        {
+            null => null,
+            WorldCursorKind.Pickup => ConfirmPopupUiLaw.NpcServiceRoute.Vendor,
+            WorldCursorKind.Taxi => ConfirmPopupUiLaw.NpcServiceRoute.Taxi,
+            WorldCursorKind.Buy when (npc.NpcFlags & NpcBanker) != 0 => ConfirmPopupUiLaw.NpcServiceRoute.Bank,
+            WorldCursorKind.Buy when (npc.NpcFlags & NpcAuctioneer) != 0 => ConfirmPopupUiLaw.NpcServiceRoute.Auction,
+            _ => ConfirmPopupUiLaw.NpcServiceRoute.Gossip,
+        };
 
     /// <summary>Arm a walk-then-interact on <paramref name="guid"/>: in reach it opens on the
     /// next frame; out of reach the acting body is ordered to walk up to it first. The walk
-    /// stops short of a person or object at talking distance rather than on top of it.</summary>
+    /// stops short of a person or object at talking distance rather than on top of it. A Quests
+    /// interaction orders every one of <paramref name="walkers"/> (the party) and opens once
+    /// they are all there.</summary>
     private void BeginCommandViewInteraction(CommandViewInteractKind kind, ulong guid, WorldEntity subject,
-        WorldCursorKind? service = null)
+        ConfirmPopupUiLaw.NpcServiceRoute? route = null, IReadOnlyList<ulong>? walkers = null)
     {
         _cvPendingInteractGuid = guid;
         _cvPendingInteractKind = kind;
-        _cvPendingInteractService = service;
+        _cvPendingInteractRoute = route;
         _cvPendingInteractAt = NowSeconds();
         _cvPendingInteractNotBefore = 0;
         _cvPendingInteractAttempts = 0;
+        _cvPendingInteractWalkers.Clear();
+        if (walkers is not null) _cvPendingInteractWalkers.AddRange(walkers);
         if (CommandViewInteractInReach(kind, subject)) return;
         ulong walker = CommandViewInteractWalker(kind, subject);
         Vector3 destination = subject.Position;
@@ -2235,10 +2296,35 @@ public sealed partial class GameLoop
             if (length > CommandViewServiceApproachYards)
                 destination += toBody * (CommandViewServiceApproachYards / length);
         }
-        _net?.SuiOrder(0 /* ORDER_MOVE */, [walker], 0, destination.X, destination.Y, destination.Z);
+        List<ulong> ordered = kind == CommandViewInteractKind.Quests && _cvPendingInteractWalkers.Count > 0
+            ? _cvPendingInteractWalkers
+            : new List<ulong> { walker };
+        _net?.SuiOrder(0 /* ORDER_MOVE */, ordered, 0, destination.X, destination.Y, destination.Z);
+        if (ordered.Count > 1) NoteCompanionOrder(0, ordered);
         _rtsMoveMarkers.Add((subject.Position, NowSeconds(), RtsNeutralTint));
-        if (kind == CommandViewInteractKind.Service)
-            AddChatMessage($"{ResolveUnitName(walker)}: to {ResolveWorldUnitName(guid)}.");
+        if (kind is CommandViewInteractKind.Service or CommandViewInteractKind.Quests)
+            AddChatMessage($"{OrderSubjectLabel(ordered)}: to {ResolveWorldUnitName(guid)}.");
+    }
+
+    /// <summary>"The party is here" radius for a Quests interaction: companions stand a little
+    /// wider than talking distance (anti-stacking spreads them), still well inside the server's
+    /// quest-share distance from the requester.</summary>
+    private const float CommandViewPartyArrivalYards = 8f;
+
+    /// <summary>How long a walk may take before the pending interaction is dropped. A party
+    /// walk to a giver is longer than one body's stroll to a vendor.</summary>
+    private static double CommandViewInteractDeadlineSeconds(CommandViewInteractKind kind) =>
+        kind == CommandViewInteractKind.Quests ? 45.0 : 15.0;
+
+    private bool CommandViewPartyAtSubject(WorldEntity subject)
+    {
+        foreach (ulong guid in _cvPendingInteractWalkers)
+        {
+            if (guid == LocalPlayerGuid || !TryGetWorldBodyPose(guid, out WorldBodyPose body)) continue;
+            if (Vector3.DistanceSquared(body.Position, subject.Position) >
+                CommandViewPartyArrivalYards * CommandViewPartyArrivalYards) return false;
+        }
+        return true;
     }
 
     private void UpdateCommandViewPendingInteraction()
@@ -2246,12 +2332,31 @@ public sealed partial class GameLoop
         if (_cvPendingInteractGuid == 0) return;
         double now = NowSeconds();
         CommandViewInteractKind kind = _cvPendingInteractKind;
-        if (!_freeView || now - _cvPendingInteractAt > 15.0 || _cvPendingInteractAttempts >= 8 ||
-            (kind == CommandViewInteractKind.Loot && ControlledGuid != LocalPlayerGuid) ||
-            !_entities.TryGet(_cvPendingInteractGuid, out WorldEntity subject) ||
-            !CommandViewInteractSubjectValid(kind, subject) ||
-            (_cvPendingInteractAttempts > 0 && CommandViewInteractDelivered(kind, _cvPendingInteractGuid)))
+        ulong guid = _cvPendingInteractGuid;
+        if (!_entities.TryGet(guid, out WorldEntity subject) ||
+            !CommandViewInteractSubjectValid(kind, subject))
         {
+            _cvPendingInteractGuid = 0;
+            return;
+        }
+        bool expired = now - _cvPendingInteractAt > CommandViewInteractDeadlineSeconds(kind);
+        bool questsAllowed = kind != CommandViewInteractKind.Quests ||
+            (_controlState != ControlState.Possessing && _partyGiverQuestsAvailable);
+        if (!_freeView || expired || _cvPendingInteractAttempts >= 8 || !questsAllowed ||
+            (kind == CommandViewInteractKind.Loot && ControlledGuid != LocalPlayerGuid) ||
+            (_cvPendingInteractAttempts > 0 && CommandViewInteractDelivered(kind, guid)))
+        {
+            // A party walk that ran out the clock with a straggler still opens for whoever made
+            // it: the requester at the giver is all the server demands, and a far member simply
+            // shows out of range on its card. Better than a click that silently did nothing.
+            if (expired && _freeView && questsAllowed && kind == CommandViewInteractKind.Quests &&
+                _cvPendingInteractAttempts == 0 &&
+                TryGetWorldBodyPose(LocalPlayerGuid, out WorldBodyPose requester) &&
+                NpcSessionUiLaw.InRange(Vector3.DistanceSquared(requester.Position, subject.Position)))
+            {
+                CommitSelection(guid, beginAttack: false);
+                RequestGiverQuests(guid);
+            }
             _cvPendingInteractGuid = 0;
             return;
         }
@@ -2265,7 +2370,6 @@ public sealed partial class GameLoop
         if (now < _cvPendingInteractNotBefore) return;
         _cvPendingInteractNotBefore = now + 0.5;
         _cvPendingInteractAttempts++;
-        ulong guid = _cvPendingInteractGuid;
         switch (kind)
         {
             case CommandViewInteractKind.Loot:
@@ -2273,6 +2377,10 @@ public sealed partial class GameLoop
                 break;
             case CommandViewInteractKind.Service:
                 OpenCommandViewService(guid, subject);  // cleared once a panel is up
+                break;
+            case CommandViewInteractKind.Quests:
+                CommitSelection(guid, beginAttack: false);
+                RequestGiverQuests(guid);               // cleared once the window is up
                 break;
             default:
                 if (UseGameObject(guid)) _cvPendingInteractGuid = 0;
@@ -2830,24 +2938,36 @@ public sealed partial class GameLoop
             return;
         }
 
+        // Any living, non-hostile NPC that offers MORE THAN ONE thing (a quest giver who is also
+        // a flight master / vendor / trainer / banker / innkeeper, a vendor who also trains...)
+        // asks first (owner, 2026-09-02: Thor's flight path could not be discovered because the
+        // quest window took the click; 2026-09-03: "any NPC that has more than 1 option"): one
+        // button per offer, and nothing walks or opens until one is picked.
         // [SUI] Model B: NOT driving anyone — a right-click on a QUEST GIVER opens the
-        // commander quest window (per-member eligibility cards + accept-for-party),
-        // no possession needed. A giver who is ALSO a flight master / vendor / trainer /
-        // banker / innkeeper... asks first (owner, 2026-09-02: Thor's flight path could not be
-        // discovered because the quest window took the click): "Quests" or the other service.
-        if (_controlState != ControlState.Possessing && _partyGiverQuestsAvailable &&
-            picked != 0 && !queue && _entities.TryGet(picked, out WorldEntity giverNpc) &&
-            giverNpc.IsCreature && !giverNpc.IsDead &&
-            (giverNpc.NpcFlags & NpcQuestGiver) != 0)
+        // commander quest window (per-member eligibility cards + accept-for-party), no
+        // possession needed — but not before the party is AT the giver (owner, 2026-09-03: "that
+        // shouldn't happen until the characters are at the NPC"): the highlighted set (or the
+        // whole party) walks up and the window opens on arrival, like every other interaction.
+        if (picked != 0 && !queue && _entities.TryGet(picked, out WorldEntity offerNpc) &&
+            offerNpc.IsCreature && !offerNpc.IsDead &&
+            ReactionTargetTowardPlayer(offerNpc) != FactionReaction.Hostile &&
+            (offerNpc.NpcFlags & GossipNpcFlags) != 0)
         {
-            if (ConfirmPopupUiLaw.GiverSecondaryService(giverNpc.NpcFlags) is { } secondary)
-                RaiseCommandViewGiverChoice(picked, giverNpc, secondary);
-            else
+            bool commanderQuests = _controlState != ControlState.Possessing && _partyGiverQuestsAvailable;
+            List<ConfirmPopupUiLaw.NpcOption> offers =
+                ConfirmPopupUiLaw.NpcOptions(offerNpc.NpcFlags, commanderQuests);
+            if (ConfirmPopupUiLaw.NeedsChooser(offers))
             {
-                CommitSelection(picked, beginAttack: false);
-                RequestGiverQuests(picked);
+                RaiseCommandViewNpcChoice(picked, offers);
+                return;
             }
-            return;
+            if (commanderQuests && (offerNpc.NpcFlags & NpcQuestGiver) != 0)
+            {
+                BeginCommandViewInteraction(CommandViewInteractKind.Quests, picked, offerNpc,
+                    walkers: CommandViewQuestWalkers());
+                return;
+            }
+            // A single offer: the service branch below routes it from the cursor verdict.
         }
         // A right-click on a SERVICE NPC (vendor / trainer / banker / auctioneer / flight master /
         // gossip) is an interaction, never a ground order: the acting body walks up and the panel

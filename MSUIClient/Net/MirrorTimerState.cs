@@ -68,12 +68,14 @@ public sealed class MirrorTimerState
         public bool Paused { get; set; }
         public uint SpellId { get; set; }
         public double UpdatedAt { get; set; }
+        public bool ServerAuthoritative { get; set; }
     }
 
     private readonly ActiveTimer?[] _frames = new ActiveTimer?[FrameCount];
     public IReadOnlyList<ActiveTimer?> Frames => _frames;
 
-    public ActiveTimer? Start(in MirrorTimerStart packet, double now)
+    public ActiveTimer? Start(in MirrorTimerStart packet, double now,
+        bool serverAuthoritative = true)
     {
         if (packet.Kind is not { } kind) return null;
         int slot = Array.FindIndex(_frames, timer => timer?.Kind == kind);
@@ -88,10 +90,14 @@ public sealed class MirrorTimerState
             Paused = packet.Paused,
             SpellId = packet.SpellId,
             UpdatedAt = now,
+            ServerAuthoritative = serverAuthoritative,
         };
         _frames[slot] = timer;
         return timer;
     }
+
+    public ActiveTimer? Find(MirrorTimerKind kind) =>
+        _frames.FirstOrDefault(timer => timer?.Kind == kind);
 
     public bool Pause(uint rawKind, bool paused, double now)
     {

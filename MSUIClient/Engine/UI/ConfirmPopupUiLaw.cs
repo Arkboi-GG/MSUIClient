@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace MSUIClient.Engine.UI;
 
 /// <summary>
@@ -35,41 +37,98 @@ public static class ConfirmPopupUiLaw
         ReadyCheckPopupType, HideOnEscape: true, HasAccept: true, HasCancel: true,
         TimeoutSeconds: ReadyCheckTimeoutSeconds, EntrySound: "ReadyCheck");
 
-    /// <summary>Command View: a right-clicked quest giver who is ALSO a vendor / flight master /
-    /// trainer / banker / innkeeper... The commander quest window is the party's quest route, so
-    /// the stock gossip menu (which would list both) is not what opens; instead a small chooser
-    /// asks which of the two the click meant (owner, 2026-09-02: "FP Map or Quest List?").
-    /// Button 1 = the quest window, button 2 = the other service. No timeout.</summary>
+    /// <summary>Command View: a right-clicked NPC that offers MORE THAN ONE thing — a quest giver
+    /// who is also a flight master / vendor / trainer / banker / innkeeper, a vendor who also
+    /// trains... The lowest-bit-wins cursor ladder would silently take one of them and the rest
+    /// could never be reached from the sky (owner, 2026-09-02: Thor's flight path; 2026-09-03:
+    /// "apply the flight master fix to any NPC that has more than one option, or also has
+    /// quests, so that we don't get stuck"). A small chooser lists every option; nothing walks
+    /// or opens until one is picked. Every option button is the popup's ACCEPT (the coordinator
+    /// knows two buttons; the picked index is recorded before the click). No timeout.</summary>
     public const string GiverChoicePopupType = "CV_GIVER_CHOICE";
     public const string GiverChoiceQuestsText = "Quests";
+    public const float GiverChoiceButtonRowGap = 4;
 
     public static readonly StaticPopupCoordinatorLaw.Definition GiverChoiceDefinition = new(
         GiverChoicePopupType, HideOnEscape: true, HasAccept: true, HasCancel: true);
 
-    /// <summary>The second button's caption for the service a quest giver also offers.</summary>
-    public static string GiverChoiceServiceCaption(WorldCursorKind service, uint npcFlags) =>
-        service switch
+    /// <summary>Where a chooser option leads. CommanderQuests is the party quest window (Model
+    /// B); Gossip is the stock greeting, through which the trainer list, the inn, the spirit
+    /// healer, petitions, tabards, battlegrounds and stables all open.</summary>
+    public enum NpcServiceRoute { CommanderQuests, Gossip, Vendor, Taxi, Bank, Auction }
+
+    public readonly record struct NpcOption(string Caption, NpcServiceRoute Route);
+
+    /// <summary>Every distinct thing the NPC offers, in the cursor ladder's order, ONE entry per
+    /// route: the services that all open through the gossip greeting collapse into a single
+    /// entry captioned after the first of them, so no two buttons do the same thing.
+    /// <paramref name="commanderQuests"/>: the quest entry is the commander quest window (not
+    /// driving anyone, server advertises it); otherwise it is the stock quest greeting. The
+    /// gossip bit alone never makes an entry — it is the greeting, not a service — and it only
+    /// adds "Talk" when a chooser is raised anyway, so nothing said in it becomes unreachable.
+    /// Fewer than two entries = no chooser; the click routes as before.</summary>
+    public static List<NpcOption> NpcOptions(uint npcFlags, bool commanderQuests)
+    {
+        var options = new List<NpcOption>();
+        void Add(string caption, NpcServiceRoute route)
         {
-            WorldCursorKind.Taxi => "Flight Map",
-            WorldCursorKind.Pickup => "Browse Goods",
-            WorldCursorKind.Trainer => "Training",
-            WorldCursorKind.Buy when (npcFlags & WorldCursorUiLaw.Banker) != 0 => "Bank",
-            WorldCursorKind.Buy => "Auction House",
-            WorldCursorKind.Interact => "Innkeeper",
-            _ => "Talk",
-        };
+            foreach (NpcOption existing in options)
+                if (existing.Route == route) return;
+            options.Add(new(caption, route));
+        }
+        if ((npcFlags & WorldCursorUiLaw.Questgiver) != 0)
+            Add(GiverChoiceQuestsText,
+                commanderQuests ? NpcServiceRoute.CommanderQuests : NpcServiceRoute.Gossip);
+        if ((npcFlags & WorldCursorUiLaw.Vendor) != 0) Add("Browse Goods", NpcServiceRoute.Vendor);
+        if ((npcFlags & WorldCursorUiLaw.FlightMaster) != 0) Add("Flight Map", NpcServiceRoute.Taxi);
+        if ((npcFlags & WorldCursorUiLaw.Trainer) != 0) Add("Training", NpcServiceRoute.Gossip);
+        if ((npcFlags & (WorldCursorUiLaw.SpiritHealer | WorldCursorUiLaw.SpiritGuide)) != 0)
+            Add("Talk", NpcServiceRoute.Gossip);
+        if ((npcFlags & WorldCursorUiLaw.Innkeeper) != 0) Add("Innkeeper", NpcServiceRoute.Gossip);
+        if ((npcFlags & WorldCursorUiLaw.Banker) != 0) Add("Bank", NpcServiceRoute.Bank);
+        if ((npcFlags & (WorldCursorUiLaw.Petitioner | WorldCursorUiLaw.TabardDesigner |
+                         WorldCursorUiLaw.Battlemaster)) != 0)
+            Add("Talk", NpcServiceRoute.Gossip);
+        if ((npcFlags & WorldCursorUiLaw.Auctioneer) != 0) Add("Auction House", NpcServiceRoute.Auction);
+        if ((npcFlags & WorldCursorUiLaw.StableMaster) != 0) Add("Stable", NpcServiceRoute.Gossip);
+        if (options.Count >= 2 && (npcFlags & WorldCursorUiLaw.Gossip) != 0)
+            Add("Talk", NpcServiceRoute.Gossip);
+        return options;
+    }
 
-    /// <summary>The service a quest giver ALSO offers, judged on the flag ladder with the
-    /// quest-giver and gossip bits masked off; null when there is nothing but quests.</summary>
-    public static WorldCursorKind? GiverSecondaryService(uint npcFlags) =>
-        WorldCursorUiLaw.ServiceKind(
-            npcFlags & ~(WorldCursorUiLaw.Gossip | WorldCursorUiLaw.Questgiver), null);
+    public static bool NeedsChooser(IReadOnlyList<NpcOption> options) => options.Count >= 2;
 
-    public static string GiverChoiceText(string npcName, string serviceCaption)
+    /// <summary>"Thor: quests, flight map, or talk?"</summary>
+    public static string GiverChoiceText(string npcName, IReadOnlyList<NpcOption> options)
     {
         string who = string.IsNullOrWhiteSpace(npcName) ? "This NPC" : npcName.Trim();
-        return $"{who}: quests, or {serviceCaption.ToLowerInvariant()}?";
+        var lower = new List<string>(options.Count);
+        foreach (NpcOption option in options) lower.Add(option.Caption.ToLowerInvariant());
+        string list = lower.Count switch
+        {
+            0 => "what",
+            1 => lower[0],
+            2 => $"{lower[0]} or {lower[1]}",
+            _ => string.Join(", ", lower.GetRange(0, lower.Count - 1)) + ", or " + lower[^1],
+        };
+        return $"{who}: {list}?";
     }
+
+    /// <summary>Option buttons fill the popup's two button columns, row by row.</summary>
+    public static Vector2 GiverChoiceButtonMin(int index, float textHeight) =>
+        new(index % 2 == 0 ? DuelFrameUiLaw.PopupButtonOneX : DuelFrameUiLaw.PopupButtonTwoX,
+            DuelFrameUiLaw.PopupButtonTop(textHeight) +
+            index / 2 * (DuelFrameUiLaw.PopupButtonHeight + GiverChoiceButtonRowGap));
+
+    public static float GiverChoiceButtonsHeight(int optionCount)
+    {
+        int rows = Math.Max(1, (optionCount + 1) / 2);
+        return rows * DuelFrameUiLaw.PopupButtonHeight + (rows - 1) * GiverChoiceButtonRowGap;
+    }
+
+    public static Vector2 GiverChoicePopupSize(float textHeight, int optionCount) =>
+        new(DuelFrameUiLaw.PopupWidth,
+            StaticPopupCoordinatorLaw.Height(textHeight, GiverChoiceButtonsHeight(optionCount)));
 
     public static bool IsConfirmPopup(string type) =>
         type is SummonPopupType or QuestAcceptPopupType or ReadyCheckPopupType or GiverChoicePopupType;

@@ -862,6 +862,8 @@ public sealed partial class GameLoop : IDisposable
             Collision = null,
             MovingGroundProbe = ProbeMovingTransportGround,
             DynamicCollisionProbe = ProbeStatefulGameObjectCollision,
+            LiquidSurfaceProbe = point =>
+                TryGetBodyLiquidSurface(point, out float height, out _) ? height : null,
             Yaw = _config.Start.Orientation,
         };
         _controller.Teleport(_config.Start.X, _config.Start.Y, _config.Start.Z);
@@ -1509,6 +1511,9 @@ public sealed partial class GameLoop : IDisposable
         // Scripted offline mount check (MSUI_MOUNT_PROBE).
         UpdateMountProbe();
 
+        // Scripted offline swimming-collision proof (MSUI_SWIM_PROBE).
+        UpdateSwimProbe();
+
         // Cart-kit charges, cooldowns and the slows they applied.
         UpdateMountKit(NowSeconds());
 
@@ -1973,17 +1978,20 @@ public sealed partial class GameLoop : IDisposable
             _net?.SendStandStateChange(UnitStandState.Stand);
         _wasStandTriggerActiveLastFrame = standTriggerNow;
 
+        // A scripted or harness-held SPACE (movement suite, live-run, probes) owns Jump AND the
+        // swim/fly vertical axis; the keyboard only when nothing is scripting.
+        bool scriptedInput = _movementScript is not null || _liveHeld.Count > 0;
         var input = new MovementInput
         {
             Forward = forward,
             Strafe = strafe,
-            Up = typing || controllerRooted || controllerIceBlockFrozen || vanillaControlLocked ? 0f : ((BindingDown(GameBinding.Jump) ? 1f : 0f) -
-                                (InputKeyDown(Key.CapsLock) ? 1f : 0f)),
+            Up = typing || controllerRooted || controllerIceBlockFrozen || vanillaControlLocked ? 0f : ((scriptedInput ? scriptedJump : BindingDown(GameBinding.Jump)) ? 1f : 0f) -
+                                (InputKeyDown(Key.CapsLock) ? 1f : 0f),
             Yaw = controllerIceBlockFrozen ? _iceBlockFacing :
                 vanillaControlLocked ? _controller.Yaw : _window.Camera.Yaw,
             Pitch = -_window.Camera.Pitch + DrunkMovementLaw.SwimPitchWobble(
                 drunkWobble, _controller.Swimming, translating),
-            Jump = !controllerRooted && !controllerIceBlockFrozen && !vanillaControlLocked && (_movementScript is not null
+            Jump = !controllerRooted && !controllerIceBlockFrozen && !vanillaControlLocked && (scriptedInput
                 ? scriptedJump : !typing && BindingDown(GameBinding.Jump)),
             Walking = (_walkToggled || shift) && !_controller.Flying,
             Boost = shift && _controller.Flying,
@@ -2009,6 +2017,18 @@ public sealed partial class GameLoop : IDisposable
 
         ApplyMountHandling();
 
+        // The 0.75-depth swim line is a fraction of this controlled display's
+        // own collision height, not the controller's human-sized debug capsule.
+        float controlledCollisionHeight = CreatureVoiceCatalog.DefaultCollisionHeight;
+        if (_entities.TryGet(ControlledGuid, out WorldEntity controlledDisplay))
+        {
+            float scale = MathF.Max(controlledDisplay.Scale, 0.01f);
+            controlledCollisionHeight = _creatureVoices?.CollisionHeight(
+                (uint)Math.Max(0, controlledDisplay.DisplayId), scale) ??
+                CreatureVoiceCatalog.DefaultCollisionHeight * scale;
+        }
+        _controller.CollisionHeight = controlledCollisionHeight;
+
         _controller.ExternalWalkableSurfaceZ = null;
         _controller.LiquidSurfaceZ = null;
         if (TryGetBodyLiquidSurface(_controller.Position, out float movementLiquidZ, out _))
@@ -2025,6 +2045,7 @@ public sealed partial class GameLoop : IDisposable
         long phaseStarted = Stopwatch.GetTimestamp();
         bool serverRideActive = UpdateServerRide();
         if (!serverRideActive) _controller.Update(dt, input);
+        UpdatePredictedBreath();
         ReconcileControlledTransportRider();
         ResolveRealPortalMovement(movementPreviousPosition);
         // The unit we drive is client-authoritative, so its ENTITY is the one thing the server
