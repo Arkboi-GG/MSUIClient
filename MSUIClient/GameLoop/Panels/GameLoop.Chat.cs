@@ -523,15 +523,21 @@ public sealed partial class GameLoop
         // Those are the frame's two authored placements in the HUD layout registry (PLAN_21);
         // the player's own position, if any, comes back through the same call. The chat's own
         // clamp still runs after it: it knows about the tabs above and the edit box below.
-        Vector2 root = ChatFrameLaw.ClampFrameOrigin(
-            HudFrame(HudLayoutLaw.ChatFrameId, "Chat",
-                HudPlacement.At(HudAnchor.BottomLeft, ChatFrameLaw.AnchorX, -ChatFrameLaw.AnchorBottomY),
-                ChatFrameLaw.FrameRect.Size,
-                authoredCommand: HudPlacement.At(HudAnchor.BottomLeft, ChatFrameLaw.AnchorX,
-                    -ChatFrameLaw.AnchorBottomY - HudLayoutLaw.ChatCommandLift)).LogicalOrigin,
-            logicalDisplay);
+        HudFrameResult chatFrame = HudFrame(HudLayoutLaw.ChatFrameId, "Chat",
+            HudPlacement.At(HudAnchor.BottomLeft, ChatFrameLaw.AnchorX, -ChatFrameLaw.AnchorBottomY),
+            ChatFrameLaw.FrameRect.Size,
+            authoredCommand: HudPlacement.At(HudAnchor.BottomLeft, ChatFrameLaw.AnchorX,
+                -ChatFrameLaw.AnchorBottomY - HudLayoutLaw.ChatCommandLift));
+        Vector2 root = ChatFrameLaw.ClampFrameOrigin(chatFrame.LogicalOrigin, logicalDisplay);
         Vector2 rootPx = root * s;
         ImDrawListPtr dl = ImGui.GetBackgroundDrawList();
+        if (chatFrame.Hidden)
+        {
+            // Hidden in the active HUD layout. Chat still takes input: Enter opens the edit box
+            // in its usual seat, so a line can be typed and sent without the log coming back.
+            if (_chatEditOpen) DrawChatEditBox(dl, root, s);
+            return;
+        }
 
         UpdateChatReveal(root, s);
 

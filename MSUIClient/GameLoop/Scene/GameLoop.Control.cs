@@ -1363,6 +1363,9 @@ public sealed partial class GameLoop
     private void UpdateControlInput(bool typing)
     {
         RefreshControlledCharacterScale();
+        // The cast bar and the local pending-cast lock belong to whoever was controlled when
+        // the cast started; a body switch retires them (GameLoop.Casting.cs).
+        ResetCastStateOnControlChange();
         UpdateRtsForceTakeControl();
         UpdateRtsControlGroups(typing);
         UpdatePartyMemberFacts();
@@ -1440,6 +1443,11 @@ public sealed partial class GameLoop
         bool cardPrevious = BindingPressedEdge(GameBinding.RtsCyclePrimaryPrevious, typing);
         if (_freeView && (cardNext || cardPrevious))
             CycleRtsPrimary(cardPrevious ? -1 : +1);
+
+        // Ctrl+A (RTS Controls: Select Whole Party): the whole party becomes the selection,
+        // exactly as a marquee drawn over all of them would. Command View only.
+        if (BindingPressedEdge(GameBinding.RtsSelectAllParty, typing) && _freeView)
+            SelectAllPartyMembers();
 
         if (BindingPressedEdge(GameBinding.RtsLockCameraPrimary, typing) && _freeView)
             ToggleCommandViewLock();
@@ -1555,7 +1563,10 @@ public sealed partial class GameLoop
         // wheel-fly, no edge pan, no marquee. The heartbeat below keeps running —
         // the map's click-to-fly depends on it (TakeFreeFlightScroll still runs
         // so a wheel tick over the map is consumed, not banked for landing).
-        float wheel = _window.TakeFreeFlightScroll();
+        // Interface Options -> Command View -> Zoom speed scales every wheel tick here: the
+        // rig's fly / elevator step and the boom zoom alike (owner feedback 2026-09-03: the
+        // wheel was far too sensitive in the Command View and Alt was only a workaround).
+        float wheel = _window.TakeFreeFlightScroll() * Settings.Controls.CommandViewZoomSpeed;
         // Alt+wheel zooms the orbit boom instead of flying the rig. Command View otherwise freezes
         // the boom at whatever distance it held on entry - plain wheel is spent on altitude, and
         // the CAMERAZOOMIN/OUT binding is gated off while Command View is up - so without this you
@@ -2570,8 +2581,10 @@ public sealed partial class GameLoop
         float scale = GameplayUiScale();
         var io = ImGui.GetIO();
         Vector2 size = new Vector2(AngleKnobWidth, AngleKnobHeight * (angleRow ? 3f : 2f)) * scale;
-        ImGui.SetNextWindowPos(HudFrame("angle-knob", "Camera tablet",
-            HudPlacement.At(HudAnchor.BottomRight, -20f, -20f), size / scale).ScreenMin, ImGuiCond.Always);
+        HudFrameResult knob = HudFrame("angle-knob", "Camera tablet",
+            HudPlacement.At(HudAnchor.BottomRight, -20f, -20f), size / scale);
+        if (knob.Hidden) return 0f;   // hidden in the active HUD layout: the guide drops into its seat
+        ImGui.SetNextWindowPos(knob.ScreenMin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
         ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
@@ -2699,6 +2712,36 @@ public sealed partial class GameLoop
             foreach ((ulong guid, RtsForceUnitWire force) in _rtsForces)
                 if (guid != 0 && force.Alive && force.SameMapAndInstance && seen.Add(guid))
                     yield return guid;
+    }
+
+    /// <summary>
+    /// Select Whole Party (Ctrl+A by default): you and every party member whose body is
+    /// streamed and alive become the selection, in party order - the same set a marquee drawn
+    /// over all of them would produce, without having to fit them on screen first.
+    /// </summary>
+    private void SelectAllPartyMembers()
+    {
+        var all = new List<ulong>();
+        var seen = new HashSet<ulong>();
+        if (LocalPlayerGuid != 0 && seen.Add(LocalPlayerGuid)) all.Add(LocalPlayerGuid);
+        foreach (PartyMember member in _partyMembers)
+            if (member.Guid != 0 && seen.Add(member.Guid)) all.Add(member.Guid);
+        all.RemoveAll(guid => !_entities.TryGet(guid, out WorldEntity unit) || unit.IsDead);
+        if (all.Count == 0)
+        {
+            ShowUiError("No party members nearby to select.");
+            return;
+        }
+        // A route belongs to the selection that authored its first leg (SelectRtsControlGroup).
+        if (_rtsWaypointChain.Count > 0 && !SameRtsMembers(_rtsWaypointSubjects, all))
+            ClearRtsWaypointChain();
+        _freecamSelection.Clear();
+        _freecamSelection.AddRange(all);
+        PlayCompanionSelectionVoice(_freecamSelection[0]);
+        if (_freecamSelection.Count == 1) EnsureBotBarForViewing(_freecamSelection[0]);
+        SetRtsControlGroupStatus(all.Count == 1
+            ? "Selected: you (no party members nearby)."
+            : $"Selected the whole party: {all.Count} members.");
     }
 
     private void CommitMarqueeSelection(Vector2 a, Vector2 b)
@@ -3357,10 +3400,12 @@ public sealed partial class GameLoop
         // corner - but its OWN frame in the layout registry (owner, 2026-09-03: the guide is
         // moved on its own, it does not ride the tablet).
         float guideLift = knobHeight > 0f ? knobHeight / scale + 8f : 0f;
-        ImGui.SetNextWindowPos(HudFrame("control-guide",
+        HudFrameResult guide = HudFrame("control-guide",
             _freeView ? "Commander guide" : "Control guide",
             HudPlacement.At(HudAnchor.BottomRight, -20f, -20f - guideLift),
-            guideSize / scale).ScreenMin, ImGuiCond.Always);
+            guideSize / scale);
+        if (guide.Hidden) return;   // hidden in the active HUD layout (Edit Mode's Hide)
+        ImGui.SetNextWindowPos(guide.ScreenMin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(guideSize, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
 
@@ -3534,12 +3579,12 @@ public sealed partial class GameLoop
         [
             $"{BindingHint(GameBinding.RtsSelect)}/drag: Select    {BindingHint(GameBinding.RtsSelectAdd)}: Add",
             $"{BindingHint(GameBinding.CrpgTakeControl)}: Direct control",
-            $"{BindingHint(GameBinding.MoveForward)}/{BindingHint(GameBinding.MoveBackward)}: " +
+            $"{BindingHint(GameBinding.RtsMoveForward)}/{BindingHint(GameBinding.RtsMoveBackward)}: " +
                 (CommandViewLaw.OrbitsFocus(guideScheme) ? "Pan forward/back" : "Fly forward/back"),
             guideSwap
-                ? $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Sidestep"
-                : $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Turn    " +
-                  $"{BindingHint(GameBinding.StrafeLeft)}/{BindingHint(GameBinding.StrafeRight)}: Sidestep",
+                ? $"{BindingHint(GameBinding.RtsTurnLeft)}/{BindingHint(GameBinding.RtsTurnRight)}: Sidestep"
+                : $"{BindingHint(GameBinding.RtsTurnLeft)}/{BindingHint(GameBinding.RtsTurnRight)}: Turn    " +
+                  $"{BindingHint(GameBinding.RtsStrafeLeft)}/{BindingHint(GameBinding.RtsStrafeRight)}: Sidestep",
             CommandViewLaw.PitchLocked(guideScheme)
                 ? (CommandViewLaw.OrbitsFocus(guideScheme)
                     ? "Right-drag: Orbit    PageUp/PageDown: View angle"
@@ -3552,8 +3597,9 @@ public sealed partial class GameLoop
                 $"{BindingHint(GameBinding.RtsCyclePrimaryNext)}: Next primary",
             CommandViewLocked
                 ? $"{BindingHint(GameBinding.RtsLockCameraPrimary)}: Release camera    " +
-                  $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Orbit"
+                  $"{BindingHint(GameBinding.RtsTurnLeft)}/{BindingHint(GameBinding.RtsTurnRight)}: Orbit"
                 : $"{BindingHint(GameBinding.RtsLockCameraPrimary)}: Lock camera on primary",
+            $"{BindingHint(GameBinding.RtsSelectAllParty)}: Select whole party",
             $"{BindingHint(GameBinding.RtsOrderMove)}: Move / attack",
             $"{BindingHint(GameBinding.RtsOrderQueueWaypoint)}: Chain waypoints",
             $"{BindingHint(GameBinding.RtsRecallGroup1)}-{BindingHint(GameBinding.RtsRecallGroup10)}: Select control group",

@@ -2,9 +2,17 @@ using System.Numerics;
 
 namespace MSUIClient.Engine.UI;
 
-/// <summary>One frame's before/after inside an undoable change. Null = no override (authored).</summary>
+/// <summary>
+/// One frame's before/after inside an undoable change. A placement entry carries
+/// <see cref="Before"/>/<see cref="After"/> (null = no override, authored); a visibility entry
+/// carries <see cref="HiddenBefore"/>/<see cref="HiddenAfter"/> instead and leaves the placement
+/// pair untouched. <see cref="IsVisibility"/> tells them apart.
+/// </summary>
 public readonly record struct HudEditEntry(string FrameId, HudLayoutContext Context,
-    HudPlacement? Before, HudPlacement? After);
+    HudPlacement? Before, HudPlacement? After, bool? HiddenBefore = null, bool? HiddenAfter = null)
+{
+    public bool IsVisibility => HiddenBefore is not null || HiddenAfter is not null;
+}
 
 /// <summary>An undo step: one or more frame edits applied together (a drag, a nudge, Reset all).</summary>
 public sealed record HudEditChange(IReadOnlyList<HudEditEntry> Entries);
@@ -69,15 +77,38 @@ public static class HudLayoutEditLaw
         return new HudEditChange([new HudEditEntry(frameId, context, before, after)]);
     }
 
-    /// <summary>Clear every override in one context; null when there was nothing to clear.</summary>
+    /// <summary>Hide or show one frame in one context and return the undo entry; null when
+    /// the frame is already in that state (nothing to undo).</summary>
+    public static HudEditChange? SetHidden(HudLayoutSettings live, HudLayoutContext context,
+        string frameId, bool hidden)
+    {
+        bool before = HudLayoutLaw.IsHidden(live, context, frameId);
+        if (before == hidden) return null;
+        WriteHidden(live, context, frameId, hidden);
+        return new HudEditChange([new HudEditEntry(frameId, context, null, null, before, hidden)]);
+    }
+
+    /// <summary>Clear every override AND every hidden flag in one context; null when there
+    /// was nothing to clear.</summary>
     public static HudEditChange? ResetAll(HudLayoutSettings live, HudLayoutContext context)
     {
         Dictionary<string, HudPlacement>? overrides = HudLayoutLaw.Overrides(live, context);
-        if (overrides is null || overrides.Count == 0) return null;
-        var entries = new List<HudEditEntry>(overrides.Count);
-        foreach ((string id, HudPlacement before) in overrides)
-            entries.Add(new HudEditEntry(id, context, before, null));
-        overrides.Clear();
+        HashSet<string>? hidden = HudLayoutLaw.Hidden(live, context);
+        int count = (overrides?.Count ?? 0) + (hidden?.Count ?? 0);
+        if (count == 0) return null;
+        var entries = new List<HudEditEntry>(count);
+        if (overrides is not null)
+        {
+            foreach ((string id, HudPlacement before) in overrides)
+                entries.Add(new HudEditEntry(id, context, before, null));
+            overrides.Clear();
+        }
+        if (hidden is not null)
+        {
+            foreach (string id in hidden)
+                entries.Add(new HudEditEntry(id, context, null, null, true, false));
+            hidden.Clear();
+        }
         return new HudEditChange(entries);
     }
 
@@ -85,7 +116,23 @@ public static class HudLayoutEditLaw
     public static void Apply(HudLayoutSettings live, HudEditChange change, bool undo)
     {
         foreach (HudEditEntry e in change.Entries)
-            Write(live, e.Context, e.FrameId, undo ? e.Before : e.After);
+        {
+            if (e.IsVisibility)
+                WriteHidden(live, e.Context, e.FrameId, (undo ? e.HiddenBefore : e.HiddenAfter) ?? false);
+            else
+                Write(live, e.Context, e.FrameId, undo ? e.Before : e.After);
+        }
+    }
+
+    private static void WriteHidden(HudLayoutSettings live, HudLayoutContext context, string frameId,
+        bool hidden)
+    {
+        if (!hidden)
+        {
+            HudLayoutLaw.Hidden(live, context)?.Remove(frameId);
+            return;
+        }
+        HudLayoutLaw.EnsureEditable(live).HiddenFor(context).Add(frameId);
     }
 
     private static void Write(HudLayoutSettings live, HudLayoutContext context, string frameId,

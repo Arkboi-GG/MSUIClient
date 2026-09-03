@@ -8,7 +8,8 @@ using MSUIClient.Engine.UI;
 /// nearest-anchor re-pick never moves a rect, snapping prefers frame edges over grid lines
 /// and stays inert beyond its threshold, an edit session undoes and redoes a drag sequence,
 /// the Version 11 chat offset migrates into a Custom layout with no legacy keys left on
-/// disk, and the phase-1 draw sites are routed through the registry (source ratchet).
+/// disk, per-frame Hide / Show is a per-context, undoable, JSON-stable layout property,
+/// and the phase-1 draw sites are routed through the registry and honour Hidden (source ratchet).
 ///
 /// Run standalone: interface-wire-check --hud-layout-only
 /// </summary>
@@ -21,6 +22,7 @@ internal static class HudLayoutClinicalChecks
         RunPlacement();
         RunSnap();
         RunSession();
+        RunVisibility();
         RunMigration();
         RunSourceRatchet();
     }
@@ -225,6 +227,66 @@ internal static class HudLayoutClinicalChecks
             "the settings card must sit at the edge farthest from the selection");
     }
 
+    // ── visibility (Hide / Show) ─────────────────────────────────────────────────────────
+
+    private static void RunVisibility()
+    {
+        var live = new HudLayoutSettings();
+        HudEditSession session = HudLayoutEditLaw.Begin(live, HudLayoutContext.Body, null);
+        Check(!HudLayoutLaw.IsHidden(live, HudLayoutContext.Body, "minimap") &&
+              HudLayoutLaw.Hidden(live, HudLayoutContext.Body) is null,
+            "Default must hide nothing");
+
+        HudEditChange? hide = HudLayoutEditLaw.SetHidden(live, HudLayoutContext.Body, "minimap", true);
+        Check(hide is not null && hide.Entries.Count == 1 && hide.Entries[0].IsVisibility &&
+              hide.Entries[0].HiddenBefore == false && hide.Entries[0].HiddenAfter == true &&
+              live.ActiveLayout == HudLayoutLaw.CustomLayoutName &&
+              HudLayoutLaw.IsHidden(live, HudLayoutContext.Body, "minimap"),
+            "hiding on Default must fork to Custom and hide the frame");
+        Check(!HudLayoutLaw.IsHidden(live, HudLayoutContext.Command, "minimap"),
+            "hidden is per context: a Body hide must not reach the Command View");
+        Check(HudLayoutEditLaw.SetHidden(live, HudLayoutContext.Body, "minimap", true) is null,
+            "hiding an already hidden frame is not a change");
+        session.Push(hide!);
+        HudLayoutEditLaw.Apply(live, session.Undo()!, undo: true);
+        Check(!HudLayoutLaw.IsHidden(live, HudLayoutContext.Body, "minimap"), "undo must show the frame again");
+        HudLayoutEditLaw.Apply(live, session.Redo()!, undo: false);
+        Check(HudLayoutLaw.IsHidden(live, HudLayoutContext.Body, "minimap"), "redo must hide it again");
+        Check(session.Snapshot.Layouts.Count == 0, "the entry snapshot must not follow visibility edits");
+
+        // Reset all clears hidden flags together with the overrides, in one undoable step.
+        session.Push(HudLayoutEditLaw.SetPlacement(live, HudLayoutContext.Body, "chat",
+            HudPlacement.At(HudAnchor.Bottom, 0f, -40f)));
+        HudEditChange? reset = HudLayoutEditLaw.ResetAll(live, HudLayoutContext.Body);
+        Check(reset is not null && reset.Entries.Count == 2 &&
+              !HudLayoutLaw.IsHidden(live, HudLayoutContext.Body, "minimap") &&
+              HudLayoutLaw.Overrides(live, HudLayoutContext.Body)!.Count == 0,
+            "Reset all must clear the hidden flags with the overrides");
+        HudLayoutEditLaw.Apply(live, reset!, undo: true);
+        Check(HudLayoutLaw.IsHidden(live, HudLayoutContext.Body, "minimap") &&
+              HudLayoutLaw.Override(live, HudLayoutContext.Body, "chat") is not null,
+            "undoing Reset all must restore the hidden flags");
+
+        HudLayoutSettings clone = live.Clone();
+        clone.Layouts[0].BodyHidden.Clear();
+        Check(HudLayoutLaw.IsHidden(live, HudLayoutContext.Body, "minimap"),
+            "Clone must deep-copy the hidden sets (Revert relies on it)");
+
+        var json = new JsonSerializerOptions { WriteIndented = false };
+        string text = JsonSerializer.Serialize(live, json);
+        Check(text.Contains("\"BodyHidden\":[\"minimap\"]", StringComparison.Ordinal),
+            "a hidden set must serialize as a string array");
+        HudLayoutSettings back = JsonSerializer.Deserialize<HudLayoutSettings>(text, json)!;
+        Check(HudLayoutLaw.IsHidden(back, HudLayoutContext.Body, "minimap") &&
+              !HudLayoutLaw.IsHidden(back, HudLayoutContext.Command, "minimap"),
+            "hidden sets must round-trip through JSON");
+        HudLayoutSettings old = JsonSerializer.Deserialize<HudLayoutSettings>(
+            "{\"ActiveLayout\":\"Custom\",\"Layouts\":[{\"Name\":\"Custom\"}]}", json)!;
+        Check(!HudLayoutLaw.IsHidden(old, HudLayoutContext.Body, "minimap") &&
+              old.Layouts[0].BodyHidden.Count == 0 && old.Layouts[0].CommandHidden.Count == 0,
+            "a layout saved before Hide / Show must read as nothing hidden");
+    }
+
     // ── migration ────────────────────────────────────────────────────────────────────────
 
     private static void RunMigration()
@@ -311,6 +373,39 @@ internal static class HudLayoutClinicalChecks
                 $"{file} still carries its old inline position ({mustNot})");
         }
 
+        // Every hideable draw site honours the registry's Hidden flag; the two panels the
+        // player opens on purpose (companions, the control-group palette) opt out instead.
+        (string File, string Must)[] hideSites =
+        [
+            ("MSUIClient/GameLoop/Hud/GameLoop.CommandShelf.cs", "if (shelf.Hidden) return;"),
+            ("MSUIClient/GameLoop/Hud/GameLoop.RtsControlGroups.cs", "if (rail.Hidden)"),
+            ("MSUIClient/GameLoop/Hud/GameLoop.RtsControlGroups.cs", "if (restore.Hidden) return;"),
+            ("MSUIClient/GameLoop/Hud/GameLoop.RtsControlGroups.cs", "_rtsControlGroupPaletteSize, hideable: false"),
+            ("MSUIClient/GameLoop/Scene/GameLoop.Control.cs", "if (knob.Hidden) return 0f;"),
+            ("MSUIClient/GameLoop/Scene/GameLoop.Control.cs", "if (guide.Hidden) return;"),
+            ("MSUIClient/GameLoop/Hud/GameLoop.Minimap.cs", "if (minimapFrame.Hidden)"),
+            ("MSUIClient/GameLoop/Panels/GameLoop.Chat.cs", "if (chatFrame.Hidden)"),
+            ("MSUIClient/GameLoop/Hud/GameLoop.RtsTerritory.cs", "if (strip.Hidden) return;"),
+            ("MSUIClient/GameLoop/Panels/GameLoop.Companions.cs", "hideable: false"),
+            ("MSUIClient/GameLoop/Hud/GameLoop.PartyFrames.cs", "if (partyFrame.Hidden)"),
+            ("MSUIClient/GameLoop/Hud/GameLoop.UnitFrames.cs", "if (unitFrame.Hidden) return;"),
+        ];
+        foreach ((string file, string must) in hideSites)
+            Check(Source(file).Contains(must, StringComparison.Ordinal),
+                $"{file} does not honour the HUD frame's Hidden flag ({must} missing)");
+        // Hidden chat still takes a typed line.
+        {
+            string chat = Source("MSUIClient/GameLoop/Panels/GameLoop.Chat.cs");
+            int chatGate = chat.IndexOf("if (chatFrame.Hidden)", StringComparison.Ordinal);
+            Check(chatGate >= 0 && chat.IndexOf("if (_chatEditOpen) DrawChatEditBox(dl, root, s);", chatGate,
+                      StringComparison.Ordinal) is int box && box - chatGate < 400,
+                "a hidden chat frame must still draw its edit box");
+        }
+        // The target frame exists for the editor even with nothing targeted.
+        Check(Source("MSUIClient/GameLoop/Combat/GameLoop.Targeting.cs")
+                  .Contains("_hudEditMode ? ControlledGuid : 0", StringComparison.Ordinal),
+            "DrawTargetFrame must stand the controlled character in as the target in Edit Mode");
+
         // The party stack's satellites (medallions, chain rail, drag feedback) follow the frame.
         string botBars = Source("MSUIClient/GameLoop/Hud/GameLoop.BotBars.cs");
         Check(!botBars.Contains("PartyFrameUiLaw.MemberY(", StringComparison.Ordinal) &&
@@ -366,6 +461,10 @@ internal static class HudLayoutClinicalChecks
             "GameLoop.HudLayoutEditor.cs must be enrolled in the ImGui-policy clean list");
         Check(!editorSource.Contains("ImGuiWindowFlags.NoBringToFrontOnFocus", StringComparison.Ordinal),
             "the overlay must never carry NoBringToFrontOnFocus (it has to be display-front)");
+        Check(editorSource.Contains("##hud-edit-hide", StringComparison.Ordinal) &&
+              editorSource.Contains("ImGuiKey.H, false", StringComparison.Ordinal) &&
+              editorSource.Contains("\" (hidden)\"", StringComparison.Ordinal),
+            "the editor must offer Hide / Show (card button, H key) and mark hidden frames");
 
         // The laws never reach into GameLoop (CODE_STRUCTURE_LAW section 1).
         foreach (string law in new[] { "MSUIClient/Engine/UI/HudLayoutLaw.cs", "MSUIClient/Engine/UI/HudLayoutEditLaw.cs" })

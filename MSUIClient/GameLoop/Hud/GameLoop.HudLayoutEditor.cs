@@ -24,7 +24,7 @@ public sealed partial class GameLoop
     /// exits would collide on a narrow logical width (a big UI scale on a small screen).</summary>
     private float _hudEditToolbarHeight = HudEditToolbarHeight;
     private const float HudEditCardWidth = 236f;
-    private const float HudEditCardHeight = 214f;
+    private const float HudEditCardHeight = 240f;
     private const float HudEditButtonHeight = 20f;
     private const uint HudEditGuideColor = 0xffff00ffu;   // magenta, the layout-tool convention
 
@@ -228,10 +228,11 @@ public sealed partial class GameLoop
             bool hot = ImGui.IsItemHovered();
             bool selected = session.Selected == f.Id;
             if (hot || selected) fg.AddRectFilled(rowMin, rowMin + rowSize, HudEditTint(selected ? 0x50 : 0x30));
+            string rowLabel = f.Hidden ? f.Label + " (hidden)" : f.Label;
             GameText.Draw(fg, "GameFontNormalSmall",
-                GameText.EllipsizeToBox("GameFontNormalSmall", f.Label, width - 20f, rowHeight, scale),
+                GameText.EllipsizeToBox("GameFontNormalSmall", rowLabel, width - 20f, rowHeight, scale),
                 rowMin + new Vector2(4f, 4f) * scale, scale,
-                selected ? PainterlyGoldLit : hot ? 0xffffffffu : 0xffd8e0e6u);
+                selected ? PainterlyGoldLit : hot ? 0xffffffffu : f.Hidden ? 0xff8a949bu : 0xffd8e0e6u);
             if (ImGui.IsItemClicked())
             {
                 session.Selected = f.Id;
@@ -273,7 +274,7 @@ public sealed partial class GameLoop
             GameText.EllipsizeToBox("GameFontNormal", rec.Label, HudEditCardWidth - 28f, 16f, scale),
             min + new Vector2(14f, 10f) * scale, scale, PainterlyGoldLit);
         GameText.Draw(fg, "GameFontNormalSmall",
-            rec.Overridden ? "Custom position" : "Authored position",
+            (rec.Overridden ? "Custom position" : "Authored position") + (rec.Hidden ? "  ·  hidden" : ""),
             min + new Vector2(14f, 28f) * scale, scale, 0xff9aa4abu);
 
         HudPlacement p = rec.Placement;
@@ -314,6 +315,15 @@ public sealed partial class GameLoop
                 new Vector2(70f, HudEditButtonHeight), scale, true,
                 "GameFontNormalSmall", "GameFontHighlightSmall", "GameFontDisableSmall"))
             session.Selected = null;
+        // Hide / Show: a layout property like position, per context, undoable (H key too). A
+        // panel the player opens on purpose is not hideable and shows the button disabled.
+        if (VanillaButton(fg, "##hud-edit-hide", rec.Hidden ? "Show frame" : "Hide frame",
+                min + new Vector2(14f, 212f) * scale, new Vector2(100f, HudEditButtonHeight), scale,
+                rec.Hideable, "GameFontNormalSmall", "GameFontHighlightSmall", "GameFontDisableSmall"))
+            HudEditSetHidden(hl, session, rec, !rec.Hidden);
+        if (!rec.Hideable)
+            GameText.Draw(fg, "GameFontDisableSmall", "Panel: not hideable",
+                min + new Vector2(120f, 216f) * scale, scale);
 
         // The card's own body, submitted after its controls so they keep the hover: blocks
         // the movers underneath and drags the card (it covers things, so it has to move).
@@ -422,13 +432,26 @@ public sealed partial class GameLoop
         {
             dl.AddRect(min, max, 0x80ffffffu, 0f, ImDrawFlags.None, rule);
         }
+        else if (rec.Hidden)
+        {
+            // A hidden frame still draws under the overlay (so it can be found); its mover is
+            // a grey wash with a hatch so the state reads at a glance.
+            dl.AddRectFilled(min, max, selected ? 0x50202428u : hovered ? 0x40202428u : 0x30202428u);
+            for (float x = min.X - size.Y; x < max.X; x += 12f * scale)
+                dl.AddLine(new Vector2(MathF.Max(min.X, x), x < min.X ? min.Y + (min.X - x) : min.Y),
+                    new Vector2(MathF.Min(max.X, x + size.Y), x + size.Y > max.X ? min.Y + (max.X - x) : max.Y),
+                    0x30ffffffu, rule);
+            dl.AddRect(min, max, selected ? PainterlyGoldLit : 0xff6a7178u, 0f, ImDrawFlags.None,
+                selected ? rule * 2f : rule);
+        }
         else
         {
             dl.AddRectFilled(min, max, HudEditTint(selected ? 0x58 : hovered ? 0x44 : 0x2c));
             dl.AddRect(min, max, selected ? PainterlyGoldLit : PainterlyFrameRule, 0f, ImDrawFlags.None,
                 selected ? rule * 2f : rule);
         }
-        string label = GameText.EllipsizeToBox("GameFontNormalSmall", rec.Label,
+        string label = GameText.EllipsizeToBox("GameFontNormalSmall",
+            rec.Hidden ? rec.Label + " (hidden)" : rec.Label,
             MathF.Max(8f, rec.LogicalSize.X - 6f), 14f, scale);
         GameText.Draw(dl, "GameFontNormalSmall", label, min + new Vector2(3f, 2f) * scale, scale,
             selected ? PainterlyGoldLit : child ? 0xffb8c0c6u : 0xffffffffu);
@@ -447,14 +470,22 @@ public sealed partial class GameLoop
         HudPlacement? placement)
         => session.Push(HudLayoutEditLaw.SetPlacement(hl, session.Context, id, placement));
 
+    private static void HudEditSetHidden(HudLayoutSettings hl, HudEditSession session,
+        in HudFrameRecord rec, bool hidden)
+    {
+        if (!rec.Hideable) return;
+        HudEditChange? change = HudLayoutEditLaw.SetHidden(hl, session.Context, rec.Id, hidden);
+        if (change is not null) session.Push(change);
+    }
+
     private static void HudEditUndo(HudLayoutSettings hl, HudEditSession session, bool undo)
     {
         HudEditChange? change = undo ? session.Undo() : session.Redo();
         if (change is not null) HudLayoutEditLaw.Apply(hl, change, undo);
     }
 
-    /// <summary>Arrows nudge 1 (Shift: 10), Ctrl+Z / Ctrl+Y, Delete resets the selected frame.
-    /// Escape is spent by the game-menu ladder (ConsumeHudEditEscape), not here.</summary>
+    /// <summary>Arrows nudge 1 (Shift: 10), Ctrl+Z / Ctrl+Y, Delete resets the selected frame,
+    /// H hides or shows it. Escape is spent by the game-menu ladder (ConsumeHudEditEscape), not here.</summary>
     private void HandleHudEditKeys(HudLayoutSettings hl, HudEditSession session)
     {
         ImGuiIOPtr io = ImGui.GetIO();
@@ -466,6 +497,11 @@ public sealed partial class GameLoop
         if (ImGui.IsKeyPressed(ImGuiKey.Delete, false))
         {
             if (rec.Overridden) HudEditApply(hl, session, rec.Id, null);
+            return;
+        }
+        if (!io.KeyCtrl && ImGui.IsKeyPressed(ImGuiKey.H, false))
+        {
+            HudEditSetHidden(hl, session, rec, !rec.Hidden);
             return;
         }
         int dx = (ImGui.IsKeyPressed(ImGuiKey.RightArrow, true) ? 1 : 0) -

@@ -601,11 +601,21 @@ public sealed partial class GameLoop
 
         bool capture = _uiParityArmed && _uiParityPanel == "party-frame";
         float s = GameplayUiScale();
-        _partyFramesOrigin = HudFrame("party-frames", "Party frames",
+        HudFrameResult partyFrame = HudFrame("party-frames", "Party frames",
             HudPlacement.At(HudAnchor.TopLeft, PartyFrameUiLaw.FirstX, PartyFrameUiLaw.FirstY),
             new Vector2(PartyFrameUiLaw.FrameWidth,
-                PartyFrameUiLaw.PetlessStride * (PartyFrameUiLaw.MemberCount - 1) + PartyFrameUiLaw.FrameHeight))
-            .LogicalOrigin;
+                PartyFrameUiLaw.PetlessStride * (PartyFrameUiLaw.MemberCount - 1) + PartyFrameUiLaw.FrameHeight));
+        _partyFramesOrigin = partyFrame.LogicalOrigin;
+        if (partyFrame.Hidden)
+        {
+            // Hidden in the active HUD layout: the same stand-down as an empty party - release
+            // a held press, let a tooltip fade - and the satellites (medallions, chain rail,
+            // command strips) stay down with the stack because they draw from here.
+            if (ImGui.IsMouseReleased(ImGuiMouseButton.Left) ||
+                ImGui.IsMouseReleased(ImGuiMouseButton.Right)) ClearPartyPress();
+            UpdateAndQueuePartyTooltip(-1, null, NowSeconds(), capture: false);
+            return;
+        }
         Vector2 origin = _partyFramesOrigin * s;
         if (capture)
         {

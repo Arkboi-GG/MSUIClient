@@ -69,6 +69,12 @@ public sealed partial class GameLoop
         CrpgCycleControlNext, CrpgCycleControlPrevious, CrpgTakeControl,
         RtsLockCameraPrimary,
         ToggleHudEditMode,
+        RtsSelectAllParty,
+        // The Command View camera's OWN movement keys (owner feedback 2026-09-03): a rebind
+        // in one mode must never touch the other. Program.cs reads these while the free view
+        // is up and the body's MoveForward..StrafeRight otherwise; the scheme law that decides
+        // whether Left/Right turn or sidestep is unchanged.
+        RtsMoveForward, RtsMoveBackward, RtsTurnLeft, RtsTurnRight, RtsStrafeLeft, RtsStrafeRight,
     }
 
     private static GameBinding RtsSaveGroupBinding(int index) =>
@@ -258,6 +264,13 @@ public sealed partial class GameLoop
         ("RTS Controls", GameBinding.RtsUndoWaypoint, "Undo Waypoint", Key.Unknown),
         ("RTS Controls", GameBinding.RtsFocusPrimary, "Focus Camera on Primary Selection", Key.C),
         ("RTS Controls", GameBinding.RtsLockCameraPrimary, "Lock Camera on Primary Selection", Key.L),
+        ("RTS Controls", GameBinding.RtsSelectAllParty, "Select Whole Party", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsMoveForward, "Camera Forward", Key.W),
+        ("RTS Controls", GameBinding.RtsMoveBackward, "Camera Back", Key.S),
+        ("RTS Controls", GameBinding.RtsTurnLeft, "Camera Left (turn or sidestep by scheme)", Key.A),
+        ("RTS Controls", GameBinding.RtsTurnRight, "Camera Right (turn or sidestep by scheme)", Key.D),
+        ("RTS Controls", GameBinding.RtsStrafeLeft, "Camera Sidestep Left (Classic scheme)", Key.Q),
+        ("RTS Controls", GameBinding.RtsStrafeRight, "Camera Sidestep Right (Classic scheme)", Key.E),
         ("CRPG Controls", GameBinding.CrpgTakeControl, "Take Direct Control", Key.Unknown),
         ("CRPG Controls", GameBinding.CrpgCycleControlNext, "Control Next Character", Key.Unknown),
         ("CRPG Controls", GameBinding.CrpgCycleControlPrevious, "Control Previous Character", Key.Unknown),
@@ -585,6 +598,18 @@ public sealed partial class GameLoop
             new BindingChord(Key.Tab, Control: true, Shift: true), default);
         _bindings[GameBinding.RtsLockCameraPrimary] = new(
             new BindingChord(Key.L, Control: true), default);
+        _bindings[GameBinding.RtsSelectAllParty] = new(
+            new BindingChord(Key.A, Control: true), default);
+        // Command View camera keys: the same W/S/A/D + arrows the body walks on, as their own
+        // rows, so the two modes can diverge without touching each other.
+        _bindings[GameBinding.RtsMoveForward] = new(new BindingChord(Key.W),
+            new BindingChord(Key.Up));
+        _bindings[GameBinding.RtsMoveBackward] = new(new BindingChord(Key.S),
+            new BindingChord(Key.Down));
+        _bindings[GameBinding.RtsTurnLeft] = new(new BindingChord(Key.A),
+            new BindingChord(Key.Left));
+        _bindings[GameBinding.RtsTurnRight] = new(new BindingChord(Key.D),
+            new BindingChord(Key.Right));
     }
 
     private Key BoundKey(GameBinding binding)
@@ -1129,10 +1154,12 @@ public sealed partial class GameLoop
         bool zoomOut = BindingDown(GameBinding.CameraZoomOut);
         if (!typing && !_window.FreeSelectMode && !_scopedViewActive)
         {
-            float zoomInAmount = _bindingPointerPulse.Contains(GameBinding.CameraZoomIn)
-                ? MathF.Max(1f, MathF.Abs(_window.BindingWheelDelta)) : 1f;
-            float zoomOutAmount = _bindingPointerPulse.Contains(GameBinding.CameraZoomOut)
-                ? MathF.Max(1f, MathF.Abs(_window.BindingWheelDelta)) : 1f;
+            // Interface Options -> Camera -> Advanced -> Zoom speed scales each tick.
+            float zoomSpeed = Settings.Controls.CameraZoomSpeed;
+            float zoomInAmount = (_bindingPointerPulse.Contains(GameBinding.CameraZoomIn)
+                ? MathF.Max(1f, MathF.Abs(_window.BindingWheelDelta)) : 1f) * zoomSpeed;
+            float zoomOutAmount = (_bindingPointerPulse.Contains(GameBinding.CameraZoomOut)
+                ? MathF.Max(1f, MathF.Abs(_window.BindingWheelDelta)) : 1f) * zoomSpeed;
             if (zoomIn && (!_cameraZoomInWasDown ||
                     _bindingPointerPulse.Contains(GameBinding.CameraZoomIn)))
                 _window.Camera.Zoom(zoomInAmount);

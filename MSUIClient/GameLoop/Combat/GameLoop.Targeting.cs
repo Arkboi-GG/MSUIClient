@@ -791,7 +791,11 @@ public sealed partial class GameLoop
 
     private void DrawTargetFrame()
     {
-        if (_selectionGuid == 0 || !_entities.TryGet(_selectionGuid, out WorldEntity target)) return;
+        // With nothing targeted the frame is not drawn, so it did not exist for the HUD layout
+        // editor (the registry is rebuilt from draw sites). Edit Mode stands the controlled
+        // character in as the target so the frame can be grabbed and moved regardless.
+        ulong targetGuid = _selectionGuid != 0 ? _selectionGuid : _hudEditMode ? ControlledGuid : 0;
+        if (targetGuid == 0 || !_entities.TryGet(targetGuid, out WorldEntity target)) return;
         FactionReaction reaction = ReactionTargetTowardPlayer(target);
         string name = target.IsPlayer
             ? _playerNames.GetValueOrDefault(target.Guid, "Player")

@@ -61,8 +61,10 @@ public sealed partial class GameLoop
         float width = Math.Clamp(display.X * 0.34f, 300f * s, 520f * s);
         float height = 70f * s;
         // Sized in device pixels above (its own clamped scale); the registry wants logical.
-        Vector2 min = HudFrame("territory-strip", "Territory", HudPlacement.At(HudAnchor.Top, 0f, 72f),
-            new Vector2(width, height) / GameplayUiScale()).ScreenMin;
+        HudFrameResult strip = HudFrame("territory-strip", "Territory", HudPlacement.At(HudAnchor.Top, 0f, 72f),
+            new Vector2(width, height) / GameplayUiScale());
+        if (strip.Hidden) return;   // hidden in the active HUD layout (Edit Mode's Hide)
+        Vector2 min = strip.ScreenMin;
         Vector2 max = min + new Vector2(width, height);
         ImDrawListPtr dl = ImGui.GetForegroundDrawList();
 

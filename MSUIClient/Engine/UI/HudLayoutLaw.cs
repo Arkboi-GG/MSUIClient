@@ -33,21 +33,32 @@ public sealed record HudPlacement(HudAnchor Anchor, HudAnchor Pivot, float X, fl
         => new(anchor, pivot ?? anchor, x, y);
 }
 
-/// <summary>A named set of per-frame overrides, one dictionary per context.</summary>
+/// <summary>
+/// A named set of per-frame overrides, one dictionary per context, plus the frames the
+/// player has hidden in each context. Hidden is a layout property like position: the same
+/// frame can be hidden in the Command View and shown in body play.
+/// </summary>
 public sealed class HudLayout
 {
     public string Name { get; set; } = "";
     public Dictionary<string, HudPlacement> Body { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, HudPlacement> Command { get; set; } = new(StringComparer.Ordinal);
+    public HashSet<string> BodyHidden { get; set; } = new(StringComparer.Ordinal);
+    public HashSet<string> CommandHidden { get; set; } = new(StringComparer.Ordinal);
 
     public Dictionary<string, HudPlacement> For(HudLayoutContext context)
         => context == HudLayoutContext.Command ? Command : Body;
+
+    public HashSet<string> HiddenFor(HudLayoutContext context)
+        => context == HudLayoutContext.Command ? CommandHidden : BodyHidden;
 
     public HudLayout Clone() => new()
     {
         Name = Name,
         Body = new Dictionary<string, HudPlacement>(Body, StringComparer.Ordinal),
         Command = new Dictionary<string, HudPlacement>(Command, StringComparer.Ordinal),
+        BodyHidden = new HashSet<string>(BodyHidden, StringComparer.Ordinal),
+        CommandHidden = new HashSet<string>(CommandHidden, StringComparer.Ordinal),
     };
 }
 
@@ -295,6 +306,14 @@ public static class HudLayoutLaw
 
     public static HudPlacement? Override(HudLayoutSettings s, HudLayoutContext context, string frameId)
         => Overrides(s, context) is { } o && o.TryGetValue(frameId, out HudPlacement? p) ? p : null;
+
+    /// <summary>The active layout's hidden set for a context, or null while Default is active
+    /// (Default hides nothing, the same way it moves nothing).</summary>
+    public static HashSet<string>? Hidden(HudLayoutSettings s, HudLayoutContext context)
+        => IsDefaultActive(s) ? null : Find(s, s.ActiveLayout)?.HiddenFor(context);
+
+    public static bool IsHidden(HudLayoutSettings s, HudLayoutContext context, string frameId)
+        => Hidden(s, context) is { } h && h.Contains(frameId);
 
     /// <summary>
     /// The layout edits land in. Default is immutable, so editing it silently forks to

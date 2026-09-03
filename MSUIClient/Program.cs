@@ -1839,27 +1839,37 @@ public sealed partial class GameLoop : IDisposable
         CommandViewScheme commandViewScheme = Settings.Controls.CommandViewScheme;
         bool commandViewSwap = _freeView && CommandViewLaw.TurnKeysStrafe(commandViewScheme);
 
-        bool bindingTurnLeft = !typing && BindingDown(GameBinding.TurnLeft);
-        bool bindingTurnRight = !typing && BindingDown(GameBinding.TurnRight);
-        bool bindingStrafeLeft = !typing && BindingDown(GameBinding.StrafeLeft);
-        bool bindingStrafeRight = !typing && BindingDown(GameBinding.StrafeRight);
+        // The Command View camera has its OWN key rows (RTS Controls: Camera Forward / Back /
+        // Left / Right / Sidestep), so a rebind in one mode never touches the other (owner
+        // feedback 2026-09-03). Same axes and the same scheme law below; only the rows differ.
+        GameBinding keyForward = _freeView ? GameBinding.RtsMoveForward : GameBinding.MoveForward;
+        GameBinding keyBackward = _freeView ? GameBinding.RtsMoveBackward : GameBinding.MoveBackward;
+        GameBinding keyTurnLeft = _freeView ? GameBinding.RtsTurnLeft : GameBinding.TurnLeft;
+        GameBinding keyTurnRight = _freeView ? GameBinding.RtsTurnRight : GameBinding.TurnRight;
+        GameBinding keyStrafeLeft = _freeView ? GameBinding.RtsStrafeLeft : GameBinding.StrafeLeft;
+        GameBinding keyStrafeRight = _freeView ? GameBinding.RtsStrafeRight : GameBinding.StrafeRight;
+
+        bool bindingTurnLeft = !typing && BindingDown(keyTurnLeft);
+        bool bindingTurnRight = !typing && BindingDown(keyTurnRight);
+        bool bindingStrafeLeft = !typing && BindingDown(keyStrafeLeft);
+        bool bindingStrafeRight = !typing && BindingDown(keyStrafeRight);
 
         float turn = 0f;
         if (!typing && !mouseSteering && !commandViewSwap)
-            turn += BindingAxis(GameBinding.TurnLeft, GameBinding.TurnRight);
+            turn += BindingAxis(keyTurnLeft, keyTurnRight);
         turn = Math.Clamp(turn, -1f, 1f);
 
         float strafe = typing ? 0f : commandViewSwap
-            ? BindingAxis(GameBinding.TurnRight, GameBinding.TurnLeft)
-            : BindingAxis(GameBinding.StrafeRight, GameBinding.StrafeLeft);
+            ? BindingAxis(keyTurnRight, keyTurnLeft)
+            : BindingAxis(keyStrafeRight, keyStrafeLeft);
         if (!typing && mouseSteering && !commandViewSwap)
-            strafe += BindingAxis(GameBinding.TurnRight, GameBinding.TurnLeft);
+            strafe += BindingAxis(keyTurnRight, keyTurnLeft);
         strafe = Math.Clamp(strafe, -1f, 1f);
 
         // Up and down arrows walk, like vanilla. Combined with W/S rather than
         // replacing it, and clamped so holding both does not double the speed.
-        bool bindingForward = !typing && BindingDown(GameBinding.MoveForward);
-        bool bindingBackward = !typing && BindingDown(GameBinding.MoveBackward);
+        bool bindingForward = !typing && BindingDown(keyForward);
+        bool bindingBackward = !typing && BindingDown(keyBackward);
         float forward = typing ? 0f : Math.Clamp(
             BindingCommandLaw.ForwardAxis(bindingForward, bindingBackward,
                 bothButtons: _window.MouseLeftDown && _window.MouseRightDown,
@@ -1873,7 +1883,7 @@ public sealed partial class GameLoop : IDisposable
         {
             forward = 0f;
             strafe = 0f;
-            turn = typing ? 0f : Math.Clamp(BindingAxis(GameBinding.TurnLeft, GameBinding.TurnRight), -1f, 1f);
+            turn = typing ? 0f : Math.Clamp(BindingAxis(keyTurnLeft, keyTurnRight), -1f, 1f);
             // Under the sidestep schemes A means "camera goes left around the unit" - the eye
             // moves left, so the heading swings RIGHT. Classic keeps A = turn left, as its
             // A/D already mean turning. Owner call 2026-09-01: "standard with locked needs A/D swapped".

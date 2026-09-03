@@ -381,9 +381,11 @@ public sealed partial class GameLoop
         Vector2 display = ImGui.GetIO().DisplaySize;
         // The commander console owns the bottom edge: the body chrome (action
         // bars, stance, pet, bags, micro menu) stands down in the free view.
-        ImGui.SetNextWindowPos(HudFrame("command-shelf", "Command shelf",
+        HudFrameResult shelf = HudFrame("command-shelf", "Command shelf",
             HudPlacement.At(HudAnchor.Bottom, 0f, -12f),
-            new Vector2(ConsoleWidth, ConsoleHeight)).ScreenMin, ImGuiCond.Always);
+            new Vector2(ConsoleWidth, ConsoleHeight));
+        if (shelf.Hidden) return;
+        ImGui.SetNextWindowPos(shelf.ScreenMin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(new Vector2(ConsoleWidth, ConsoleHeight) * scale,
             ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);

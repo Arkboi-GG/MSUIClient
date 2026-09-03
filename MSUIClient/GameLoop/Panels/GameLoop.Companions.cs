@@ -53,8 +53,10 @@ public sealed partial class GameLoop
 
         // Placed by the HUD layout registry (PLAN_21): centred by default, movable in Edit Mode,
         // never by an ImGui title-bar drag (NoMove).
+        // A panel the player opens on purpose is movable but never hideable (hideable: false).
         ImGui.SetNextWindowPos(HudFrame("companions", "Companions",
-            HudPlacement.At(HudAnchor.Center, 0f, 0f), _companionsLogicalSize).ScreenMin, ImGuiCond.Always);
+            HudPlacement.At(HudAnchor.Center, 0f, 0f), _companionsLogicalSize,
+            hideable: false).ScreenMin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(_companionsLogicalSize * scale, ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSizeConstraints(
             new Vector2(380f, 220f) * scale, new Vector2(float.MaxValue, float.MaxValue));

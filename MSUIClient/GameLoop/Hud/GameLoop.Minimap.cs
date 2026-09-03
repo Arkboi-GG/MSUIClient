@@ -62,9 +62,15 @@ public sealed partial class GameLoop
         // chat frame lifts above it); top-right belongs to normal body play.
         // Two authored placements of one registered frame (PLAN_21): top-right flush in body
         // play, 8 px in from the bottom-left corner in the Command View.
-        Vector2 root = HudFrame("minimap", "Minimap",
+        HudFrameResult minimapFrame = HudFrame("minimap", "Minimap",
             HudPlacement.At(HudAnchor.TopRight, 0f, 0f), new Vector2(192f, 192f),
-            authoredCommand: HudPlacement.At(HudAnchor.BottomLeft, 8f, -8f)).LogicalOrigin;
+            authoredCommand: HudPlacement.At(HudAnchor.BottomLeft, 8f, -8f));
+        if (minimapFrame.Hidden)
+        {
+            UpdateAndQueueMinimapResourceTooltip(null);
+            return;
+        }
+        Vector2 root = minimapFrame.LogicalOrigin;
         Vector2 rootPx = root * s;
         ImDrawListPtr dl = ImGui.GetBackgroundDrawList();
 

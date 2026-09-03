@@ -959,6 +959,8 @@ public sealed class GameSettings
         public float CameraClearance { get; set; } = 0.35f;
         public float CameraRestoreSpeed { get; set; } = 8f;
         public float MaxCameraDistance { get; set; } = 40f;
+        /// <summary>Wheel zoom multiplier in body play (Camera -> Advanced): 1 = one yard a tick.</summary>
+        public float CameraZoomSpeed { get; set; } = 1f;
         public float EyeHeight { get; set; } = 2.2f;
         public float TurnSpeedDegrees { get; set; } = 180f;
         public bool ShowPlayerNames { get; set; } = true;
@@ -1015,6 +1017,11 @@ public sealed class GameSettings
 
         /// <summary>Pan the free-view rig when the pointer rests on a screen edge.</summary>
         public bool CommandViewEdgePan { get; set; } = true;
+
+        /// <summary>Wheel multiplier in the Command View: scales the rig's fly / elevator step
+        /// and the Alt+wheel boom zoom alike. Owner feedback 2026-09-03: the wheel was far too
+        /// sensitive there and holding Alt was only a workaround, so this is the real knob.</summary>
+        public float CommandViewZoomSpeed { get; set; } = 1f;
 
         /// <summary>Glide the Command View camera after the rig instead of hard-coupling it
         /// (<see cref="CommandViewLaw.SmoothingTau"/>). Off = the pre-2026-09 direct camera.</summary>

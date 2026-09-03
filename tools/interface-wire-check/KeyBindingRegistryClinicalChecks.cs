@@ -51,7 +51,7 @@ internal static class KeyBindingRegistryClinicalChecks
     private static void CheckCrpgRtsRegistry(string source,
         (string Category, string Binding)[] rows)
     {
-        Check(rows.Count(row => row.Category == "RTS Controls") == 42 &&
+        Check(rows.Count(row => row.Category == "RTS Controls") == 51 &&
               rows.Count(row => row.Category == "CRPG Controls") == 3,
             "the CRPG/RTS binding row count changed - a commander control was added or lost");
 
@@ -66,9 +66,21 @@ internal static class KeyBindingRegistryClinicalChecks
             "RtsOrderFormationLine", "RtsOrderFormationCircle", "RtsOrderSheath",
             "RtsCommanderMap", "RtsCastOnPrimary", "RtsRigForward", "RtsRigBackward",
             "RtsBoomZoomIn", "RtsBoomZoomOut", "RtsEncounterLab", "RtsUndoWaypoint",
+            "RtsSelectAllParty", "RtsMoveForward", "RtsMoveBackward", "RtsTurnLeft",
+            "RtsTurnRight", "RtsStrafeLeft", "RtsStrafeRight",
         })
             Check(rows.Contains(("RTS Controls", binding)),
                 $"RTS command {binding} left the Key Bindings registry");
+
+        // The Command View camera keys are their own rows: Program.cs must read them while the
+        // free view is up and the body rows otherwise, so a rebind in one mode never touches
+        // the other. Select Whole Party goes through the binding edge like every other command.
+        string program = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(), "MSUIClient", "Program.cs"));
+        Check(program.Contains("_freeView ? GameBinding.RtsMoveForward : GameBinding.MoveForward", StringComparison.Ordinal) &&
+              program.Contains("_freeView ? GameBinding.RtsTurnLeft : GameBinding.TurnLeft", StringComparison.Ordinal) &&
+              program.Contains("_freeView ? GameBinding.RtsStrafeRight : GameBinding.StrafeRight", StringComparison.Ordinal) &&
+              !program.Contains("BindingAxis(GameBinding.TurnLeft, GameBinding.TurnRight)", StringComparison.Ordinal),
+            "Program.cs must pick the Command View camera rows under _freeView and the body rows otherwise");
         foreach (string binding in new[]
         {
             "CrpgTakeControl", "CrpgCycleControlNext", "CrpgCycleControlPrevious",
@@ -98,8 +110,16 @@ internal static class KeyBindingRegistryClinicalChecks
             "a free-view gesture is reading the click's raw modifiers again");
         Check(control.Contains("BindingClaimsClick(GameBinding.CrpgTakeControl", StringComparison.Ordinal) &&
               control.Contains("BindingClaimsClick(GameBinding.RtsSelectAdd", StringComparison.Ordinal) &&
-              control.Contains("BindingPressedEdge(GameBinding.RtsToggleFreeView", StringComparison.Ordinal),
-            "the free-view click router or its toggle stopped going through the bindings");
+              control.Contains("BindingPressedEdge(GameBinding.RtsToggleFreeView", StringComparison.Ordinal) &&
+              control.Contains("BindingPressedEdge(GameBinding.RtsSelectAllParty", StringComparison.Ordinal),
+            "the free-view click router, its toggle or Select Whole Party stopped going through the bindings");
+        // The Commander Guide names the Command View camera rows, not the body's.
+        Check(control.Contains("BindingHint(GameBinding.RtsMoveForward)", StringComparison.Ordinal) &&
+              !control.Contains("BindingHint(GameBinding.MoveForward)", StringComparison.Ordinal),
+            "CommandViewGuideLines must describe the Command View camera rows");
+        // A body switch retires the previous body's cast bar and pending-cast lock.
+        Check(control.Contains("ResetCastStateOnControlChange();", StringComparison.Ordinal),
+            "UpdateControlInput must reset the cast state when ControlledGuid changes");
     }
 
     private static void Check(bool condition, string message)

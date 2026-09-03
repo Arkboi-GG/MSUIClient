@@ -25,10 +25,12 @@ public sealed partial class GameLoop
         // The authored TOPLEFT origin is the frame's default placement in the HUD layout
         // registry; the player's own position, if any, comes back through it, and everything
         // below - art, hit host, parity rows - keys off the resolved origin.
-        authoredOrigin = HudFrame(playerFrame ? "player-frame" : "target-frame",
+        HudFrameResult unitFrame = HudFrame(playerFrame ? "player-frame" : "target-frame",
             playerFrame ? "Player frame" : "Target frame",
-            HudPlacement.At(HudAnchor.TopLeft, authoredOrigin.X, authoredOrigin.Y), windowSize).LogicalOrigin;
+            HudPlacement.At(HudAnchor.TopLeft, authoredOrigin.X, authoredOrigin.Y), windowSize);
+        authoredOrigin = unitFrame.LogicalOrigin;
         if (playerFrame) _playerFrameOrigin = authoredOrigin;
+        if (unitFrame.Hidden) return;   // hidden in the active HUD layout (Edit Mode's Hide)
         Vector2 p = authoredOrigin * s;
         CollectGameplayLayout(playerFrame ? "player-frame" : "target-frame",
             authoredOrigin.X, authoredOrigin.Y, windowSize.X, windowSize.Y, p, windowSize * s);

@@ -481,9 +481,17 @@ public sealed partial class GameLoop
         float headerMinWidth = 220f * scale;
         float contentWidth = widestRow * cardWidth + Math.Max(0, widestRow - 1) * gap;
         float railWidth = MathF.Max(contentWidth, headerMinWidth);
-        ImGui.SetNextWindowPos(HudFrame("control-group-rail", "Control groups",
+        HudFrameResult rail = HudFrame("control-group-rail", "Control groups",
             HudPlacement.At(HudAnchor.Top, 0f, 78f),
-            new Vector2(railWidth / scale, _rtsControlGroupRailHeight)).ScreenMin, ImGuiCond.Always);
+            new Vector2(railWidth / scale, _rtsControlGroupRailHeight));
+        if (rail.Hidden)
+        {
+            // Hidden in the active HUD layout; the command palette still answers a recall.
+            DrawRtsControlGroupCommandPalette(scale, display,
+                (132f + Math.Max(0, rowCount - 1) * 44f) * scale);
+            return;
+        }
+        ImGui.SetNextWindowPos(rail.ScreenMin, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0.78f);
         ImGuiWindowFlags cardFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.AlwaysAutoResize |
@@ -545,18 +553,22 @@ public sealed partial class GameLoop
     private Vector2 _rtsControlGroupRestoreSize = new(128f, 28f);
     private Vector2 _rtsControlGroupPaletteSize = new(330f, 150f);
 
+    // The palette is opened on purpose (a group card, a recall), so it is movable but never
+    // hideable; the rail and its restore button are standing furniture and can be hidden.
     private HudFrameResult RtsCommandPaletteFrame(float scale, float top) =>
         HudFrame("command-palette", "Command palette",
             HudPlacement.At(HudAnchor.TopRight, -338f, top / scale, pivot: HudAnchor.TopLeft),
-            _rtsControlGroupPaletteSize);
+            _rtsControlGroupPaletteSize, hideable: false);
 
     private void DrawRtsControlGroupsRestoreButton()
     {
         float scale = GameplayUiScale();
 
-        ImGui.SetNextWindowPos(HudFrame("control-groups-restore", "Control groups (hidden)",
+        HudFrameResult restore = HudFrame("control-groups-restore", "Control groups (hidden)",
             HudPlacement.At(HudAnchor.TopRight, -175f, 25f, pivot: HudAnchor.TopLeft),
-            _rtsControlGroupRestoreSize).ScreenMin, ImGuiCond.Always);
+            _rtsControlGroupRestoreSize);
+        if (restore.Hidden) return;
+        ImGui.SetNextWindowPos(restore.ScreenMin, ImGuiCond.Always);
 
         ImGui.Begin("##rts-control-groups-hidden",
             ImGuiWindowFlags.NoDecoration |

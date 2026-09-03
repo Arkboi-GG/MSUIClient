@@ -25,12 +25,20 @@ public sealed partial class GameLoop
     private readonly Dictionary<string, int> _hudFrameIndex = new(StringComparer.Ordinal);
 
     /// <summary>One registered frame, this frame. Placement is the EFFECTIVE one (override or
-    /// authored); LogicalOrigin is already clamped.</summary>
+    /// authored); LogicalOrigin is already clamped. Hidden is the layout's flag for this
+    /// context; Hideable is whether the editor offers the Hide button at all.</summary>
     private readonly record struct HudFrameRecord(string Id, string Label, HudPlacement Placement,
-        Vector2 LogicalSize, Vector2 LogicalOrigin, string? Parent, bool Overridden);
+        Vector2 LogicalSize, Vector2 LogicalOrigin, string? Parent, bool Overridden,
+        bool Hidden, bool Hideable);
 
+    /// <summary>
+    /// Where a frame draws this frame. Hidden is true when the draw site must NOT draw: the
+    /// player hid the frame in the active layout and Edit Mode is off. In Edit Mode a hidden
+    /// frame still draws (its mover says so) so it can be found and shown again; the site
+    /// keeps its one registry call and checks this one flag.
+    /// </summary>
     private readonly record struct HudFrameResult(Vector2 LogicalOrigin, Vector2 ScreenMin,
-        Vector2 ScreenSize, float Scale, Vector2 LogicalDisplay)
+        Vector2 ScreenSize, float Scale, Vector2 LogicalDisplay, bool Hidden)
     {
         public Vector2 ScreenMax => ScreenMin + ScreenSize;
     }
@@ -54,10 +62,12 @@ public sealed partial class GameLoop
     /// differs. A <paramref name="parent"/> makes this a child whose offset is measured from
     /// the parent's resolved rect (it moves with the parent and is not separately draggable in
     /// phase 1). Sizes and offsets are logical pixels; the result carries both logical and
-    /// screen rects so the site can keep authoring in whichever it already used.
+    /// screen rects so the site can keep authoring in whichever it already used. A frame with
+    /// <paramref name="hideable"/> false (a panel the player opens on purpose) never gets the
+    /// editor's Hide button; every other site honours <see cref="HudFrameResult.Hidden"/>.
     /// </summary>
     private HudFrameResult HudFrame(string id, string label, HudPlacement authored, Vector2 logicalSize,
-        HudPlacement? authoredCommand = null, string? parent = null)
+        HudPlacement? authoredCommand = null, string? parent = null, bool hideable = true)
     {
         float scale = GameplayUiScale();
         Vector2 display = ImGui.GetIO().DisplaySize;
@@ -81,7 +91,12 @@ public sealed partial class GameLoop
             HudLayoutLaw.Resolve(placement, containerMin, containerSize, logicalSize),
             logicalSize, logicalDisplay);
 
-        var record = new HudFrameRecord(id, label, placement, logicalSize, origin, parent, overridden);
+        // A child follows its parent's visibility; a non-hideable frame is never hidden.
+        bool hidden = hideable && (parent is null
+            ? HudLayoutLaw.IsHidden(HudLayoutState, context, id)
+            : _hudFrameIndex.TryGetValue(parent, out int parentRecord) && _hudFrames[parentRecord].Hidden);
+        var record = new HudFrameRecord(id, label, placement, logicalSize, origin, parent, overridden,
+            hidden, hideable);
         if (_hudFrameIndex.TryGetValue(id, out int existing)) _hudFrames[existing] = record;
         else
         {
@@ -90,7 +105,8 @@ public sealed partial class GameLoop
         }
         // Whole device pixels: HUD art is authored pixel-exact and a half-pixel origin blurs it.
         Vector2 screenMin = new(MathF.Round(origin.X * scale), MathF.Round(origin.Y * scale));
-        return new HudFrameResult(origin, screenMin, logicalSize * scale, scale, logicalDisplay);
+        return new HudFrameResult(origin, screenMin, logicalSize * scale, scale, logicalDisplay,
+            hidden && !_hudEditMode);
     }
 
     // ── Edit Mode lifecycle ──────────────────────────────────────────────────────────────
@@ -107,7 +123,7 @@ public sealed partial class GameLoop
         _hudEditMode = true;
         _hudEditFocusPending = true;
         _chatEditOpen = false;
-        AddChatMessage("HUD layout: drag a frame to move it, arrow keys nudge, Escape saves and exits.");
+        AddChatMessage("HUD layout: drag a frame to move it, arrow keys nudge, H hides or shows it, Escape saves and exits.");
     }
 
     /// <summary>Save writes settings once; Revert restores the snapshot taken on entry.</summary>
@@ -155,6 +171,9 @@ public sealed partial class GameLoop
         GameBinding.StrafeLeft, GameBinding.StrafeRight,
         GameBinding.TurnLeft, GameBinding.TurnRight,
         GameBinding.CameraZoomIn, GameBinding.CameraZoomOut,
+        GameBinding.RtsMoveForward, GameBinding.RtsMoveBackward,
+        GameBinding.RtsStrafeLeft, GameBinding.RtsStrafeRight,
+        GameBinding.RtsTurnLeft, GameBinding.RtsTurnRight,
         GameBinding.RtsRigForward, GameBinding.RtsRigBackward,
         GameBinding.RtsBoomZoomIn, GameBinding.RtsBoomZoomOut,
         GameBinding.RtsToggleFreeView, GameBinding.ToggleHudEditMode,

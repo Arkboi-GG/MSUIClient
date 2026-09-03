@@ -65,8 +65,11 @@ public sealed partial class GameLoop
 
     private bool SpendTalent(uint talentId)
     {
-        // CMSG_LEARN_TALENT acts on the session character; a possessed bot's tree is read-only.
-        if (!CanAuthorControlledGameplay || ControlledGuid != LocalPlayerGuid) return false;
+        // CMSG_LEARN_TALENT acts on GetSuiActor() server-side (SkillHandler.cpp, 2026-09-03): while
+        // you drive a possessed companion the talent goes to THAT body and its points + spellbook
+        // are re-snapshotted back (owner feedback: "modify talent builds without logging out/in").
+        // The frame already reads the controlled unit's tree; only this write gate kept it read-only.
+        if (!CanAuthorControlledGameplay) return false;
         if (_net is null || _talents is null || !_talents.TryGet(talentId, out TalentInfo talent)) return false;
         int rank = TalentRank(talent);
         bool pass = TalentEligible(talent, out string reason);

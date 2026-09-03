@@ -2237,6 +2237,11 @@ public sealed partial class GameLoop
                     v => s.Controls.CommandViewEdgePan = v,
                     "Rest the pointer on a screen edge to slide the camera that way,\n" +
                     "RTS style.");
+                Slider("cv-zoom", "Zoom speed", () => s.Controls.CommandViewZoomSpeed,
+                    v => s.Controls.CommandViewZoomSpeed = Math.Clamp(v, 0.1f, 3f), 0.1f, 3f, "{0:F2}x",
+                    "How far one wheel tick flies, raises or zooms the Command View camera.\n" +
+                    "Turn it down if the wheel feels too sensitive. Alt+wheel (boom zoom)\n" +
+                    "scales with it too. Separate from the body camera's zoom speed.");
                 Check("Smooth camera motion", () => s.Controls.CommandViewSmoothing,
                     v => s.Controls.CommandViewSmoothing = v,
                     "A little glide on the Command View camera: it settles after the\n" +
@@ -2306,6 +2311,10 @@ public sealed partial class GameLoop
                         v => { s.Controls.EyeHeight = v; _window.Camera.EyeHeight = v; }, 0f, 10f, "{0:F2} yd");
                     Slider("maxd", "Max camera distance", () => s.Controls.MaxCameraDistance,
                         v => { s.Controls.MaxCameraDistance = v; _window.Camera.MaxDistance = v; }, 5f, 80f, "{0:F0} yd");
+                    Slider("zoom", "Zoom speed", () => s.Controls.CameraZoomSpeed,
+                        v => s.Controls.CameraZoomSpeed = Math.Clamp(v, 0.1f, 3f), 0.1f, 3f, "{0:F2}x",
+                        "How far one wheel tick zooms the camera in body play. The Command\n" +
+                        "View has its own Zoom speed above.");
                     Slider("clr", "Collision clearance", () => s.Controls.CameraClearance,
                         v => { s.Controls.CameraClearance = v; _config.Camera.Clearance = v; }, 0.05f, 2f, "{0:F2} yd");
                     Slider("rest", "Restore speed", () => s.Controls.CameraRestoreSpeed,

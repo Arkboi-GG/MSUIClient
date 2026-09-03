@@ -19,6 +19,38 @@ public sealed partial class GameLoop
     private double _castBarDisplayUntil;
     private double _castBarFinishedAt;
 
+    /// <summary>
+    /// The unit the cast-bar / pending-cast state belongs to. That state is one set of fields
+    /// keyed only by "packet.Caster == ControlledGuid" at packet time, so a control switch
+    /// mid-cast (Ctrl+Tab, Alt+click on a party member, a possess-on-cast hand-over) used to
+    /// strand the previous body's bar: its SPELL_GO / failure then arrived for a guid that was
+    /// no longer controlled, nothing completed or failed it, the bar sat there, and the local
+    /// pending lock refused every cast on the new body ("Another action is in progress")
+    /// until something else happened to overwrite the fields (Ctrl+F, in practice). Owner
+    /// report 2026-09-03. UpdateControlInput resets the state whenever the owner changes; the
+    /// old body's cast still finishes server-side, it just stops being ours to show.
+    /// </summary>
+    private ulong _castStateOwner;
+
+    private void ResetCastStateOnControlChange()
+    {
+        ulong owner = ControlledGuid;
+        if (owner == _castStateOwner) return;
+        bool live = _castBarPhase != CastBarPhase.Hidden || _pendingCastSpell != 0 ||
+            _queuedMeleeSpell != 0;
+        _castStateOwner = owner;
+        if (!live) return;
+        if (_castBarPhase != CastBarPhase.Hidden)
+            EmitCastBarVerdict("CONTROL_CHANGED", _castBarSpell);
+        _castBarPhase = CastBarPhase.Hidden;
+        _castBarSpell = 0;
+        _castBarText = "";
+        _castBarPushbackTotalMs = 0;
+        _pendingCastSpell = 0;
+        _queuedMeleeSpell = 0;
+        _castMovementWasActive = false;
+    }
+
     private bool _castMovementWasActive;
     private readonly HashSet<(ulong Unit, uint Spell)> _activeAuraStateFx = [];
     private readonly Dictionary<ulong, uint> _activeObservedChannels = [];
