@@ -173,16 +173,13 @@ public sealed partial class GameLoop
         // stream otherwise (free view, possessed bot pose while rooted, etc). Possessing a
         // bot, that is the bot. The object-store entity for the own body stops updating the
         // moment control moves elsewhere, which froze the arrow at the possession spot.
-        if (haveMapArea && !string.IsNullOrWhiteSpace(area.Directory) && area.MapId == playerMap &&
-            TryGetWorldBodyPose(ControlledGuid, out WorldBodyPose drivenBody))
+        if (haveMapArea && !string.IsNullOrWhiteSpace(area.Directory) &&
+            TryGetWorldBodyPose(ControlledGuid, out WorldBodyPose drivenBody) &&
+            WorldMapUiLaw.TryPlayerMarker(playerMap, area.MapId, drivenBody.Position,
+                area.Left, area.Right, area.Top, area.Bottom,
+                mapMin, mapSize, out Vector2 marker))
         {
-            float fx = (drivenBody.Position.Y - area.Left) / (area.Right - area.Left);
-            float fy = (drivenBody.Position.X - area.Top) / (area.Bottom - area.Top);
-            if (fx is >= 0f and <= 1f && fy is >= 0f and <= 1f)
-            {
-                Vector2 marker = WorldMapUiLaw.MapPoint(mapMin, mapSize, fx, fy);
-                DrawMinimapPlayerArrow(dl, drivenBody.Orientation, marker, s);
-            }
+            DrawMinimapPlayerArrow(dl, drivenBody.Orientation, marker, s);
         }
         DrawWorldMapQuestHelperPins(dl, haveMapArea, area, mapMin, mapSize, s);
         DrawWorldMapGossipPoi(dl, haveMapArea, area, mapMin, mapSize, s);

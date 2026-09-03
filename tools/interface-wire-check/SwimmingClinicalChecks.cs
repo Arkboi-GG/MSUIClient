@@ -15,13 +15,20 @@ internal static class SwimmingClinicalChecks
               !SwimmingMovementLaw.NextState(true, 1.47f, 0f, 2f),
             "swim enter/exit strictness or 1/36-yard hysteresis drift");
         Vector3 up = SwimmingMovementLaw.DesiredVelocity(0f, MathF.PI / 2f, 1f, 0f,
-            4f, 2f);
-        Vector3 back = SwimmingMovementLaw.DesiredVelocity(0f, 0f, -1f, 0f, 4f, 2f);
+            0f, 4f, 2f);
+        Vector3 keyUp = SwimmingMovementLaw.DesiredVelocity(0f, 0f, 0f, 0f,
+            1f, 4f, 2f);
+        Vector3 back = SwimmingMovementLaw.DesiredVelocity(0f, 0f, -1f, 0f,
+            0f, 4f, 2f);
         Vector3 redirected = SwimmingMovementLaw.RedirectAtRestLine(
             new Vector3(3f, 0f, 4f), 0f);
-        Check(MathF.Abs(up.Z - 4f) < .0001f && back == new Vector3(-2f, 0f, 0f) &&
+        Check(MathF.Abs(up.Z - 4f) < .0001f && keyUp == new Vector3(0f, 0f, 4f) &&
+              back == new Vector3(-2f, 0f, 0f) &&
               MathF.Abs(redirected.X - 5f) < .0001f && redirected.Z == 0f,
-            "pitched swim velocity, backward min-speed, or top-cap redirect drift");
+            "pitched/key swim velocity, backward min-speed, or top-cap redirect drift");
+        Check(!SwimmingMovementLaw.CanBreach(10f, 7f, 2f) &&
+              SwimmingMovementLaw.CanBreach(10f, 8.5f, 2f),
+            "deep Jump became a breach or surface Jump stopped breaching");
 
         string root = ClientConfig.FindRepoRoot();
         string controller = SourceText.Read(Path.Combine(root, "MSUIClient", "Player",
@@ -38,6 +45,14 @@ internal static class SwimmingClinicalChecks
               sender.Contains("info.Pitch = controller.SwimPitch", StringComparison.Ordinal) &&
               program.Contains("Pitch = -_window.Camera.Pitch", StringComparison.Ordinal) &&
               program.Contains("_controller.LiquidSurfaceZ = movementLiquidZ",
+                  StringComparison.Ordinal) &&
+              program.Contains("_controller.CollisionHeight = controlledCollisionHeight",
+                  StringComparison.Ordinal) &&
+              controller.Contains("SwimSweep(new Vector3(levelStroke.X, levelStroke.Y, stroke.Z))",
+                  StringComparison.Ordinal) &&
+              controller.Contains("ResolveSwimmingTerrain(frameStart);", StringComparison.Ordinal) &&
+              controller.Contains("input.Strafe, input.Up,", StringComparison.Ordinal) &&
+              controller.Contains("LiquidSurfaceProbe(Position)",
                   StringComparison.Ordinal) &&
               renderer.Contains("int swimId = !state.Moving ? 41", StringComparison.Ordinal),
             "swim controller/wire/liquid/animation wiring drift");

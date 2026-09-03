@@ -23,6 +23,8 @@ VerifyRampStillWalkable();
 VerifyWalkableAdtTerrainClimbs();
 VerifySteepAdtTerrainBlocksWalking();
 VerifySteepAdtTerrainDoesNotBankJumps();
+VerifyWmoFloorCrossesSteepCaveLip();
+VerifyDistantCollisionFloorDoesNotOpenHillside();
 VerifyOverheadSteepTerrainDoesNotWallInterior();
 VerifyImpassableMcnkIsOneWay();
 VerifyContinuousInteriorEntryRetainsTerrainShell(CreateTerrain(height: 100f));
@@ -31,9 +33,340 @@ VerifyWalkableTriangleGather();
 VerifyCameraTerrainShellClassification();
 VerifyFlyFloorClearanceSpareInterior(CreateTerrain(height: 100f));
 VerifyFlyFloorClearanceStillLiftsOutdoors(CreateTerrain(height: 100f));
+VerifySwimCannotDiveThroughTerrain();
+VerifySwimCannotDiveThroughCollisionFloor();
+VerifySwimCannotRiseThroughCeiling();
+VerifySwimCannotCrossWall();
+VerifySwimDoesNotSnapToOverheadDeck();
+VerifyShallowFloorBeatsSwimRestLine();
+VerifyIdleSwimmerDoesNotSeekRestLine();
+VerifySwimResamplesLandingWaterline();
+VerifySwimUsesDisplayCollisionHeight();
+VerifySpaceAscendsWhileDeep();
+VerifySpaceBreachesOnlyAtSurface();
+VerifySwimHeadCannotCrossSlantedUnderside();
+VerifySwimSteepFaceIsNeverAFloorLift();
+VerifySwimmerUnderOpenGroundIsLifted();
+VerifySwimmerKeepsRoofedInteriorBelowTerrain();
 
 Console.WriteLine("character-controller clinical checks passed");
 return 0;
+
+static void VerifySwimCannotDiveThroughTerrain()
+{
+    TerrainRenderer terrain = CreateTerrain(5f);
+    Require(terrain.TrySampleMovementSurface(-1f, -1f, out TerrainSurfaceSample sample, out _),
+        "terrain-dive setup has no ADT sample");
+    Require(MathF.Abs(sample.Height - 5f) < 0.001f,
+        $"terrain-dive setup sampled unexpected Z={sample.Height:F3}");
+    CharacterController controller = CreateController(terrain, new CollisionWorld());
+    controller.Teleport(-1f, -1f, 5.08f);
+    controller.LiquidSurfaceZ = 15f;
+    controller.Update(1f / 20f,
+        new MovementInput { Forward = 1f, Pitch = -1.45f });
+
+    Require(controller.Swimming, "terrain-dive setup did not enter swimming");
+    Require(controller.Position.Z >= 4.999f,
+        $"swim stroke crossed ADT ground to Z={controller.Position.Z:F3}");
+}
+
+static void VerifySwimCannotDiveThroughCollisionFloor()
+{
+    CharacterController controller = CreateController(CreateEmptyTerrain(), CreateFloor(0f));
+    controller.TerrainAbsentByDesign = true;
+    controller.Teleport(0f, 0f, 0.08f);
+    controller.LiquidSurfaceZ = 10f;
+    controller.Update(1f / 20f,
+        new MovementInput { Forward = 1f, Pitch = -1.45f });
+
+    Require(controller.Position.Z >= -0.001f,
+        $"swim stroke crossed WMO floor to Z={controller.Position.Z:F3}");
+    Require(controller.Grounded && controller.GroundSource == "collision",
+        $"swim floor contact was not retained ({controller.GroundSource})");
+}
+
+static void VerifySwimCannotRiseThroughCeiling()
+{
+    var collision = new CollisionWorld();
+    AddFloor(collision, -10f, 10f, -10f, 10f, 3f);
+    collision.Build();
+    CharacterController controller = CreateController(CreateEmptyTerrain(), collision);
+    controller.TerrainAbsentByDesign = true;
+    controller.Teleport(0f, 0f, 0.91f); // configured 2.1-yd body is touching Z=3
+    controller.LiquidSurfaceZ = 20f;
+    controller.Update(1f / 20f,
+        new MovementInput { Forward = 1f, Pitch = 1.45f });
+
+    Require(controller.Position.Z <= 0.911f,
+        $"swim stroke crossed WMO ceiling to Z={controller.Position.Z:F3}");
+}
+
+static void VerifySwimCannotCrossWall()
+{
+    var collision = new CollisionWorld();
+    AddWallAtX(collision, 0f, -5f, 5f, -5f, 10f);
+    collision.Build();
+    CharacterController controller = CreateController(CreateEmptyTerrain(), collision);
+    controller.TerrainAbsentByDesign = true;
+    controller.Teleport(-1f, 0f, 1f);
+    controller.LiquidSurfaceZ = 10f;
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+
+    for (int i = 0; i < 30; i++) controller.Update(1f / 60f, forward);
+
+    Require(controller.Position.X <= -0.399f,
+        $"swimmer crossed WMO wall to X={controller.Position.X:F3}");
+}
+
+static void VerifySwimDoesNotSnapToOverheadDeck()
+{
+    CharacterController controller = CreateController(CreateEmptyTerrain(), CreateFloor(1.8f));
+    controller.TerrainAbsentByDesign = true;
+    controller.Teleport(0f, 0f, 1f);
+    controller.LiquidSurfaceZ = 10f;
+
+    controller.Update(1f / 60f, new MovementInput { Forward = 1f });
+
+    Require(controller.Position.Z < 1.2f,
+        $"swimmer snapped upward onto an overhead deck at Z={controller.Position.Z:F3}");
+}
+
+static void VerifyShallowFloorBeatsSwimRestLine()
+{
+    var collision = new CollisionWorld();
+    AddFloor(collision, -2f, 0f, -2f, 2f, 1f);
+    AddFloor(collision, 0f, 2f, -2f, 2f, 1.08f);
+    collision.Build();
+    CharacterController controller = CreateController(CreateEmptyTerrain(), collision);
+    controller.TerrainAbsentByDesign = true;
+    controller.Teleport(-0.01f, 0f, 1f);
+    controller.LiquidSurfaceZ = 2.6f;
+    controller.LiquidSurfaceProbe = _ => 2.6f;
+
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    controller.Update(1f / 60f, forward);
+    Require(controller.Position.Z >= 1.079f,
+        $"rest-line correction overwrote the shallow floor at Z={controller.Position.Z:F3}");
+    controller.Update(1f / 60f, forward);
+    Require(!controller.Swimming,
+        "shallow floor did not lift feet through the swim exit depth");
+}
+
+static void VerifyIdleSwimmerDoesNotSeekRestLine()
+{
+    CharacterController controller = CreateController(CreateEmptyTerrain(), new CollisionWorld());
+    controller.TerrainAbsentByDesign = true;
+    controller.Teleport(0f, 0f, 1.045f);
+    controller.LiquidSurfaceZ = 2.7f;
+    controller.Update(1f / 60f, default);
+    controller.LiquidSurfaceZ = 2.6f; // inside the 1/36-yd exit hysteresis band
+
+    controller.Update(1f / 60f, default);
+
+    Require(controller.Swimming, "idle-float setup left the swim hysteresis band");
+    Require(MathF.Abs(controller.Position.Z - 1.045f) < 0.0001f,
+        $"idle swimmer sought the rest line at Z={controller.Position.Z:F3}");
+}
+
+static void VerifySwimResamplesLandingWaterline()
+{
+    CharacterController controller = CreateController(CreateEmptyTerrain(), new CollisionWorld());
+    controller.TerrainAbsentByDesign = true;
+    controller.Teleport(0f, 0f, 1.42f); // just below the entry surface's rest line
+    controller.LiquidSurfaceZ = 3f;
+    controller.LiquidSurfaceProbe = _ => 2.8f;
+
+    controller.Update(1f / 60f, new MovementInput { Forward = 1f });
+
+    Require(MathF.Abs(controller.Position.Z - 1.225f) < 0.001f,
+        $"swim used the stale entry waterline, ending at Z={controller.Position.Z:F3}");
+}
+
+static void VerifySwimUsesDisplayCollisionHeight()
+{
+    CharacterController controller = CreateController(CreateTerrain(5f), new CollisionWorld());
+    controller.CollisionHeight = 1.15f;
+    controller.Teleport(-1f, -1f, 5f);
+    controller.LiquidSurfaceZ = 5.9f;
+    controller.Update(1f / 60f, default);
+
+    Require(controller.Swimming,
+        "small display used the global human collision height for swim entry");
+}
+
+static void VerifySpaceAscendsWhileDeep()
+{
+    CharacterController controller = CreateController(CreateEmptyTerrain(), new CollisionWorld());
+    controller.TerrainAbsentByDesign = true;
+    controller.Teleport(0f, 0f, 1f);
+    controller.LiquidSurfaceZ = 10f;
+
+    controller.Update(1f / 20f, new MovementInput { Up = 1f, Jump = true });
+
+    Require(controller.Swimming, "deep Space incorrectly launched a breach jump");
+    Require(controller.Position.Z > 1.2f,
+        $"deep Space did not swim upward (Z={controller.Position.Z:F3})");
+}
+
+static void VerifySpaceBreachesOnlyAtSurface()
+{
+    CharacterController controller = CreateController(CreateEmptyTerrain(), new CollisionWorld());
+    controller.TerrainAbsentByDesign = true;
+    float restLine = SwimmingMovementLaw.RestLine(10f, controller.CollisionHeight);
+    controller.Teleport(0f, 0f, restLine - 0.1f);
+    controller.LiquidSurfaceZ = 10f;
+    controller.Update(1f / 60f, default);
+    Require(controller.Swimming, "surface-breach setup did not enter swimming");
+    controller.Position = new Vector3(0f, 0f, restLine);
+
+    controller.Update(1f / 60f, new MovementInput { Up = 1f, Jump = true });
+
+    Require(!controller.Swimming && controller.Velocity.Z > 0f,
+        "surface Space did not launch the swim breach");
+}
+
+// THE DUROTAR SHIPWRECK (reported 2026-09-03). The walking sweep only stops at STEEP faces and
+// leaves everything flatter to the ground resolver - which a swimmer does not have. So the hull's
+// slanted underside was crossed sideways at head height, and a downward footprint probe then read
+// the hull's wall as a "floor" and lifted the body onto it; walking's ground snap finished the job
+// by yanking the swimmer 0.6 yd up through the deck. A swimmer must collide-and-slide against
+// EVERY surface, and only a walkable one may ever hold or lift the feet.
+static void VerifySwimHeadCannotCrossSlantedUnderside()
+{
+    // Water 10 deep over a flat bottom at 0; a hull underside sloping from 2.6 at x=0 down to
+    // 0.6 at x=4 - a 2.1-tall body at feet 0.4 clears it at x=0 and meets it just past.
+    var collision = new CollisionWorld();
+    AddFloor(collision, -10f, 10f, -10f, 10f, 0f);
+    AddSlopeAtX(collision, 0f, 4f, -10f, 10f, 2.6f, 0.6f);
+    collision.Build();
+    CharacterController controller = CreateController(CreateEmptyTerrain(), collision);
+    controller.TerrainAbsentByDesign = true;
+    controller.Teleport(-1f, 0f, 0.4f);
+    controller.LiquidSurfaceZ = 10f;
+    controller.LiquidSurfaceProbe = _ => 10f;
+
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    Vector3 previous = controller.Position;
+    for (int i = 0; i < 180; i++)
+    {
+        controller.Update(1f / 60f, forward);
+        RequireNoTunnel(collision, previous, controller.Position, 2.1f, $"underside frame {i}");
+        float headZ = controller.Position.Z + 2.1f;
+        float undersideZ = 2.6f - 0.5f * controller.Position.X;
+        Require(controller.Position.X <= 0f || headZ <= undersideZ + 0.05f,
+            $"head crossed the hull underside at frame {i}: head {headZ:F2} vs underside {undersideZ:F2} " +
+            $"at X={controller.Position.X:F2}");
+        previous = controller.Position;
+    }
+    Require(controller.Swimming, "the underside test left swimming");
+    Require(controller.Position.X > 0.3f,
+        $"the swimmer did not slide along the underside at all (X={controller.Position.X:F2})");
+    Require(controller.Position.Z < 0.4f - 0.05f,
+        $"sliding down the underside did not push the body down (Z={controller.Position.Z:F2})");
+}
+
+static void VerifySwimSteepFaceIsNeverAFloorLift()
+{
+    // A 63-degree hull face rising from z=1 at x=0 to z=3 at x=1: far too steep to stand on. The
+    // old vertical probe accepted it as a floor within its rise band and lifted the feet onto it.
+    var collision = new CollisionWorld();
+    AddFloor(collision, -10f, 0f, -10f, 10f, 1f);
+    AddSlopeAtX(collision, 0f, 1f, -10f, 10f, 1f, 3f);
+    collision.Build();
+    CharacterController controller = CreateController(CreateEmptyTerrain(), collision);
+    controller.TerrainAbsentByDesign = true;
+    controller.Teleport(-1f, 0f, 1f);
+    controller.LiquidSurfaceZ = 10f;
+    controller.LiquidSurfaceProbe = _ => 10f;
+
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    Vector3 previous = controller.Position;
+    float largestRise = 0f;
+    for (int i = 0; i < 120; i++)
+    {
+        controller.Update(1f / 60f, forward);
+        RequireNoTunnel(collision, previous, controller.Position, 2.1f, $"steep-face frame {i}");
+        largestRise = MathF.Max(largestRise, controller.Position.Z - previous.Z);
+        previous = controller.Position;
+    }
+    // A stroke is 0.079 yd per frame; any single-frame rise beyond that is a lift, not a slide.
+    Require(largestRise <= 0.08f,
+        $"a steep face lifted the swimmer {largestRise:F3} in one frame");
+    // With no gravity in water the body SLIDES up the face and over its top, as the reference
+    // capsule does; what it may never do is come out the far side below that top.
+    Require(controller.Position.X < 1f || controller.Position.Z >= 3f - 0.05f,
+        $"the swimmer passed through the steep face to X={controller.Position.X:F2} at Z={controller.Position.Z:F2}");
+}
+
+static void VerifySwimmerUnderOpenGroundIsLifted()
+{
+    // The seabed is at 5. A roof (a sunken hull's deck) at 4.5 covers x < 2 only; the body
+    // starts under it at 2 - the 2.1-tall body fits under the roof, well below the shell - a
+    // legitimate interior below the outdoor shell - and swims out.
+    // Past the roof nothing is over the body but the height field: it must be lifted onto
+    // the seabed, not left swimming under open ground.
+    // (The synthetic height grid only covers x <= 0, y <= 0: everything here stays negative.)
+    var collision = new CollisionWorld();
+    AddFloor(collision, -20f, -6f, -10f, 10f, 4.5f);
+    AddFloor(collision, -20f, 10f, -10f, 10f, 0f);
+    collision.Build();
+    CharacterController controller = CreateController(CreateTerrain(height: 5f), collision);
+    controller.Teleport(-9f, -1f, 2f);
+    controller.LiquidSurfaceZ = 20f;
+    controller.LiquidSurfaceProbe = _ => 20f;
+
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    controller.Update(1f / 60f, forward);
+    Require(controller.Swimming, "under-ground setup did not enter swimming");
+    Require(controller.UnderTerrainShell,
+        "a roofed body below the height field was not recognised as under the shell");
+    Require(MathF.Abs(controller.Position.Z - 2f) < 0.05f,
+        $"the roofed interior was clamped to the seabed at Z={controller.Position.Z:F2}");
+    for (int i = 0; i < 90; i++) controller.Update(1f / 60f, forward);
+    Require(controller.Position.X > -5.5f,
+        $"the swimmer did not leave the roof (X={controller.Position.X:F2})");
+    Require(!controller.UnderTerrainShell,
+        "leaving the roof did not release the under-shell fact");
+    Require(controller.Position.Z >= 4.99f,
+        $"a body under OPEN ground was left there at Z={controller.Position.Z:F2}; it must be lifted onto the seabed");
+}
+
+static void VerifySwimmerKeepsRoofedInteriorBelowTerrain()
+{
+    // The other half: a flooded cave under the mountain. Terrain shell at 100, roof at 40,
+    // floor at 10, water to 30. The swimmer must stay in the cave, not be lifted to the shell.
+    var collision = new CollisionWorld();
+    AddFloor(collision, -10f, 10f, -10f, 10f, 10f);
+    AddFloor(collision, -10f, 10f, -10f, 10f, 40f);
+    collision.Build();
+    CharacterController controller = CreateController(CreateTerrain(height: 100f), collision);
+    controller.Teleport(-3f, -1f, 20f);
+    controller.LiquidSurfaceZ = 30f;
+    controller.LiquidSurfaceProbe = _ => 30f;
+    var forward = new MovementInput { Forward = 1f, Yaw = MathF.PI };
+    for (int i = 0; i < 60; i++) controller.Update(1f / 60f, forward);
+    Require(controller.TerrainGroundZ is not null, "the cave scenario walked off the synthetic height grid");
+    Require(controller.Swimming && controller.Position.Z < 30f,
+        $"the flooded cave swimmer was lifted to Z={controller.Position.Z:F2}");
+    Require(controller.UnderTerrainShell, "the cave roof was not recognised as the shell");
+}
+
+/// <summary>The independent detector the live probe uses: did the committed displacement cross
+/// any triangle at the feet, mid-body or head band?</summary>
+static void RequireNoTunnel(CollisionWorld collision, Vector3 from, Vector3 to, float height, string where)
+{
+    Vector3 delta = to - from;
+    float length = delta.Length();
+    if (length < 1e-4f) return;
+    foreach (float band in new[] { 0.15f, height * 0.5f, height - 0.15f })
+    {
+        RayHit? hit = collision.Raycast(from + new Vector3(0f, 0f, band), delta, length);
+        Require(hit is null,
+            $"{where}: the body crossed a surface at band {band:F2} (normal " +
+            $"{hit?.Normal.X:F2},{hit?.Normal.Y:F2},{hit?.Normal.Z:F2}) moving from " +
+            $"({from.X:F2},{from.Y:F2},{from.Z:F2}) to ({to.X:F2},{to.Y:F2},{to.Z:F2})");
+    }
+}
 
 // IRONFORGE. The free view sets FlyFloorClearance so an RTS camera cannot sink beneath the map,
 // but the clamp read the outdoor ADT height field as "the floor" - and every great interior
@@ -502,6 +835,51 @@ static void VerifySteepAdtTerrainDoesNotBankJumps()
         $"repeated steep-terrain jumps banked landing height {highestLanding:F3}");
     Require(controller.Position.X < -23f,
         $"repeated steep-terrain jumps climbed through the face to X={controller.Position.X:F3}");
+}
+
+static void VerifyWmoFloorCrossesSteepCaveLip()
+{
+    // Real mountain-cave entrances cut the ADT away a few yards after the WMO
+    // floor begins.  Before the controller has accumulated a full yard of
+    // under-terrain separation, the last steep terrain fan at the lip must not
+    // become an invisible wall across that continuing collision floor.
+    TerrainRenderer terrain = CreateTerrainGrid((worldX, _) =>
+        10f + MathF.Max(0f, worldX + 25f) * MathF.Tan(55f * MathF.PI / 180f));
+    var collision = new CollisionWorld();
+    AddFloor(collision, -40f, 0f, -20f, 0f, 10f);
+    collision.Build();
+
+    CharacterController controller = CreateController(terrain, collision);
+    controller.Teleport(-30f, -10f, 10f);
+    controller.Update(1f / 60f, default);
+
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    for (int i = 0; i < 150; i++) controller.Update(1f / 60f, forward);
+
+    Require(controller.Position.X > -16f,
+        $"WMO-supported cave lip became an invisible terrain wall at X={controller.Position.X:F3}");
+    Require(controller.Grounded && controller.GroundSource == "collision" &&
+            MathF.Abs(controller.Position.Z - 10f) < 0.01f,
+        $"cave-lip traversal left its WMO floor at {controller.Position} " +
+        $"from {controller.GroundSource}");
+}
+
+static void VerifyDistantCollisionFloorDoesNotOpenHillside()
+{
+    TerrainRenderer terrain = CreateTerrainGrid((worldX, _) =>
+        10f + MathF.Max(0f, worldX + 25f) * MathF.Tan(55f * MathF.PI / 180f));
+    var collision = new CollisionWorld();
+    AddFloor(collision, -40f, 0f, -20f, 0f, 0f);
+    collision.Build();
+
+    CharacterController controller = CreateController(terrain, collision);
+    controller.Teleport(-30f, -10f, 10f);
+    controller.Update(1f / 60f, default);
+    var forward = new MovementInput { Forward = 1f, Yaw = 0f };
+    for (int i = 0; i < 180; i++) controller.Update(1f / 60f, forward);
+
+    Require(controller.Position.X < -23f,
+        $"distant collision floor incorrectly opened a steep hillside at X={controller.Position.X:F3}");
 }
 
 static void VerifyOverheadSteepTerrainDoesNotWallInterior()

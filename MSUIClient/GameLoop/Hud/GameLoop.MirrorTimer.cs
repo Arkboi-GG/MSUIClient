@@ -6,16 +6,29 @@ using MSUIClient.Net;
 
 namespace MSUIClient;
 
-/// <summary>MirrorTimer1/2/3: server-authoritative breath, fatigue, and feign-death bars.</summary>
+/// <summary>MirrorTimer1/2/3, with a local breath fallback for client-owned movement.</summary>
 public sealed partial class GameLoop
 {
-    private readonly MirrorTimerState _mirrorTimers = new();
+    private const uint PredictedBreathDurationMs = 60_000;
+    private const int PredictedBreathDrainScale = -1;
+    private const int PredictedBreathRecoveryScale = 10;
 
-    private void ResetMirrorTimers() => _mirrorTimers.Clear();
+    private readonly MirrorTimerState _mirrorTimers = new();
+    private bool _predictedBodySubmerged;
+    private bool _serverBreathObservedThisImmersion;
+
+    private void ResetMirrorTimers()
+    {
+        _mirrorTimers.Clear();
+        _predictedBodySubmerged = false;
+        _serverBreathObservedThisImmersion = false;
+    }
 
     private void ApplyMirrorTimerStart(byte[] body)
     {
         MirrorTimerStart packet = MirrorTimerPackets.ParseStart(body);
+        if (packet.Kind == MirrorTimerKind.Breath)
+            _serverBreathObservedThisImmersion = true;
         MirrorTimerState.ActiveTimer? timer = _mirrorTimers.Start(packet, NowSeconds());
         EmitInterface("mirror-timer", "start", timer is null ? "UNSHOWN" : "RESTATED",
             packet.SpellId,
@@ -26,6 +39,8 @@ public sealed partial class GameLoop
     private void ApplyMirrorTimerPause(byte[] body)
     {
         (uint rawKind, bool paused) = MirrorTimerPackets.ParsePause(body);
+        if (rawKind == (uint)MirrorTimerKind.Breath)
+            _serverBreathObservedThisImmersion = true;
         bool applied = _mirrorTimers.Pause(rawKind, paused, NowSeconds());
         EmitInterface("mirror-timer", "pause", applied ? "APPLIED" : "IGNORED", rawKind,
             $"paused={paused}");
@@ -34,10 +49,73 @@ public sealed partial class GameLoop
     private void ApplyMirrorTimerStop(byte[] body)
     {
         uint rawKind = MirrorTimerPackets.ParseStop(body);
+        if (rawKind == (uint)MirrorTimerKind.Breath)
+            _serverBreathObservedThisImmersion = true;
         bool stopped = _mirrorTimers.Stop(rawKind);
         EmitInterface("mirror-timer", "stop", stopped ? "HIDDEN" : "IGNORED", rawKind,
             "bodyBytes=4");
     }
+
+    /// <summary>
+    /// The controlled mover is client-authoritative, so its local liquid-depth
+    /// decision can precede (or on incomplete realms, never receive) the server
+    /// mirror timer. Predict only that missing presentation. Any breath packet
+    /// takes ownership for the rest of the current immersion.
+    /// </summary>
+    private void UpdatePredictedBreath()
+    {
+        double now = NowSeconds();
+        bool ownsSessionBody = ControllerOwnsControlledBodyPose &&
+                               ControlledGuid == LocalPlayerGuid;
+        bool submerged = ownsSessionBody && _controller is not null &&
+            TryGetBodyLiquidSurface(_controller.Position, out float surfaceZ, out _) &&
+            surfaceZ - _controller.Position.Z > _controller.CollisionHeight;
+        MirrorTimerState.ActiveTimer? breath = _mirrorTimers.Find(MirrorTimerKind.Breath);
+
+        if (submerged)
+        {
+            if (!_predictedBodySubmerged &&
+                breath is not { ServerAuthoritative: true })
+                _serverBreathObservedThisImmersion = false;
+
+            if (!_serverBreathObservedThisImmersion)
+            {
+                if (breath is null)
+                {
+                    StartPredictedBreath(PredictedBreathDurationMs,
+                        PredictedBreathDrainScale, now);
+                }
+                else if (!breath.ServerAuthoritative && breath.Scale >= 0)
+                {
+                    uint currentMs = PredictedBreathMilliseconds(breath, now);
+                    StartPredictedBreath(currentMs, PredictedBreathDrainScale, now);
+                }
+            }
+        }
+        else if (breath is { ServerAuthoritative: false })
+        {
+            uint currentMs = PredictedBreathMilliseconds(breath, now);
+            if (currentMs >= PredictedBreathDurationMs - 1)
+                _mirrorTimers.Stop((uint)MirrorTimerKind.Breath);
+            else if (breath.Scale <= 0)
+                StartPredictedBreath(currentMs, PredictedBreathRecoveryScale, now);
+        }
+
+        if (!submerged)
+            _serverBreathObservedThisImmersion = false;
+        _predictedBodySubmerged = submerged;
+    }
+
+    private void StartPredictedBreath(uint remainingMs, int scale, double now) =>
+        _mirrorTimers.Start(new MirrorTimerStart(
+            (uint)MirrorTimerKind.Breath, remainingMs,
+            PredictedBreathDurationMs, scale, false, 0),
+            now, serverAuthoritative: false);
+
+    private static uint PredictedBreathMilliseconds(
+        MirrorTimerState.ActiveTimer breath, double now) =>
+        (uint)Math.Clamp(Math.Round(MirrorTimerState.ValueAt(breath, now) * 1000.0),
+            0.0, PredictedBreathDurationMs);
 
     private void DrawMirrorTimerFrames()
     {

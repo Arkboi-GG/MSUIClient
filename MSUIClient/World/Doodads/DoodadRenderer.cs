@@ -47,8 +47,15 @@ public sealed class DoodadRenderer : IDisposable
     /// (Engine/WorldCut.cs). Empty = no tunnels. Set by GameLoop once per frame.</summary>
     public List<Vector3> SightTargets { get; } = [];
 
+    /// <summary>Command View party sight (World/PartySight.cs); null = never consulted.</summary>
+    public PartySightPass? PartySight { get; set; }
+
     /// <summary>Canopy cut height above a party member's feet (the Command View cut height).</summary>
     public float CanopyCutHeight { get; set; } = 4.5f;
+
+    /// <summary>The Command View's camera-side slice around the primary (Engine/WorldCut.cs),
+    /// copied from WmoRenderer.Slice by GameLoop once per frame; null = off.</summary>
+    public WorldSlice? Slice { get; set; }
 
     private void SetSightUniforms(Vector3 cameraPosition)
     {
@@ -58,6 +65,14 @@ public sealed class DoodadRenderer : IDisposable
             _shader.Set($"uSightTo[{i}]", SightTargets[i] - cameraPosition);
         _shader.Set("uSightRadius", new Vector2(WorldCut.SightRadiusNear, WorldCut.SightRadiusFar));
         _shader.Set("uCanopy", new Vector3(WorldCut.CanopyRadius, CanopyCutHeight, 1.2f));
+
+        _shader.Set("uSliceActive", Slice is not null ? 1 : 0);
+        if (Slice is not WorldSlice slice) return;
+        _shader.Set("uSliceDir", slice.Forward);
+        _shader.Set("uSliceDepth", slice.Depth);
+        _shader.Set("uSliceFloorZ", slice.RelativeFloorZ(cameraPosition));
+        _shader.Set("uSliceCentre", slice.RelativeCentre(cameraPosition));
+        _shader.Set("uSliceRadius", WorldSlice.Radius);
     }
 
     /// <summary>Position(3) + Normal(3) + UV(2).</summary>
@@ -2897,6 +2912,7 @@ public sealed class DoodadRenderer : IDisposable
         _shader.Set("uCutRect", Cut?.RelativeRect(camera.Position) ?? Vector4.Zero);
         _shader.Set("uCutZ", Cut?.RelativeZ(camera.Position) ?? 0f);
         SetSightUniforms(camera.Position);
+        PartySight?.Apply(_shader, camera.Position);
         // uUseInstancing is set per pass below (1 for RenderInstanced, 0 for the
         // per-instance GameObject-pose pass), not once for the whole frame.
         _shader.Set("uCameraPos", Vector3.Zero);

@@ -1053,7 +1053,7 @@ public sealed partial class GameLoop
                             Vector2 vp = ImGuiNET.ImGui.GetIO().DisplaySize;
                             bool onScreen = _window.Camera.TryProjectToScreen(corpse.Position + new Vector3(0f, 0f, 0.5f), vp, out Vector2 px, out _);
                             ulong pickedAt = onScreen ? PickUnit(px) : 0;
-                            bool reach = CommandViewLootInReach(corpse);
+                            bool reach = CommandViewInteractInReach(CommandViewInteractKind.Loot, corpse);
                             string poseInfo = "pose=none";
                             if (_creatures?.TryGetSpellPose(corpse.Guid, out SpellUnitPose cp) == true)
                             {
@@ -1221,6 +1221,26 @@ public sealed partial class GameLoop
                     else { StopSocketTrace(); Log(true,line); }
                     break;
                 case "dump": _currentVantage=p[1]; ArmGameplayDump(); Log(true,line); break;
+                // A client slash command exactly as chat would submit it ("slash /editui").
+                case "slash": Log(TrySubmitClientSlashCommand(line[5..].Trim()), line); break;
+                // HUD layout editor (PLAN_21): place a registered frame through the live edit
+                // session, the same path the selection card's anchor pick + nudge take -
+                // "hud-place minimap BottomRight -8 -8". Stands in for a pointer drop.
+                case "hud-place":
+                {
+                    string[] hp = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);   // p caps at 3
+                    if (_hudEdit is null || hp.Length < 5 ||
+                        !Enum.TryParse(hp[2], ignoreCase: true, out HudAnchor hudAnchor))
+                        Log(false, line);
+                    else
+                    {
+                        HudEditApply(HudLayoutState, _hudEdit, hp[1], HudPlacement.At(hudAnchor,
+                            float.Parse(hp[3], CultureInfo.InvariantCulture),
+                            float.Parse(hp[4], CultureInfo.InvariantCulture)));
+                        Log(true, $"{line} context={_hudEdit.Context} layout={HudLayoutState.ActiveLayout}");
+                    }
+                    break;
+                }
                 case "ui-parity":
                     ArmUiParityCapture(p[1], stageFixture: false);
                     Log(_uiParityArmed, $"{line} provenance={UiParityProvenance}");

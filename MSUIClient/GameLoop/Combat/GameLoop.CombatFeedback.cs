@@ -157,6 +157,8 @@ public sealed partial class GameLoop
     {
         _window.BeginHardwareCursorFrame();
         BeginSharedGameTooltipFrame(NowSeconds());
+        // The HUD frame registry is only ever THIS frame's draw sites (PLAN_21).
+        BeginHudFrameRegistry();
         try
         {
             // The reference keeps Point as the gameplay/UI base and lets a more specific hover
@@ -199,6 +201,7 @@ public sealed partial class GameLoop
             // Player Power Bars sit beside the player frame, not instead of it: the AddOns
             // switch is off by default and either, neither or both may be on.
             DrawPlayerPowerBars();
+            DrawSwingTimer();
             DrawTargetFrame();
             DrawPetFrameAndActionBar();
             DrawStanceBar();
@@ -209,6 +212,7 @@ public sealed partial class GameLoop
             DrawPartyQuestLogPanel();
             DrawRaidInfoPanel();
             DrawStablePanel();
+            DrawCompanionsPanel();
             DrawGiverQuestsWindow();
             DrawGiverQuestTextWindow();
             DrawQuestMarkerNumerals();
@@ -261,6 +265,9 @@ public sealed partial class GameLoop
             // The reference bottom multibars use frameStrata HIGH. Draw them after ordinary
             // MEDIUM panels (including bags) and before dialog confirmations.
             DrawMultiActionBars();
+            // HUD layout Edit Mode overlay: after the last frame it edits (the HIGH stratum
+            // above), before tooltips and popups, so it is display-front over its movers.
+            DrawHudLayoutEditor();
             DrawGroupLootFrames();
             ResolveAndDrawSharedGameTooltip();
             DrawItemRefTooltip();

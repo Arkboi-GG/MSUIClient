@@ -68,6 +68,7 @@ public sealed partial class GameLoop
         RtsEncounterLab, RtsUndoWaypoint, RtsFocusPrimary,
         CrpgCycleControlNext, CrpgCycleControlPrevious, CrpgTakeControl,
         RtsLockCameraPrimary,
+        ToggleHudEditMode,
     }
 
     private static GameBinding RtsSaveGroupBinding(int index) =>
@@ -170,6 +171,9 @@ public sealed partial class GameLoop
         ("Miscellaneous", GameBinding.MasterVolumeDown, "Master Volume Down", Key.Minus),
         ("Miscellaneous", GameBinding.ToggleUi, "Toggle User Interface", Key.Z),
         ("Miscellaneous", GameBinding.Screenshot, "Screen Shot", Key.PrintScreen),
+        // MSUI: the HUD layout editor (PLAN_21). Unbound by default; also /editui and
+        // Options -> Interface -> Edit HUD layout.
+        ("Miscellaneous", GameBinding.ToggleHudEditMode, "Edit HUD Layout", Key.Unknown),
         ("Camera", GameBinding.CameraZoomIn, "Zoom In", Key.Unknown),
         ("Camera", GameBinding.CameraZoomOut, "Zoom Out", Key.Unknown),
         ("MultiActionBar", GameBinding.MultiActionBar1Button1, "Action Button 1", Key.Unknown),
@@ -598,7 +602,11 @@ public sealed partial class GameLoop
     private bool BindingDown(GameBinding binding)
     {
         EnsureBindingsLoaded();
-        return _bindingLatches.Values.Any(active => active.Contains(binding)) ||
+        // HUD layout Edit Mode: gameplay commands stand down, the camera and the two toggles
+        // pass, and the arrow keys belong to the nudge while a frame is selected
+        // (GameLoop.HudFrames.cs).
+        if (HudEditBlocksBinding(binding)) return false;
+        return _bindingLatches.Any(latch => !HudEditOwnsKey(latch.Key) && latch.Value.Contains(binding)) ||
             _bindingPointerLatches.Values.Any(active => active.Contains(binding)) ||
             _bindingPointerPulse.Contains(binding);
     }

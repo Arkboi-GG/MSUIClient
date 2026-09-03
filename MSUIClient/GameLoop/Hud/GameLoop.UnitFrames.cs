@@ -8,17 +8,28 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
+    /// <summary>Resolved logical origin of the PlayerFrame (HUD layout registry, PLAN_21); the
+    /// bot-bar hover test and the party chain rail measure from it.</summary>
+    private Vector2 _playerFrameOrigin = new(-19, 4);
+
     /// <summary>The build-5875 PlayerFrame/TargetFrame geometry and authored texture.</summary>
     private void DrawVanillaUnitFrame(WorldEntity unit, Vector2 authoredOrigin, bool playerFrame,
         string name, FactionReaction reaction, uint portraitTexture, float combatFlash)
     {
         if (_gameplayArt is null) return;
         float s = GameplayUiScale();
-        Vector2 p = authoredOrigin * s;
         Vector2 size = new(232, 100);
         // The root frame is 232x100. The target's aura children deliberately
         // extend below it and ImGui needs a taller transparent host to avoid clipping.
         Vector2 windowSize = playerFrame ? size : new Vector2(232, 110);
+        // The authored TOPLEFT origin is the frame's default placement in the HUD layout
+        // registry; the player's own position, if any, comes back through it, and everything
+        // below - art, hit host, parity rows - keys off the resolved origin.
+        authoredOrigin = HudFrame(playerFrame ? "player-frame" : "target-frame",
+            playerFrame ? "Player frame" : "Target frame",
+            HudPlacement.At(HudAnchor.TopLeft, authoredOrigin.X, authoredOrigin.Y), windowSize).LogicalOrigin;
+        if (playerFrame) _playerFrameOrigin = authoredOrigin;
+        Vector2 p = authoredOrigin * s;
         CollectGameplayLayout(playerFrame ? "player-frame" : "target-frame",
             authoredOrigin.X, authoredOrigin.Y, windowSize.X, windowSize.Y, p, windowSize * s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);

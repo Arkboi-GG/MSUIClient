@@ -26,6 +26,17 @@ uniform float uCutZ;
 uniform int   uSightCount;
 uniform vec3  uSightTo[8];
 uniform vec2  uSightRadius;
+
+// Command View primary slice (Engine/WorldCut.cs, WorldSlice): inside the cut footprint, within
+// uSliceRadius of uSliceCentre (camera-relative XY), a fragment above uSliceFloorZ whose depth
+// along uSliceDir is less than uSliceDepth is discarded - the near half of a stairwell goes,
+// the floor and the far-side flight stay.
+uniform int   uSliceActive;
+uniform vec3  uSliceDir;
+uniform float uSliceDepth;
+uniform float uSliceFloorZ;
+uniform vec2  uSliceCentre;
+uniform float uSliceRadius;
 uniform sampler2D uTexture;
 uniform int   uHasTexture;
 
@@ -103,13 +114,69 @@ uniform float uAppearAlpha;
 uniform float uStyleWeight;
 uniform int   uPreserveAlpha;
 
+// Party sight (World/PartySight.cs): the picture is the camera's own view plus the primary's,
+// nothing else. uPartySightCube: distance from the primary's eye to the nearest solid in every
+// direction. uPartySeenDepth: distance to the nearest surface the primary sees under this pixel
+// (0 = none). uPartyPlainDepth: distance to the nearest solid the camera would see uncut.
+// A fragment the primary sees stays. One it cannot see is CUT when nearer than the seen surface
+// (it hides the primary's view), kept when it is what the camera sees anyway, and FOGGED when
+// it is only visible because a cut opened onto it. All positions camera-relative, like vWorldPos.
+uniform int         uPartySightActive;
+uniform samplerCube uPartySightCube;    // unit 6
+uniform sampler2D   uPartySeenDepth;    // unit 7: exact
+uniform sampler2D   uPartyPlainDepth;   // unit 8
+uniform sampler2D   uPartySeenDilated;  // unit 9: seen, grown a few pixels (the rim)
+uniform vec3        uPartySightEye;
+uniform float       uPartySightBias;
+
+// Unblocked from the primary's eye, AND the side the camera looks at is the side the eye is on
+// (a thin roof's top is not seen from below; its underside is). n: this face's normal from
+// screen derivatives, oriented toward the camera by the caller.
+bool PartySightSees(vec3 p, vec3 n)
+{
+    vec3 d = p - uPartySightEye;
+    if (length(d) > texture(uPartySightCube, d).r + uPartySightBias) return false;
+    return dot(n, -d) > 0.0;
+}
+
 out vec4 FragColor;
 
 void main()
 {
-    if (uCutActive == 1 && vWorldPos.z > uCutZ &&
+    // Derivatives first, before any discard, so the face normal is always defined.
+    vec3 partyN = normalize(vNormal);   // vertex normal: derivatives hatch at grazing angles
+    if (dot(partyN, -vWorldPos) < 0.0) partyN = -partyN;
+    float partyFog = 0.0;   // 1 = painted flat fog-of-war colour (unseen, behind a cut)
+    if (uPartySightActive == 1 && !PartySightSees(vWorldPos, partyN))
+    {
+        float partyDist = length(vWorldPos);
+        ivec2 partyPx = ivec2(gl_FragCoord.xy);
+        float partySeen = texelFetch(uPartySeenDepth, partyPx, 0).r;
+        float partyRim  = texelFetch(uPartySeenDilated, partyPx, 0).r;
+        float partyPlain = texelFetch(uPartyPlainDepth, partyPx, 0).r;
+        // In front of the primary's view: cut. On the rim of the opening (a sliver the exact
+        // test misses, or the far map through the hole): painted fog, never sky.
+        if (partySeen > 0.0 && partyDist < partySeen - 0.3) discard;
+        else if (partyRim > 0.0 && partyDist < partyRim - 2.0) partyFog = 0.92;
+        else if (partyPlain > 0.0 && partyDist > partyPlain + 2.0) partyFog = 0.92;
+    }
+    if (uCutActive == 1 &&
         vWorldPos.x > uCutRect.x && vWorldPos.x < uCutRect.z &&
-        vWorldPos.y > uCutRect.y && vWorldPos.y < uCutRect.w) discard;
+        vWorldPos.y > uCutRect.y && vWorldPos.y < uCutRect.w)
+    {
+        // Roof plane: everything above the cut height.
+        if (vWorldPos.z > uCutZ) discard;
+        // Primary slice: everything on the camera side of the primary, above its plinth.
+        // Floor-like faces (treads, ramps, a sloping cave floor) are never sliced: the slice
+        // exists to remove the near WALLS of a shaft, and a floor rising toward the camera
+        // vanished with them (owner, 2026-09-03).
+        if (uSliceActive == 1 && abs(vNormal.z) < 0.6 && vWorldPos.z > uSliceFloorZ &&
+            dot(vWorldPos, uSliceDir) < uSliceDepth)
+        {
+            vec2 sliceFlat = vWorldPos.xy - uSliceCentre;
+            if (dot(sliceFlat, sliceFlat) < uSliceRadius * uSliceRadius) discard;
+        }
+    }
     for (int i = 0; i < uSightCount; i++)
     {
         vec3 b = uSightTo[i];
@@ -187,5 +254,5 @@ void main()
     // in; at 1.0 this is byte-for-byte the original output.
     float naturalAlpha = albedo.a * uAppearAlpha;
     float outAlpha = uPreserveAlpha == 1 ? naturalAlpha : uStyleWeight;
-    FragColor = vec4(mix(lit, uFogColor, fog), outAlpha);
+    FragColor = vec4(mix(mix(lit, uFogColor, fog), vec3(0.04, 0.035, 0.05), partyFog), outAlpha);
 }

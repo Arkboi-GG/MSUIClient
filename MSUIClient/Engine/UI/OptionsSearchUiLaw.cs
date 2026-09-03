@@ -78,13 +78,13 @@ public static class OptionsSearchUiLaw
         "Unit contact shadows", "Value flattening", "View distance", "VSync", "Walking wake",
         "Water detail", "Wave amplitude", "Wave speed", "Wind speed", "Wind strength",
         "Resolution", "Mouse cursor scale", "World canvas height",
-        // The chat-frame controls were absent entirely, so the one discovery tool the
-        // options page offers could not find the switch that moves the chat window.
-        "Chat frame", "Unlock chat frame", "Reset chat position", "Move chat",
     ];
 
     private static readonly string[] InterfaceLabels =
     [
+        // The HUD layout editor (PLAN_21) replaced the chat-only mover; "chat" must still
+        // lead to the switch that moves the chat window, hence the aliases.
+        "HUD layout", "Edit HUD layout", "Move chat", "Move frames", "Move minimap",
         "Mouse", "MSUI Options", "Nameplates", "Chat Bubbles", "Floating Text", "CRPG / RTS", "Camera", "Current keys",
         "Questing", "Automatic Quest Tracking", "Auto track quests", "Quest tracker",
         "Camera collision", "Camera Following Style", "Collision clearance", "Cut buildings away in the free view",
@@ -107,6 +107,8 @@ public static class OptionsSearchUiLaw
         "Active quest objectives", "Ready to turn in",
         "Player Power Bars", "Health bar", "Power bar", "Movable health bar",
         "Combo points", "Energy tick", "Tick sweep", "Unlock bars",
+        "Swing Timer", "Attack speed", "Auto attack", "Auto Shot", "Off hand swing",
+        "Ranged aim band", "Weapon swing",
     ];
 
     public static IReadOnlyList<OptionsSearchEntry> Catalog { get; } =

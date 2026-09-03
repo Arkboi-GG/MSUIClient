@@ -149,6 +149,13 @@ public sealed partial class GameLoop
         // Deliberately modifier-insensitive. This preserves MSUI's current Escape contract while
         // the rising-edge latch prevents OS/key-repeat from consuming more than one layer.
         bool escape = InputKeyDown(Silk.NET.Input.Key.Escape);
+        // HUD layout Edit Mode owns Escape ahead of every menu layer: Escape = Save & Exit
+        // (undo and Revert & Exit cover mistakes, so no prompt).
+        if (escape && !_escapeKeyDown && ConsumeHudEditEscape())
+        {
+            _escapeKeyDown = escape;
+            return;
+        }
         // Dev-tool pre-gate, deliberately OUTSIDE GameMenuUiLaw (the law transcribes
         // vanilla layers; an armed NPC-dev edit mode is tooling and owns Escape first).
         if (escape && !_escapeKeyDown && ConsumeDevEditEscape())
@@ -246,7 +253,7 @@ public sealed partial class GameLoop
         _auctionOpen || _mailOpen || _gossipMenu is not null || _gossipGreeting is not null ||
         QuestNpcPanelNow() != QuestNpcPanel.None ||
         _vendor is not null || _trainer is not null || _gameObjectGuid != 0 || _worldMapOpen ||
-        _commanderMapOpen || _rtsControlGroupCommandOpen ||
+        _commanderMapOpen || _rtsControlGroupCommandOpen || _companionsOpen ||
         _macroOpen || _helpOpen || _socialOpen || _guildOpen || _professionOpen || _bankOpen ||
         _tabardOpen || _taxiOpen && !_taxiLocked || _talentOpen || _questLogOpen ||
         _spellbookOpen || _characterOpen || _backpackOpen || _keyringOpen ||
@@ -264,6 +271,7 @@ public sealed partial class GameLoop
         if (CloseItemRefTooltip()) return true;
         if (_dressUpOpen) { CloseDressUp(); return true; }
         if (_rtsControlGroupCommandOpen) { _rtsControlGroupCommandOpen = false; return true; }
+        if (_companionsOpen) { _companionsOpen = false; return true; }
         if (_bindingCapture is not null) { _bindingCapture = null; return true; }
         if (_keybindingsOpen)
         {
@@ -1356,7 +1364,6 @@ public sealed partial class GameLoop
                     v => s.Display.CursorScale = v, .5f, 2f, "x{0:F2}",
                     "Multiplies the cursor after Interface scale, so it follows the HUD but can be tuned independently.");
 
-                s.HudLayout ??= new GameSettings.HudLayoutSettings();
                 if (ImGui.TreeNode("Advanced##display"))
                 {
                     Restart();
@@ -1365,33 +1372,6 @@ public sealed partial class GameLoop
                     Slider("aniso", "Anisotropic filtering", () => s.Display.Anisotropy,
                         v => s.Display.Anisotropy = v, 1f, 16f, "{0:F0}x");
                     ImGui.TreePop();
-                }
-            }
-            EndBox();
-
-            // ITS OWN SECTION, not the eighth control inside "Display". Buried there it was
-            // effectively undiscoverable - and it was missing from the options search too, so
-            // neither looking nor searching found the switch that moves the chat window.
-            BeginBox("chat-frame", "Chat frame");
-            {
-                Check("Unlock chat frame", () => s.HudLayout.ChatUnlocked,
-                    v => s.HudLayout.ChatUnlocked = v,
-                    "Puts a 'Drag chat' handle just above the chat frame's TOP-RIGHT corner -\n" +
-                    "not the top-left, which is where people look for it. Drag that to move\n" +
-                    "chat; the position saves on release, in logical UI units.\n" +
-                    "In the free view chat sits higher on purpose, clearing the square minimap.");
-                if (s.HudLayout.ChatOffsetX != 0f || s.HudLayout.ChatOffsetY != 0f)
-                {
-                    // Only offered once it can do something. Until this existed a dragged chat
-                    // frame had no route back: the offsets are written by the drag handle alone.
-                    if (Button("Reset chat position", new Vector2(ControlWidth() * .5f,
-                            WowSkin.ButtonArt.Y * S * 1.1f)))
-                    {
-                        s.HudLayout.ChatOffsetX = 0f;
-                        s.HudLayout.ChatOffsetY = 0f;
-                        ApplySettings(s);
-                        _settingsStatus = "chat frame returned to its authored corner";
-                    }
                 }
             }
             EndBox();
@@ -2088,6 +2068,27 @@ public sealed partial class GameLoop
         {
             BeginBoxGrid();
 
+            // The HUD layout editor (PLAN_21) replaced the chat-only "Unlock chat frame" box.
+            BeginBox("hud-layout", "HUD layout");
+            {
+                bool canEdit = _net is { IsInWorld: true } || CreatorInWorld;
+                if (Button("Edit HUD layout",
+                        new Vector2(ControlWidth(), WowSkin.ButtonArt.Y * S * 1.1f), canEdit))
+                {
+                    // The Key Bindings row's exit: commit, close the menu, open the surface.
+                    if (!_settingsCancelling) CommitSettings();
+                    _settingsCancelling = false;
+                    _settingsOpen = false;
+                    ImGui.CloseCurrentPopup();
+                    EnterHudEditMode();
+                }
+                Tip("Move the HUD's frames: drag them on a grid with snapping, nudge with the\n" +
+                    "arrow keys, or pick a corner on the frame's card. The Command View and\n" +
+                    "body play keep separate layouts. Escape saves; Revert & Exit discards.\n" +
+                    "Also /editui in chat, or a key under Key Bindings.");
+            }
+            EndBox();
+
             BeginBox("mouse", "Mouse");
             {
                 Slider("msens", "Mouse sensitivity", () => s.Controls.MouseSensitivity,
@@ -2250,15 +2251,26 @@ public sealed partial class GameLoop
                     v => s.Controls.CommandViewCutPlane = v,
                     "Slice the building the commanded unit is in at a fixed height above" +
                     " its feet: roof and upper walls vanish, floor and lower walls stay," +
-                    " and the camera keeps above the slice. On by default.");
+                    " and the camera keeps above the slice. Near a building or cave but" +
+                    " not inside a room (a cave mouth, a porch), a 10-yard square around" +
+                    " the unit is sliced instead, terrain included. Open ground: nothing." +
+                    " On by default.");
                 Slider("cv-cut", "Cut height", () => s.Controls.CommandViewCutHeight,
                     v => s.Controls.CommandViewCutHeight = Math.Clamp(v, 2f, 12f), 2f, 12f, "{0:F1} yd",
                     "How far above the commanded unit's feet the slice sits.");
                 Check("Cut what hides the party", () => s.Controls.CommandViewSightCut,
                     v => s.Controls.CommandViewSightCut = v,
-                    "Carve a tunnel through any building, roof, tree or prop standing" +
-                    " between the camera and a party member, so the party is never" +
-                    " hidden. Terrain is left alone. On by default.");
+                    "Carve through any building, roof, tree or prop between the camera" +
+                    " and the party, and open the camera side of the primary's building" +
+                    " down to a low plinth so a stairwell reads. Terrain is left alone." +
+                    " On by default.");
+                Check("See what the primary sees", () => s.Controls.CommandViewPartySightExperimental,
+                    v => s.Controls.CommandViewPartySightExperimental = v,
+                    "EXPERIMENTAL. The primary's own line of sight, reprojected to your camera:" +
+                    " anything between you and a surface the primary can see is cut away," +
+                    " what the hole exposes beyond its view is fogged. Pixel-exact, so the" +
+                    " opening has busy edges. Off by default; the roof cut above is the" +
+                    " standard.");
                 Check("Primary AI fights for it", () => s.Controls.CommandViewPrimaryAi,
                     v => { s.Controls.CommandViewPrimaryAi = v; _cvManualSentAt = 0; },
                     "Off: the primary selection is yours alone - it moves on orders and" +
@@ -2438,6 +2450,86 @@ public sealed partial class GameLoop
                     "The tick is inferred by watching energy jump upward - no packet " +
                     "announces it. At full energy nothing changes, so the sweep keeps its " +
                     "last known cadence until the next spend.");
+            }
+            EndBox();
+
+            var swing = addOns.SwingTimer ??= new GameSettings.SwingTimerSettings();
+            BeginBox("swing-timer", "Swing Timer");
+            {
+                Check("Enable Swing Timer", () => swing.Enabled,
+                    value => swing.Enabled = value,
+                    "One rail showing when your next auto-attack lands. Cursors sweep from " +
+                    "just-swung on the left to ready on the right.");
+                ImGui.TextWrapped(
+                    "Main hand blue, off hand gold, ranged green. Melee and ranged cannot " +
+                    "both run in 1.12, so the rail follows whichever you are using.");
+                ImGui.Spacing();
+
+                bool on = swing.Enabled;
+                if (!on) ImGui.BeginDisabled();
+
+                Check("Unlock rail (drag to move)", () => swing.Unlocked,
+                    value => swing.Unlocked = value,
+                    "Shows a drag handle and keeps the rail visible while idle.");
+                if (swing.OffsetX != 0f || swing.OffsetY != 0f)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("Reset position##swing-timer-reset"))
+                    {
+                        swing.OffsetX = 0f;
+                        swing.OffsetY = 0f;
+                        SettingsFile?.Save();
+                    }
+                }
+
+                Slider("swing-timer-width", "Width", () => swing.Width,
+                    v => swing.Width = SwingTimerLaw.ClampWidth(v),
+                    SwingTimerLaw.MinimumWidth, SwingTimerLaw.MaximumWidth, "{0:0}");
+                Slider("swing-timer-height", "Height", () => swing.Height,
+                    v => swing.Height = SwingTimerLaw.ClampHeight(v),
+                    SwingTimerLaw.MinimumHeight, SwingTimerLaw.MaximumHeight, "{0:0}");
+                Slider("swing-timer-scale", "Scale", () => swing.Scale,
+                    v => swing.Scale = SwingTimerLaw.ClampScale(v),
+                    SwingTimerLaw.MinimumScale, SwingTimerLaw.MaximumScale, "{0:0.00}",
+                    "Multiplies the global Interface scale.");
+
+                ImGui.Spacing();
+                Check("Track melee swings", () => swing.TrackMelee,
+                    value => swing.TrackMelee = value,
+                    "Main hand, plus an off-hand cursor whenever you are dual-wielding.");
+                Check("Track ranged shots", () => swing.TrackRanged,
+                    value => swing.TrackRanged = value,
+                    "Auto Shot and wand Shoot.");
+                Check("Hide when idle", () => swing.HideWhenIdle,
+                    value => swing.HideWhenIdle = value,
+                    "Hide the rail when nothing is swinging. Unlocking always shows it.");
+                Check("Show seconds remaining", () => swing.ShowText,
+                    value => swing.ShowText = value);
+
+                if (!on || !swing.TrackRanged) ImGui.BeginDisabled();
+                Check("Show the ranged aim band", () => swing.ShowAimBand,
+                    value => swing.ShowAimBand = value,
+                    "Marks the last half second of a ranged reload, where moving costs you " +
+                    "the shot. Real ranged weapons only - wands have no aim penalty.");
+                Slider("swing-timer-travel", "Projectile travel nudge",
+                    () => swing.RangedTravelSeconds,
+                    v => swing.RangedTravelSeconds = SwingTimerLaw.ClampTravel(v),
+                    SwingTimerLaw.MinimumTravelSeconds, SwingTimerLaw.MaximumTravelSeconds,
+                    "{0:0.00}s",
+                    "Manual head start on ranged shots to account for arrow flight time.");
+                if (!on || !swing.TrackRanged) ImGui.EndDisabled();
+
+                Check("Compensate for latency", () => swing.CompensateLatency,
+                    value => swing.CompensateLatency = value,
+                    "Start each swing already part-way along, by half the measured round " +
+                    "trip - the time the packet reporting it spent in flight.");
+
+                if (!on) ImGui.EndDisabled();
+
+                ImGui.Spacing();
+                ImGui.TextDisabled(
+                    "Swings are read from the server's own combat packets, including which " +
+                    "hand struck, so off-hand timing is reported rather than guessed.");
             }
             EndBox();
         }
@@ -2711,14 +2803,11 @@ public sealed partial class GameLoop
             case MenuPage.Video:
                 s.Display = d.Display; s.View = d.View; s.Detail = d.Detail;
                 s.Clutter = d.Clutter; s.Water = d.Water; s.Lighting = d.Lighting;
-                // HudLayout too: this page DISPLAYS "Unlock chat frame", which lives there, so
-                // leaving it out made Defaults silently skip a control it was showing. It also
-                // left the dragged chat position with no way back at all - the offsets are only
-                // ever written by the drag handle, and nothing else in the UI touches them.
-                s.HudLayout = d.HudLayout;
                 break;
             case MenuPage.Controls:
                 s.Controls = d.Controls;
+                // The Interface page hosts "Edit HUD layout", so its Defaults reset the layouts.
+                s.HudLayout = d.HudLayout;
                 break;
             case MenuPage.Sound:
                 s.Audio = d.Audio;

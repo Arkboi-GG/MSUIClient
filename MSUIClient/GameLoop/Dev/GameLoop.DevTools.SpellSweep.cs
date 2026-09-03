@@ -24,7 +24,7 @@ public sealed partial class GameLoop
         byte classId = 0;
         uint power = 0;
         byte powerType = (byte)spell.PowerType;
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player))
         { classId = player.Fields.Bytes0.Class; power = player.Fields.Power(powerType); }
         var verdict = new SpellSweepVerdict(NowSeconds(), _net?.PlayerName ?? "", classId,
             spell.Id, spell.Name, SchoolName(spell.School), spell.AutoRepeat ? "AUTO_REPEAT" :
@@ -37,7 +37,7 @@ public sealed partial class GameLoop
     private bool SpellResourceGate(in SpellInfo spell, out uint available, out uint cost)
     {
         available = 0; cost = spell.ManaCost;
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
         byte powerType = (byte)spell.PowerType;
         available = player.Fields.Power(powerType);
         uint baseAmount = spell.ManaCostPercent == 0 ? 0u :
@@ -52,7 +52,7 @@ public sealed partial class GameLoop
         uint power = 0, cost = 0;
         byte powerType = (byte)(info?.PowerType ?? 0);
         byte classId = 0;
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player))
         {
             power = player.Fields.Power(powerType);
             classId = player.Fields.Bytes0.Class;
@@ -82,7 +82,7 @@ public sealed partial class GameLoop
         byte classId = 0;
         uint power = 0;
         byte powerType = (byte)(info?.PowerType ?? 0);
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player))
         { classId = player.Fields.Bytes0.Class; power = player.Fields.Power(powerType); }
         var verdict = new SpellSweepVerdict(NowSeconds(), _net?.PlayerName ?? "", classId,
             spellId, info?.Name ?? $"Spell {spellId}", SchoolName(info?.School ?? 0),
@@ -98,7 +98,7 @@ public sealed partial class GameLoop
     private bool EmitAuraEffectCheck(uint spellId, bool expectedPresent)
     {
         WorldEntity? player = null;
-        bool hasPlayer = _net is not null && _entities.TryGet(_net.PlayerGuid, out player);
+        bool hasPlayer = _net is not null && _entities.TryGet(ControlledGuid, out player);
         bool present = hasPlayer && player!.Fields.Auras().Any(a => a.SpellId == spellId);
         byte classId = hasPlayer ? player!.Fields.Bytes0.Class : (byte)0;
         SpellInfo? info = _spellCatalog?.TryGet(spellId, out SpellInfo found) == true ? found : null;

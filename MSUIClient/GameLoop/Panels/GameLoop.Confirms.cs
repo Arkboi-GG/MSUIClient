@@ -178,6 +178,11 @@ public sealed partial class GameLoop
     /// <summary>The coordinator's effects for the confirm popups.</summary>
     private void ApplyConfirmPopupEffect(StaticPopupCoordinatorLaw.Effect effect)
     {
+        if (effect.Type == ConfirmPopupUiLaw.GiverChoicePopupType)
+        {
+            ApplyCommandViewNpcChoice(effect.Kind);
+            return;
+        }
         bool summon = effect.Type == ConfirmPopupUiLaw.SummonPopupType;
         if (effect.Type == ConfirmPopupUiLaw.ReadyCheckPopupType)
         {
@@ -231,6 +236,7 @@ public sealed partial class GameLoop
         DrawConfirmPopup(ConfirmPopupUiLaw.SummonPopupType);
         DrawConfirmPopup(ConfirmPopupUiLaw.QuestAcceptPopupType);
         DrawConfirmPopup(ConfirmPopupUiLaw.ReadyCheckPopupType);
+        DrawConfirmPopup(ConfirmPopupUiLaw.GiverChoicePopupType);
         DrawLootMasterMenu();
     }
 
@@ -241,10 +247,15 @@ public sealed partial class GameLoop
             ConfirmPopupUiLaw.Visible(_staticPopupSlots, type);
         if (popup is not { } visible || _skin is null) return;
         float scale = GameplayUiScale();
+        // The Command View NPC chooser is the one popup with N buttons (one per thing the NPC
+        // offers); the rest are the stock accept/decline pair.
+        bool chooser = type == ConfirmPopupUiLaw.GiverChoicePopupType;
         string text = type switch
         {
             ConfirmPopupUiLaw.SummonPopupType => SummonPromptText(),
             ConfirmPopupUiLaw.ReadyCheckPopupType => ReadyCheckPromptText(),
+            ConfirmPopupUiLaw.GiverChoicePopupType => ConfirmPopupUiLaw.GiverChoiceText(
+                ResolveWorldUnitName(_cvGiverChoiceGuid), _cvGiverChoiceOptions),
             _ => QuestConfirmPromptText(),
         };
         (string acceptCaption, string declineCaption) = ConfirmPopupUiLaw.Captions(type);
@@ -252,7 +263,9 @@ public sealed partial class GameLoop
             DuelFrameUiLaw.PopupTextWidth * scale).ToArray();
         float logicalTextHeight = lines.Length * GameText.LinePitch("GameFontHighlight", 1);
         Vector2 origin = StaticPopupOrigin(visible.Slot, DuelFrameUiLaw.PopupWidth, scale);
-        Vector2 size = DuelFrameUiLaw.PopupSize(logicalTextHeight, buttons: true) * scale;
+        Vector2 size = (chooser
+            ? ConfirmPopupUiLaw.GiverChoicePopupSize(logicalTextHeight, _cvGiverChoiceOptions.Count)
+            : DuelFrameUiLaw.PopupSize(logicalTextHeight, buttons: true)) * scale;
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
@@ -269,20 +282,39 @@ public sealed partial class GameLoop
         for (int i = 0; i < lines.Length; i++)
             GameText.DrawCentered(draw, "GameFontHighlight", lines[i],
                 origin + DuelFrameUiLaw.TextLineCenter(i) * scale, scale);
-        bool accept = DrawPartyInviteButton(draw, $"StaticPopup{visible.Slot}Button1",
-            acceptCaption,
-            origin + DuelFrameUiLaw.ButtonMin(1, logicalTextHeight) * scale,
-            scale, capture: false, clip: Vector4.Zero);
-        bool decline = DrawPartyInviteButton(draw, $"StaticPopup{visible.Slot}Button2",
-            declineCaption,
-            origin + DuelFrameUiLaw.ButtonMin(2, logicalTextHeight) * scale,
-            scale, capture: false, clip: Vector4.Zero);
+        int clicked = 0;   // 1-based button, 0 = none
+        if (chooser)
+        {
+            for (int i = 0; i < _cvGiverChoiceOptions.Count; i++)
+                if (DrawPartyInviteButton(draw, $"StaticPopup{visible.Slot}Button{i + 1}",
+                        _cvGiverChoiceOptions[i].Caption,
+                        origin + ConfirmPopupUiLaw.GiverChoiceButtonMin(i, logicalTextHeight) * scale,
+                        scale, capture: false, clip: Vector4.Zero))
+                    clicked = i + 1;
+        }
+        else
+        {
+            if (DrawPartyInviteButton(draw, $"StaticPopup{visible.Slot}Button1", acceptCaption,
+                    origin + DuelFrameUiLaw.ButtonMin(1, logicalTextHeight) * scale,
+                    scale, capture: false, clip: Vector4.Zero))
+                clicked = 1;
+            else if (DrawPartyInviteButton(draw, $"StaticPopup{visible.Slot}Button2", declineCaption,
+                    origin + DuelFrameUiLaw.ButtonMin(2, logicalTextHeight) * scale,
+                    scale, capture: false, clip: Vector4.Zero))
+                clicked = 2;
+        }
         draw.PopClipRect();
         ImGui.End();
-        if (accept)
+        if (clicked == 0) return;
+        if (chooser)
+        {
+            // Every chooser button is the popup's ACCEPT: the coordinator only knows two
+            // buttons, so the picked option is recorded first and the Accept effect dispatches it.
+            _cvGiverChoicePicked = clicked - 1;
             ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Click(_staticPopupSlots, visible.Slot, buttonIndex: 1));
-        else if (decline)
-            ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Click(_staticPopupSlots, visible.Slot, buttonIndex: 2));
+        }
+        else
+            ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Click(_staticPopupSlots, visible.Slot, buttonIndex: clicked));
     }
 
     // ── Master loot ──────────────────────────────────────────────────────────────────────────

@@ -878,6 +878,28 @@ public sealed class TerrainRenderer : IDisposable
 
     public void Render(Camera camera) => Render(camera, null);
 
+    /// <summary>Command View party sight (World/PartySight.cs); null = never consulted.</summary>
+    public PartySightPass? PartySight { get; set; }
+
+    /// <summary>
+    /// Geometry-only draw of the loaded tiles through whatever shader the caller has in use
+    /// (attribute 0 = world position; uViewProjection/uEye already set). Per-chunk frustum
+    /// culling against the given eye-relative view-projection, tiles beyond
+    /// <paramref name="range"/> of the eye skipped. Used by the party sight cube and pre-pass.
+    /// </summary>
+    public void RenderDepth(Matrix4x4 relativeViewProjection, Vector3 eye, float range)
+    {
+        if (_tiles.Count == 0) return;
+        foreach (var tile in _tiles.Values)
+        {
+            if (DistanceToBox(eye, tile.BoundsMin, tile.BoundsMax) > range) continue;
+            if (!Camera.BoxInFrustum(relativeViewProjection,
+                    tile.BoundsMin - eye, tile.BoundsMax - eye)) continue;
+            tile.Draw(relativeViewProjection, eye);
+        }
+        _gl.BindVertexArray(0);
+    }
+
     /// <summary>
     /// Draw terrain with an optional absolute-world clip plane. The caller owns
     /// GL_CLIP_DISTANCE0 state; the ordinary active-world overload leaves it
@@ -905,6 +927,7 @@ public sealed class TerrainRenderer : IDisposable
         _shader.Set("uCutRect", Cut?.RelativeRect(camera.Position) ?? Vector4.Zero);
         _shader.Set("uCutZ", Cut?.RelativeZ(camera.Position) ?? 0f);
         _shader.Set("uCutMaxDist", CutMaxDistance);
+        PartySight?.Apply(_shader, camera.Position);
         _shader.Set("uCameraPos", Vector3.Zero);
         // Normalised HERE, not per pixel. The shader used to call normalize() on
         // this every fragment — on a uniform, over a surface that covers most of

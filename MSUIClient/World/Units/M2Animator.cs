@@ -743,13 +743,22 @@ public sealed class M2Animator
     /// committed (seated today; moving/turning later), an emote/swing/cast plays on the torso
     /// only rather than replacing the whole body. Applied BEFORE the arm overlays so an explicit
     /// per-hand sheath one-shot still wins on its own arm bones if the two ever coincide.
+    ///
+    /// <paramref name="reactionOverlay"/> is the wound-flinch secondary slot. Unlike the
+    /// action overlays above it does not replace keyed channels: it blends toward them by
+    /// <paramref name="reactionWeight"/> while the attack/base track keeps advancing beneath
+    /// it. Benilla's reconstruction of the vanilla slot seeds that weight at 0.75 and decays
+    /// it to zero over the wound clip. A masked wound is limited to the SpineLow subtree;
+    /// a full-body wound uses every bone.
     /// </summary>
     public void EvaluateWithArmOverlays(Clip? clip, float timeSeconds,
                          Clip? previous, float previousTimeSeconds, float previousWeight,
                          Clip? rightOverlay, float rightOverlayTime,
                          Clip? leftOverlay, float leftOverlayTime,
                          Clip? torsoOverlay, float torsoOverlayTime,
-                         float globalTimeSeconds, Matrix4x4[] skin)
+                         float globalTimeSeconds, Matrix4x4[] skin,
+                         Clip? reactionOverlay = null, float reactionOverlayTime = 0f,
+                         float reactionWeight = 0f, bool reactionMasked = true)
     {
         if (skin.Length < _boneCount)
             throw new ArgumentException($"skin array holds {skin.Length}, need {_boneCount}", nameof(skin));
@@ -764,6 +773,14 @@ public sealed class M2Animator
         float leftTime = ClipTime(leftOverlay, leftOverlayTime);
         float torsoTime = ClipTime(torsoOverlay, torsoOverlayTime);
         bool torsoMasking = torsoOverlay is not null && TorsoBone >= 0 && TorsoBone < _boneCount;
+        float reactionTime = ClipTime(reactionOverlay, reactionOverlayTime);
+        float reactionBlend = Math.Clamp(reactionWeight, 0f, 1f);
+        if (float.IsNaN(reactionBlend)) reactionBlend = 0f;
+        bool reactionActive = reactionOverlay is not null && reactionBlend > 0.001f;
+        // A rig without SpineLow cannot honor the mask; Benilla degrades that case to the
+        // full-body secondary node rather than silently dropping the flinch.
+        bool reactionMasking = reactionActive && reactionMasked &&
+            TorsoBone >= 0 && TorsoBone < _boneCount;
 
         float weight = previous is null ? 0f : Math.Clamp(previousWeight, 0f, 1f);
         if (float.IsNaN(weight)) weight = 0f;
@@ -807,6 +824,9 @@ public sealed class M2Animator
             // on its own arm bones if the two are ever active together.
             if (torsoMasking && IsDescendant(i, TorsoBone))
                 ApplyOverlayChannels(torsoOverlay!, torsoTime, i,
+                    ref translation, ref rotation, ref scale);
+            if (reactionActive && (!reactionMasking || IsDescendant(i, TorsoBone)))
+                BlendOverlayChannels(reactionOverlay!, reactionTime, reactionBlend, i,
                     ref translation, ref rotation, ref scale);
             if (rightOverlay is not null && _rightArmRoot >= 0 && IsDescendant(i, _rightArmRoot))
                 ApplyOverlayChannels(rightOverlay, rightTime, i,
@@ -913,6 +933,34 @@ public sealed class M2Animator
             rotation = SampleQuaternion(channels.RotationTimes, channels.RotationKeys, time);
         if (channels.ScaleTimes.Length > 0)
             scale = SampleVector3(channels.ScaleTimes, channels.ScaleKeys, time);
+    }
+
+    /// <summary>
+    /// Blend the channels actually authored by a secondary clip over the current pose. Missing
+    /// channels leave the pose beneath untouched; treating them as bind pose would pull an
+    /// attacking character toward a T-pose for the duration of every wound flinch.
+    /// </summary>
+    private void BlendOverlayChannels(Clip overlay, float time, float weight, int bone,
+        ref Vector3 translation, ref Quaternion rotation, ref Vector3 scale)
+    {
+        BoneChannels channels = overlay.Bones[bone];
+        if (channels.TranslationTimes.Length > 0)
+        {
+            Vector3 overlayTranslation = _restTranslation[bone] +
+                SampleVector3(channels.TranslationTimes, channels.TranslationKeys, time);
+            translation = Vector3.Lerp(translation, overlayTranslation, weight);
+        }
+        if (channels.RotationTimes.Length > 0)
+        {
+            Quaternion overlayRotation =
+                SampleQuaternion(channels.RotationTimes, channels.RotationKeys, time);
+            rotation = Quaternion.Slerp(rotation, overlayRotation, weight);
+        }
+        if (channels.ScaleTimes.Length > 0)
+        {
+            Vector3 overlayScale = SampleVector3(channels.ScaleTimes, channels.ScaleKeys, time);
+            scale = Vector3.Lerp(scale, overlayScale, weight);
+        }
     }
 
     /// <summary>

@@ -109,6 +109,10 @@ public sealed partial class GameLoop
             if (info is { } completedInfo)
                 EmitSpellAnimation(completedInfo, "CAST", SpellStageKitId(completedInfo.VisualId, "cast"), anim, "SERVER_GO");
             if (info?.Ranged == true) SetVisualSheath(2);
+            // Auto Shot / wand Shoot reload: the rail restarts on the real SPELL_GO,
+            // identified by SpellInfo.Ranged rather than by the addon's name table.
+            if (info is { } rangedInfo)
+                NoteSwingTimerRanged(packet.SpellId, rangedInfo, packet.Caster);
             CompleteCastBar(packet.SpellId);
             ObserveProfessionSpellGo(packet.SpellId);
             ObserveHearthSpellGo(packet.SpellId);

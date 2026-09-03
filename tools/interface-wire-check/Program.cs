@@ -451,16 +451,18 @@ static void CheckOptionsSearch()
     // The chat-frame controls must be REACHABLE. They were absent from the catalog entirely,
     // so searching "chat" in the options page never offered the switch that moves the chat
     // window - and the checkbox itself sat eighth inside the Display box. Reported 2026-08-26.
+    // PLAN_21: the chat-only mover became the HUD layout editor on the Interface page, and
+    // "chat" must still lead there.
     OptionsSearchGroup[] chat = OptionsSearchUiLaw.Find("chat");
-    Check(chat.Any(g => g.Page == OptionsSearchPage.Video &&
-              g.Entries.Any(e => e.Label == "Unlock chat frame")),
-        "options search cannot find 'Unlock chat frame' on the Video page");
+    Check(chat.Any(g => g.Page != OptionsSearchPage.Video &&
+              g.Entries.Any(e => e.Label == "Move chat")),
+        "options search cannot find 'Move chat' on the Interface page");
+    OptionsSearchGroup[] hudLayout = OptionsSearchUiLaw.Find("hud layout");
+    Check(hudLayout.Any(g => g.Entries.Any(e => e.Label == "Edit HUD layout")),
+        "options search cannot find 'Edit HUD layout'");
     // "quest helper" tokenizes to QUEST HELPER / QUEST / HELPER, so any page carrying a
-    // quest word answers it. That used to be AddOns alone, which is why this asserted a
-    // single group; the Interface page gained "Questing", "Auto track quests" and "Quest
-    // tracker" with quest tracking, and two groups is now the CORRECT result. The intent
-    // being guarded is that Quest Helper is reachable on the AddOns page, not that it is
-    // the only thing the query finds.
+    // quest word answers it. The intent being guarded is that Quest Helper remains reachable
+    // on the AddOns page, not that it is the only thing the query finds.
     OptionsSearchGroup[] questHelper = OptionsSearchUiLaw.Find("quest helper");
     Check(questHelper.Any(group => group.Page == OptionsSearchPage.AddOns &&
               group.Entries.Any(entry => entry.Label == "Quest Helper")),
@@ -788,6 +790,13 @@ if (args.Contains("--spell-focus-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--hud-layout-only", StringComparer.Ordinal))
+{
+    HudLayoutClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: HudLayout PASS");
+    return;
+}
+
 if (args.Contains("--binder-only", StringComparer.Ordinal))
 {
     BinderClinicalChecks.Run();
@@ -837,10 +846,10 @@ if (args.Contains("--player-power-bars-only", StringComparer.Ordinal))
     return;
 }
 
-if (args.Contains("--player-power-bars-only", StringComparer.Ordinal))
+if (args.Contains("--swing-timer-only", StringComparer.Ordinal))
 {
-    PlayerPowerBarsClinicalChecks.Run();
-    Console.WriteLine("interface-wire-check: PlayerPowerBars PASS");
+    SwingTimerClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: SwingTimer PASS");
     return;
 }
 
@@ -1697,6 +1706,12 @@ if (args.Contains("--party-quest-acts-only", StringComparer.Ordinal))
     PartyGiverStatusClinicalChecks.Run();
     PartyLeadClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
+    return;
+}
+
+if (args.Contains("--companions-only", StringComparer.Ordinal))
+{
+    CompanionClinicalChecks.Run();
     return;
 }
 
@@ -3346,12 +3361,11 @@ Check(WorldSession.BuildAuctionBidBody(trainerGuid, 7, 123)
       .SequenceEqual(Convert.FromHexString("0100008F030030F1070000007B000000")), "auction bid body");
 Check(WorldSession.BuildAuctionSellBody(trainerGuid, 9, 100, 200, 720).Length == 28,
       "auction sell fixed body");
-// The browse body took (guid, listFrom, search) until the filter set grew into
-// AuctionBrowseQuery; the assertion below is unchanged, only the way it is spelled.
-// Any is the "no filter" sentinel the last read still checks for.
+// BuildAuctionBrowseBody takes the typed query now; the fixture keeps the same
+// row-offset / search / no-filter values the old positional call expressed.
 var browseReader = new PacketReader(WorldSession.BuildAuctionBrowseBody(trainerGuid,
     new AuctionBrowseQuery(50, "Sword", 0, 0, AuctionBrowseQuery.Any, AuctionBrowseQuery.Any,
-        AuctionBrowseQuery.Any, AuctionBrowseQuery.Any, UsableOnly: false)));
+        AuctionBrowseQuery.Any, 0, false)));
 Check(browseReader.ReadU64() == trainerGuid && browseReader.ReadU32() == 50 && browseReader.ReadCString() == "Sword" &&
       browseReader.ReadU8() == 0 && browseReader.ReadU8() == 0 && browseReader.ReadU32() == uint.MaxValue,
       "auction browse page/search/filter order");
@@ -4679,11 +4693,14 @@ PartyLeadClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
 PlayerPowerBarsClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: PlayerPowerBars PASS");
-PlayerPowerBarsClinicalChecks.Run();
-Console.WriteLine("interface-wire-check: PlayerPowerBars PASS");
+CompanionClinicalChecks.Run();
+SwingTimerClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: SwingTimer PASS");
 // The ImGui-widget ratchet only ratchets if the DEFAULT run enforces it; behind
 // --imgui-policy-only alone, an enrolled panel could regress unnoticed.
 GameplayImguiPolicyClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: GameplayImguiPolicy PASS");
+HudLayoutClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: HudLayout PASS");
 
 Console.WriteLine("interface wire checks passed: minimap projection/area/zone + action icons + gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + social + trade + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding + gameplay-text fence");

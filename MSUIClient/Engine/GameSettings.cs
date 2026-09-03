@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using MSUIClient.Engine.UI;
 
 namespace MSUIClient.Engine;
 
@@ -88,8 +89,10 @@ public sealed class GameSettings
     /// v8: Escape/Options menu scale became independent from gameplay Interface scale.
     /// v9: Escape/Options text scale moved beside its independent chrome scale.
     /// v10: vanilla Camera Following Style became a persisted Smart/Always/Never control.
-    /// v11: cursor scale and movable gameplay-frame positions became persistent.</summary>
-    public int Version { get; set; } = 11;
+    /// v11: cursor scale and movable gameplay-frame positions became persistent.
+    /// v12: HUD layouts (PLAN_21) replaced the chat-only offset; a Version 11 chat offset
+    ///      migrates into a Custom layout.</summary>
+    public int Version { get; set; } = 12;
 
     /// <summary>Name of the preset last selected, or "Custom". Cosmetic; the values below are the truth.</summary>
     public string ActivePreset { get; set; } = "Custom";
@@ -281,6 +284,9 @@ public sealed class GameSettings
         /// <summary>Movable player health/power bars with combo pips and the energy tick
         /// sweep. Its own class because this one is configurable rather than a plain switch.</summary>
         public PlayerPowerBarsSettings PowerBars { get; set; } = new();
+
+        /// <summary>The melee/ranged auto-attack swing rail.</summary>
+        public SwingTimerSettings SwingTimer { get; set; } = new();
     }
 
     /// <summary>
@@ -328,13 +334,52 @@ public sealed class GameSettings
         public float TickSeconds { get; set; } = 2f;
     }
 
-    /// <summary>Player-placed gameplay frames, stored in logical pixels so UI scaling is neutral.</summary>
-    public sealed class HudLayoutSettings
+    /// <summary>
+    /// Swing Timer. One rail with a cursor per weapon, sweeping from "just swung" to "ready".
+    /// Offsets are logical UI units so changing Interface scale does not move the rail.
+    /// </summary>
+    public sealed class SwingTimerSettings
     {
-        public bool ChatUnlocked { get; set; }
-        public float ChatOffsetX { get; set; }
-        public float ChatOffsetY { get; set; }
+        /// <summary>Off by default: it adds furniture to the screen, and a shipped feature
+        /// should not do that uninvited.</summary>
+        public bool Enabled { get; set; }
+
+        /// <summary>Drag the rail to move it. Unlocked also keeps it on screen while idle.</summary>
+        public bool Unlocked { get; set; }
+
+        public float OffsetX { get; set; }
+        public float OffsetY { get; set; }
+
+        public float Width { get; set; } = 240f;
+        public float Height { get; set; } = 18f;
+        public float Scale { get; set; } = 1f;
+
+        /// <summary>Track main-hand and off-hand melee swings.</summary>
+        public bool TrackMelee { get; set; } = true;
+
+        /// <summary>Track Auto Shot and wand Shoot.</summary>
+        public bool TrackRanged { get; set; } = true;
+
+        /// <summary>Hide the rail when nothing is swinging.</summary>
+        public bool HideWhenIdle { get; set; } = true;
+
+        /// <summary>Show seconds remaining on the rail.</summary>
+        public bool ShowText { get; set; } = true;
+
+        /// <summary>The red plant/aim band over the last half second of a ranged reload.
+        /// Hunters only - wands carry no aim penalty.</summary>
+        public bool ShowAimBand { get; set; } = true;
+
+        /// <summary>Start a swing already part-way along, by half the measured round trip,
+        /// because that is how long the packet reporting it spent in flight. The addon could
+        /// only do this for ranged and only from a 30-second GetNetStats sample.</summary>
+        public bool CompensateLatency { get; set; } = true;
+
+        /// <summary>Extra manual nudge on ranged shots for projectile travel, in seconds.</summary>
+        public float RangedTravelSeconds { get; set; } = .15f;
     }
+
+    // Player-placed HUD frames: HudLayoutSettings lives in Engine/UI/HudLayoutLaw.cs (PLAN_21).
 
     /// <summary>
     /// The mount workbench, persisted. Two halves that answer different questions:
@@ -983,6 +1028,21 @@ public sealed class GameSettings
         /// camera and any party member is carved away so the party is never hidden behind a
         /// roof, a tree or a wall. Toggle; on by default (owner, 2026-09-01).</summary>
         public bool CommandViewSightCut { get; set; } = true;
+
+        /// <summary>Party sight (World/PartySight.cs): the world is cut so the camera sees
+        /// everything the primary can see - the primary's own view, reprojected to the camera.
+        /// A character at a cave mouth opens the hillside over the cave floor it is looking at.
+        /// Experimental and OFF by default since the same evening: its pixel-exact edges read
+        /// as "weird edges" live, and the owner asked for the proximity roof cut instead
+        /// (WmoRenderer.ResolveCutPlane, "treat the immediate 10 yards as cut ceilings"). Renamed from
+        /// CommandViewPartySight the same night so a settings.json that saved the old default (true)
+        /// no longer switches it on.</summary>
+        public bool CommandViewPartySightExperimental { get; set; }
+
+        /// <summary>Commander Guide panel width in logical px, set by dragging its left edge.
+        /// 0 = size to the longest line. Clamped at draw time between the content width and
+        /// the screen centre (owner, 2026-09-02).</summary>
+        public float CommandViewGuideWidth { get; set; }
 
         /// <summary>Whether the primary selection's server AI keeps fighting for it. OFF means the
         /// primary is yours alone: it moves on orders and does nothing else until you press a
@@ -1636,8 +1696,15 @@ public sealed class SettingsStore
         if (s.Version < 11)
         {
             s.Display.CursorScale = 1f;
-            s.HudLayout ??= new GameSettings.HudLayoutSettings();
+            s.HudLayout ??= new HudLayoutSettings();
             s.Version = 11;
+        }
+
+        if (s.Version < 12)
+        {
+            s.HudLayout ??= new HudLayoutSettings();
+            HudLayoutLaw.Migrate11To12(s.HudLayout);
+            s.Version = 12;
         }
 
     }

@@ -500,11 +500,16 @@ public sealed partial class GameLoop
     /// <summary>Terrain point currently under the cursor while ground-targeting is armed
     /// (null when not armed or nothing pickable). Feeds the rune-circle marker draw.</summary>
     private Vector3? _groundCursorPoint;
+    private const int CommandViewCutSkipPasses = 32;
 
     /// <summary>
     /// Resolve the terrain/world point under a window pixel for a ground-target cast.
-    /// Prefers the collision mesh; falls back to marching the camera ray against the
-    /// terrain heightfield and bisecting the crossing.
+    /// Both candidates are found — the nearest un-cut collision hit (buildings, props,
+    /// cave interiors) and the terrain crossing — and the NEARER one along the ray wins.
+    /// The collision world never holds terrain (CollisionWorld.cs), so a ray over a cave
+    /// used to sail through the hill and land on the cave floor beneath it; the terrain
+    /// crossing now caps the collision hit. A terrain hole samples as no ground, so a click
+    /// into a cave mouth still reaches the WMO floor behind it.
     /// </summary>
     private bool TryPickGround(Vector2 pixel, out Vector3 point) =>
         TryPickGround(pixel, out point, out _);
@@ -519,43 +524,124 @@ public sealed partial class GameLoop
         if (ray is null) return false;
         (Vector3 origin, Vector3 direction) = ray.Value;
         const float maxDistance = 250f;
-        // Command View cut plane: geometry sliced out of the picture is sliced out of the pick
-        // too, or a move order from above lands on the roof the player cannot see.
-        bool CutAway(Vector3 p) => CommandViewCutAway(p);
+
+        // Party sight (World/PartySight.cs): the click lands on what the PICTURE shows under the
+        // cursor - the pass reads its own buffers back there each frame. The CPU rules below
+        // approximate the shaders; this is the shaders' own answer (owner, 2026-09-02: "it
+        // doesn't land where your cursor is").
+        if (_freeView && _partySight is { Engaged: true } sight &&
+            sight.TryPickDistance(pixel, out float sightDistance) && sightDistance <= maxDistance)
+        {
+            point = origin + direction * sightDistance;
+            onTerrain = _terrain?.SampleHeight(point.X, point.Y) is float sightGround &&
+                MathF.Abs(sightGround - point.Z) < 0.5f;
+            return true;
+        }
+
+        bool haveCollision = TryPickCollisionSurface(origin, direction, maxDistance,
+            out Vector3 collisionPoint, out float collisionDistance);
+        // Only the stretch in front of the collision hit can beat it.
+        float terrainReach = haveCollision ? collisionDistance : maxDistance;
+        bool haveTerrain = TryPickTerrainSurface(origin, direction, terrainReach,
+            out Vector3 terrainPoint, out float terrainDistance);
+
+        // A floor laid on the ground (a town square, a bridge deck) and the height field
+        // under it cross within a hair of each other; keep the authored surface then.
+        const float coincident = 0.1f;
+        if (haveTerrain && (!haveCollision || terrainDistance < collisionDistance - coincident))
+        {
+            point = terrainPoint;
+            onTerrain = true;
+            return true;
+        }
+        if (haveCollision)
+        {
+            point = collisionPoint;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Nearest collision-world hit the Command View has not cut away.</summary>
+    private bool TryPickCollisionSurface(Vector3 origin, Vector3 direction, float maxDistance,
+        out Vector3 point, out float distance)
+    {
+        point = default;
+        distance = float.PositiveInfinity;
+        if (_collision is null) return false;
         Vector3 castFrom = origin;
         float remaining = maxDistance;
-        for (int pass = 0; pass < 8 && _collision is not null; pass++)
+        float travelled = 0f;
+        for (int pass = 0; pass < CommandViewCutSkipPasses; pass++)
         {
-            if (_collision.Raycast(castFrom, direction, remaining) is not { } hit) break;
-            if (!CutAway(hit.Point))
+            if (_collision.Raycast(castFrom, direction, remaining) is not { } hit) return false;
+            if (!CommandViewCollisionCutAway(hit.Point, hit.Normal))
             {
                 point = hit.Point;
+                distance = travelled + hit.Distance;
                 return true;
             }
             float advance = hit.Distance + 0.05f;
             castFrom += direction * advance;
+            travelled += advance;
             remaining -= advance;
-            if (remaining <= 0f) break;
+            if (remaining <= 0f) return false;
         }
-        if (_terrain is null) return false;
+        return false;
+    }
+
+    /// <summary>
+    /// March the ray against the height field and bisect the first crossing the Command View
+    /// has not cut away. <paramref name="distance"/> is the crossing's distance along the ray.
+    /// </summary>
+    private bool TryPickTerrainSurface(Vector3 origin, Vector3 direction, float maxDistance,
+        out Vector3 point, out float distance)
+    {
+        point = default;
+        distance = float.PositiveInfinity;
+        if (_terrain is null || maxDistance <= 0f) return false;
         float previous = 0f;
+        // A hit is a CROSSING from above the height field to below it, never "below it". Inside
+        // a cave the whole ray runs under the hill's height field; "below = hit" reported the hill
+        // surface overhead at every step, the roof cut skipped each, and the first survivor was
+        // the hillside beyond the cut - the click walked the character outside and back up
+        // (owner, 2026-09-03). The origin's own side seeds the state.
+        bool wasAbove = _terrain.SampleHeight(origin.X, origin.Y) is not float originGround ||
+                        origin.Z > originGround;
         for (float t = 1f; t <= maxDistance; t += 1f)
         {
             Vector3 sample = origin + direction * t;
-            if (_terrain.SampleHeight(sample.X, sample.Y) is float ground && sample.Z <= ground &&
-                !CutAway(sample with { Z = ground }))
+            float? sampleGround = _terrain.SampleHeight(sample.X, sample.Y);
+            bool below = sampleGround is float sg && sample.Z <= sg;
+            bool crossing = below && wasAbove;
+            wasAbove = !below;
+            if (crossing && sampleGround is float ground &&
+                !CommandViewTerrainCutAway(sample with { Z = ground }))
             {
                 float lo = previous, hi = t;
                 for (int i = 0; i < 16; i++)
                 {
                     float mid = (lo + hi) * .5f;
                     Vector3 m = origin + direction * mid;
-                    if (_terrain.SampleHeight(m.X, m.Y) is float g && m.Z <= g) hi = mid;
-                    else lo = mid;
+                    if (_terrain.SampleHeight(m.X, m.Y) is float g &&
+                        m.Z <= g &&
+                        !CommandViewTerrainCutAway(m with { Z = g }))
+                        hi = mid;
+                    else
+                        lo = mid;
                 }
                 Vector3 found = origin + direction * hi;
-                point = found with { Z = _terrain.SampleHeight(found.X, found.Y) ?? found.Z };
-                onTerrain = true;
+                Vector3 candidate = found with
+                {
+                    Z = _terrain.SampleHeight(found.X, found.Y) ?? found.Z
+                };
+                if (CommandViewTerrainCutAway(candidate))
+                {
+                    previous = t;
+                    continue;
+                }
+                point = candidate;
+                distance = hi;
                 return true;
             }
             previous = t;
@@ -563,9 +649,38 @@ public sealed partial class GameLoop
         return false;
     }
 
-    /// <summary>A world point the Command View cut plane has carved out of the picture.</summary>
-    private bool CommandViewCutAway(Vector3 p) =>
-        _freeView && _wmo?.ActiveCut is WorldCut c && p.Z > c.CutZ && c.Contains(p.X, p.Y);
+    /// <summary>
+    /// A WMO/doodad point removed by the shared Command View geometry rules (Engine/WorldCut.cs):
+    /// the roof plane, the camera-side slice around the primary, and the party sight tunnels.
+    /// Geometry sliced out of the picture is sliced out of the pick too, or a move order from
+    /// above lands on the roof the player cannot see. The doodad-only canopy mask cannot safely
+    /// apply to source-agnostic collision hits.
+    /// </summary>
+    private bool CommandViewCollisionCutAway(Vector3 point, Vector3? normal = null)
+    {
+        if (!_freeView || _wmo is null) return false;
+        Vector3 camera = _window.Camera.Position;
+        if (_wmo.ActiveCut is WorldCut cut)
+        {
+            if (cut.Cuts(point)) return true;
+            if (_wmo.Slice is WorldSlice slice && slice.Cuts(camera, cut, point, normal)) return true;
+        }
+        if (WorldCut.SightCutsAny(camera, point, _wmo.SightTargets)) return true;
+        // Party sight (GameLoop.PartySight.cs): the primary's view, reprojected.
+        return PartySightCutAway(point);
+    }
+
+    /// <summary>
+    /// Terrain deliberately receives only the distance-capped broad plane, never party tunnels.
+    /// Keeping this separate prevents a visible hill behind the primary from becoming unpickable.
+    /// </summary>
+    private bool CommandViewTerrainCutAway(Vector3 point) =>
+        _freeView &&
+        (_terrain?.Cut is WorldCut cut &&
+         cut.Cuts(point) &&
+         Vector3.Distance(_window.Camera.Position, point) < _terrain.CutMaxDistance ||
+         // Party sight opens terrain too (the hill over the cave the primary is looking into).
+         PartySightCutAway(point));
 
     /// <summary>Solid world between the eye and a point <paramref name="reach"/> along the ray,
     /// ignoring geometry the cut plane has removed.</summary>
@@ -574,10 +689,10 @@ public sealed partial class GameLoop
         if (_collision is null) return false;
         Vector3 from = origin;
         float remaining = reach;
-        for (int pass = 0; pass < 8 && remaining > 0f; pass++)
+        for (int pass = 0; pass < CommandViewCutSkipPasses && remaining > 0f; pass++)
         {
             if (_collision.Raycast(from, direction, remaining) is not { } hit) return false;
-            if (!CommandViewCutAway(hit.Point)) return hit.Distance < remaining;
+            if (!CommandViewCollisionCutAway(hit.Point, hit.Normal)) return hit.Distance < remaining;
             float advance = hit.Distance + 0.05f;
             from += direction * advance;
             remaining -= advance;

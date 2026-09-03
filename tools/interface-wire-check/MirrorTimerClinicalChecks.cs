@@ -45,6 +45,18 @@ internal static class MirrorTimerClinicalChecks
         Check(state.Start(new MirrorTimerStart(99, 1, 1, -1, false, 0), 0) is null &&
               state.Stop(1) && state.Frames[0] is null,
             "unknown mirror kind or STOP release drift");
+        MirrorTimerState.ActiveTimer predicted = state.Start(
+            new MirrorTimerStart(1, 60_000, 60_000, -1, false, 0), 50,
+            serverAuthoritative: false) ??
+            throw new InvalidDataException("predicted breath did not claim a frame");
+        Check(!predicted.ServerAuthoritative && state.Find(MirrorTimerKind.Breath) == predicted &&
+              MirrorTimerState.ValueAt(predicted, 55) == 55,
+            "predicted breath source or drain integration drift");
+        MirrorTimerState.ActiveTimer authoritative = state.Start(
+            new MirrorTimerStart(1, 42_000, 60_000, -1, false, 0), 55) ??
+            throw new InvalidDataException("server breath did not replace prediction");
+        Check(authoritative.ServerAuthoritative && state.Frames[0] == authoritative,
+            "server breath did not take ownership of the predicted frame");
 
         MirrorTimerUiLaw.ScreenRect first = MirrorTimerUiLaw.FrameRect(
             new Vector2(1920, 1080), 1, 0);
@@ -81,6 +93,8 @@ internal static class MirrorTimerClinicalChecks
               runtime.Contains("MirrorTimerUiLaw.BorderRect", StringComparison.Ordinal) &&
               !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               runtime.Contains("MirrorTimerState.FractionAt", StringComparison.Ordinal) &&
+              runtime.Contains("UpdatePredictedBreath", StringComparison.Ordinal) &&
+              runtime.Contains("ServerAuthoritative", StringComparison.Ordinal) &&
               runtime.Contains("spell.Name", StringComparison.Ordinal) &&
               !runtime.Contains("SetNextWindowPos", StringComparison.Ordinal) &&
               dispatch.Contains("case Op.SMSG_START_MIRROR_TIMER", StringComparison.Ordinal) &&

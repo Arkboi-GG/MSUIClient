@@ -18,7 +18,7 @@ public struct MovementInput
     /// <summary>-1 left .. +1 right.</summary>
     public float Strafe;
 
-    /// <summary>-1 down .. +1 up. Only used while flying.</summary>
+    /// <summary>-1 down .. +1 up. Used while flying and swimming.</summary>
     public float Up;
 
     /// <summary>Absolute facing in radians CCW about +Z from +X - i.e. the camera yaw.</summary>
@@ -198,7 +198,32 @@ public sealed class CharacterController
     public bool Hovering { get; set; }
     public bool Swimming { get; private set; }
     public float SwimPitch { get; private set; }
+
+    /// <summary>
+    /// The controlled display's feet-to-head collision height. Swimming uses
+    /// the unit's own height for its 0.75-depth transition/rest line; the
+    /// physical controller remains the configured capsule until that broader
+    /// movement shape is made display-specific.
+    /// </summary>
+    private float _collisionHeight;
+    public float CollisionHeight
+    {
+        get => _collisionHeight;
+        set
+        {
+            if (float.IsFinite(value) && value > 0f)
+                _collisionHeight = value;
+        }
+    }
+
     public float? LiquidSurfaceZ { get; set; }
+
+    /// <summary>
+    /// Optional end-of-stroke liquid query. A sloping river can have a
+    /// different waterline where this frame lands than where it started.
+    /// </summary>
+    public Func<Vector3, float?>? LiquidSurfaceProbe { get; set; }
+
     private bool _swimJumpWasDown;
     private bool _swimBreachActive;
     public float? ExternalWalkableSurfaceZ { get; set; }
@@ -219,6 +244,7 @@ public sealed class CharacterController
     /// </summary>
     private const float GroundContactEpsilon = 0.05f;
     private const float TerrainSkin = 0.02f;
+    private const float SwimGroundProbe = 0.2f;
     private const float StepUpAdvance = 1.1917536f;
     private const float StepSlopeRatio = 1.849399f;
     private const float StepSnapSlack = 0.0277778f;
@@ -394,6 +420,7 @@ public sealed class CharacterController
     {
         _terrain = terrain;
         _opts = options;
+        CollisionHeight = MathF.Max(0.01f, options.Height);
         _minGroundZ = MathF.Cos(options.MaxSlopeDegrees * MathF.PI / 180f);
         Flying = options.StartFlying;
     }
@@ -500,7 +527,9 @@ public sealed class CharacterController
         if (_swimBreachActive && Velocity.Z <= SwimmingMovementLaw.JumpSpeed * 0.5f)
             _swimBreachActive = false;
         bool nextSwimming = SwimmingMovementLaw.NextState(Swimming, LiquidSurfaceZ,
-            Position.Z, _opts.Height, _swimBreachActive);
+            Position.Z, CollisionHeight, _swimBreachActive);
+        if (Swimming && !nextSwimming)
+            SwimPitch = 0f;
         if (nextSwimming && !Swimming)
         {
             Velocity = Vector3.Zero;
@@ -522,7 +551,10 @@ public sealed class CharacterController
 
         if (Swimming)
         {
-            bool breach = input.Jump && !_swimJumpWasDown;
+            bool breach = input.Jump && !_swimJumpWasDown &&
+                LiquidSurfaceZ is float breachSurface &&
+                SwimmingMovementLaw.CanBreach(
+                    breachSurface, Position.Z, CollisionHeight);
             _swimJumpWasDown = input.Jump;
             if (!breach)
             {
@@ -585,34 +617,432 @@ public sealed class CharacterController
 
     private void UpdateSwimming(float dt, in MovementInput input)
     {
-        // This path never reaches ResolveGround, so the remembered floor would
-        // survive the whole swim and reappear as a probe lift on the far side.
+        // Swimming has its own floating resolver, so a remembered walking floor
+        // must not survive the trip and reappear as a probe lift on the far side.
         _lastSupportZ = null;
         SwimPitch = Math.Clamp(input.Pitch, -1.45f, 1.45f);
         Vector3 desired = SwimmingMovementLaw.DesiredVelocity(Yaw, SwimPitch,
-            input.Forward, input.Strafe, EffectiveSwimSpeed, EffectiveSwimBackSpeed);
+            input.Forward, input.Strafe, input.Up,
+            EffectiveSwimSpeed, EffectiveSwimBackSpeed);
+        bool stroking = desired.LengthSquared() > 1e-8f;
+
+        // The wire has no distinct ascend/descend bits in build 5875; pitch is
+        // the direction observers animate. Publish the actual commanded swim
+        // direction when a vertical key contributes to the stroke.
+        if (stroking && MathF.Abs(input.Up) > 0.01f)
+        {
+            float level = new Vector2(desired.X, desired.Y).Length();
+            SwimPitch = MathF.Atan2(desired.Z, level);
+        }
         if (LiquidSurfaceZ is float surface && desired.Z > 0f)
         {
-            float cap = SwimmingMovementLaw.RestLine(surface, _opts.Height);
+            float cap = SwimmingMovementLaw.RestLine(surface, CollisionHeight);
             float rise = MathF.Max(0f, cap - Position.Z);
-            desired = SwimmingMovementLaw.RedirectAtRestLine(desired,
-                dt > 0f ? rise / dt : 0f);
+            float maximumRise = dt > 0f ? rise / dt : 0f;
+            Vector3 redirected = SwimmingMovementLaw.RedirectAtRestLine(desired, maximumRise);
+            if (redirected != desired)
+            {
+                float level = new Vector2(redirected.X, redirected.Y).Length();
+                SwimPitch = MathF.Atan2(redirected.Z, level);
+            }
+            desired = redirected;
         }
 
         HorizontalVelocity = new Vector3(desired.X, desired.Y, 0f);
-        Vector3 horizontal = HorizontalVelocity * dt;
         Depenetrate();
-        MoveHorizontal(ref horizontal);
-        Position.Z += desired.Z * dt;
-        if (LiquidSurfaceZ is float top)
-            Position.Z = MathF.Min(Position.Z, SwimmingMovementLaw.RestLine(top, _opts.Height));
-        Velocity = new Vector3(0f, 0f, desired.Z);
-        Grounded = false;
-        FallTimeMs = 0f;
-        GroundZ = null;
-        GroundSource = "liquid";
+        Vector3 frameStart = Position;
+        _swimSegments.Clear();
+
+        // Benilla's floating mover sends the complete pitched stroke through ONE
+        // body sweep in which every surface is solid: a swimmer has no step-up
+        // and no ground snap, so a hull plank, a slanted underside or a bank is
+        // something the body slides along, never something the walking sweep's
+        // "not steep, so the ground resolver's business" rule may pass through.
+        // That rule is exactly how the Durotar shipwreck was swum through
+        // (2026-09-03): the head crossed the hull's underside sideways, and a
+        // downward probe then used the hull's wall as a "floor" to lift onto.
+        // Our world keeps ADT terrain out of CollisionWorld, so the heightfield
+        // laws run beside the sweep: the steep-face/impassable constraint on the
+        // level part, and the footprint clamp afterwards.
+        Vector3 stroke = desired * dt;
+        Vector3 levelStroke = new(stroke.X, stroke.Y, 0f);
+        ConstrainTerrainHorizontal(ref levelStroke);
+        SwimSweep(new Vector3(levelStroke.X, levelStroke.Y, stroke.Z));
+
+        // Satisfy a descending/sloping waterline with another swept move. A
+        // direct position clamp here is collision-unsafe: it can write the feet
+        // through a shallow bottom after the bottom already stopped the stroke.
+        // Idle swimmers do not seek the line; their depth remains frozen.
+        float? landingSurface = LiquidSurfaceProbe is null
+            ? LiquidSurfaceZ
+            : LiquidSurfaceProbe(Position);
+        if (stroking && LiquidSurfaceZ is not null && landingSurface is float top)
+        {
+            float excess = Position.Z - SwimmingMovementLaw.RestLine(top, CollisionHeight);
+            if (excess > 0f)
+                SwimSweep(new Vector3(0f, 0f, -excess));
+        }
+
+        ResolveSwimmingTerrain(frameStart);
+
+        // The capsule's rounded bottom. A ray body has square feet: a shin-high
+        // walkable ledge (a bank's plank edge, a shallow step) slices through
+        // them where the reference's capsule rides its lower sphere over it.
+        // Lift onto a WALKABLE surface within the radius, swept so a low deck
+        // above the head still refuses it; steep faces never qualify - that
+        // was the hull-wall lift of 2026-09-03.
+        SwimmingFloorHit support = FindSwimmingFloor(_opts.Radius, SwimGroundProbe);
+        if (support.Found && support.Walkable && support.Height > Position.Z + TerrainSkin)
+            SwimSweep(new Vector3(0f, 0f, support.Height - Position.Z));
+
+        // The last word: every displacement the sweeps committed, checked the
+        // way the live probe checks it - a segment through any triangle at any
+        // band is a penetration whatever the sweep believed - and a frame with
+        // one is refused whole. Per SEGMENT, not the frame's chord: a slide
+        // around a convex rib is two clean legs whose chord cuts the corner.
+        // Ray bodies have gaps a real capsule does not; a refused frame is a
+        // stuck frame, and Depenetrate plus the next stroke's slide frees it,
+        // where a passed frame is a body inside a hull with no way back.
+        if (SwimCrossedGeometry()) Position = frameStart;
+
+        Grounded = support.Found && support.Walkable &&
+                   Position.Z - support.Height <= SwimGroundProbe + TerrainSkin;
+        GroundZ = support.Found ? support.Height : null;
+        CollisionGroundZ = support.Source is "collision" or "transport"
+            ? support.Height : null;
+        GroundTriangle = support.Triangle;
+        GroundOwnerGuid = support.OwnerGuid;
+        GroundSource = Grounded ? support.Source : "liquid";
+        GroundProbeOffset = support.Offset;
         NoGroundBelow = false;
+        GroundAdhesion = false;
+        if (Grounded) _landingAfterDiscontinuousMove = false;
+        Velocity = Vector3.Zero;
+        FallTimeMs = 0f;
         LastBlockAgeSeconds += dt;
+    }
+
+    private readonly record struct SwimmingFloorHit(
+        bool Found, float Height, bool Walkable, string Source,
+        int Triangle, ulong OwnerGuid, Vector2 Offset);
+
+    /// <summary>
+    /// The swimmer's collide-and-slide against geometry, in full 3D. Every
+    /// surface is solid: the three body bands sweep the sides (padded by the
+    /// radius in proportion to how level the motion is), and the nine-point
+    /// footprint at the leading end - the feet when descending, the head when
+    /// rising - sweeps floors and ceilings with only the skin as padding, so the
+    /// feet really reach a bottom. A hit stops the body short and projects the
+    /// remaining motion onto the surface with the hit-facing normal, which is
+    /// what carries a level stroke up a bank, down a slanted hull underside, or
+    /// along a wall, the way a floating capsule does in the reference.
+    /// </summary>
+    /// <summary>The displacements this frame's swim sweeps committed, for the guard.</summary>
+    private readonly List<(Vector3 From, Vector3 To, bool Vertical)> _swimSegments = [];
+
+    /// <summary>
+    /// The side bands a swimmer is swept and guarded at. Every 0.15-0.4 yd: a
+    /// plank, a rail or a rib thinner than the gap between two rays is
+    /// otherwise invisible to the sides - the run-2 probe's feet went through
+    /// a deck plank that sat between a 0.05 band and a 1.05 band.
+    /// </summary>
+    private float[] SwimBands() =>
+    [
+        GroundContactEpsilon,
+        0.15f,
+        _opts.Radius,
+        _opts.Radius + 0.15f,
+        _opts.Radius * 2f,
+        _opts.Height * 0.5f,
+        _opts.Height - _opts.Radius * 2f,
+        _opts.Height - _opts.Radius - 0.15f,
+        _opts.Height - _opts.Radius,
+        _opts.Height - 0.15f,
+        _opts.Height - GroundContactEpsilon,
+    ];
+
+    private void SwimSweep(Vector3 move)
+    {
+        float[] bands = SwimBands();
+        float probeRadius = MathF.Max(0f, _opts.Radius * 0.85f);
+
+        for (int iter = 0; iter < 3; iter++)
+        {
+            float dist = move.Length();
+            if (dist < 1e-5f) return;
+            Vector3 dir = move / dist;
+            float levelness = new Vector2(dir.X, dir.Y).Length();
+            bool vertical = levelness <= 1e-3f;
+            if (!HasGeometryCollision)
+            {
+                _swimSegments.Add((Position, Position + move, vertical));
+                Position += move;
+                return;
+            }
+
+            float sidePad = _opts.Radius * levelness + TerrainSkin;
+            RayHit? nearest = null;
+            float nearestPad = 0f;
+
+            void Consider(RayHit? candidate, float pad)
+            {
+                if (candidate is not { } hit) return;
+                if (nearest is null ||
+                    hit.Distance - pad < nearest.Value.Distance - nearestPad)
+                {
+                    nearest = hit;
+                    nearestPad = pad;
+                }
+            }
+
+            // A purely vertical move has no leading side: the bands would only
+            // report faces already through the body (the shin-high ledge the
+            // rounded-bottom lift exists to climb); its leading footprint below
+            // guards it, and the frame guard skips it for the same reason.
+            if (!vertical)
+                foreach (float band in bands)
+                    Consider(RaycastGeometry(Position + new Vector3(0f, 0f, band), dir,
+                        dist + sidePad), sidePad);
+
+            if (MathF.Abs(dir.Z) > 1e-3f)
+            {
+                float endZ = dir.Z < 0f ? TerrainSkin : _opts.Height - TerrainSkin;
+                foreach (Vector2 direction in SupportProbeDirections)
+                {
+                    Vector2 offset = direction * probeRadius;
+                    Consider(RaycastGeometry(
+                        Position + new Vector3(offset.X, offset.Y, endZ), dir,
+                        dist + TerrainSkin), TerrainSkin);
+                }
+            }
+
+            if (nearest is not { } wall)
+            {
+                _swimSegments.Add((Position, Position + move, vertical));
+                Position += move;
+                return;
+            }
+
+            float advance = MathF.Max(0f, wall.Distance - nearestPad);
+            if (advance > 1e-5f)
+            {
+                _swimSegments.Add((Position, Position + dir * advance, vertical));
+                Position += dir * advance;
+            }
+
+            LastBlockPoint = wall.Point;
+            LastBlockNormal = wall.Normal;
+            LastBlockTriangle = wall.Triangle;
+            LastBlockAgeSeconds = 0f;
+
+            Vector3 remaining = move - dir * advance;
+            float into = Vector3.Dot(remaining, wall.Normal);
+            if (into < 0f) remaining -= wall.Normal * into;
+            move = remaining * 0.98f;
+        }
+    }
+
+    /// <summary>
+    /// The heightfield half of the swim resolver. ADT terrain is not in the
+    /// collision world, so after the sweep the feet are clamped up to the
+    /// highest terrain under the footprint - a bank is ridden, a seabed is never
+    /// swum through. The one exception is the outdoor shell over an interior:
+    /// terrain a yard or more overhead is a roof only while geometry actually
+    /// stands between the body and it (the sunken shipwreck hull, a flooded
+    /// cave), re-proven every frame so leaving that hull through a gap can never
+    /// carry the "I am underneath" fact out under open ground. A body found
+    /// under open ground is lifted back onto it. Reported 2026-09-03, Durotar.
+    /// </summary>
+    private void ResolveSwimmingTerrain(Vector3 frameStart)
+    {
+        bool haveTerrain = _terrain.TrySampleMovementSurface(
+            Position.X, Position.Y, out TerrainSurfaceSample terrain, out bool inHole);
+        TerrainGroundZ = haveTerrain ? terrain.Height : null;
+        TerrainGroundNormal = haveTerrain ? terrain.Normal : Vector3.UnitZ;
+        TerrainChunkImpassable = haveTerrain && terrain.Impassable;
+        InTerrainHole = inHole;
+        if (!haveTerrain || inHole || TerrainAbsentByDesign)
+        {
+            TerrainGroundSteep = false;
+            return;
+        }
+
+        float probeRadius = MathF.Max(0f, _opts.Radius * 0.85f);
+        bool overhead = terrain.Height - Position.Z > UndergroundSlack;
+        if (overhead)
+        {
+            // Roofed by the whole footprint, not one centre ray: at a deck's
+            // edge the centre is already out from under it while the shoulders
+            // are not, and a lift the shoulders refuse must read as "still
+            // under the roof", never as a frame to refuse - or the edge is a
+            // wall you can never swim out past.
+            bool roofed = false;
+            float headZ = Position.Z + _opts.Height - TerrainSkin;
+            if (HasGeometryCollision && terrain.Height > headZ)
+                foreach (Vector2 direction in SupportProbeDirections)
+                {
+                    Vector2 offset = direction * probeRadius;
+                    if (RaycastGeometry(new Vector3(Position.X + offset.X, Position.Y + offset.Y, headZ),
+                            Vector3.UnitZ, terrain.Height - headZ) is null) continue;
+                    roofed = true;
+                    break;
+                }
+            _underTerrainShell = roofed;
+            // A proven roof settles what a teleport's Z only claimed. Under OPEN
+            // ground no placement is trusted: nothing legitimate is ever there,
+            // and the sunken hull's interior below the seabed (open above, the
+            // sand drawn through it) is exactly where trusting one led.
+            if (roofed)
+            {
+                _landingAfterDiscontinuousMove = false;
+                TerrainGroundSteep = false;
+                return;
+            }
+        }
+        else
+        {
+            _underTerrainShell = false;
+            _landingAfterDiscontinuousMove = false;
+        }
+        TerrainGroundSteep = terrain.Normal.Z < _minGroundZ;
+
+        float highest = float.NegativeInfinity;
+        foreach (Vector2 direction in SupportProbeDirections)
+        {
+            Vector2 offset = direction * probeRadius;
+            if (!_terrain.TrySampleMovementSurface(
+                    Position.X + offset.X, Position.Y + offset.Y,
+                    out TerrainSurfaceSample footprint, out bool footprintHole) ||
+                footprintHole)
+                continue;
+            // A neighbouring sample a yard or more overhead is the same shell
+            // the centre just proved, or a cliff the horizontal constraint owns.
+            if (!overhead && footprint.Height - Position.Z > UndergroundSlack) continue;
+            highest = MathF.Max(highest, footprint.Height);
+        }
+        float lift = highest - Position.Z;
+        if (lift <= 0f) return;
+
+        // Swept, so a hull underside over the seabed can refuse it - and when it
+        // does, the gap was too small for the body and this frame's stroke into
+        // it is refused whole. A position clamp here wedged the head into the
+        // hull and every later stroke tunnelled through it.
+        SwimSweep(new Vector3(0f, 0f, lift));
+        _landingAfterDiscontinuousMove = false;
+        if (highest - Position.Z <= GroundContactEpsilon) return;
+
+        // Refused by a roof the footprint had not seen. A body that BEGAN the
+        // frame on or above the seabed was trying to enter a gap too small for
+        // it (the hull's underside over the sand) and the stroke is refused
+        // whole; one that began under the height field is leaving a roofed
+        // interior and stays roofed until its whole footprint is out.
+        bool startedUnderTerrain = _terrain.TrySampleMovementSurface(
+                frameStart.X, frameStart.Y, out TerrainSurfaceSample startTerrain, out bool startHole) &&
+            !startHole && startTerrain.Height - frameStart.Z > GroundContactEpsilon;
+        if (startedUnderTerrain) _underTerrainShell = true;
+        else Position = frameStart;
+    }
+
+    /// <summary>
+    /// Did a committed displacement cross a triangle at any body band? The
+    /// live swim probe's detector, in the controller: the one test a ray body
+    /// can be held to independently of how its sweep sampled the world.
+    /// </summary>
+    private bool SwimCrossedGeometry()
+    {
+        if (!HasGeometryCollision) return false;
+        float[] bands = SwimBands();
+        foreach ((Vector3 from, Vector3 to, bool vertical) in _swimSegments)
+        {
+            if (vertical) continue;
+            Vector3 delta = to - from;
+            float length = delta.Length();
+            if (length < 1e-5f) continue;
+            foreach (float band in bands)
+                if (RaycastGeometry(from + new Vector3(0f, 0f, band), delta, length) is not null)
+                    return true;
+        }
+        return false;
+    }
+
+    /// <summary>Highest solid surface inside a vertical footprint sweep.</summary>
+    private SwimmingFloorHit FindSwimmingFloor(float maxAbove, float maxBelow)
+    {
+        float top = Position.Z + MathF.Max(0f, maxAbove) + TerrainSkin;
+        float bottom = Position.Z - MathF.Max(0f, maxBelow) - TerrainSkin;
+        SwimmingFloorHit best = default;
+
+        void Consider(float height, Vector3 normal, string source,
+            int triangle = -1, ulong ownerGuid = 0, Vector2 offset = default)
+        {
+            if (!float.IsFinite(height) || height < bottom || height > top ||
+                (best.Found && height <= best.Height))
+                return;
+            best = new(true, height, normal.Z >= _minGroundZ, source,
+                triangle, ownerGuid, offset);
+        }
+
+        bool haveTerrain = _terrain.TrySampleMovementSurface(
+            Position.X, Position.Y, out TerrainSurfaceSample terrain, out bool inHole);
+        bool terrainOverhead = haveTerrain &&
+                               terrain.Height - Position.Z > UndergroundSlack;
+        bool ignoreTerrain = inHole || TerrainAbsentByDesign ||
+            (terrainOverhead && (_underTerrainShell || _landingAfterDiscontinuousMove));
+        float probeRadius = MathF.Max(0f, _opts.Radius * 0.85f);
+        foreach (Vector2 direction in SupportProbeDirections)
+        {
+            Vector2 offset = direction * probeRadius;
+            if (!_terrain.TrySampleMovementSurface(
+                    Position.X + offset.X, Position.Y + offset.Y,
+                    out TerrainSurfaceSample footprintTerrain, out bool footprintHole) ||
+                footprintHole || TerrainAbsentByDesign)
+                continue;
+            bool footprintOverhead =
+                footprintTerrain.Height - Position.Z > UndergroundSlack;
+            if (footprintOverhead &&
+                (_underTerrainShell || _landingAfterDiscontinuousMove))
+                continue;
+            Consider(footprintTerrain.Height, footprintTerrain.Normal, "terrain",
+                offset: offset);
+        }
+
+        if (HasGeometryCollision)
+        {
+            float depth = MathF.Max(TerrainSkin, top - bottom);
+            foreach (Vector2 direction in SupportProbeDirections)
+            {
+                Vector2 offset = direction * probeRadius;
+                Vector3 origin = new(Position.X + offset.X, Position.Y + offset.Y, top);
+                if (RaycastGeometry(origin, Down, depth) is not { } hit ||
+                    hit.Normal.Z <= 0f)
+                    continue;
+                Consider(origin.Z - hit.Distance, hit.Normal, "collision",
+                    hit.Triangle, offset: offset);
+            }
+        }
+
+        if (MovingGroundProbe is not null)
+        {
+            float depth = MathF.Max(TerrainSkin, top - bottom);
+            foreach (Vector2 direction in SupportProbeDirections)
+            {
+                Vector2 offset = direction * probeRadius;
+                Vector3 origin = new(Position.X + offset.X, Position.Y + offset.Y, top);
+                if (MovingGroundProbe(origin, depth) is not { } moving ||
+                    moving.Normal.Z <= 0f)
+                    continue;
+                Consider(moving.Point.Z, moving.Normal, "transport",
+                    ownerGuid: moving.OwnerGuid, offset: offset);
+            }
+        }
+
+        TerrainGroundZ = haveTerrain ? terrain.Height : null;
+        TerrainGroundNormal = haveTerrain ? terrain.Normal : Vector3.UnitZ;
+        TerrainGroundSteep = haveTerrain && !ignoreTerrain &&
+                             terrain.Normal.Z < _minGroundZ;
+        TerrainChunkImpassable = haveTerrain && terrain.Impassable;
+        InTerrainHole = inHole;
+        return best;
     }
 
     /// <summary>
@@ -838,6 +1268,8 @@ public sealed class CharacterController
         // contour nor its chunk fence may be projected downward into the room.
         bool IsProvenOverheadShell(in TerrainSurfaceSample surface) =>
             _underTerrainShell && surface.Height - Position.Z > UndergroundSlack;
+        bool IsWmoSupportedLip(in TerrainSurfaceSample surface, Vector2 point) =>
+            CollisionWalkwayDisplacesSteepTerrain(surface, point.X, point.Y);
         bool FenceActive(in TerrainSurfaceSample surface) =>
             !IsProvenOverheadShell(surface) && surface.Impassable &&
             Position.Z + _opts.Height >= surface.ChunkMinimumHeight - TerrainSkin;
@@ -880,6 +1312,7 @@ public sealed class CharacterController
         TerrainSurfaceSample face = default;
         bool contact = false;
         if (haveTarget && !IsProvenOverheadShell(targetSurface) &&
+            !IsWmoSupportedLip(targetSurface, requested) &&
             targetSurface.Normal.Z < _minGroundZ &&
             Position.Z <= targetSurface.Height + TerrainSkin)
         {
@@ -887,6 +1320,7 @@ public sealed class CharacterController
             contact = true;
         }
         else if (haveStart && !IsProvenOverheadShell(startSurface) &&
+                 !IsWmoSupportedLip(startSurface, start) &&
                  startSurface.Normal.Z < _minGroundZ &&
                  Position.Z <= startSurface.Height + TerrainSkin)
         {
@@ -907,6 +1341,33 @@ public sealed class CharacterController
         LastBlockNormal = face.Normal;
         LastBlockTriangle = -1;
         LastBlockAgeSeconds = 0f;
+    }
+
+    /// <summary>
+    /// A walkable collision floor continuing beneath a steep ADT face proves
+    /// that the face is the lip/shell around an authored WMO entrance, not an
+    /// outdoor hillside the character is trying to climb.  This proof is local
+    /// to the requested footprint and deliberately requires a floor within the
+    /// ordinary step/snap band; a bridge somewhere below a mountain cannot
+    /// disable terrain collision from a distance.
+    /// </summary>
+    private bool CollisionWalkwayDisplacesSteepTerrain(
+        in TerrainSurfaceSample terrain, float worldX, float worldY)
+    {
+        if (!HasGeometryCollision || terrain.Normal.Z >= _minGroundZ)
+            return false;
+
+        float lift = MathF.Max(_opts.StepHeight, GroundContactEpsilon);
+        float depth = lift + _opts.GroundSnapDistance + GroundContactEpsilon;
+        Vector3 origin = new(worldX, worldY, Position.Z + lift);
+        if (RaycastGeometry(origin, Down, depth) is not { } hit ||
+            hit.Normal.Z <= _minGroundZ)
+            return false;
+
+        float floorZ = origin.Z - hit.Distance;
+        return floorZ >= Position.Z - _opts.GroundSnapDistance - TerrainSkin &&
+               floorZ <= Position.Z + _opts.StepHeight + TerrainSkin &&
+               terrain.Height > floorZ + TerrainSkin;
     }
 
     /// <summary>
@@ -1181,7 +1642,9 @@ public sealed class CharacterController
         else if (_underTerrainShell && sampledTerrainZ is not null && !terrainIsOverhead)
             _underTerrainShell = false;
 
-        bool ignoreTerrainShell = _underTerrainShell && terrainIsOverhead;
+        bool collisionWalkway = haveTerrain &&
+            CollisionWalkwayDisplacesSteepTerrain(terrainSurface, Position.X, Position.Y);
+        bool ignoreTerrainShell = (_underTerrainShell && terrainIsOverhead) || collisionWalkway;
 
         bool steepContact = haveTerrain && !ignoreTerrainShell &&
                             terrainSurface.Normal.Z < _minGroundZ &&
@@ -1194,7 +1657,9 @@ public sealed class CharacterController
             sampledTerrainZ = haveTerrain ? terrainSurface.Height : null;
             terrainIsOverhead = sampledTerrainZ is float movedSurface &&
                                 movedSurface - Position.Z > UndergroundSlack;
-            ignoreTerrainShell = _underTerrainShell && terrainIsOverhead;
+            collisionWalkway = haveTerrain &&
+                CollisionWalkwayDisplacesSteepTerrain(terrainSurface, Position.X, Position.Y);
+            ignoreTerrainShell = (_underTerrainShell && terrainIsOverhead) || collisionWalkway;
         }
 
         bool terrainSteep = haveTerrain && !ignoreTerrainShell &&

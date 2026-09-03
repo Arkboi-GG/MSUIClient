@@ -560,6 +560,41 @@ public sealed class CollisionWorld
     /// flat shading needs it, and this buffer is a diagnostic that gets built
     /// once, not a hot path.
     /// </summary>
+    /// <summary>
+    /// Every built triangle's corners as a flat list of (x, y, z, target) with Offset applied -
+    /// the party sight passes (World/PartySight.cs) render the world the raycasts see. The fourth
+    /// float says whether the face may be a sight TARGET (1) or only ever a BLOCKER (0): a
+    /// doodad's collision hull is coarse and pokes past its rendered silhouette, so letting the
+    /// primary "see" a hull face cut the rock in front of it to bare sky. Building and vmap
+    /// faces coincide with what is drawn; doodad (M2) hulls do not.
+    /// </summary>
+    public float[] CopyPositions()
+    {
+        var targetBySource = new float[_sourceNames.Count];
+        for (int i = 0; i < _sourceNames.Count; i++)
+        {
+            string name = _sourceNames[i];
+            bool blockerOnly = name.Contains(".m2", StringComparison.OrdinalIgnoreCase) ||
+                               name.Contains(".mdx", StringComparison.OrdinalIgnoreCase) ||
+                               name.Contains(".mdl", StringComparison.OrdinalIgnoreCase) ||
+                               name.Contains("#blocker", StringComparison.Ordinal);   // WMO 0xFF faces
+            targetBySource[i] = blockerOnly ? 0f : 1f;
+        }
+        var buffer = new float[_tris.Length * 12];
+        int w = 0;
+        for (int i = 0; i < _tris.Length; i++)
+        {
+            var t = _tris[i];
+            int source = i < _source.Length ? _source[i] : -1;
+            float target = source >= 0 && source < targetBySource.Length ? targetBySource[source] : 1f;
+            Vector3 a = t.A + Offset, b = t.B + Offset, c = t.C + Offset;
+            buffer[w++] = a.X; buffer[w++] = a.Y; buffer[w++] = a.Z; buffer[w++] = target;
+            buffer[w++] = b.X; buffer[w++] = b.Y; buffer[w++] = b.Z; buffer[w++] = target;
+            buffer[w++] = c.X; buffer[w++] = c.Y; buffer[w++] = c.Z; buffer[w++] = target;
+        }
+        return buffer;
+    }
+
     public float[] BuildDebugVertices()
     {
         var buffer = new float[_tris.Length * 3 * 5];
