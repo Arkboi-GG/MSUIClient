@@ -147,7 +147,6 @@ public static class QuestFrameUiLaw
     public static readonly QuestLogicalRect AbandonPopupTextRect = new(15, 16, 290, 12);
     public static readonly QuestLogicalRect AbandonPopupAcceptRect = new(26, 36, 128, 20);
     public static readonly QuestLogicalRect AbandonPopupCancelRect = new(167, 36, 128, 20);
-    public const int MaxQuestWatches = 5;
     public const double AutoQuestWatchSeconds = 300;
     public const int MaxQuestWatchLines = 30;
     public const float QuestWatchNominalWidth = 280f;
@@ -186,6 +185,31 @@ public static class QuestFrameUiLaw
         origin + new Vector2(
             AbandonPopupTextRect.X + AbandonPopupTextRect.Width * .5f,
             AbandonPopupTextRect.Y + AbandonPopupTextRect.Height * .5f) * scale;
+
+    /// <summary>The party follow-up has two text lines and can name four companions.</summary>
+    public static QuestLogicalRect PartyAbandonPopupRect(float widestLine,
+        float displayWidth, float scale)
+    {
+        float available = Math.Max(AbandonPopupRect.Width, displayWidth / scale - 8f);
+        float width = Math.Clamp(widestLine + 30f, AbandonPopupRect.Width, available);
+        return new(0, AbandonPopupRect.Y, width, 88f);
+    }
+
+    public static Vector2 AbandonPopupOrigin(Vector2 display, float scale,
+        QuestLogicalRect frame) =>
+        new((display.X - frame.Width * scale) * .5f, frame.Y * scale);
+
+    public static Vector2 PartyAbandonTextCenter(Vector2 origin, float scale,
+        QuestLogicalRect frame, bool names) =>
+        origin + new Vector2(frame.Width * .5f, names ? 34f : 18f) * scale;
+
+    public static QuestLogicalRect PartyAbandonButtonRect(QuestLogicalRect frame,
+        bool accept)
+    {
+        QuestLogicalRect source = accept ? AbandonPopupAcceptRect : AbandonPopupCancelRect;
+        return new(source.X + (frame.Width - AbandonPopupRect.Width) * .5f,
+            52f, source.Width, source.Height);
+    }
     /// <summary>Managed right stack: tracker follows the minimap, then the shown armor guy.</summary>
     public static Vector2 QuestWatchTopRight(Vector2 display, float scale,
         bool durabilityShown = false) =>
@@ -197,8 +221,6 @@ public static class QuestFrameUiLaw
     public static float QuestWatchLineTop(float previousBottom, bool title, bool first) =>
         first ? QuestWatchSpacerHeight + QuestWatchInitialGap
             : previousBottom + (title ? QuestWatchTitleGap : QuestWatchObjectiveGap);
-    public static uint AutoWatchEvictionCandidate(IReadOnlyDictionary<uint, double> expiries) =>
-        expiries.Count == 0 ? 0 : expiries.MinBy(pair => pair.Value).Key;
     public static string ItemLink(uint itemId, string name, uint quality)
         => UiTextMarkupLaw.ItemLink(itemId, name, quality);
     public static QuestItemClickAction ItemClickAction(bool clicked, bool control,

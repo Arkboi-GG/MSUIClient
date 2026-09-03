@@ -150,6 +150,17 @@ internal static class PartyMemberFactsClinicalChecks
               partyInventory.Contains("byte wireSlot = container == 0 ? (byte)(23 + slot) : " +
                   "(byte)slot;", StringComparison.Ordinal),
             "Party Inventory give/drag wire mapping drift (255/23+ backpack, 19+ bags)");
+
+        string inventory = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop",
+            "Panels", "GameLoop.Inventory.cs"));
+        string bindings = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop",
+            "Panels", "GameLoop.Bindings.cs"));
+        Check(inventory.Contains("BindingDown(GameBinding.OpenPartyInventory)",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("GameBinding.OpenPartyInventory, \"Party Inventory\", Key.Unknown",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("new BindingChord(Key.I, Shift: true)", StringComparison.Ordinal),
+            "Party Inventory must have a configurable standalone Shift+I default outside Free View");
     }
 
     private static void ExpectRefused(Action action)

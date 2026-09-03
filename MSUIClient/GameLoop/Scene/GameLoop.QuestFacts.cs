@@ -204,13 +204,14 @@ public sealed partial class GameLoop
     ///
     /// This is a poll, not a push, and it is scoped honestly: it costs one small
     /// packet every few seconds and ONLY while a surface that renders these facts
-    /// is actually on screen — the party quest log, or the companion rail at a
-    /// questgiver, where a stale "on it" verdict for a companion who has already
-    /// finished is what would send you to the wrong NPC.
+    /// is actually on screen — the party quest log, the tracked-quest frame, or
+    /// the companion rail at a questgiver, where stale progress would mislead.
     /// </summary>
     private void RefreshPartyQuestFactsWhileWatched()
     {
-        bool watched = _partyQuestLogOpen || _questLogOpen ||
+        bool partyTrackerVisible = _questWatches.Count > 0 &&
+            _partyMembers.Count > 0;
+        bool watched = _partyQuestLogOpen || _questLogOpen || partyTrackerVisible ||
             QuestNpcPanelNow() != QuestNpcPanel.None;
         if (!watched) return;
         if (NowSeconds() - _partyQuestFactsPulledAt < PartyQuestFactsLiveRefreshSeconds) return;
@@ -272,6 +273,9 @@ public sealed partial class GameLoop
         // opcode carries a bare quest id and has never required holding it.
         foreach (MemberQuestEntry entry in log.Entries)
             RequireQuestTemplate(entry.QuestId);
+        foreach (uint questId in _questAutoWatchPending.Where(id =>
+            log.Entries.Any(entry => entry.QuestId == id && !entry.Rewarded)).ToArray())
+            AutoWatchQuest(questId);
 
         int overflow = log.Entries.Count(e => e.Overflow);
         Console.WriteLine($"[quest-facts] {ResolveUnitName(log.Subject)}: " +
