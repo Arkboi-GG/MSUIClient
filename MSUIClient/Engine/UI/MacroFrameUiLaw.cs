@@ -8,7 +8,17 @@ public enum MacroPopupMode
     Edit,
 }
 
-/// <summary>Frozen MacroPopupFrame geometry and state rules from current Benilla MacroFrame.xml.</summary>
+/// <summary>
+/// Frozen MacroFrame / MacroPopupFrame geometry and state rules. Re-measured 2026-09-03 against
+/// the 1.12.1 client's OWN layout - Interface\AddOns\Blizzard_MacroUI\Blizzard_MacroUI.xml in
+/// patch.MPQ (the FrameXML\MacroFrame.xml copy is the older 1.12.0 one and is shadowed by a
+/// zero-byte entry) plus the templates it inherits: MacroFrameButtonTemplate (36x36 button, a
+/// 64x64 UI-EmptySlot-Disabled socket and a 36x36 icon both CENTER (0,-1), the name a 36x10
+/// GameFontHighlightSmallOutline box at BOTTOM (0,2)); TabButtonTemplate (HelpFrameTab art,
+/// 16 px caps, text BOTTOM (0,5), the selected art 3 px lower, resized with padding -15 and the
+/// character tab capped at 150); ClassTrainerListScrollFrameTemplate (a UIPanel scroll bar with
+/// the UI-ClassTrainer-ScrollBar track art hung off its two buttons).
+/// </summary>
 public static class MacroFrameUiLaw
 {
     public const string StoredIconPrefix = @"Interface\Icons\";
@@ -97,11 +107,21 @@ public static class MacroFrameUiLaw
     public static Rect NewButton => new(182, 411, 80, 22);
     public static Rect ExitButton => new(263, 411, 80, 22);
     public static Rect CloseButton => new(323, 8, 32, 32);
-    public static Vector2 CharacterLimitCenter => new(177, 407);
+    /// <summary>MacroFrameCharLimitText: BOTTOM (-15,105) of the frame, GameFontHighlightSmall
+    /// (10 px), so its centre is 5 px above y 407.</summary>
+    public static Vector2 CharacterLimitCenter => new(177, 402);
     public static Vector2 CharacterTabOffset(float generalTabWidth) =>
         new(generalTabWidth, 0);
-    public static Rect MacroSocket => new(-14, -15, 64, 64);
-    public static Vector2 MacroNameCenter => new(18, 31);
+    /// <summary>The 64x64 UI-EmptySlot-Disabled socket under a 36x36 button: CENTER (0,-1),
+    /// i.e. one pixel DOWN (FrameXML +y is up).</summary>
+    public static Rect MacroSocket => new(-14, -13, 64, 64);
+    /// <summary>$parentIcon is CENTER (0,-1) too: the icon sits one pixel below the button.</summary>
+    public static Vector2 IconOffset => new(0, 1);
+    /// <summary>$parentName: a 36x10 box at BOTTOM (0,2) - bottom edge 2 px up from the button's,
+    /// centre at y 29, and never wider than the button.</summary>
+    public static Vector2 MacroNameCenter => new(18, 29);
+    public const float MacroNameWidth = 36f;
+    public const float MacroNameHeight = 10f;
     public static readonly Vector2 DividerLeftUvMin = Vector2.Zero;
     public static readonly Vector2 DividerLeftUvMax = new(1, .25f);
     public static readonly Vector2 DividerRightUvMin = new(0, .25f);
@@ -116,6 +136,18 @@ public static class MacroFrameUiLaw
         new(BodyScrollTrack.X, BodyThumbY(scroll, text), 16, 16);
     public static readonly Vector2 PopupNameLabel = new(24, 21);
     public static readonly Vector2 PopupIconLabel = new(24, 69);
+    /// <summary>GlobalStrings MACRO_POPUP_TEXT / MACRO_POPUP_CHOOSE_ICON, verbatim.</summary>
+    public const string PopupNameText = "Enter Macro Name (Max 16 Characters):";
+    public const string PopupIconText = "Choose an Icon:";
+    /// <summary>ClassTrainerListScrollFrameTemplate's track art (UI-ClassTrainer-ScrollBar,
+    /// 64x128): a 30x120 piece TOP-anchored to the up button's TOP at (-2,+2) and a 30x123
+    /// piece BOTTOM-anchored to the down button's BOTTOM at (-2,-1). Drawn under the buttons.</summary>
+    public static Rect PopupScrollTrackTop => new(255, 65, 30, 120);
+    public static Rect PopupScrollTrackBottom => new(255, 140, 30, 123);
+    public static readonly Vector2 PopupScrollTrackTopUvMin = new(0f, .0234375f);
+    public static readonly Vector2 PopupScrollTrackTopUvMax = new(.46875f, .9609375f);
+    public static readonly Vector2 PopupScrollTrackBottomUvMin = new(.53125f, .03125f);
+    public static readonly Vector2 PopupScrollTrackBottomUvMax = new(1f, 1f);
     public static Rect NameInput => new(NameEdit.X + 3, NameEdit.Y,
         NameEdit.Width - 6, NameEdit.Height);
     public static IReadOnlyList<TextureSlice> NameBorderSlices =>
@@ -127,20 +159,31 @@ public static class MacroFrameUiLaw
     public static Rect PopupIconSocket(Rect icon) =>
         new(icon.X + MacroSocket.X, icon.Y + MacroSocket.Y,
             MacroSocket.Width, MacroSocket.Height);
+    /// <summary>UIPanelScrollBarTemplate's thumb is 16x16 (UI-ScrollBar-Knob, centre half of a
+    /// 32x32 sheet - see ScrollUvMin/Max); it travels the bar between the two buttons.</summary>
     public static Rect PopupScrollKnob(int rowOffset, int maximum)
     {
         float fraction = maximum <= 0 ? 0 : Math.Clamp((float)rowOffset / maximum, 0, 1);
         return new(ScrollTrack.X,
-            ScrollTrack.Y + fraction * (ScrollTrack.Height - 24), 16, 24);
+            ScrollTrack.Y + fraction * (ScrollTrack.Height - 16), 16, 16);
     }
 
+    // TabButtonTemplate: 16 px caps (HelpFrameTab-Inactive / -Active), text BOTTOM (0,5).
+    // MacroFrameTab1 OnLoad: PanelTemplates_TabResize(-15); MacroFrameTab2 OnLoad:
+    // SetText(format(CHARACTER_SPECIFIC_MACROS, name)); PanelTemplates_TabResize(-15, nil, nil, 150).
+    public const float TabSideWidth = 16f;
+    public const float TabPadding = -15f;
+    public const float CharacterTabMaxWidth = 150f;
+    public const string GeneralTabText = "General Macros";
+    public const string CharacterTabFormat = "{0} Specific Macros";
+    public const string TabFont = "GameFontNormalSmall";
+
     public static float GeneralTabWidth(float measuredTextWidth) =>
-        PanelTabLaw.Resize(measuredTextWidth, 20f, padding: -15f).TabWidth;
+        PanelTabLaw.Resize(measuredTextWidth, TabSideWidth, padding: TabPadding).TabWidth;
 
     public static float CharacterTabWidth(float measuredTextWidth, float generalTabWidth) =>
-        PanelTabLaw.FitWithinParent(measuredTextWidth, 20f,
-            GeneralTab.X + generalTabWidth, FrameWidth, rightInset: 40f,
-            padding: -15f, maxWidth: 150f).TabWidth;
+        PanelTabLaw.Resize(measuredTextWidth, TabSideWidth, padding: TabPadding,
+            maxWidth: CharacterTabMaxWidth).TabWidth;
 
     public static Rect MacroButton(int visibleIndex)
     {

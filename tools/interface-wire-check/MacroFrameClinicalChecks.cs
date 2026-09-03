@@ -46,8 +46,21 @@ internal static class MacroFrameClinicalChecks
               MacroFrameUiLaw.SetBase(false) == 0 && MacroFrameUiLaw.SetBase(true) == 18 &&
               MacroFrameUiLaw.AbsoluteIndex(true, 17) == 35 &&
               MacroFrameUiLaw.InSet(true, 18) && !MacroFrameUiLaw.InSet(true, 17) &&
-              MacroFrameUiLaw.GeneralTabWidth(60) == 85,
+              // TabButtonTemplate: 16 px caps, padding -15 -> 60 - 15 + 32.
+              MacroFrameUiLaw.GeneralTabWidth(60) == 77 &&
+              // The character tab caps its TEXT at 150 (PanelTemplates_TabResize maxWidth).
+              MacroFrameUiLaw.CharacterTabWidth(200, 77) == 150 - 15 + 32 &&
+              MacroFrameUiLaw.TabFont == "GameFontNormalSmall",
             "MacroFrame main-window/account-character geometry drifted");
+        // MacroFrameButtonTemplate seats (Blizzard_MacroUI.xml, 2026-09-03): socket and icon
+        // CENTER (0,-1) = one pixel down; the name a 36x10 box at BOTTOM (0,2); the character
+        // counter BOTTOM (-15,105) of a 10 px font.
+        Check(MacroFrameUiLaw.MacroSocket == new MacroFrameUiLaw.Rect(-14, -13, 64, 64) &&
+              MacroFrameUiLaw.IconOffset == new Vector2(0, 1) &&
+              MacroFrameUiLaw.MacroNameCenter == new Vector2(18, 29) &&
+              MacroFrameUiLaw.MacroNameWidth == 36f &&
+              MacroFrameUiLaw.CharacterLimitCenter == new Vector2(177, 402),
+            "MacroFrame button-template seats drifted");
         string overflowBody = new('x', 255);
         Check(MacroFrameUiLaw.BodyContentHeight("") == 85 &&
               MacroFrameUiLaw.BodyContentHeight("one\ntwo") == 85 &&
@@ -80,8 +93,13 @@ internal static class MacroFrameClinicalChecks
                   new MacroFrameUiLaw.Rect(256, 256, 64, 64) &&
               MacroFrameUiLaw.NameBorderSlices[1].Rect ==
                   new MacroFrameUiLaw.Rect(30, 35, 175, 29) &&
+              // A 16x16 thumb travelling the bar between the two 16 px buttons.
               MacroFrameUiLaw.PopupScrollKnob(2, 4) ==
-                  new MacroFrameUiLaw.Rect(264, 152.5f, 16, 24),
+                  new MacroFrameUiLaw.Rect(264, 156.5f, 16, 16) &&
+              MacroFrameUiLaw.PopupScrollTrackTop == new MacroFrameUiLaw.Rect(255, 65, 30, 120) &&
+              MacroFrameUiLaw.PopupScrollTrackBottom == new MacroFrameUiLaw.Rect(255, 140, 30, 123) &&
+              MacroFrameUiLaw.PopupNameText == "Enter Macro Name (Max 16 Characters):" &&
+              MacroFrameUiLaw.PopupIconText == "Choose an Icon:",
             "MacroPopup name or Okay/Cancel seats drifted");
         Check(MacroFrameUiLaw.MaximumRowOffset(0) == 0 &&
               MacroFrameUiLaw.MaximumRowOffset(20) == 0 &&
@@ -159,6 +177,13 @@ internal static class MacroFrameClinicalChecks
               macro.Contains("MacroIconCatalog.Load(_mpq)", StringComparison.Ordinal) &&
               macro.Contains("MacroFrameUiLaw.PopupArt", StringComparison.Ordinal) &&
               macro.Contains("UI-ClassTrainer-FilterBorder", StringComparison.Ordinal) &&
+              macro.Contains("UI-ClassTrainer-ScrollBar", StringComparison.Ordinal) &&
+              macro.Contains("VanillaInsetTab(dl, \"##macro-general-tab\"", StringComparison.Ordinal) &&
+              !macro.Contains("VanillaTab(dl, \"##macro-general-tab\"", StringComparison.Ordinal) &&
+              macro.Contains("MacroFrameUiLaw.IconOffset", StringComparison.Ordinal) &&
+              // The editor buffers may only be committed back once they mirror a selected
+              // macro; a commit from empty buffers wiped macro 1's name and body (2026-09-03).
+              macro.Contains("if (!_macrosLoaded || !_macroEditorBound ||", StringComparison.Ordinal) &&
               macro.Contains("OpenMacroPopup(MacroPopupMode.New)", StringComparison.Ordinal) &&
               macro.Contains("OpenMacroPopup(MacroPopupMode.Edit)", StringComparison.Ordinal) &&
               macro.Contains("MacroFrameUiLaw.MacroButton(i)", StringComparison.Ordinal) &&
