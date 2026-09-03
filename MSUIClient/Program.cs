@@ -1488,6 +1488,10 @@ public sealed partial class GameLoop : IDisposable
         NoteLoadFrame(_hitch.LastCompleted);
         PollLoadTimelineCompletion();
 
+        // Hovercast reads the hover the unit frames published during the previous Render,
+        // so the promotion belongs on this boundary - before any binding poll can cast.
+        BeginHovercastFrame();
+
         // Quitting is deferred out of the GUI pass and lands HERE, between
         // frames, before anything is touched. ClientWindow.Close tears the GL
         // context down synchronously - it raises Closing, which runs

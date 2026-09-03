@@ -846,6 +846,13 @@ if (args.Contains("--player-power-bars-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--hovercast-only", StringComparer.Ordinal))
+{
+    HovercastClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: Hovercast PASS");
+    return;
+}
+
 if (args.Contains("--swing-timer-only", StringComparer.Ordinal))
 {
     SwingTimerClinicalChecks.Run();
@@ -4693,6 +4700,8 @@ PartyLeadClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
 PlayerPowerBarsClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: PlayerPowerBars PASS");
+HovercastClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: Hovercast PASS");
 CompanionClinicalChecks.Run();
 SwingTimerClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: SwingTimer PASS");

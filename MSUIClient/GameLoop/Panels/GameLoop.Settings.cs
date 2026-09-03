@@ -2453,6 +2453,36 @@ public sealed partial class GameLoop
             }
             EndBox();
 
+            BeginBox("hovercast", "Hovercast");
+            {
+                Check("Enable Hovercast", () => addOns.Hovercast,
+                    value => addOns.Hovercast = value,
+                    "While the cursor rests on a unit frame, an action bar press casts on " +
+                    "that unit instead of your target. Your target never changes.");
+                ImGui.TextWrapped(
+                    "Your keys stay bound to the bars exactly as they are, so the bars keep " +
+                    "showing their icons and binding text. Move the cursor off a frame and " +
+                    "every press behaves as it always did.");
+                ImGui.Spacing();
+
+                bool hovercastOn = addOns.Hovercast;
+                if (!hovercastOn) ImGui.BeginDisabled();
+                Check("Include world units", () => addOns.HovercastWorldUnits,
+                    value => addOns.HovercastWorldUnits = value,
+                    "Also redirect onto a character or creature under the cursor in the 3D " +
+                    "world, not only onto unit frames.");
+                if (!hovercastOn) ImGui.EndDisabled();
+
+                ImGui.Spacing();
+                ImGui.TextDisabled(
+                    "A unit that cannot receive the spell is ignored rather than refused: " +
+                    "hovering a party frame will not stop an attack spell reaching your target.");
+                ImGui.TextDisabled(
+                    "Item and macro slots are never redirected, and an armed ground or " +
+                    "targeting cursor keeps the next click.");
+            }
+            EndBox();
+
             var swing = addOns.SwingTimer ??= new GameSettings.SwingTimerSettings();
             BeginBox("swing-timer", "Swing Timer");
             {

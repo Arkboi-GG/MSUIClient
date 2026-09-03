@@ -329,6 +329,9 @@ public sealed partial class GameLoop
         bool released = ImGui.InvisibleButton(
             playerFrame ? "##player-frame-click" : "##target-frame-click", hitSize * s,
             ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
+        // Hovercast reads the authored HitRect, not the art window: the dead margin that
+        // lets clicks through to the world must not count as hovering the unit either.
+        NoteHovercastFrameHover(unit.Guid, ImGui.IsItemHovered());
         ImGui.End();
         if (!released) return;
         if (_rtsUnitCastSpellId != 0)

@@ -107,6 +107,8 @@ public static class OptionsSearchUiLaw
         "Active quest objectives", "Ready to turn in",
         "Player Power Bars", "Health bar", "Power bar", "Movable health bar",
         "Combo points", "Energy tick", "Tick sweep", "Unlock bars",
+        "Hovercast", "Mouseover cast", "Cast on hover", "Hover healing",
+        "Cast without changing target", "Include world units",
         "Swing Timer", "Attack speed", "Auto attack", "Auto Shot", "Off hand swing",
         "Ranged aim band", "Weapon swing",
     ];
