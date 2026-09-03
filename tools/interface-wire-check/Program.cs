@@ -460,16 +460,19 @@ static void CheckOptionsSearch()
     OptionsSearchGroup[] hudLayout = OptionsSearchUiLaw.Find("hud layout");
     Check(hudLayout.Any(g => g.Entries.Any(e => e.Label == "Edit HUD layout")),
         "options search cannot find 'Edit HUD layout'");
+    // "quest helper" tokenizes to QUEST HELPER / QUEST / HELPER, so any page carrying a
+    // quest word answers it. Assert AddOns reachability rather than exclusivity.
     OptionsSearchGroup[] questHelper = OptionsSearchUiLaw.Find("quest helper");
-    Check(questHelper.Length == 1 && questHelper[0].Page == OptionsSearchPage.AddOns &&
-          questHelper[0].Entries.Any(entry => entry.Label == "Quest Helper"),
+    Check(questHelper.Any(group => group.Page == OptionsSearchPage.AddOns &&
+              group.Entries.Any(entry => entry.Label == "Quest Helper")),
         "options search cannot find the native Quest Helper on the AddOns page");
+    // The QUEST token also reaches the AddOns page's Quest Helper, so this query legitimately
+    // returns multiple groups. Guard the intended Interface entry rather than the group count.
     OptionsSearchGroup[] automaticQuestTracking =
         OptionsSearchUiLaw.Find("automatic quest tracking");
-    Check(automaticQuestTracking.Length == 1 &&
-          automaticQuestTracking[0].Page == OptionsSearchPage.Interface &&
-          automaticQuestTracking[0].Entries.Any(entry =>
-              entry.Label == "Automatic Quest Tracking"),
+    Check(automaticQuestTracking.Any(group =>
+              group.Page == OptionsSearchPage.Interface &&
+              group.Entries.Any(entry => entry.Label == "Automatic Quest Tracking")),
         "options search cannot find Automatic Quest Tracking on the Interface page");
 
     // The Escape menu's layout gear must sit in the frame's INTERIOR. GameMenuFrame.xml declares
@@ -831,6 +834,13 @@ if (args.Contains("--stance-bar-only", StringComparer.Ordinal))
 {
     StanceBarClinicalChecks.Run();
     Console.WriteLine("interface-wire-check: StanceBar PASS");
+    return;
+}
+
+if (args.Contains("--hovercast-only", StringComparer.Ordinal))
+{
+    HovercastClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: Hovercast PASS");
     return;
 }
 
@@ -4679,6 +4689,8 @@ PartyQuestActsClinicalChecks.Run();
 PartyGiverStatusClinicalChecks.Run();
 PartyLeadClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
+HovercastClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: Hovercast PASS");
 CompanionClinicalChecks.Run();
 SwingTimerClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: SwingTimer PASS");

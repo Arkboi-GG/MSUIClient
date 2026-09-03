@@ -281,6 +281,16 @@ public sealed class GameSettings
         /// <summary>Active-objective and ready-to-turn-in pins on the world map and minimap.</summary>
         public bool QuestHelper { get; set; } = true;
 
+        /// <summary>Cast on the unit under the cursor instead of the current target, without
+        /// changing target. Off by default: it changes what an action key already does, and a
+        /// switch everyone receives should not silently rebind a press nobody asked to move.</summary>
+        public bool Hovercast { get; set; }
+
+        /// <summary>Extend Hovercast to 3D bodies in the world, not only unit frames.
+        /// Off by default, matching the addon — the crosshair passes over enemies constantly
+        /// while the camera turns, so frames-only is the predictable half.</summary>
+        public bool HovercastWorldUnits { get; set; }
+
         /// <summary>The melee/ranged auto-attack swing rail.</summary>
         public SwingTimerSettings SwingTimer { get; set; } = new();
     }

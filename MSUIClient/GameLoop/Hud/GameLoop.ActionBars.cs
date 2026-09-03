@@ -201,7 +201,11 @@ public sealed partial class GameLoop
                 if (_selectionGuid != 0) CommitSelection(_selectionGuid, beginAttack: true);
                 break;
             case ActionSlot.Spell:
-                TryCast(slot.ActionId);
+                // Hovercast (AddOns page, off by default) rebinds this one press onto the
+                // unit under the cursor and returns 0 whenever it should not. Every bar,
+                // key and mouse press already funnels through UseAction, so this is the
+                // whole hook - the same single-chokepoint the 1.12 addon relied on.
+                TryCast(slot.ActionId, HovercastTarget(slot));
                 break;
             case ActionSlot.Item:
                 UseItemAction(slot.ActionId);

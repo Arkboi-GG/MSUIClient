@@ -105,6 +105,8 @@ public static class OptionsSearchUiLaw
     [
         "AddOns", "Quest Helper", "Quest map pins", "Quest minimap pins",
         "Active quest objectives", "Ready to turn in",
+        "Hovercast", "Mouseover cast", "Cast on hover", "Hover healing",
+        "Cast without changing target", "Include world units",
         "Swing Timer", "Attack speed", "Auto attack", "Auto Shot", "Off hand swing",
         "Ranged aim band", "Weapon swing",
     ];
