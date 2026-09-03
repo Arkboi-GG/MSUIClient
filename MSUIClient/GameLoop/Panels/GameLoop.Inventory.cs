@@ -2326,6 +2326,8 @@ public sealed partial class GameLoop
                 : null;
             _hardwareCursorImages[cacheKey] = image;
         }
+        if (_window.CursorTrace)
+            Console.WriteLine($"[cursor] try stem={stem} image={(image is null ? "null" : $"{image.Value.Width}x{image.Value.Height}")} captured={_window.MouseCaptured}");
         if (image is not { } resolved || !_window.UseHardwareCursor(cacheKey, resolved)) return false;
         ImGui.GetIO().ConfigFlags |= ImGuiConfigFlags.NoMouseCursorChange;
         return true;

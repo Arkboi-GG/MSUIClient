@@ -20,6 +20,12 @@ public sealed partial class GameLoop
     private void DrawWorldHoverCursor()
     {
         if (_gameplayArt is null || _window.MouseCaptured || _settingsOpen) return;
+        if (_liveForcedCursorFrames > 0)
+        {
+            _liveForcedCursorFrames--;
+            DrawBagHoverCursor(_liveForcedCursorStem);
+            return;
+        }
         bool pointerOverUi = ImGui.GetIO().WantCaptureMouse;
         if (_itemCastSpell != 0)
         {

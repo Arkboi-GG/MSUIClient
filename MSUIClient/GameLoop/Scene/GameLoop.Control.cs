@@ -2003,12 +2003,8 @@ public sealed partial class GameLoop
     /// shouldn't be allowed to click anything that isn't somehow nearish me").</summary>
     private const float CommandViewOrderReachYards = 40f;
 
-    /// <summary>
-    /// Whether a ground pick may become an order. Two refusals: too far from the primary, and a
-    /// roof - building or prop geometry more than a storey above the primary's feet that is not
-    /// part of the room the primary stands in. Terrain at any height stays orderable (hills), as
-    /// does anything inside the open room (its upper floor, its stairs).
-    /// </summary>
+    /// <summary>Whether a ground pick may become an order: only the reach limit is judged here;
+    /// whether the spot can be walked to is judged by the server's navigation mesh.</summary>
     private bool CommandViewOrderPointAllowed(Vector3 point, bool onTerrain, out string refusal)
     {
         refusal = "";
@@ -2020,15 +2016,9 @@ public sealed partial class GameLoop
             refusal = $"Too far from {ResolveUnitName(primary)}.";
             return false;
         }
-        if (!onTerrain && point.Z > unit.Position.Z + 3.5f)
-        {
-            bool insideOwnRoom = _wmo?.ActiveCut is WorldCut c && c.Contains(point.X, point.Y);
-            if (!insideOwnRoom)
-            {
-                refusal = "Can't reach that.";
-                return false;
-            }
-        }
+        // Reachability itself is the SERVER's call: the navigation mesh lives there, and an RTS
+        // move is now validated against it (ORDER_MOVE: complete path or walk to the reachable
+        // end; no path = refused with a message). No roof/height guesswork here.
         return true;
     }
 
@@ -2109,7 +2099,9 @@ public sealed partial class GameLoop
     {
         if (!_freeView || !Settings.Controls.CommandViewSightCut) return;
         float range2 = WorldCut.SightRangeYards * WorldCut.SightRangeYards;
-        foreach (ulong guid in FreeCamSelectableGuids())
+        // Party / raid only (owner, 2026-09-02): the faction force roster - same-faction bots the
+        // server lets you command - is NOT the party, and the world must not open up for them.
+        foreach (ulong guid in CommandViewPartyGuids())
         {
             if (into.Count >= WorldCut.MaxSightLines) break;
             if (!_entities.TryGet(guid, out WorldEntity unit) || unit.IsDead) continue;
@@ -2117,6 +2109,19 @@ public sealed partial class GameLoop
             if (Vector3.DistanceSquared(chest, camera) > range2) continue;
             into.Add(chest);
         }
+    }
+
+    /// <summary>Your own character, your party or raid, and the unit you are possessing. The
+    /// faction force roster is deliberately excluded.</summary>
+    private IEnumerable<ulong> CommandViewPartyGuids()
+    {
+        var seen = new HashSet<ulong>();
+        if (LocalPlayerGuid != 0 && seen.Add(LocalPlayerGuid)) yield return LocalPlayerGuid;
+        foreach (PartyMember member in _partyMembers)
+            if (member.Guid != 0 && seen.Add(member.Guid)) yield return member.Guid;
+        if (_controlState == ControlState.Possessing && _controlTargetGuid != 0 &&
+            seen.Add(_controlTargetGuid))
+            yield return _controlTargetGuid;
     }
 
     /// <summary>Tablet / options: flip whether the primary's AI fights for it.</summary>

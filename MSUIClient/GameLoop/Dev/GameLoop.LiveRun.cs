@@ -50,6 +50,8 @@ public sealed partial class GameLoop
     private double _liveTeleportSentAt;
     private readonly HashSet<string> _liveHeld = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<Key> _liveInputHeld = [];
+    private string _liveForcedCursorStem = "";
+    private int _liveForcedCursorFrames;
     private long _liveSoundMarkSequence;
     private int _liveInspectWireMarkCount;
     private int _liveQuestWireMarkCount;
@@ -995,6 +997,41 @@ public sealed partial class GameLoop
                         _freecamSelection.Add(LocalPlayerGuid);
                         _rtsPrimaryGuid = LocalPlayerGuid;
                         if (!Settings.Controls.CommandViewLockOnPrimary) ToggleCommandViewLock();
+                    }
+                    if (p.Length > 2 && p[1] == "cursor")
+                    {
+                        // Force a cursor stem through the real draw path for a few frames, or
+                        // report what the window has installed.
+                        if (p[2] != "state") { _liveForcedCursorStem = p[2]; _liveForcedCursorFrames = 6; _window.CursorTrace = true; }
+                        string cur = $"stem={p[2]} installed={_window.CursorModeName} forcedLeft={_liveForcedCursorFrames}";
+                        EmitInterface("cv-probe", "cursor", "OK", _net?.PlayerGuid ?? 0, cur);
+                        Log(true, $"{line} => {cur}");
+                        break;
+                    }
+                    if (p.Length > 1 && p[1] == "hover")
+                    {
+                        // First on-screen live creature within 40 yd: does the hover pick find it,
+                        // is the eye-to-unit ray occluded, and what cursor stem would the law draw?
+                        Vector2 vp = ImGuiNET.ImGui.GetIO().DisplaySize;
+                        Vector3 me = _entities.TryGet(LocalPlayerGuid, out WorldEntity selfU) ? selfU.Position : Vector3.Zero;
+                        string hover = "no creature on screen";
+                        foreach (WorldEntity u in _entities.Units.OrderBy(x => Vector3.DistanceSquared(x.Position, me)))
+                        {
+                            if (!u.IsCreature || u.IsDead || Vector3.Distance(u.Position, me) > 40f) continue;
+                            if (!_window.Camera.TryProjectToScreen(u.Position + new Vector3(0f, 0f, 1f), vp, out Vector2 px, out _)) continue;
+                            if (px.X < 0 || px.Y < 0 || px.X > vp.X || px.Y > vp.Y) continue;
+                            ulong pickedAt = PickUnit(px, out float hitDist);
+                            var (o, d) = _window.Camera.ScreenPointToRay(px, _window.FramebufferSize) ?? (Vector3.Zero, Vector3.UnitZ);
+                            bool occluded = CommandViewOccluded(o, d, hitDist);
+                            var rayHit = _collision?.Raycast(o, d, 200f);
+                            hover = $"unit=0x{u.Guid:X} entry={u.Entry} dist={Vector3.Distance(u.Position, me):0.#} px=({px.X:0},{px.Y:0}) " +
+                                $"pickedAt=0x{pickedAt:X} hitDist={hitDist:0.#} occluded={occluded} worldHit={(rayHit is { } rh ? rh.Distance.ToString("0.#") : "none")} " +
+                                $"canAttack={CanAttack(u)} freeView={_freeView} cursorMode={_window.CursorModeName}";
+                            break;
+                        }
+                        EmitInterface("cv-probe", "hover", "OK", _net?.PlayerGuid ?? 0, hover);
+                        Log(true, $"{line} => {hover}");
+                        break;
                     }
                     if (p.Length > 1 && p[1] == "loot")
                     {
