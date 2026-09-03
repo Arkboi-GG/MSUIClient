@@ -2013,19 +2013,28 @@ public sealed partial class GameLoop
     private Vector3? _cvFollowRigLast;           // rig position the lock last wrote
 
     // ── Command View order gate ───────────────────────────────────────────────────────────────
-    /// <summary>Furthest a move or waypoint may land from the primary (owner, 2026-09-02: "I
-    /// shouldn't be allowed to click anything that isn't somehow nearish me").</summary>
-    private const float CommandViewOrderReachYards = 40f;
+    /// <summary>Furthest a move or waypoint may land from the primary INSIDE an instance (owner,
+    /// 2026-09-02: "I shouldn't be allowed to click anything that isn't somehow nearish me").
+    /// Open-world maps have no reach limit: a commander orders across a whole zone, and a
+    /// "Too far from X" refusal there only stopped a walk the server would have pathed
+    /// (owner, 2026-09-02: "No reason to stop the pathing").</summary>
+    private const float CommandViewInstanceOrderReachYards = 40f;
 
-    /// <summary>Whether a ground pick may become an order: only the reach limit is judged here;
-    /// whether the spot can be walked to is judged by the server's navigation mesh.</summary>
+    /// <summary>Whether the current map is instanced (dungeon/raid/battleground) per Map.dbc.
+    /// Unknown map = treated as open world, so a missing row never locks the commander down.</summary>
+    private bool CommandViewOnInstanceMap() =>
+        _maps?.Get(_config.Start.Map)?.IsInstance == true;
+
+    /// <summary>Whether a ground pick may become an order: only the instance reach limit is judged
+    /// here; whether the spot can be walked to is judged by the server's navigation mesh.</summary>
     private bool CommandViewOrderPointAllowed(Vector3 point, bool onTerrain, out string refusal)
     {
         refusal = "";
+        if (!CommandViewOnInstanceMap()) return true;
         ulong primary = RtsPrimaryGuid != 0 ? RtsPrimaryGuid : ControlledGuid;
         if (primary == 0 || !_entities.TryGet(primary, out WorldEntity unit)) return true;
         float dx = point.X - unit.Position.X, dy = point.Y - unit.Position.Y;
-        if (dx * dx + dy * dy > CommandViewOrderReachYards * CommandViewOrderReachYards)
+        if (dx * dx + dy * dy > CommandViewInstanceOrderReachYards * CommandViewInstanceOrderReachYards)
         {
             refusal = $"Too far from {ResolveUnitName(primary)}.";
             return false;
