@@ -317,7 +317,7 @@ public sealed partial class GameLoop
                     c0 + new Vector2(12f, y) * scale, scale, 0xff9aa4ab);
                 y += 15f;
             }
-            foreach (string line in PartyQuestObjectiveLines(cell, template))
+            foreach ((string line, _) in PartyQuestObjectiveLines(cell, template))
             {
                 GameText.Draw(dl, "GameFontNormalSmall", line,
                     c0 + new Vector2(12f, y) * scale, scale, 0xff9aa4ab);
@@ -345,7 +345,7 @@ public sealed partial class GameLoop
     /// </summary>
     private bool PartyQuestMayAbandon(ulong guid, in PartyQuestCell cell) =>
         cell.Held && !cell.Rewarded &&
-        (guid == LocalPlayerGuid || (IsRtsGroupableBot(guid) && _partyQuestActsAvailable));
+        (guid == LocalPlayerGuid || (HasMemberQuestFacts(guid) && _partyQuestActsAvailable));
 
     /// <summary>
     /// One member's state for one quest. Your own column merges the two sources:
@@ -430,7 +430,8 @@ public sealed partial class GameLoop
             timer, killProgress, itemProgress, done, total);
     }
 
-    private IEnumerable<string> PartyQuestObjectiveLines(PartyQuestCell cell, QuestTemplate template)
+    private IEnumerable<(string Text, bool Finished)> PartyQuestObjectiveLines(
+        PartyQuestCell cell, QuestTemplate template)
     {
         bool any = false;
         for (int i = 0; i < template.Objectives.Count && i < QuestFactsWire.ObjectivesPerQuest; i++)
@@ -442,10 +443,13 @@ public sealed partial class GameLoop
                 uint current = Math.Min(cell.KillProgress.Length > i ? cell.KillProgress[i] : 0u,
                     objective.RequiredCount);
                 string label = objective.Text.Length > 0 ? objective.Text
-                    : _creatureNames.GetValueOrDefault(objective.CreatureOrGo & 0x7fff_ffff,
-                        $"Creature {objective.CreatureOrGo & 0x7fff_ffff}") + " slain";
+                    : QuestCreatureKillLabel(
+                        _creatureNames.GetValueOrDefault(objective.CreatureOrGo & 0x7fff_ffff,
+                            $"Creature {objective.CreatureOrGo & 0x7fff_ffff}"),
+                        objective.RequiredCount);
                 any = true;
-                yield return $"{label}: {current}/{objective.RequiredCount}";
+                yield return ($"{label}: {current}/{objective.RequiredCount}",
+                    current >= objective.RequiredCount);
             }
             // NOT else-if: one index can carry a kill and a collect objective.
             if (objective.ItemId != 0 && objective.ItemCount > 0)
@@ -459,11 +463,13 @@ public sealed partial class GameLoop
                 if (label.Length == 0)
                     label = QuestObjectiveItemLabel(objective.ItemId);
                 any = true;
-                yield return $"{label}: {current}/{objective.ItemCount}";
+                yield return ($"{label}: {current}/{objective.ItemCount}",
+                    current >= objective.ItemCount);
             }
         }
         if (!any)
-            yield return cell.Complete ? "Ready to turn in." : "No counted objectives.";
+            yield return (cell.Complete ? "Ready to turn in." : "No counted objectives.",
+                cell.Complete);
     }
 
     /// <summary>

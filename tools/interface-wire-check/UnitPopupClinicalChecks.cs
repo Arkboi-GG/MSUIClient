@@ -35,7 +35,7 @@ internal static class UnitPopupClinicalChecks
                     UnitPopupRow.RaidTargetIcon, UnitPopupRow.Cancel }) &&
               partyMemberSelfRows.SequenceEqual(new[]
                   { UnitPopupRow.LootMethod, UnitPopupRow.LootThreshold,
-                    UnitPopupRow.Leave, UnitPopupRow.Cancel }) &&
+                    UnitPopupRow.ClaimLead, UnitPopupRow.Leave, UnitPopupRow.Cancel }) &&
               masterLootLeaderRows.Contains(UnitPopupRow.LootPromote) &&
               masterLootLeaderRows.SequenceEqual(new[]
                   { UnitPopupRow.Whisper, UnitPopupRow.Promote, UnitPopupRow.LootPromote,
@@ -56,6 +56,7 @@ internal static class UnitPopupClinicalChecks
                   "Promote to Guild Master" &&
               UnitPopupUiLaw.RowText(UnitPopupRow.GuildLeave) == "Leave Guild" &&
               UnitPopupUiLaw.RowText(UnitPopupRow.Follow) == "Follow" &&
+              UnitPopupUiLaw.RowText(UnitPopupRow.ClaimLead) == "Claim Party Lead" &&
               UnitPopupUiLaw.RowText(UnitPopupRow.LootMethod, 4) == "Need Before Greed" &&
               UnitPopupUiLaw.RowText(UnitPopupRow.LootThreshold, 0, 3) == "Rare" &&
               UnitPopupUiLaw.HasArrow(UnitPopupRow.LootMethod, isLeader: true) &&
@@ -312,7 +313,9 @@ internal static class UnitPopupClinicalChecks
         Check(runtime.Contains("_net?.GroupLootMethod(method, master, _partyLootThreshold);",
                   StringComparison.Ordinal) &&
               runtime.Contains("_net?.SetRaidTarget(checked((byte)(requested - 1)), _unitPopupGuid);",
-                  StringComparison.Ordinal),
+                  StringComparison.Ordinal) &&
+              runtime.Contains("case UnitPopupRow.ClaimLead:", StringComparison.Ordinal) &&
+              runtime.Contains("RequestPartyLeadClaim();", StringComparison.Ordinal),
             "UnitPopup level-2 loot or raid-target action is not wired");
         Check(runtime.Contains("UnitPopupUiLaw.MenuBackdropFillTint",
                   StringComparison.Ordinal) &&

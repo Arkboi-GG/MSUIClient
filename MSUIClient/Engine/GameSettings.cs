@@ -838,6 +838,10 @@ public sealed class GameSettings
         /// an empty world left-click clears the current target.
         /// </summary>
         public bool StickyTargeting { get; set; }
+        /// <summary>MSUI option: let a right-click on another player's 3D model open
+        /// the same interaction menu as their portrait. Off keeps world-model clicks
+        /// selection-only and reserves menus for portraits.</summary>
+        public bool WorldPlayerContextMenus { get; set; }
         /// <summary>
         /// Vanilla LOCK_ACTIONBAR. It blocks drag-start/drop while preserving Shift-click pickup.
         /// </summary>
@@ -945,6 +949,11 @@ public sealed class GameSettings
         /// <summary>Auto Loot (the 2.0+ interface option, made the default here per owner
         /// 2026-09-02): a right-click loot takes everything at once; Shift inverts it.</summary>
         public bool AutoLoot { get; set; } = true;
+
+        /// <summary>Automatically place accepted or recently progressed objective quests in
+        /// the quest watch frame. Shift-click watches remain manual and are never governed by
+        /// this switch.</summary>
+        public bool AutomaticQuestTracking { get; set; } = true;
     }
 
     /// <summary>

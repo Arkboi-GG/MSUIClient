@@ -32,6 +32,11 @@ internal static class MicroMenuClinicalChecks
             "micro-menu law/render wiring drift");
         Check(bindings.Contains("GameBinding.OpenTalents, \"Talents\", Key.N", StringComparison.Ordinal) &&
               bindings.Contains("GameBinding.OpenQuestLog, \"Quest Log\", Key.L", StringComparison.Ordinal) &&
+              bindings.Contains("GameBinding.OpenPartyQuestLog, \"Party Quest Log\", Key.Unknown",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("new BindingChord(Key.L, Shift: true)", StringComparison.Ordinal) &&
+              actionBars.Contains("BindingDown(GameBinding.OpenPartyQuestLog)",
+                  StringComparison.Ordinal) &&
               bindings.Contains("GameBinding.OpenSocial, \"Social\", Key.O", StringComparison.Ordinal),
             "N/L/O live binding registry drift");
         Check(settings.Contains("if (_settingsOpen) _settingsPopupRequested = true;",

@@ -459,6 +459,13 @@ static void CheckOptionsSearch()
     Check(questHelper.Length == 1 && questHelper[0].Page == OptionsSearchPage.AddOns &&
           questHelper[0].Entries.Any(entry => entry.Label == "Quest Helper"),
         "options search cannot find the native Quest Helper on the AddOns page");
+    OptionsSearchGroup[] automaticQuestTracking =
+        OptionsSearchUiLaw.Find("automatic quest tracking");
+    Check(automaticQuestTracking.Length == 1 &&
+          automaticQuestTracking[0].Page == OptionsSearchPage.Interface &&
+          automaticQuestTracking[0].Entries.Any(entry =>
+              entry.Label == "Automatic Quest Tracking"),
+        "options search cannot find Automatic Quest Tracking on the Interface page");
 
     // The Escape menu's layout gear must sit in the frame's INTERIOR. GameMenuFrame.xml declares
     // a Backdrop with EdgeSize 32, and WowSkin.Dialog carries the same 32 (drawn at
@@ -3657,7 +3664,10 @@ Check(inspectSource.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[11], s
       inspectSource.Contains("ImGui.SetNextWindowPos(tooltipPosition, ImGuiCond.Always)",
           StringComparison.Ordinal),
     "inspect selected-tab/rotation/slot layer/label/enchant/tooltip production wiring drift");
-Check(inspectTargetingSource.Contains("OpenUnitPopup(picked, which, click.Position, InspectBinding.Target);",
+Check(inspectTargetingSource.Contains(
+          "Settings.Controls.WorldPlayerContextMenus", StringComparison.Ordinal) &&
+      inspectTargetingSource.Contains(
+          "OpenUnitPopup(picked, which, click.Position, InspectBinding.Target);",
           StringComparison.Ordinal) &&
       inspectPartySource.Contains("InspectBinding.Party(hoveredIndex));",
           StringComparison.Ordinal) &&

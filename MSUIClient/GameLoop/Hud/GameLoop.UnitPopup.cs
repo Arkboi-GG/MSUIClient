@@ -366,6 +366,8 @@ public sealed partial class GameLoop
             !CanAuthorControlledGameplay) return false;
         if (row == UnitPopupRow.Follow)
             return tracked && unit.IsPlayer && !_freeView && _controlState == ControlState.OwnChar;
+        if (row == UnitPopupRow.ClaimLead)
+            return _partyLeadAvailable && inParty && !isLeader;
         return UnitPopupUiLaw.RowEnabled(row, inParty, isLeader, isRaid,
             connected, distanceSquared);
     }
@@ -402,6 +404,9 @@ public sealed partial class GameLoop
                 break;
             case UnitPopupRow.Promote:
                 if (!TryPartyTestPromote(guid)) _net?.GroupSetLeader(guid);
+                break;
+            case UnitPopupRow.ClaimLead:
+                RequestPartyLeadClaim();
                 break;
             case UnitPopupRow.Leave:
                 // LeaveParty(): the 1.12 client leaves a group with CMSG_GROUP_DISBAND.

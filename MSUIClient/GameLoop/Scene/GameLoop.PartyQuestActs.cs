@@ -112,6 +112,13 @@ public sealed partial class GameLoop
                 : $"None of the {refusals.Count} selected could do that.");
         if (result.Action == PartyQuestWire.ActionAbandon && succeeded > 0)
             RequestPartyQuestFacts("party quest abandoned");
+        if (result.Action == PartyQuestWire.ActionTurnIn && succeeded > 0)
+            RequestPartyQuestFacts("party quest turned in");
+        if (result.Action == PartyQuestWire.ActionAccept && succeeded > 0)
+        {
+            RequestPartyQuestFacts("party quest accepted");
+            AutoWatchQuest(result.QuestId);
+        }
 
         EmitInterface("party-quest", ActionName(result.Action), "APPLIED", 0,
             $"quest={result.QuestId};ok={succeeded};refused={refusals.Count}");
@@ -184,7 +191,10 @@ public sealed partial class GameLoop
     {
         var candidates = new List<(ulong, string)>();
         foreach (PartyMember member in _partyMembers)
-            if (IsRtsGroupableBot(member.Guid))
+            // Quest facts are the authoritative bot identity in ordinary embodied
+            // play. The RTS roster may not exist until commander view is entered,
+            // so using it here made the quest rail disappear outside that mode.
+            if (HasMemberQuestFacts(member.Guid))
                 candidates.Add((member.Guid, member.Name));
         return candidates;
     }
