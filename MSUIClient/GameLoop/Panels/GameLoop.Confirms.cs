@@ -194,6 +194,11 @@ public sealed partial class GameLoop
             }
             return;
         }
+        if (effect.Type == ConfirmPopupUiLaw.PartyFlightPopupType)
+        {
+            ApplyPartyFlightPopupEffect(effect.Kind);
+            return;
+        }
         bool summon = effect.Type == ConfirmPopupUiLaw.SummonPopupType;
         if (effect.Type == ConfirmPopupUiLaw.ReadyCheckPopupType)
         {
@@ -249,6 +254,7 @@ public sealed partial class GameLoop
         DrawConfirmPopup(ConfirmPopupUiLaw.ReadyCheckPopupType);
         DrawConfirmPopup(ConfirmPopupUiLaw.GiverChoicePopupType);
         DrawConfirmPopup(ConfirmPopupUiLaw.DisableControlGuidePopupType);
+        DrawConfirmPopup(ConfirmPopupUiLaw.PartyFlightPopupType);
         DrawLootMasterMenu();
     }
 
@@ -269,6 +275,7 @@ public sealed partial class GameLoop
             ConfirmPopupUiLaw.GiverChoicePopupType => ConfirmPopupUiLaw.GiverChoiceText(
                 ResolveWorldUnitName(_cvGiverChoiceGuid), _cvGiverChoiceOptions),
             ConfirmPopupUiLaw.DisableControlGuidePopupType => ConfirmPopupUiLaw.DisableControlGuideText,
+            ConfirmPopupUiLaw.PartyFlightPopupType => PartyFlightPromptText(),
             _ => QuestConfirmPromptText(),
         };
         (string acceptCaption, string declineCaption) = ConfirmPopupUiLaw.Captions(type);

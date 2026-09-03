@@ -282,6 +282,14 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_SUI_COMPANION, CompanionWire.BuildRequest(action, guid));
 
     /// <summary>
+    /// Party flight (PARTY_TAXI v1): the commanded party takes the flight-master chain;
+    /// flags 0x01 = confirmed (fly the eligible even if some cannot board). Callers gate
+    /// on capability bit 11 — never send before the server has advertised it.
+    /// </summary>
+    public void SuiPartyTaxi(byte flags, ulong flightMaster, IReadOnlyList<uint> nodes) =>
+        SendPacket((ushort)Op.CMSG_SUI_PARTY_TAXI, PartyTaxiWire.BuildRequest(flags, flightMaster, nodes));
+
+    /// <summary>
     /// RTS order. Empty subjects retains the legacy "whole real party" meaning;
     /// callers for temporary groups must always send a nonempty explicit list.
     /// </summary>

@@ -8,7 +8,13 @@ namespace MSUIClient.Engine;
 /// </summary>
 public static class ServerRideOwnershipLaw
 {
+    /// <summary>
+    /// The ordinary case: the own character, embodied, not in the Command View. Since
+    /// 2026-09-03 a POSSESSED bot's ride also owns the controller (the human "follows the
+    /// bot on taxi" and stays in control) — <paramref name="possessingEmbodiedBot"/> is the
+    /// caller's Possessing state; the Command View still never rides.
+    /// </summary>
     public static bool MayOwnController(bool freeView, bool ordinaryOwnCharacterState,
-        bool controllingSessionCharacter) =>
-        !freeView && ordinaryOwnCharacterState && controllingSessionCharacter;
+        bool controllingSessionCharacter, bool possessingEmbodiedBot = false) =>
+        !freeView && (ordinaryOwnCharacterState && controllingSessionCharacter || possessingEmbodiedBot);
 }

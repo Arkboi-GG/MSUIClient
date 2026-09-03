@@ -37,6 +37,16 @@ public static class ConfirmPopupUiLaw
         ReadyCheckPopupType, HideOnEscape: true, HasAccept: true, HasCancel: true,
         TimeoutSeconds: ReadyCheckTimeoutSeconds, EntrySound: "ReadyCheck");
 
+    /// <summary>Command View party flight (owner 2026-09-03): the server reported members who
+    /// cannot board this flight — fly with the rest, or cancel and keep the map open.</summary>
+    public const string PartyFlightPopupType = "SUI_PARTY_FLIGHT";
+    public const string FlyText = "Fly";
+    public const int PartyFlightTimeoutSeconds = 30;
+
+    public static readonly StaticPopupCoordinatorLaw.Definition PartyFlightDefinition = new(
+        PartyFlightPopupType, HideOnEscape: true, HasAccept: true, HasCancel: true,
+        TimeoutSeconds: PartyFlightTimeoutSeconds, EntrySound: "igPlayerInvite");
+
     /// <summary>Command View: a right-clicked NPC that offers MORE THAN ONE thing — a quest giver
     /// who is also a flight master / vendor / trainer / banker / innkeeper, a vendor who also
     /// trains... The lowest-bit-wins cursor ladder would silently take one of them and the rest
@@ -148,6 +158,7 @@ public static class ConfirmPopupUiLaw
     public static (string Accept, string Decline) Captions(string type) =>
         type == ReadyCheckPopupType ? (ReadyText, NotReadyText)
         : type == DisableControlGuidePopupType ? (DisableText, CancelText)
+        : type == PartyFlightPopupType ? (FlyText, CancelText)
         : (AcceptText, DeclineText);
 
     /// <summary>GlobalStrings READY_CHECK_MESSAGE with the starter filled.</summary>

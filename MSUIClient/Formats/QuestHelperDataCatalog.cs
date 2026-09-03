@@ -29,6 +29,7 @@ public sealed class QuestHelperDataCatalog
     private readonly IReadOnlyDictionary<uint, QuestHelperSpawn[]> _objects;
     private readonly IReadOnlyDictionary<uint, QuestHelperSources> _items;
     private readonly IReadOnlyDictionary<uint, QuestHelperSources> _turnIns;
+    private readonly IReadOnlyDictionary<uint, uint> _unitFactions;
 
     internal QuestHelperDataCatalog(
         IReadOnlyDictionary<uint, QuestHelperSpawn[]> units,
@@ -36,8 +37,10 @@ public sealed class QuestHelperDataCatalog
         IReadOnlyDictionary<uint, QuestHelperSources> items,
         IReadOnlyDictionary<uint, QuestHelperSources> turnIns,
         QuestHelperAvailableQuest[] availableQuests,
-        DateTime fetchedUtc)
+        DateTime fetchedUtc,
+        IReadOnlyDictionary<uint, uint>? unitFactions = null)
     {
+        _unitFactions = unitFactions ?? new Dictionary<uint, uint>();
         _units = units;
         _objects = objects;
         _items = items;
@@ -65,4 +68,7 @@ public sealed class QuestHelperDataCatalog
 
     public QuestHelperSources TurnInSources(uint questId) =>
         _turnIns.GetValueOrDefault(questId, QuestHelperSources.Empty);
+
+    /// <summary>creature_template.faction (a FactionTemplate id) for a giver entry, 0 unknown.</summary>
+    public uint UnitFaction(uint entry) => _unitFactions.GetValueOrDefault(entry, 0u);
 }

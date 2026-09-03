@@ -13,6 +13,7 @@ public sealed class GameplayArt : IDisposable
     private readonly GL _gl;
     private readonly MpqMount _mpq;
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Texture?> _embeddedPngTextures = new(StringComparer.Ordinal);
     private readonly Dictionary<QuestHelperPinKind, Texture?> _questHelperMarkers = [];
     private byte[]? _questHelperFrizQt;
     private bool _questHelperFrizQtResolved;
@@ -43,6 +44,47 @@ public sealed class GameplayArt : IDisposable
     }
 
     public uint Handle(string path) => Get(path)?.Handle ?? 0;
+
+    /// <summary>
+    /// Lazy cache for original project-authored UI PNGs compiled into the executable. This is a
+    /// separate path from <see cref="Handle"/> because that path deliberately normalizes every
+    /// request to an MPQ-backed BLP. Decode as straight-alpha BGRA: ImGui's ordinary alpha blend
+    /// expects unpremultiplied colour, and <see cref="Texture.From2D"/> uploads BGRA bytes.
+    /// </summary>
+    public uint EmbeddedPngHandle(string resourceName)
+    {
+        if (string.IsNullOrWhiteSpace(resourceName)) return 0;
+        if (_embeddedPngTextures.TryGetValue(resourceName, out Texture? cached))
+            return cached?.Handle ?? 0;
+
+        try
+        {
+            using Stream? stream = typeof(GameplayArt).Assembly.GetManifestResourceStream(resourceName);
+            if (stream is null)
+                throw new FileNotFoundException("Embedded UI resource is missing", resourceName);
+            using SkiaSharp.SKCodec? codec = SkiaSharp.SKCodec.Create(stream);
+            if (codec is null)
+                throw new InvalidDataException("Skia could not open the embedded PNG");
+
+            var info = new SkiaSharp.SKImageInfo(codec.Info.Width, codec.Info.Height,
+                SkiaSharp.SKColorType.Bgra8888, SkiaSharp.SKAlphaType.Unpremul);
+            using var bitmap = new SkiaSharp.SKBitmap(info);
+            SkiaSharp.SKCodecResult decoded = codec.GetPixels(info, bitmap.GetPixels());
+            if (decoded != SkiaSharp.SKCodecResult.Success)
+                throw new InvalidDataException($"Skia PNG decode returned {decoded}");
+
+            Texture texture = Texture.From2D(_gl, bitmap.Bytes, info.Width, info.Height,
+                mipmaps: false, repeat: false);
+            _embeddedPngTextures[resourceName] = texture;
+            return texture.Handle;
+        }
+        catch (Exception ex)
+        {
+            _embeddedPngTextures[resourceName] = null;
+            Console.WriteLine($"[ui-art] embedded PNG failed: {resourceName}: {ex.Message}");
+            return 0;
+        }
+    }
 
     /// <summary>
     /// Original high-resolution quest-helper art. The same pure rasterizer is exercised by the
@@ -388,6 +430,7 @@ public sealed class GameplayArt : IDisposable
     public void Dispose()
     {
         foreach (Texture texture in _textures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
+        foreach (Texture texture in _embeddedPngTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _questHelperMarkers.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _repeatTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _additiveTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
@@ -397,6 +440,7 @@ public sealed class GameplayArt : IDisposable
         // Styled copies are owned solely by this cache - nothing else holds them.
         ClearPainterlyCache();
         _textures.Clear();
+        _embeddedPngTextures.Clear();
         _questHelperMarkers.Clear();
         _repeatTextures.Clear();
         _additiveTextures.Clear();

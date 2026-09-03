@@ -165,12 +165,21 @@ public sealed class QuestHelperDataClient
                 sources.Freeze()));
         }
 
+        // Giver factions: the helper hides quests whose every giver is hostile to the driven
+        // body (owner 2026-09-03: "the quest helper shows you quests for both factions" —
+        // RequiredRaces is 0 on most quests, the giver's faction is what separates them).
+        var unitFactions = new Dictionary<uint, uint>();
+        foreach ((uint entry, CsvRow template) in creatureTemplates)
+        {
+            uint faction = template.U32("faction");
+            if (faction != 0) unitFactions[entry] = faction;
+        }
         return new QuestHelperDataCatalog(
             FreezeSpawns(unitSpawns),
             FreezeSpawns(objectSpawns),
             itemSources.ToDictionary(pair => pair.Key, pair => pair.Value.Freeze()),
             turnIns.ToDictionary(pair => pair.Key, pair => pair.Value.Freeze()),
-            [.. available], fetchedUtc ?? DateTime.UtcNow);
+            [.. available], fetchedUtc ?? DateTime.UtcNow, unitFactions);
     }
 
     private static byte Byte(int value) => (byte)Math.Clamp(value, 0, byte.MaxValue);

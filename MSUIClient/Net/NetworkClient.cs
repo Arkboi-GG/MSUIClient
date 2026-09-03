@@ -305,6 +305,8 @@ public sealed class NetworkClient : IDisposable
     public bool SuiControlRequest(ulong guid) => InWorld(s => s.SuiControlRequest(guid));
     public bool SuiControlRelease(byte mode) => InWorld(s => s.SuiControlRelease(mode));
     public bool SuiCompanion(byte action, ulong guid) => InWorld(s => s.SuiCompanion(action, guid));
+    public bool SuiPartyTaxi(byte flags, ulong flightMaster, IReadOnlyList<uint> nodes) =>
+        InWorld(s => s.SuiPartyTaxi(flags, flightMaster, nodes));
     public bool SuiOrder(byte orderType, IReadOnlyList<ulong> subjects, ulong targetGuid, float x, float y, float z) =>
         InWorld(s => s.SuiOrder(orderType, subjects, targetGuid, x, y, z));
     public bool SuiCam(float x, float y, float z, bool active = true) =>

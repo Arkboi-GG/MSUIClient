@@ -60,7 +60,9 @@ internal static class SelfSplineClinicalChecks
         string dispatch = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
             "GameLoop.Net.cs"));
         Check(taxi.Contains("ObserveServerRideSpline(MonsterMove move)", StringComparison.Ordinal) &&
-              taxi.Contains("move.Guid != _net.PlayerGuid || !ServerRideMayOwnController",
+              // 2026-09-03: the ride keys to the CONTROLLED body — the own character, or the
+              // possessed bot whose flight the human rides along (owner decision).
+              taxi.Contains("move.Guid != ControlledGuid || !ServerRideMayOwnController",
                   StringComparison.Ordinal) &&
               taxi.Contains("private void DiscardServerRideWithoutAck()",
                   StringComparison.Ordinal) &&

@@ -64,8 +64,10 @@ public sealed partial class GameLoop
             GameObjectInteractionFacts facts = ResolveGameObjectInteractionFacts(hoveredGo);
             bool goSessionScoped = hoveredGo.GameObjectType is 9 or 19;
             WorldBodyPose goActorBody;
+            // Mailbox / plaque: ranged from the body that will use it — the driven bot while
+            // possessing, else the session character (same law as UseGameObject).
             bool goBodyAvailable = goSessionScoped
-                ? TryGetSessionBodyPose(out goActorBody)
+                ? TryGetInteractionBodyPose(out goActorBody)
                 : TryGetControlledBodyPose(out goActorBody);
             float goDistanceSquared = goBodyAvailable &&
                 (goSessionScoped || CanAuthorControlledGameplay)
@@ -104,10 +106,11 @@ public sealed partial class GameLoop
         bool hasActorPose;
         if (serviceKind is not null)
             hasActorPose = TryGetInteractionBodyPose(out actorPose);
-        else if (unit.IsDead && _entities.TryGet(LocalPlayerGuid, out WorldEntity sessionPlayer))
+        else if (unit.IsDead && _entities.TryGet(ControlledGuid, out WorldEntity lootingBody))
         {
-            actor = sessionPlayer;
-            hasActorPose = TryGetSessionBodyPose(out actorPose);
+            // POSSESS_LAW 2.1: loot is done by the driven body (LootHandler runs as the actor).
+            actor = lootingBody;
+            hasActorPose = TryGetInteractionBodyPose(out actorPose);
         }
         else
             hasActorPose = TryGetControlledBodyPose(out actorPose);

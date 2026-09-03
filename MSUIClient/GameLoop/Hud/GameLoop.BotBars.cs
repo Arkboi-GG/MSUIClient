@@ -291,9 +291,24 @@ public sealed partial class GameLoop
         "Tank" => "T", "Healer" => "H", _ => "D",
     };
 
-    /// <summary>Is this member part of the chain? Absent from the map = linked (the default).</summary>
+    /// <summary>Is this member part of the chain? Server truth when the roster carries it
+    /// (row v2); the saved per-name intent is only the fallback against an older core.</summary>
+    private bool PartyMemberLinked(PartyMember member) =>
+        _suiChain.TryGetValue(member.Guid, out (byte State, ulong Anchor) chain)
+            ? chain.State != SuiChainUnlinked
+            : LoadBotBars().BotLinks.GetValueOrDefault(member.Name, true);
+
     private bool PartyMemberLinked(string name) =>
         LoadBotBars().BotLinks.GetValueOrDefault(name, true);
+
+    /// <summary>The member's chain state as the server reports it (linked when unknown).</summary>
+    private byte PartyChainState(PartyMember member) =>
+        _suiChain.TryGetValue(member.Guid, out (byte State, ulong Anchor) chain)
+            ? chain.State
+            : PartyMemberLinked(member.Name) ? SuiChainLinked : SuiChainUnlinked;
+
+    private ulong PartyChainAnchor(PartyMember member) =>
+        _suiChain.TryGetValue(member.Guid, out (byte State, ulong Anchor) chain) ? chain.Anchor : 0;
 
     /// <summary>
     /// Divinity-style chain toggle: linked members follow whoever is being driven
@@ -312,6 +327,16 @@ public sealed partial class GameLoop
         AddChatMessage(linked
             ? $"{member.Name} chained back into the party."
             : $"{member.Name} unchained — standing ground until re-linked.");
+    }
+
+    /// <summary>ORDER_FOLLOW: chain this member to a specific anchor (0 = the default, the
+    /// driven body of its human). The server stores it on the unit and the roster reports it.</summary>
+    private void SetPartyChainAnchor(PartyMember member, ulong anchor)
+    {
+        _net?.SuiOrder(5, [member.Guid], anchor, 0, 0, 0);
+        AddChatMessage(anchor != 0
+            ? $"{member.Name}: chained to {ResolveUnitName(anchor)}."
+            : $"{member.Name}: chained to the party.");
     }
 
     /// <summary>Pixels between the pressed portrait's centre and the cursor.</summary>
@@ -565,40 +590,84 @@ public sealed partial class GameLoop
     /// through every chained portrait; an unchained member shows a broken stub instead.
     /// Always visible with the party frames — this is party state, not an RTS-strip extra.
     /// </summary>
+    /// <summary>
+    /// The chain, redesigned (owner 2026-09-03: "something that fits the UI vibe that shows
+    /// green or red chain, and also WHO that's chained to"). No rail, no beads: each member
+    /// wears a CHAIN LINK glyph at the left edge of its portrait, drawn in the same style as
+    /// the role medallion (dark rim, coloured body, shadow) — green = linked, red = unchained
+    /// by you (holds until re-linked), amber = held by the world (re-forms when its anchor is
+    /// back in range) — and a small medallion beside it carrying the ANCHOR's initial. Hover
+    /// names it in words; click toggles the link. Server truth (roster row v2).
+    /// </summary>
     private void DrawPartyChainLinks(PartyMember[] members)
     {
         float scale = GameplayUiScale();
         var draw = ImGui.GetForegroundDrawList();
-        // Anchor rail: just left of the portraits, starting under the player frame.
-        float railX = (_partyFramesOrigin.X + 2) * scale;
-        Vector2 previous = new(railX, (_playerFrameOrigin.Y + 92f) * scale);   // player frame's lower edge
-        const uint beadColor = 0xFFC8DCF0;            // ABGR pale steel
-        const uint beadShadow = 0x88000000;
         for (int i = 0; i < members.Length; i++)
         {
-            Vector2 at = new(railX, (PartyMemberLogicalOrigin(i).Y + 15) * scale);
-            if (PartyMemberLinked(members[i].Name))
+            PartyMember member = members[i];
+            byte state = PartyChainState(member);
+            ulong anchor = PartyChainAnchor(member);
+            // Owner 2026-09-03 live correction: the chain takes the former WHO-medallion
+            // position at the portrait's lower-left.
+            Vector2 center = (PartyMemberLogicalOrigin(i) + new Vector2(11.5f, 39.5f)) * scale;
+            float radius = 7f * scale;
+            DrawChainGlyph(draw, center, radius, state);
+            // WHO: the anchor's initial moves to the upper-left rim, just above 9 o'clock.
+            string anchorName = anchor != 0 ? ResolveUnitName(anchor) : "";
+            Vector2 medallion = (PartyMemberLogicalOrigin(i) + new Vector2(8.5f, 18.5f)) * scale;
+            if (anchorName.Length > 0)
+                DrawChainAnchorMedallion(draw, medallion, 5.5f * scale, anchorName, state, scale);
+
+            Vector2 hitMin = new(medallion.X - 6f * scale, medallion.Y - 6f * scale);
+            Vector2 hitMax = center + new Vector2(radius + 2f * scale, radius + 2f * scale);
+            bool hovered = ImGui.IsMouseHoveringRect(hitMin, hitMax, false);
+            if (hovered)
             {
-                // Beads along the segment read as chain links without heavy art.
-                Vector2 delta = at - previous;
-                float length = delta.Length();
-                int beads = Math.Max(2, (int)(length / (7f * scale)));
-                for (int b = 0; b <= beads; b++)
+                string text = state switch
                 {
-                    Vector2 p = previous + delta * (b / (float)beads);
-                    draw.AddCircleFilled(p + new Vector2(1, 1), 2.4f * scale * 0.5f + 1.2f, beadShadow);
-                    draw.AddCircle(p, 2.4f * scale * 0.5f + 1.2f, beadColor, 10, 1.4f);
-                }
-                previous = at;   // the chain continues from this member
-            }
-            else
-            {
-                // Broken stub: two offset dashes where the link would meet the portrait.
-                Vector2 stub = at + new Vector2(-4f * scale * 0.5f, 0);
-                draw.AddLine(stub + new Vector2(-6, -4), stub + new Vector2(-1, -1), 0xFF5060E0, 2f);
-                draw.AddLine(stub + new Vector2(1, 1), stub + new Vector2(6, 4), 0xFF5060E0, 2f);
+                    SuiChainLinked => anchorName.Length > 0 ? $"Chained to {anchorName}" : "Chained",
+                    SuiChainWorldHold => anchorName.Length > 0
+                        ? $"Holding — waits for {anchorName} to come back in range"
+                        : "Holding — waits for the party to come back in range",
+                    _ => "Unchained — stands its ground until re-linked",
+                };
+                OfferOwnerAnchoredSharedGameTooltip(new("party-chain", member.Guid),
+                    [new(text, GameTooltipTextTone.White),
+                     new(state == SuiChainUnlinked ? "Click to re-link" : "Click to unchain",
+                         GameTooltipTextTone.Gold)],
+                    hitMax, Vector2.Zero);
+                if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                    SetPartyLink(member, linked: state == SuiChainUnlinked);
             }
         }
+    }
+
+    /// <summary>The authored bordered chain badge shared by party frames, command cards and
+    /// Command View overhead markers. The roster state chooses the sprite; anchor identity stays
+    /// in <see cref="DrawChainAnchorMedallion"/> beside it.</summary>
+    private void DrawChainGlyph(ImDrawListPtr dl, Vector2 center, float radius, byte state)
+    {
+        uint texture = _gameplayArt?.EmbeddedPngHandle(
+            PartyChainBadgeUiLaw.ResourceForState(state)) ?? 0;
+        if (texture == 0) return; // EmbeddedPngHandle logs the first failure; the law check guards shipping.
+
+        float side = PartyChainBadgeUiLaw.SideForRadius(radius);
+        Vector2 half = new(side * 0.5f);
+        dl.AddImage((nint)texture, center - half, center + half);
+    }
+
+    /// <summary>WHO: the anchor's initial on a medallion disc in the chain's colour.</summary>
+    private static void DrawChainAnchorMedallion(ImDrawListPtr dl, Vector2 center, float radius,
+        string anchorName, byte state, float scale)
+    {
+        dl.AddCircleFilled(center + new Vector2(1f, 1f) * scale, radius, 0x90000000);
+        dl.AddCircleFilled(center, radius, SuiChainColor(state));
+        dl.AddCircle(center, radius, 0xff10181f, 0, MathF.Max(1f, 1.5f * scale));
+        string glyph = anchorName[..1].ToUpperInvariant();
+        Vector2 half = ImGui.CalcTextSize(glyph) * 0.5f;
+        dl.AddText(center - half + new Vector2(1f, 1f) * scale, 0xd0000000, glyph);
+        dl.AddText(center - half, 0xffffffff, glyph);
     }
 
     /// <summary>Dashed hint from the dragged portrait to the cursor while chaining a follow.</summary>

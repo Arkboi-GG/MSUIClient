@@ -906,139 +906,7 @@ public sealed partial class GameLoop
                         }
                         break;
                     case Op.MSG_MOVE_TELEPORT_ACK:
-                        {
-                            // Build 5875 server->client same-map teleport:
-                            // packed mover guid, movement counter, destination MovementInfo.
-                            var teleportReader = new PacketReader(body);
-                            ulong moverGuid = teleportReader.ReadPackedGuid();
-                            uint counter = teleportReader.ReadU32();
-                            MovementInfo destination = MovementInfo.Read(teleportReader);
-                            if (teleportReader.Remaining != 0)
-                                throw new InvalidDataException(
-                                    $"MSG_MOVE_TELEPORT_ACK has {teleportReader.Remaining} trailing byte(s)");
-                            if (_controller is null || moverGuid != net.PlayerGuid)
-                            {
-                                Console.WriteLine($"[net] ignored same-map teleport for mover 0x{moverGuid:X16} " +
-                                                  $"(player 0x{net.PlayerGuid:X16})");
-                                break;
-                            }
-
-                            // The packet addresses the logged-in session body. During Free View
-                            // the controller is only the observer rig; while possessing, it belongs
-                            // to a different body. Adopt the authoritative teleport directly on the
-                            // streamed entity and ACK it without moving the camera, changing its
-                            // residency centre, or resetting the active controller's movement state.
-                            if (moverGuid != ControlledGuid || !ControllerOwnsControlledBodyPose)
-                            {
-                                _entities.ApplyServerAuthoredMove(
-                                    moverGuid, destination, MovementInfo.ClientUptimeMs());
-                                ObserveTeleportApplied(moverGuid, counter, destination);
-                                net.TeleportAck(moverGuid, counter);
-                                Console.WriteLine(
-                                    $"[net] adopted same-map teleport for streamed session body " +
-                                    $"0x{moverGuid:X16} at ({destination.Position.X:F1}, " +
-                                    $"{destination.Position.Y:F1}, {destination.Position.Z:F1}); " +
-                                    "observer rig retained");
-                                break;
-                            }
-
-                            // A same-map teleport can still be thousands of yards
-                            // away.  The old handler treated "same map" as "same
-                            // resident scene": it acknowledged immediately, then
-                            // gravity ran while the destination ADTs/WMO collision
-                            // were still streaming.  The hitch recorder caught the
-                            // resulting fall from Z 29.6 to below -100.  Cross-map
-                            // NEW_WORLD already owns an opaque, collision-gated
-                            // adoption; give a non-resident same-map destination the
-                            // same guarantee.
-                            bool destinationResident =
-                                MainWorldHasArrivalSupport(destination.Position);
-                            if (!destinationResident && _gl is null)
-                            {
-                                Console.WriteLine(
-                                    "[net] FATAL: same-map teleport destination has no resident " +
-                                    "support and the world loader is unavailable; disconnecting without ACK");
-                                net.Stop();
-                                break;
-                            }
-
-                            bool promotedPreparedWorld = false;
-                            if (!destinationResident)
-                            {
-                                uint destinationMapId = checked((uint)_config.Start.Map);
-                                bool matchedPreparedPortal = ConfirmRealPortalHandoff(
-                                    destinationMapId, destination.Position);
-                                promotedPreparedWorld = matchedPreparedPortal &&
-                                    TryPromotePreparedRealPortalWorld(
-                                        destinationMapId, destination.Position);
-
-                                if (!promotedPreparedWorld)
-                                {
-                                    TearDownWorldContent();
-                                    _residentCentre = null;
-                                    _hitch.SuppressFor(5.0);
-                                }
-
-                                _window.Camera.EffectiveDistance = _window.Camera.Distance;
-                            }
-
-                            // A teleport supersedes a server ride. In particular, a taxi landing
-                            // teleport is the hand-back and must not also emit SPLINE_DONE.
-                            AbortServerRideForTeleport();
-
-                            // Apply on the game thread before acknowledging. Camera yaw is the
-                            // next frame's MovementInput yaw, so updating it is what makes the
-                            // server orientation survive rather than being overwritten immediately.
-                            _config.Start.X = destination.Position.X;
-                            _config.Start.Y = destination.Position.Y;
-                            _config.Start.Z = destination.Position.Z;
-                            _config.Start.Orientation = destination.Orientation;
-                            _controller.Teleport(destination.Position.X, destination.Position.Y,
-                                destination.Position.Z);
-                            _controller.Yaw = destination.Orientation;
-                            _window.Camera.Yaw = destination.Orientation;
-                            _window.Camera.OrbitYaw = 0f;
-                            _window.Camera.Target = _controller.Position;
-                            _character?.SnapFacing(destination.Orientation);
-                            _movementSender.Reset(destination.Orientation);
-                            ObserveTeleportApplied(moverGuid, counter, destination);
-
-                            if (promotedPreparedWorld)
-                            {
-                                CompletePromotedRealPortalTransition();
-                                Console.WriteLine(
-                                    "[net] same-map teleport adopted the prepared destination without loading");
-                            }
-                            else if (!destinationResident)
-                            {
-                                try
-                                {
-                                    BeginWorldLoad(_gl!);
-                                    var tile = TerrainRenderer.TileAt(
-                                        destination.Position.X, destination.Position.Y);
-                                    Console.WriteLine(
-                                        $"[net] same-map teleport is non-resident; loading " +
-                                        $"destination tile [{tile.col},{tile.row}] behind the curtain");
-                                }
-                                catch
-                                {
-                                    // Do not tell the core a destination was adopted
-                                    // when the client could not even arm its loader.
-                                    CancelRealPortalHandoff(
-                                        "destination loader could not be started");
-                                    net.Stop();
-                                    throw;
-                                }
-                            }
-                            else
-                            {
-                                // No curtain is needed when the main scene already
-                                // supports the authoritative landing point.
-                                CancelRealPortalHandoff(
-                                    "authoritative destination was already resident");
-                            }
-                            net.TeleportAck(moverGuid, counter);
-                        }
+                        ApplyMoveTeleportAck(net, body);
                         break;
                     case Op.SMSG_FORCE_WALK_SPEED_CHANGE:
                     case Op.SMSG_FORCE_RUN_SPEED_CHANGE:
@@ -1179,6 +1047,9 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_SUI_COMPANION:
                         ApplySuiCompanion(body);
+                        break;
+                    case Op.SMSG_SUI_PARTY_TAXI_RESULT:
+                        ApplyPartyTaxiResult(body);
                         break;
                     case Op.SMSG_SUI_PROXY:
                         ApplySuiProxy(body);
@@ -1790,6 +1661,146 @@ public sealed partial class GameLoop
         if ((Op)opcode is Op.MSG_MOVE_TELEPORT_ACK or Op.SMSG_NEW_WORLD or Op.SMSG_TRANSFER_PENDING)
             ObserveTeleportWire(outgoing, opcode, payload);
         if (outgoing) _creatureLifecycle.NoteOutgoingPacket(opcode, payload.Length);
+    }
+
+    /// <summary>Build 5875 server->client same-map teleport (MSG_MOVE_TELEPORT_ACK). Direct
+    /// for the session body; proxied (SMSG_SUI_PROXY) for a possessed bot, whose near teleport
+    /// keeps the possession since 2026-09-03 — the controller snaps and acks for the bot.</summary>
+    private void ApplyMoveTeleportAck(NetworkClient net, byte[] body)
+    {
+                            // Build 5875 server->client same-map teleport:
+                            // packed mover guid, movement counter, destination MovementInfo.
+                            var teleportReader = new PacketReader(body);
+                            ulong moverGuid = teleportReader.ReadPackedGuid();
+                            uint counter = teleportReader.ReadU32();
+                            MovementInfo destination = MovementInfo.Read(teleportReader);
+                            if (teleportReader.Remaining != 0)
+                                throw new InvalidDataException(
+                                    $"MSG_MOVE_TELEPORT_ACK has {teleportReader.Remaining} trailing byte(s)");
+                            // [SUI] The mirrored copy addresses the possessed bot: its mover guid is
+                            // ControlledGuid and the controller path below adopts it.
+                            if (_controller is null || (moverGuid != net.PlayerGuid && moverGuid != ControlledGuid))
+                            {
+                                Console.WriteLine($"[net] ignored same-map teleport for mover 0x{moverGuid:X16} " +
+                                                  $"(player 0x{net.PlayerGuid:X16})");
+                                return;
+                            }
+
+                            // The packet addresses the logged-in session body. During Free View
+                            // the controller is only the observer rig; while possessing, it belongs
+                            // to a different body. Adopt the authoritative teleport directly on the
+                            // streamed entity and ACK it without moving the camera, changing its
+                            // residency centre, or resetting the active controller's movement state.
+                            if (moverGuid != ControlledGuid || !ControllerOwnsControlledBodyPose)
+                            {
+                                _entities.ApplyServerAuthoredMove(
+                                    moverGuid, destination, MovementInfo.ClientUptimeMs());
+                                ObserveTeleportApplied(moverGuid, counter, destination);
+                                net.TeleportAck(moverGuid, counter);
+                                Console.WriteLine(
+                                    $"[net] adopted same-map teleport for streamed session body " +
+                                    $"0x{moverGuid:X16} at ({destination.Position.X:F1}, " +
+                                    $"{destination.Position.Y:F1}, {destination.Position.Z:F1}); " +
+                                    "observer rig retained");
+                                return;
+                            }
+
+                            // A same-map teleport can still be thousands of yards
+                            // away.  The old handler treated "same map" as "same
+                            // resident scene": it acknowledged immediately, then
+                            // gravity ran while the destination ADTs/WMO collision
+                            // were still streaming.  The hitch recorder caught the
+                            // resulting fall from Z 29.6 to below -100.  Cross-map
+                            // NEW_WORLD already owns an opaque, collision-gated
+                            // adoption; give a non-resident same-map destination the
+                            // same guarantee.
+                            bool destinationResident =
+                                MainWorldHasArrivalSupport(destination.Position);
+                            if (!destinationResident && _gl is null)
+                            {
+                                Console.WriteLine(
+                                    "[net] FATAL: same-map teleport destination has no resident " +
+                                    "support and the world loader is unavailable; disconnecting without ACK");
+                                net.Stop();
+                                return;
+                            }
+
+                            bool promotedPreparedWorld = false;
+                            if (!destinationResident)
+                            {
+                                uint destinationMapId = checked((uint)_config.Start.Map);
+                                bool matchedPreparedPortal = ConfirmRealPortalHandoff(
+                                    destinationMapId, destination.Position);
+                                promotedPreparedWorld = matchedPreparedPortal &&
+                                    TryPromotePreparedRealPortalWorld(
+                                        destinationMapId, destination.Position);
+
+                                if (!promotedPreparedWorld)
+                                {
+                                    TearDownWorldContent();
+                                    _residentCentre = null;
+                                    _hitch.SuppressFor(5.0);
+                                }
+
+                                _window.Camera.EffectiveDistance = _window.Camera.Distance;
+                            }
+
+                            // A teleport supersedes a server ride. In particular, a taxi landing
+                            // teleport is the hand-back and must not also emit SPLINE_DONE.
+                            AbortServerRideForTeleport();
+
+                            // Apply on the game thread before acknowledging. Camera yaw is the
+                            // next frame's MovementInput yaw, so updating it is what makes the
+                            // server orientation survive rather than being overwritten immediately.
+                            _config.Start.X = destination.Position.X;
+                            _config.Start.Y = destination.Position.Y;
+                            _config.Start.Z = destination.Position.Z;
+                            _config.Start.Orientation = destination.Orientation;
+                            _controller.Teleport(destination.Position.X, destination.Position.Y,
+                                destination.Position.Z);
+                            _controller.Yaw = destination.Orientation;
+                            _window.Camera.Yaw = destination.Orientation;
+                            _window.Camera.OrbitYaw = 0f;
+                            _window.Camera.Target = _controller.Position;
+                            _character?.SnapFacing(destination.Orientation);
+                            _movementSender.Reset(destination.Orientation);
+                            ObserveTeleportApplied(moverGuid, counter, destination);
+
+                            if (promotedPreparedWorld)
+                            {
+                                CompletePromotedRealPortalTransition();
+                                Console.WriteLine(
+                                    "[net] same-map teleport adopted the prepared destination without loading");
+                            }
+                            else if (!destinationResident)
+                            {
+                                try
+                                {
+                                    BeginWorldLoad(_gl!);
+                                    var tile = TerrainRenderer.TileAt(
+                                        destination.Position.X, destination.Position.Y);
+                                    Console.WriteLine(
+                                        $"[net] same-map teleport is non-resident; loading " +
+                                        $"destination tile [{tile.col},{tile.row}] behind the curtain");
+                                }
+                                catch
+                                {
+                                    // Do not tell the core a destination was adopted
+                                    // when the client could not even arm its loader.
+                                    CancelRealPortalHandoff(
+                                        "destination loader could not be started");
+                                    net.Stop();
+                                    throw;
+                                }
+                            }
+                            else
+                            {
+                                // No curtain is needed when the main scene already
+                                // supports the authoritative landing point.
+                                CancelRealPortalHandoff(
+                                    "authoritative destination was already resident");
+                            }
+                            net.TeleportAck(moverGuid, counter);
     }
 
     private void ApplyUpdate(ObjectUpdate u, long receivedStamp)

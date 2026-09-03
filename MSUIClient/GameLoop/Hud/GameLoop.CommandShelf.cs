@@ -540,9 +540,22 @@ public sealed partial class GameLoop
                     0, ImDrawFlags.None, MathF.Max(1f, scale));
             }
 
+            // Chain chip (owner 2026-09-03): green linked / red unchained / amber world hold,
+            // with the anchor's initial beside it. Server truth from the roster.
+            if (_suiChain.TryGetValue(guid, out (byte State, ulong Anchor) chain))
+            {
+                DrawChainGlyph(dl, min + new Vector2(4.5f * scale, 4.5f * scale), 3.5f * scale, chain.State);
+                if (chain.Anchor != 0 && ResolveUnitName(chain.Anchor) is { Length: > 0 } anchorName)
+                    DrawChainAnchorMedallion(dl, new Vector2(max.X - 4.5f * scale, min.Y + 4.5f * scale),
+                        3.5f * scale, anchorName, chain.State, scale);
+            }
             if (hovered)
+            {
+                string chainTip = PartyChainTip(guid);
                 HoverTip($"{ResolveUnitName(guid)} — {(int)(hp * 100)}%\n" +
+                    (chainTip.Length > 0 ? chainTip + "\n" : "") +
                     "Click: make primary · Double-click: select only this unit · Shift+click: drop");
+            }
 
             if (hovered && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
             {
@@ -1255,5 +1268,4 @@ public sealed partial class GameLoop
             _freecamSelection.Remove(dropPick);
     }
 }
-
 

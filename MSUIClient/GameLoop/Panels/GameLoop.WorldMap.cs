@@ -181,6 +181,7 @@ public sealed partial class GameLoop
         {
             DrawMinimapPlayerArrow(dl, drivenBody.Orientation, marker, s);
         }
+        DrawWorldMapPartyDots(dl, haveMapArea, area, playerMap, mapMin, mapSize, s);
         DrawWorldMapQuestHelperPins(dl, haveMapArea, area, mapMin, mapSize, s);
         DrawWorldMapGossipPoi(dl, haveMapArea, area, mapMin, mapSize, s);
         DrawWorldMapCorpseMarker(dl, haveMapArea, area, mapMin, mapSize, s);
@@ -334,6 +335,45 @@ public sealed partial class GameLoop
             {
                 rows[i].Select();
                 PlayUiSound(DropdownCapsuleUiLaw.RowSound, "ui.world-map");
+            }
+        }
+    }
+
+    /// <summary>The party as the stock yellow party dots (owner 2026-09-03: "we should see the
+    /// rest of our party on the map"): every member except the driven body (that one is the
+    /// arrow), placed from the entity stream when streamed, else from the last
+    /// SMSG_PARTY_MEMBER_STATS position — the same two sources the minimap blips use.</summary>
+    private void DrawWorldMapPartyDots(ImDrawListPtr draw, bool haveMapArea, WorldMapAreaInfo area,
+        uint playerMap, Vector2 mapMin, Vector2 mapSize, float scale)
+    {
+        if (!haveMapArea) return;
+        uint texture = _gameplayArt?.Handle(@"Interface\WorldMap\WorldMapPartyIcon") ?? 0;
+        Vector2 size = Vector2.One * (16f * scale);
+        var members = _partyMembers.Select(member => (member.Guid, member.Name)).ToList();
+        if (LocalPlayerGuid != 0 && members.All(member => member.Guid != LocalPlayerGuid))
+            members.Add((LocalPlayerGuid, ResolveUnitName(LocalPlayerGuid)));
+        foreach ((ulong guid, string name) in members)
+        {
+            if (guid == 0 || guid == ControlledGuid) continue;
+            Vector3 position;
+            if (_entities.TryGet(guid, out WorldEntity unit))
+                position = UnitWorldPosition(unit);
+            else if (_partyStats.TryGetValue(guid, out PartyMemberStatsSnapshot stats) &&
+                     stats.PositionX is short x && stats.PositionY is short y)
+                position = new(x, y, 0f);
+            else continue;
+            if (!WorldMapUiLaw.TryPlayerMarker(playerMap, area.MapId, position,
+                    area.Left, area.Right, area.Top, area.Bottom, mapMin, mapSize, out Vector2 center))
+                continue;
+            Vector2 min = center - size * .5f;
+            if (texture != 0) draw.AddImage((nint)texture, min, min + size);
+            else draw.AddCircleFilled(center, MathF.Max(2f, 3f * scale), 0xff00d7ff);
+            if (ImGui.IsMouseHoveringRect(min, min + size, false))
+            {
+                WorldMapUiLaw.TooltipSeat seat = WorldMapUiLaw.CorpseTooltipSeat(min, size, mapMin, mapSize);
+                OfferOwnerAnchoredSharedGameTooltip(new("world-map-party", guid),
+                    [new(string.IsNullOrEmpty(name) ? ResolveUnitName(guid) : name, GameTooltipTextTone.White)],
+                    seat.Anchor, seat.Pivot);
             }
         }
     }

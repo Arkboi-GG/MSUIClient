@@ -477,6 +477,13 @@ public static class PartyFrameUiLaw
         ? PartyPortraitSourceKind.TemporaryPlayerCircular
         : PartyPortraitSourceKind.Empty;
 
+    /// <summary>Out of range (owner 2026-09-03): the stock client still shows the generic
+    /// race/sex portrait as long as it knows who the member is (name query answered).</summary>
+    public static PartyPortraitSourceKind PortraitSource(bool streamed, bool identityKnown) =>
+        streamed || identityKnown
+            ? PartyPortraitSourceKind.TemporaryPlayerCircular
+            : PartyPortraitSourceKind.Empty;
+
     public static string? PlayerLevelLine(uint level, string? race, string? @class,
         bool dead = false)
     {

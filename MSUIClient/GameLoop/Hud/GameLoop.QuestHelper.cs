@@ -165,13 +165,34 @@ public sealed partial class GameLoop
                     playerLevel, available.MinimumLevel, available.Level) ||
                 !QuestHelperUiLaw.MatchesMask(available.RaceMask, playerRace) ||
                 !QuestHelperUiLaw.MatchesMask(available.ClassMask, playerClass) ||
-                available.PreviousQuests.Any(activeQuestIds.Contains))
+                available.PreviousQuests.Any(activeQuestIds.Contains) ||
+                QuestGiverHostile(data, available.Sources))
                 continue;
             AddSources(available.QuestId, available.Title, "Available quest",
                 QuestHelperPinKind.Available, available.Sources);
         }
 
         return _questHelperPins;
+    }
+
+    /// <summary>Owner 2026-09-03: the helper listed both factions' quests. RequiredRaces is 0 on
+    /// most quests; what keeps a Horde quest from an Alliance character is that its giver would
+    /// attack them. A quest whose every giver creature is hostile to the driven body's faction
+    /// template is not available to it (object givers, and unknown factions, pass through).</summary>
+    private bool QuestGiverHostile(QuestHelperDataCatalog data, QuestHelperSources sources)
+    {
+        if (sources.Units.Length == 0 || sources.Objects.Length != 0 || _factions is null ||
+            !_entities.TryGet(ControlledGuid, out WorldEntity player) ||
+            !_factions.TryGet(player.Fields.FactionTemplate, out FactionTemplateRow own))
+            return false;
+        foreach (uint entry in sources.Units)
+        {
+            uint faction = data.UnitFaction(entry);
+            if (faction == 0 || !_factions.TryGet(faction, out FactionTemplateRow giver) ||
+                giver.ReactionToward(own) != FactionReaction.Hostile)
+                return false;
+        }
+        return true;
     }
 
     private static List<QuestHelperCluster> ClusterQuestHelperPins(

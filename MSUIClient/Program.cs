@@ -1710,6 +1710,7 @@ public sealed partial class GameLoop : IDisposable
         UpdateGossipLifecycle();
         UpdateTrainerLifecycle();
         UpdateTaxiLifecycle();
+        UpdateCommandViewNpcChoiceLifecycle();
         UpdateBankLifecycle();
         UpdateAuctionLifecycle();
         UpdateTabardLifecycle();

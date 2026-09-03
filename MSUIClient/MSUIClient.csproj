@@ -72,6 +72,12 @@
 
 	<ItemGroup>
 		<EmbeddedResource Include="Assets\msui-icon.png" />
+		<EmbeddedResource Include="Assets\UI\PartyChain\party-chain-linked.png"
+			LogicalName="MSUIClient.Assets.UI.PartyChain.party-chain-linked.png" />
+		<EmbeddedResource Include="Assets\UI\PartyChain\party-chain-unlinked.png"
+			LogicalName="MSUIClient.Assets.UI.PartyChain.party-chain-unlinked.png" />
+		<EmbeddedResource Include="Assets\UI\PartyChain\party-chain-world-hold.png"
+			LogicalName="MSUIClient.Assets.UI.PartyChain.party-chain-world-hold.png" />
 	</ItemGroup>
 
 	<ItemGroup>

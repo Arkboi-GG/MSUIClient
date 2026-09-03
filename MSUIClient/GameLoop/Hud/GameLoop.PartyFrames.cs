@@ -675,6 +675,10 @@ public sealed partial class GameLoop
                  hoveredIndex < members.Length) ||
                 (hoveredIndex < 0 && MouseOverPlayerFrame()))
             {
+                // Dropped on ANOTHER portrait: chain to THAT member (owner 2026-09-03); on the
+                // player frame: back to the default anchor (the driven body).
+                SetPartyChainAnchor(members[_partyPressIndex],
+                    hoveredIndex >= 0 ? members[hoveredIndex].Guid : 0);
                 SetPartyLink(members[_partyPressIndex], linked: true);
                 ClearPartyPress();
                 return;
@@ -842,9 +846,31 @@ public sealed partial class GameLoop
                 ClassifyUiParity(root + "Portrait", "Texture", root, "NOT-DRAWN",
                     "temporary-player-portrait-asset-unavailable");
         }
+        else if (_playerTraits.TryGetValue(view.Member.Guid, out PlayerTraits traits) && traits.Race != 0)
+        {
+            // Out of range (owner 2026-09-03): the stock client shows the generic portrait for
+            // the member's race and sex, not a hollow ring. The name query already told us
+            // both (SMSG_NAME_QUERY_RESPONSE carries race/class/gender), so draw the same
+            // TemporaryPortrait the streamed fallback uses — the entity is simply not here.
+            string sex = traits.Gender == 1 ? "Female" : "Male";
+            string raceName = traits.Race == 5 ? "Scourge" : RaceName(traits.Race).Replace(" ", "");
+            portraitPath = $@"Interface\CharacterFrame\TemporaryPortrait-{sex}-{raceName}";
+            uint portrait = PainterlyRoundArt(portraitPath);
+            if (portrait != 0)
+                dl.AddImage((nint)portrait, portraitMin, portraitMin + portraitSize,
+                    Vector2.Zero, Vector2.One, portraitTint);
+            if (capture && portrait != 0)
+                CollectUiParityDraw(root + "Portrait", "Texture", portraitMin, portraitSize, root,
+                    new(portraitPath, portraitTint, "BACKGROUND", "TOPLEFT", root, "TOPLEFT", 7, -6,
+                        TexCoords: "0|0|1|1", ClipRect: fullClip,
+                        ClipMask: "circular-alpha-mask;UIParent", BlendMode: "BLEND", Strata: "LOW"));
+            else if (capture)
+                ClassifyUiParity(root + "Portrait", "Texture", root, "NOT-DRAWN",
+                    "temporary-player-portrait-asset-unavailable");
+        }
         else if (capture)
             ClassifyUiParity(root + "Portrait", "Texture", root, "NOT-DRAWN",
-                "party-token-guid-is-not-streamed");
+                "party-token-guid-is-not-streamed-and-unnamed");
 
         Vector2 healthMin = p + new Vector2(47, 12) * s;
         Vector2 barSize = new Vector2(70, 8) * s;

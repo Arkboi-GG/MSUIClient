@@ -28,8 +28,9 @@ public sealed partial class GameLoop
     private bool RequestBind(ulong guid)
     {
         WorldEntity? inn = null; float distance = float.PositiveInfinity;
+        // [SUI] The innkeeper binds the DRIVEN body (server: HandleBinderActivate as GetSuiActor).
         bool eligible = _net is { IsInWorld: true } &&
-            TryGetSessionBodyPose(out WorldBodyPose sessionBody) &&
+            TryGetInteractionBodyPose(out WorldBodyPose sessionBody) &&
             _entities.TryGet(guid, out inn) && inn.IsCreature && !inn.IsDead && (inn.NpcFlags & NpcInnkeeper) != 0 &&
             (distance = Vector3.Distance(sessionBody.Position, inn.Position)) <= BinderConfirmUiLaw.ServiceRange;
         bool sent = eligible && _net!.BinderActivate(guid);

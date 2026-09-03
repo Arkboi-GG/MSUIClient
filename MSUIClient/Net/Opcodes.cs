@@ -631,4 +631,11 @@ public enum Op : ushort
     // SMSG body: u8 kind (1 result, 2 list) + payload — see Net/CompanionWire.cs.
     CMSG_SUI_COMPANION           = 0x0362,
     SMSG_SUI_COMPANION           = 0x0363,
+    // PARTY_TAXI v1 (capability bit 11): the Command View flies the whole commanded
+    // party from a flight master, asking first when someone cannot board.
+    // CMSG body: u8 flags, u64 flight master, u8 count, u32 × nodes.
+    // SMSG body: u8 result, u64 flight master, u32 destination, u8 count,
+    // count × { u64 guid, u8 reason } — see Net/PartyTaxiWire.cs.
+    CMSG_SUI_PARTY_TAXI          = 0x0364,
+    SMSG_SUI_PARTY_TAXI_RESULT   = 0x0365,
 }

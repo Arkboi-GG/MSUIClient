@@ -99,6 +99,7 @@ public sealed partial class GameLoop
             ConfirmPopupUiLaw.SummonPopupType => SummonPromptText(),
             ConfirmPopupUiLaw.QuestAcceptPopupType => QuestConfirmPromptText(),
             ConfirmPopupUiLaw.ReadyCheckPopupType => ReadyCheckPromptText(),
+            ConfirmPopupUiLaw.PartyFlightPopupType => PartyFlightPromptText(),
             FriendsFrameUiLaw.AddFriendPopupType => FriendsFrameUiLaw.AddFriendPopupText,
             FriendsFrameUiLaw.AddIgnorePopupType => FriendsFrameUiLaw.AddIgnorePopupText,
             CharacterBindingsUiLaw.PopupType => CharacterBindingsUiLaw.ConfirmText,

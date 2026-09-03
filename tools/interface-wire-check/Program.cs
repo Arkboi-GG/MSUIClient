@@ -1722,6 +1722,18 @@ if (args.Contains("--companions-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--party-taxi-only", StringComparer.Ordinal))
+{
+    PartyTaxiClinicalChecks.Run();
+    return;
+}
+
+if (args.Contains("--possess-law-only", StringComparer.Ordinal))
+{
+    PossessLawClinicalChecks.Run();
+    return;
+}
+
 if (args.Contains("--rts-ability-target-only", StringComparer.Ordinal))
 {
     string data = Path.Combine(ClientConfig.FindRepoRoot(), "GameData", "Data");
@@ -4703,6 +4715,8 @@ Console.WriteLine("interface-wire-check: PlayerPowerBars PASS");
 HovercastClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: Hovercast PASS");
 CompanionClinicalChecks.Run();
+PartyTaxiClinicalChecks.Run();
+PossessLawClinicalChecks.Run();
 SwingTimerClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: SwingTimer PASS");
 // The ImGui-widget ratchet only ratchets if the DEFAULT run enforces it; behind

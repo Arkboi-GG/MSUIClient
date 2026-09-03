@@ -615,7 +615,7 @@ public sealed partial class GameLoop
         _mailSendPending = sent;
         if (sent)
             _pendingMail = new("send", 0,
-                _entities.TryGet(_net.PlayerGuid, out WorldEntity p) ? p.Fields.Coinage : 0,
+                _entities.TryGet(ControlledGuid, out WorldEntity p) ? p.Fields.Coinage : 0,
                 _mailAttachmentGuid, _mailAttachmentEntry, money, cod, NowSeconds());
         EmitInterface("mail", "send-send", sent ? "SENT" : "SEND_FAILED", _mailboxGuid,
             $"receiver={SanitizeEvidence(receiver)};subject={SanitizeEvidence(subject)};item={_mailAttachmentEntry};itemGuid=0x{_mailAttachmentGuid:X16};money={money};cod={cod};postage={MailUiLaw.PostageCopper};body={Convert.ToHexString(wire)}");
@@ -630,7 +630,7 @@ public sealed partial class GameLoop
         if (!_mailOpen || _net is null || string.IsNullOrWhiteSpace(receiver) ||
             (cod > 0 && itemEntry == 0)) return false;
         ulong itemGuid = 0;
-        if (itemEntry != 0 && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        if (itemEntry != 0 && _entities.TryGet(ControlledGuid, out WorldEntity player))
             itemGuid = Enumerable.Range(0, 16).Select(i => player.Fields.PlayerBackpackSlot(i))
                 .FirstOrDefault(g => g != 0 && _entities.TryGet(g, out WorldEntity item) && item.Entry == itemEntry);
         if (itemEntry != 0 && itemGuid == 0) return false;
@@ -1264,7 +1264,7 @@ public sealed partial class GameLoop
     }
 
     private uint PlayerMoney() => _net is not null &&
-        _entities.TryGet(_net.PlayerGuid, out WorldEntity player) ? player.Fields.Coinage : 0;
+        _entities.TryGet(ControlledGuid, out WorldEntity player) ? player.Fields.Coinage : 0;
 
     private void DrawMailStationery(ImDrawListPtr dl, Vector2 min, string stem, float s)
     {

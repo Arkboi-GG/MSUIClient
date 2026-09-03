@@ -281,6 +281,11 @@ public sealed partial class GameLoop
         ResetPetActionBar();
         ClearLootOnControlChange();
         CloseBankSession(playSound: false);
+        // A taxi map or ride belonged to the body we just left: the released bot keeps
+        // flying under its own AI (the server never breaks possession for a flight, the
+        // human simply hopped elsewhere), and nothing of that ride may steer this body.
+        CloseTaxiMap(playSound: false);
+        DiscardServerRideWithoutAck();
     }
 
     private void StopPetAttackForOldTargetChange(ulong previous, ulong current)

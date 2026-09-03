@@ -425,13 +425,72 @@ public sealed partial class GameLoop
     }
 
     /// <summary>SMSG_SUI_CONTROL_ROSTER: which group members are possessable bots.</summary>
+    /// <summary>Chain truth per member (SMSG_SUI_CONTROL_ROSTER row v2): state 0 linked,
+    /// 1 unlinked by you (holds until re-linked), 2 world hold (clears when its anchor is back
+    /// in range); anchor = the body its formation keys on (0 = none / a real player).</summary>
+    private readonly Dictionary<ulong, (byte State, ulong Anchor)> _suiChain = [];
+    private const byte SuiChainLinked = 0, SuiChainUnlinked = 1, SuiChainWorldHold = 2;
+
+    private bool IsPartyMemberGuid(ulong guid) =>
+        guid != 0 && (guid == LocalPlayerGuid || _partyMembers.Any(member => member.Guid == guid));
+
+    private static uint SuiChainColor(byte state, byte alpha = 0xFF) =>
+        (uint)alpha << 24 | (state == SuiChainLinked ? 0x60D080u : state == SuiChainWorldHold ? 0x40B0F0u : 0x5060E0u);
+
+    /// <summary>The chain words for a tooltip ("" when the roster carries no chain row).</summary>
+    private string PartyChainTip(ulong guid)
+    {
+        if (!_suiChain.TryGetValue(guid, out (byte State, ulong Anchor) chain)) return "";
+        string who = chain.Anchor != 0 ? ResolveUnitName(chain.Anchor) : "";
+        return chain.State switch
+        {
+            SuiChainLinked => who.Length > 0 ? $"Chained to {who}" : "Chained",
+            SuiChainWorldHold => who.Length > 0 ? $"Holding — waits for {who} to come back in range" : "Holding",
+            _ => "Unchained — stands its ground until re-linked",
+        };
+    }
+
+    /// <summary>Command View chain: a dashed line from every party member to its anchor in the
+    /// chain's state colour (green linked, red unchained, amber world hold). Server truth
+    /// (_suiChain); both ends must be streamed. The owner's "who is chained to whom" from the sky.</summary>
+    private void DrawCommandViewChainLines(ImDrawListPtr draw, Vector2 display)
+    {
+        foreach ((ulong guid, (byte state, ulong anchor)) in _suiChain)
+        {
+            if (anchor == 0 || anchor == guid) continue;
+            if (!_entities.TryGet(guid, out WorldEntity unit) || !_entities.TryGet(anchor, out WorldEntity boss)) continue;
+            Vector3 a = UnitWorldPosition(unit) + new Vector3(0f, 0f, 1.2f);
+            Vector3 b = UnitWorldPosition(boss) + new Vector3(0f, 0f, 1.2f);
+            if (!_window.Camera.TryWorldToScreen(a, display, out Vector2 pa) ||
+                !_window.Camera.TryWorldToScreen(b, display, out Vector2 pb)) continue;
+            uint color = SuiChainColor(state, 0xCC);
+            DrawDashedLine(draw, pa, pb, color, 8f, 6f);
+            draw.AddCircleFilled(pb, 3f, color);
+            // The same chain glyph the frames wear, over the member's head, with the anchor's
+            // initial beside it — readable from the sky without the portraits.
+            float scale = GameplayUiScale();
+            DrawChainGlyph(draw, pa + new Vector2(0f, -14f * scale), 6f * scale, state);
+            if (ResolveUnitName(anchor) is { Length: > 0 } anchorName)
+                DrawChainAnchorMedallion(draw, pa + new Vector2(12f * scale, -14f * scale), 5f * scale, anchorName, state, scale);
+        }
+    }
+
     private void ApplySuiControlRoster(byte[] body)
     {
         var r = new PacketReader(body);
         int count = r.ReadU8();
+        // Row v2 (18 bytes: + u8 chain, u64 anchor) since 2026-09-03; an older core still
+        // sends 9-byte rows. The body length says which.
+        bool v2 = count > 0 && body.Length == 1 + 18 * count;
         _suiRoster.Clear();
-        for (int i = 0; i < count && r.Remaining >= 9; i++)
-            _suiRoster.Add((r.ReadU64(), r.ReadU8()));
+        _suiChain.Clear();
+        for (int i = 0; i < count && r.Remaining >= (v2 ? 18 : 9); i++)
+        {
+            ulong guid = r.ReadU64();
+            byte flags = r.ReadU8();
+            _suiRoster.Add((guid, flags));
+            if (v2) _suiChain[guid] = (r.ReadU8(), r.ReadU64());
+        }
     }
 
     /// <summary>
@@ -478,6 +537,11 @@ public sealed partial class GameLoop
             PokePartyGiverStatus();
             // No-op on the camera while the Command View is up (see SeatControllerOnControlled).
             SeatControllerOnControlled(x, y, z, o);
+            // [SUI] A same-map grant far outside the resident scene (a party member two zones
+            // away, granted in place without relocating the main): load the destination
+            // behind the curtain the way a far same-map teleport does, or gravity runs on
+            // ground that has not streamed yet (owner 2026-09-03: "fell through the floor").
+            if (!_freeView) PrepareFarControlArrival(new Vector3(x, y, z));
             _net?.SetActiveMover(guid);
             EnterPlayerAuraWorld(guid);
             // [SUI] Body-scoped session UI changes hands with the body: the pet bar is
@@ -799,6 +863,48 @@ public sealed partial class GameLoop
                 break;
             case Op.SMSG_PET_CAST_FAILED:
                 ApplyPetCastFailed(inner);
+                break;
+            // [SUI] taxi: the driven bot took (or was refused) a flight; the verdict left
+            // on ITS session. The flight spline itself is a public monster-move on the
+            // bot that ObserveServerRideSpline lets drive the controller while possessing.
+            case Op.SMSG_ACTIVATETAXIREPLY:
+                ApplyTaxiReply(inner);
+                break;
+            // A gossip "I need a ride" is answered by Player::OnGossipSelect on the
+            // driven bot's session; the direct map query answers on this socket.
+            case Op.SMSG_SHOWTAXINODES:
+                ApplyTaxiNodes(inner);
+                break;
+            case Op.SMSG_TAXINODE_STATUS:
+                ApplyTaxiNodeStatus(inner);
+                break;
+            case Op.SMSG_NEW_TAXI_PATH:
+                ApplyNewTaxiPath(inner);
+                break;
+            // [SUI] The driven bot near-teleported (area-trigger portal, script): snap the
+            // controller and ack for it; the server keeps the possession for same-map hops.
+            case Op.MSG_MOVE_TELEPORT_ACK:
+                if (_net is not null) ApplyMoveTeleportAck(_net, inner);
+                break;
+            // [SUI] The rest of the gossip-answered frames of the routed families: a
+            // gossip pick runs as the driven bot server-side and answers on ITS session.
+            case Op.SMSG_SHOW_BANK:
+                ApplyShowBank(inner);
+                break;
+            case Op.MSG_LIST_STABLED_PETS:
+                ApplyStableList(inner);
+                break;
+            case Op.MSG_TALENT_WIPE_CONFIRM:
+                ApplyTalentWipeConfirm(inner);
+                break;
+            case Op.SMSG_BINDER_CONFIRM:
+                ApplyBinderConfirm(inner);
+                break;
+            case Op.SMSG_PLAYERBOUND:
+                ApplyPlayerBound(inner);
+                break;
+            case Op.MSG_AUCTION_HELLO:
+                ApplyAuctionHello(inner);
                 break;
             default:
                 break;
@@ -1146,6 +1252,32 @@ public sealed partial class GameLoop
     /// and the hidden first-person body intact no matter which of them fired. The
     /// portrait bakes still have to be invalidated — the HUD identity did change.
     /// </summary>
+    /// <summary>Same guarantee the far same-map teleport gives (GameLoop.Net.cs
+    /// MSG_MOVE_TELEPORT_ACK): a non-resident arrival tears the scene down and loads the
+    /// destination tile behind the curtain; a resident one needs nothing.</summary>
+    private void PrepareFarControlArrival(Vector3 arrival)
+    {
+        if (_gl is null || MainWorldHasArrivalSupport(arrival)) return;
+        AbortServerRideForTeleport();
+        TearDownWorldContent();
+        _residentCentre = null;
+        _hitch.SuppressFor(5.0);
+        _window.Camera.EffectiveDistance = _window.Camera.Distance;
+        _config.Start.X = arrival.X;
+        _config.Start.Y = arrival.Y;
+        _config.Start.Z = arrival.Z;
+        try
+        {
+            BeginWorldLoad(_gl);
+            var tile = MSUIClient.World.TerrainRenderer.TileAt(arrival.X, arrival.Y);
+            Console.WriteLine($"[sui] far control grant is non-resident; loading tile [{tile.col},{tile.row}] behind the curtain");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[sui] far control grant: world loader failed: {ex.Message}");
+        }
+    }
+
     private void SeatControllerOnControlled(float x, float y, float z, float o)
     {
         ResetControlledHardLandingArc();
@@ -2144,7 +2276,9 @@ public sealed partial class GameLoop
     // Quests = the commander quest window (Model B): the PARTY walks to the giver and the window
     // opens once they are there (owner, 2026-09-03: "that shouldn't happen until the characters
     // are at the NPC").
-    private enum CommandViewInteractKind { Loot, Service, GameObject, Quests }
+    // Choose: an NPC with more than one offer — the acting body walks up and the chooser
+    // is raised ON ARRIVAL (owner 2026-09-03: "no dialog until we are physically there").
+    private enum CommandViewInteractKind { Loot, Service, GameObject, Quests, Choose }
 
     private ulong _cvPendingInteractGuid;
     private CommandViewInteractKind _cvPendingInteractKind;
@@ -2169,9 +2303,11 @@ public sealed partial class GameLoop
             // The server resolves the commander quest window against the REQUESTER and demands
             // the requester at the giver; the companions only need to be near the requester.
             CommandViewInteractKind.Quests => LocalPlayerGuid,
-            CommandViewInteractKind.Service =>
+            CommandViewInteractKind.Service or CommandViewInteractKind.Choose =>
                 _controlState == ControlState.Possessing ? ControlledGuid : LocalPlayerGuid,
-            _ => subject.GameObjectType is 9 or 19 ? LocalPlayerGuid : ControlledGuid,
+            // A mailbox / plaque is used by the driven body too (the mail handlers run as
+            // GetSuiActor); unpossessed, ControlledGuid IS the session character.
+            _ => ControlledGuid,
         };
 
     private bool CommandViewInteractInReach(CommandViewInteractKind kind, WorldEntity subject)
@@ -2186,6 +2322,10 @@ public sealed partial class GameLoop
                     distanceSquared <= WorldCursorUiLaw.UnitMeleeReachSquared(
                         self.Fields.CombatReach, subject.Fields.CombatReach);
             case CommandViewInteractKind.Service:
+                // A party flight opens its map once the PARTY stands at the flight master.
+                return NpcSessionUiLaw.InRange(distanceSquared) &&
+                    (!CommandViewPartyWalksToSubject(kind) || CommandViewPartyAtSubject(subject));
+            case CommandViewInteractKind.Choose:
                 return NpcSessionUiLaw.InRange(distanceSquared);
             case CommandViewInteractKind.Quests:
                 return NpcSessionUiLaw.InRange(distanceSquared) && CommandViewPartyAtSubject(subject);
@@ -2202,6 +2342,7 @@ public sealed partial class GameLoop
             CommandViewInteractKind.Loot => subject.IsCreature && subject.IsDead && subject.Fields.Lootable,
             CommandViewInteractKind.Service =>
                 subject.IsCreature && !subject.IsDead && WorldCursorServiceKind(subject) is not null,
+            CommandViewInteractKind.Choose => subject.IsCreature && !subject.IsDead,
             CommandViewInteractKind.Quests =>
                 subject.IsCreature && !subject.IsDead && (subject.NpcFlags & NpcQuestGiver) != 0,
             _ => subject.IsGameObject,
@@ -2237,6 +2378,52 @@ public sealed partial class GameLoop
     private ulong _cvGiverChoiceGuid;
     private List<ConfirmPopupUiLaw.NpcOption> _cvGiverChoiceOptions = [];
     private int _cvGiverChoicePicked = -1;
+
+    /// <summary>The NPC's flags as the world means them. The database stamps the innkeeper bit
+    /// (0x80) on every bowyer (npc_flags 16516 = vendor | innkeeper | repair) and the server
+    /// serves them the vendor list regardless; the gossip path already ignores that bit unless
+    /// the creature is named an innkeeper (owner 2026-09-03: "why are these npcs giving me
+    /// the innkeeper?"). The chooser uses the same law so a bowyer is a plain vendor.</summary>
+    private uint EffectiveNpcFlags(WorldEntity npc) =>
+        (npc.NpcFlags & NpcInnkeeper) != 0 && !IsInnkeeper(npc)
+            ? npc.NpcFlags & ~NpcInnkeeper
+            : npc.NpcFlags;
+
+    /// <summary>The chooser is an NPC session like the vendor or bank window (owner 2026-09-03:
+    /// "should automatically disappear if we path too far away without clicking anything"):
+    /// once the acting body leaves talking range of the NPC, or the NPC is gone, it hides.
+    /// Same rule for the party-flight confirm, which rides the taxi map's session.</summary>
+    private void UpdateCommandViewNpcChoiceLifecycle()
+    {
+        if (_cvGiverChoiceGuid != 0)
+        {
+            ulong acting = _controlState == ControlState.Possessing ? ControlledGuid : LocalPlayerGuid;
+            bool bodyKnown = TryGetWorldBodyPose(acting, out WorldBodyPose body);
+            bool sourceAvailable = _entities.TryGet(_cvGiverChoiceGuid, out WorldEntity npc) && !npc.IsDead;
+            float distanceSquared = sourceAvailable && bodyKnown
+                ? Vector3.DistanceSquared(body.Position, npc.Position) : float.PositiveInfinity;
+            if (NpcSessionUiLaw.ShouldClose(true, bodyKnown, sourceAvailable, distanceSquared))
+            {
+                ulong guid = _cvGiverChoiceGuid;
+                ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.HideByType(
+                    _staticPopupSlots, ConfirmPopupUiLaw.GiverChoicePopupType));
+                _cvGiverChoiceGuid = 0;
+                _cvGiverChoicePicked = -1;
+                EmitInterface("command-view", "npc-choose", "LIFECYCLE_CLOSED", guid,
+                    sourceAvailable ? $"distanceSquared={distanceSquared:R}" : "source-gone");
+            }
+        }
+        if (_partyTaxiPendingChain is not null && !_taxiOpen &&
+            ConfirmPopupUiLaw.Visible(_staticPopupSlots, ConfirmPopupUiLaw.PartyFlightPopupType) is not null)
+        {
+            // The taxi map closed under the confirm (walked away, flight master gone): the
+            // question no longer has a map behind it.
+            ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.HideByType(
+                _staticPopupSlots, ConfirmPopupUiLaw.PartyFlightPopupType));
+            _partyTaxiPendingChain = null;
+            EmitInterface("taxi", "party-confirm", "LIFECYCLE_CLOSED", _partyTaxiPendingMaster, "taxiOpen=false");
+        }
+    }
 
     private void RaiseCommandViewNpcChoice(ulong guid, List<ConfirmPopupUiLaw.NpcOption> options)
     {
@@ -2282,9 +2469,34 @@ public sealed partial class GameLoop
         if (route == ConfirmPopupUiLaw.NpcServiceRoute.CommanderQuests)
             BeginCommandViewInteraction(CommandViewInteractKind.Quests, guid, npc,
                 walkers: CommandViewQuestWalkers());
+        else if (route == ConfirmPopupUiLaw.NpcServiceRoute.Taxi && _partyTaxiAvailable)
+            // Owner 2026-09-03: the flight map pops when the PARTY is next to the flight
+            // master, like the quest window — the destination click then flies everyone.
+            BeginCommandViewInteraction(CommandViewInteractKind.Service, guid, npc, route,
+                walkers: CommandViewTaxiWalkers());
         else
             BeginCommandViewInteraction(CommandViewInteractKind.Service, guid, npc, route);
     }
+
+    /// <summary>Who walks to a flight master for a party flight: the acting body first (the
+    /// driven bot from the sky, else your own character — the one the map opens for), then
+    /// your own character and every party member; the server flies only those it lets you
+    /// command, and refuses the walk order for the rest.</summary>
+    private List<ulong> CommandViewTaxiWalkers()
+    {
+        var walkers = new List<ulong>();
+        ulong acting = _controlState == ControlState.Possessing ? ControlledGuid : LocalPlayerGuid;
+        if (acting != 0) walkers.Add(acting);
+        if (LocalPlayerGuid != 0 && !walkers.Contains(LocalPlayerGuid)) walkers.Add(LocalPlayerGuid);
+        foreach (ulong guid in RtsControlGroupLaw.NormalizeMembers(_partyMembers.Select(member => member.Guid)))
+            if (guid != 0 && !walkers.Contains(guid)) walkers.Add(guid);
+        return walkers;
+    }
+
+    private bool CommandViewPartyWalksToSubject(CommandViewInteractKind kind) =>
+        kind == CommandViewInteractKind.Quests ||
+        (kind == CommandViewInteractKind.Service &&
+         _cvPendingInteractRoute == ConfirmPopupUiLaw.NpcServiceRoute.Taxi);
 
     /// <summary>Who walks to a quest giver for the commander quest window: the highlighted set
     /// (the RTS convention), or the whole party when nothing is highlighted — and ALWAYS your
@@ -2361,13 +2573,13 @@ public sealed partial class GameLoop
             if (length > CommandViewServiceApproachYards)
                 destination += toBody * (CommandViewServiceApproachYards / length);
         }
-        List<ulong> ordered = kind == CommandViewInteractKind.Quests && _cvPendingInteractWalkers.Count > 0
+        List<ulong> ordered = CommandViewPartyWalksToSubject(kind) && _cvPendingInteractWalkers.Count > 0
             ? _cvPendingInteractWalkers
             : new List<ulong> { walker };
         _net?.SuiOrder(0 /* ORDER_MOVE */, ordered, 0, destination.X, destination.Y, destination.Z);
         if (ordered.Count > 1) NoteCompanionOrder(0, ordered);
         _rtsMoveMarkers.Add((subject.Position, NowSeconds(), RtsNeutralTint));
-        if (kind is CommandViewInteractKind.Service or CommandViewInteractKind.Quests)
+        if (kind is CommandViewInteractKind.Service or CommandViewInteractKind.Quests or CommandViewInteractKind.Choose)
             AddChatMessage($"{OrderSubjectLabel(ordered)}: to {ResolveWorldUnitName(guid)}.");
     }
 
@@ -2378,8 +2590,8 @@ public sealed partial class GameLoop
 
     /// <summary>How long a walk may take before the pending interaction is dropped. A party
     /// walk to a giver is longer than one body's stroll to a vendor.</summary>
-    private static double CommandViewInteractDeadlineSeconds(CommandViewInteractKind kind) =>
-        kind == CommandViewInteractKind.Quests ? 45.0 : 15.0;
+    private double CommandViewInteractDeadlineSeconds(CommandViewInteractKind kind) =>
+        CommandViewPartyWalksToSubject(kind) && _cvPendingInteractWalkers.Count > 1 ? 45.0 : 15.0;
 
     private bool CommandViewPartyAtSubject(WorldEntity subject)
     {
@@ -2421,6 +2633,13 @@ public sealed partial class GameLoop
                 CommitSelection(guid, beginAttack: false);
                 RequestGiverQuests(guid);
             }
+            // Same for a party flight whose stragglers ran out the clock: the map opens for
+            // whoever made it; the confirm names the rest as too far.
+            else if (expired && _freeView && kind == CommandViewInteractKind.Service &&
+                CommandViewPartyWalksToSubject(kind) && _cvPendingInteractAttempts == 0 &&
+                TryGetWorldBodyPose(CommandViewInteractWalker(kind, subject), out WorldBodyPose acting) &&
+                NpcSessionUiLaw.InRange(Vector3.DistanceSquared(acting.Position, subject.Position)))
+                OpenCommandViewService(guid, subject);
             _cvPendingInteractGuid = 0;
             return;
         }
@@ -2442,6 +2661,19 @@ public sealed partial class GameLoop
             case CommandViewInteractKind.Service:
                 OpenCommandViewService(guid, subject);  // cleared once a panel is up
                 break;
+            case CommandViewInteractKind.Choose:
+            {
+                // Arrived: NOW ask which of the NPC's offers to open. The chosen route re-enters
+                // BeginCommandViewInteraction already in reach, so it opens at once (a party
+                // flight or party quest window may still order the others over first).
+                bool commanderQuests = _controlState != ControlState.Possessing && _partyGiverQuestsAvailable;
+                List<ConfirmPopupUiLaw.NpcOption> offers = ConfirmPopupUiLaw.NpcOptions(EffectiveNpcFlags(subject), commanderQuests);
+                _cvPendingInteractGuid = 0;
+                if (ConfirmPopupUiLaw.NeedsChooser(offers)) RaiseCommandViewNpcChoice(guid, offers);
+                else if (offers.Count == 1) BeginCommandViewNpcRoute(guid, subject, offers[0].Route);
+                else OpenCommandViewService(guid, subject);
+                break;
+            }
             case CommandViewInteractKind.Quests:
                 CommitSelection(guid, beginAttack: false);
                 RequestGiverQuests(guid);               // cleared once the window is up
@@ -3051,10 +3283,15 @@ public sealed partial class GameLoop
         {
             bool commanderQuests = _controlState != ControlState.Possessing && _partyGiverQuestsAvailable;
             List<ConfirmPopupUiLaw.NpcOption> offers =
-                ConfirmPopupUiLaw.NpcOptions(offerNpc.NpcFlags, commanderQuests);
+                ConfirmPopupUiLaw.NpcOptions(EffectiveNpcFlags(offerNpc), commanderQuests);
             if (ConfirmPopupUiLaw.NeedsChooser(offers))
             {
-                RaiseCommandViewNpcChoice(picked, offers);
+                // Walk up first; the chooser is raised on arrival (owner 2026-09-03: "immediate
+                // dialog on click" from across the field was wrong — "no dialog until we are
+                // physically there").
+                EmitInterface("command-view", "npc-choose", "WALKING", picked,
+                    $"npcFlags=0x{offerNpc.NpcFlags:X8};offers={string.Join('|', offers.Select(o => o.Caption))}");
+                BeginCommandViewInteraction(CommandViewInteractKind.Choose, picked, offerNpc);
                 return;
             }
             if (commanderQuests && (offerNpc.NpcFlags & NpcQuestGiver) != 0)
@@ -3086,6 +3323,20 @@ public sealed partial class GameLoop
             clickedGo.IsGameObject && GameObjectHighlightable(clickedGo))
         {
             BeginCommandViewInteraction(CommandViewInteractKind.GameObject, goPicked, clickedGo);
+            return;
+        }
+        // Chain (owner 2026-09-03: "chain 2 players and 2 others — not just main to main"):
+        // right-click a PARTY MEMBER with a selection and the selection follows THAT member.
+        // The server stores the anchor per unit and the roster reports it back (chain lines).
+        if (picked != 0 && !queue && subjects.Count > 0 && IsPartyMemberGuid(picked) &&
+            _entities.TryGet(picked, out WorldEntity anchorUnit) && !anchorUnit.IsDead)
+        {
+            List<ulong> followers = subjects.Where(guid => guid != picked).ToList();
+            if (followers.Count == 0) return;
+            _net?.SuiOrder(5, followers, picked, 0, 0, 0);
+            NoteCompanionOrder(5, followers);
+            _rtsMoveMarkers.Add((anchorUnit.Position, NowSeconds(), RtsFriendlyTint));
+            AddChatMessage($"{OrderSubjectLabel(followers)}: chain to {ResolveWorldUnitName(picked)}.");
             return;
         }
         if (picked != 0 && _entities.TryGet(picked, out WorldEntity target) &&
@@ -3233,6 +3484,7 @@ public sealed partial class GameLoop
         if (!_freeView) return;
         var draw = ImGui.GetForegroundDrawList();
         Vector2 display = ImGui.GetIO().DisplaySize;
+        DrawCommandViewChainLines(draw, display);
 
         // Dashed connector through the waypoint chain, so the route reads at a glance.
         if (_rtsWaypointChain.Count > 1)

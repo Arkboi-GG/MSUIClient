@@ -73,7 +73,7 @@ public sealed partial class GameLoop
         }
         int available = _trainer.Spells.Count(s => s.State == 0);
         uint money = 0;
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player)) money = player.Fields.Coinage;
+        if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player)) money = player.Fields.Coinage;
         EmitInterface("trainer", "list", "DECODED", _trainer.TrainerGuid,
             $"type={_trainer.TrainerType};spells={_trainer.Spells.Count};available={available};money={money};greeting={SanitizeEvidence(_trainer.Greeting)}");
     }
@@ -115,7 +115,7 @@ public sealed partial class GameLoop
         if (_trainer is null || row is not { ServiceSpellId: not 0 } spell)
         { EmitInterface("trainer", "buy", "REFUSED_UNKNOWN", _trainer?.TrainerGuid ?? 0, $"spell={serviceSpellId}"); return false; }
         uint money = 0;
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player)) money = player.Fields.Coinage;
+        if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player)) money = player.Fields.Coinage;
         if (spell.State != 0 || money < spell.Cost)
         {
             string reason = spell.State != 0 ? $"state={spell.State}" : $"money={money};cost={spell.Cost}";
@@ -232,7 +232,7 @@ public sealed partial class GameLoop
                         "ClassTrainerFrame", "TOPLEFT", piece.Rect.X, -piece.Rect.Y));
         }
         uint money = 0;
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player)) money = player.Fields.Coinage;
+        if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player)) money = player.Fields.Coinage;
         string trainerName = TrainerFrameUiLaw.FallbackTitle;
         if (trainerNpc is not null)
         {

@@ -134,6 +134,9 @@ public static class SuiCapabilityWire
     /// <summary>PLAN_20 Model B: a questgiver's quests + per-member eligibility, for
     /// the free-view commander quest window (no possession, no main at the NPC).</summary>
     public const uint PartyGiverQuestsV1 = 1u << 10;
+    /// <summary>Party flight (owner 2026-09-03): the Command View flies the whole commanded
+    /// party from a flight master (CMSG/SMSG_SUI_PARTY_TAXI*). Never sent before this bit.</summary>
+    public const uint PartyTaxiV1 = 1u << 11;
     public const int TrailerLength = 8;
 
     public const byte PrewarmCatalogVersion = 1;

@@ -180,12 +180,15 @@ public sealed partial class GameLoop
         else if (!_entities.TryGet(guid, out go) || !go.IsGameObject) outcome = "REFUSED_NOT_GAMEOBJECT";
         else
         {
-            // Mail and text panels belong to the logged-in session character. Every other
-            // game-object use is authored by the controlled body; the detached camera only picks.
+            // Mail and text panels open for the body standing at them — the driven bot while
+            // possessing (the server threads the mail handlers through GetSuiActor; owner
+            // 2026-09-03: the mailbox stayed grey for a possessed bot), else the session
+            // character. Every other game-object use is authored by the controlled body; the
+            // detached camera only picks.
             bool sessionScoped = go.GameObjectType is 19 or 9;
             WorldBodyPose actorBody;
             bool bodyAvailable = sessionScoped
-                ? TryGetSessionBodyPose(out actorBody)
+                ? TryGetInteractionBodyPose(out actorBody)
                 : TryGetControlledBodyPose(out actorBody);
             if (!bodyAvailable) outcome = "REFUSED_NO_BODY";
             else

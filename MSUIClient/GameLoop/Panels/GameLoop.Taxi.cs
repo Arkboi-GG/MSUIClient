@@ -25,6 +25,14 @@ public sealed partial class GameLoop
     private TaxiRouteView[] _taxiRoutes = [];
     private bool _taxiNodesLoaded;
 
+    // ── Party flight (Command View, PARTY_TAXI v1 — owner 2026-09-03) ────────────────
+    /// <summary>Capability bit 11 observed on the SMSG_SUI_CONTROL_ACK trailer.</summary>
+    private bool _partyTaxiAvailable;
+    private ulong _partyTaxiPendingMaster;
+    private uint[]? _partyTaxiPendingChain;
+    private List<(string Name, byte Reason)> _partyTaxiConfirmRows = [];
+    private string _partyTaxiConfirmDestination = "";
+
     /// <summary>
     /// SMSG_MONSTER_MOVE is always keyed to a world body. It may drive this controller only
     /// while the controller is that same, ordinarily embodied session character. In SUI modes
@@ -34,7 +42,11 @@ public sealed partial class GameLoop
     private bool ServerRideMayOwnController => ServerRideOwnershipLaw.MayOwnController(
         _freeView,
         _controlState == ControlState.OwnChar,
-        ControlledGuid == LocalPlayerGuid);
+        ControlledGuid == LocalPlayerGuid,
+        // [SUI] Owner 2026-09-03: "if I'm driving the bot, I follow the bot on taxi — I stay
+        // in control." The driven bot's flight spline steers this controller like the own
+        // character's would; the Command View still never rides.
+        possessingEmbodiedBot: _controlState == ControlState.Possessing);
 
     private void DiscardServerRideWithoutAck()
     {
@@ -50,6 +62,8 @@ public sealed partial class GameLoop
         _taxiOpen = false; _taxiLocked = false; _serverRideSpline = null;
         _serverRideStoppedId = null;
         _taxiRoutes = [];
+        _partyTaxiPendingMaster = 0; _partyTaxiPendingChain = null;
+        _partyTaxiConfirmRows = []; _partyTaxiConfirmDestination = "";
     }
 
     private bool TaxiMasterEligible(ulong guid, out WorldEntity? master, out float distance)
@@ -57,7 +71,7 @@ public sealed partial class GameLoop
         master = null;
         distance = float.PositiveInfinity;
         if (_net is not { IsInWorld: true } ||
-            !TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
+            !TryGetInteractionBodyPose(out WorldBodyPose sessionBody) ||
             !_entities.TryGet(guid, out master) || !master.IsCreature || master.IsDead ||
             (master.NpcFlags & NpcFlightMaster) == 0)
             return false;
@@ -100,7 +114,7 @@ public sealed partial class GameLoop
     private void UpdateTaxiNodeStatusQueries()
     {
         if (_net is not { IsInWorld: true } net ||
-            !TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return;
+            !TryGetInteractionBodyPose(out WorldBodyPose sessionBody)) return;
         // The Free View streaming eye can publish flight masters around the observer camera.
         // Vanilla's automatic status sweep is still a session-owned NPC interaction, so camera
         // visibility alone must never manufacture its CMSG_TAXINODE_STATUS_QUERY.
@@ -156,6 +170,10 @@ public sealed partial class GameLoop
         {
             _taxiOpen = true;
             PlayUiSound(TaxiFrameUiLaw.OpenSound, TaxiFrameUiLaw.SoundCategory);
+            // Command View: the map reached us by a road that did not walk the party (a
+            // gossip "I need a ride", or a body already at the flight master). Bring the
+            // stragglers over now so the destination click flies everyone.
+            if (_freeView && _partyTaxiAvailable) GatherPartyAtFlightMaster(packet.FlightMasterGuid);
         }
         if (!hasOneHop)
         {
@@ -194,6 +212,16 @@ public sealed partial class GameLoop
         bool sent = false;
         byte[] body = [];
         string wire = "none";
+        if (known && distinct && resolved && _taxiMasterGuid != 0 && _net is not null &&
+            _freeView && _partyTaxiAvailable)
+        {
+            // [SUI] Command View: the WHOLE commanded party takes this flight (owner
+            // 2026-09-03). The server answers with whoever cannot board and the confirm
+            // asks "fly with the rest?"; the single-body wire below never fires from the
+            // sky once the server speaks party-taxi-v1.
+            uint[] chain = direct ? [_taxiCurrentNode, destination] : route.Chain;
+            return RequestPartyTaxi(0, _taxiMasterGuid, chain);
+        }
         if (known && distinct && resolved && _taxiMasterGuid != 0 && _net is not null)
         {
             if (direct)
@@ -216,6 +244,128 @@ public sealed partial class GameLoop
         return sent;
     }
 
+    // ── Party flight (Command View, PARTY_TAXI v1) ───────────────────────────────────
+
+    /// <summary>Called by the shared control-ACK capability parser.</summary>
+    private void ApplyPartyTaxiCapability(uint capabilities)
+    {
+        bool available = (capabilities & SuiCapabilityWire.PartyTaxiV1) != 0;
+        if (available != _partyTaxiAvailable)
+            Console.WriteLine(available
+                ? "[party-taxi] server advertised party-taxi-v1"
+                : "[party-taxi] server has no party-taxi-v1 advertisement");
+        _partyTaxiAvailable = available;
+    }
+
+    private bool RequestPartyTaxi(byte flags, ulong flightMaster, uint[] chain)
+    {
+        if (_net is null || !_partyTaxiAvailable || chain.Length < PartyTaxiWire.MinNodes) return false;
+        bool sent;
+        try { sent = _net.SuiPartyTaxi(flags, flightMaster, chain); }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            EmitInterface("taxi", "party-activate", "REFUSED", flightMaster, $"reason={SanitizeEvidence(ex.Message)}");
+            return false;
+        }
+        if (sent)
+        {
+            _partyTaxiPendingMaster = flightMaster;
+            _partyTaxiPendingChain = chain;
+        }
+        EmitInterface("taxi", "party-activate", sent ? "SENT" : "SEND_FAILED", flightMaster,
+            $"flags={flags};chain={string.Join(',', chain)};wire=CMSG_SUI_PARTY_TAXI");
+        return sent;
+    }
+
+    /// <summary>Order every party member not yet at the flight master to walk there (the
+    /// server refuses the order for members you do not command). No-op when all are there.</summary>
+    private void GatherPartyAtFlightMaster(ulong flightMaster)
+    {
+        if (_net is null || !_entities.TryGet(flightMaster, out WorldEntity master)) return;
+        var stragglers = new List<ulong>();
+        foreach (ulong guid in CommandViewTaxiWalkers())
+        {
+            if (!TryGetWorldBodyPose(guid, out WorldBodyPose body)) continue;
+            if (Vector3.DistanceSquared(body.Position, master.Position) >
+                CommandViewPartyArrivalYards * CommandViewPartyArrivalYards)
+                stragglers.Add(guid);
+        }
+        if (stragglers.Count == 0) return;
+        _net.SuiOrder(0 /* ORDER_MOVE */, stragglers, 0, master.Position.X, master.Position.Y, master.Position.Z);
+        if (stragglers.Count > 1) NoteCompanionOrder(0, stragglers);
+        AddChatMessage($"{OrderSubjectLabel(stragglers)}: to {ResolveWorldUnitName(flightMaster)}.");
+        EmitInterface("taxi", "party-gather", "ORDERED", flightMaster, $"count={stragglers.Count}");
+    }
+
+    private string TaxiNodeName(uint id) =>
+        _taxiNodes?.TryGet(id, out TaxiNodeInfo node) == true ? node.Name : $"node {id}";
+
+    private void ApplyPartyTaxiResult(byte[] body)
+    {
+        if (!PartyTaxiWire.TryParseResult(body, out PartyTaxiResult result))
+            throw new InvalidDataException($"bad SMSG_SUI_PARTY_TAXI_RESULT body ({body.Length} bytes)");
+        var rows = new List<(string Name, byte Reason)>(result.Rows.Length);
+        foreach (PartyTaxiRow row in result.Rows)
+        {
+            if (!_playerNames.ContainsKey(row.Guid)) _net?.NameQuery(row.Guid);
+            rows.Add((ResolveUnitName(row.Guid), row.Reason));
+        }
+        string destination = TaxiNodeName(result.Destination);
+        EmitInterface("taxi", "party-result", result.Result switch
+            {
+                PartyTaxiWire.ResultFlying => "FLYING",
+                PartyTaxiWire.ResultConfirmNeeded => "CONFIRM_NEEDED",
+                PartyTaxiWire.ResultDenied => "DENIED",
+                _ => "NO_PATH",
+            }, result.FlightMaster,
+            $"destination={result.Destination};rows={string.Join(',', result.Rows.Select(r => $"{r.Guid:X}:{r.Reason}"))}");
+        switch (result.Result)
+        {
+            case PartyTaxiWire.ResultFlying:
+                _partyTaxiPendingChain = null;
+                CloseTaxiMap(playSound: true);
+                AddChatMessage(PartyTaxiWire.FlyingText(destination, rows));
+                break;
+            case PartyTaxiWire.ResultConfirmNeeded:
+            {
+                _partyTaxiConfirmRows = rows;
+                _partyTaxiConfirmDestination = destination;
+                bool dead = _entities.TryGet(ControlledGuid, out WorldEntity player) && player.IsDead;
+                ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(
+                    _staticPopupSlots, ConfirmPopupUiLaw.PartyFlightDefinition, dead));
+                break;
+            }
+            default:
+                _partyTaxiPendingChain = null;
+                if (PartyTaxiWire.RefusalText(result.Result) is { } text) ShowUiError(text);
+                break;
+        }
+    }
+
+    private string PartyFlightPromptText() =>
+        PartyTaxiWire.ConfirmText(_partyTaxiConfirmDestination, _partyTaxiConfirmRows);
+
+    /// <summary>Fly = resend confirmed; anything else keeps the map open and flies nobody.</summary>
+    private void ApplyPartyFlightPopupEffect(StaticPopupCoordinatorLaw.EffectKind kind)
+    {
+        switch (kind)
+        {
+            case StaticPopupCoordinatorLaw.EffectKind.Accept:
+                if (_partyTaxiPendingChain is { } chain && _partyTaxiPendingMaster != 0)
+                    RequestPartyTaxi(PartyTaxiWire.FlagConfirmed, _partyTaxiPendingMaster, chain);
+                else
+                    EmitInterface("taxi", "party-confirm", "STALE", _partyTaxiPendingMaster, "wire=none");
+                break;
+            case StaticPopupCoordinatorLaw.EffectKind.CancelClicked:
+            case StaticPopupCoordinatorLaw.EffectKind.CancelWithoutReason:
+            case StaticPopupCoordinatorLaw.EffectKind.CancelOverride:
+            case StaticPopupCoordinatorLaw.EffectKind.CancelTimeout:
+                _partyTaxiPendingChain = null;
+                EmitInterface("taxi", "party-confirm", "DECLINED", _partyTaxiPendingMaster, "wire=none");
+                break;
+        }
+    }
+
     private void ApplyTaxiReply(byte[] body)
     {
         uint code = TaxiPackets.ParseActivateReply(body); bool accepted = code == 0;
@@ -231,7 +381,9 @@ public sealed partial class GameLoop
         // Free View and possession deliberately leave the session body on AI. Its ordinary
         // ground spline still belongs in EntityStore (the dispatcher applies it below), but it
         // must never become a taxi spline for the detached/possessed local controller.
-        if (_net is null || move.Guid != _net.PlayerGuid || !ServerRideMayOwnController)
+        // The ride is keyed to the body this controller drives: the own character, or the
+        // possessed bot (whose SMSG_MONSTER_MOVE is public and already streamed to us).
+        if (_net is null || move.Guid != ControlledGuid || !ServerRideMayOwnController)
             return;
         if (move.Stop || move.DurationMs == 0 || move.Points.Length < 2)
         {
@@ -253,7 +405,7 @@ public sealed partial class GameLoop
     private bool UpdateTaxiLifecycle()
     {
         if (!_taxiOpen || _taxiLocked ||
-            !TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return false;
+            !TryGetInteractionBodyPose(out WorldBodyPose sessionBody)) return false;
         bool sourceAvailable = _entities.TryGet(_taxiMasterGuid, out WorldEntity master);
         float distanceSquared = sourceAvailable
             ? Vector3.DistanceSquared(sessionBody.Position, master.Position)

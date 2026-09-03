@@ -752,13 +752,16 @@ public sealed partial class GameLoop
     /// </summary>
     private void UpdateAreaTriggers()
     {
-        if (_areaTriggers is null || !TryGetSessionBodyPose(out WorldBodyPose sessionBody)) return;
+        if (_areaTriggers is null || !TryGetInteractionBodyPose(out WorldBodyPose sessionBody)) return;
         if (_travelInProgress) return;
 
-        // Area triggers are server-owned gameplay volumes for the logged-in
-        // character.  In Free View the controller is only the observer rig;
-        // letting it drive this test makes an invisible camera trip inns,
-        // quests, battlegrounds, and portals on the session body's behalf.
+        // Area triggers are server-owned gameplay volumes for the body the session
+        // acts as: the driven bot while possessing (the server runs the handler as
+        // GetSuiActor since 2026-09-03 — the owner drove a bot through the Stormwind
+        // mage-tower portal and "just walked right through"), else the logged-in
+        // character. In Free View the controller is only the observer rig, and the
+        // interaction body is the session body there, so an invisible camera never
+        // trips inns, quests, battlegrounds, or portals on anyone's behalf.
         Vector3 bodyPosition = sessionBody.Position;
 
         int mapId = _config.Start.Map;
