@@ -22,6 +22,9 @@ internal static class GameplayImguiPolicyClinicalChecks
         "MSUIClient/GameLoop/Panels/GameLoop.PartyQuestLog.cs",
         "MSUIClient/GameLoop/Panels/GameLoop.RaidInfoPanel.cs",
         "MSUIClient/GameLoop/Panels/GameLoop.StablePanel.cs",
+        "MSUIClient/GameLoop/Panels/GameLoop.Companions.cs",
+        "MSUIClient/GameLoop/Hud/GameLoop.HudFrames.cs",
+        "MSUIClient/GameLoop/Hud/GameLoop.HudLayoutEditor.cs",
     ];
 
     public static void Run()

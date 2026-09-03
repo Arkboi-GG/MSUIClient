@@ -21,6 +21,7 @@ public sealed partial class GameLoop
     private bool _backpackOpen;
     private bool _backpackKeyWasDown;
     private bool _openBagsKeyWasDown;
+    private bool _partyInventoryKeyWasDown;
     private int _carriedContainer = InventoryUiLaw.EmptyContainer;
     private int _carriedSlot = -1;
     private int? _carriedCount;
@@ -145,6 +146,16 @@ public sealed partial class GameLoop
             else ToggleEveryCarriedBag();
         }
         _openBagsKeyWasDown = bagsDown;
+
+        bool partyBagsDown = BindingDown(GameBinding.OpenPartyInventory);
+        if (partyBagsDown && !_partyInventoryKeyWasDown && !typing &&
+            _net is { IsInWorld: true })
+        {
+            if (_partyInventoryOpen) _partyInventoryOpen = false;
+            else OpenPartyInventory(_freecamSelection.Count == 1
+                ? _freecamSelection[0] : LocalPlayerGuid);
+        }
+        _partyInventoryKeyWasDown = partyBagsDown;
     }
 
     private void DiscoverItemTemplates()

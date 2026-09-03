@@ -577,6 +577,13 @@ public sealed partial class GameLoop
             powerType, power, maxPower, level);
     }
 
+    /// <summary>Resolved logical origin of PartyMemberFrame1 (HUD layout registry, PLAN_21).
+    /// The member stack, role medallions, chain rail and drag feedback all hang off it.</summary>
+    private Vector2 _partyFramesOrigin = new(PartyFrameUiLaw.FirstX, PartyFrameUiLaw.FirstY);
+
+    private Vector2 PartyMemberLogicalOrigin(int index) =>
+        _partyFramesOrigin + new Vector2(0f, PartyFrameUiLaw.PetlessStride * index);
+
     private void DrawPartyFrames()
     {
         if (_net is null || _gameplayArt is null) return;
@@ -594,7 +601,12 @@ public sealed partial class GameLoop
 
         bool capture = _uiParityArmed && _uiParityPanel == "party-frame";
         float s = GameplayUiScale();
-        Vector2 origin = new(PartyFrameUiLaw.FirstX * s, PartyFrameUiLaw.FirstY * s);
+        _partyFramesOrigin = HudFrame("party-frames", "Party frames",
+            HudPlacement.At(HudAnchor.TopLeft, PartyFrameUiLaw.FirstX, PartyFrameUiLaw.FirstY),
+            new Vector2(PartyFrameUiLaw.FrameWidth,
+                PartyFrameUiLaw.PetlessStride * (PartyFrameUiLaw.MemberCount - 1) + PartyFrameUiLaw.FrameHeight))
+            .LogicalOrigin;
+        Vector2 origin = _partyFramesOrigin * s;
         if (capture)
         {
             BeginUiParityFrame(origin, s);
@@ -694,8 +706,7 @@ public sealed partial class GameLoop
             {
                 // PARTY origin/token is explicit. Right-click intentionally leaves selection alone.
                 OpenUnitPopup(member.Guid, UnitPopupWhich.Party,
-                    new Vector2(PartyFrameUiLaw.FirstX + 47,
-                        PartyFrameUiLaw.MemberY(hoveredIndex) + 15) * GameplayUiScale(),
+                    (PartyMemberLogicalOrigin(hoveredIndex) + new Vector2(47, 15)) * GameplayUiScale(),
                     InspectBinding.Party(hoveredIndex));
             }
         }
@@ -711,7 +722,7 @@ public sealed partial class GameLoop
     {
         if (_gameplayArt is null) return false;
         float s = GameplayUiScale();
-        Vector2 p = new Vector2(PartyFrameUiLaw.FirstX, PartyFrameUiLaw.MemberY(index)) * s;
+        Vector2 p = PartyMemberLogicalOrigin(index) * s;
         Vector2 frameSize = new(PartyFrameUiLaw.FrameWidth * s, PartyFrameUiLaw.FrameHeight * s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
         ImGui.SetNextWindowSize(frameSize, ImGuiCond.Always);

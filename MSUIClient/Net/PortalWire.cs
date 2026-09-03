@@ -116,8 +116,11 @@ public static class SuiCapabilityWire
     // the reward chosen per member. Also the id-addressed abandon the vanilla
     // slot-indexed opcode cannot express.
     public const uint PartyQuestActsV1 = 1u << 6;
-    // Bit 7 is reserved for PLAN_20 P4 (party-vendor-v1) and deliberately left
-    // unclaimed even though P5 shipped first.
+    // COMPANIONS v1: summon/dismiss the account's own alts as AI-driven party
+    // members (CMSG/SMSG_SUI_COMPANION). Takes the bit formerly held open for
+    // PLAN_20 P4 (party-vendor-v1); the vendor slice's opcodes 0x035A/0x035B
+    // stay reserved but its capability bit must be assigned fresh.
+    public const uint CompanionsV1 = 1u << 7;
     // PLAN_20 P5: per-member questgiver dialog status, so a world marker can
     // wear an honest "(4)". The client cannot compute this — eligibility needs
     // level, prerequisites, race, class and exclusive groups it never receives

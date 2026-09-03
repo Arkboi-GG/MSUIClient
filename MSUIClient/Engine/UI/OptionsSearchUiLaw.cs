@@ -78,20 +78,21 @@ public static class OptionsSearchUiLaw
         "Unit contact shadows", "Value flattening", "View distance", "VSync", "Walking wake",
         "Water detail", "Wave amplitude", "Wave speed", "Wind speed", "Wind strength",
         "Resolution", "Mouse cursor scale", "World canvas height",
-        // The chat-frame controls were absent entirely, so the one discovery tool the
-        // options page offers could not find the switch that moves the chat window.
-        "Chat frame", "Unlock chat frame", "Reset chat position", "Move chat",
     ];
 
     private static readonly string[] InterfaceLabels =
     [
-        "Mouse", "Nameplates", "Chat Bubbles", "Floating Text", "CRPG / RTS", "Camera", "Current keys",
+        // The HUD layout editor (PLAN_21) replaced the chat-only mover; "chat" must still
+        // lead to the switch that moves the chat window, hence the aliases.
+        "HUD layout", "Edit HUD layout", "Move chat", "Move frames", "Move minimap",
+        "Mouse", "MSUI Options", "Nameplates", "Chat Bubbles", "Floating Text", "CRPG / RTS", "Camera", "Current keys",
+        "Questing", "Automatic Quest Tracking", "Auto track quests", "Quest tracker",
         "Camera collision", "Camera Following Style", "Collision clearance", "Cut buildings away in the free view",
         "Eye height", "Free-view camera collides with the world", "Invert vertical look",
         "Lock ActionBars", "Max camera distance", "Mouse sensitivity", "NPC Names", "Party chat bubbles",
         "Player Names", "Raw cursor", "Restore speed", "RTS commands on party portraits",
         "Show Cloak", "Show Helm", "Show Own Name", "Speech bubbles", "Sticky Targeting", "Turn speed",
-        "Loot messages", "Entering / leaving combat",
+        "Loot messages", "Entering / leaving combat", "Right-click player models for menu",
     ];
 
     private static readonly string[] SoundLabels =
@@ -106,6 +107,8 @@ public static class OptionsSearchUiLaw
         "Active quest objectives", "Ready to turn in",
         "Hovercast", "Mouseover cast", "Cast on hover", "Hover healing",
         "Cast without changing target", "Include world units",
+        "Swing Timer", "Attack speed", "Auto attack", "Auto Shot", "Off hand swing",
+        "Ranged aim band", "Weapon swing",
     ];
 
     public static IReadOnlyList<OptionsSearchEntry> Catalog { get; } =

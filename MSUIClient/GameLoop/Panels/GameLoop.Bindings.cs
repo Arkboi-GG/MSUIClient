@@ -24,8 +24,8 @@ public sealed partial class GameLoop
         // OpenBags must stay OUTSIDE the ShapeshiftButton1..BonusActionButton10 run:
         // ResetBindingsToDefaults applies Control:true to that whole enum RANGE, so a member
         // landing inside it would silently default to Ctrl+I instead of I.
-        OpenBackpack, OpenBags, OpenCharacter, OpenSkills,
-        OpenSpellbook, OpenPetSpellbook, OpenTalents, OpenQuestLog, OpenSocial,
+        OpenBackpack, OpenBags, OpenPartyInventory, OpenCharacter, OpenSkills,
+        OpenSpellbook, OpenPetSpellbook, OpenTalents, OpenQuestLog, OpenPartyQuestLog, OpenSocial,
         OpenSocialFriends, OpenSocialWho, OpenSocialGuild, OpenWorldMap, ToggleMinimap,
         Sheath, ToggleUi,
         Screenshot,
@@ -68,6 +68,7 @@ public sealed partial class GameLoop
         RtsEncounterLab, RtsUndoWaypoint, RtsFocusPrimary,
         CrpgCycleControlNext, CrpgCycleControlPrevious, CrpgTakeControl,
         RtsLockCameraPrimary,
+        ToggleHudEditMode,
     }
 
     private static GameBinding RtsSaveGroupBinding(int index) =>
@@ -149,11 +150,13 @@ public sealed partial class GameLoop
         ("Interface", GameBinding.OpenCharacter, "Character Info", Key.C),
         ("Interface", GameBinding.OpenBackpack, "Open Backpack (Shift: all bags)", Key.B),
         ("Interface", GameBinding.OpenBags, "Inventory (party bags in Free View)", Key.I),
+        ("Interface", GameBinding.OpenPartyInventory, "Party Inventory", Key.Unknown),
         ("Interface", GameBinding.OpenSkills, SkillFrameUiLaw.BindingLabel, Key.K),
         ("Interface", GameBinding.OpenPetSpellbook, "Pet Spellbook", Key.P),
         ("Interface", GameBinding.OpenSpellbook, "Spellbook", Key.P),
         ("Interface", GameBinding.OpenTalents, "Talents", Key.N),
         ("Interface", GameBinding.OpenQuestLog, "Quest Log", Key.L),
+        ("Interface", GameBinding.OpenPartyQuestLog, "Party Quest Log", Key.Unknown),
         ("Interface", GameBinding.ToggleMinimap, "Toggle Minimap", Key.Unknown),
         ("Interface", GameBinding.OpenWorldMap, "World Map", Key.M),
         ("Interface", GameBinding.OpenSocial, "Social", Key.O),
@@ -168,6 +171,9 @@ public sealed partial class GameLoop
         ("Miscellaneous", GameBinding.MasterVolumeDown, "Master Volume Down", Key.Minus),
         ("Miscellaneous", GameBinding.ToggleUi, "Toggle User Interface", Key.Z),
         ("Miscellaneous", GameBinding.Screenshot, "Screen Shot", Key.PrintScreen),
+        // MSUI: the HUD layout editor (PLAN_21). Unbound by default; also /editui and
+        // Options -> Interface -> Edit HUD layout.
+        ("Miscellaneous", GameBinding.ToggleHudEditMode, "Edit HUD Layout", Key.Unknown),
         ("Camera", GameBinding.CameraZoomIn, "Zoom In", Key.Unknown),
         ("Camera", GameBinding.CameraZoomOut, "Zoom Out", Key.Unknown),
         ("MultiActionBar", GameBinding.MultiActionBar1Button1, "Action Button 1", Key.Unknown),
@@ -433,6 +439,12 @@ public sealed partial class GameLoop
                 Control: row.Binding is >= GameBinding.ShapeshiftButton1 and
                     <= GameBinding.BonusActionButton10,
                 Shift: row.Binding == GameBinding.OpenPetSpellbook), default);
+        // Dedicated party panels work in every in-world camera/control mode. Keep the
+        // familiar plain I/L bindings intact and give the party variants adjacent chords.
+        _bindings[GameBinding.OpenPartyInventory] = new(
+            new BindingChord(Key.I, Shift: true), default);
+        _bindings[GameBinding.OpenPartyQuestLog] = new(
+            new BindingChord(Key.L, Shift: true), default);
         _bindings[GameBinding.ToggleAutorun] = new(
             new BindingChord(Key.NumLock),
             BindingChordLaw.LivePointer(BindingPointerKey.Button4, false, false, false));
@@ -590,7 +602,11 @@ public sealed partial class GameLoop
     private bool BindingDown(GameBinding binding)
     {
         EnsureBindingsLoaded();
-        return _bindingLatches.Values.Any(active => active.Contains(binding)) ||
+        // HUD layout Edit Mode: gameplay commands stand down, the camera and the two toggles
+        // pass, and the arrow keys belong to the nudge while a frame is selected
+        // (GameLoop.HudFrames.cs).
+        if (HudEditBlocksBinding(binding)) return false;
+        return _bindingLatches.Any(latch => !HudEditOwnsKey(latch.Key) && latch.Value.Contains(binding)) ||
             _bindingPointerLatches.Values.Any(active => active.Contains(binding)) ||
             _bindingPointerPulse.Contains(binding);
     }

@@ -30,14 +30,22 @@ public static class SwimmingMovementLaw
     public static float RestLine(float surfaceZ, float collisionHeight) =>
         surfaceZ - EnterDepth(collisionHeight);
 
+    /// <summary>
+    /// A swim jump is only a breach when the body is already at the floating
+    /// rest line. Deeper Jump input is ordinary vertical swimming.
+    /// </summary>
+    public static bool CanBreach(float surfaceZ, float feetZ, float collisionHeight) =>
+        feetZ >= RestLine(surfaceZ, collisionHeight) - Hysteresis;
+
     public static Vector3 DesiredVelocity(float yaw, float pitch, float forwardInput,
-        float strafeInput, float forwardSpeed, float backwardSpeed)
+        float strafeInput, float verticalInput, float forwardSpeed, float backwardSpeed)
     {
         Vector3 flatForward = new(MathF.Cos(yaw), MathF.Sin(yaw), 0f);
         Vector3 right = new(MathF.Sin(yaw), -MathF.Cos(yaw), 0f);
         Vector3 pitchedForward = flatForward * MathF.Cos(pitch) +
                                  Vector3.UnitZ * MathF.Sin(pitch);
-        Vector3 wish = pitchedForward * forwardInput + right * strafeInput;
+        Vector3 wish = pitchedForward * forwardInput + right * strafeInput +
+                       Vector3.UnitZ * verticalInput;
         if (wish.LengthSquared() < 1e-8f) return Vector3.Zero;
         float speed = forwardInput < -0.01f
             ? MathF.Min(forwardSpeed, backwardSpeed)

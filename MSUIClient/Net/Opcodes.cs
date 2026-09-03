@@ -626,4 +626,9 @@ public enum Op : ushort
     SMSG_SUI_PARTY_LEAD_RESULT   = 0x035F,
     CMSG_SUI_GIVER_QUESTS        = 0x0360,   // Model B: a giver's quests + per-member eligibility
     SMSG_SUI_GIVER_QUESTS        = 0x0361,
+    // COMPANIONS v1 (capability bit 7): summon/dismiss the account's own alts as
+    // AI party members. CMSG body: u8 action (1 summon, 2 dismiss, 3 list), u64 guid.
+    // SMSG body: u8 kind (1 result, 2 list) + payload — see Net/CompanionWire.cs.
+    CMSG_SUI_COMPANION           = 0x0362,
+    SMSG_SUI_COMPANION           = 0x0363,
 }

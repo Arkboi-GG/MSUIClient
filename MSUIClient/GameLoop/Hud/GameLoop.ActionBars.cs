@@ -31,6 +31,7 @@ public sealed partial class GameLoop
     private bool _actionCursorChangedThisFrame;
     private bool _mainMenuMicroPressedThroughModal;
     private readonly bool[] _microBindingWasDown = new bool[3];
+    private bool _partyQuestLogKeyWasDown;
     private Vector2 _actionPressPosition;
     private PreparedSharedSpellTooltip? _hoveredActionSpellTooltip;
     private int _hoveredActionSlot = -1;
@@ -154,6 +155,15 @@ public sealed partial class GameLoop
 
     private void UpdateMicroMenuBindingInput(bool typing)
     {
+        bool partyQuestLogDown = BindingDown(GameBinding.OpenPartyQuestLog);
+        if (partyQuestLogDown && !_partyQuestLogKeyWasDown && !typing &&
+            _net is { IsInWorld: true })
+        {
+            if (_partyQuestLogOpen) _partyQuestLogOpen = false;
+            else OpenPartyQuestLog();
+        }
+        _partyQuestLogKeyWasDown = partyQuestLogDown;
+
         (GameBinding Binding, MicroMenuButtonId Button)[] bindings =
         [
             (GameBinding.OpenTalents, MicroMenuButtonId.Talents),

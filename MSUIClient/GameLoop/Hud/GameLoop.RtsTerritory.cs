@@ -48,13 +48,21 @@ public sealed partial class GameLoop
         if (_rtsTerritoryCapture is not RtsTerritoryCaptureState state ||
             !CommanderMapUiLaw.ShowTerritory(_rtsMode, _rtsModules) ||
             _rtsTerritoryZoneId == 0 || PlayerPanelOpen || SettingsModalOpen)
+        {
+            // No capture running: still give the editor a rect to place the strip by.
+            if (_hudEditMode && _freeView)
+                HudFrame("territory-strip", "Territory", HudPlacement.At(HudAnchor.Top, 0f, 72f),
+                    new Vector2(400f, 70f));
             return;
+        }
 
         Vector2 display = ImGui.GetIO().DisplaySize;
         float s = Math.Clamp(GameplayUiScale(), 0.7f, 2.25f);
         float width = Math.Clamp(display.X * 0.34f, 300f * s, 520f * s);
         float height = 70f * s;
-        Vector2 min = new((display.X - width) * 0.5f, 72f * s);
+        // Sized in device pixels above (its own clamped scale); the registry wants logical.
+        Vector2 min = HudFrame("territory-strip", "Territory", HudPlacement.At(HudAnchor.Top, 0f, 72f),
+            new Vector2(width, height) / GameplayUiScale()).ScreenMin;
         Vector2 max = min + new Vector2(width, height);
         ImDrawListPtr dl = ImGui.GetForegroundDrawList();
 

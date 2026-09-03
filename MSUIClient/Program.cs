@@ -418,6 +418,8 @@ public sealed partial class GameLoop : IDisposable
     private FoliageRenderer? _foliage;
     private AdtCache? _adts;
     private CollisionDebugRenderer? _collisionDebug;
+    /// <summary>Command View party sight (World/PartySight.cs): the primary's view reprojected.</summary>
+    private PartySightPass? _partySight;
     private CharacterRenderer? _character;
     private UnitShadowRenderer? _unitShadows;
     private GpuFrameProfiler? _gpuProfiler;
@@ -860,6 +862,8 @@ public sealed partial class GameLoop : IDisposable
             Collision = null,
             MovingGroundProbe = ProbeMovingTransportGround,
             DynamicCollisionProbe = ProbeStatefulGameObjectCollision,
+            LiquidSurfaceProbe = point =>
+                TryGetBodyLiquidSurface(point, out float height, out _) ? height : null,
             Yaw = _config.Start.Orientation,
         };
         _controller.Teleport(_config.Start.X, _config.Start.Y, _config.Start.Z);
@@ -910,6 +914,12 @@ public sealed partial class GameLoop : IDisposable
             // over one GPU buffer.
             _xrayDebug = new CollisionDebugRenderer(gl);
             _xrayDebug.LoadShaders(shaderDir);
+            // Party sight: the pass renders the collision world + terrain from the primary's
+            // eye; the three world renderers consult it through the same object.
+            _partySight = new PartySightPass(gl);
+            if (_terrain is not null) _terrain.PartySight = _partySight;
+            if (_wmo is not null) _wmo.PartySight = _partySight;
+            if (_doodads is not null) _doodads.PartySight = _partySight;
             _xrayNavDebug = new CollisionDebugRenderer(gl);
             _xrayNavDebug.LoadShaders(shaderDir);
         }
@@ -1499,8 +1509,14 @@ public sealed partial class GameLoop : IDisposable
         // Scripted Encounter Lab raid proof (MSUI_ENCLAB_PROBE).
         UpdateEncounterLabProbe();
 
+        // Scripted Command View party-sight proof (MSUI_PARTYSIGHT_PROBE).
+        UpdatePartySightProbe();
+
         // Scripted offline mount check (MSUI_MOUNT_PROBE).
         UpdateMountProbe();
+
+        // Scripted offline swimming-collision proof (MSUI_SWIM_PROBE).
+        UpdateSwimProbe();
 
         // Cart-kit charges, cooldowns and the slows they applied.
         UpdateMountKit(NowSeconds());
@@ -1664,6 +1680,7 @@ public sealed partial class GameLoop : IDisposable
             _settingsOpen,
             _bindingCapture is not null);
         UpdateBindingLatches(typing);
+        UpdateHudEditInput(typing);
         UpdateAutorunBinding(typing);
         UpdateStandStateBinding(typing);
         UpdateFollowTargetBinding(typing);
@@ -1965,17 +1982,20 @@ public sealed partial class GameLoop : IDisposable
             _net?.SendStandStateChange(UnitStandState.Stand);
         _wasStandTriggerActiveLastFrame = standTriggerNow;
 
+        // A scripted or harness-held SPACE (movement suite, live-run, probes) owns Jump AND the
+        // swim/fly vertical axis; the keyboard only when nothing is scripting.
+        bool scriptedInput = _movementScript is not null || _liveHeld.Count > 0;
         var input = new MovementInput
         {
             Forward = forward,
             Strafe = strafe,
-            Up = typing || controllerRooted || controllerIceBlockFrozen || vanillaControlLocked ? 0f : ((BindingDown(GameBinding.Jump) ? 1f : 0f) -
-                                (InputKeyDown(Key.CapsLock) ? 1f : 0f)),
+            Up = typing || controllerRooted || controllerIceBlockFrozen || vanillaControlLocked ? 0f : ((scriptedInput ? scriptedJump : BindingDown(GameBinding.Jump)) ? 1f : 0f) -
+                                (InputKeyDown(Key.CapsLock) ? 1f : 0f),
             Yaw = controllerIceBlockFrozen ? _iceBlockFacing :
                 vanillaControlLocked ? _controller.Yaw : _window.Camera.Yaw,
             Pitch = -_window.Camera.Pitch + DrunkMovementLaw.SwimPitchWobble(
                 drunkWobble, _controller.Swimming, translating),
-            Jump = !controllerRooted && !controllerIceBlockFrozen && !vanillaControlLocked && (_movementScript is not null
+            Jump = !controllerRooted && !controllerIceBlockFrozen && !vanillaControlLocked && (scriptedInput
                 ? scriptedJump : !typing && BindingDown(GameBinding.Jump)),
             Walking = (_walkToggled || shift) && !_controller.Flying,
             Boost = shift && _controller.Flying,
@@ -2001,6 +2021,18 @@ public sealed partial class GameLoop : IDisposable
 
         ApplyMountHandling();
 
+        // The 0.75-depth swim line is a fraction of this controlled display's
+        // own collision height, not the controller's human-sized debug capsule.
+        float controlledCollisionHeight = CreatureVoiceCatalog.DefaultCollisionHeight;
+        if (_entities.TryGet(ControlledGuid, out WorldEntity controlledDisplay))
+        {
+            float scale = MathF.Max(controlledDisplay.Scale, 0.01f);
+            controlledCollisionHeight = _creatureVoices?.CollisionHeight(
+                (uint)Math.Max(0, controlledDisplay.DisplayId), scale) ??
+                CreatureVoiceCatalog.DefaultCollisionHeight * scale;
+        }
+        _controller.CollisionHeight = controlledCollisionHeight;
+
         _controller.ExternalWalkableSurfaceZ = null;
         _controller.LiquidSurfaceZ = null;
         if (TryGetBodyLiquidSurface(_controller.Position, out float movementLiquidZ, out _))
@@ -2017,6 +2049,7 @@ public sealed partial class GameLoop : IDisposable
         long phaseStarted = Stopwatch.GetTimestamp();
         bool serverRideActive = UpdateServerRide();
         if (!serverRideActive) _controller.Update(dt, input);
+        UpdatePredictedBreath();
         ReconcileControlledTransportRider();
         ResolveRealPortalMovement(movementPreviousPosition);
         // The unit we drive is client-authoritative, so its ENTITY is the one thing the server
@@ -2169,9 +2202,18 @@ public sealed partial class GameLoop : IDisposable
         Vector3? cutawaySubject = FreeViewCutawaySubject();
         _wmo?.SetCutawaySubject(cutawaySubject, cutawaySubject is Vector3 cutXy
             ? _terrain?.SampleHeight(cutXy.X, cutXy.Y) : null);
-        Vector3? cutPlaneSubject = CommandViewCutSubject();
+        Vector3? primarySubject = CommandViewPrimarySubject();
+        Vector3? cutPlaneSubject = Settings.Controls.CommandViewCutPlane ? primarySubject : null;
         _wmo?.SetCutPlaneSubject(cutPlaneSubject, Settings.Controls.CommandViewCutHeight,
             cutPlaneSubject is Vector3 cutFeet ? _terrain?.SampleHeight(cutFeet.X, cutFeet.Y) : null);
+        // Party sight (World/PartySight.cs): the subject's own rooms must draw for the cut to
+        // open onto them. Same feed point as the roof plane, before the cell update resolves.
+        // The proximity roof cut needs the same "draw the rooms near the unit" set: a cave mouth
+        // has no interior cell to flood from, so the cut subject feeds it when party sight is off.
+        Vector3? sightFeet = PartySightEye() is Vector3 sightEye
+            ? sightEye - new Vector3(0f, 0f, PartySightPass.EyeHeight) : cutPlaneSubject;
+        _wmo?.SetPartySightSubject(sightFeet,
+            sightFeet is Vector3 sf ? _terrain?.SampleHeight(sf.X, sf.Y) : null);
         _wmo?.UpdateCameraCell(portalEye, _terrain?.SampleHeight(portalEye.X, portalEye.Y));
         // The cut resolved by the cell update is one world-space rule shared by three renderers.
         WorldCut? activeCut = _wmo?.ActiveCut;
@@ -2183,14 +2225,32 @@ public sealed partial class GameLoop : IDisposable
             _doodads.SightTargets.Clear();
             CollectCommandViewSightTargets(_window.Camera.Position, _wmo.SightTargets);
             _doodads.SightTargets.AddRange(_wmo.SightTargets);
+            // The camera-side slice around the primary (WorldSlice): part of "Cut what hides the
+            // party", and it needs the roof cut's footprint, so it is off whenever that is.
+            _wmo.Slice = activeCut is not null && Settings.Controls.CommandViewSightCut &&
+                primarySubject is Vector3 sliceFeet
+                    ? WorldSlice.From(_window.Camera.Position, _window.Camera.Forward, sliceFeet)
+                    : null;
+            _doodads.Slice = _wmo.Slice;
             if (_terrain is not null)
             {
                 // The terrain leg of the roof cut stops at the commanded unit's depth: the hill
                 // between the camera and the unit opens, the hill behind the unit stays, so the
                 // cut is never a window onto the world beyond (owner, 2026-09-02). Terrain gets
                 // no sight tunnels: the boom march keeps the camera-to-rig line above ground.
+                // ...but the whole cut FOOTPRINT must open, however the camera sits: zoomed out
+                // at a low angle the far half of the bubble is well past the unit's own distance
+                // and stayed roofed ("if I zoom in, works" - owner, 2026-09-03). The cap is the
+                // unit's distance plus the footprint's reach from the unit, not a fixed 6 yd.
+                float footprintReach = 6f;
+                if (activeCut is WorldCut reachCut && cutPlaneSubject is Vector3 reachSubject)
+                {
+                    float dx = MathF.Max(reachCut.Max.X - reachSubject.X, reachSubject.X - reachCut.Min.X);
+                    float dy = MathF.Max(reachCut.Max.Y - reachSubject.Y, reachSubject.Y - reachCut.Min.Y);
+                    footprintReach = MathF.Min(MathF.Sqrt(dx * dx + dy * dy), 45f) + 4f;
+                }
                 _terrain.CutMaxDistance = cutPlaneSubject is Vector3 cutSubject
-                    ? Vector3.Distance(cutSubject, _window.Camera.Position) + 6f
+                    ? Vector3.Distance(cutSubject, _window.Camera.Position) + footprintReach
                     : float.MaxValue;
             }
             _doodads.CanopyCutHeight = Settings.Controls.CommandViewCutHeight;
@@ -2605,6 +2665,10 @@ public sealed partial class GameLoop : IDisposable
             _skybox.Render(_window.Camera);
         }
 
+        // Party sight cube + pre-pass (World/PartySight.cs), before the first world pass that
+        // consults them and after the portal preview, whose separate scene must not see them.
+        UpdatePartySight();
+
         _gpuProfiler?.Begin(GpuFrameProfiler.Pass.Terrain);
         BeginXrayTerrainWireframe();
         if (WarmStage(0)) _terrain?.Render(_window.Camera);
@@ -2624,6 +2688,12 @@ public sealed partial class GameLoop : IDisposable
         if (WarmStage(2)) _doodads?.Render(_window.Camera);
         else _doodads?.NoteNotRendered();
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Doodads);
+        // The three passes above are the only consumers; nothing later may read the verdict.
+        _partySight?.EndFrame();
+        // A roof cut that opened onto a hole in the world (a cave in a terrain hole) shows sky
+        // through the wall; paint the cut volume dark wherever nothing else was drawn.
+        if (_wmo?.ActiveCut is WorldCut voidCut && CommandViewPrimarySubject() is Vector3 voidFeet)
+            _partySight?.DrawCutVoid(_window.Camera, voidCut, voidFeet.Z - 8f, _atmosphere.FogColor * 0.35f);
 
         // Ground-effect foliage: scatter near the camera (throttled internally),
         // then draw it into the opaque world pass so terrain/water depth-interact.
@@ -4206,6 +4276,7 @@ public sealed partial class GameLoop : IDisposable
         _skin = null;
         _character?.Dispose();
         _collisionDebug?.Dispose();
+        _partySight?.Dispose();
         _xrayDebug?.Dispose();
         _xrayNavDebug?.Dispose();
         DisposeRealPortals();

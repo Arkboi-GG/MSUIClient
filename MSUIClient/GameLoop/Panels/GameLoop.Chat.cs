@@ -38,7 +38,6 @@ public sealed partial class GameLoop
     // fade in only when the cursor rests on the frame. _chatReveal is 0..1.
     private float _chatReveal, _chatRevealTarget, _chatHoverTime;
     private bool _chatEditOpen;                       // edit box shown (Enter) - wired in a later stage
-    private bool _chatDragDirty;
     private ChatFrameLaw.MsgType _chatSendType = ChatFrameLaw.MsgType.Say;
     private int _chatSelectedTab;                     // 0 = General, 1 = Combat Log
 
@@ -519,14 +518,18 @@ public sealed partial class GameLoop
         if (_gameplayArt is null) return;
         float s = GameplayUiScale();
         Vector2 logicalDisplay = ImGui.GetIO().DisplaySize / s;
-        Settings.HudLayout ??= new GameSettings.HudLayoutSettings();
-        Vector2 authoredRoot = ChatFrameLaw.FrameOrigin(logicalDisplay);
-        // The free view docks the SQUARE minimap to the bottom-left corner the
-        // chat normally owns — the chat frame lifts above that furniture.
-        if (_freeView) authoredRoot.Y -= 124f;
-        Vector2 savedOffset = new(Settings.HudLayout.ChatOffsetX, Settings.HudLayout.ChatOffsetY);
-        Vector2 root = ChatFrameLaw.ClampFrameOrigin(authoredRoot + savedOffset, logicalDisplay);
-        DrawChatMover(ref root, authoredRoot, logicalDisplay, s);
+        // Authored BOTTOMLEFT (32, 85) - what ChatFrameLaw.FrameOrigin(logicalDisplay) says - and
+        // in the free view 124 higher, clearing the SQUARE minimap that docks in that corner.
+        // Those are the frame's two authored placements in the HUD layout registry (PLAN_21);
+        // the player's own position, if any, comes back through the same call. The chat's own
+        // clamp still runs after it: it knows about the tabs above and the edit box below.
+        Vector2 root = ChatFrameLaw.ClampFrameOrigin(
+            HudFrame(HudLayoutLaw.ChatFrameId, "Chat",
+                HudPlacement.At(HudAnchor.BottomLeft, ChatFrameLaw.AnchorX, -ChatFrameLaw.AnchorBottomY),
+                ChatFrameLaw.FrameRect.Size,
+                authoredCommand: HudPlacement.At(HudAnchor.BottomLeft, ChatFrameLaw.AnchorX,
+                    -ChatFrameLaw.AnchorBottomY - HudLayoutLaw.ChatCommandLift)).LogicalOrigin,
+            logicalDisplay);
         Vector2 rootPx = root * s;
         ImDrawListPtr dl = ImGui.GetBackgroundDrawList();
 
@@ -567,39 +570,6 @@ public sealed partial class GameLoop
         if (_chatEditOpen) DrawChatEditBox(dl, root, s);
 
         if (_uiParityArmed && _uiParityPanel == "chat-frame") MarkUiParityFrameComplete();
-    }
-
-    private void DrawChatMover(ref Vector2 root, Vector2 authoredRoot,
-        Vector2 logicalDisplay, float scale)
-    {
-        if (!Settings.HudLayout.ChatUnlocked) return;
-
-        Vector2 handleSize = new(92f, 22f);
-        Vector2 handleOffset = new(ChatFrameLaw.FrameWidth - handleSize.X, -30f);
-        Vector2 handle = root + handleOffset;
-        ImGui.SetNextWindowPos(handle * scale);
-        ImGui.SetNextWindowSize(handleSize * scale);
-        ImGui.SetNextWindowBgAlpha(.82f);
-        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
-            ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoSavedSettings |
-            ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoNav;
-        ImGui.Begin("##chat-frame-mover", flags);
-        ImGui.Button("Drag chat##chat-frame-drag", handleSize * scale);
-        if (ImGui.IsItemActive() && ImGui.IsMouseDragging(ImGuiMouseButton.Left))
-        {
-            root = ChatFrameLaw.ClampFrameOrigin(
-                root + ImGui.GetIO().MouseDelta / MathF.Max(.01f, scale), logicalDisplay);
-            Vector2 offset = root - authoredRoot;
-            Settings.HudLayout.ChatOffsetX = offset.X;
-            Settings.HudLayout.ChatOffsetY = offset.Y;
-            _chatDragDirty = true;
-        }
-        if (_chatDragDirty && ImGui.IsItemDeactivated())
-        {
-            SettingsFile?.Save();
-            _chatDragDirty = false;
-        }
-        ImGui.End();
     }
 
     /// <summary>
@@ -936,8 +906,10 @@ public sealed partial class GameLoop
                         CloseChatTabMenu();
                         break;
                     case ChatTabMenuRowKind.LockWindow:
-                        Settings.HudLayout.ChatUnlocked = !Settings.HudLayout.ChatUnlocked;
-                        SettingsFile?.Save();
+                        // "Unlock" opens the HUD layout editor with chat selected; "Lock" is
+                        // Save & Exit. One mover for every frame, not a chat-only handle.
+                        if (_hudEditMode) ExitHudEditMode(save: true);
+                        else EnterHudEditMode(HudLayoutLaw.ChatFrameId);
                         CloseChatTabMenu();
                         break;
                     case ChatTabMenuRowKind.MsgType when row.Type is { } type:
@@ -1000,9 +972,8 @@ public sealed partial class GameLoop
             }
             else if (row.Kind == ChatTabMenuRowKind.LockWindow)
             {
-                // Checked means locked — the inverse of Settings.HudLayout.ChatUnlocked,
-                // which the existing "Unlock chat frame" Settings-panel checkbox also reads.
-                if (!Settings.HudLayout.ChatUnlocked)
+                // Checked means locked: the frame moves only while the HUD layout editor is up.
+                if (!_hudEditMode)
                     GameText.Draw(dl, font, "X",
                         (logicalOrigin + ChatTabMenuUiLaw.CheckOrigin(i, contentWidth)) * s, s);
             }
@@ -1366,6 +1337,9 @@ public sealed partial class GameLoop
         {
             case "/logout" or "/camp":
                 RequestLogout(quitting: false); return true;
+            // MSUI: the HUD layout editor (PLAN_21), also Options -> Interface -> Edit HUD layout.
+            case "/editui" or "/edithud" or "/hudlayout":
+                ToggleHudEditMode(); return true;
             case "/quit" or "/exit":
                 RequestLogout(quitting: true); return true;
             case "/inspect":
@@ -1409,6 +1383,13 @@ public sealed partial class GameLoop
             // target. The window opens when the server returns the pet list.
             if (_stableOpen) _stableOpen = false;
             else OpenStableForTarget();
+            return true;
+        }
+        if (command is "/companions" or "/comp")
+        {
+            // Companions (COMPANIONS v1): summon/dismiss the account's own alts as
+            // AI party members. Toggle the window; opening it pulls a fresh list.
+            ToggleCompanionsPanel();
             return true;
         }
         if (ChatChannelLaw.TryResolveAdmin(_chatChannels, command, args, out var channelAdmin))

@@ -14,8 +14,14 @@ public sealed partial class GameLoop
 
     private readonly record struct QuestAbandonConfirmation(
         ulong Subject, uint QuestId, string Title);
+    private readonly record struct PartyQuestAbandonConfirmation(
+        uint QuestId, string Title, ulong[] Subjects);
     private readonly record struct QuestLogDisplayRow(bool IsHeader, string Header,
         bool Collapsed, byte Slot, uint QuestId, uint Counters, uint Timer);
+    private readonly record struct QuestWatchLine(
+        uint QuestId, string Text, bool Title, bool Finished);
+    private readonly record struct QuestWatchTitleHit(
+        uint QuestId, Vector2 Min, Vector2 Max);
 
     private QuestList? _questList;
     private QuestDetails? _questDetails;
@@ -33,8 +39,12 @@ public sealed partial class GameLoop
     private long _questServerUnixStamp;
     private long _questTimeAskedStamp;
     private QuestAbandonConfirmation? _questAbandonConfirmation;
+    private PartyQuestAbandonConfirmation? _partyQuestAbandonConfirmation;
     private readonly List<uint> _questWatches = [];
+    private readonly HashSet<uint> _questWatchCollapsed = [];
+    private readonly List<QuestWatchTitleHit> _questWatchTitleHits = [];
     private readonly Dictionary<uint, double> _questAutoWatchExpiries = [];
+    private readonly HashSet<uint> _questAutoWatchPending = [];
     private readonly Dictionary<uint, string> _questProgress = [];
     private readonly Dictionary<uint, string> _questTitles = [];
     private readonly Dictionary<uint, QuestTemplate> _questTemplates = [];
@@ -128,7 +138,11 @@ public sealed partial class GameLoop
         // field change to observe, so without this the client would not learn it
         // exists until an unrelated roster edge. Rate-limited; harmless when the
         // quest did get a slot.
-        if (sent) RequestPartyQuestFacts("quest accepted");
+        if (sent)
+        {
+            RequestPartyQuestFacts("quest accepted");
+            AutoWatchQuest(quest);
+        }
         // [SUI] P4b: an accept AS a driven bot changes no own-player field and
         // echoes no quest packet, so nothing else invalidates the giver's "!".
         if (sent) BumpQuestStatusReask();
@@ -535,8 +549,12 @@ public sealed partial class GameLoop
         _questServerUnixStamp = 0;
         _questTimeAskedStamp = 0;
         _questAbandonConfirmation = null;
+        _partyQuestAbandonConfirmation = null;
         _questWatches.Clear();
+        _questWatchCollapsed.Clear();
+        _questWatchTitleHits.Clear();
         _questAutoWatchExpiries.Clear();
+        _questAutoWatchPending.Clear();
         _questLogSnapshot.Clear();
         _questLogSnapshotKnown = false;
         _questQueries.Clear();
@@ -789,10 +807,17 @@ public sealed partial class GameLoop
     {
         if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
         HashSet<uint> now = player.Fields.QuestLog().Select(q => q.QuestId).ToHashSet();
+        HashSet<uint> watchableNow = [.. now];
+        foreach (PartyMember member in _partyMembers)
+            foreach (MemberQuestEntry entry in MemberQuestEntries(member.Guid))
+                if (!entry.Rewarded) watchableNow.Add(entry.QuestId);
+        foreach (uint id in _questAutoWatchPending.Where(watchableNow.Contains).ToArray())
+            AutoWatchQuest(id);
         bool playAddedSound = QuestFrameUiLaw.ShouldPlayQuestAddedSound(
             _questLogSnapshotKnown, _questLogSnapshot, now);
-        _questWatches.RemoveAll(id => !now.Contains(id));
-        foreach (uint id in _questAutoWatchExpiries.Keys.Where(id => !now.Contains(id)).ToArray())
+        _questWatches.RemoveAll(id => !watchableNow.Contains(id));
+        _questWatchCollapsed.RemoveWhere(id => !watchableNow.Contains(id));
+        foreach (uint id in _questAutoWatchExpiries.Keys.Where(id => !watchableNow.Contains(id)).ToArray())
             _questAutoWatchExpiries.Remove(id);
         foreach (uint id in now)
             if (!_questTemplates.ContainsKey(id) && _questQueries.Add(id)) _net.QuestQuery(id);
@@ -832,10 +857,29 @@ public sealed partial class GameLoop
                     .Where(o => o.ItemId != 0 && o.ItemCount > 0)
                     .Select(o => o.ItemId).Distinct())
                     _items.Require(itemId, 0, _net);
+            RequireQuestCreatureNames(template);
+            if (_questAutoWatchPending.Remove(template.QuestId))
+                AutoWatchQuest(template.QuestId);
         }
         _questQueries.Remove(template.QuestId);
         EmitInterface("quest", "query", "DECODED", 0,
             $"quest={template.QuestId};level={template.Level};title={SanitizeEvidence(template.Title)};objectives={template.Objectives.Count}");
+    }
+
+    /// <summary>
+    /// Empty objective text makes the client compose "Foo slain" from the creature
+    /// template. Resolve that static name with the quest rather than waiting for a
+    /// matching creature to stream into view. SuperUI-Core ignores this query's GUID.
+    /// </summary>
+    private void RequireQuestCreatureNames(QuestTemplate template)
+    {
+        if (_net is null) return;
+        foreach (uint entry in template.Objectives
+            .Where(o => o.CreatureOrGo != 0 &&
+                (o.CreatureOrGo & 0x8000_0000) == 0 && o.Text.Length == 0)
+            .Select(o => o.CreatureOrGo & 0x7fff_ffff).Distinct())
+            if (TryBeginCreatureQuery(entry))
+                _net.CreatureQuery(entry, 0);
     }
 
     private void SimulateQuestFlow()
@@ -1115,7 +1159,9 @@ public sealed partial class GameLoop
             }
             var quest = (display.Slot, display.QuestId, display.Counters, display.Timer);
             string bareTitle = _questTitles.GetValueOrDefault(quest.QuestId, $"Quest {quest.QuestId}");
-            string title = bareTitle;
+            ulong displayedSubject = !_freeView && ControlledGuid != 0
+                ? ControlledGuid : LocalPlayerGuid;
+            string title = $"{bareTitle} [{PartyQuestHolderCount(quest.QuestId, displayedSubject)}]";
             byte state = (byte)(quest.Counters >> 24);
             if ((state & 1) != 0) title += " (Complete)";
             else if ((state & 2) != 0) title += " (Failed)";
@@ -1345,7 +1391,7 @@ public sealed partial class GameLoop
         if ((row.CreatureOrGo & 0x8000_0000) != 0)
             return $"Objective: {value.Current}/{value.Required}";
         string name = _creatureNames.GetValueOrDefault(value.Entry, "...");
-        return $"{name} slain: {value.Current}/{value.Required}";
+        return $"{QuestCreatureKillLabel(name, value.Required)}: {value.Current}/{value.Required}";
     }
 
     private void DrawQuestLogDetail(ImDrawListPtr dl, Vector2 origin, float s, WorldEntity player,
@@ -1540,10 +1586,12 @@ public sealed partial class GameLoop
             uint current = (packedCounters >> (6 * index)) & 0x3f;
             current = Math.Min(current, objective.RequiredCount);
             bool gameObject = (objective.CreatureOrGo & 0x8000_0000) != 0;
+            uint entry = objective.CreatureOrGo & 0x7fff_ffff;
             string label = objective.Text.Length > 0 ? objective.Text
                 : gameObject ? "Objective"
-                : _creatureNames.GetValueOrDefault(objective.CreatureOrGo,
-                    $"Creature {objective.CreatureOrGo}") + " slain";
+                : QuestCreatureKillLabel(
+                    _creatureNames.GetValueOrDefault(entry, $"Creature {entry}"),
+                    objective.RequiredCount);
             yield return ($"{label}: {current}/{objective.RequiredCount}",
                 current >= objective.RequiredCount);
         }
@@ -1569,6 +1617,36 @@ public sealed partial class GameLoop
         return QuestFrameUiLaw.ObjectiveItemLabel(resolvedName);
     }
 
+    private static string QuestCreatureKillLabel(string name, uint requiredCount) =>
+        $"{(requiredCount == 1 ? name : PluralizeQuestCreatureName(name))} slain";
+
+    private static string PluralizeQuestCreatureName(string name)
+    {
+        if (name.Length == 0 || name.StartsWith("Creature ", StringComparison.Ordinal))
+            return name;
+        if (name.EndsWith("ch", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith("sh", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith('s') || name.EndsWith('x') || name.EndsWith('z'))
+            return name + "es";
+        if (name.Length > 1 && name.EndsWith('y') &&
+            !"aeiou".Contains(char.ToLowerInvariant(name[^2])))
+            return name[..^1] + "ies";
+        return name + "s";
+    }
+
+    /// <summary>The bracket count excludes the character whose log is displayed.</summary>
+    private int PartyQuestHolderCount(uint questId, ulong displayedSubject) =>
+        _partyMembers.Count(member => member.Guid != displayedSubject &&
+            MemberQuestEntries(member.Guid).Any(entry =>
+                entry.QuestId == questId && !entry.Rewarded));
+
+    private ulong[] PartyBotsHoldingQuest(uint questId, ulong exceptSubject) =>
+        _partyMembers.Where(member => member.Guid != exceptSubject &&
+                HasMemberQuestFacts(member.Guid) &&
+                MemberQuestEntries(member.Guid).Any(entry =>
+                    entry.QuestId == questId && !entry.Rewarded))
+            .Select(member => member.Guid).ToArray();
+
     private void HandleQuestLogShiftClick(uint questId, string title)
     {
         if (_chatEditOpen)
@@ -1581,6 +1659,7 @@ public sealed partial class GameLoop
         if (existing >= 0)
         {
             _questWatches.RemoveAt(existing);
+            _questWatchCollapsed.Remove(questId);
             _questAutoWatchExpiries.Remove(questId);
             return;
         }
@@ -1597,20 +1676,33 @@ public sealed partial class GameLoop
             ShowUiError("This quest has no objectives to track");
             return;
         }
-        if (_questWatches.Count >= QuestFrameUiLaw.MaxQuestWatches)
-        {
-            ShowUiError($"You may only watch {QuestFrameUiLaw.MaxQuestWatches} quests at a time");
-            return;
-        }
         _questWatches.Add(questId);
         _questAutoWatchExpiries.Remove(questId); // a Shift-click watch is permanent/manual
     }
 
     private void AutoWatchQuest(uint questId)
     {
-        if (!_questTemplates.TryGetValue(questId, out QuestTemplate? template) ||
-            !template.Objectives.Any(o => o.CreatureOrGo != 0 && o.RequiredCount > 0 ||
-                o.ItemId != 0 && o.ItemCount > 0)) return;
+        if (!Settings.Controls.AutomaticQuestTracking)
+        {
+            _questAutoWatchPending.Remove(questId);
+            return;
+        }
+        if (!_questTemplates.TryGetValue(questId, out QuestTemplate? template))
+        {
+            _questAutoWatchPending.Add(questId);
+            RequireQuestTemplate(questId);
+            return;
+        }
+        _questAutoWatchPending.Remove(questId);
+        if (!template.Objectives.Any(o => o.CreatureOrGo != 0 && o.RequiredCount > 0 ||
+            o.ItemId != 0 && o.ItemCount > 0)) return;
+        if (!QuestHeldByTrackerOwner(questId))
+        {
+            // Accept/result and objective packets can beat the update fields or party-facts
+            // reply. Leave this armed until either source confirms an owner actually holds it.
+            _questAutoWatchPending.Add(questId);
+            return;
+        }
         double expires = System.Diagnostics.Stopwatch.GetTimestamp() /
             (double)System.Diagnostics.Stopwatch.Frequency + QuestFrameUiLaw.AutoQuestWatchSeconds;
         if (_questWatches.Contains(questId))
@@ -1620,16 +1712,14 @@ public sealed partial class GameLoop
                 _questAutoWatchExpiries[questId] = expires;
             return;
         }
-        if (_questWatches.Count >= QuestFrameUiLaw.MaxQuestWatches)
-        {
-            uint victim = QuestFrameUiLaw.AutoWatchEvictionCandidate(_questAutoWatchExpiries);
-            if (victim == 0) return; // all five are manual
-            _questAutoWatchExpiries.Remove(victim);
-            _questWatches.Remove(victim);
-        }
         _questWatches.Add(questId);
         _questAutoWatchExpiries[questId] = expires;
     }
+
+    private bool QuestHeldByTrackerOwner(uint questId) =>
+        MergedOwnQuestLog().Any(entry => entry.QuestId == questId) ||
+        _partyMembers.Any(member => MemberQuestEntries(member.Guid).Any(entry =>
+            entry.QuestId == questId && !entry.Rewarded));
 
     private void ExpireAutomaticQuestWatches()
     {
@@ -1641,49 +1731,38 @@ public sealed partial class GameLoop
         {
             _questAutoWatchExpiries.Remove(id);
             _questWatches.Remove(id);
+            _questWatchCollapsed.Remove(id);
         }
     }
 
     private void DrawQuestWatchFrame()
     {
+        _questWatchTitleHits.Clear();
         ExpireAutomaticQuestWatches();
         ulong questLogSubject = !_freeView && ControlledGuid != 0
             ? ControlledGuid : _net?.PlayerGuid ?? 0;
-        if (_questWatches.Count == 0 || _net is null ||
-            !_entities.TryGet(questLogSubject, out WorldEntity player)) return;
-        var slots = DisplayedQuestLog().ToDictionary(q => q.QuestId);
-        var lines = new List<(string Text, bool Title, bool Finished)>(
+        if (_questWatches.Count == 0 || _net is null) return;
+        var lines = new List<QuestWatchLine>(
             QuestFrameUiLaw.MaxQuestWatchLines);
-        foreach (uint questId in _questWatches)
+        List<(ulong Guid, string Name)> companions = _partyMembers
+            .Select(member => (member.Guid, member.Name))
+            .ToList();
+        if (companions.Count > 0)
         {
-            if (!slots.TryGetValue(questId, out var slot) ||
-                !_questTemplates.TryGetValue(questId, out QuestTemplate? template)) continue;
-            int titleAt = lines.Count;
-            lines.Add((_questTitles.GetValueOrDefault(questId, $"Quest {questId}"), true, false));
-            int objectives = 0, complete = 0;
-            for (int i = 0; i < template.Objectives.Count &&
-                lines.Count < QuestFrameUiLaw.MaxQuestWatchLines; i++)
-            {
-                foreach ((string text, bool finished) in QuestObjectiveLines(
-                    player, slot.Counters, i, template.Objectives[i]))
-                {
-                    // The line budget is per LINE, and one index can now emit two.
-                    if (lines.Count >= QuestFrameUiLaw.MaxQuestWatchLines) break;
-                    lines.Add((" - " + text, false, finished));
-                    objectives++;
-                    if (finished) complete++;
-                }
-            }
-            if (objectives == 0) lines.RemoveAt(titleAt);
-            else lines[titleAt] = (lines[titleAt].Text, true, complete == objectives);
-            if (lines.Count >= QuestFrameUiLaw.MaxQuestWatchLines) break;
+            var owners = new List<(ulong Guid, string Name)> { (LocalPlayerGuid, "You") };
+            owners.AddRange(companions);
+            AppendPartyQuestWatchLines(lines, owners);
+        }
+        else if (_entities.TryGet(questLogSubject, out WorldEntity player))
+        {
+            AppendSingleQuestWatchLines(lines, player);
         }
         if (lines.Count == 0) return;
 
         float s = GameplayUiScale();
         float em = GameText.EmPixels("GameFontHighlight", s) / s;
-        float width = lines.Max(line =>
-            GameText.MeasureWidth("GameFontHighlight", line.Text, s) / s) + 10f;
+        float width = lines.Max(line => GameText.MeasureWidth("GameFontHighlight",
+            QuestWatchDisplayText(line), s) / s) + 10f;
         Vector2 topRight = QuestFrameUiLaw.QuestWatchTopRight(
             ImGui.GetIO().DisplaySize, s, _questTimerFrameHeight, _durabilityFrameShown);
         Vector2 origin = new(topRight.X - width * s, topRight.Y);
@@ -1691,29 +1770,157 @@ public sealed partial class GameLoop
         float previousBottom = 0f;
         for (int i = 0; i < lines.Count; i++)
         {
-            var line = lines[i];
+            QuestWatchLine line = lines[i];
             float top = QuestFrameUiLaw.QuestWatchLineTop(previousBottom, line.Title, i == 0);
             uint color = line.Title
                 ? ImGui.ColorConvertFloat4ToU32(line.Finished
                     ? new Vector4(1f, .82f, 0f, 1f) : new Vector4(.75f, .61f, 0f, 1f))
                 : ImGui.ColorConvertFloat4ToU32(line.Finished
                     ? Vector4.One : new Vector4(.8f, .8f, .8f, 1f));
-            GameText.Draw(dl, "GameFontHighlight", line.Text,
-                origin + new Vector2(0f, top * s), s, color);
+            Vector2 lineMin = origin + new Vector2(0f, top * s);
+            if (line.Title)
+            {
+                string text = QuestWatchDisplayText(line);
+                float textWidth = GameText.MeasureWidth("GameFontHighlight", text, s);
+                Vector2 lineMax = lineMin + new Vector2(
+                    MathF.Max(1f, textWidth), MathF.Max(1f, em * s));
+                var hit = new QuestWatchTitleHit(line.QuestId, lineMin, lineMax);
+                _questWatchTitleHits.Add(hit);
+                bool hovered = QuestWatchTitleContains(hit, _window.MousePosition);
+                if (hovered) ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+                GameText.Draw(dl, "GameFontHighlight", text, lineMin, s,
+                    hovered ? VanillaGold : color);
+            }
+            else
+                GameText.Draw(dl, "GameFontHighlight", line.Text, lineMin, s, color);
             previousBottom = top + em;
+        }
+    }
+
+    private string QuestWatchDisplayText(in QuestWatchLine line) => line.Title
+        ? $"{(_questWatchCollapsed.Contains(line.QuestId) ? "+" : "-")} {line.Text}"
+        : line.Text;
+
+    private static bool QuestWatchTitleContains(
+        in QuestWatchTitleHit hit, Vector2 position) =>
+        position.X >= hit.Min.X && position.X <= hit.Max.X &&
+        position.Y >= hit.Min.Y && position.Y <= hit.Max.Y;
+
+    private bool IsQuestWatchTitleAt(Vector2 position) =>
+        _questWatchTitleHits.Any(hit => QuestWatchTitleContains(hit, position));
+
+    private bool TryToggleQuestWatchAt(Vector2 position, bool leftClick)
+    {
+        if (!leftClick) return false;
+        foreach (QuestWatchTitleHit hit in _questWatchTitleHits)
+        {
+            if (!QuestWatchTitleContains(hit, position)) continue;
+            if (!_questWatches.Contains(hit.QuestId)) return true;
+            if (!_questWatchCollapsed.Remove(hit.QuestId))
+                _questWatchCollapsed.Add(hit.QuestId);
+            return true;
+        }
+        return false;
+    }
+
+    private void AppendSingleQuestWatchLines(
+        List<QuestWatchLine> lines, WorldEntity player)
+    {
+        var slots = DisplayedQuestLog().ToDictionary(q => q.QuestId);
+        foreach (uint questId in _questWatches)
+        {
+            if (!slots.TryGetValue(questId, out var slot) ||
+                !_questTemplates.TryGetValue(questId, out QuestTemplate? template)) continue;
+            int titleAt = lines.Count;
+            lines.Add(new(questId,
+                _questTitles.GetValueOrDefault(questId, $"Quest {questId}"), true, false));
+            bool collapsed = _questWatchCollapsed.Contains(questId);
+            int objectives = 0, complete = 0;
+            for (int i = 0; i < template.Objectives.Count; i++)
+            {
+                foreach ((string text, bool finished) in QuestObjectiveLines(
+                    player, slot.Counters, i, template.Objectives[i]))
+                {
+                    objectives++;
+                    if (finished) complete++;
+                    if (!collapsed && lines.Count < QuestFrameUiLaw.MaxQuestWatchLines)
+                        lines.Add(new(questId, " - " + text, false, finished));
+                }
+            }
+            if (objectives == 0) lines.RemoveAt(titleAt);
+            else lines[titleAt] = lines[titleAt] with { Finished = complete == objectives };
+            if (lines.Count >= QuestFrameUiLaw.MaxQuestWatchLines) break;
+        }
+    }
+
+    private void AppendPartyQuestWatchLines(
+        List<QuestWatchLine> lines,
+        IReadOnlyList<(ulong Guid, string Name)> owners)
+    {
+        foreach (uint questId in _questWatches)
+        {
+            if (!_questTemplates.TryGetValue(questId, out QuestTemplate? template)) continue;
+            int titleAt = lines.Count;
+            lines.Add(new(questId,
+                _questTitles.GetValueOrDefault(questId, $"Quest {questId}"), true, false));
+            bool collapsed = _questWatchCollapsed.Contains(questId);
+            int participants = 0, completeParticipants = 0;
+            foreach ((ulong guid, string name) in owners)
+            {
+                PartyQuestCell cell = PartyQuestCellFor(guid, questId);
+                if (cell.Rewarded)
+                {
+                    if (!collapsed && lines.Count < QuestFrameUiLaw.MaxQuestWatchLines)
+                        lines.Add(new(questId, $" - {name}: Turned in.", false, true));
+                    participants++;
+                    completeParticipants++;
+                    continue;
+                }
+                if (!cell.Held)
+                {
+                    string state = guid == LocalPlayerGuid || HasMemberQuestFacts(guid)
+                        ? "Not on quest." : "Progress unavailable.";
+                    if (!collapsed && lines.Count < QuestFrameUiLaw.MaxQuestWatchLines)
+                        lines.Add(new(questId, $" - {name}: {state}", false, false));
+                    continue;
+                }
+
+                participants++;
+                int objectives = 0, complete = 0;
+                foreach ((string text, bool finished) in PartyQuestObjectiveLines(cell, template))
+                {
+                    objectives++;
+                    if (finished) complete++;
+                    if (!collapsed && lines.Count < QuestFrameUiLaw.MaxQuestWatchLines)
+                        lines.Add(new(questId, $" - {name}: {text}", false, finished));
+                }
+                if (objectives > 0 && complete == objectives) completeParticipants++;
+            }
+            lines[titleAt] = lines[titleAt] with
+            {
+                Finished = participants > 0 && completeParticipants == participants,
+            };
+            if (lines.Count >= QuestFrameUiLaw.MaxQuestWatchLines) break;
         }
     }
 
     private bool TryDismissQuestAbandonOnEscape()
     {
-        if (_questAbandonConfirmation is null) return false;
+        if (_questAbandonConfirmation is null && _partyQuestAbandonConfirmation is null)
+            return false;
         _questAbandonConfirmation = null;
+        _partyQuestAbandonConfirmation = null;
         return true;
     }
 
     private void DrawQuestAbandonConfirmation()
     {
-        if (_questAbandonConfirmation is not { } confirmation || _skin is null) return;
+        if (_questAbandonConfirmation is not { } confirmation)
+        {
+            DrawPartyQuestAbandonConfirmation();
+            return;
+        }
+        if (_skin is null) return;
         if (_net is not { IsInWorld: true } ||
             !_entities.TryGet(confirmation.Subject, out _) ||
             !QuestLogForSubject(confirmation.Subject).Any(q => q.QuestId == confirmation.QuestId))
@@ -1760,8 +1967,76 @@ public sealed partial class GameLoop
         }
         if (!yes) return;
         if (AbandonQuest(confirmation.Subject, confirmation.QuestId))
+        {
             PlayUiSound("igQuestLogAbandonQuest");
+            ulong[] companions = _partyQuestActsAvailable
+                ? PartyBotsHoldingQuest(confirmation.QuestId, confirmation.Subject)
+                : [];
+            if (companions.Length > 0)
+                _partyQuestAbandonConfirmation = new(
+                    confirmation.QuestId, confirmation.Title, companions);
+        }
         _questAbandonConfirmation = null;
+    }
+
+    private void DrawPartyQuestAbandonConfirmation()
+    {
+        if (_partyQuestAbandonConfirmation is not { } confirmation || _skin is null)
+            return;
+        HashSet<ulong> stillHolding = PartyBotsHoldingQuest(
+            confirmation.QuestId, 0).ToHashSet();
+        ulong[] subjects = confirmation.Subjects.Where(stillHolding.Contains).ToArray();
+        if (subjects.Length == 0)
+        {
+            _partyQuestAbandonConfirmation = null;
+            return;
+        }
+
+        float s = GameplayUiScale();
+        string prompt = "Do you also want to abandon it on";
+        string names = string.Join(", ", subjects.Select(ResolveUnitName)) + "?";
+        float widestLine = Math.Max(
+            GameText.MeasureWidth("GameFontHighlight", prompt, s),
+            GameText.MeasureWidth("GameFontHighlight", names, s)) / s;
+        QuestLogicalRect frame = QuestFrameUiLaw.PartyAbandonPopupRect(
+            widestLine, ImGui.GetIO().DisplaySize.X, s);
+        Vector2 origin = QuestFrameUiLaw.AbandonPopupOrigin(
+            ImGui.GetIO().DisplaySize, s, frame);
+        Vector2 size = frame.ScaledSize(s);
+        ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0f);
+        ImGui.SetNextWindowFocus();
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav;
+        if (!ImGui.Begin("##party-quest-abandon-confirm", flags)) { ImGui.End(); return; }
+
+        ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        dl.PushClipRectFullScreen();
+        _skin.DrawBackdrop(dl, origin, origin + size, WowSkin.Dialog);
+        dl.PopClipRect();
+        GameText.DrawCentered(dl, "GameFontHighlight", prompt,
+            QuestFrameUiLaw.PartyAbandonTextCenter(origin, s, frame, names: false), s);
+        GameText.DrawCentered(dl, "GameFontHighlight", names,
+            QuestFrameUiLaw.PartyAbandonTextCenter(origin, s, frame, names: true), s);
+        bool yes = DrawQuestAbandonButton(dl, "party-yes", "Yes", origin,
+            QuestFrameUiLaw.PartyAbandonButtonRect(frame, accept: true), s);
+        bool no = DrawQuestAbandonButton(dl, "party-no", "No", origin,
+            QuestFrameUiLaw.PartyAbandonButtonRect(frame, accept: false), s);
+        ImGui.End();
+
+        if (no)
+        {
+            _partyQuestAbandonConfirmation = null;
+            return;
+        }
+        if (!yes) return;
+        PartyQuestSubject[] requests = subjects.Select(guid =>
+            new PartyQuestSubject(guid, PartyQuestWire.RewardChoiceAuto)).ToArray();
+        if (RequestPartyQuestAct(PartyQuestWire.ActionAbandon,
+                confirmation.QuestId, 0, requests))
+            PlayUiSound("igQuestLogAbandonQuest");
+        _partyQuestAbandonConfirmation = null;
     }
 
     private bool DrawQuestAbandonButton(ImDrawListPtr dl, string id, string caption,

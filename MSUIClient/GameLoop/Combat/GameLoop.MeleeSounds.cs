@@ -10,6 +10,7 @@ public sealed partial class GameLoop
     {
         public CombatMeleeSwing Swing = swing;
         public bool ImpactConsumed;
+        public bool ReactionConsumed;
     }
 
     private WeaponImpactCatalog? _weaponImpacts;
@@ -17,19 +18,20 @@ public sealed partial class GameLoop
 
     private void WireMeleeSounds()
     {
-        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
-        {
-            if (_creatures is not null) _creatures.CombatAnimationSoundEvent = null;
-            if (_character is not null) _character.CombatAnimationSoundEvent = null;
-            _pendingMeleeSounds.Clear();
-            return;
-        }
-        if (_mpq is not null) _weaponImpacts = WeaponImpactCatalog.Load(_mpq);
+        // Impact animation and impact audio ride the same authored M2 marker. Keep this event
+        // route alive even when audio is disabled: presentation timing is not an audio setting.
         if (_creatures is not null)
             _creatures.CombatAnimationSoundEvent = PlayMeleeAnimationSoundEvent;
         if (_character is not null)
             _character.CombatAnimationSoundEvent = identifier =>
                 PlayMeleeAnimationSoundEvent(ControlledGuid, identifier);
+
+        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled)
+        {
+            _pendingMeleeSounds.Clear();
+            return;
+        }
+        if (_mpq is not null) _weaponImpacts = WeaponImpactCatalog.Load(_mpq);
         Console.WriteLine(_weaponImpacts is null
             ? "[combat-sound] WeaponImpactSounds unavailable"
             : $"[combat-sound] {_weaponImpacts.Count} weapon impact row(s)");
@@ -37,7 +39,6 @@ public sealed partial class GameLoop
 
     private void QueueMeleeSound(CombatMeleeSwing swing)
     {
-        if (!AudioFeaturePolicy.ExpandedWorldAudioEnabled) return;
         var pending = new PendingMeleeSound(swing);
         _pendingMeleeSounds[swing.Attacker] = pending;
         bool attackerResolved = swing.Attacker == ControlledGuid && !ControlledBodyIsStreamed
@@ -45,7 +46,10 @@ public sealed partial class GameLoop
             : _creatures?.TryGetSpellPose(swing.Attacker, out _) == true;
         if (!attackerResolved)
         {
-            PlayMeleeContact(pending, naturalAttack: null);
+            ApplyMeleeReaction(swing);
+            pending.ReactionConsumed = true;
+            if (AudioFeaturePolicy.ExpandedWorldAudioEnabled && _soundscapePlaybackArmed)
+                PlayMeleeContact(pending, naturalAttack: null);
             pending.ImpactConsumed = true;
         }
         if (_pendingMeleeSounds.Count > 128)
@@ -56,17 +60,27 @@ public sealed partial class GameLoop
 
     private void PlayMeleeAnimationSoundEvent(ulong attackerGuid, string identifier)
     {
-        if (!_soundscapePlaybackArmed ||
-            !_pendingMeleeSounds.TryGetValue(attackerGuid, out PendingMeleeSound? pending)) return;
+        if (!_pendingMeleeSounds.TryGetValue(attackerGuid, out PendingMeleeSound? pending)) return;
         CombatMeleeSwing swing = pending.Swing;
-        if (identifier == "$CSS" && MeleeSoundLaw.NoContact(swing))
+        bool audioReady = AudioFeaturePolicy.ExpandedWorldAudioEnabled && _soundscapePlaybackArmed;
+
+        // Benilla/reference dispatches the victim's primary defense from $CPP. The fallback at
+        // the contact marker below retains a reaction for models whose chosen variation omits it.
+        if (identifier == "$CPP" && !pending.ReactionConsumed &&
+            MeleeSoundLaw.Defended(swing.VictimState))
+        {
+            ApplyMeleeReaction(swing);
+            pending.ReactionConsumed = true;
+        }
+
+        if (audioReady && identifier == "$CSS" && MeleeSoundLaw.NoContact(swing))
         {
             var weapon = SwingWeapon(attackerGuid, (swing.HitInfo & 0x4u) != 0);
             uint kit = MeleeSoundLaw.MissKit(weapon.Subclass);
             PlayMeleeKit(kit, attackerGuid, PositionOf(attackerGuid));
             return;
         }
-        if (identifier == "$CAH")
+        if (audioReady && identifier == "$CAH")
         {
             if (_entities.TryGet(attackerGuid, out WorldEntity attacker) &&
                 _creatureVoices?.TryGet((uint)attacker.DisplayId, out var voice) == true)
@@ -76,11 +90,33 @@ public sealed partial class GameLoop
         }
         int? natural = identifier is "$AH0" or "$AH1" or "$AH2" or "$AH3"
             ? identifier[3] - '0' : null;
-        if (!pending.ImpactConsumed && (natural is not null || identifier == "$CAH"))
+        if (natural is not null || identifier == "$CAH")
         {
-            PlayMeleeContact(pending, natural);
-            pending.ImpactConsumed = true;
+            if (!pending.ReactionConsumed)
+            {
+                ApplyMeleeReaction(swing);
+                pending.ReactionConsumed = true;
+            }
+            if (!pending.ImpactConsumed)
+            {
+                if (audioReady) PlayMeleeContact(pending, natural);
+                pending.ImpactConsumed = true;
+            }
         }
+    }
+
+    /// <summary>
+    /// Apply victim presentation at the attacker's authored impact key instead of packet receipt.
+    /// For a landed local hit CharacterRenderer routes CombatWound into its secondary blend slot,
+    /// so an in-flight counter-swing continues beneath the flinch.
+    /// </summary>
+    private void ApplyMeleeReaction(CombatMeleeSwing swing)
+    {
+        bool landedHit = swing.Damage > 0 && swing.VictimState is 0 or 1;
+        if (swing.Victim == ControlledGuid && !ControlledBodyIsStreamed)
+            _character?.TriggerCombatReaction(swing.VictimState, landedHit);
+        else
+            _creatures?.TriggerCombatReaction(swing.Victim, swing.VictimState, landedHit);
     }
 
     private void PlayMeleeContact(PendingMeleeSound pending, int? naturalAttack)

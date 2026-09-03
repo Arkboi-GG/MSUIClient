@@ -178,8 +178,10 @@ internal static class ChatClinicalChecks
               chatSource.Contains("ChatFrameLaw.BorderRect(slice)", StringComparison.Ordinal) &&
               chatSource.Contains("ChatFrameLaw.TabGeometry", StringComparison.Ordinal) &&
               chatSource.Contains("ChatFrameLaw.EditGeometry", StringComparison.Ordinal) &&
-              chatSource.Contains("DrawChatMover(ref root", StringComparison.Ordinal) &&
-              chatSource.Contains("Settings.HudLayout.ChatOffset", StringComparison.Ordinal) &&
+              // PLAN_21: the chat-only mover is gone; the frame is placed by the HUD registry.
+              chatSource.Contains("HudFrame(HudLayoutLaw.ChatFrameId", StringComparison.Ordinal) &&
+              !chatSource.Contains("DrawChatMover", StringComparison.Ordinal) &&
+              !chatSource.Contains("Settings.HudLayout.ChatOffset", StringComparison.Ordinal) &&
               chatSource.Contains("ChatMenuUiLaw.CardScaledSize", StringComparison.Ordinal) &&
               !chatSource.Contains("new Vector2(", StringComparison.Ordinal) &&
               !chatSource.Contains("logicalDisplay.Y - (95f", StringComparison.Ordinal) &&

@@ -133,10 +133,10 @@ public sealed partial class GameLoop
         {
             // A walk-then-loot still retrying (Command View): a range/facing refusal is the race
             // being retried, not news for the player.
-            bool retrying = _cvPendingLootGuid == guid && error is 4 or 5;
+            bool retrying = _cvPendingInteractGuid == guid && error is 4 or 5;
             // The error shape. Refusals surface as the red error text the 1.12 client shows.
             if (!retrying) ShowUiError(LootPackets.ErrorText(error));
-            if (_cvPendingLootGuid == guid && !retrying) _cvPendingLootGuid = 0;
+            if (_cvPendingInteractGuid == guid && !retrying) _cvPendingInteractGuid = 0;
             if (_lootPendingGuid == guid) _lootPendingGuid = 0;
             RefreshLootKneel();
             EmitInterface("loot", "response", "REFUSED", guid, $"error={error};text={SanitizeEvidence(LootPackets.ErrorText(error))}");
@@ -156,7 +156,7 @@ public sealed partial class GameLoop
         _lootPendingGuid = admission.NextLatch;
         RefreshLootKneel();
         _loot.Open(guid, lootType, gold, items);
-        if (_cvPendingLootGuid == guid) _cvPendingLootGuid = 0;   // walk-then-loot delivered
+        if (_cvPendingInteractGuid == guid) _cvPendingInteractGuid = 0;   // walk-then-loot delivered
         if (_lootAutoAllArmed)
         {
             _lootAutoAllArmed = false;

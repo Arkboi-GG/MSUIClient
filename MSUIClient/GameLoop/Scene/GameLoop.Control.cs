@@ -172,24 +172,27 @@ public sealed partial class GameLoop
     private bool BarsReadOnly => BarsGuid != ControlledGuid || !CanAuthorControlledGameplay;
 
     /// <summary>
-    /// Divinity-style cutaway subject: the commanded toon's position (eye height
-    /// added for the cell drop test) while the Command View is up and the Settings
-    /// checkbox is on; null otherwise. Fed to WmoRenderer.SetCutawaySubject once
-    /// per frame — the single integration point for the whole feature.
+    /// Primary Command View subject: the primary selection's feet (or the controlled unit's)
+    /// while Command View is up. The roof plane and the camera-side slice (Engine/WorldCut.cs)
+    /// are gated by their own Settings toggles in Program.cs.
     /// </summary>
-    /// <summary>
-    /// Cut-plane subject: the primary selection's feet (or the controlled unit's) while the
-    /// Command View is up and the experiment toggle is on; null otherwise. Fed to
-    /// WmoRenderer.SetCutPlaneSubject once per frame.
-    /// </summary>
-    private Vector3? CommandViewCutSubject()
+    private Vector3? CommandViewPrimarySubject()
     {
-        if (!_freeView || !Settings.Controls.CommandViewCutPlane) return null;
+        if (!_freeView) return null;
+        // Creator sandbox: no entity stream; the "primary" is where the character stood when
+        // the view went up (ToggleFreeView parks it there and returns it there).
+        if (_net is not { IsInWorld: true }) return CreatorInWorld ? _creatorFreeViewReturn : null;
         ulong guid = RtsPrimaryGuid != 0 ? RtsPrimaryGuid : ControlledGuid;
         if (guid == 0 || !_entities.TryGet(guid, out WorldEntity unit)) return null;
         return unit.Position;
     }
 
+    /// <summary>
+    /// Divinity-style cutaway subject: the commanded toon's position (eye height
+    /// added for the cell drop test) while the Command View is up and the Settings
+    /// checkbox is on; null otherwise. Fed to WmoRenderer.SetCutawaySubject once
+    /// per frame — the single integration point for the whole feature.
+    /// </summary>
     private Vector3? FreeViewCutawaySubject()
     {
         if (!_freeView || !Settings.Controls.FreeViewCutaway) return null;
@@ -318,6 +321,7 @@ public sealed partial class GameLoop
         ResetPartyGiverStatus();
         ResetPartyGiverQuests();
         ResetPartyLead();
+        ResetCompanions();
         ResetPartyQuestActs();
         PurgeSuiSnapshot();
         _movementSender.Parked = false;
@@ -405,7 +409,20 @@ public sealed partial class GameLoop
     private float _rtsWheelRetreatYards;
     private const byte SuiRosterControllable = 0x01;
     private const byte SuiRosterPossessed = 0x02;
+    // COMPANIONS v1: this member is one of YOUR summoned alts. Only ever set for the
+    // owner (other humans see 0); the server also sets 0x01 on it so possession and
+    // orders work unchanged.
+    private const byte SuiRosterOwnCompanion = 0x08;
     private const double ControlAckTimeoutSeconds = 3.0;
+
+    /// <summary>True when the control roster marks this guid as one of the local player's own companions.</summary>
+    private bool IsOwnCompanion(ulong guid)
+    {
+        if (guid == 0) return false;
+        foreach ((ulong rosterGuid, byte flags) in _suiRoster)
+            if (rosterGuid == guid) return (flags & SuiRosterOwnCompanion) != 0;
+        return false;
+    }
 
     /// <summary>SMSG_SUI_CONTROL_ROSTER: which group members are possessable bots.</summary>
     private void ApplySuiControlRoster(byte[] body)
@@ -1637,7 +1654,7 @@ public sealed partial class GameLoop
             }
         }
         SyncManualPrimary();   // after the cam heartbeat: the server attaches your body's AI on it
-        UpdateCommandViewPendingLoot();
+        UpdateCommandViewPendingInteraction();
         MirrorPrimaryTarget();
 
         bool leftDown = _window.MouseLeftDown;
@@ -1652,7 +1669,7 @@ public sealed partial class GameLoop
         if (rightDown && IsMoving()) _freecamRightPanned = true;
         _freecamRightWasDown = rightDown;
 
-        if (leftDown && _freecamDragOrigin is null && !_commanderMapOpen &&
+        if (leftDown && _freecamDragOrigin is null && !_commanderMapOpen && !_hudEditMode &&
             _rtsUnitCastSpellId == 0 &&
             !_window.MouseCaptured && !ImGui.GetIO().WantCaptureMouse)
             _freecamDragOrigin = mouse;
@@ -1939,6 +1956,8 @@ public sealed partial class GameLoop
         float dt = (float)Math.Clamp(now - previous, 0.0, 0.1);
         if (dt <= 0f) return;
 
+        // HUD layout Edit Mode: a frame dragged toward an edge must not pan the camera.
+        if (_hudEditMode) return;
         if (_freecamDragActive || _window.MouseCaptured || ImGui.GetIO().WantCaptureMouse) return;
 
         Vector2 display = ImGui.GetIO().DisplaySize;
@@ -1999,19 +2018,28 @@ public sealed partial class GameLoop
     private Vector3? _cvFollowRigLast;           // rig position the lock last wrote
 
     // ── Command View order gate ───────────────────────────────────────────────────────────────
-    /// <summary>Furthest a move or waypoint may land from the primary (owner, 2026-09-02: "I
-    /// shouldn't be allowed to click anything that isn't somehow nearish me").</summary>
-    private const float CommandViewOrderReachYards = 40f;
+    /// <summary>Furthest a move or waypoint may land from the primary INSIDE an instance (owner,
+    /// 2026-09-02: "I shouldn't be allowed to click anything that isn't somehow nearish me").
+    /// Open-world maps have no reach limit: a commander orders across a whole zone, and a
+    /// "Too far from X" refusal there only stopped a walk the server would have pathed
+    /// (owner, 2026-09-02: "No reason to stop the pathing").</summary>
+    private const float CommandViewInstanceOrderReachYards = 40f;
 
-    /// <summary>Whether a ground pick may become an order: only the reach limit is judged here;
-    /// whether the spot can be walked to is judged by the server's navigation mesh.</summary>
+    /// <summary>Whether the current map is instanced (dungeon/raid/battleground) per Map.dbc.
+    /// Unknown map = treated as open world, so a missing row never locks the commander down.</summary>
+    private bool CommandViewOnInstanceMap() =>
+        _maps?.Get(_config.Start.Map)?.IsInstance == true;
+
+    /// <summary>Whether a ground pick may become an order: only the instance reach limit is judged
+    /// here; whether the spot can be walked to is judged by the server's navigation mesh.</summary>
     private bool CommandViewOrderPointAllowed(Vector3 point, bool onTerrain, out string refusal)
     {
         refusal = "";
+        if (!CommandViewOnInstanceMap()) return true;
         ulong primary = RtsPrimaryGuid != 0 ? RtsPrimaryGuid : ControlledGuid;
         if (primary == 0 || !_entities.TryGet(primary, out WorldEntity unit)) return true;
         float dx = point.X - unit.Position.X, dy = point.Y - unit.Position.Y;
-        if (dx * dx + dy * dy > CommandViewOrderReachYards * CommandViewOrderReachYards)
+        if (dx * dx + dy * dy > CommandViewInstanceOrderReachYards * CommandViewInstanceOrderReachYards)
         {
             refusal = $"Too far from {ResolveUnitName(primary)}.";
             return false;
@@ -2041,43 +2069,323 @@ public sealed partial class GameLoop
         _cvMirroredTarget = served;
     }
 
-    // ── Command View loot-on-arrival ──────────────────────────────────────────────────────────
-    private ulong _cvPendingLootGuid;
-    private double _cvPendingLootAt;
+    // ── Command View walk-then-interact ───────────────────────────────────────────────────────
+    // A right-click on a corpse, a service NPC (vendor / trainer / banker / auctioneer / flight
+    // master / gossip) or a usable game object in the Command View is an INTERACTION, never a
+    // ground move: the acting body is sent walking and the interaction opens on arrival. Before
+    // this only corpses walked; a vendor click fell through to a ground order under the NPC and
+    // the server answered "no path to that spot" (owner, 2026-09-02: "it should just path there
+    // and open it ... same fix, applied really to any interaction").
+    // Quests = the commander quest window (Model B): the PARTY walks to the giver and the window
+    // opens once they are there (owner, 2026-09-03: "that shouldn't happen until the characters
+    // are at the NPC").
+    private enum CommandViewInteractKind { Loot, Service, GameObject, Quests }
 
-    private bool CommandViewLootInReach(WorldEntity corpse) =>
-        TryGetSessionBodyPose(out WorldBodyPose body) &&
-        _entities.TryGet(LocalPlayerGuid, out WorldEntity self) &&
-        Vector3.DistanceSquared(body.Position, corpse.Position) <=
-            WorldCursorUiLaw.UnitMeleeReachSquared(self.Fields.CombatReach, corpse.Fields.CombatReach);
+    private ulong _cvPendingInteractGuid;
+    private CommandViewInteractKind _cvPendingInteractKind;
+    private double _cvPendingInteractAt;
+    private double _cvPendingInteractNotBefore;
+    private int _cvPendingInteractAttempts;
+    /// <summary>Quests only: everyone ordered to the giver (your own character first).</summary>
+    private readonly List<ulong> _cvPendingInteractWalkers = [];
 
-    /// <summary>A right-clicked corpse out of reach: the character was sent walking; open the
-    /// loot the moment it is close enough, or forget it after ten seconds.</summary>
-    private double _cvPendingLootNotBefore;
-    private int _cvPendingLootAttempts;
+    /// <summary>How close the walker stops short of the subject: a corpse is stood on (melee
+    /// reach), a person or object is approached to talking distance.</summary>
+    private const float CommandViewServiceApproachYards = 2.5f;
 
-    private void UpdateCommandViewPendingLoot()
-    {
-        if (_cvPendingLootGuid == 0) return;
-        double now = NowSeconds();
-        if (!_freeView || ControlledGuid != LocalPlayerGuid || now - _cvPendingLootAt > 15.0 ||
-            _cvPendingLootAttempts >= 8 ||
-            !_entities.TryGet(_cvPendingLootGuid, out WorldEntity corpse) || !corpse.IsDead ||
-            !corpse.Fields.Lootable)
+    /// <summary>The body that performs the interaction: loot is always the session character;
+    /// an NPC service is the driven bot while possessing, else the session character (the
+    /// server runs the handlers on it); a game object follows the same rule UseGameObject uses
+    /// (mail and text are session-scoped, everything else is the controlled body).</summary>
+    private ulong CommandViewInteractWalker(CommandViewInteractKind kind, WorldEntity subject) =>
+        kind switch
         {
-            _cvPendingLootGuid = 0;
+            CommandViewInteractKind.Loot => LocalPlayerGuid,
+            // The server resolves the commander quest window against the REQUESTER and demands
+            // the requester at the giver; the companions only need to be near the requester.
+            CommandViewInteractKind.Quests => LocalPlayerGuid,
+            CommandViewInteractKind.Service =>
+                _controlState == ControlState.Possessing ? ControlledGuid : LocalPlayerGuid,
+            _ => subject.GameObjectType is 9 or 19 ? LocalPlayerGuid : ControlledGuid,
+        };
+
+    private bool CommandViewInteractInReach(CommandViewInteractKind kind, WorldEntity subject)
+    {
+        ulong walker = CommandViewInteractWalker(kind, subject);
+        if (!TryGetWorldBodyPose(walker, out WorldBodyPose body)) return false;
+        float distanceSquared = Vector3.DistanceSquared(body.Position, subject.Position);
+        switch (kind)
+        {
+            case CommandViewInteractKind.Loot:
+                return _entities.TryGet(walker, out WorldEntity self) &&
+                    distanceSquared <= WorldCursorUiLaw.UnitMeleeReachSquared(
+                        self.Fields.CombatReach, subject.Fields.CombatReach);
+            case CommandViewInteractKind.Service:
+                return NpcSessionUiLaw.InRange(distanceSquared);
+            case CommandViewInteractKind.Quests:
+                return NpcSessionUiLaw.InRange(distanceSquared) && CommandViewPartyAtSubject(subject);
+            default:
+                float limit = IsStockPortalEntry(subject.Entry)
+                    ? MagePortalClickInteractDistance : GameObjectInteractDistance;
+                return distanceSquared <= limit * limit;
+        }
+    }
+
+    private bool CommandViewInteractSubjectValid(CommandViewInteractKind kind, WorldEntity subject) =>
+        kind switch
+        {
+            CommandViewInteractKind.Loot => subject.IsCreature && subject.IsDead && subject.Fields.Lootable,
+            CommandViewInteractKind.Service =>
+                subject.IsCreature && !subject.IsDead && WorldCursorServiceKind(subject) is not null,
+            CommandViewInteractKind.Quests =>
+                subject.IsCreature && !subject.IsDead && (subject.NpcFlags & NpcQuestGiver) != 0,
+            _ => subject.IsGameObject,
+        };
+
+    /// <summary>Whether the pending interaction has visibly landed, so the arrival retry stops.
+    /// Loot is cleared by ApplyLootResponse itself; a service is delivered once any NPC panel is
+    /// up; a game object once its use was queued (UseGameObject's return clears the pending) or
+    /// the mail panel opened. Only consulted AFTER the first ask, so a panel left open from
+    /// before the click never swallows the interaction.</summary>
+    private bool CommandViewInteractDelivered(CommandViewInteractKind kind, ulong guid) =>
+        kind switch
+        {
+            CommandViewInteractKind.Service =>
+                _vendor is not null || _trainer is not null || _gossipMenu is not null ||
+                _bankOpen || _auctionOpen || _mailOpen || _taxiMasterGuid == guid,
+            CommandViewInteractKind.GameObject => _mailOpen,
+            CommandViewInteractKind.Quests => _giverQuestsOpen && _giverQuestsGiverGuid == guid,
+            _ => false,
+        };
+
+    /// <summary>The route the pending interaction was CHOSEN for (the NPC chooser), else null =
+    /// the NPC's own cursor verdict. A flight master with a quest verdicts Speak, and Speak
+    /// would open gossip, not the flight map the player picked.</summary>
+    private ConfirmPopupUiLaw.NpcServiceRoute? _cvPendingInteractRoute;
+
+    // ── An NPC that offers more than one thing (owner, 2026-09-02: "FP Map or Quest List?";
+    // 2026-09-03: "apply the flight master fix to any NPC that has more than 1 option") ────────
+    // Thor in Sentinel Hill is a flight master AND a quest giver: the commander quest window
+    // (Model B) took every quest-giver click, so the flight path could never be discovered from
+    // the sky; a vendor who also trains hid the training the same way. Any NPC with two or more
+    // distinct offers raises a chooser (one button each) instead of guessing.
+    private ulong _cvGiverChoiceGuid;
+    private List<ConfirmPopupUiLaw.NpcOption> _cvGiverChoiceOptions = [];
+    private int _cvGiverChoicePicked = -1;
+
+    private void RaiseCommandViewNpcChoice(ulong guid, List<ConfirmPopupUiLaw.NpcOption> options)
+    {
+        _cvGiverChoiceGuid = guid;
+        _cvGiverChoiceOptions = options;
+        _cvGiverChoicePicked = -1;
+        CommitSelection(guid, beginAttack: false);
+        ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(
+            _staticPopupSlots, ConfirmPopupUiLaw.GiverChoiceDefinition, playerDeadOrGhost: false,
+            dataToken: guid.ToString()));
+    }
+
+    /// <summary>Accept = the option recorded by whichever chooser button was clicked (every
+    /// chooser button is an Accept): walk up and open it. Escape or a replacing popup = nothing.</summary>
+    private void ApplyCommandViewNpcChoice(StaticPopupCoordinatorLaw.EffectKind kind)
+    {
+        // The coordinator streams every lifecycle effect here (Show, PrepareContent, OnShow...);
+        // only the answers consume the pending NPC.
+        ulong guid = _cvGiverChoiceGuid;
+        switch (kind)
+        {
+            case StaticPopupCoordinatorLaw.EffectKind.Accept:
+                if (_cvGiverChoicePicked >= 0 && _cvGiverChoicePicked < _cvGiverChoiceOptions.Count &&
+                    _entities.TryGet(guid, out WorldEntity npc) && npc.IsCreature && !npc.IsDead)
+                    BeginCommandViewNpcRoute(guid, npc, _cvGiverChoiceOptions[_cvGiverChoicePicked].Route);
+                _cvGiverChoiceGuid = 0;
+                _cvGiverChoicePicked = -1;
+                break;
+            case StaticPopupCoordinatorLaw.EffectKind.CancelClicked:
+            case StaticPopupCoordinatorLaw.EffectKind.CancelWithoutReason:
+            case StaticPopupCoordinatorLaw.EffectKind.CancelOverride:
+            case StaticPopupCoordinatorLaw.EffectKind.CancelTimeout:
+                _cvGiverChoiceGuid = 0;
+                _cvGiverChoicePicked = -1;
+                break;
+        }
+    }
+
+    /// <summary>Walk up and open one of the NPC's offers: the commander quest window walks the
+    /// party (Quests); every other route is the acting body's Service interaction.</summary>
+    private void BeginCommandViewNpcRoute(ulong guid, WorldEntity npc, ConfirmPopupUiLaw.NpcServiceRoute route)
+    {
+        if (route == ConfirmPopupUiLaw.NpcServiceRoute.CommanderQuests)
+            BeginCommandViewInteraction(CommandViewInteractKind.Quests, guid, npc,
+                walkers: CommandViewQuestWalkers());
+        else
+            BeginCommandViewInteraction(CommandViewInteractKind.Service, guid, npc, route);
+    }
+
+    /// <summary>Who walks to a quest giver for the commander quest window: the highlighted set
+    /// (the RTS convention), or the whole party when nothing is highlighted — and ALWAYS your
+    /// own character, because the server resolves the window against the requester and demands
+    /// the requester at the giver (companions need only be within quest-share distance of
+    /// you).</summary>
+    private List<ulong> CommandViewQuestWalkers()
+    {
+        var walkers = new List<ulong>();
+        if (LocalPlayerGuid != 0) walkers.Add(LocalPlayerGuid);
+        IEnumerable<ulong> chosen = _freecamSelection.Count > 0
+            ? _freecamSelection
+            : _partyMembers.Select(member => member.Guid);
+        foreach (ulong guid in RtsControlGroupLaw.NormalizeMembers(chosen))
+            if (guid != 0 && !walkers.Contains(guid)) walkers.Add(guid);
+        return walkers;
+    }
+
+    /// <summary>Route a service NPC to its panel, the same dispatch the grounded right-click
+    /// uses: vendor, flight master, banker, auctioneer, otherwise gossip.</summary>
+    private bool OpenCommandViewService(ulong guid, WorldEntity npc)
+    {
+        if ((_cvPendingInteractRoute ?? CommandViewDefaultRoute(npc)) is not { } route) return false;
+        CommitSelection(guid, beginAttack: false);
+        return route switch
+        {
+            ConfirmPopupUiLaw.NpcServiceRoute.Vendor => RequestVendor(guid),
+            ConfirmPopupUiLaw.NpcServiceRoute.Taxi => RequestTaxiMap(guid),
+            ConfirmPopupUiLaw.NpcServiceRoute.Bank => RequestBank(guid),
+            // Possessed: the driven bot walks up to the auctioneer and the server's
+            // GetSuiActor-threaded auction handlers act on ITS purse and bags.
+            ConfirmPopupUiLaw.NpcServiceRoute.Auction => RequestAuction(guid),
+            _ => RequestGossip(guid),
+        };
+    }
+
+    /// <summary>The NPC's own cursor verdict as a route (lowest flag bit wins, as on the ground).</summary>
+    private ConfirmPopupUiLaw.NpcServiceRoute? CommandViewDefaultRoute(WorldEntity npc) =>
+        WorldCursorServiceKind(npc) switch
+        {
+            null => null,
+            WorldCursorKind.Pickup => ConfirmPopupUiLaw.NpcServiceRoute.Vendor,
+            WorldCursorKind.Taxi => ConfirmPopupUiLaw.NpcServiceRoute.Taxi,
+            WorldCursorKind.Buy when (npc.NpcFlags & NpcBanker) != 0 => ConfirmPopupUiLaw.NpcServiceRoute.Bank,
+            WorldCursorKind.Buy when (npc.NpcFlags & NpcAuctioneer) != 0 => ConfirmPopupUiLaw.NpcServiceRoute.Auction,
+            _ => ConfirmPopupUiLaw.NpcServiceRoute.Gossip,
+        };
+
+    /// <summary>Arm a walk-then-interact on <paramref name="guid"/>: in reach it opens on the
+    /// next frame; out of reach the acting body is ordered to walk up to it first. The walk
+    /// stops short of a person or object at talking distance rather than on top of it. A Quests
+    /// interaction orders every one of <paramref name="walkers"/> (the party) and opens once
+    /// they are all there.</summary>
+    private void BeginCommandViewInteraction(CommandViewInteractKind kind, ulong guid, WorldEntity subject,
+        ConfirmPopupUiLaw.NpcServiceRoute? route = null, IReadOnlyList<ulong>? walkers = null)
+    {
+        _cvPendingInteractGuid = guid;
+        _cvPendingInteractKind = kind;
+        _cvPendingInteractRoute = route;
+        _cvPendingInteractAt = NowSeconds();
+        _cvPendingInteractNotBefore = 0;
+        _cvPendingInteractAttempts = 0;
+        _cvPendingInteractWalkers.Clear();
+        if (walkers is not null) _cvPendingInteractWalkers.AddRange(walkers);
+        if (CommandViewInteractInReach(kind, subject)) return;
+        ulong walker = CommandViewInteractWalker(kind, subject);
+        Vector3 destination = subject.Position;
+        if (kind != CommandViewInteractKind.Loot &&
+            TryGetWorldBodyPose(walker, out WorldBodyPose body))
+        {
+            Vector3 toBody = body.Position - subject.Position;
+            toBody.Z = 0f;
+            float length = toBody.Length();
+            if (length > CommandViewServiceApproachYards)
+                destination += toBody * (CommandViewServiceApproachYards / length);
+        }
+        List<ulong> ordered = kind == CommandViewInteractKind.Quests && _cvPendingInteractWalkers.Count > 0
+            ? _cvPendingInteractWalkers
+            : new List<ulong> { walker };
+        _net?.SuiOrder(0 /* ORDER_MOVE */, ordered, 0, destination.X, destination.Y, destination.Z);
+        if (ordered.Count > 1) NoteCompanionOrder(0, ordered);
+        _rtsMoveMarkers.Add((subject.Position, NowSeconds(), RtsNeutralTint));
+        if (kind is CommandViewInteractKind.Service or CommandViewInteractKind.Quests)
+            AddChatMessage($"{OrderSubjectLabel(ordered)}: to {ResolveWorldUnitName(guid)}.");
+    }
+
+    /// <summary>"The party is here" radius for a Quests interaction: companions stand a little
+    /// wider than talking distance (anti-stacking spreads them), still well inside the server's
+    /// quest-share distance from the requester.</summary>
+    private const float CommandViewPartyArrivalYards = 8f;
+
+    /// <summary>How long a walk may take before the pending interaction is dropped. A party
+    /// walk to a giver is longer than one body's stroll to a vendor.</summary>
+    private static double CommandViewInteractDeadlineSeconds(CommandViewInteractKind kind) =>
+        kind == CommandViewInteractKind.Quests ? 45.0 : 15.0;
+
+    private bool CommandViewPartyAtSubject(WorldEntity subject)
+    {
+        foreach (ulong guid in _cvPendingInteractWalkers)
+        {
+            if (guid == LocalPlayerGuid || !TryGetWorldBodyPose(guid, out WorldBodyPose body)) continue;
+            if (Vector3.DistanceSquared(body.Position, subject.Position) >
+                CommandViewPartyArrivalYards * CommandViewPartyArrivalYards) return false;
+        }
+        return true;
+    }
+
+    private void UpdateCommandViewPendingInteraction()
+    {
+        if (_cvPendingInteractGuid == 0) return;
+        double now = NowSeconds();
+        CommandViewInteractKind kind = _cvPendingInteractKind;
+        ulong guid = _cvPendingInteractGuid;
+        if (!_entities.TryGet(guid, out WorldEntity subject) ||
+            !CommandViewInteractSubjectValid(kind, subject))
+        {
+            _cvPendingInteractGuid = 0;
+            return;
+        }
+        bool expired = now - _cvPendingInteractAt > CommandViewInteractDeadlineSeconds(kind);
+        bool questsAllowed = kind != CommandViewInteractKind.Quests ||
+            (_controlState != ControlState.Possessing && _partyGiverQuestsAvailable);
+        if (!_freeView || expired || _cvPendingInteractAttempts >= 8 || !questsAllowed ||
+            (kind == CommandViewInteractKind.Loot && ControlledGuid != LocalPlayerGuid) ||
+            (_cvPendingInteractAttempts > 0 && CommandViewInteractDelivered(kind, guid)))
+        {
+            // A party walk that ran out the clock with a straggler still opens for whoever made
+            // it: the requester at the giver is all the server demands, and a far member simply
+            // shows out of range on its card. Better than a click that silently did nothing.
+            if (expired && _freeView && questsAllowed && kind == CommandViewInteractKind.Quests &&
+                _cvPendingInteractAttempts == 0 &&
+                TryGetWorldBodyPose(LocalPlayerGuid, out WorldBodyPose requester) &&
+                NpcSessionUiLaw.InRange(Vector3.DistanceSquared(requester.Position, subject.Position)))
+            {
+                CommitSelection(guid, beginAttack: false);
+                RequestGiverQuests(guid);
+            }
+            _cvPendingInteractGuid = 0;
             return;
         }
         // The body is walked by a server spline the client only mirrors: ask once it has STOPPED
-        // beside the corpse, and keep asking on a short cadence until the loot opens - the first
-        // ask on arrival raced the server's own position and came back "too far away"
-        // (owner, 2026-09-02). The pending guid is cleared by ApplyLootResponse on success.
-        if (!CommandViewLootInReach(corpse)) return;
-        if (_entities.TryGet(LocalPlayerGuid, out WorldEntity self) && self.IsMoving) return;
-        if (now < _cvPendingLootNotBefore) return;
-        _cvPendingLootNotBefore = now + 0.5;
-        _cvPendingLootAttempts++;
-        RequestLoot(_cvPendingLootGuid);
+        // beside the subject, and keep asking on a short cadence until the interaction opens -
+        // the first ask on arrival raced the server's own position and came back "too far away"
+        // (owner, 2026-09-02).
+        if (!CommandViewInteractInReach(kind, subject)) return;
+        ulong walker = CommandViewInteractWalker(kind, subject);
+        if (_entities.TryGet(walker, out WorldEntity body) && body.IsMoving) return;
+        if (now < _cvPendingInteractNotBefore) return;
+        _cvPendingInteractNotBefore = now + 0.5;
+        _cvPendingInteractAttempts++;
+        switch (kind)
+        {
+            case CommandViewInteractKind.Loot:
+                RequestLoot(guid);                      // cleared by ApplyLootResponse
+                break;
+            case CommandViewInteractKind.Service:
+                OpenCommandViewService(guid, subject);  // cleared once a panel is up
+                break;
+            case CommandViewInteractKind.Quests:
+                CommitSelection(guid, beginAttack: false);
+                RequestGiverQuests(guid);               // cleared once the window is up
+                break;
+            default:
+                if (UseGameObject(guid)) _cvPendingInteractGuid = 0;
+                break;
+        }
     }
 
     // ── Manual primary (owner, 2026-09-01: "primary should always be user controlled") ────────
@@ -2262,8 +2570,8 @@ public sealed partial class GameLoop
         float scale = GameplayUiScale();
         var io = ImGui.GetIO();
         Vector2 size = new Vector2(AngleKnobWidth, AngleKnobHeight * (angleRow ? 3f : 2f)) * scale;
-        ImGui.SetNextWindowPos(new Vector2(io.DisplaySize.X - 20f, io.DisplaySize.Y - 20f),
-            ImGuiCond.Always, new Vector2(1f, 1f));
+        ImGui.SetNextWindowPos(HudFrame("angle-knob", "Camera tablet",
+            HudPlacement.At(HudAnchor.BottomRight, -20f, -20f), size / scale).ScreenMin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
         ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
@@ -2444,6 +2752,8 @@ public sealed partial class GameLoop
     /// </summary>
     private void HandleFreeCamWorldClick(WorldMouseClick click, TargetPressPick pressPick = default)
     {
+        // HUD layout Edit Mode: clicks move frames, never dispatch orders.
+        if (_hudEditMode) return;
         // A live waypoint-orient spin: the next click of ANY button sets the facing and
         // ends the session (the grab began on an earlier Shift+Right-click on the dot).
         if (_encounterOrientSpinning) { EndEncounterOrientSpin(commit: true); return; }
@@ -2613,16 +2923,10 @@ public sealed partial class GameLoop
             ShowUiError($"Orders are limited to {RtsControlGroupLaw.MaximumWireSubjects} " +
                 "explicit bots; this order uses the first entries in the selection.");
 
+        float pickedUnitHit = float.PositiveInfinity;
         ulong picked = pressPick.Armed
             ? pressPick.UnitGuid
-            : PickUnit(click.Position);
-        // [SUI] P4b: while DRIVING a party bot from the sky, a right-click on a
-        // service NPC is an INTERACTION as that bot (its quest giver / vendor /
-        // trainer / banker), not an RTS order — the same routing the grounded
-        // target handler uses, and gated at the bot by TryGetInteractionBodyPose.
-        // Only while possessing: a plain commander (not driving anyone) keeps the
-        // order behaviour below, because unpossessed the server would run the
-        // interaction on your own logged-in character.
+            : PickUnit(click.Position, out pickedUnitHit);
         // Right-click on a lootable corpse (owner, 2026-09-02): loot it as your own character.
         // In reach it opens now; out of reach the character walks there and the loot opens on
         // arrival (RTS style), since loot is session-scoped and cannot be done "as a bot".
@@ -2630,51 +2934,62 @@ public sealed partial class GameLoop
             _entities.TryGet(picked, out WorldEntity lootCorpse) && lootCorpse.IsCreature &&
             lootCorpse.IsDead && lootCorpse.Fields.Lootable)
         {
-            if (CommandViewLootInReach(lootCorpse))
-            {
-                _cvPendingLootGuid = 0;
-                RequestLoot(picked);
-            }
-            else
-            {
-                _cvPendingLootGuid = picked;
-                _cvPendingLootAt = NowSeconds();
-                _cvPendingLootNotBefore = 0;
-                _cvPendingLootAttempts = 0;
-                _net?.SuiOrder(0 /* ORDER_MOVE */, [LocalPlayerGuid], 0,
-                    lootCorpse.Position.X, lootCorpse.Position.Y, lootCorpse.Position.Z);
-                _rtsMoveMarkers.Add((lootCorpse.Position, NowSeconds(), RtsNeutralTint));
-            }
+            BeginCommandViewInteraction(CommandViewInteractKind.Loot, picked, lootCorpse);
             return;
         }
 
-        if (_controlState == ControlState.Possessing && picked != 0 &&
-            _entities.TryGet(picked, out WorldEntity svcNpc) && svcNpc.IsCreature &&
-            !svcNpc.IsDead && WorldCursorServiceKind(svcNpc) is { } svcKind)
+        // Any living, non-hostile NPC that offers MORE THAN ONE thing (a quest giver who is also
+        // a flight master / vendor / trainer / banker / innkeeper, a vendor who also trains...)
+        // asks first (owner, 2026-09-02: Thor's flight path could not be discovered because the
+        // quest window took the click; 2026-09-03: "any NPC that has more than 1 option"): one
+        // button per offer, and nothing walks or opens until one is picked.
+        // [SUI] Model B: NOT driving anyone — a right-click on a QUEST GIVER opens the
+        // commander quest window (per-member eligibility cards + accept-for-party), no
+        // possession needed — but not before the party is AT the giver (owner, 2026-09-03: "that
+        // shouldn't happen until the characters are at the NPC"): the highlighted set (or the
+        // whole party) walks up and the window opens on arrival, like every other interaction.
+        if (picked != 0 && !queue && _entities.TryGet(picked, out WorldEntity offerNpc) &&
+            offerNpc.IsCreature && !offerNpc.IsDead &&
+            ReactionTargetTowardPlayer(offerNpc) != FactionReaction.Hostile &&
+            (offerNpc.NpcFlags & GossipNpcFlags) != 0)
         {
-            CommitSelection(picked, beginAttack: false);
-            if (svcKind == WorldCursorKind.Pickup) RequestVendor(picked);
-            else if (svcKind == WorldCursorKind.Taxi) RequestTaxiMap(picked);
-            else if (svcKind == WorldCursorKind.Buy && (svcNpc.NpcFlags & NpcBanker) != 0)
-                RequestBank(picked);
-            // Possessed: the driven bot walks up to the auctioneer and the server's
-            // GetSuiActor-threaded auction handlers act on ITS purse and bags.
-            else if (svcKind == WorldCursorKind.Buy && (svcNpc.NpcFlags & NpcAuctioneer) != 0)
-                RequestAuction(picked);
-            else RequestGossip(picked);
+            bool commanderQuests = _controlState != ControlState.Possessing && _partyGiverQuestsAvailable;
+            List<ConfirmPopupUiLaw.NpcOption> offers =
+                ConfirmPopupUiLaw.NpcOptions(offerNpc.NpcFlags, commanderQuests);
+            if (ConfirmPopupUiLaw.NeedsChooser(offers))
+            {
+                RaiseCommandViewNpcChoice(picked, offers);
+                return;
+            }
+            if (commanderQuests && (offerNpc.NpcFlags & NpcQuestGiver) != 0)
+            {
+                BeginCommandViewInteraction(CommandViewInteractKind.Quests, picked, offerNpc,
+                    walkers: CommandViewQuestWalkers());
+                return;
+            }
+            // A single offer: the service branch below routes it from the cursor verdict.
+        }
+        // A right-click on a SERVICE NPC (vendor / trainer / banker / auctioneer / flight master /
+        // gossip) is an interaction, never a ground order: the acting body walks up and the panel
+        // opens on arrival. Driving a party bot ([SUI] P4b) the interaction is the bot's — the
+        // server runs the handlers as GetSuiActor; a plain commander interacts as the logged-in
+        // character, which is what standing next to a vendor from the sky means (owner,
+        // 2026-09-02: "it should just path there and open it").
+        if (picked != 0 && !queue && _entities.TryGet(picked, out WorldEntity svcNpc) &&
+            svcNpc.IsCreature && !svcNpc.IsDead && WorldCursorServiceKind(svcNpc) is not null)
+        {
+            BeginCommandViewInteraction(CommandViewInteractKind.Service, picked, svcNpc);
             return;
         }
-        // [SUI] Model B: NOT driving anyone — a right-click on a QUEST GIVER opens the
-        // commander quest window (per-member eligibility cards + accept-for-party),
-        // no possession needed. Move the party by right-clicking the ground beside it,
-        // the RTS convention; vendor/trainer stay possession-only and fall through.
-        if (_controlState != ControlState.Possessing && _partyGiverQuestsAvailable &&
-            picked != 0 && _entities.TryGet(picked, out WorldEntity giverNpc) &&
-            giverNpc.IsCreature && !giverNpc.IsDead &&
-            (giverNpc.NpcFlags & NpcQuestGiver) != 0)
+        // A usable game object (mailbox, chest, lever, portal...) strictly in front of any unit:
+        // the same walk-then-use, gated by UseGameObject's own type/lock/body rules on arrival.
+        ulong goPicked = pressPick.Armed
+            ? pressPick.GameObjectGuid
+            : PickGameObject(click.Position, picked == 0 ? float.PositiveInfinity : pickedUnitHit, out _);
+        if (goPicked != 0 && !queue && _entities.TryGet(goPicked, out WorldEntity clickedGo) &&
+            clickedGo.IsGameObject && GameObjectHighlightable(clickedGo))
         {
-            CommitSelection(picked, beginAttack: false);
-            RequestGiverQuests(picked);
+            BeginCommandViewInteraction(CommandViewInteractKind.GameObject, goPicked, clickedGo);
             return;
         }
         if (picked != 0 && _entities.TryGet(picked, out WorldEntity target) &&
@@ -2985,6 +3300,13 @@ public sealed partial class GameLoop
         // Collapsed state
         if (!_showControlGuide)
         {
+            // Commander View owns a permanent minimap dock. Its lower-left GUIDE tab is the
+            // restore affordance, so hiding this panel does not leave a loose ImGui button
+            // floating over the lock/AI tablet. Possessed play has no such dock and keeps the
+            // compact fallback below.
+            if (_freeView)
+                return;
+
             ImGui.SetNextWindowPos(
                 new Vector2(
                     io.DisplaySize.X - 20,
@@ -3006,34 +3328,75 @@ public sealed partial class GameLoop
         }
 
 
-        // Expanded state
-        ImGui.SetNextWindowPos(
-            new Vector2(
-                io.DisplaySize.X - 20,
-                guideBottom),
-            ImGuiCond.Always,
-            new Vector2(1f, 1f));
+        // Expanded state: fixed carved furniture instead of ImGui's default debug-window skin.
+        float scale = GameplayUiScale();
+        // Command View: the panel sizes itself to its longest line (no line may clip) and to its
+        // line count; the player may drag its left edge wider, never past the screen's centre
+        // (owner, 2026-09-02: "too wide ... resizable, min width the longest sentence").
+        string[] guideLines = _freeView ? CommandViewGuideLines() : [];
+        string guideStatus = _freeView ? $"COMMAND VIEW  ·  {CommandViewGuideStatus()}" : "";
+        float guideMinWidth = 0f, guideMaxWidth = 0f;
+        Vector2 guideSize;
+        if (_freeView)
+        {
+            float content = GameText.MeasureWidth("GameFontNormalSmall", guideStatus, scale) / scale;
+            foreach (string line in guideLines)
+                content = MathF.Max(content, MeasureControlGuideLine(line, scale) / scale);
+            float header = 14f + GameText.MeasureWidth("GameFontNormal", "COMMANDER GUIDE", scale) / scale
+                + 8f + ControlGuideHeaderButtonsWidth;
+            guideMinWidth = MathF.Ceiling(MathF.Max(content + 2f * ControlGuideTextInset, header));
+            guideMaxWidth = MathF.Max(guideMinWidth, (io.DisplaySize.X * 0.5f - 20f) / scale);
+            float width = Settings.Controls.CommandViewGuideWidth > 0f
+                ? Math.Clamp(Settings.Controls.CommandViewGuideWidth, guideMinWidth, guideMaxWidth)
+                : guideMinWidth;
+            guideSize = new Vector2(width, 69f + guideLines.Length * ControlGuideLinePitch + 13f) * scale;
+        }
+        else
+            guideSize = new Vector2(330f, 112f) * scale;
+        // Authored stacked above the camera tablet when that is drawn, else in the tablet's
+        // corner - but its OWN frame in the layout registry (owner, 2026-09-03: the guide is
+        // moved on its own, it does not ride the tablet).
+        float guideLift = knobHeight > 0f ? knobHeight / scale + 8f : 0f;
+        ImGui.SetNextWindowPos(HudFrame("control-guide",
+            _freeView ? "Commander guide" : "Control guide",
+            HudPlacement.At(HudAnchor.BottomRight, -20f, -20f - guideLift),
+            guideSize / scale).ScreenMin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(guideSize, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0f);
 
-        ImGui.Begin("Control Guide",
+        ImGui.Begin("##control-guide",
             ImGuiWindowFlags.NoDecoration |
-            ImGuiWindowFlags.AlwaysAutoResize |
             ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings |
+            ImGuiWindowFlags.NoScrollbar |
             ImGuiWindowFlags.NoNav |
             ImGuiWindowFlags.NoFocusOnAppearing |
             ImGuiWindowFlags.NoBringToFrontOnFocus);
 
+        ImDrawListPtr guideDraw = ImGui.GetWindowDrawList();
+        Vector2 guideMin = ImGui.GetWindowPos();
+        Vector2 guideMax = guideMin + guideSize;
+        DrawRtsConsoleBackdrop(guideDraw, guideMin, guideMax, scale);
 
-        if (ImGui.Button("Hide"))
-        {
+        float rule = MathF.Max(1f, scale);
+        float headerBottom = guideMin.Y + 32f * scale;
+        guideDraw.AddRectFilled(guideMin + new Vector2(5f) * scale,
+            new Vector2(guideMax.X - 5f * scale, headerBottom), PainterlyFrameTitle);
+        guideDraw.AddLine(new Vector2(guideMin.X + 7f * scale, headerBottom),
+            new Vector2(guideMax.X - 7f * scale, headerBottom), PainterlyFrameOuter, rule * 2f);
+        guideDraw.AddLine(new Vector2(guideMin.X + 7f * scale, headerBottom - rule),
+            new Vector2(guideMax.X - 7f * scale, headerBottom - rule), PainterlyGoldShade, rule);
+        GameText.Draw(guideDraw, "GameFontNormal", _freeView ? "COMMANDER GUIDE" : "CONTROL GUIDE",
+            guideMin + new Vector2(14f, 9f) * scale, scale, PainterlyGoldLit);
+
+        if (VanillaButton(guideDraw, "##control-guide-hide", "Hide",
+                new Vector2(guideMax.X - 124f * scale, guideMin.Y + 6f * scale),
+                new Vector2(48f, 20f), scale))
             _showControlGuide = false;
-        }
-
-        ImGui.SameLine();
-
-        if (ImGui.Button("Disable"))
-        {
+        if (VanillaButton(guideDraw, "##control-guide-disable", "Disable",
+                new Vector2(guideMax.X - 70f * scale, guideMin.Y + 6f * scale),
+                new Vector2(62f, 20f), scale))
             ImGui.OpenPopup("Disable Control Guide Confirmation");
-        }
 
 
         bool disablePopupOpen = true;
@@ -3065,98 +3428,47 @@ public sealed partial class GameLoop
         }
 
 
-        ImGui.Separator();
-
-        ImGui.TextColored(
-            new Vector4(0.25f, 0.8f, 1f, 1f),
-            "Control Guide");
-
-        ImGui.Separator();
-
-
         if (_freeView)
         {
-            string who = _controlState == ControlState.Possessing
-                ? $"Commanding {ResolveUnitName(_controlTargetGuid)}"
-                : BarsReadOnly
-                    ? $"{ResolveUnitName(BarsGuid)} Selected"
-                    : $"{BindingHint(GameBinding.RtsSelect)}/drag: select\n" +
-                      $"{BindingHint(GameBinding.RtsSelectAdd)}: add\n" +
-                      $"{BindingHint(GameBinding.CrpgTakeControl)}: direct control";
+            GameText.Draw(guideDraw, "GameFontNormalSmall", guideStatus,
+                guideMin + new Vector2(ControlGuideTextInset, 42f) * scale, scale, PainterlyGoldLit);
+            float statusRuleY = guideMin.Y + 61f * scale;
+            guideDraw.AddLine(new Vector2(guideMin.X + 12f * scale, statusRuleY),
+                new Vector2(guideMax.X - 12f * scale, statusRuleY), PainterlyFrameOuter, rule);
 
-            ImGui.Text($"Command View — {who}");
-
-            ImGui.Separator();
-
-            // Movement lines follow the scheme picked in Interface Options → Command View.
-            CommandViewScheme guideScheme = Settings.Controls.CommandViewScheme;
-            bool guideSwap = CommandViewLaw.TurnKeysStrafe(guideScheme);
-            ImGui.Text(
-                $"{BindingHint(GameBinding.MoveForward)}/{BindingHint(GameBinding.MoveBackward)}: " +
-                (CommandViewLaw.OrbitsFocus(guideScheme) ? "Pan Forward/Back" : "Fly Forward/Back"));
-            ImGui.Text(guideSwap
-                ? $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Sidestep"
-                : $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Turn   " +
-                  $"{BindingHint(GameBinding.StrafeLeft)}/{BindingHint(GameBinding.StrafeRight)}: Sidestep");
-            ImGui.Text(CommandViewLaw.PitchLocked(guideScheme)
-                ? (CommandViewLaw.OrbitsFocus(guideScheme)
-                    ? "Right-drag: Orbit   PageUp/PageDown: View Angle"
-                    : "Right-drag: Turn   PageUp/PageDown: View Angle")
-                : "Right-drag: Look Around");
-            ImGui.Text(CommandViewLaw.WheelIsVertical(guideScheme)
-                ? "Wheel: Raise/Lower Camera"
-                : "Wheel: Fly Toward/Away");
-            ImGui.Text($"{BindingHint(GameBinding.TargetNearestEnemy)}: Target Enemy   " +
-                $"{BindingHint(GameBinding.RtsCyclePrimaryNext)}: Next Primary");
-            ImGui.Text(CommandViewLocked
-                ? $"{BindingHint(GameBinding.RtsLockCameraPrimary)}: Release Camera   " +
-                  $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Orbit"
-                : $"{BindingHint(GameBinding.RtsLockCameraPrimary)}: Lock Camera on Primary");
-
-            ImGui.Text(
-                $"{BindingHint(GameBinding.RtsOrderMove)}: Move/Attack");
-
-            ImGui.Text(
-                $"{BindingHint(GameBinding.RtsOrderQueueWaypoint)}: Chain Waypoints");
-
-            ImGui.Text(
-                $"{BindingHint(GameBinding.RtsRecallGroup1)}-" +
-                $"{BindingHint(GameBinding.RtsRecallGroup10)}: Select Control Group");
-
-            ImGui.Text(
-                $"{BindingHint(GameBinding.RtsSaveGroup1)}-" +
-                $"{BindingHint(GameBinding.RtsSaveGroup10)}: Set Control Group");
-
-            ImGui.Text(
-                $"{BindingHint(GameBinding.RtsToggleFreeView)}: Exit Command View");
+            Vector2 linePos = guideMin + new Vector2(ControlGuideTextInset, 69f) * scale;
+            foreach (string line in guideLines)
+            {
+                DrawControlGuideLine(guideDraw, line, linePos, scale);
+                linePos.Y += ControlGuideLinePitch * scale;
+            }
+            DrawControlGuideResizeGrip(guideDraw, guideMin, guideMax, scale, guideMinWidth, guideMaxWidth);
         }
         else
         {
+            Vector2 linePos = guideMin + new Vector2(15f, 43f) * scale;
             switch (_controlState)
             {
                 case ControlState.Possessing:
-
-                    ImGui.Text(
-                        $"Controlling {ResolveUnitName(_controlTargetGuid)}");
-
-                    ImGui.Text(
-                        $"{BindingHint(GameBinding.CrpgCycleControlNext)}: Switch Character");
-
-                    ImGui.Text(
-                        $"{BindingHint(GameBinding.RtsToggleFreeView)}: Command View");
-
+                    GameText.Draw(guideDraw, "GameFontNormalSmall",
+                        $"CONTROLLING  ·  {ResolveUnitName(_controlTargetGuid)}", linePos, scale,
+                        PainterlyGoldLit);
+                    linePos.Y += 22f * scale;
+                    DrawControlGuideLine(guideDraw,
+                        $"{BindingHint(GameBinding.CrpgCycleControlNext)}: Switch character", linePos, scale);
+                    linePos.Y += 16f * scale;
+                    DrawControlGuideLine(guideDraw,
+                        $"{BindingHint(GameBinding.RtsToggleFreeView)}: Command View", linePos, scale);
                     break;
 
                 case ControlState.PossessPending:
-
-                    ImGui.Text("Taking control…");
-
+                    GameText.Draw(guideDraw, "GameFontNormalSmall", "Taking control…", linePos,
+                        scale, PainterlyGoldLit);
                     break;
 
                 case ControlState.ReleasePending:
-
-                    ImGui.Text("Releasing control…");
-
+                    GameText.Draw(guideDraw, "GameFontNormalSmall", "Releasing control…", linePos,
+                        scale, PainterlyGoldLit);
                     break;
             }
         }
@@ -3165,6 +3477,129 @@ public sealed partial class GameLoop
 
         if (_controlState == ControlState.Possessing)
             DrawBotBarLayerToggle(io.DisplaySize.Y - 80);
+    }
+
+    /// <summary>Draw a guide row in the UI's FrameXML font objects: the binding through the first
+    /// colon is gilt, while the action remains the warmer highlight text used by vanilla panels.</summary>
+    private static void DrawControlGuideLine(ImDrawListPtr dl, string text, Vector2 pos, float scale)
+    {
+        int colon = text.IndexOf(':');
+        if (colon <= 0)
+        {
+            GameText.Draw(dl, "GameFontHighlightSmall", text, pos, scale);
+            return;
+        }
+
+        string binding = text[..(colon + 1)];
+        string action = text[(colon + 1)..];
+        GameText.Draw(dl, "GameFontNormalSmall", binding, pos, scale, PainterlyGoldLit);
+        GameText.Draw(dl, "GameFontHighlightSmall", action,
+            pos + new Vector2(GameText.MeasureWidth("GameFontNormalSmall", binding, scale), 0f), scale);
+    }
+
+    /// <summary>Device-pixel width of a guide row as <see cref="DrawControlGuideLine"/> lays it out.</summary>
+    private static float MeasureControlGuideLine(string text, float scale)
+    {
+        int colon = text.IndexOf(':');
+        if (colon <= 0) return GameText.MeasureWidth("GameFontHighlightSmall", text, scale);
+        return GameText.MeasureWidth("GameFontNormalSmall", text[..(colon + 1)], scale)
+            + GameText.MeasureWidth("GameFontHighlightSmall", text[(colon + 1)..], scale);
+    }
+
+    // Commander Guide layout (logical px): text inset from the panel edge, row pitch, the room
+    // the Hide/Disable pair takes from the right edge, and the width of the left-edge drag grip.
+    private const float ControlGuideTextInset = 15f;
+    private const float ControlGuideLinePitch = 16f;
+    private const float ControlGuideHeaderButtonsWidth = 124f;
+    private const float ControlGuideGripWidth = 8f;
+    private bool _controlGuideResizing;
+    private float _controlGuideResizeStartMouseX;
+    private float _controlGuideResizeStartWidth;
+
+    /// <summary>The Commander Guide's status line: who the Command View is acting for.</summary>
+    private string CommandViewGuideStatus() =>
+        _controlState == ControlState.Possessing
+            ? $"Commanding {ResolveUnitName(_controlTargetGuid)}"
+            : BarsReadOnly
+                ? $"{ResolveUnitName(BarsGuid)} Selected"
+                : "Selection ready";
+
+    /// <summary>The Commander Guide's rows. Movement lines follow the scheme picked in Interface
+    /// Options → Command View; the lock row follows the camera's lock state.</summary>
+    private string[] CommandViewGuideLines()
+    {
+        CommandViewScheme guideScheme = Settings.Controls.CommandViewScheme;
+        bool guideSwap = CommandViewLaw.TurnKeysStrafe(guideScheme);
+        return
+        [
+            $"{BindingHint(GameBinding.RtsSelect)}/drag: Select    {BindingHint(GameBinding.RtsSelectAdd)}: Add",
+            $"{BindingHint(GameBinding.CrpgTakeControl)}: Direct control",
+            $"{BindingHint(GameBinding.MoveForward)}/{BindingHint(GameBinding.MoveBackward)}: " +
+                (CommandViewLaw.OrbitsFocus(guideScheme) ? "Pan forward/back" : "Fly forward/back"),
+            guideSwap
+                ? $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Sidestep"
+                : $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Turn    " +
+                  $"{BindingHint(GameBinding.StrafeLeft)}/{BindingHint(GameBinding.StrafeRight)}: Sidestep",
+            CommandViewLaw.PitchLocked(guideScheme)
+                ? (CommandViewLaw.OrbitsFocus(guideScheme)
+                    ? "Right-drag: Orbit    PageUp/PageDown: View angle"
+                    : "Right-drag: Turn    PageUp/PageDown: View angle")
+                : "Right-drag: Look around",
+            CommandViewLaw.WheelIsVertical(guideScheme)
+                ? "Wheel: Raise/lower camera"
+                : "Wheel: Fly toward/away",
+            $"{BindingHint(GameBinding.TargetNearestEnemy)}: Target enemy    " +
+                $"{BindingHint(GameBinding.RtsCyclePrimaryNext)}: Next primary",
+            CommandViewLocked
+                ? $"{BindingHint(GameBinding.RtsLockCameraPrimary)}: Release camera    " +
+                  $"{BindingHint(GameBinding.TurnLeft)}/{BindingHint(GameBinding.TurnRight)}: Orbit"
+                : $"{BindingHint(GameBinding.RtsLockCameraPrimary)}: Lock camera on primary",
+            $"{BindingHint(GameBinding.RtsOrderMove)}: Move / attack",
+            $"{BindingHint(GameBinding.RtsOrderQueueWaypoint)}: Chain waypoints",
+            $"{BindingHint(GameBinding.RtsRecallGroup1)}-{BindingHint(GameBinding.RtsRecallGroup10)}: Select control group",
+            $"{BindingHint(GameBinding.RtsSaveGroup1)}-{BindingHint(GameBinding.RtsSaveGroup10)}: Set control group",
+            $"{BindingHint(GameBinding.RtsToggleFreeView)}: Exit Command View",
+        ];
+    }
+
+    /// <summary>
+    /// Drag the Commander Guide's LEFT edge (the panel is anchored bottom-right) to set its width;
+    /// the result persists in Settings. Clamped to the content width and the screen centre, so a
+    /// row can never clip and the panel can never cross the middle of the screen. No ImGui widget:
+    /// a hover rect, the mouse buttons and a gilt rule on the draw list.
+    /// </summary>
+    private void DrawControlGuideResizeGrip(ImDrawListPtr dl, Vector2 min, Vector2 max, float scale,
+        float minWidth, float maxWidth)
+    {
+        Vector2 mouse = ImGui.GetIO().MousePos;
+        Vector2 gripMax = new(min.X + ControlGuideGripWidth * scale, max.Y);
+        bool hovered = ImGui.IsMouseHoveringRect(min, gripMax, false);
+        if (hovered && !_controlGuideResizing && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        {
+            _controlGuideResizing = true;
+            _controlGuideResizeStartMouseX = mouse.X;
+            _controlGuideResizeStartWidth = (max.X - min.X) / scale;
+        }
+        if (_controlGuideResizing)
+        {
+            if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
+            {
+                // Right-anchored: dragging LEFT widens.
+                float width = _controlGuideResizeStartWidth +
+                    (_controlGuideResizeStartMouseX - mouse.X) / scale;
+                Settings.Controls.CommandViewGuideWidth = Math.Clamp(width, minWidth, maxWidth);
+            }
+            else
+            {
+                _controlGuideResizing = false;
+                CommitSettings();
+            }
+        }
+        if (!hovered && !_controlGuideResizing) return;
+        ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeEW);
+        float x = min.X + 3f * scale;
+        dl.AddLine(new Vector2(x, min.Y + 8f * scale), new Vector2(x, max.Y - 8f * scale),
+            PainterlyGoldLit, MathF.Max(1f, scale));
     }
 
     /// <summary>
