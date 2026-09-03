@@ -1,8 +1,4 @@
-using System.Numerics;
-using System.Diagnostics;
 using ImGuiNET;
-using Silk.NET.Input;
-using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
@@ -14,6 +10,11 @@ using MSUIClient.World.Doodads;
 using MSUIClient.World.Particles;
 using MSUIClient.World.Units;
 using MSUIClient.World.Wmo;
+using Silk.NET.Input;
+using Silk.NET.OpenGL;
+using System.Diagnostics;
+using System.Numerics;
+using static MSUIClient.Engine.UI.StaticPopupCoordinatorLaw;
 
 namespace MSUIClient;
 
@@ -496,8 +497,8 @@ public sealed partial class GameLoop : IDisposable
     /// <summary>Edge detection for the fly toggle — IsDown reports held, not pressed.</summary>
     private bool _flyKeyDown;
     private bool _mountSpecialJumpDown;
-    private bool _collisionKeyDown;
     private bool _pickButtonDown;
+    private bool _debugWireframeDown;
 
     /// <summary>
     /// Draw the character capsule. OFF now that there is a model - the capsule
@@ -597,19 +598,33 @@ public sealed partial class GameLoop : IDisposable
     private const float DemandRescanDistance = 24f;
     private bool _demandStreamDoodads = true;
 
-    // Vantages: reproducible viewpoints.
+    // Developer tools: reproducible viewpoints and diagnostic commands.
+    // These are all bindable commands now; the default bindings (if any) live
+    // in GameLoop.Bindings.cs. These fields only track edge transitions so a
+    // held binding fires once instead of every frame.
     private VantageStore? _vantages;
     private string _vantageNameInput = "";
-    private bool _reloadVantageKeyDown;
-    private bool _dumpKeyDown;
-    private bool _gameplayDumpKeyDown;
-    private bool _devOverlayKeyDown;
-    /// <summary>F1: are the ImGui developer panels on screen? Visibility only — the
-    /// instruments behind them keep running either way.</summary>
+
+    private bool _devReloadVantageDown;
+    private bool _devDumpSceneDown;
+    private bool _devGameplayDumpDown;
+    private bool _devPainterlyComparisonDown;
+
+    private bool _devOverlayDown;
+
+    /// <summary>
+    /// Whether the developer overlay panels are visible. Visibility only — the
+    /// developer instruments continue running regardless of whether the panels
+    /// are shown.
+    /// </summary>
     private bool _devOverlayVisible;
-    /// <summary>One-frame request set only by an F1 open edge, so the developer
-    /// stack comes forward when summoned without owning startup focus.</summary>
+
+    /// <summary>
+    /// One-frame request set when the developer overlay is opened, so the UI
+    /// stack can receive focus without stealing startup/gameplay focus.
+    /// </summary>
     private bool _devOverlayFocusRequested;
+
     private string? _currentVantage;
 
     // Curated visibility overrides: core data, loaded and honoured always (even in
@@ -1751,16 +1766,21 @@ public sealed partial class GameLoop : IDisposable
         }
         _flyKeyDown = flyKey;
 
-        // Ctrl+W toggles developer collision wireframe.
-        // Plain W remains the normal movement binding.
-        bool collisionKey = _window.IsDown(Key.W) &&
-                            (_window.IsDown(Key.ControlLeft) || _window.IsDown(Key.ControlRight));
-        if (collisionKey && !_collisionKeyDown && _collisionDebug is not null && _config.DevTools && !typing)
+        // Debug wireframe toggle is a bindable command.
+        // Defaults to unbound; users can assign it in Key Bindings.
+        bool wireframePressed = BindingDown(GameBinding.DebugWireframe);
+
+        if (wireframePressed &&
+            !_debugWireframeDown &&
+            _collisionDebug is not null &&
+            _config.DevTools &&
+            !typing)
         {
             SetCollisionDebugEnabled(!_collisionDebug.Enabled);
             Console.WriteLine($"[collision] wireframe {(_collisionDebug.Enabled ? "on" : "off")}");
         }
-        _collisionKeyDown = collisionKey;
+
+        _debugWireframeDown = wireframePressed;
 
         // Middle-click identifies the WMO group(s) under the cursor. Edge-triggered,
         // and skipped when the pointer is over the HUD.
@@ -1769,49 +1789,84 @@ public sealed partial class GameLoop : IDisposable
             ScreenPick(_window.MousePosition);
         _pickButtonDown = pickButton;
 
-        // F1 hides/shows the whole ImGui developer overlay ("MSUI Client", "Server" and every
-        // instrument panel they own) without disabling DevTools itself, so the instruments keep
-        // running and keep their state — F8/F9/F10/F11 still fire, the panels are just not in
-        // the way of a screenshot. Joins the same F6..F11 dev-key family and is edge-triggered
-        // like the rest.
-        bool devOverlayKey = _window.IsDown(Key.F1);
-        if (devOverlayKey && !_devOverlayKeyDown && !typing && _config.DevTools)
+        // Toggles the ImGui developer overlay ("MSUI Client", "Server" and every
+        // instrument panel they own). This is a visibility-only toggle; DevTools
+        // continue running and retain their state while the overlay is hidden.
+        // Edge-triggered so holding the binding does not repeatedly toggle it.
+
+        bool devOverlayPressed = BindingDown(GameBinding.DevToggleOverlay);
+
+        if (devOverlayPressed &&
+            !_devOverlayDown &&
+            !typing &&
+            _config.DevTools)
         {
             _devOverlayVisible = !_devOverlayVisible;
             _devOverlayFocusRequested = _devOverlayVisible;
-            Console.WriteLine($"[dev] overlay {(_devOverlayVisible ? "shown" : "hidden")} (F1)");
+            Console.WriteLine(
+                $"[dev] overlay {(_devOverlayVisible ? "shown" : "hidden")}");
         }
-        _devOverlayKeyDown = devOverlayKey;
 
-        // F8 reloads the current vantage - snap back to the saved viewpoint.
-        // Edge-triggered so holding it does not re-teleport every frame.
-        bool reloadKey = _window.IsDown(Key.F8);
-        if (reloadKey && !_reloadVantageKeyDown && _currentVantage is not null && _vantages is not null && _config.DevTools)
+        _devOverlayDown = devOverlayPressed;
+
+        // Developer tool: Reloads the current vantage - snap back to the saved viewpoint.
+        // Edge-triggered so holding the binding does not repeatedly teleport.
+        bool reloadVantagePressed = BindingDown(GameBinding.DevReloadVantage);
+
+        if (reloadVantagePressed &&
+            !_devReloadVantageDown &&
+            _currentVantage is not null &&
+            _vantages is not null &&
+            _config.DevTools)
         {
             var saved = _vantages.Find(_currentVantage);
-            if (saved is not null) ApplyVantage(saved);
+            if (saved is not null)
+                ApplyVantage(saved);
         }
-        _reloadVantageKeyDown = reloadKey;
 
-        // F9 writes a scene dump (dev only). Edge-triggered.
-        bool dumpKey = _window.IsDown(Key.F9);
-        if (dumpKey && !_dumpKeyDown && _config.DevTools)
+        _devReloadVantageDown = reloadVantagePressed;
+
+
+        // Developer tool: write a scene dump. Edge-triggered
+        bool dumpScenePressed = BindingDown(GameBinding.DevDumpScene);
+
+        if (dumpScenePressed &&
+            !_devDumpSceneDown &&
+            _config.DevTools)
+        {
             DumpScene();
-        _dumpKeyDown = dumpKey;
+        }
 
-        // F10 arms a gameplay-plane dump for the next complete HUD frame (dev only).
-        bool gameplayDumpKey = _window.IsDown(Key.F10);
-        if (gameplayDumpKey && !_gameplayDumpKeyDown && _config.DevTools)
+        _devDumpSceneDown = dumpScenePressed;
+
+
+        // Developer tool: arms a gameplay-plane dump for the next complete HUD frame
+        bool gameplayDumpPressed = BindingDown(GameBinding.DevGameplayDump);
+
+        if (gameplayDumpPressed &&
+            !_devGameplayDumpDown &&
+            _config.DevTools)
+        {
             ArmGameplayDump();
-        _gameplayDumpKeyDown = gameplayDumpKey;
+        }
 
-        // F11 records a clean five-frame painterly comparison and restores the
+        _devGameplayDumpDown = gameplayDumpPressed;
+
+
+        // Developer tool: capture painterly comparison batch.\
+        // records a clean five-frame painterly comparison and restores the
         // live profile afterwards. It is intentionally a batch: camera, light,
         // animation time and resolution stay effectively identical.
-        bool painterlyComparisonKey = _window.IsDown(Key.F11);
-        if (painterlyComparisonKey && !_painterlyComparisonKeyDown && _config.DevTools)
+        bool painterlyComparisonPressed = BindingDown(GameBinding.DevPainterlyComparison);
+
+        if (painterlyComparisonPressed &&
+            !_painterlyComparisonKeyDown &&
+            _config.DevTools)
+        {
             ArmPainterlyComparison();
-        _painterlyComparisonKeyDown = painterlyComparisonKey;
+        }
+
+        _painterlyComparisonKeyDown = painterlyComparisonPressed;
 
         // Transport poses are client-computed. Advance them and rigidly carry an
         // attached mover before input reads the camera/facing for this frame.

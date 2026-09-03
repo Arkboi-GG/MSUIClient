@@ -75,6 +75,10 @@ public sealed partial class GameLoop
         // is up and the body's MoveForward..StrafeRight otherwise; the scheme law that decides
         // whether Left/Right turn or sidestep is unchanged.
         RtsMoveForward, RtsMoveBackward, RtsTurnLeft, RtsTurnRight, RtsStrafeLeft, RtsStrafeRight,
+        // Developer Tool Commands
+        DevToggleOverlay, DevReloadVantage, DevDumpScene, DevGameplayDump, DevPainterlyComparison,
+        // Debug Tool Commands
+        DebugWireframe
     }
 
     private static GameBinding RtsSaveGroupBinding(int index) =>
@@ -274,6 +278,12 @@ public sealed partial class GameLoop
         ("CRPG Controls", GameBinding.CrpgTakeControl, "Take Direct Control", Key.Unknown),
         ("CRPG Controls", GameBinding.CrpgCycleControlNext, "Control Next Character", Key.Unknown),
         ("CRPG Controls", GameBinding.CrpgCycleControlPrevious, "Control Previous Character", Key.Unknown),
+        ("Developer", GameBinding.DevToggleOverlay, "Toggle Developer Overlay", Key.Unknown),
+        ("Developer", GameBinding.DevReloadVantage, "Reload Current Vantage", Key.Unknown),
+        ("Developer", GameBinding.DevDumpScene, "Dump Scene", Key.Unknown),
+        ("Developer", GameBinding.DevGameplayDump, "Capture Gameplay Dump", Key.Unknown),
+        ("Developer", GameBinding.DevPainterlyComparison, "Capture Painterly Comparison", Key.Unknown),
+        ("Debug", GameBinding.DebugWireframe, "Toggle Wireframe", Key.Unknown),
     ];
 
     private readonly record struct BindingPair(BindingChord Primary, BindingChord Secondary)
@@ -595,7 +605,7 @@ public sealed partial class GameLoop
         _bindings[GameBinding.CrpgCycleControlNext] = new(
             new BindingChord(Key.Tab, Control: true), default);
         _bindings[GameBinding.CrpgCycleControlPrevious] = new(
-            new BindingChord(Key.Tab, Control: true, Shift: true), default);
+            new BindingChord(Key.Tab, Control: true, Shift: true), default);    
         _bindings[GameBinding.RtsLockCameraPrimary] = new(
             new BindingChord(Key.L, Control: true), default);
         _bindings[GameBinding.RtsSelectAllParty] = new(
@@ -610,6 +620,8 @@ public sealed partial class GameLoop
             new BindingChord(Key.Left));
         _bindings[GameBinding.RtsTurnRight] = new(new BindingChord(Key.D),
             new BindingChord(Key.Right));
+        // Dev Tool Defaults
+        // Debug Tool Defaults
     }
 
     private Key BoundKey(GameBinding binding)
