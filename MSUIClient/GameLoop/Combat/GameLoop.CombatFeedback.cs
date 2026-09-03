@@ -196,6 +196,9 @@ public sealed partial class GameLoop
             DrawZoneTextSplash();
             DrawAutoFollowStatus();
             DrawPlayerFrame();
+            // Player Power Bars sit beside the player frame, not instead of it: the AddOns
+            // switch is off by default and either, neither or both may be on.
+            DrawPlayerPowerBars();
             DrawTargetFrame();
             DrawPetFrameAndActionBar();
             DrawStanceBar();

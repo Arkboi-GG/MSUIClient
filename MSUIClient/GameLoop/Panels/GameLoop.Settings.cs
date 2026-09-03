@@ -2352,6 +2352,94 @@ public sealed partial class GameLoop
                     "when they are added to the native data bundle.");
             }
             EndBox();
+
+            var bars = addOns.PowerBars ??= new GameSettings.PlayerPowerBarsSettings();
+            BeginBox("player-power-bars", "Player Power Bars");
+            {
+                Check("Enable Player Power Bars", () => bars.Enabled,
+                    value => bars.Enabled = value,
+                    "A second, movable pair of health and power bars for your character, " +
+                    "separate from the player frame.");
+                ImGui.TextWrapped(
+                    "Health on top, power below, placed wherever you want them. The player " +
+                    "frame is unaffected - run both, either, or neither.");
+                ImGui.Spacing();
+
+                bool on = bars.Enabled;
+                if (!on) ImGui.BeginDisabled();
+
+                Check("Unlock bars (drag to move)", () => bars.Unlocked,
+                    value => bars.Unlocked = value,
+                    "Shows a drag handle under the bars and outlines them. Lock again when " +
+                    "they are where you want them.");
+                if (bars.OffsetX != 0f || bars.OffsetY != 0f)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("Reset position##power-bars-reset"))
+                    {
+                        bars.OffsetX = 0f;
+                        bars.OffsetY = 0f;
+                        SettingsFile?.Save();
+                    }
+                }
+
+                Slider("power-bars-width", "Width", () => bars.Width,
+                    v => bars.Width = PlayerPowerBarsLaw.ClampWidth(v),
+                    PlayerPowerBarsLaw.MinimumWidth, PlayerPowerBarsLaw.MaximumWidth, "{0:0}");
+                Slider("power-bars-health-height", "Health bar height", () => bars.HealthHeight,
+                    v => bars.HealthHeight = PlayerPowerBarsLaw.ClampBarHeight(v),
+                    PlayerPowerBarsLaw.MinimumBarHeight, PlayerPowerBarsLaw.MaximumBarHeight,
+                    "{0:0}");
+                Slider("power-bars-power-height", "Power bar height", () => bars.PowerHeight,
+                    v => bars.PowerHeight = PlayerPowerBarsLaw.ClampBarHeight(v),
+                    PlayerPowerBarsLaw.MinimumBarHeight, PlayerPowerBarsLaw.MaximumBarHeight,
+                    "{0:0}");
+                Slider("power-bars-spacing", "Gap between bars", () => bars.Spacing,
+                    v => bars.Spacing = PlayerPowerBarsLaw.ClampSpacing(v),
+                    PlayerPowerBarsLaw.MinimumSpacing, PlayerPowerBarsLaw.MaximumSpacing, "{0:0}");
+                Slider("power-bars-scale", "Scale", () => bars.Scale,
+                    v => bars.Scale = PlayerPowerBarsLaw.ClampScale(v),
+                    PlayerPowerBarsLaw.MinimumScale, PlayerPowerBarsLaw.MaximumScale, "{0:0.00}",
+                    "Multiplies the global Interface scale, so the bars stay in proportion " +
+                    "with the rest of the UI.");
+
+                ImGui.Spacing();
+                Check("Show values on the bars", () => bars.ShowText,
+                    value => bars.ShowText = value);
+                if (!on || !bars.ShowText) ImGui.BeginDisabled();
+                Check("Show values as a percentage", () => bars.ShowPercent,
+                    value => bars.ShowPercent = value,
+                    "Percentage instead of current / maximum.");
+                if (!on || !bars.ShowText) ImGui.EndDisabled();
+
+                Check("Show combo points", () => bars.ShowCombo,
+                    value => bars.ShowCombo = value,
+                    "A row of pips above the bars for Rogues and Druids. The vanilla combo " +
+                    "frame by the target frame is unaffected; turn this on if you have moved " +
+                    "the bars somewhere you would rather read them.");
+
+                Check("Show the energy tick sweep", () => bars.ShowTickBar,
+                    value => bars.ShowTickBar = value,
+                    "A cursor crossing the power bar once per server energy tick. Rogues " +
+                    "and cat-form Druids only.");
+                if (!on || !bars.ShowTickBar) ImGui.BeginDisabled();
+                Slider("power-bars-tick", "Seconds per tick", () => bars.TickSeconds,
+                    v => bars.TickSeconds = PlayerPowerBarsLaw.ClampTickSeconds(v),
+                    PlayerPowerBarsLaw.MinimumTickSeconds, PlayerPowerBarsLaw.MaximumTickSeconds,
+                    "{0:0.0}",
+                    "This server regenerates energy on a fixed 2.0 second tick. Only change " +
+                    "this if your realm has altered it.");
+                if (!on || !bars.ShowTickBar) ImGui.EndDisabled();
+
+                if (!on) ImGui.EndDisabled();
+
+                ImGui.Spacing();
+                ImGui.TextDisabled(
+                    "The tick is inferred by watching energy jump upward - no packet " +
+                    "announces it. At full energy nothing changes, so the sweep keeps its " +
+                    "last known cadence until the next spend.");
+            }
+            EndBox();
         }
         ImGui.EndChild();
 

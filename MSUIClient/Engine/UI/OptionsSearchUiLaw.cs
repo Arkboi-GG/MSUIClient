@@ -105,6 +105,8 @@ public static class OptionsSearchUiLaw
     [
         "AddOns", "Quest Helper", "Quest map pins", "Quest minimap pins",
         "Active quest objectives", "Ready to turn in",
+        "Player Power Bars", "Health bar", "Power bar", "Movable health bar",
+        "Combo points", "Energy tick", "Tick sweep", "Unlock bars",
     ];
 
     public static IReadOnlyList<OptionsSearchEntry> Catalog { get; } =

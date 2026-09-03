@@ -830,6 +830,20 @@ if (args.Contains("--stance-bar-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--player-power-bars-only", StringComparer.Ordinal))
+{
+    PlayerPowerBarsClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: PlayerPowerBars PASS");
+    return;
+}
+
+if (args.Contains("--player-power-bars-only", StringComparer.Ordinal))
+{
+    PlayerPowerBarsClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: PlayerPowerBars PASS");
+    return;
+}
+
 if (args.Contains("--trade-frame-only", StringComparer.Ordinal))
 {
     TradeFrameClinicalChecks.Run();
@@ -4663,6 +4677,10 @@ PartyQuestActsClinicalChecks.Run();
 PartyGiverStatusClinicalChecks.Run();
 PartyLeadClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
+PlayerPowerBarsClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: PlayerPowerBars PASS");
+PlayerPowerBarsClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: PlayerPowerBars PASS");
 // The ImGui-widget ratchet only ratchets if the DEFAULT run enforces it; behind
 // --imgui-policy-only alone, an enrolled panel could regress unnoticed.
 GameplayImguiPolicyClinicalChecks.Run();
