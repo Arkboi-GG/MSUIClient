@@ -280,6 +280,54 @@ public sealed class GameSettings
     {
         /// <summary>Active-objective and ready-to-turn-in pins on the world map and minimap.</summary>
         public bool QuestHelper { get; set; } = true;
+
+        /// <summary>The melee/ranged auto-attack swing rail.</summary>
+        public SwingTimerSettings SwingTimer { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Swing Timer. One rail with a cursor per weapon, sweeping from "just swung" to "ready".
+    /// Offsets are logical UI units so changing Interface scale does not move the rail.
+    /// </summary>
+    public sealed class SwingTimerSettings
+    {
+        /// <summary>Off by default: it adds furniture to the screen, and a shipped feature
+        /// should not do that uninvited.</summary>
+        public bool Enabled { get; set; }
+
+        /// <summary>Drag the rail to move it. Unlocked also keeps it on screen while idle.</summary>
+        public bool Unlocked { get; set; }
+
+        public float OffsetX { get; set; }
+        public float OffsetY { get; set; }
+
+        public float Width { get; set; } = 240f;
+        public float Height { get; set; } = 18f;
+        public float Scale { get; set; } = 1f;
+
+        /// <summary>Track main-hand and off-hand melee swings.</summary>
+        public bool TrackMelee { get; set; } = true;
+
+        /// <summary>Track Auto Shot and wand Shoot.</summary>
+        public bool TrackRanged { get; set; } = true;
+
+        /// <summary>Hide the rail when nothing is swinging.</summary>
+        public bool HideWhenIdle { get; set; } = true;
+
+        /// <summary>Show seconds remaining on the rail.</summary>
+        public bool ShowText { get; set; } = true;
+
+        /// <summary>The red plant/aim band over the last half second of a ranged reload.
+        /// Hunters only - wands carry no aim penalty.</summary>
+        public bool ShowAimBand { get; set; } = true;
+
+        /// <summary>Start a swing already part-way along, by half the measured round trip,
+        /// because that is how long the packet reporting it spent in flight. The addon could
+        /// only do this for ranged and only from a 30-second GetNetStats sample.</summary>
+        public bool CompensateLatency { get; set; } = true;
+
+        /// <summary>Extra manual nudge on ranged shots for projectile travel, in seconds.</summary>
+        public float RangedTravelSeconds { get; set; } = .15f;
     }
 
     // Player-placed HUD frames: HudLayoutSettings lives in Engine/UI/HudLayoutLaw.cs (PLAN_21).

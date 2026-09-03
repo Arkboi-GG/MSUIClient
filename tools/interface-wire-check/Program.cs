@@ -834,6 +834,13 @@ if (args.Contains("--stance-bar-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--swing-timer-only", StringComparer.Ordinal))
+{
+    SwingTimerClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: SwingTimer PASS");
+    return;
+}
+
 if (args.Contains("--trade-frame-only", StringComparer.Ordinal))
 {
     TradeFrameClinicalChecks.Run();
@@ -4673,6 +4680,8 @@ PartyGiverStatusClinicalChecks.Run();
 PartyLeadClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: PartyQuestActs PASS");
 CompanionClinicalChecks.Run();
+SwingTimerClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: SwingTimer PASS");
 // The ImGui-widget ratchet only ratchets if the DEFAULT run enforces it; behind
 // --imgui-policy-only alone, an enrolled panel could regress unnoticed.
 GameplayImguiPolicyClinicalChecks.Run();
