@@ -3317,7 +3317,12 @@ Check(WorldSession.BuildAuctionBidBody(trainerGuid, 7, 123)
       .SequenceEqual(Convert.FromHexString("0100008F030030F1070000007B000000")), "auction bid body");
 Check(WorldSession.BuildAuctionSellBody(trainerGuid, 9, 100, 200, 720).Length == 28,
       "auction sell fixed body");
-var browseReader = new PacketReader(WorldSession.BuildAuctionBrowseBody(trainerGuid, 50, "Sword"));
+// The browse body took (guid, listFrom, search) until the filter set grew into
+// AuctionBrowseQuery; the assertion below is unchanged, only the way it is spelled.
+// Any is the "no filter" sentinel the last read still checks for.
+var browseReader = new PacketReader(WorldSession.BuildAuctionBrowseBody(trainerGuid,
+    new AuctionBrowseQuery(50, "Sword", 0, 0, AuctionBrowseQuery.Any, AuctionBrowseQuery.Any,
+        AuctionBrowseQuery.Any, AuctionBrowseQuery.Any, UsableOnly: false)));
 Check(browseReader.ReadU64() == trainerGuid && browseReader.ReadU32() == 50 && browseReader.ReadCString() == "Sword" &&
       browseReader.ReadU8() == 0 && browseReader.ReadU8() == 0 && browseReader.ReadU32() == uint.MaxValue,
       "auction browse page/search/filter order");
