@@ -10,7 +10,7 @@ internal static class AuctionFrameClinicalChecks
               AuctionFrameUiLaw.Frame == new AuctionFrameUiLaw.LogicalRect(0, 0, 832, 447) &&
               AuctionFrameUiLaw.Host == new AuctionFrameUiLaw.LogicalRect(0, 0, 832, 479) &&
               AuctionFrameUiLaw.Close == new AuctionFrameUiLaw.LogicalRect(803, 8, 32, 32) &&
-              AuctionFrameUiLaw.Search == new AuctionFrameUiLaw.LogicalRect(83, 57, 150, 20) &&
+              AuctionFrameUiLaw.Search == new AuctionFrameUiLaw.LogicalRect(83, 57, 140, 20) &&
               AuctionFrameUiLaw.SearchButton ==
                   new AuctionFrameUiLaw.LogicalRect(634, 47, 80, 22),
             "AuctionFrame canonical host/search/close geometry drift");
@@ -72,8 +72,9 @@ internal static class AuctionFrameClinicalChecks
               runtime.Contains("DrawAuctionOwnerForm", StringComparison.Ordinal) &&
               runtime.Contains("MSUI_INVENTORY_ITEM", StringComparison.Ordinal) &&
               runtime.Contains("AuctionFrameUiLaw.TabMin", StringComparison.Ordinal) &&
-              runtime.Contains("TryGetSessionBodyPose(out WorldBodyPose sessionBody)",
+              runtime.Contains("TryGetInteractionBodyPose(out WorldBodyPose body)",
                   StringComparison.Ordinal) &&
+              !runtime.Contains("TryGetSessionBodyPose", StringComparison.Ordinal) &&
               Count(runtime, "AuctionSessionInRange(out _)") >= 6 &&
               runtime.Contains("UpdateAuctionLifecycle()", StringComparison.Ordinal) &&
               program.Contains("UpdateAuctionLifecycle();", StringComparison.Ordinal) &&
