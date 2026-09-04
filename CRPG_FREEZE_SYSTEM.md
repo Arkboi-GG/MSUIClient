@@ -113,12 +113,3 @@ This document describes the localized Tactical Freeze system in plain language. 
 
 10. A real player caught by somebody else's radius cannot Resume that freeze. Only its initiating socket owner can release it.
 
-## Current implementation status
-
-- The client and Core implementations are complete and paired through Tactical Freeze protocol version 1.
-- Client Debug and Release builds pass.
-- Tactical Freeze, possession-law, and gameplay UI policy checks pass.
-- The Core build and cross-machine possession/Tactical Freeze law checks pass.
-- The complete interface regression suite still reaches an unrelated, pre-existing AuctionFrame canonical-geometry failure.
-- The verified Core binary has not yet been installed. The running server remains on its previous binary pending explicit installation authorization.
-- No commits were created as part of this implementation round.
