@@ -4105,6 +4105,51 @@ public sealed class WmoRenderer : IDisposable
         return false;
     }
 
+    /// <summary>
+    /// Whether a world point belongs to one of the rooms in this frame's portal
+    /// flood. This is deliberately an AABB-only admission test: callers use it
+    /// to avoid expensive room/floor triangle probes for work that cannot be
+    /// seen. Missing portal state and doorway ambiguity fail open.
+    /// </summary>
+    public bool IsPointPortalVisible(Vector3 worldPoint, float margin = 3f)
+    {
+        if (!UsePortalCulling ||
+            CameraGroup is not { IsExterior: false } cameraCell ||
+            !_portalVisible.TryGetValue(cameraCell.InstanceId,
+                out HashSet<int>? visible) || visible is null)
+            return true;
+
+        Instance? instance = _instances.FirstOrDefault(i => i.Id == cameraCell.InstanceId);
+        if (instance is null) return true;
+
+        // A point outside the camera's WMO may be visible through an exterior
+        // portal. The room PVS cannot classify it, so preserve the outdoor path.
+        float m = MathF.Max(0f, margin);
+        if (worldPoint.X < instance.WorldMin.X - m || worldPoint.X > instance.WorldMax.X + m ||
+            worldPoint.Y < instance.WorldMin.Y - m || worldPoint.Y > instance.WorldMax.Y + m ||
+            worldPoint.Z < instance.WorldMin.Z - m || worldPoint.Z > instance.WorldMax.Z + m)
+            return true;
+
+        if (!Matrix4x4.Invert(instance.Transform, out Matrix4x4 worldToLocal)) return true;
+        Vector3 local = Vector3.Transform(worldPoint, worldToLocal);
+        bool belongsToGroup = false;
+        foreach (GroupMesh group in instance.Model.Groups)
+        {
+            if (group.IsDistanceLod ||
+                local.X < group.LocalMin.X - m || local.X > group.LocalMax.X + m ||
+                local.Y < group.LocalMin.Y - m || local.Y > group.LocalMax.Y + m ||
+                local.Z < group.LocalMin.Z - m || local.Z > group.LocalMax.Z + m)
+                continue;
+
+            belongsToGroup = true;
+            if (visible.Contains(group.GroupIndex)) return true;
+        }
+
+        // Bounds overlap at stairs and doors, so reject only when the point was
+        // positively claimed by one or more groups and all of them were hidden.
+        return !belongsToGroup;
+    }
+
     // ── WMO liquid (PLAN_15_WMO_LIQUID.md) ──────────────────────────────────
 
     /// <summary>

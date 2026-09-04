@@ -464,6 +464,12 @@ public sealed partial class GameLoop : IDisposable
     private double _foliageDrawMilliseconds;
 
     private double _liquidRenderMilliseconds;
+    private int _remoteWakeKnownLastFrame;
+    private int _remoteWakeSampledLastFrame;
+    private int _remoteWakeDistanceCulledLastFrame;
+    private int _remoteWakeFrustumCulledLastFrame;
+    private int _remoteWakePortalCulledLastFrame;
+    private int _remoteWakeAdmissionLogFrames;
     private double _characterRenderMilliseconds;
     private double _creatureRenderMilliseconds;
     private double _selectionRenderMilliseconds;
@@ -2961,51 +2967,99 @@ public sealed partial class GameLoop : IDisposable
             // and the display's collision height: the reference emits while
             // wading AND surface swimming, stopping only after a real dive below
             // two body heights.
-            _liquid.BeginWakeFrame();
-            if (TryGetControlledBodyPose(out WorldBodyPose wakeBody))
+            _remoteWakeKnownLastFrame = 0;
+            _remoteWakeSampledLastFrame = 0;
+            _remoteWakeDistanceCulledLastFrame = 0;
+            _remoteWakeFrustumCulledLastFrame = 0;
+            _remoteWakePortalCulledLastFrame = 0;
+
+            if (_liquid.Enabled && _liquid.WakeEnabled)
             {
-                var feet = wakeBody.Position;
-                float? waterDepth =
-                    TryGetBodyLiquidSurface(feet, out float wakeZ, out _, waterOnly: true) &&
-                    float.IsFinite(wakeZ)
-                        ? wakeZ - feet.Z
-                        : null;
-                float renderScale = 1f;
-                float collisionHeight = CreatureVoiceCatalog.DefaultCollisionHeight;
-                if (_entities.TryGet(ControlledGuid, out WorldEntity wakeEntity))
+                _liquid.BeginWakeFrame();
+                if (TryGetControlledBodyPose(out WorldBodyPose wakeBody))
                 {
-                    renderScale = MathF.Max(wakeEntity.Scale, 0.01f);
-                    collisionHeight = _creatureVoices?.CollisionHeight(
-                        (uint)wakeEntity.DisplayId, renderScale) ??
-                        CreatureVoiceCatalog.DefaultCollisionHeight * renderScale;
+                    var feet = wakeBody.Position;
+                    float? waterDepth =
+                        TryGetBodyLiquidSurface(feet, out float wakeZ, out _, waterOnly: true) &&
+                        float.IsFinite(wakeZ)
+                            ? wakeZ - feet.Z
+                            : null;
+                    float renderScale = 1f;
+                    float collisionHeight = CreatureVoiceCatalog.DefaultCollisionHeight;
+                    if (_entities.TryGet(ControlledGuid, out WorldEntity wakeEntity))
+                    {
+                        renderScale = MathF.Max(wakeEntity.Scale, 0.01f);
+                        collisionHeight = _creatureVoices?.CollisionHeight(
+                            (uint)wakeEntity.DisplayId, renderScale) ??
+                            CreatureVoiceCatalog.DefaultCollisionHeight * renderScale;
+                    }
+
+                    _liquid.UpdateWake(feet, wakeBody.Orientation, dt,
+                        waterDepth, collisionHeight, renderScale);
                 }
 
-                _liquid.UpdateWake(feet, wakeBody.Orientation, dt,
-                    waterDepth, collisionHeight, renderScale);
-            }
+                // Remote wakes are visual work. Do not perform the expensive WMO
+                // room/floor liquid probe for units that cannot contribute a pixel:
+                // first radius, then camera frustum, then the completed room PVS.
+                // The previous path queried every known unit in a global WMO; UBRS
+                // measured 224 triangle probes per frame for three nearby models.
+                Vector3 wakeEye = _window.Camera.Position;
+                Matrix4x4 viewProjection = _window.Camera.RelativeViewProjection;
+                float wakeDistance = _creatures?.AnimateDistance ?? 130f;
+                float wakeDistanceSq = wakeDistance * wakeDistance;
+                foreach (WorldEntity foamUnit in _entities.Units)
+                {
+                    if (foamUnit.Guid == ControlledGuid || foamUnit.DisplayId <= 0) continue;
+                    _remoteWakeKnownLastFrame++;
+                    Vector3 feet = foamUnit.Position;
+                    if (Vector3.DistanceSquared(feet, wakeEye) > wakeDistanceSq)
+                    {
+                        _remoteWakeDistanceCulledLastFrame++;
+                        continue;
+                    }
 
-            // Every streamed UNIT/PLAYER displaces water in 1.12. The controlled body above owns
-            // the reserved self partition; every other player, possessed bot and creature shares
-            // the 96-record other partition. EntityStore advances spline/interpolated positions
-            // before this pass, so position deltas are the honest remote movement proxy and the
-            // controlled body's mirrored entity must be skipped to avoid a doubled trail.
-            foreach (WorldEntity foamUnit in _entities.Units)
-            {
-                if (foamUnit.Guid == ControlledGuid || foamUnit.DisplayId <= 0) continue;
-                Vector3 feet = foamUnit.Position;
-                float? waterDepth =
-                    TryGetBodyLiquidSurface(feet, out float foamSurfaceZ, out _, waterOnly: true) &&
-                    float.IsFinite(foamSurfaceZ)
-                        ? foamSurfaceZ - feet.Z
-                        : null;
-                float renderScale = MathF.Max(foamUnit.Scale, 0.01f);
-                float collisionHeight = _creatureVoices?.CollisionHeight(
-                    (uint)foamUnit.DisplayId, renderScale) ??
-                    CreatureVoiceCatalog.DefaultCollisionHeight * renderScale;
-                _liquid.UpdateOtherWake(foamUnit.Guid, feet, foamUnit.Orientation, dt,
-                    waterDepth, collisionHeight, renderScale);
+                    float renderScale = MathF.Max(foamUnit.Scale, 0.01f);
+                    float radius = MathF.Max(1f, renderScale * 2f);
+                    Vector3 relative = feet - wakeEye;
+                    if (!Camera.BoxInFrustum(viewProjection,
+                            relative - new Vector3(radius, radius, radius),
+                            relative + new Vector3(radius, radius, radius * 1.5f)))
+                    {
+                        _remoteWakeFrustumCulledLastFrame++;
+                        continue;
+                    }
+                    if (_wmo is not null && !_wmo.IsPointPortalVisible(feet))
+                    {
+                        _remoteWakePortalCulledLastFrame++;
+                        continue;
+                    }
+
+                    _remoteWakeSampledLastFrame++;
+                    float? waterDepth =
+                        TryGetBodyLiquidSurface(feet, out float foamSurfaceZ, out _, waterOnly: true) &&
+                        float.IsFinite(foamSurfaceZ)
+                            ? foamSurfaceZ - feet.Z
+                            : null;
+                    float collisionHeight = _creatureVoices?.CollisionHeight(
+                        (uint)foamUnit.DisplayId, renderScale) ??
+                        CreatureVoiceCatalog.DefaultCollisionHeight * renderScale;
+                    _liquid.UpdateOtherWake(foamUnit.Guid, feet, foamUnit.Orientation, dt,
+                        waterDepth, collisionHeight, renderScale);
+                }
+                _liquid.EndWakeFrame();
             }
-            _liquid.EndWakeFrame();
+            else
+                _liquid.ClearWake();
+
+            if (_config.DevTools && ++_remoteWakeAdmissionLogFrames >= 600)
+            {
+                _remoteWakeAdmissionLogFrames = 0;
+                Console.WriteLine(
+                    $"[water-wake-cull] frame {_window.FrameMs:F2} ms ({_window.Fps:F1} fps), " +
+                    $"liquid {_liquidRenderMilliseconds:F2} ms, known {_remoteWakeKnownLastFrame}, " +
+                    $"sampled {_remoteWakeSampledLastFrame}, distance {_remoteWakeDistanceCulledLastFrame}, " +
+                    $"frustum {_remoteWakeFrustumCulledLastFrame}, portal {_remoteWakePortalCulledLastFrame}");
+            }
 
             // WMO liquid (MLIQ). A per-frame INT COMPARE against LiquidVersion,
             // not a tile-crossing event: groups are adopted several frames after

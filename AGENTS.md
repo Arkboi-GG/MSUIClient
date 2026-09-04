@@ -34,9 +34,16 @@ agent-agnostic on purpose. Tool-specific loaders may import it.
 5. No ImGui widgets in gameplay UI (vanilla primitives only); the
    `--imgui-policy-only` check stays green.
 6. Never commit, push, create branches or worktrees, or install/restart the
-   Core on your own. Build both trays (`dotnet build -c Debug` and `-c Release`;
-   the owner launches Release). The owner runs the install/restart (see
-   `AGENTS.local.md`).
+   Core on your own. Build both trays (`dotnet build -c Debug` and `-c Release`).
+   By default, the owner launches Release. When Nico gives explicit permission
+   in the current conversation, an agent may launch, control, and close the
+   local MSUIClient application and local diagnostic, test, or benchmark
+   processes, including automating client login and gameplay against Nico's
+   configured local development server. This explicit-permission exception
+   never authorizes installing or deploying server artifacts, controlling a
+   server process/service or `screen`/`tmux` session, or mutating a server
+   database/worldstate save. The owner runs all Core installation, deployment,
+   restart, and live-server control steps (see `AGENTS.local.md`).
 7. Pair-deploy: new opcodes/capability bits change both sides in one round.
 8. Probe first, don't theorize: `~/vmangos/run/bin/Server.log` (grep `[SUI]`,
    `released bot`, `catch-up teleport`) and the client `msui-console.log`.
