@@ -353,22 +353,22 @@ public sealed partial class GameLoop
     // Command-card art. The first three are the vanilla pet bar's own tokens
     // read from the shipped FrameXML (PetActionBarFrame.lua) — the native
     // idiom for commanding an AI companion. The rest exist in the archives.
-    private const string ConsoleIconFocus = @"Interface\Icons\Ability_GhoulFrenzy";
-    private const string ConsoleIconRegroup = @"Interface\Icons\Ability_Tracking";
-    private const string ConsoleIconHold = @"Interface\Icons\Spell_Nature_TimeStop";
-    private const string ConsoleIconPatrol = @"Interface\Icons\Ability_Hunter_Pathfinding";
-    private const string ConsoleIconLine = @"Interface\Icons\INV_Banner_01";
-    private const string ConsoleIconCircle = @"Interface\Icons\Spell_Holy_PrayerofHealing";
+    private const string ConsoleIconFocus = @"Interface\Icons\ability_hunter_snipershot";
+    private const string ConsoleIconRegroup = @"Interface\Icons\spell_frost_stun";
+    private const string ConsoleIconHold = @"Interface\Icons\ability_rogue_trip";
+    private const string ConsoleIconPatrol = @"Interface\Icons\Ability_Tracking";
+    private const string ConsoleIconLine = @"Interface\Icons\spell_nature_moonglow";
+    private const string ConsoleIconCircle = @"Interface\Icons\spell_nature_wispsplode";
     private const string ConsoleIconSheathe = @"Interface\Icons\Ability_Warrior_Disarm";
     private const string ConsoleIconDraw = @"Interface\Icons\INV_Sword_04";
 
     // Console geometry (logical units, × UI scale). Regions are fixed so the
     // dock reads as furniture, never a resizing tooltip.
-    private const float ConsoleWidth = 640f;
-    private const float ConsoleHeight = 116f;
+    private const float ConsoleWidth = 700f;
+    private const float ConsoleHeight = 140f;
     private const float ConsoleSquadsX = 10f;
-    private const float ConsoleInfoX = 156f;
-    private const float ConsoleCardX = 498f;
+    private const float ConsoleInfoX = 260f;
+    private const float ConsoleCardX = 520f;
 
     private void DrawRtsCommandShelf()
     {
@@ -407,8 +407,8 @@ public sealed partial class GameLoop
         // painted-chrome idiom the square minimap/skill panels already wear.
         DrawRtsConsoleBackdrop(dl, origin, origin + ImGui.GetWindowSize(), scale);
         // Region dividers — carved grooves with a gilt catch, not hairline mullions.
-        DrawRtsConsoleDivider(dl, origin, ConsoleInfoX - 8f, scale);
-        DrawRtsConsoleDivider(dl, origin, ConsoleCardX - 8f, scale);
+        DrawRtsConsoleDivider(dl, origin, ConsoleInfoX - 16f, scale);
+        DrawRtsConsoleDivider(dl, origin, ConsoleCardX - 16f, scale);
 
         // Left region: the WC3-style portrait grid of the CURRENT selection (primary gold-bordered).
         // The saved control-group "squad" grid (DrawRtsSquadGrid) is shelved for the true-RTS mode.
@@ -481,9 +481,10 @@ public sealed partial class GameLoop
             origin + new Vector2(ConsoleSquadsX, 8f) * scale, scale);
 
         ulong primary = RtsPrimaryGuid;
-        var cell = new Vector2(21f, 19f) * scale;
-        float barH = 3f * scale, gap = 2f * scale;
-        const int cols = 6, maxCells = 12;
+        var cell = new Vector2(34f, 32f) * scale;
+        float barH = 4f * scale;
+        float gap = 3f * scale;
+        const int cols = 6, maxCells = 18;
         ulong primaryPick = 0, focusPick = 0, dropPick = 0;
         int shown = 0;
         for (int i = 0; i < _freecamSelection.Count && shown < maxCells; i++)
@@ -586,31 +587,6 @@ public sealed partial class GameLoop
         }
         else if (primaryPick != 0)
             _rtsPrimaryGuid = primaryPick;
-
-        // Utility row: the free view hides the bag bar and micro menu, so the console keeps the
-        // party panels reachable. Carried over from the shelved squad grid.
-        Vector2 rowPos = origin + new Vector2(ConsoleSquadsX, 74f) * scale;
-        if (VanillaButton(dl, "##console-bags", "Bags", rowPos, new Vector2(58f, 20f), scale))
-        {
-            if (_partyInventoryOpen) _partyInventoryOpen = false;   // second press closes it
-            else OpenPartyInventory(RtsPrimaryGuid != 0 ? RtsPrimaryGuid : LocalPlayerGuid);
-        }
-        if (ImGui.IsItemHovered())
-            HoverTip("Party Inventory — everyone's bags and equipment, side by side");
-        ulong tacticsBot = _freecamSelection.FirstOrDefault(IsRtsGroupableBot);
-        if (tacticsBot == 0)
-            tacticsBot = _partyMembers.FirstOrDefault(m => IsRtsGroupableBot(m.Guid))?.Guid ?? 0;
-        if (VanillaButton(dl, "##console-tactics", "Tactics",
-                rowPos + new Vector2(64f, 0f) * scale, new Vector2(66f, 20f), scale,
-                tacticsBot != 0) && tacticsBot != 0)
-        {
-            if (_partyTacticsOpen) _partyTacticsOpen = false;
-            else OpenPartyTactics(tacticsBot);
-        }
-        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-            HoverTip(tacticsBot != 0
-                ? "Party Tactics — roles and quick-slot AI policy"
-                : "Party Tactics needs a companion bot in the party");
     }
 
     /// <summary>Center the detached camera on a mini-portrait's unit without changing the
@@ -684,26 +660,6 @@ public sealed partial class GameLoop
                     "saves the current selection.");
             }
         }
-
-        // Utility row: the free view hides the bag bar and micro menu, so the
-        // console is where the party panels live now.
-        Vector2 rowPos = origin + new Vector2(ConsoleSquadsX, 74f) * scale;
-        if (VanillaButton(dl, "##console-bags", "Bags", rowPos, new Vector2(58f, 20f), scale))
-            OpenPartyInventory(_freecamSelection.Count == 1
-                ? _freecamSelection[0] : LocalPlayerGuid);
-        if (ImGui.IsItemHovered())
-            HoverTip("Party Inventory — everyone's bags and equipment, side by side");
-        ulong tacticsBot = _freecamSelection.FirstOrDefault(IsRtsGroupableBot);
-        if (tacticsBot == 0)
-            tacticsBot = _partyMembers.FirstOrDefault(m => IsRtsGroupableBot(m.Guid))?.Guid ?? 0;
-        if (VanillaButton(dl, "##console-tactics", "Tactics",
-                rowPos + new Vector2(64f, 0f) * scale, new Vector2(66f, 20f), scale,
-                tacticsBot != 0) && tacticsBot != 0)
-            OpenPartyTactics(tacticsBot);
-        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-            HoverTip(tacticsBot != 0
-                ? "Party Tactics — roles and quick-slot AI policy"
-                : "Party Tactics needs a companion bot in the party");
     }
 
     /// <summary>The console's center: scope line, then the WC3 info panel —
@@ -738,7 +694,7 @@ public sealed partial class GameLoop
         }
 
         PreparedSharedSpellTooltip? cardTooltip = null;
-        Vector2 content = origin + new Vector2(ConsoleInfoX, 26f) * scale;
+        Vector2 content = origin + new Vector2(ConsoleInfoX, 16f) * scale;
         ulong primary = RtsPrimaryGuid;
         if (primary != 0 && _entities.TryGet(primary, out WorldEntity cardUnit))
             DrawRtsConsoleUnitCard(primary, cardUnit, content, scale, ref cardTooltip);
@@ -747,8 +703,8 @@ public sealed partial class GameLoop
                 () => DrawSpellTooltip(preparedCard.Snapshot));
     }
 
-    /// <summary>Portrait, name, level/class, vitals, and the primary's abilities — the console's
-    /// answer to WC3's info panel. Clicking an ability casts it: possess-on-cast takes control of
+    /// <summary>Portrait, name, level/class, vitals, and the primary's abilities
+    /// Clicking an ability casts it: possess-on-cast takes control of
     /// the primary (riding the possess wire) and fires the spell once its bars are live.</summary>
     private void DrawRtsConsoleUnitCard(ulong guid, WorldEntity unit, Vector2 content,
         float scale, ref PreparedSharedSpellTooltip? tooltip)
@@ -790,15 +746,7 @@ public sealed partial class GameLoop
         DrawRoleMedallion(dl, content + new Vector2(37f, 37f) * scale, 7f * scale,
             LoadBotBars().BotRoles.GetValueOrDefault(unitName, "DPS"), scale);
 
-        // Name, level · class · state, vitals to the portrait's right.
         Vector2 text = content + new Vector2(52f, 0f) * scale;
-        GameText.Draw(dl, "GameFontNormalSmall", unitName, text, scale);
-        string className = ClassIdName(classId);
-        string detail = className.Length != 0
-            ? $"Lv {unit.Fields.Level} {className}" : $"Lv {unit.Fields.Level}";
-        if (RtsEnlisted(guid)) detail += " · enlisted";
-        if (_rtsOrderChips.TryGetValue(guid, out string? chipText)) detail += $" · {chipText}";
-        dl.AddText(text + new Vector2(0f, 16f) * scale, 0xff9aa4ab, detail);
 
         // Who the primary is fighting: selecting an individual surfaces its current target so you
         // keep target awareness without stealing your own focus. On its own line under the vitals.
@@ -808,14 +756,22 @@ public sealed partial class GameLoop
             string tname = "▶ " + ResolveWorldUnitName(tgtGuid);
             uint maxT = tunit.Fields.MaxHealth;
             float thp = maxT > 0 ? Math.Clamp(tunit.Fields.Health / (float)maxT, 0f, 1f) : 0f;
-            dl.AddText(text + new Vector2(0f, 74f) * scale,
-                tunit.IsDead ? 0xff808890u : 0xffd07a6au,
+            dl.AddText(text + new Vector2(-0f, -5f) * scale,
+                tunit.IsDead ? 0xff808890u : 0xff5050e0u,
                 maxT > 0 ? $"{tname} ({(int)(thp * 100)}%)" : tname);
         }
 
-        // Bags/Tactics live once, in the left Selection pane (owner 2026-08-27: the card's
-        // duplicate pair was removed).
-        Vector2 vmin = text + new Vector2(0f, 31f) * scale;
+        // Name, level · class · state, vitals to the portrait's right.
+        Vector2 namePos = text + new Vector2(0f, 8f) * scale;
+        GameText.Draw(dl, "GameFontNormalSmall", unitName, namePos, scale);
+        string className = ClassIdName(classId);
+        string detail = className.Length != 0
+            ? $"Lv {unit.Fields.Level} {className}" : $"Lv {unit.Fields.Level}";
+        if (RtsEnlisted(guid)) detail += " · enlisted";
+        if (_rtsOrderChips.TryGetValue(guid, out string? chipText)) detail += $" · {chipText}";
+        dl.AddText(text + new Vector2(0f, 16f) * scale, 0xff9aa4ab, detail);
+
+        Vector2 vmin = text + new Vector2(0f, 32f) * scale;
         float barW = 130f * scale, barH = 5f * scale;
         uint maxHp = unit.Fields.MaxHealth;
         float hp = maxHp > 0 ? Math.Clamp(unit.Fields.Health / (float)maxHp, 0f, 1f) : 0f;
@@ -842,7 +798,7 @@ public sealed partial class GameLoop
         double now = NowSeconds();
         float size = 22f * scale;
         var side = new Vector2(size, size);
-        Vector2 rowMin = content + new Vector2(0f, 50f) * scale;
+        Vector2 rowMin = content + new Vector2(0f, 48f) * scale;
         List<(int Slot, ActionSlot Action, SpellInfo Spell)> abilities =
             RtsPrimaryAbilities(guid);
         for (int drawn = 0; drawn < abilities.Count; drawn++)
@@ -889,17 +845,18 @@ public sealed partial class GameLoop
     private void DrawQuickBackpackSlots(ImDrawListPtr dl, Vector2 origin, float scale)
     {
         if (_net is null || _items is null) return;
-        GameText.Draw(dl, "GameFontNormalSmall", "Items",
-            origin + new Vector2(ConsoleInfoX + 256f, 8f) * scale, scale);
         ulong primary = RtsPrimaryGuid;
         WorldEntity? primaryEntity =
             primary != 0 && _entities.TryGet(primary, out WorldEntity pe) ? pe : null;
-        const float size = 22f, gap = 2f;
+        const float size = 30f;
+        const float gap = 3f;
         double now = NowSeconds();
         for (int i = 0; i < 6; i++)
         {
             Vector2 min = origin + new Vector2(
-                ConsoleInfoX + 256f + i % 3 * (size + gap), 26f + i / 3 * (size + gap)) * scale;
+                ConsoleInfoX + i % 6 * (size + gap),
+                26f + 2 * (size + gap) + 6f + i / 6 * (size + gap)
+                ) * scale;
             Vector2 max = min + new Vector2(size) * scale;
             ImGui.SetCursorScreenPos(min);
             ImGui.InvisibleButton($"##quickslot-{i}", new Vector2(size) * scale);
@@ -1055,15 +1012,16 @@ public sealed partial class GameLoop
         List<ulong> subjects, float scale)
     {
         if (_net is null) return;
-        GameText.Draw(dl, "GameFontNormalSmall", "Orders",
-            origin + new Vector2(ConsoleCardX, 8f) * scale, scale);
 
         bool any = subjects.Count > 0;
+
         bool hostileTargeted = _selectionGuid != 0 &&
             _entities.TryGet(_selectionGuid, out WorldEntity shelfTarget) &&
             !shelfTarget.IsDead && CanAttack(shelfTarget);
+
         bool routeReady = _rtsWaypointChain.Count > 0 &&
             SameRtsMembers(_rtsWaypointSubjects, subjects);
+
 
         bool SendImmediateOrder(byte orderType, ulong target = 0,
             float x = 0, float y = 0, float z = 0)
@@ -1072,31 +1030,74 @@ public sealed partial class GameLoop
             return _net.SuiOrder(orderType, subjects, target, x, y, z);
         }
 
+
+        // NEW CLEAN GRID SETUP
         int cellIndex = 0;
-        bool CardButton(string id, string icon, string tooltip, bool enabled, bool lit = false)
+
+        Vector2 side = new Vector2(35f) * scale;
+        int columns = 3;
+        int rows = 3;
+        float gap = 6f * scale;
+
+        float gridWidth = side.X * columns + gap * (columns - 1);
+        float gridHeight = side.Y * rows + gap * (rows - 1);
+
+        float sectionWidth = (ConsoleWidth - ConsoleCardX) * scale;
+
+        float gridX = (sectionWidth - gridWidth) * 0.5f;
+        float gridY = (ConsoleHeight * scale - gridHeight) * 0.5f;
+
+
+        bool CardButton(string id, string icon, string tooltip,
+            bool enabled, bool lit = false)
         {
-            var side = new Vector2(30f, 30f) * scale;
-            Vector2 min = origin + new Vector2(ConsoleCardX, 26f) * scale +
-                new Vector2(cellIndex % 4 * (side.X + 3f * scale),
-                    cellIndex / 4 * (side.Y + 3f * scale));
+            Vector2 min = origin +
+                new Vector2(ConsoleCardX - 8f, 0f) * scale +
+                new Vector2(
+                    gridX + (cellIndex % columns) * (side.X + gap),
+                    gridY + (cellIndex / columns) * (side.Y + gap));
+
+
             // The grid is authored in RtsOrderBindings order, so the CELL INDEX is the command.
             // Each card's binding (RTS Controls: Order: ...) fires exactly what the button under
             // it fires, under the same enable rule - a hotkey can never send an order the card
             // itself refuses, and one pressed against a disabled card is dropped, not banked.
-            bool hotkeyFired = (uint)cellIndex < (uint)RtsOrderBindings.Length &&
+            bool hotkeyFired =
+                (uint)cellIndex < (uint)RtsOrderBindings.Length &&
                 ConsumeRtsOrderHotkey(RtsOrderBindings[cellIndex], enabled);
+
             cellIndex++;
+
             Vector2 max = min + side;
+
             ImGui.SetCursorScreenPos(min);
             ImGui.InvisibleButton(id, side);
+
             bool hovered = ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled);
+
             uint art = PainterlyArt(icon);
-            if (art != 0) dl.AddImage((nint)art, min, max);
-            if (!enabled) dl.AddRectFilled(min, max, 0xaa10141c);   // dimmed, WC3-gray
-            DrawBevel(dl, min, max, MathF.Max(1f, scale), PainterlyStoneTop, PainterlyFrameOuter);
-            dl.AddRect(min, max, lit || (hovered && enabled) ? PainterlyFrameRule : PainterlyFrameOuter,
-                0, ImDrawFlags.None, MathF.Max(1f, scale));
-            if (hovered) HoverTip(tooltip);
+            if (art != 0)
+                dl.AddImage((nint)art, min, max);
+
+            if (!enabled)
+                dl.AddRectFilled(min, max, 0xaa10141c);
+
+            DrawBevel(dl, min, max,
+                MathF.Max(1f, scale),
+                PainterlyStoneTop,
+                PainterlyFrameOuter);
+
+            dl.AddRect(min, max,
+                lit || (hovered && enabled)
+                    ? PainterlyFrameRule
+                    : PainterlyFrameOuter,
+                0,
+                ImDrawFlags.None,
+                MathF.Max(1f, scale));
+
+            if (hovered)
+                HoverTip(tooltip);
+
             return hotkeyFired || (enabled && ImGui.IsItemClicked());
         }
 
@@ -1130,9 +1131,9 @@ public sealed partial class GameLoop
             ? $"Patrol (armed): right-click ground to chain waypoints — " +
               $"{_rtsPatrolDraft.Count} so far.\nClick again to engage the loop; Escape cancels."
             : routeReady
-                ? "Patrol: loop the authored waypoint route"
-                : "Patrol: click, then right-click ground points to chain\n" +
-                  "a route, then click Patrol again to engage the loop.";
+                ? "Patrol: Loop current route (Ready)"
+                : "Patrol: Click to loop current route\n" +
+                  "Route must have 2+ waypoints";
         if (CardButton("##card-patrol", ConsoleIconPatrol, patrolTip,
                 any || _rtsPatrolAuthoring, _rtsPatrolAuthoring))
         {

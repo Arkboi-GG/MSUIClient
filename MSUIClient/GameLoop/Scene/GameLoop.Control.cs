@@ -3632,6 +3632,167 @@ public sealed partial class GameLoop
         _controlState == ControlState.PossessPending ||
         _controlState == ControlState.ReleasePending;
 
+
+    // Command View Widget Buttons
+    private const string CommandViewIconInventory = @"Interface\Icons\INV_Misc_Bag_08";
+    private const string CommandViewIconTactics = @"Interface\Icons\INV_Misc_Map_01";
+
+    private void DrawInventoryButton()
+    {
+        if (!_freeView)
+            return;
+
+        float scale = GameplayUiScale();
+
+        HudFrameResult frame = HudFrame(
+            "inventory-button",
+            "Inventory",
+            HudPlacement.At(HudAnchor.BottomLeft, 203f, -5f),
+            new Vector2(40f, 40f));
+
+        if (frame.Hidden)
+            return;
+
+        ImGui.SetNextWindowPos(frame.ScreenMin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(frame.ScreenSize, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0f);
+
+        ImGui.Begin("##inventory-button",
+            ImGuiWindowFlags.NoDecoration |
+            ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings |
+            ImGuiWindowFlags.NoScrollbar |
+            ImGuiWindowFlags.NoNav);
+
+        ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        Vector2 pos = ImGui.GetWindowPos();
+        Vector2 size = new Vector2(40f, 40f) * scale;
+        Vector2 max = pos + size;
+
+        ImGui.SetCursorScreenPos(pos);
+        ImGui.InvisibleButton("##inventory-button-hitbox", size);
+
+        bool hovered = ImGui.IsItemHovered();
+
+        uint art = PainterlyArt(CommandViewIconInventory);
+        if (art != 0)
+            dl.AddImage((nint)art, pos, max);
+
+        DrawBevel(
+            dl,
+            pos,
+            max,
+            MathF.Max(1f, scale),
+            PainterlyStoneTop,
+            PainterlyFrameOuter);
+
+        dl.AddRect(
+            pos,
+            max,
+            hovered ? PainterlyFrameRule : PainterlyFrameOuter,
+            0,
+            ImDrawFlags.None,
+            MathF.Max(1f, scale));
+
+        if (hovered)
+            HoverTip("Inventory");
+
+        if (ImGui.IsItemClicked())
+        {
+            if (_partyInventoryOpen)
+                _partyInventoryOpen = false;
+            else
+                OpenPartyInventory(
+                    RtsPrimaryGuid != 0 ? RtsPrimaryGuid : LocalPlayerGuid);
+        }
+
+        ImGui.End();
+    }
+
+    private void DrawTacticsButton()
+    {
+        if (!_freeView)
+            return;
+
+        ulong tacticsBot = _freecamSelection.FirstOrDefault(IsRtsGroupableBot);
+
+        if (tacticsBot == 0)
+            tacticsBot = _partyMembers
+                .FirstOrDefault(m => IsRtsGroupableBot(m.Guid))
+                ?.Guid ?? 0;
+
+        float scale = GameplayUiScale();
+
+        HudFrameResult frame = HudFrame(
+            "tactics-button",
+            "Tactics",
+            HudPlacement.At(HudAnchor.BottomLeft, 243f, -5f),
+            new Vector2(40f, 40f));
+
+        if (frame.Hidden)
+            return;
+
+        ImGui.SetNextWindowPos(frame.ScreenMin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(frame.ScreenSize, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0f);
+
+        ImGui.Begin("##tactics-button",
+            ImGuiWindowFlags.NoDecoration |
+            ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings |
+            ImGuiWindowFlags.NoScrollbar |
+            ImGuiWindowFlags.NoNav);
+
+        ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        Vector2 pos = ImGui.GetWindowPos();
+
+        Vector2 size = new Vector2(40f, 40f) * scale;
+        Vector2 max = pos + size;
+
+        ImGui.SetCursorScreenPos(pos);
+        ImGui.InvisibleButton("##tactics-icon", size);
+
+        bool hovered = ImGui.IsItemHovered();
+
+        uint art = PainterlyArt(CommandViewIconTactics);
+
+        if (art != 0)
+            dl.AddImage((nint)art, pos, max);
+
+        DrawBevel(
+            dl,
+            pos,
+            max,
+            MathF.Max(1f, scale),
+            PainterlyStoneTop,
+            PainterlyFrameOuter);
+
+        dl.AddRect(
+            pos,
+            max,
+            hovered ? PainterlyFrameRule : PainterlyFrameOuter,
+            0,
+            ImDrawFlags.None,
+            MathF.Max(1f, scale));
+
+        if (hovered)
+        {
+            HoverTip(tacticsBot != 0
+                ? "Party Tactics — roles and quick-slot AI policy"
+                : "Party Tactics needs a companion bot in the party");
+        }
+
+        if (tacticsBot != 0 && ImGui.IsItemClicked())
+        {
+            if (_partyTacticsOpen)
+                _partyTacticsOpen = false;
+            else
+                OpenPartyTactics(tacticsBot);
+        }
+
+        ImGui.End();
+    }
+
     // RTS Control Guide Overlay
     private void DrawControlBanner()
     {
@@ -3640,6 +3801,8 @@ public sealed partial class GameLoop
 
         DrawRtsControlGroups();
         DrawRtsCommandShelf();
+        DrawInventoryButton();
+        DrawTacticsButton();
         // The view-angle knob is its own furniture (Interface Options -> Command View), NOT part
         // of the help panel: it must survive the guide's Hide/Disable. The guide stacks above it.
         float knobHeight = DrawCommandViewAngleKnob();
@@ -3790,6 +3953,7 @@ public sealed partial class GameLoop
         if (_controlState == ControlState.Possessing)
             DrawBotBarLayerToggle(io.DisplaySize.Y - 80);
     }
+
 
     /// <summary>Draw a guide row in the UI's FrameXML font objects: the binding through the first
     /// colon is gilt, while the action remains the warmer highlight text used by vanilla panels.</summary>
