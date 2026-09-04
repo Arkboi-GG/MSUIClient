@@ -79,7 +79,11 @@ internal static class TradeProtocolClinicalChecks
         string root = ClientConfig.FindRepoRoot();
         string trade = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Trade.cs"));
-        Check(trade.Contains("_tradePartnerGuid = wire.Partner", StringComparison.Ordinal) &&
+        // The status-1 arm was extracted into AnswerTradeRequest, which now also carries the
+        // busy reply (dead / not authorable / auction open -> CMSG_BUSY_TRADE). Auto-answer
+        // with no client prompt is unchanged; assert the seam in its new shape.
+        Check(trade.Contains("AnswerTradeRequest(wire.Partner);", StringComparison.Ordinal) &&
+              trade.Contains("_tradePartnerGuid = initiator;", StringComparison.Ordinal) &&
               trade.Contains("_net?.BeginTrade();", StringComparison.Ordinal) &&
               !trade.Contains("_tradeInviteGuid", StringComparison.Ordinal) &&
               !trade.Contains("DrawTradeInvitation", StringComparison.Ordinal),

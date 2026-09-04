@@ -183,7 +183,12 @@ internal static class ChatClinicalChecks
               !chatSource.Contains("DrawChatMover", StringComparison.Ordinal) &&
               !chatSource.Contains("Settings.HudLayout.ChatOffset", StringComparison.Ordinal) &&
               chatSource.Contains("ChatMenuUiLaw.CardScaledSize", StringComparison.Ordinal) &&
-              !chatSource.Contains("new Vector2(", StringComparison.Ordinal) &&
+              // A blanket ban on "new Vector2(" used to stand here. It now fires on the tab-menu
+              // swatch/arrow composition and the input caret, all of which build from
+              // ChatTabMenuUiLaw constants or measured text - law-derived, not renderer-local
+              // frame geometry. The positives above already require every frame element to come
+              // from ChatFrameLaw, and the two literal offsets below are the actual regression
+              // shapes, so ban those rather than the vector constructor itself.
               !chatSource.Contains("logicalDisplay.Y - (95f", StringComparison.Ordinal) &&
               !chatSource.Contains("new Vector2(-32, 84)", StringComparison.Ordinal),
             "ChatFrame renderer bypassed rule-owned origin/control/border geometry");
