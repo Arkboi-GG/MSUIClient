@@ -31,7 +31,11 @@ internal static class HardwareCursorClinicalChecks
               inventory.Contains("_window.UseHardwareCursor(cacheKey, resolved)",
                   StringComparison.Ordinal) &&
               inventory.Contains("Settings.Display.CursorScale", StringComparison.Ordinal) &&
-              inventory.Contains("if (TryUseHardwareCursor(stem)) return;",
+              // Command View draws a software cursor: the OS cursor is rebuilt on every stem
+              // change, and a click-storm over the field produced a black square at the pointer
+              // (owner, 2026-09-02). The !_freeView guard is that fix - pin it here so it cannot
+              // regress silently.
+              inventory.Contains("if (!_freeView && TryUseHardwareCursor(stem)) return;",
                   StringComparison.Ordinal) &&
               hud.Contains("TryUseHardwareCursor(WorldCursorKind.Point.ToString())",
                   StringComparison.Ordinal),

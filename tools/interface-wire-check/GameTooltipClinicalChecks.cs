@@ -1897,8 +1897,8 @@ internal static class GameTooltipClinicalChecks
         string resourceUpdate = minimap[resourceUpdateStart..resourceRendererStart];
         string resourceRenderer = minimap[resourceRendererStart..resourceRendererEnd];
 
-        Check(Count(minimapDraw, "UpdateAndQueueMinimapResourceTooltip(null);") == 2 &&
-              Count(minimapDraw, "UpdateAndQueueMinimapResourceTooltip(") == 3 &&
+        Check(Count(minimapDraw, "UpdateAndQueueMinimapResourceTooltip(null);") == 3 &&
+              Count(minimapDraw, "UpdateAndQueueMinimapResourceTooltip(") == 4 &&
               minimapDraw.Contains(
                   "DrawMinimapResourceDots(dl, player, playerPosition, mapMin, mapMax, s,",
                   StringComparison.Ordinal) &&
