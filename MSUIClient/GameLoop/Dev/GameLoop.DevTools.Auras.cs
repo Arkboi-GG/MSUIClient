@@ -149,6 +149,11 @@ public sealed partial class GameLoop
             EmitAuraVerdict(aura, _net.PlayerGuid, "CANCEL_BLOCKED", source);
             return;
         }
+        if (RefuseTacticalFreezeLiveCommand("canceling an aura"))
+        {
+            EmitAuraVerdict(aura, _net.PlayerGuid, "CANCEL_BLOCKED_TACTICAL_FREEZE", source);
+            return;
+        }
         bool sent = _net.CancelAura(aura.SpellId);
         EmitAuraVerdict(aura, _net.PlayerGuid, sent ? "CANCEL_SEND" : "CANCEL_FAILED", source);
     }

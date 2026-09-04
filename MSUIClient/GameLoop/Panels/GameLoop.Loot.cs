@@ -48,6 +48,8 @@ public sealed partial class GameLoop
 
     private bool RequestLoot(ulong guid)
     {
+        if (RefuseTacticalFreezeLiveCommand("looting")) return false;
+        if (RefuseTacticalFrozenActor(guid, "loot it")) return false;
         // Auto Loot (Interface Options): decided at request time, Shift inverts.
         _lootAutoAllArmed = Settings.Controls.AutoLoot != ImGui.GetIO().KeyShift;
         // [SUI] Loot acts as the DRIVEN body: the server's LootHandler runs as
@@ -291,7 +293,9 @@ public sealed partial class GameLoop
 
     private bool TakeLootMoney()
     {
+        if (RefuseTacticalFreezeLiveCommand("taking loot")) return false;
         if (_net is null || !_loot.IsOpen || _loot.Gold == 0) return false;
+        if (RefuseTacticalFrozenActor(_loot.Source, "take loot from it")) return false;
         if (_entities.TryGet(ControlledGuid, out WorldEntity player)) _lootMoneyBefore = player.Fields.Coinage;
         _lootMoneyExpected = _loot.Gold;
         _lootMoneyPending = _net.LootMoney();
@@ -302,7 +306,9 @@ public sealed partial class GameLoop
 
     private bool TakeFirstLootItem()
     {
+        if (RefuseTacticalFreezeLiveCommand("taking loot")) return false;
         if (_net is null || !_loot.IsOpen || _loot.Items.Count == 0) return false;
+        if (RefuseTacticalFrozenActor(_loot.Source, "take loot from it")) return false;
         byte slot = _loot.Items[0].Slot;
         PlayItemPickupSound(_loot.Items[0].DisplayInfoId);
         bool sent = _net.AutostoreLootItem(slot);
@@ -313,7 +319,9 @@ public sealed partial class GameLoop
 
     private bool TakeAllLoot()
     {
+        if (RefuseTacticalFreezeLiveCommand("taking loot")) return false;
         if (_net is null || !_loot.IsOpen) return false;
+        if (RefuseTacticalFrozenActor(_loot.Source, "take loot from it")) return false;
         bool sent = true;
         if (_loot.Gold > 0) sent &= TakeLootMoney();
         foreach (LootItem item in _loot.Items.ToArray())
@@ -584,6 +592,8 @@ public sealed partial class GameLoop
                 return;
         }
         if (_net is null) return;
+        if (RefuseTacticalFreezeLiveCommand("taking loot")) return;
+        if (RefuseTacticalFrozenActor(_loot.Source, "take loot from it")) return;
         if (row.IsCoin) TakeLootMoney();
         else
         {

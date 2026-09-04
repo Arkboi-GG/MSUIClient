@@ -307,6 +307,11 @@ public sealed class NetworkClient : IDisposable
     public bool SuiCompanion(byte action, ulong guid) => InWorld(s => s.SuiCompanion(action, guid));
     public bool SuiPartyTaxi(byte flags, ulong flightMaster, IReadOnlyList<uint> nodes) =>
         InWorld(s => s.SuiPartyTaxi(flags, flightMaster, nodes));
+    public bool SuiTacticalFreeze(uint requestId, bool desiredActive, ulong lockId) =>
+        InWorld(s => s.SuiTacticalFreeze(requestId, desiredActive, lockId));
+    public bool SuiTacticalQueue(ulong lockId, uint requestId, byte operation,
+        IReadOnlyList<TacticalQueueRequestRecord> records) =>
+        InWorld(s => s.SuiTacticalQueue(lockId, requestId, operation, records));
     public bool SuiOrder(byte orderType, IReadOnlyList<ulong> subjects, ulong targetGuid, float x, float y, float z) =>
         InWorld(s => s.SuiOrder(orderType, subjects, targetGuid, x, y, z));
     public bool SuiCam(float x, float y, float z, bool active = true) =>

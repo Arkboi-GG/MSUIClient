@@ -1728,6 +1728,12 @@ if (args.Contains("--party-taxi-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--tactical-freeze-only", StringComparer.Ordinal))
+{
+    TacticalFreezeClinicalChecks.Run();
+    return;
+}
+
 if (args.Contains("--possess-law-only", StringComparer.Ordinal))
 {
     PossessLawClinicalChecks.Run();
@@ -4716,6 +4722,7 @@ HovercastClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: Hovercast PASS");
 CompanionClinicalChecks.Run();
 PartyTaxiClinicalChecks.Run();
+TacticalFreezeClinicalChecks.Run();
 PossessLawClinicalChecks.Run();
 SwingTimerClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: SwingTimer PASS");

@@ -36,6 +36,8 @@ public sealed partial class GameLoop
 
     private bool RequestTabardDesigner(ulong guid)
     {
+        if (RefuseTacticalFreezeLiveCommand("opening the tabard designer")) return false;
+        if (RefuseTacticalFrozenActor(guid, "open its tabard service")) return false;
         bool eligible = TabardDesignerEligible(
             guid, out WorldEntity? npc, out float distanceSquared);
         bool sent = eligible && _net?.GossipHello(guid) == true;
@@ -84,6 +86,9 @@ public sealed partial class GameLoop
 
     private bool SaveTabardDesign(uint style, uint color, uint borderStyle, uint borderColor, uint backgroundColor)
     {
+        if (RefuseTacticalFreezeLiveCommand("saving a guild emblem")) return false;
+        if (RefuseTacticalFrozenActor(_tabardVendorGuid, "save an emblem through it"))
+            return false;
         bool range = style <= 99 && color <= 16 && borderStyle <= 5 && borderColor <= 16 && backgroundColor <= 50;
         float distanceSquared = float.PositiveInfinity;
         bool eligible = _tabardOpen && TabardDesignerEligible(

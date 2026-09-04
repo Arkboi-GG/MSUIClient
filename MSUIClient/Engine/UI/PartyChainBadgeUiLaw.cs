@@ -14,7 +14,7 @@ public static class PartyChainBadgeUiLaw
         "MSUIClient.Assets.UI.PartyChain.party-chain-world-hold.png";
 
     // DrawChainGlyph's radius is shared by three established layouts. A 2.6x square keeps the
-    // authored bezel at ~18 logical pixels on party frames, ~16 overhead and ~9 on command cards.
+    // authored bezel at ~18 logical pixels on party frames and ~9 on command cards.
     public const float RadiusToSide = 2.6f;
 
     public static string ResourceForState(byte state) => state switch

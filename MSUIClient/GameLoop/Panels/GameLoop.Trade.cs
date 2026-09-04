@@ -27,6 +27,8 @@ public sealed partial class GameLoop
     /// <summary>Ask another player to trade (the unit popup's Trade row).</summary>
     private bool RequestTradeWith(ulong guid)
     {
+        if (RefuseTacticalFreezeLiveCommand("starting a trade")) return false;
+        if (RefuseTacticalFrozenActor(guid, "start a trade with them")) return false;
         bool sent = _net?.InitiateTrade(guid) == true;
         if (sent) { _tradeInitiateInFlight = true; _tradePartnerGuid = guid; }
         return sent;
@@ -130,6 +132,14 @@ public sealed partial class GameLoop
                 $"reply=CMSG_BUSY_TRADE;dead={selfDead};authorable={CanAuthorControlledOrSelf};auction={_auctionOpen}");
             return;
         }
+        if (RefuseTacticalFreezeLiveCommand("accepting a trade request") ||
+            RefuseTacticalFrozenActor(initiator, "accept a trade from them"))
+        {
+            _net?.BusyTrade();
+            EmitInterface("trade", "request", "BUSY-TACTICAL-FREEZE", initiator,
+                "reply=CMSG_BUSY_TRADE");
+            return;
+        }
         _tradePartnerGuid = initiator;
         if (!_playerNames.ContainsKey(_tradePartnerGuid)) _net?.NameQuery(_tradePartnerGuid);
         _net?.BeginTrade();
@@ -148,6 +158,9 @@ public sealed partial class GameLoop
     private bool PlaceTradeItem(byte bag, byte slot, WorldEntity? instance)
     {
         if (!_tradeOpen || _tradePlaceSlot is < 0 or > 6 || _net is null) return false;
+        if (RefuseTacticalFreezeLiveCommand("offering an item in trade")) return false;
+        if (RefuseTacticalFrozenActor(_tradePartnerGuid, "change a trade with them"))
+            return false;
         bool sent = _net.SetTradeItem((byte)_tradePlaceSlot, bag, slot);
         if (sent)
         {
@@ -203,7 +216,11 @@ public sealed partial class GameLoop
         if (VanillaButton(dl, "##trade-accept", _tradeAccepted ? "Accepted" : "Trade",
                 origin + TradeFrameUiLaw.TradeButton.Min * s,
                 TradeFrameUiLaw.TradeButton.Size, s, !_tradeAccepted))
-        { _tradeAccepted = _net?.AcceptTrade() == true; }
+        {
+            if (!RefuseTacticalFreezeLiveCommand("accepting a trade") &&
+                !RefuseTacticalFrozenActor(_tradePartnerGuid, "accept a trade with them"))
+                _tradeAccepted = _net?.AcceptTrade() == true;
+        }
         if (VanillaButton(dl, "##trade-cancel", "Cancel",
                 origin + TradeFrameUiLaw.CancelButton.Min * s,
                 TradeFrameUiLaw.CancelButton.Size, s))
@@ -253,7 +270,10 @@ public sealed partial class GameLoop
             TradeFrameUiLaw.PlayerCopperInput.Size, s);
         DrawTradeCoin(dl, 2, origin + TradeFrameUiLaw.PlayerCopperCoin * s, s);
         if (!changed) return;
-        _tradeMoney = TradeFrameUiLaw.ComposeMoney(gold, silver, copper);
+        int offeredMoney = TradeFrameUiLaw.ComposeMoney(gold, silver, copper);
+        if (RefuseTacticalFreezeLiveCommand("changing a trade offer")) return;
+        if (RefuseTacticalFrozenActor(_tradePartnerGuid, "change a trade with them")) return;
+        _tradeMoney = offeredMoney;
         if (_net?.SetTradeGold((uint)_tradeMoney) == true)
             _tradeAccepted = _tradePartnerAccepted = false;   // any change un-accepts both sides
     }

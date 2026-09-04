@@ -480,7 +480,9 @@ public sealed partial class GameLoop
                     FriendsFrameUiLaw.GroupInvite.Size, s, selectedOnline))
             {
                 SocialPackets.FriendEntry sel = _friends[Math.Clamp(_friendSelected, 0, _friends.Count - 1)];
-                _net?.GroupInvite(_playerNames.GetValueOrDefault(sel.Guid, ""));
+                if (!RefuseTacticalFreezeLiveCommand("inviting a party member") &&
+                    !RefuseTacticalFrozenActor(sel.Guid, "invite them to a party"))
+                    _net?.GroupInvite(_playerNames.GetValueOrDefault(sel.Guid, ""));
             }
             OfferVanillaNewbieTooltip(new("social-action", 4), "Group Invite",
                 FriendsFrameUiLaw.GroupInviteTooltip);
@@ -745,7 +747,13 @@ public sealed partial class GameLoop
         if (VanillaButton(dl, "##who-invite", "Group Invite",
                 origin + FriendsFrameUiLaw.WhoGroupInvite.Min * s,
                 FriendsFrameUiLaw.WhoGroupInvite.Size, s, selected))
-            _net?.GroupInvite(_who[selectedIndex].Name);
+        {
+            string name = _who[selectedIndex].Name;
+            if (!RefuseTacticalFreezeLiveCommand("inviting a party member") &&
+                !RefuseTacticalFrozenActor(KnownPlayerGuid(name),
+                    "invite them to a party"))
+                _net?.GroupInvite(name);
+        }
         DrawWhoVariableDropdown(dl, origin, s);
     }
 

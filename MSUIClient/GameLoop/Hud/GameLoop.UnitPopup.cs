@@ -390,27 +390,39 @@ public sealed partial class GameLoop
                 if (CanAuthorControlledGameplay) ShowPetAbandonPopup(guid);
                 break;
             case UnitPopupRow.PetDismiss:
-                if (CanAuthorControlledGameplay)
+                if (CanAuthorControlledGameplay &&
+                    !RefuseTacticalFrozenActor(guid, "dismiss it"))
                     _net?.PetAction(guid, PetMenuUiLaw.DismissWord, 0);
                 break;
             case UnitPopupRow.Whisper:
                 if (name.Length > 0) OpenChatEditWith($"/w {name} ");
                 break;
             case UnitPopupRow.Invite:
-                if (name.Length > 0) _net?.GroupInvite(name);
+                if (name.Length > 0 &&
+                    !RefuseTacticalFreezeLiveCommand("inviting a party member") &&
+                    !RefuseTacticalFrozenActor(guid, "invite them to a party"))
+                    _net?.GroupInvite(name);
                 break;
             case UnitPopupRow.Uninvite:
-                if (!TryPartyTestUninvite(guid)) _net?.GroupUninviteGuid(guid);
+                if (!RefuseTacticalFreezeLiveCommand("removing a party member") &&
+                    !RefuseTacticalFrozenActor(guid, "remove them from the party") &&
+                    !TryPartyTestUninvite(guid))
+                    _net?.GroupUninviteGuid(guid);
                 break;
             case UnitPopupRow.Promote:
-                if (!TryPartyTestPromote(guid)) _net?.GroupSetLeader(guid);
+                if (!RefuseTacticalFreezeLiveCommand("promoting a party member") &&
+                    !RefuseTacticalFrozenActor(guid, "promote them") &&
+                    !TryPartyTestPromote(guid))
+                    _net?.GroupSetLeader(guid);
                 break;
             case UnitPopupRow.ClaimLead:
                 RequestPartyLeadClaim();
                 break;
             case UnitPopupRow.Leave:
                 // LeaveParty(): the 1.12 client leaves a group with CMSG_GROUP_DISBAND.
-                if (!TryPartyTestLeave()) _net?.GroupDisband();
+                if (!RefuseTacticalFreezeLiveCommand("leaving the party") &&
+                    !TryPartyTestLeave())
+                    _net?.GroupDisband();
                 break;
             case UnitPopupRow.GuildPromote:
                 ShowGuildActionPopup(GuildFrameUiLaw.ConfirmPromoteDefinition, name);
@@ -435,7 +447,9 @@ public sealed partial class GameLoop
                 RequestInspect(guid, _unitPopupInspectBinding);
                 break;
             case UnitPopupRow.LootPromote:
-                if (!TryPartyTestLoot(2, guid, _partyLootThreshold))
+                if (!RefuseTacticalFreezeLiveCommand("assigning master looter") &&
+                    !RefuseTacticalFrozenActor(guid, "make them master looter") &&
+                    !TryPartyTestLoot(2, guid, _partyLootThreshold))
                     _net?.GroupLootMethod(2, guid, _partyLootThreshold);
                 break;
         }
@@ -451,19 +465,27 @@ public sealed partial class GameLoop
         {
             byte method = UnitPopupUiLaw.LootMethodValue(row);
             ulong master = method == 2 ? _unitPopupGuid : 0;
-            if (!TryPartyTestLoot(method, master, _partyLootThreshold))
+            if (!RefuseTacticalFreezeLiveCommand("changing party loot rules") &&
+                !RefuseTacticalFrozenActor(master, "make them master looter") &&
+                !TryPartyTestLoot(method, master, _partyLootThreshold))
                 _net?.GroupLootMethod(method, master, _partyLootThreshold);
         }
         else if (row is >= UnitPopupRow.Quality2 and <= UnitPopupRow.Quality4)
         {
             byte threshold = UnitPopupUiLaw.QualityValue(row);
-            if (!TryPartyTestLoot(_partyLootMethod, _partyMasterLooterGuid, threshold))
+            if (!RefuseTacticalFreezeLiveCommand("changing party loot rules") &&
+                !RefuseTacticalFrozenActor(_partyMasterLooterGuid,
+                    "change their master-looter rules") &&
+                !TryPartyTestLoot(_partyLootMethod, _partyMasterLooterGuid, threshold))
                 _net?.GroupLootMethod(_partyLootMethod, _partyMasterLooterGuid, threshold);
         }
         else if (row is >= UnitPopupRow.RaidTarget1 and <= UnitPopupRow.RaidTargetNone)
         {
             byte requested = UnitPopupUiLaw.RaidTargetValue(row);
             byte current = GroupUiLaw.RaidTargetIndex(_partyRaidTargets, _unitPopupGuid);
+            if (RefuseTacticalFreezeLiveCommand("changing a raid marker") ||
+                RefuseTacticalFrozenActor(_unitPopupGuid, "change their raid marker"))
+                goto Finished;
             if (requested == 0)
             {
                 if (current > 0 && !TryPartyTestRaidTarget(_unitPopupGuid, 0))
@@ -475,6 +497,7 @@ public sealed partial class GameLoop
                     _net?.SetRaidTarget(checked((byte)(requested - 1)), _unitPopupGuid);
             }
         }
+Finished:
         PlayUiSound("UChatScrollButton");
         _unitPopupSubmenu = UnitPopupSubmenu.None;
         _unitPopupSubmenuParentRow = -1;

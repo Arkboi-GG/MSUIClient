@@ -316,7 +316,7 @@ public sealed partial class GameLoop
     /// </summary>
     private void SetPartyLink(PartyMember member, bool linked)
     {
-        _net?.SuiOrder(6, [member.Guid], 0, linked ? 1f : 0f, 0, 0);
+        if (!TrySendLiveSuiOrder(6, [member.Guid], 0, linked ? 1f : 0f, 0, 0)) return;
         // Chaining is the driven body's gesture ("Follow me!"); unchaining is the
         // member's acknowledgement that it will stand its ground.
         if (linked) PlayCompanionEmoteVoice(ControlledGuid, CompanionVoiceLaw.EmoteFollowMe);
@@ -333,7 +333,7 @@ public sealed partial class GameLoop
     /// driven body of its human). The server stores it on the unit and the roster reports it.</summary>
     private void SetPartyChainAnchor(PartyMember member, ulong anchor)
     {
-        _net?.SuiOrder(5, [member.Guid], anchor, 0, 0, 0);
+        if (!TrySendLiveSuiOrder(5, [member.Guid], anchor, 0, 0, 0)) return;
         AddChatMessage(anchor != 0
             ? $"{member.Name}: chained to {ResolveUnitName(anchor)}."
             : $"{member.Name}: chained to the party.");
@@ -458,9 +458,11 @@ public sealed partial class GameLoop
             ImGui.SameLine();
             if (ImGui.SmallButton($"Hold##rts{i}"))
             {
-                _net.SuiOrder(2, [member.Guid], 0, 0, 0, 0);
-                NoteCompanionOrder(2, [member.Guid]);
-                AddChatMessage($"{member.Name}: stand your ground.");
+                if (TrySendLiveSuiOrder(2, [member.Guid], 0, 0, 0, 0))
+                {
+                    NoteCompanionOrder(2, [member.Guid]);
+                    AddChatMessage($"{member.Name}: stand your ground.");
+                }
             }
             if (ImGui.IsItemHovered())
                 HoverTip("Stand your ground: stop and hold this spot");
@@ -468,10 +470,12 @@ public sealed partial class GameLoop
             if (ImGui.SmallButton($"Patrol##rts{i}") &&
                 _entities.TryGet(member.Guid, out WorldEntity unit))
             {
-                _net.SuiOrder(4, [member.Guid], 0,
-                    unit.Position.X, unit.Position.Y, unit.Position.Z);
-                NoteCompanionOrder(4, [member.Guid]);
-                AddChatMessage($"{member.Name}: patrol the current route.");
+                if (TrySendLiveSuiOrder(4, [member.Guid], 0,
+                        unit.Position.X, unit.Position.Y, unit.Position.Z))
+                {
+                    NoteCompanionOrder(4, [member.Guid]);
+                    AddChatMessage($"{member.Name}: patrol the current route.");
+                }
             }
             if (ImGui.IsItemHovered())
                 HoverTip("Loop the waypoint chain (Shift+RightClick spots in free view\n" +
@@ -643,9 +647,9 @@ public sealed partial class GameLoop
         }
     }
 
-    /// <summary>The authored bordered chain badge shared by party frames, command cards and
-    /// Command View overhead markers. The roster state chooses the sprite; anchor identity stays
-    /// in <see cref="DrawChainAnchorMedallion"/> beside it.</summary>
+    /// <summary>The authored bordered chain badge shared by party frames and command cards.
+    /// The roster state chooses the sprite; anchor identity stays in
+    /// <see cref="DrawChainAnchorMedallion"/> beside it.</summary>
     private void DrawChainGlyph(ImDrawListPtr dl, Vector2 center, float radius, byte state)
     {
         uint texture = _gameplayArt?.EmbeddedPngHandle(

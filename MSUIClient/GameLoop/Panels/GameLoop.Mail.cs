@@ -136,6 +136,7 @@ public sealed partial class GameLoop
             !NpcSessionUiLaw.InRange(
                 Vector3.DistanceSquared(sessionBody.Position, mailbox.Position)))
             return false;
+        if (RefuseTacticalFreezeLiveCommand("opening a mailbox")) return false;
 
         bool newMailbox = !_mailOpen || _mailboxGuid != guid;
         if (newMailbox)
@@ -266,7 +267,8 @@ public sealed partial class GameLoop
                 uint template = r.ReadU32();
                 if (expiry <= 0f)
                 {
-                    _net?.MailDelete(_mailboxGuid, id);
+                    if (!TacticalFreezeBlocksLiveCommands)
+                        _net?.MailDelete(_mailboxGuid, id);
                     continue;
                 }
                 rows.Add(new(id, type, sender, senderId, subject, text, stationery, item, enchant,
@@ -443,6 +445,8 @@ public sealed partial class GameLoop
             CloseOpenMail(playSound: true, autoDelete: true);
             return;
         }
+        if (!MailUiLaw.IsRead(row.Checked) &&
+            RefuseTacticalFreezeLiveCommand("marking mail as read")) return;
         if (_openMailId != 0) CloseOpenMail(playSound: true, autoDelete: true);
         _openMailId = row.Id;
         _mailRefreshPending = true;
@@ -466,7 +470,7 @@ public sealed partial class GameLoop
         _openMailId = 0;
         _mailConfirmation = null;
         if (autoDelete && row is not null && row.Money == 0 && row.ItemEntry == 0 &&
-            MailUiLaw.IsCopied(row.Checked))
+            MailUiLaw.IsCopied(row.Checked) && !TacticalFreezeBlocksLiveCommands)
             _net?.MailDelete(_mailboxGuid, id);
         if (playSound) PlayUiSound("igSpellBookClose");
     }
@@ -475,6 +479,7 @@ public sealed partial class GameLoop
     {
         MailRow? row = _mail.FirstOrDefault(x => x.Id == id && x.Money > 0);
         if (row is null || _net is null) return false;
+        if (RefuseTacticalFreezeLiveCommand("taking money from mail")) return false;
         bool sent = _net.MailTakeMoney(_mailboxGuid, id);
         EmitInterface("mail", "take-money-send", sent ? "SENT" : "SEND_FAILED", _mailboxGuid,
             $"mail={id};money={row.Money};body={Convert.ToHexString(WorldSession.BuildMailActionBody(_mailboxGuid, id))}");
@@ -485,6 +490,7 @@ public sealed partial class GameLoop
     {
         MailRow? row = _mail.FirstOrDefault(x => x.Id == id && x.ItemEntry != 0);
         if (row is null || _net is null) return false;
+        if (RefuseTacticalFreezeLiveCommand("taking an item from mail")) return false;
         // The reference owns this cue on the physical attachment click, before the COD branch.
         // Accepting the popup is not a second physical attachment click and must stay silent.
         if (!codConfirmed) PlayUiSound("igMainMenuOptionCheckBoxOn");
@@ -502,6 +508,7 @@ public sealed partial class GameLoop
     private bool ReturnMail(uint id)
     {
         if (_mail.All(x => x.Id != id) || _net is null) return false;
+        if (RefuseTacticalFreezeLiveCommand("returning mail")) return false;
         bool sent = _net.MailReturn(_mailboxGuid, id);
         EmitInterface("mail", "return-send", sent ? "SENT" : "SEND_FAILED", _mailboxGuid,
             $"mail={id};body={Convert.ToHexString(WorldSession.BuildMailActionBody(_mailboxGuid, id))}");
@@ -512,6 +519,7 @@ public sealed partial class GameLoop
     {
         MailRow? row = _mail.FirstOrDefault(x => x.Id == id);
         if (row is null || _net is null) return false;
+        if (RefuseTacticalFreezeLiveCommand("deleting mail")) return false;
         if (!MailUiLaw.CanDelete(row.Type, row.Checked, row.ItemEntry != 0, row.Money))
             return ReturnMail(id);
         if (!confirmed && row.ItemEntry != 0)
@@ -529,6 +537,7 @@ public sealed partial class GameLoop
         MailRow? row = _mail.FirstOrDefault(x => x.Id == id && x.ItemTextId != 0 &&
             !MailUiLaw.IsCopied(x.Checked));
         if (row is null || _net is null) return false;
+        if (RefuseTacticalFreezeLiveCommand("copying mail")) return false;
         PlayUiSound("igMainMenuOptionCheckBoxOn");
         bool sent = _net.MailCreateTextItem(_mailboxGuid, id);
         return sent;
@@ -599,6 +608,7 @@ public sealed partial class GameLoop
         uint amount = MailAmountCopper();
         if (!MailUiLaw.CanSend(receiver, subject, _mailCodMode, amount,
                 _mailAttachmentGuid != 0, _mailSendPending)) return false;
+        if (RefuseTacticalFreezeLiveCommand("sending mail")) return false;
         if (!_mailCodMode && amount > 0 && !moneyConfirmed)
         {
             _mailConfirmation = new(MailConfirmationKind.SendMoney, 0);
@@ -636,6 +646,7 @@ public sealed partial class GameLoop
         if (itemEntry != 0 && itemGuid == 0) return false;
         subject ??= ReadBuffer(_mailSubject);
         body ??= ReadBuffer(_mailBody);
+        if (RefuseTacticalFreezeLiveCommand("sending mail")) return false;
         bool sent = _net.SendMail(_mailboxGuid, receiver, subject, body, itemGuid, money, cod);
         if (sent) _mailSendPending = true;
         return sent;
@@ -1992,6 +2003,13 @@ public sealed partial class GameLoop
         { _mailConfirmation = null; _mailSendPending = false; }
         else if (accept)
         {
+            string action = confirmation.Kind switch
+            {
+                MailConfirmationKind.Cod => "taking an item from mail",
+                MailConfirmationKind.DeleteItem or MailConfirmationKind.DeleteMoney => "deleting mail",
+                _ => "sending mail",
+            };
+            if (RefuseTacticalFreezeLiveCommand(action)) return;
             _mailConfirmation = null;
             switch (confirmation.Kind)
             {

@@ -157,6 +157,8 @@ public sealed partial class CreatureRenderer : IDisposable
     private readonly float[] _packed = new float[M2Animator.MaxBones * 12];
 
     private readonly Dictionary<ulong, float> _animTime = new();
+    private readonly Dictionary<ulong, TacticalFreezeVisualLatch> _tacticalFreezeVisuals = [];
+    private readonly Dictionary<ulong, float> _tacticalFreezeStartedAt = [];
     private readonly Dictionary<ulong, (int Sequence, float Time)> _footstepTime = [];
     private readonly Dictionary<ulong, float> _animationEventOutOfViewSince = [];
     private readonly Dictionary<ulong, CombatAction> _combatActions = new();
@@ -183,6 +185,10 @@ public sealed partial class CreatureRenderer : IDisposable
 
     private readonly record struct CombatAction(int AnimationId, float StartedAt, float ExpiresAt,
         bool AuthoredExact = false);
+    private readonly record struct TacticalFreezeVisualLatch(
+        float EvaluationGlobalTime,
+        M2Animator.Clip? Clip, float ClipTime,
+        M2Animator.Clip? TorsoOverlay, float TorsoOverlayTime);
 
     /// <summary>Units that completed a model draw this frame, consumed by the shared blob pass.</summary>
     public IReadOnlyList<UnitShadowCaster> ShadowCasters => _shadowCasters;
@@ -194,12 +200,14 @@ public sealed partial class CreatureRenderer : IDisposable
 
     public void TriggerCombatSwing(ulong guid, bool offHand)
     {
+        if (TacticalFreezePoseLaw.IsFrozen(guid)) return;
         _combatActions[guid] = new CombatAction(offHand ? 87 : 16, _globalTime, _globalTime + 3f);
         CombatActionsTriggered++;
     }
 
     public void TriggerOneShot(ulong guid, int animationId)
     {
+        if (TacticalFreezePoseLaw.IsFrozen(guid)) return;
         // The server double-fires the eat/drink emote ~0.1-0.2s apart (confirmed on
         // the wire). A same-animation re-trigger while the previous one is still
         // running keeps its StartedAt so the clip isn't snapped back to frame 0
@@ -225,12 +233,14 @@ public sealed partial class CreatureRenderer : IDisposable
     /// </summary>
     public void SetLootKneel(ulong guid, bool kneeling)
     {
+        if (TacticalFreezePoseLaw.IsFrozen(guid)) return;
         bool changed = kneeling ? _lootKneeling.Add(guid) : _lootKneeling.Remove(guid);
         if (changed) _animTime[guid] = 0f;
     }
 
     public void TriggerCombatReaction(ulong guid, uint victimState, bool landedHit)
     {
+        if (TacticalFreezePoseLaw.IsFrozen(guid)) return;
         int animationId = victimState switch
         {
             2 or 8 => 30, // dodge / deflect
@@ -248,6 +258,7 @@ public sealed partial class CreatureRenderer : IDisposable
 
     public void BeginSpellVisual(ulong guid, ushort? animationId)
     {
+        if (TacticalFreezePoseLaw.IsFrozen(guid)) return;
         if (animationId is { } id && id != 0) _spellHolds[guid] = id;
         else _spellHolds.Remove(guid);
         _animTime[guid] = 0f;
@@ -255,6 +266,7 @@ public sealed partial class CreatureRenderer : IDisposable
 
     public void ReleaseSpellVisual(ulong guid, ushort? animationId)
     {
+        if (TacticalFreezePoseLaw.IsFrozen(guid)) return;
         _spellHolds.Remove(guid);
         if (animationId is { } id && id != 0)
         {
@@ -264,7 +276,10 @@ public sealed partial class CreatureRenderer : IDisposable
         }
     }
 
-    public void CancelSpellVisual(ulong guid) => _spellHolds.Remove(guid);
+    public void CancelSpellVisual(ulong guid)
+    {
+        if (!TacticalFreezePoseLaw.IsFrozen(guid)) _spellHolds.Remove(guid);
+    }
 
     /// <summary>
     /// A direct RTS move is an action boundary: the ordered body must leave any packet-driven
@@ -274,6 +289,7 @@ public sealed partial class CreatureRenderer : IDisposable
     /// </summary>
     public void InterruptActionForMovement(ulong guid)
     {
+        if (TacticalFreezePoseLaw.IsFrozen(guid)) return;
         _spellHolds.Remove(guid);
         _combatActions.Remove(guid);
         _animTime[guid] = 0f;
@@ -421,12 +437,13 @@ public sealed partial class CreatureRenderer : IDisposable
         LoadMillisecondsThisFrame = 0;
         LoadsThisFrame = 0;
         _shadowCasters.Clear();
-        if (!Ok || !Enabled || _shader is null || _resolver is null) return;
-
         double nowS = _clock.Elapsed.TotalSeconds;
         float dt = (float)Math.Clamp(nowS - _lastSeconds, 0.0, 0.1);
         _lastSeconds = nowS;
         _globalTime += dt;
+        TrackTacticalFreezeIntervals();
+        ReconcileTacticalFreezeThaws();
+        if (!Ok || !Enabled || _shader is null || _resolver is null) return;
 
         Vector3 camPos = camera.Position;
         Matrix4x4 viewProj = camera.RelativeViewProjection;
@@ -511,6 +528,11 @@ public sealed partial class CreatureRenderer : IDisposable
             // squares native sub-1 scales and makes wolves/critters tiny.
             float scale = UnitRenderScale(e.Scale, ScaleMultiplier);
             float heading = e.Orientation + heading0;
+            bool tacticalFrozen = TacticalFreezePoseLaw.IsFrozen(e.Guid);
+            bool animationFrozen = e.AuraVisual.Frozen || tacticalFrozen;
+            float evaluationGlobalTime = tacticalFrozen &&
+                _tacticalFreezeVisuals.TryGetValue(e.Guid, out TacticalFreezeVisualLatch heldVisual)
+                    ? heldVisual.EvaluationGlobalTime : _globalTime;
             bool animationEventsElected = AnimationEventsElected(e, camPos, viewProj);
             if (!animationEventsElected) ForgetAnimationEventClocks(e.Guid);
             bool prominentHighlight = ProminentSelectedGuids.Contains(e.Guid);
@@ -535,7 +557,7 @@ public sealed partial class CreatureRenderer : IDisposable
                     e.Flying || e.Spline?.Flying == true,
                     dt, animationEventsElected, highlighted,
                     e.AuraVisual.Alpha * respawnAlpha, e.AuraVisual.Tint,
-                    e.AuraVisual.Frozen, out mount);
+                    animationFrozen, out mount);
             else ForgetMount(e.Guid);
 
             Matrix4x4 worldModel = mounted
@@ -562,7 +584,7 @@ public sealed partial class CreatureRenderer : IDisposable
             {
                 string unit = e.IsPlayer ? $"player:{e.Guid:X16}" : $"creature:{e.DisplayId}";
                 if (!_animTime.TryGetValue(e.Guid, out float at)) at = InitialPhase(e.Guid);
-                bool frozen = e.AuraVisual.Frozen;
+                bool frozen = animationFrozen;
                 M2Animator.Clip? clip;
                 float rate;
                 // A movement-flag CHANGE (edge, not "currently moving" - see
@@ -578,7 +600,7 @@ public sealed partial class CreatureRenderer : IDisposable
                 bool remoteMoving = (e.Spline?.AverageSpeed ?? 0f) > MovingEpsilon;
                 bool remoteMovementChanged = remoteMoving != _wasMovingByGuid.GetValueOrDefault(e.Guid);
                 _wasMovingByGuid[e.Guid] = remoteMoving;
-                if (remoteMovementChanged) _combatActions.Remove(e.Guid);
+                if (!animationFrozen && remoteMovementChanged) _combatActions.Remove(e.Guid);
 
                 // Seated remote unit + an active emote/swing one-shot (someone else
                 // eating/drinking): mask it to the SpineLow subtree over the held
@@ -659,7 +681,7 @@ public sealed partial class CreatureRenderer : IDisposable
                     // comment for why this is UNIT_NPC_EMOTESTATE and not SMSG_EMOTE.
                     clip = stateClip;
                     rate = 1f;
-                    at += dt;
+                    if (!frozen) at += dt;
                 }
                 else if (!remoteMoving && SeatedLoopAnimId(e.Fields.StandState) is int seatedLoop && seatedLoop != 0)
                 {
@@ -669,14 +691,35 @@ public sealed partial class CreatureRenderer : IDisposable
                     // real AnimationData ids and why chair-sitting is out of scope.
                     clip = model.Animator.Resolve(unit, BaseAnimationTrack, seatedLoop, true, 0);
                     rate = 1f;
-                    at += dt;
+                    if (!frozen) at += dt;
                 }
                 else
                 {
-                    _combatActions.Remove(e.Guid);
+                    if (!frozen) _combatActions.Remove(e.Guid);
                     clip = SelectClip(e, model.Animator, unit,
                         _lootKneeling.Contains(e.Guid), out rate);
                     if (!frozen) at += dt * rate;
+                }
+                // Tactical Freeze is stronger than a zero animation rate: retain the exact clip
+                // identity and overlays sampled on the first frozen frame. A later field/spline
+                // packet cannot make the body switch from run/swing/emote to stand while locked.
+                if (tacticalFrozen)
+                {
+                    if (_tacticalFreezeVisuals.TryGetValue(e.Guid, out TacticalFreezeVisualLatch latch))
+                    {
+                        clip = latch.Clip;
+                        at = latch.ClipTime;
+                        torsoOverlay = latch.TorsoOverlay;
+                        torsoOverlayTime = latch.TorsoOverlayTime;
+                        evaluationGlobalTime = latch.EvaluationGlobalTime;
+                    }
+                    else
+                    {
+                        float freezeStartedAt = EnsureTacticalFreezeStartedAt(e.Guid);
+                        _tacticalFreezeVisuals[e.Guid] = new TacticalFreezeVisualLatch(
+                            freezeStartedAt, clip, at, torsoOverlay, torsoOverlayTime);
+                        evaluationGlobalTime = freezeStartedAt;
+                    }
                 }
                 if (float.IsNaN(at) || float.IsInfinity(at)) at = 0f;
                 _animTime[e.Guid] = at;
@@ -684,15 +727,16 @@ public sealed partial class CreatureRenderer : IDisposable
                 if (clip is not null)
                 {
                     pickClip = clip;
-                    if (!mounted && animationEventsElected)
+                    if (!mounted && animationEventsElected && !frozen)
                         EmitFootstepEvents(e.Guid, e.DisplayId, e.Position,
                             e.Scale, model.Source, clip, at, mount: false);
                     boneCount = Math.Min(model.BoneCount, M2Animator.MaxBones);
                     if (torsoOverlay is not null)
                         model.Animator.EvaluateWithArmOverlays(clip, at, null, 0f, 0f,
-                            null, 0f, null, 0f, torsoOverlay, torsoOverlayTime, _globalTime, _skin);
+                            null, 0f, null, 0f, torsoOverlay, torsoOverlayTime,
+                            evaluationGlobalTime, _skin);
                     else
-                        model.Animator.Evaluate(clip, at, _globalTime, _skin);
+                        model.Animator.Evaluate(clip, at, evaluationGlobalTime, _skin);
                     M2Animator.Pack(_skin, boneCount, _packed);
                     _shader.SetVec4Array("uBones", _packed, boneCount * 3);
                     AnimatedLastFrame++;
@@ -1391,15 +1435,65 @@ public sealed partial class CreatureRenderer : IDisposable
 
     private static float InitialPhase(ulong guid) => (guid % 977) / 977f * 5f;
 
+    /// <summary>
+    /// Record membership independently of model resolution/visibility. A unit can freeze while
+    /// offscreen or while its model is loading; its action clocks still need the whole interval,
+    /// not merely the time since its first successful frozen draw.
+    /// </summary>
+    private void TrackTacticalFreezeIntervals()
+    {
+        foreach (ulong guid in TacticalFreezePoseLaw.FrozenGuids)
+            _ = EnsureTacticalFreezeStartedAt(guid);
+    }
+
+    /// <summary>
+    /// Return the renderer-frame time at which this GUID first entered the aggregate freeze set.
+    /// The self-mount pass runs before the streamed-unit pass, so it may be the first renderer
+    /// path to observe a newly frozen GUID and must be able to seed the same shared interval.
+    /// </summary>
+    private float EnsureTacticalFreezeStartedAt(ulong guid)
+    {
+        _tacticalFreezeStartedAt.TryAdd(guid, _globalTime);
+        return _tacticalFreezeStartedAt[guid];
+    }
+
+    /// <summary>
+    /// The first non-frozen render frame rebases wall-clock-authored visual timestamps by the
+    /// complete authoritative membership interval. Clip-local clocks were never advanced; this
+    /// keeps a swing/emote from expiring in PruneAnimState when the last overlapping lock thaws.
+    /// </summary>
+    private void ReconcileTacticalFreezeThaws()
+    {
+        if (_tacticalFreezeStartedAt.Count == 0) return;
+        foreach ((ulong guid, float frozenAt) in _tacticalFreezeStartedAt.Where(pair =>
+                     !TacticalFreezePoseLaw.IsFrozen(pair.Key)).ToArray())
+        {
+            float paused = MathF.Max(0f, _globalTime - frozenAt);
+            if (_combatActions.TryGetValue(guid, out CombatAction action))
+                _combatActions[guid] = action with
+                {
+                    StartedAt = action.StartedAt + paused,
+                    ExpiresAt = action.ExpiresAt + paused,
+                };
+            if (_respawnFadeStartedAt.TryGetValue(guid, out float respawnAt))
+                _respawnFadeStartedAt[guid] = respawnAt + paused;
+            _tacticalFreezeStartedAt.Remove(guid);
+            _tacticalFreezeVisuals.Remove(guid);
+        }
+    }
+
     private void PruneAnimState()
     {
         _stale.Clear();
-        foreach (var k in _animTime.Keys) if (!_seen.Contains(k)) _stale.Add(k);
+        foreach (var k in _animTime.Keys)
+            if (!_seen.Contains(k) && !TacticalFreezePoseLaw.IsFrozen(k)) _stale.Add(k);
         foreach (var pair in _combatActions)
-            if (!_seen.Contains(pair.Key) || pair.Value.ExpiresAt <= _globalTime)
+            if ((!_seen.Contains(pair.Key) || pair.Value.ExpiresAt <= _globalTime) &&
+                !TacticalFreezePoseLaw.IsFrozen(pair.Key))
                 if (!_stale.Contains(pair.Key)) _stale.Add(pair.Key);
         foreach (ulong guid in _animationEventOutOfViewSince.Keys)
-            if (!_seen.Contains(guid) && !_stale.Contains(guid)) _stale.Add(guid);
+            if (!_seen.Contains(guid) && !TacticalFreezePoseLaw.IsFrozen(guid) &&
+                !_stale.Contains(guid)) _stale.Add(guid);
         foreach (var k in _stale)
         {
             _animTime.Remove(k);
@@ -1413,6 +1507,8 @@ public sealed partial class CreatureRenderer : IDisposable
             _footstepTime.Remove(k);
             _animationEventOutOfViewSince.Remove(k);
             _wasMovingByGuid.Remove(k);
+            _tacticalFreezeStartedAt.Remove(k);
+            _tacticalFreezeVisuals.Remove(k);
         }
 
         // A corpse commonly streams out before its spawn comes alive again. Keep only the
@@ -1429,7 +1525,8 @@ public sealed partial class CreatureRenderer : IDisposable
         // queries, which run outside the loop and would place them at a stale spot.
         _stale.Clear();
         foreach (var pair in _mountsDrawn)
-            if (_globalTime - pair.Value.LastSeenAt >= 1f) _stale.Add(pair.Key);
+            if (_globalTime - pair.Value.LastSeenAt >= 1f &&
+                !TacticalFreezePoseLaw.IsFrozen(pair.Key)) _stale.Add(pair.Key);
         foreach (ulong guid in _stale) ForgetMount(guid);
 
         // Visibility can fluctuate at the frustum edge and streamed units can

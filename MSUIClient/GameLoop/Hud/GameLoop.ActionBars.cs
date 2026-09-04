@@ -233,7 +233,7 @@ public sealed partial class GameLoop
         // applies to _player, and you remain its self-mover while not possessing a bot. Only a
         // detached Free View cursor commanding someone else's body (ControlledGuid != you, no
         // possession) is refused. A possessed bot is covered by CanAuthorControlledGameplay.
-        if (!CanAuthorControlledGameplay && ControlledGuid != LocalPlayerGuid)
+        if (!CanAuthorControlledOrSelf)
         {
             EmitCastVerdict(spellId, CastTargetReason.UnavailableOrPassive, 0, sent: false);
             RefuseCast(spellId, "LOCAL_OBSERVER", "Cannot cast while in Free View.");
@@ -378,7 +378,12 @@ public sealed partial class GameLoop
         // Your own logged-in character stays castable from the sky (server accepts it — GetSuiActor
         // resolves to _player and there's no self-mover guard). Only a detached Free View cursor
         // commanding someone else's body without possession is blocked. Mirrors the TryCast gate.
-        if (!CanAuthorControlledGameplay && ControlledGuid != LocalPlayerGuid)
+        if (!CanAuthorControlledOrSelf)
+        {
+            EmitCastVerdict(spellId, CastTargetReason.UnavailableOrPassive, target, sent: false);
+            return;
+        }
+        if (target != 0 && RefuseTacticalFrozenActor(target, "target it with a live spell"))
         {
             EmitCastVerdict(spellId, CastTargetReason.UnavailableOrPassive, target, sent: false);
             return;
@@ -442,6 +447,11 @@ public sealed partial class GameLoop
     private bool TryCancelSpellTargetingOnEscape()
     {
         if (CancelRtsUnitCastTargeting(silent: false)) return true;
+        if (_tacticalGroundSpellId != 0)
+        {
+            CancelTacticalGroundCast(silent: false);
+            return true;
+        }
         if (_groundCastSpell != 0)
         {
             _groundCastSpell = 0;

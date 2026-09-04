@@ -255,18 +255,22 @@ public sealed partial class GameLoop
     private void CastPetBookSpell(uint packed, in SpellInfo spell, WorldEntity? pet)
     {
         if (!CanAuthorControlledGameplay || _petGuid == 0 || spell.Passive) return;
+        if (RefuseTacticalFrozenActor(_petGuid, "command it")) return;
         if (IsPetSpellShowingActive(packed, spell, pet))
         {
             _net?.PetCancelAura(_petGuid, spell.Id);
             return;
         }
-        _net?.PetAction(_petGuid, PetSpellBookUiLaw.CastWord(spell.Id),
-            PetActionBarUiLaw.ActionTarget(_selectionGuid));
+        ulong actionTarget = PetActionBarUiLaw.ActionTarget(_selectionGuid);
+        if (RefuseTacticalFrozenActor(actionTarget, "target it with a pet spell")) return;
+        _net?.PetAction(_petGuid, PetSpellBookUiLaw.CastWord(spell.Id), actionTarget);
     }
 
     private void TogglePetBookAutocast(uint spellId)
     {
-        if (!CanAuthorControlledGameplay || _petGuid == 0 || !PetSpellBookUiLaw.TryToggleAutocast(
+        if (!CanAuthorControlledGameplay || _petGuid == 0 ||
+            RefuseTacticalFrozenActor(_petGuid, "change its autocast") ||
+            !PetSpellBookUiLaw.TryToggleAutocast(
                 _petBookSpells, _petActions, spellId, out bool enabled)) return;
         _net?.PetSpellAutocast(_petGuid, spellId, enabled);
     }

@@ -353,7 +353,11 @@ public sealed partial class GameLoop
                     if(p[1].StartsWith("name:",StringComparison.OrdinalIgnoreCase))
                         invName=line[(line.IndexOf("name:",StringComparison.OrdinalIgnoreCase)+5)..];
                     else { invGuid=LiveNearestRemotePlayerGuid(); invName=_playerNames.GetValueOrDefault(invGuid,""); }
-                    bool inviteSent=invName.Length>0&&(_net?.GroupInvite(invName)??false);
+                    if(invGuid==0) invGuid=KnownPlayerGuid(invName);
+                    bool inviteSent=invName.Length>0&&
+                        !RefuseTacticalFreezeLiveCommand("inviting a party member")&&
+                        !RefuseTacticalFrozenActor(invGuid,"invite them to a party")&&
+                        (_net?.GroupInvite(invName)??false);
                     Log(inviteSent,$"{line} guid=0x{invGuid:X16} name='{invName}' "+
                         $"utf8={BitConverter.ToString(System.Text.Encoding.UTF8.GetBytes(invName))}");
                     break;

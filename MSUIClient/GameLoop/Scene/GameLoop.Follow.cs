@@ -26,6 +26,8 @@ public sealed partial class GameLoop
     /// </summary>
     private void StartAutoFollow(ulong guid, string exactName)
     {
+        if (RefuseTacticalFreezeLiveCommand("following another player")) return;
+        if (RefuseTacticalFrozenActor(guid, "follow them")) return;
         if (guid == 0 ||
             _net is not { IsInWorld: true } || _controller is null || _freeView ||
             _controlState != ControlState.OwnChar ||

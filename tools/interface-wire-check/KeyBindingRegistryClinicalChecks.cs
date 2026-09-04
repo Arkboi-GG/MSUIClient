@@ -51,7 +51,7 @@ internal static class KeyBindingRegistryClinicalChecks
     private static void CheckCrpgRtsRegistry(string source,
         (string Category, string Binding)[] rows)
     {
-        Check(rows.Count(row => row.Category == "RTS Controls") == 51 &&
+        Check(rows.Count(row => row.Category == "RTS Controls") == 52 &&
               rows.Count(row => row.Category == "CRPG Controls") == 3,
             "the CRPG/RTS binding row count changed - a commander control was added or lost");
 
@@ -64,6 +64,7 @@ internal static class KeyBindingRegistryClinicalChecks
             "RtsSaveGroup1", "RtsSaveGroup10", "RtsRecallGroup1", "RtsRecallGroup10",
             "RtsOrderFocus", "RtsOrderRegroup", "RtsOrderHold", "RtsOrderPatrol",
             "RtsOrderFormationLine", "RtsOrderFormationCircle", "RtsOrderSheath",
+            "RtsToggleTacticalFreeze",
             "RtsCommanderMap", "RtsCastOnPrimary", "RtsRigForward", "RtsRigBackward",
             "RtsBoomZoomIn", "RtsBoomZoomOut", "RtsEncounterLab", "RtsUndoWaypoint",
             "RtsSelectAllParty", "RtsMoveForward", "RtsMoveBackward", "RtsTurnLeft",

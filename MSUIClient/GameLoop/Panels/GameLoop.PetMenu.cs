@@ -101,6 +101,7 @@ public sealed partial class GameLoop
         // A popup may have been opened while embodied and accepted after Ctrl+F detached.
         // Revalidate at the irreversible packet tail, not only when the row was clicked.
         if (!CanAuthorControlledGameplay) return;
+        if (RefuseTacticalFrozenActor(_petPopupGuid, "change its pet state")) return;
         if (effect.Type == PetMenuUiLaw.AbandonPopupType)
             _net?.PetAbandon(_petPopupGuid);
         else if (effect.Type == PetMenuUiLaw.RenameConfirmPopupType)

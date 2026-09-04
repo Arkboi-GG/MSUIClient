@@ -256,6 +256,7 @@ public sealed partial class GameLoop
         if (!CanAuthorControlledGameplay || !HasCarriedItem || _net is null ||
             ResolveCarriedItem() is not { } item)
             return false;
+        if (RefuseTacticalFrozenActor(pet.Guid, "feed it")) return false;
         uint spellId = FeedPetSpell();
         if (!FeedPetLaw.CanFeed(pet.Guid, _petGuid, pet.Fields.CreatedBySpell,
                 pet.Fields.CreatedBy, ControlledGuid, spellId, item.Guid) ||
@@ -292,6 +293,7 @@ public sealed partial class GameLoop
     {
         if (!CanAuthorControlledGameplay ||
             !PetActionBarUiLaw.StopsAttackOnSelectionChange(_petAttacking, previous, current)) return;
+        if (RefuseTacticalFrozenActor(_petGuid, "change its attack state")) return;
         _net?.PetStopAttack(_petGuid);
         _petAttacking = false;
     }
@@ -771,6 +773,7 @@ public sealed partial class GameLoop
     private void UsePetAction(int slot, ulong petGuid, WorldEntity? pet)
     {
         if (!CanAuthorControlledGameplay) return;
+        if (RefuseTacticalFrozenActor(petGuid, "command it")) return;
         uint packed = _petActions[slot];
         if (!PetActionBarUiLaw.HasPayload(packed)) return;
         uint action = PetActionBarUiLaw.Action(packed);
@@ -802,8 +805,9 @@ public sealed partial class GameLoop
             }
         }
 
-        if (_net?.PetAction(petGuid, packed,
-                PetActionBarUiLaw.ActionTarget(_selectionGuid)) != true) return;
+        ulong actionTarget = PetActionBarUiLaw.ActionTarget(_selectionGuid);
+        if (RefuseTacticalFrozenActor(actionTarget, "target it with a pet action")) return;
+        if (_net?.PetAction(petGuid, packed, actionTarget) != true) return;
         _petState = PetActionBarUiLaw.LatchPress(_petState, packed);
         if (attack) _petAttacking = true;
     }
@@ -818,6 +822,7 @@ public sealed partial class GameLoop
     private void TogglePetAutocast(int slot, ulong petGuid)
     {
         if (!CanAuthorControlledGameplay) return;
+        if (RefuseTacticalFrozenActor(petGuid, "change its autocast")) return;
         uint toggled = PetActionBarUiLaw.ToggleAutocast(_petActions[slot]);
         _petActions[slot] = toggled; // the server does not echo this half
         _net?.PetSetAction(petGuid, new[] { ((uint)slot, toggled) });
@@ -826,6 +831,7 @@ public sealed partial class GameLoop
     private void PickupPetAction(int slot, ulong petGuid, WorldEntity? pet)
     {
         if (!CanAuthorControlledGameplay) return;
+        if (RefuseTacticalFrozenActor(petGuid, "change its action bar")) return;
         uint unitFlags = pet?.Fields.UnitFlags ?? 0;
         if (!PetActionBarUiLaw.PickupAllowed(unitFlags)) return;
         if (_draggingPetAction.HasValue)
@@ -852,6 +858,11 @@ public sealed partial class GameLoop
     private void PlacePetAction(int target, ulong petGuid, WorldEntity? pet)
     {
         if (!CanAuthorControlledGameplay)
+        {
+            ClearPetActionCursor();
+            return;
+        }
+        if (RefuseTacticalFrozenActor(petGuid, "change its action bar"))
         {
             ClearPetActionCursor();
             return;

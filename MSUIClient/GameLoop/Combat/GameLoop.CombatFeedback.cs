@@ -206,6 +206,7 @@ public sealed partial class GameLoop
             DrawPetFrameAndActionBar();
             DrawStanceBar();
             DrawPartyFrames();
+            DrawTacticalFreezeNotice();
             DrawControlBanner();
             DrawPartyTacticsPanel();
             DrawPartyInventoryPanel();

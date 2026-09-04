@@ -63,6 +63,7 @@ public sealed partial class GameLoop
         RtsRecallGroup6, RtsRecallGroup7, RtsRecallGroup8, RtsRecallGroup9, RtsRecallGroup10,
         RtsOrderFocus, RtsOrderRegroup, RtsOrderHold, RtsOrderPatrol,
         RtsOrderFormationLine, RtsOrderFormationCircle, RtsOrderSheath,
+        RtsToggleTacticalFreeze,
         RtsCommanderMap, RtsCastOnPrimary,
         RtsRigForward, RtsRigBackward, RtsBoomZoomIn, RtsBoomZoomOut,
         RtsEncounterLab, RtsUndoWaypoint, RtsFocusPrimary,
@@ -225,8 +226,8 @@ public sealed partial class GameLoop
         ("RTS Controls", GameBinding.RtsSelectAdd, "Add to Selection / Queue Attack", Key.Unknown),
         ("RTS Controls", GameBinding.RtsOrderMove, "Move / Attack Order", Key.Unknown),
         ("RTS Controls", GameBinding.RtsOrderQueueWaypoint, "Chain Waypoint / Orient", Key.Unknown),
-        ("RTS Controls", GameBinding.RtsCyclePrimaryNext, "Next Primary (cycle the party)", Key.Unknown),
-        ("RTS Controls", GameBinding.RtsCyclePrimaryPrevious, "Previous Primary", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsCyclePrimaryNext, "Next Selected Command Card", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsCyclePrimaryPrevious, "Previous Selected Command Card", Key.Unknown),
         ("RTS Controls", GameBinding.RtsSaveGroup1, "Save Control Group 1", Key.Unknown),
         ("RTS Controls", GameBinding.RtsSaveGroup2, "Save Control Group 2", Key.Unknown),
         ("RTS Controls", GameBinding.RtsSaveGroup3, "Save Control Group 3", Key.Unknown),
@@ -254,6 +255,7 @@ public sealed partial class GameLoop
         ("RTS Controls", GameBinding.RtsOrderFormationLine, "Order: Line Formation", Key.Unknown),
         ("RTS Controls", GameBinding.RtsOrderFormationCircle, "Order: Circle Formation", Key.Unknown),
         ("RTS Controls", GameBinding.RtsOrderSheath, "Order: Sheathe/Draw Weapons", Key.Unknown),
+        ("RTS Controls", GameBinding.RtsToggleTacticalFreeze, "Tactical Freeze / Resume", Key.Unknown),
         ("RTS Controls", GameBinding.RtsCommanderMap, "Commander Map", Key.Unknown),
         ("RTS Controls", GameBinding.RtsCastOnPrimary, "Modifier: Cast Card Ability on Primary", Key.Unknown),
         ("RTS Controls", GameBinding.RtsRigForward, "Fly Camera Forward", Key.Unknown),
@@ -508,8 +510,7 @@ public sealed partial class GameLoop
         // These reproduce EXACTLY the chords that were hard-coded before they became bindable,
         // so a player who never opens Key Bindings notices no change. Duplicates below are
         // deliberate and mode-separated, matching how the hard-coded versions already behaved:
-        //   Tab            RtsCyclePrimaryNext (free view) vs TargetNearestEnemy (body) -
-        //                  UpdateTargetBinding already refuses to tab-target in the free view.
+        //   Q              RtsCyclePrimaryNext (free view) vs StrafeLeft (body).
         //   Ctrl+digit     RtsSaveGroupN vs BonusActionButtonN, separated by
         //                  RtsControlGroupClaimsBinding.
         //   Wheel          RtsRigForward/Back vs CameraZoomIn/Out, and the camera zoom
@@ -1000,7 +1001,10 @@ public sealed partial class GameLoop
                 checked((byte)((int)command - (int)GameBinding.RaidTarget1 + 1));
             RaidMarkerIntent intent = TargetBindingLaw.ResolveRaidMarker(
                 _partyRaidTargets, _selectionGuid, requested);
-            if (intent.Send && !TryPartyTestRaidTarget(_selectionGuid, requested))
+            if (intent.Send &&
+                !RefuseTacticalFreezeLiveCommand("changing a raid marker") &&
+                !RefuseTacticalFrozenActor(_selectionGuid, "change their raid marker") &&
+                !TryPartyTestRaidTarget(_selectionGuid, requested))
                 _net.SetRaidTarget(intent.WireIcon, intent.Guid);
             return;
         }

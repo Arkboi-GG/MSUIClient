@@ -20,6 +20,8 @@ public sealed partial class GameLoop
 
     private bool RequestTrainer(ulong guid)
     {
+        if (RefuseTacticalFreezeLiveCommand("opening trainer services")) return false;
+        if (RefuseTacticalFrozenActor(guid, "open its trainer service")) return false;
         string outcome = "REFUSED"; string detail = "descriptorMissing";
         if (_net is { IsInWorld: true } &&
             TryGetInteractionBodyPose(out WorldBodyPose sessionBody) &&
@@ -122,6 +124,8 @@ public sealed partial class GameLoop
             EmitInterface("trainer", "buy", "REFUSED_UNAVAILABLE", _trainer.TrainerGuid,
                 $"spell={serviceSpellId};{reason}"); return false;
         }
+        if (RefuseTacticalFreezeLiveCommand("training a spell")) return false;
+        if (RefuseTacticalFrozenActor(_trainer.TrainerGuid, "train through it")) return false;
         _trainerKnownBefore = _actions.KnownSpells.ToHashSet();
         bool sent = _net?.TrainerBuySpell(_trainer.TrainerGuid, serviceSpellId) == true;
         EmitInterface("trainer", "buy", sent ? "SENT" : "SEND_FAILED", _trainer.TrainerGuid,

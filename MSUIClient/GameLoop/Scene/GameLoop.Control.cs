@@ -84,6 +84,7 @@ public sealed partial class GameLoop
     {
         if (_freeView == up) return;
         _freeView = up;
+        _tacticalCommandViewExitAuthorized = false;
         ResetSheathMirror();
         RefreshLootKneel();
         _freeViewExitRequested = false;
@@ -153,8 +154,9 @@ public sealed partial class GameLoop
     /// the party only through the explicit SUI order route.
     /// </summary>
     private bool CanAuthorControlledGameplay =>
-        _controlState == ControlState.Possessing ||
-        _controlState == ControlState.OwnChar && !_freeView;
+        !TacticalFreezeBlocksLiveCommands &&
+        (_controlState == ControlState.Possessing ||
+         _controlState == ControlState.OwnChar && !_freeView);
 
     /// <summary>
     /// Author the unit in <see cref="ControlledGuid"/>: either you can author it as a driven body
@@ -166,7 +168,8 @@ public sealed partial class GameLoop
     /// the cast/item-use send gates so your own skills and bag items work in Command View.
     /// </summary>
     private bool CanAuthorControlledOrSelf =>
-        CanAuthorControlledGameplay || ControlledGuid == LocalPlayerGuid;
+        !TacticalFreezeBlocksLiveCommands &&
+        (CanAuthorControlledGameplay || ControlledGuid == LocalPlayerGuid);
 
     /// <summary>Inspection and observer bars display state but never author gameplay.</summary>
     private bool BarsReadOnly => BarsGuid != ControlledGuid || !CanAuthorControlledGameplay;
@@ -298,6 +301,7 @@ public sealed partial class GameLoop
     /// </summary>
     private void ResetSuiControl()
     {
+        ResetTacticalFreezeState();
         SetFreeView(false);
         _controlState = ControlState.OwnChar;
         _controlTargetGuid = 0;
@@ -448,31 +452,6 @@ public sealed partial class GameLoop
             SuiChainWorldHold => who.Length > 0 ? $"Holding — waits for {who} to come back in range" : "Holding",
             _ => "Unchained — stands its ground until re-linked",
         };
-    }
-
-    /// <summary>Command View chain: a dashed line from every party member to its anchor in the
-    /// chain's state colour (green linked, red unchained, amber world hold). Server truth
-    /// (_suiChain); both ends must be streamed. The owner's "who is chained to whom" from the sky.</summary>
-    private void DrawCommandViewChainLines(ImDrawListPtr draw, Vector2 display)
-    {
-        foreach ((ulong guid, (byte state, ulong anchor)) in _suiChain)
-        {
-            if (anchor == 0 || anchor == guid) continue;
-            if (!_entities.TryGet(guid, out WorldEntity unit) || !_entities.TryGet(anchor, out WorldEntity boss)) continue;
-            Vector3 a = UnitWorldPosition(unit) + new Vector3(0f, 0f, 1.2f);
-            Vector3 b = UnitWorldPosition(boss) + new Vector3(0f, 0f, 1.2f);
-            if (!_window.Camera.TryWorldToScreen(a, display, out Vector2 pa) ||
-                !_window.Camera.TryWorldToScreen(b, display, out Vector2 pb)) continue;
-            uint color = SuiChainColor(state, 0xCC);
-            DrawDashedLine(draw, pa, pb, color, 8f, 6f);
-            draw.AddCircleFilled(pb, 3f, color);
-            // The same chain glyph the frames wear, over the member's head, with the anchor's
-            // initial beside it — readable from the sky without the portraits.
-            float scale = GameplayUiScale();
-            DrawChainGlyph(draw, pa + new Vector2(0f, -14f * scale), 6f * scale, state);
-            if (ResolveUnitName(anchor) is { Length: > 0 } anchorName)
-                DrawChainAnchorMedallion(draw, pa + new Vector2(12f * scale, -14f * scale), 5f * scale, anchorName, state, scale);
-        }
     }
 
     private void ApplySuiControlRoster(byte[] body)
@@ -1324,6 +1303,10 @@ public sealed partial class GameLoop
         if (_net is not { IsInWorld: true } || _controller is null) return;
         if (guid == 0 || guid == LocalPlayerGuid) return;
         if (_controlState is not (ControlState.OwnChar or ControlState.FreeCam)) return;
+        // This is the final possession send edge. Callers also disable their affordances, but an
+        // already-open popup, a queued switch, or a dev command must not bypass the lock/drain law.
+        if (RefuseTacticalFreezeLiveCommand("changing control")) return;
+        if (RefuseTacticalFrozenActor(guid, "take control")) return;
         // Flush a MSG_MOVE_STOP at the own character's position BEFORE the request so no
         // in-flight movement straggles into the mover swap, then park the stream. (From
         // the Command View the stream is already silent — flags are clear, nothing flushes.)
@@ -1342,6 +1325,11 @@ public sealed partial class GameLoop
     /// </summary>
     private void BeginRtsForceTakeControl(RtsForceUnitWire unit)
     {
+        // Refuse before closing the commander map, moving its camera, or arming the delayed
+        // stream-then-possess state. Otherwise a click made during drain can fire after DRAINED.
+        if (RefuseTacticalFreezeLiveCommand("changing control") ||
+            RefuseTacticalFrozenActor(unit.Guid, "take control"))
+            return;
         if (!CommanderMapUiLaw.ShowFactionControl(_rtsMode, _rtsModules))
         {
             CommanderShowNotice("Faction-force control is disabled in this world.");
@@ -1431,6 +1419,9 @@ public sealed partial class GameLoop
     {
         if (_net is null || _controller is null) return;
         if (_controlState != ControlState.Possessing) return;
+        // Command View exit has its own ordered owner-thaw path below. Every other release is a
+        // control handoff and is refused at the actual packet edge while frozen or draining.
+        if (RefuseTacticalFreezeLiveCommand("changing control")) return;
         _movementSender.ParkForRoot(_net, _controller);   // stops the bot dead at its position
         _movementSender.Parked = true;
         _controlState = ControlState.ReleasePending;
@@ -1443,7 +1434,31 @@ public sealed partial class GameLoop
         // character and RemoveFreecamEye on the session. That is what left the abandoned
         // character with no AI to obey RTS orders — the client said "move to", the server had
         // nobody listening — and killed the streaming eye out from under the camera.
-        _net.SuiControlRelease(toFreecam || _freeView ? (byte)1 : (byte)0);
+        SendSuiControlRelease(toFreecam || _freeView ? (byte)1 : (byte)0,
+            commandViewExit: false);
+    }
+
+    /// <summary>
+    /// The only release exception while Tactical Freeze owns live authorship: lowering Command
+    /// View. The caller first requests the owner's authoritative thaw; retries stay on this same
+    /// exit-only seam. Opening Command View or switching bodies never uses the exception.
+    /// </summary>
+    private bool SendSuiControlRelease(byte mode, bool commandViewExit)
+    {
+        if (_net is null) return false;
+        if (!commandViewExit)
+        {
+            if (RefuseTacticalFreezeLiveCommand("changing control")) return false;
+        }
+        else
+        {
+            if (!_freeView || !TacticalCommandViewExitAuthorizationValid())
+            {
+                RefuseTacticalFreezeLiveCommand("leaving Command View");
+                return false;
+            }
+        }
+        return _net.SuiControlRelease(mode);
     }
 
     /// <summary>
@@ -1491,6 +1506,16 @@ public sealed partial class GameLoop
             return;
         }
 
+        // Freeze is a button state inside Command View, not Command View itself. When the owner
+        // lowers the camera, ask to thaw before the ordinary control-release packet. Neither send
+        // mutates local membership; the authoritative snapshot/session teardown does that.
+        bool exitingCommandView = _freeView;
+        if (exitingCommandView)
+        {
+            if (!PrepareTacticalCommandViewExit()) return;
+        }
+        else if (RefuseTacticalFreezeLiveCommand("opening Command View")) return;
+
         // Already commanding a toon from the sky: Ctrl+F is purely a camera decision, so it
         // just lands on the unit whose bars are already live. No release, no server round
         // trip — you keep driving what you were already driving.
@@ -1522,7 +1547,11 @@ public sealed partial class GameLoop
                 _controlPendingReturn = ControlState.OwnChar;
                 _controlPendingSince = NowSeconds();
                 _freecamRequested = true;
-                _net.SuiControlRelease(1);
+                if (!SendSuiControlRelease(1, commandViewExit: exitingCommandView))
+                {
+                    _controlState = ControlState.OwnChar;
+                    _movementSender.Parked = false;
+                }
                 break;
             case ControlState.Possessing:
                 RequestControlRelease(toFreecam: true);
@@ -1536,7 +1565,11 @@ public sealed partial class GameLoop
                 _freeViewExitRequested = true;
                 _freeViewExitRequestedAt = NowSeconds();
                 _freeViewExitAttempts = 0;
-                _net.SuiControlRelease(0);
+                if (!SendSuiControlRelease(0, commandViewExit: true))
+                {
+                    _freeViewExitRequested = false;
+                    _freeViewExitAttempts = 0;
+                }
                 break;
         }
     }
@@ -1587,7 +1620,7 @@ public sealed partial class GameLoop
             {
                 _freeViewExitAttempts++;
                 _freeViewExitRequestedAt = NowSeconds();
-                _net.SuiControlRelease(0);
+                SendSuiControlRelease(0, commandViewExit: true);
                 Console.WriteLine("[control] command-view exit unanswered after " +
                     $"{ControlAckTimeoutSeconds:F0}s - re-asking " +
                     $"({_freeViewExitAttempts}/{FreeViewExitMaxAttempts})");
@@ -1614,9 +1647,8 @@ public sealed partial class GameLoop
 
         // Four ordinary bindings now (CRPG Controls / RTS Controls), defaulting to exactly the
         // chords that used to be hard-coded here: Ctrl+Tab and Ctrl+Shift+Tab cycle which BODY
-        // you drive, plain Tab and Shift+Tab cycle the command-card PRIMARY through the current
-        // selection. Tab can serve both ladders because enemy tab-targeting stands down in the
-        // Command View (UpdateTargetBinding) and the card cycle only runs while it is up.
+        // you drive, Q and Shift+Q cycle the command-card PRIMARY strictly through the current
+        // selection. The card cycle only runs while Command View is up.
         //
         // All four edges are taken unconditionally: BindingPressedEdge owns the was-down state,
         // so a frame that skips the call would let a key held across it fire again on release.
@@ -1943,6 +1975,14 @@ public sealed partial class GameLoop
     /// issued immediately; later entries wait until the active target dies or despawns.</summary>
     private void QueueRtsAttack(List<ulong> subjects, ulong target)
     {
+        // Refuse before mutating the local retry queue. In particular, an owned plan can be
+        // draining after its pose lock has thawed; stashing an unissued target in that interval
+        // would otherwise let UpdateRtsAttackQueue send it as soon as DRAINED reopens authorship.
+        if (RefuseTacticalFreezeLiveCommand("issuing live attack orders")) return;
+        if (RefuseTacticalFrozenActors(TacticalOrderActors(subjects),
+                "issue live attack orders") ||
+            RefuseTacticalFrozenActor(target, "target it with a live attack order"))
+            return;
         if (target == 0 || _rtsAttackQueue.Contains(target)) return;
         if (_rtsAttackQueue.Count > 0 && !SameRtsMembers(_rtsAttackSubjects, subjects))
             ClearRtsAttackQueue();
@@ -1963,7 +2003,7 @@ public sealed partial class GameLoop
     {
         if (_rtsAttackQueue.Count == 0) return;
         ulong target = _rtsAttackQueue[0];
-        if (_net?.SuiOrder(1, _rtsAttackSubjects, target, 0, 0, 0) != true) return;
+        if (!TrySendLiveSuiOrder(1, _rtsAttackSubjects, target, 0, 0, 0)) return;
         NoteCompanionOrder(1, _rtsAttackSubjects);
         _rtsAttackIssuedAt = NowSeconds();
         if (_entities.TryGet(target, out WorldEntity unit))
@@ -2012,6 +2052,12 @@ public sealed partial class GameLoop
     /// </summary>
     private void IssueRtsMoveOrder(List<ulong> subjects, Vector3 point)
     {
+        // The coalescer is presentation state with a delayed wire edge. Gate before clearing or
+        // stashing anything so a click made during an owned drain cannot fire after DRAINED.
+        if (RefuseTacticalFreezeLiveCommand("issuing live move orders")) return;
+        if (RefuseTacticalFrozenActors(TacticalOrderActors(subjects),
+                "issue live move orders"))
+            return;
         ClearRtsAttackQueue();
         if (_hasPendingMoveOrder && _pendingMoveSubjects is not null &&
             !SameRtsMembers(_pendingMoveSubjects, subjects))
@@ -2036,8 +2082,13 @@ public sealed partial class GameLoop
     /// </summary>
     private void SendRtsMoveOrder(List<ulong> subjects, Vector3 point, double now)
     {
+        if (!TrySendLiveSuiOrder(0, subjects, 0, point.X, point.Y, point.Z))
+        {
+            _hasPendingMoveOrder = false;
+            _pendingMoveSubjects = null;
+            return;
+        }
         BeginRtsMovePresentation(subjects, point);
-        _net?.SuiOrder(0, subjects, 0, point.X, point.Y, point.Z);
         NoteCompanionOrder(0, subjects);
         _rtsMoveMarkers.Add((point, now, RtsFriendlyTint));
         ClearRtsWaypointChain();
@@ -2093,6 +2144,11 @@ public sealed partial class GameLoop
     /// cold (the bots stood still while it was authored), then close the loop.</summary>
     private void EngageRtsPatrolDraft()
     {
+        if (RefuseTacticalFreezeLiveCommand("authoring a patrol"))
+        {
+            CancelRtsPatrolAuthoring(silent: true);
+            return;
+        }
         List<ulong> subjects = [.. _rtsPatrolDraftSubjects];
         if (_rtsPatrolDraft.Count == 0 || _net is null)
         {
@@ -2100,12 +2156,13 @@ public sealed partial class GameLoop
             return;
         }
         foreach (Vector3 leg in _rtsPatrolDraft)
-            _net.SuiOrder(3, subjects, 0, leg.X, leg.Y, leg.Z);
+            TrySendLiveSuiOrder(3, subjects, 0, leg.X, leg.Y, leg.Z,
+                reportRefusal: false);
         bool engaged = false;
         foreach (ulong guid in subjects)
             if (_entities.TryGet(guid, out WorldEntity unit) && !unit.IsDead)
             {
-                engaged = _net.SuiOrder(4, subjects, 0,
+                engaged = TrySendLiveSuiOrder(4, subjects, 0,
                     unit.Position.X, unit.Position.Y, unit.Position.Z);
                 break;
             }
@@ -2553,6 +2610,8 @@ public sealed partial class GameLoop
     private void BeginCommandViewInteraction(CommandViewInteractKind kind, ulong guid, WorldEntity subject,
         ConfirmPopupUiLaw.NpcServiceRoute? route = null, IReadOnlyList<ulong>? walkers = null)
     {
+        if (RefuseTacticalFreezeLiveCommand("interacting")) return;
+        if (RefuseTacticalFrozenActor(guid, "interact with it")) return;
         _cvPendingInteractGuid = guid;
         _cvPendingInteractKind = kind;
         _cvPendingInteractRoute = route;
@@ -2576,7 +2635,13 @@ public sealed partial class GameLoop
         List<ulong> ordered = CommandViewPartyWalksToSubject(kind) && _cvPendingInteractWalkers.Count > 0
             ? _cvPendingInteractWalkers
             : new List<ulong> { walker };
-        _net?.SuiOrder(0 /* ORDER_MOVE */, ordered, 0, destination.X, destination.Y, destination.Z);
+        if (!TrySendLiveSuiOrder(0 /* ORDER_MOVE */, ordered, 0,
+                destination.X, destination.Y, destination.Z))
+        {
+            _cvPendingInteractGuid = 0;
+            _cvPendingInteractWalkers.Clear();
+            return;
+        }
         if (ordered.Count > 1) NoteCompanionOrder(0, ordered);
         _rtsMoveMarkers.Add((subject.Position, NowSeconds(), RtsNeutralTint));
         if (kind is CommandViewInteractKind.Service or CommandViewInteractKind.Quests or CommandViewInteractKind.Choose)
@@ -2607,6 +2672,22 @@ public sealed partial class GameLoop
     private void UpdateCommandViewPendingInteraction()
     {
         if (_cvPendingInteractGuid == 0) return;
+        // A walk-to-service armed before a lock is delayed local state just like the move
+        // coalescer. Retire it while active/draining so arrival cannot open loot, an NPC session,
+        // or a game object immediately after DRAINED under an obsolete pre-plan click.
+        if (TacticalFreezeBlocksLiveCommands)
+        {
+            _cvPendingInteractGuid = 0;
+            _cvPendingInteractWalkers.Clear();
+            return;
+        }
+        if (IsTacticalActorFrozen(_cvPendingInteractGuid))
+        {
+            _cvPendingInteractGuid = 0;
+            _cvPendingInteractRoute = null;
+            _cvPendingInteractWalkers.Clear();
+            return;
+        }
         double now = NowSeconds();
         CommandViewInteractKind kind = _cvPendingInteractKind;
         ulong guid = _cvPendingInteractGuid;
@@ -2739,14 +2820,17 @@ public sealed partial class GameLoop
     private void SyncManualPrimary()
     {
         if (_net is null) return;
+        if (TacticalFreezeBlocksLiveCommands) return;
         ulong primary = _freeView && !Settings.Controls.CommandViewPrimaryAi
             ? (RtsPrimaryGuid != 0 ? RtsPrimaryGuid : _cvFollowGuid) : 0;
         double now = NowSeconds();
         if (primary == _cvManualGuid && (primary == 0 || now - _cvManualSentAt < 3.0)) return;
         if (_cvManualGuid != 0 && _cvManualGuid != primary && _entities.TryGet(_cvManualGuid, out _))
-            _net.SuiOrder(SuiOrderAuto, [_cvManualGuid], 0, 0f, 0f, 0f);
+            TrySendLiveSuiOrder(SuiOrderAuto, [_cvManualGuid], 0, 0f, 0f, 0f,
+                reportRefusal: false);
         if (primary != 0)
-            _net.SuiOrder(SuiOrderManual, [primary], 0, 0f, 0f, 0f);
+            TrySendLiveSuiOrder(SuiOrderManual, [primary], 0, 0f, 0f, 0f,
+                reportRefusal: false);
         _cvManualGuid = primary;
         _cvManualSentAt = now;
     }
@@ -2757,7 +2841,7 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// STICKY lock (owner, 2026-09-01): while locked, the ridden unit cannot be un-selected by a
-    /// stray click or marquee, and stays the primary. Only an explicit primary change (Tab or a
+    /// stray click or marquee, and stays the primary. Only an explicit primary change (Q or a
     /// portrait click, which set <see cref="_rtsPrimaryGuid"/> to another SELECTED unit) retargets
     /// the lock; releasing it is the only way off. Runs every free-view frame.
     /// </summary>
@@ -2768,7 +2852,7 @@ public sealed partial class GameLoop
             return;                                    // gone or dead: CommandViewCameraTarget drops it
         bool explicitRetarget = _rtsPrimaryGuid != 0 && _rtsPrimaryGuid != _cvFollowGuid &&
             _freecamSelection.Contains(_rtsPrimaryGuid);
-        if (explicitRetarget) return;                  // Tab / portrait click: the lock follows
+        if (explicitRetarget) return;                  // Q / portrait click: the lock follows
         if (!_freecamSelection.Contains(_cvFollowGuid)) _freecamSelection.Insert(0, _cvFollowGuid);
         _rtsPrimaryGuid = _cvFollowGuid;
     }
@@ -3153,6 +3237,7 @@ public sealed partial class GameLoop
                 _entities.TryGet(pickedUnit, out WorldEntity queuedTarget) &&
                 !queuedTarget.IsDead && CanAttack(queuedTarget))
             {
+                if (TryQueueTacticalAttack(pickedUnit)) return;
                 List<ulong> queuedSubjects =
                     [.. RtsControlGroupLaw.NormalizeMembers(_freecamSelection)];
                 QueueRtsAttack(queuedSubjects, pickedUnit);
@@ -3255,6 +3340,30 @@ public sealed partial class GameLoop
         ulong picked = pressPick.Armed
             ? pressPick.UnitGuid
             : PickUnit(click.Position, out pickedUnitHit);
+
+        // While the explicit lock is active every ordinary Command View move/attack gesture becomes
+        // a KOTOR queue record. The same click is consumed for a frozen non-owner, who is read-only.
+        if (TacticalFreezeBlocksLiveCommands)
+        {
+            // Only the owner of a currently active lock authors queue records. A foreign lock or
+            // an owned FIFO that is merely draining consumes the gesture without staging any of
+            // the legacy move/attack/interaction buffers below.
+            if (OwnedActiveTacticalLock is not null)
+            {
+                if (picked != 0 && _entities.TryGet(picked, out WorldEntity tacticalTarget) &&
+                    !tacticalTarget.IsDead && CanAttack(tacticalTarget))
+                    TryQueueTacticalAttack(picked);
+                else if (pressPick.Armed && pressPick.GroundPoint is Vector3 tacticalLatched)
+                    TryQueueTacticalMove(tacticalLatched);
+                else if (TryPickGround(click.Position, out Vector3 tacticalGround))
+                    TryQueueTacticalMove(tacticalGround);
+                else
+                    FrozenInputConsumed();
+            }
+            else
+                FrozenInputConsumed();
+            return;
+        }
         // Right-click on a lootable corpse (owner, 2026-09-02): loot it as your own character.
         // In reach it opens now; out of reach the character walks there and the loot opens on
         // arrival (RTS style), since loot is session-scoped and cannot be done "as a bot".
@@ -3327,13 +3436,14 @@ public sealed partial class GameLoop
         }
         // Chain (owner 2026-09-03: "chain 2 players and 2 others — not just main to main"):
         // right-click a PARTY MEMBER with a selection and the selection follows THAT member.
-        // The server stores the anchor per unit and the roster reports it back (chain lines).
+        // The server stores the anchor per unit and the roster reports it back to the
+        // party-portrait and command-card indicators.
         if (picked != 0 && !queue && subjects.Count > 0 && IsPartyMemberGuid(picked) &&
             _entities.TryGet(picked, out WorldEntity anchorUnit) && !anchorUnit.IsDead)
         {
             List<ulong> followers = subjects.Where(guid => guid != picked).ToList();
             if (followers.Count == 0) return;
-            _net?.SuiOrder(5, followers, picked, 0, 0, 0);
+            if (!TrySendLiveSuiOrder(5, followers, picked, 0, 0, 0)) return;
             NoteCompanionOrder(5, followers);
             _rtsMoveMarkers.Add((anchorUnit.Position, NowSeconds(), RtsFriendlyTint));
             AddChatMessage($"{OrderSubjectLabel(followers)}: chain to {ResolveWorldUnitName(picked)}.");
@@ -3348,7 +3458,7 @@ public sealed partial class GameLoop
             else
             {
                 ClearRtsAttackQueue();
-                _net?.SuiOrder(1, subjects, picked, 0, 0, 0);
+                if (!TrySendLiveSuiOrder(1, subjects, picked, 0, 0, 0)) return;
                 NoteCompanionOrder(1, subjects);
                 _rtsMoveMarkers.Add((target.Position, NowSeconds(), RtsHostileTint));
                 ClearRtsWaypointChain();
@@ -3369,7 +3479,7 @@ public sealed partial class GameLoop
                 if (_rtsWaypointChain.Count > 0 &&
                     !SameRtsMembers(_rtsWaypointSubjects, subjects))
                     ClearRtsWaypointChain();
-                _net?.SuiOrder(3, subjects, 0, point.X, point.Y, point.Z);
+                if (!TrySendLiveSuiOrder(3, subjects, 0, point.X, point.Y, point.Z)) return;
                 NoteCompanionOrder(3, subjects);
                 // Re-anchor the chain's ownership on every leg: the highlighted set can change
                 // between clicks, and the route belongs to whoever was last told to walk it.
@@ -3449,6 +3559,7 @@ public sealed partial class GameLoop
     internal void SwitchControlTo(ulong guid)
     {
         if (guid == ControlledGuid) return;
+        if (RefuseTacticalFreezeLiveCommand("changing control")) return;
         switch (_controlState)
         {
             case ControlState.OwnChar when guid != LocalPlayerGuid:
@@ -3484,7 +3595,6 @@ public sealed partial class GameLoop
         if (!_freeView) return;
         var draw = ImGui.GetForegroundDrawList();
         Vector2 display = ImGui.GetIO().DisplaySize;
-        DrawCommandViewChainLines(draw, display);
 
         // Dashed connector through the waypoint chain, so the route reads at a glance.
         if (_rtsWaypointChain.Count > 1)
@@ -3861,7 +3971,7 @@ public sealed partial class GameLoop
                 ? "Wheel: Raise/lower camera"
                 : "Wheel: Fly toward/away",
             $"{BindingHint(GameBinding.TargetNearestEnemy)}: Target enemy    " +
-                $"{BindingHint(GameBinding.RtsCyclePrimaryNext)}: Next primary",
+                $"{BindingHint(GameBinding.RtsCyclePrimaryNext)}: Next selected card",
             CommandViewLocked
                 ? $"{BindingHint(GameBinding.RtsLockCameraPrimary)}: Release camera    " +
                   $"{BindingHint(GameBinding.RtsTurnLeft)}/{BindingHint(GameBinding.RtsTurnRight)}: Orbit"

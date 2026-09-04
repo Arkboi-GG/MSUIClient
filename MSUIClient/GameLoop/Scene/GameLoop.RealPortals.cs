@@ -430,6 +430,7 @@ public sealed partial class GameLoop
             ApplyFactionControlGroupsCapability(capabilities, factionProbeReply);
             ApplyPartyMemberFactsCapability(capabilities);
             ApplyPartyTaxiCapability(capabilities);
+            ApplyTacticalFreezeCapability(capabilities);
         }
         if (trailerValid || capabilities != 0)
         {

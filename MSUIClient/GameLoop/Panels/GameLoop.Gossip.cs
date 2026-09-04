@@ -48,6 +48,8 @@ public sealed partial class GameLoop
 
     private bool RequestGossip(ulong guid)
     {
+        if (RefuseTacticalFreezeLiveCommand("opening gossip")) return false;
+        if (RefuseTacticalFrozenActor(guid, "open gossip with it")) return false;
         string outcome;
         string detail;
         WorldEntity? target = null;
@@ -206,6 +208,9 @@ public sealed partial class GameLoop
                 $"visualIndex={visualIndex};listId={option.ListId}");
             return false;
         }
+        if (RefuseTacticalFreezeLiveCommand("selecting a gossip option")) return false;
+        if (RefuseTacticalFrozenActor(_gossipMenu.SourceGuid,
+                "select a gossip option from it")) return false;
         string route = ClassifyGossipRoute(_gossipSourceFlags, option.Text);
         bool sent = _net?.GossipSelect(_gossipMenu.SourceGuid, option.ListId) == true;
         EmitInterface("gossip", "select", sent ? "SENT" : "SEND_FAILED", _gossipMenu.SourceGuid,

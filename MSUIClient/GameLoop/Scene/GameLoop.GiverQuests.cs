@@ -65,6 +65,8 @@ public sealed partial class GameLoop
     private void RequestGiverQuests(ulong giver)
     {
         if (!_partyGiverQuestsAvailable || _net is not { IsInWorld: true } || giver == 0) return;
+        if (RefuseTacticalFreezeLiveCommand("opening party quest services")) return;
+        if (RefuseTacticalFrozenActor(giver, "open its party quest service")) return;
         _giverQuestsGiverGuid = giver;
         _giverQuestsOpen = true;
         double now = NowSeconds();

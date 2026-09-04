@@ -223,12 +223,18 @@ public sealed partial class GameLoop
             case StaticPopupCoordinatorLaw.EffectKind.Accept:
                 if (summon)
                 {
+                    if (RefuseTacticalFreezeLiveCommand("accepting a summon")) return;
+                    if (RefuseTacticalFrozenActor(_summonRequester,
+                            "accept a summon from them")) return;
                     bool sent = _summonRequester != 0 && _net?.SummonResponse(_summonRequester) == true;
                     EmitInterface("summon", "answer", sent ? "ACCEPTED" : "SEND_FAILED", _summonRequester, "wire=CMSG_SUMMON_RESPONSE");
                     _summonRequester = 0;
                 }
                 else
                 {
+                    if (RefuseTacticalFreezeLiveCommand("accepting a quest confirmation")) return;
+                    if (RefuseTacticalFrozenActor(_questConfirmStarter,
+                            "accept a quest confirmation from them")) return;
                     bool sent = _questConfirmId != 0 && _net?.QuestConfirmAccept(_questConfirmId) == true;
                     EmitInterface("quest", "confirm-accept", sent ? "ACCEPTED" : "SEND_FAILED", _questConfirmStarter,
                         $"quest={_questConfirmId};wire=CMSG_QUEST_CONFIRM_ACCEPT");
@@ -385,7 +391,9 @@ public sealed partial class GameLoop
             GameText.Draw(draw, "GameFontHighlightSmall",
                 _playerNames.GetValueOrDefault(candidate, $"Player-{candidate & 0xffff:X4}"),
                 min + new Vector2(4 * s, 2 * s), s);
-            if (clicked)
+            if (clicked && !RefuseTacticalFreezeLiveCommand("assigning loot") &&
+                !RefuseTacticalFrozenActor(_loot.Source, "assign its loot") &&
+                !RefuseTacticalFrozenActor(candidate, "assign loot to them"))
             {
                 bool sent = _net?.LootMasterGive(_loot.Source, (byte)_lootMasterMenuSlot, candidate) == true;
                 EmitInterface("loot", "master-give", sent ? "SENT" : "SEND_FAILED", _loot.Source,

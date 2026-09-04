@@ -149,6 +149,8 @@ public sealed partial class GameLoop
 
     private bool RequestAuction(ulong guid)
     {
+        if (RefuseTacticalFreezeLiveCommand("opening the auction house")) return false;
+        if (RefuseTacticalFrozenActor(guid, "open its auction service")) return false;
         bool eligible = AuctioneerEligible(guid, out WorldEntity? npc, out float distanceSquared);
         bool sent = eligible && _net?.AuctionHello(guid) == true;
         EmitInterface("auction", "hello-send", sent ? "SENT" : "REFUSED", guid,
@@ -447,6 +449,9 @@ public sealed partial class GameLoop
     {
         if (!AuctionSessionInRange(out _) || _net is null ||
             _auctionLists[tab].Rows.All(x => x.Id != id)) return false;
+        if (RefuseTacticalFreezeLiveCommand("placing an auction bid")) return false;
+        if (RefuseTacticalFrozenActor(_auctioneerGuid, "place an auction bid through it"))
+            return false;
         bool sent = _net.AuctionBid(_auctioneerGuid, id, price);
         EmitInterface("auction", "bid-send", sent ? "SENT" : "SEND_FAILED", _auctioneerGuid,
             $"auction={id};price={price};actor=0x{ControlledGuid:X}");
@@ -456,6 +461,9 @@ public sealed partial class GameLoop
     private bool CancelAuction(uint id)
     {
         if (!AuctionSessionInRange(out _) || _net is null) return false;
+        if (RefuseTacticalFreezeLiveCommand("cancelling an auction")) return false;
+        if (RefuseTacticalFrozenActor(_auctioneerGuid, "cancel an auction through it"))
+            return false;
         bool sent = _net.AuctionCancel(_auctioneerGuid, id);
         EmitInterface("auction", "cancel-send", sent ? "SENT" : "SEND_FAILED", _auctioneerGuid,
             $"auction={id};actor=0x{ControlledGuid:X}");
@@ -481,6 +489,9 @@ public sealed partial class GameLoop
         if (!AuctionSessionInRange(out _) || _net is null) return false;
         WorldEntity? item = ResolveAuctionSellItem();
         if (item is null) return false;
+        if (RefuseTacticalFreezeLiveCommand("creating an auction")) return false;
+        if (RefuseTacticalFrozenActor(_auctioneerGuid, "create an auction through it"))
+            return false;
         bool sent = _net.AuctionSell(_auctioneerGuid, item.Guid, bid, buyout, durationMinutes);
         EmitInterface("auction", "create-send", sent ? "SENT" : "SEND_FAILED", _auctioneerGuid,
             $"item={item.Entry};itemGuid=0x{item.Guid:X16};count={item.Fields.ItemStackCount};bid={bid};" +

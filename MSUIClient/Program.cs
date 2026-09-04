@@ -1902,6 +1902,13 @@ public sealed partial class GameLoop : IDisposable
         // and cast interruption belong to that streamed body; none may seize the observer rig.
         bool controllerRooted = ControllerOwnsControlledBodyPose && _movementRooted;
         bool controllerIceBlockFrozen = ControllerOwnsControlledBodyPose && _iceBlockFrozen;
+        bool controlledBodyTacticallyFrozen = TacticalFreezePoseLaw.IsFrozen(ControlledGuid);
+        bool tacticalLiveAuthorshipBlocked = TacticalFreezeBlocksLiveCommands;
+        // Command View's controller is deliberately still a live camera. Everywhere else the
+        // displayed driven body follows this controller even while parked/flying. The full live
+        // authorship law also stays closed after Resume while an owned FIFO drains; pose rendering
+        // thaws, but controller prediction and movement packets cannot race that plan.
+        bool controllerTacticalFrozen = !_freeView && tacticalLiveAuthorshipBlocked;
 
         // Root and Ice Block are intentionally separate. A normal root removes translation and
         // jump while leaving turning/casting live. Ice Block additionally freezes facing and the
@@ -1912,7 +1919,7 @@ public sealed partial class GameLoop : IDisposable
             strafe = 0f;
             scriptedJump = false;
         }
-        if (controllerIceBlockFrozen)
+        if (controllerIceBlockFrozen || controllerTacticalFrozen)
         {
             forward = 0f;
             strafe = 0f;
@@ -1974,7 +1981,8 @@ public sealed partial class GameLoop : IDisposable
         // it needs to know what was pressed and whether the aim is being steered.
         _moveForward = forward;
         _moveStrafe = strafe;
-        _steering = !controllerIceBlockFrozen && !vanillaControlLocked &&
+        _steering = !controllerIceBlockFrozen && !controllerTacticalFrozen &&
+            !vanillaControlLocked &&
             (turn != 0f || mouseSteering);
 
         // Cam confirmed from 1.12 play: a seated character only stands back up on
@@ -1985,7 +1993,10 @@ public sealed partial class GameLoop : IDisposable
         // slower than this, and CharacterRenderer.ChooseClip's own !state.Moving
         // check already renders the stand-up locally without waiting for it; this
         // is just keeping the server's copy honest.
-        bool standTriggerNow = translating || BindingDown(GameBinding.Jump);
+        bool sessionBodyTacticallyFrozen = TacticalFreezePoseLaw.IsFrozen(LocalPlayerGuid);
+        bool standTriggerNow = !tacticalLiveAuthorshipBlocked && !sessionBodyTacticallyFrozen &&
+            !TacticalFreezePoseLaw.IsFrozen(ControlledGuid) &&
+            (translating || BindingDown(GameBinding.Jump));
         if (standTriggerNow && !_wasStandTriggerActiveLastFrame &&
             _entities.TryGet(LocalPlayerGuid, out WorldEntity selfSeated) &&
             selfSeated.Fields.StandState is (byte)UnitStandState.Sit or (byte)UnitStandState.Kneel
@@ -2000,13 +2011,15 @@ public sealed partial class GameLoop : IDisposable
         {
             Forward = forward,
             Strafe = strafe,
-            Up = typing || controllerRooted || controllerIceBlockFrozen || vanillaControlLocked ? 0f : ((scriptedInput ? scriptedJump : BindingDown(GameBinding.Jump)) ? 1f : 0f) -
+            Up = typing || controllerRooted || controllerIceBlockFrozen || controllerTacticalFrozen || vanillaControlLocked ? 0f : ((scriptedInput ? scriptedJump : BindingDown(GameBinding.Jump)) ? 1f : 0f) -
                                 (InputKeyDown(Key.CapsLock) ? 1f : 0f),
             Yaw = controllerIceBlockFrozen ? _iceBlockFacing :
+                controllerTacticalFrozen ? _controller.Yaw :
                 vanillaControlLocked ? _controller.Yaw : _window.Camera.Yaw,
             Pitch = -_window.Camera.Pitch + DrunkMovementLaw.SwimPitchWobble(
                 drunkWobble, _controller.Swimming, translating),
-            Jump = !controllerRooted && !controllerIceBlockFrozen && !vanillaControlLocked && (scriptedInput
+            Jump = !controllerRooted && !controllerIceBlockFrozen && !controllerTacticalFrozen &&
+                !vanillaControlLocked && (scriptedInput
                 ? scriptedJump : !typing && BindingDown(GameBinding.Jump)),
             Walking = (_walkToggled || shift) && !_controller.Flying,
             Boost = shift && _controller.Flying,
@@ -2058,8 +2071,11 @@ public sealed partial class GameLoop : IDisposable
         float movementPreviousFallMs = _controller.FallTimeMs;
         Vector3 movementPreviousPosition = _controller.Position;
         long phaseStarted = Stopwatch.GetTimestamp();
-        bool serverRideActive = UpdateServerRide();
-        if (!serverRideActive) _controller.Update(dt, input);
+        bool serverRideHeldByTacticalFreeze =
+            UpdateServerRideTacticalFreeze(tacticalLiveAuthorshipBlocked);
+        bool serverRideActive = serverRideHeldByTacticalFreeze ||
+            (!tacticalLiveAuthorshipBlocked && UpdateServerRide());
+        if (!serverRideActive && !controllerTacticalFrozen) _controller.Update(dt, input);
         UpdatePredictedBreath();
         ReconcileControlledTransportRider();
         ResolveRealPortalMovement(movementPreviousPosition);
@@ -2073,7 +2089,7 @@ public sealed partial class GameLoop : IDisposable
             movementWasGrounded, _controller.Grounded,
             movementWasFlying, _controller.Flying,
             movementPreviousPosition.Z, _controller.Position.Z);
-        if (_net is { IsInWorld: true })
+        if (_net is { IsInWorld: true } && !controllerTacticalFrozen)
         {
             bool movementJumped = input.Jump && _controller.Velocity.Z > 0f &&
                 (movementWasGrounded && !_controller.Grounded ||
@@ -2489,7 +2505,8 @@ public sealed partial class GameLoop : IDisposable
             ? poseUnit.Fields.UnitStandState : (byte)0,
         EmoteState = _entities.TryGet(ControlledGuid, out WorldEntity emoteUnit)
             ? emoteUnit.Fields.NpcEmoteState : 0,
-        FreezePose = _iceBlockFrozen || aura?.Frozen == true,
+        FreezePose = _iceBlockFrozen || aura?.Frozen == true ||
+            TacticalFreezePoseLaw.IsFrozen(ControlledGuid),
         ApplyBodyVisual = aura is not null,
         BodyAlpha = aura?.Alpha ?? 1f,
         BodyTint = aura?.Tint ?? Vector3.One,
@@ -3055,9 +3072,11 @@ public sealed partial class GameLoop : IDisposable
         bool flying = _serverRideSpline?.Flying == true;
         AuraVisualState? aura = _entities.TryGet(RenderSelfGuid, out WorldEntity auraUnit)
             ? auraUnit.AuraVisual : null;
+        bool tacticalMountFrozen = TacticalFreezePoseLaw.IsFrozen(ControlledGuid);
         if (creatures.TryDrawSelfMount(_window.Camera, guid, display, controller.Position,
                 controller.Yaw, travelSpeed, walkSpeed, flying, aura?.Alpha ?? 1f,
-                aura?.Tint ?? Vector3.One, aura?.Frozen == true, out Matrix4x4 seat))
+                aura?.Tint ?? Vector3.One, aura?.Frozen == true || tacticalMountFrozen,
+                out Matrix4x4 seat))
             _character.MountSeat = seat;
     }
 

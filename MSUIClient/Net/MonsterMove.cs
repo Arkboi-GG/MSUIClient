@@ -153,7 +153,7 @@ public sealed class CreatureSpline
     private readonly Vector3[] _pts;
     private readonly float[] _segLen;
     private readonly float _total;
-    private readonly long _startMs;
+    private long _startMs;
     private readonly uint _durationMs;
     public bool Flying { get; }
     public uint Id { get; }
@@ -194,6 +194,16 @@ public sealed class CreatureSpline
 
     /// <summary>Average speed along the whole path (yd/s) — used to pick walk vs run later.</summary>
     public float AverageSpeed => _total / (_durationMs / 1000f);
+
+    /// <summary>
+    /// Exclude a client-side authoritative freeze interval from this spline's clock. Position is
+    /// held by EntityStore while frozen; moving the origin forward makes the first thaw sample
+    /// continue from that exact fraction instead of jumping to the wall-clock endpoint.
+    /// </summary>
+    public void RebaseAfterPause(long pausedMs)
+    {
+        if (pausedMs > 0) _startMs += pausedMs;
+    }
 
     /// <summary>
     /// Position + facing at a moment. Returns TRUE while the move is still running and

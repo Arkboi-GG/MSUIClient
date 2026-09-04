@@ -70,6 +70,7 @@ public sealed partial class GameLoop
         // are re-snapshotted back (owner feedback: "modify talent builds without logging out/in").
         // The frame already reads the controlled unit's tree; only this write gate kept it read-only.
         if (!CanAuthorControlledGameplay) return false;
+        if (RefuseTacticalFreezeLiveCommand("spending a talent point")) return false;
         if (_net is null || _talents is null || !_talents.TryGet(talentId, out TalentInfo talent)) return false;
         int rank = TalentRank(talent);
         bool pass = TalentEligible(talent, out string reason);
@@ -132,6 +133,8 @@ public sealed partial class GameLoop
     {
         if (!CanAuthorControlledGameplay || ControlledGuid != LocalPlayerGuid ||
             _net is null || _talentWipeTrainer == 0) return false;
+        if (RefuseTacticalFrozenActor(_talentWipeTrainer,
+                "unlearn talents through it")) return false;
         byte[] body = WorldSession.BuildTalentWipeBody(_talentWipeTrainer);
         _net.ConfirmTalentWipe(_talentWipeTrainer);
         EmitInterface("talent", "unlearn-confirm", "SENT", _talentWipeTrainer,

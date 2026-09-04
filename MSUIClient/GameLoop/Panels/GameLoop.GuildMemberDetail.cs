@@ -142,7 +142,12 @@ public sealed partial class GameLoop
                 normalFont: GuildFrameUiLaw.SmallButtonNormalFont,
                 highlightFont: GuildFrameUiLaw.SmallButtonHighlightFont,
                 disabledFont: GuildFrameUiLaw.SmallButtonDisabledFont))
-            _net?.GroupInvite(member.Name);
+        {
+            if (!RefuseTacticalFreezeLiveCommand("inviting a party member") &&
+                !RefuseTacticalFrozenActor(KnownPlayerGuid(member.Name),
+                    "invite them to a party"))
+                _net?.GroupInvite(member.Name);
+        }
         OfferVanillaNewbieTooltip(new("guild-member-action", 2), "Group Invite",
             FriendsFrameUiLaw.GroupInviteTooltip);
 

@@ -55,6 +55,9 @@ public sealed partial class GameLoop
         StaticPopupCoordinatorLaw.Slots.Empty;
     private long _staticPopupLastUpdateTicks = Stopwatch.GetTimestamp();
     private bool _partyInviteAccepted;
+    /// <summary>The inviter resolved from the name-only vanilla packet, when already known.</summary>
+    private ulong _partyInviteGuid;
+    private string _partyInviteName = "";
     private readonly float[] _partyLowHealthTimers = new float[PartyFrameUiLaw.MemberCount];
     private double _partyLowHealthLastAt;
     private int _partyPressIndex = -1;
@@ -124,6 +127,8 @@ public sealed partial class GameLoop
             _partyLootThreshold != 0 || _partyGroupType != 0 || _partyInGroup ||
             _partyOwnFlags != 0 || _partyRaidTargets.Any(guid => guid != 0);
         HidePartyInvite();
+        _partyInviteGuid = 0;
+        _partyInviteName = "";
         _partyMembers.Clear();
         _partyStats.Clear();
         Array.Clear(_partyRaidTargets);
@@ -315,6 +320,9 @@ public sealed partial class GameLoop
     private void ApplyPartyInvite(byte[] body)
     {
         string inviter = PartyFramePacketLaw.ParseInvite(body);
+        _partyInviteName = inviter;
+        _partyInviteGuid = _playerNames.FirstOrDefault(pair =>
+            pair.Value.Equals(inviter, StringComparison.OrdinalIgnoreCase)).Key;
         AddChatMessage(GroupUiLaw.InvitedLine(inviter));
         bool playerDeadOrGhost = _net is not null &&
             _entities.TryGet(_net.PlayerGuid, out WorldEntity player) && player.IsDead;
@@ -394,9 +402,23 @@ public sealed partial class GameLoop
                     StringComparison.Ordinal))
             {
                 if (effect.Kind == StaticPopupCoordinatorLaw.EffectKind.Accept)
-                    _net?.DuelAccepted(_duelArbiter);
+                {
+                    if (!RefuseTacticalFreezeLiveCommand("accepting a duel") &&
+                        !RefuseTacticalFrozenActor(_duelPopupChallenger,
+                            "accept a duel from them"))
+                        _net?.DuelAccepted(_duelArbiter);
+                    _duelPopupChallenger = 0;
+                }
                 else if (effect.Kind == StaticPopupCoordinatorLaw.EffectKind.CancelClicked)
+                {
                     _net?.DuelCancelled(_duelArbiter);
+                    _duelPopupChallenger = 0;
+                }
+                else if (effect.Kind is StaticPopupCoordinatorLaw.EffectKind.OnHide or
+                         StaticPopupCoordinatorLaw.EffectKind.CancelTimeout or
+                         StaticPopupCoordinatorLaw.EffectKind.CancelOverride or
+                         StaticPopupCoordinatorLaw.EffectKind.CancelWithoutReason)
+                    _duelPopupChallenger = 0;
                 // Timeout, replacement and a no-free-slot refusal are silent in the 1.12 entry.
                 continue;
             }
@@ -483,8 +505,17 @@ public sealed partial class GameLoop
             switch (effect.Kind)
             {
                 case StaticPopupCoordinatorLaw.EffectKind.Accept:
-                    _net?.GroupAccept();
-                    _partyInviteAccepted = true;
+                    if (_partyInviteGuid == 0 && _partyInviteName.Length != 0)
+                        _partyInviteGuid = _playerNames.FirstOrDefault(pair =>
+                            pair.Value.Equals(_partyInviteName,
+                                StringComparison.OrdinalIgnoreCase)).Key;
+                    if (!RefuseTacticalFreezeLiveCommand("accepting a party invitation") &&
+                        !RefuseTacticalFrozenActor(_partyInviteGuid,
+                            "accept a party invitation from them"))
+                    {
+                        _net?.GroupAccept();
+                        _partyInviteAccepted = true;
+                    }
                     break;
                 case StaticPopupCoordinatorLaw.EffectKind.CancelWithoutReason:
                 case StaticPopupCoordinatorLaw.EffectKind.CancelOverride:
@@ -498,6 +529,8 @@ public sealed partial class GameLoop
                 case StaticPopupCoordinatorLaw.EffectKind.OnHide:
                     if (!_partyInviteAccepted) _net?.GroupDecline();
                     _partyInviteAccepted = false;
+                    _partyInviteGuid = 0;
+                    _partyInviteName = "";
                     break;
             }
         }

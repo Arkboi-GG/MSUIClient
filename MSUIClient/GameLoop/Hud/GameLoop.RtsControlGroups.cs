@@ -61,6 +61,7 @@ public sealed partial class GameLoop
     private void SyncRtsConscription()
     {
         if (_net is null) return;
+        if (TacticalFreezeBlocksLiveCommands) return;
         var current = new HashSet<ulong>();
         foreach (List<ulong> group in _rtsControlGroups)
             foreach (ulong guid in group)
@@ -90,7 +91,8 @@ public sealed partial class GameLoop
         {
             List<ulong> chunk = guids.GetRange(start,
                 Math.Min(RtsControlGroupLaw.MaximumWireSubjects, guids.Count - start));
-            if (_net?.SuiOrder(orderType, chunk, 0, 0, 0, 0) == true)
+            if (TrySendLiveSuiOrder(orderType, chunk, 0, 0, 0, 0,
+                    reportRefusal: false))
                 NoteCompanionOrder(orderType, chunk);
         }
     }
@@ -206,12 +208,13 @@ public sealed partial class GameLoop
             BeginRtsForceRosterLoad(zoneId);
     }
 
-    /// <summary>The seven command-card orders, in the shelf's own cell order.</summary>
+    /// <summary>The eight command-card actions, in the shelf's own 4x2 cell order.</summary>
     private static readonly GameBinding[] RtsOrderBindings =
     [
         GameBinding.RtsOrderFocus, GameBinding.RtsOrderRegroup, GameBinding.RtsOrderHold,
         GameBinding.RtsOrderPatrol, GameBinding.RtsOrderFormationLine,
         GameBinding.RtsOrderFormationCircle, GameBinding.RtsOrderSheath,
+        GameBinding.RtsToggleTacticalFreeze,
     ];
 
     private void UpdateRtsControlGroupKeys(bool typing)
@@ -333,6 +336,9 @@ public sealed partial class GameLoop
 
     private void AssignRtsControlGroup(int index)
     {
+        // Saving also changes server conscription. Do not let the local card diverge while the
+        // authoritative lock or an owned post-thaw FIFO still owns live-world mutation.
+        if (RefuseTacticalFreezeLiveCommand("editing control groups")) return;
         string number = RtsControlGroupLaw.DisplayNumber(index);
         int eligibleCount = _freecamSelection.Count(IsRtsGroupMember);
         ulong[] members = RtsControlGroupLaw.NormalizeMembers(
@@ -407,7 +413,7 @@ public sealed partial class GameLoop
         if (members.Count is 0 or > RtsControlGroupLaw.MaximumWireSubjects || _net is null)
             return false;
         ClearRtsAttackQueue();
-        bool sent = _net.SuiOrder(orderType, members, 0, 0, 0, 0);
+        bool sent = TrySendLiveSuiOrder(orderType, members, 0, 0, 0, 0);
         if (sent) NoteCompanionOrder(orderType, members);
         return sent;
     }
@@ -425,7 +431,7 @@ public sealed partial class GameLoop
         foreach (ulong guid in members)
             if (_entities.TryGet(guid, out WorldEntity unit) && !unit.IsDead)
             {
-                bool sent = _net.SuiOrder(4, members, 0,
+                bool sent = TrySendLiveSuiOrder(4, members, 0,
                     unit.Position.X, unit.Position.Y, unit.Position.Z);
                 if (sent) NoteCompanionOrder(4, members);
                 return sent;
@@ -705,7 +711,8 @@ public sealed partial class GameLoop
                 NowSeconds() - _rtsControlGroupStatusAt < 8.0)
                 ImGui.TextWrapped(_rtsControlGroupStatus);
 
-            if (ImGui.Button("Clear temporary group"))
+            if (ImGui.Button("Clear temporary group") &&
+                !RefuseTacticalFreezeLiveCommand("editing control groups"))
             {
                 bool selectedThisGroup = SameRtsMembers(_freecamSelection, members);
                 bool routeForThisGroup = SameRtsMembers(_rtsWaypointSubjects, members);

@@ -60,17 +60,22 @@ public sealed partial class GameLoop
                 // landed-hit flinch (CombatWound) so the impact still reads.
                 _creatures?.TriggerCombatReaction(anchor, 0, landedHit: true);
         }
-        else if (stage.Equals("precast", StringComparison.OrdinalIgnoreCase) ||
-                 stage.Equals("channel", StringComparison.OrdinalIgnoreCase))
-            _character?.BeginSpellVisual(kit.AnimationId);
-        else _character?.ReleaseSpellVisual(kit.AnimationId);
+        else if (!ControlledBodyTacticallyFrozen)
+        {
+            if (stage.Equals("precast", StringComparison.OrdinalIgnoreCase) ||
+                stage.Equals("channel", StringComparison.OrdinalIgnoreCase))
+                _character?.BeginSpellVisual(kit.AnimationId);
+            else
+                _character?.ReleaseSpellVisual(kit.AnimationId);
+        }
         EmitSpellAnimation(info, stage.ToUpperInvariant(), kitId, kit.AnimationId, "DBC_EFFECT_SUPPLIER");
         return true;
     }
 
     private bool PresentSpellAnimation(uint spellId, string stage, string source)
     {
-        if (_spellCatalog?.TryGet(spellId, out SpellInfo info) != true || _character is null)
+        if (ControlledBodyTacticallyFrozen ||
+            _spellCatalog?.TryGet(spellId, out SpellInfo info) != true || _character is null)
             return false;
         if (_spellVisualCatalog?.TryGetStages(info.VisualId, out SpellVisualStages stages) != true)
             return false;

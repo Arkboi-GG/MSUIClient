@@ -137,6 +137,9 @@ public static class SuiCapabilityWire
     /// <summary>Party flight (owner 2026-09-03): the Command View flies the whole commanded
     /// party from a flight master (CMSG/SMSG_SUI_PARTY_TAXI*). Never sent before this bit.</summary>
     public const uint PartyTaxiV1 = 1u << 11;
+    /// <summary>Localized Command View Tactical Freeze plus per-actor command queues.
+    /// All four version-1 packets are forbidden until this bit is observed.</summary>
+    public const uint TacticalFreezeV1 = 1u << 12;
     public const int TrailerLength = 8;
 
     public const byte PrewarmCatalogVersion = 1;
