@@ -285,6 +285,10 @@ internal static class BindingChordClinicalChecks
                   StringComparison.Ordinal) &&
               bindings.Contains("if (wasDown || typing || super) continue;",
                   StringComparison.Ordinal) &&
+              bindings.Contains("if (worldEntry) continue;",
+                  StringComparison.Ordinal) &&
+              bindings.Contains("if (!typing && !super && !worldEntry)",
+                  StringComparison.Ordinal) &&
               bindings.Contains("if (typing) _bindingLatches.Clear();",
                   StringComparison.Ordinal) &&
               bindings.Contains("GameBinding.ToggleAutorun, \"Auto Run\", Key.NumLock",
@@ -323,7 +327,7 @@ internal static class BindingChordClinicalChecks
                   StringComparison.Ordinal) &&
               bindings.Contains("CommitSelection(nearest.Guid, beginAttack: true)",
                   StringComparison.Ordinal),
-            "binding storage or exact-first/fallback runtime dispatch escaped the chord law");
+            "binding storage, world-entry input boundary, or exact-first/fallback runtime dispatch escaped the chord law");
         // The capture now takes the row's input KIND: an ordinary command refuses the world
         // click buttons, a gesture row requires one, and a modifier row takes a bare ladder.
         Check(page.Contains("FirstBindableChordDown(BindingInputKind kind)", StringComparison.Ordinal) &&

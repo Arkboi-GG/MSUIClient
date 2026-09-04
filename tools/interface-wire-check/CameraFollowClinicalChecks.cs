@@ -150,7 +150,7 @@ internal static class CameraFollowClinicalChecks
             File.WriteAllText(path,
                 "{\"Settings\":{\"Version\":9,\"Controls\":{}},\"Presets\":[]}");
             SettingsStore migrated = SettingsStore.Load(root, path);
-            Check(migrated.Settings.Version == 11 &&
+            Check(migrated.Settings.Version == 13 &&
                   migrated.Settings.Controls.CameraFollowStyle == CameraFollowStyle.Smart &&
                   migrated.Settings.Controls.CameraFollowTrackingStyle == CameraFollowStyle.Smart &&
                   migrated.Settings.Controls.CameraFollowYawSpeed ==

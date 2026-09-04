@@ -2382,7 +2382,64 @@ public sealed partial class GameLoop
             return;
         }
         _creatures.SelfPlayerGuid = RenderSelfGuid;
-        _creatures.Render(_window.Camera, _entities);
+        _creatures.Render(_window.Camera, _visibleWorldUnits);
+    }
+
+    /// <summary>
+    /// Build the one per-frame admission list shared by visual unit consumers. Network,
+    /// combat, targeting, audio and the minimap deliberately keep the complete entity store;
+    /// this list answers only whether a unit can contribute a world-space pixel this frame.
+    /// </summary>
+    private void BuildVisibleWorldUnits()
+    {
+        _visibleWorldUnits.Clear();
+        _visibleUnitKnownLastFrame = 0;
+        _visibleUnitDistanceCulledLastFrame = 0;
+        _visibleUnitFrustumCulledLastFrame = 0;
+        _visibleUnitPortalCulledLastFrame = 0;
+
+        Vector3 eye = _window.Camera.Position;
+        Matrix4x4 viewProjection = _window.Camera.RelativeViewProjection;
+        float distance = _creatures?.AnimateDistance ?? 130f;
+        float distanceSq = distance * distance;
+        foreach (WorldEntity unit in _entities.Units)
+        {
+            if (!unit.IsUnit) continue;
+            _visibleUnitKnownLastFrame++;
+
+            // The locally driven body has its own first-person/character rules and must
+            // remain available to those consumers even when its feet are behind the eye.
+            if (unit.Guid == ControlledGuid)
+            {
+                _visibleWorldUnits.Add(unit);
+                continue;
+            }
+
+            Vector3 position = unit.Position;
+            if (Vector3.DistanceSquared(position, eye) > distanceSq)
+            {
+                _visibleUnitDistanceCulledLastFrame++;
+                continue;
+            }
+
+            float renderScale = MathF.Max(unit.Scale, 0.01f);
+            float radius = MathF.Max(1f, renderScale * 2f);
+            Vector3 relative = position - eye;
+            if (!Camera.BoxInFrustum(viewProjection,
+                    relative - new Vector3(radius, radius, radius),
+                    relative + new Vector3(radius, radius, radius * 1.5f)))
+            {
+                _visibleUnitFrustumCulledLastFrame++;
+                continue;
+            }
+            if (_wmo is not null && !_wmo.IsPointPortalVisible(position))
+            {
+                _visibleUnitPortalCulledLastFrame++;
+                continue;
+            }
+
+            _visibleWorldUnits.Add(unit);
+        }
     }
 
     // ── Glue screens: Login -> Character Select -> in-world status ──────────────────────────────

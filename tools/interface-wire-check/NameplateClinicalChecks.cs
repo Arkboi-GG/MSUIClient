@@ -72,6 +72,12 @@ internal static class NameplateClinicalChecks
         string renderer = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Units",
             "WorldNameRenderer.cs"));
         string program = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.cs"));
+        string scene = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
+            "GameLoop.Net.cs"));
+        string creatures = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Units",
+            "CreatureRenderer.cs"));
+        string doodads = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Doodads",
+            "DoodadRenderer.cs"));
         Check(names.Contains("NameplateUiLaw.NameLine", StringComparison.Ordinal) &&
               names.Contains("creatureInfo?.Subname", StringComparison.Ordinal) &&
               names.Contains("_attackTargetGuid == unit.Guid", StringComparison.Ordinal),
@@ -112,6 +118,19 @@ internal static class NameplateClinicalChecks
               program.IndexOf("RenderWorldUnitNames();", StringComparison.Ordinal) >
               program.IndexOf("_liquidRenderMilliseconds", StringComparison.Ordinal),
             "overhead names escaped the late depth-tested world geometry pass");
+        Check(names.Split("foreach (WorldEntity unit in _visibleWorldUnits)",
+                  StringSplitOptions.None).Length - 1 == 2 &&
+              scene.Contains("private void BuildVisibleWorldUnits()", StringComparison.Ordinal) &&
+              scene.Contains("_creatures.Render(_window.Camera, _visibleWorldUnits);",
+                  StringComparison.Ordinal) &&
+              creatures.Contains("IReadOnlyList<WorldEntity> visibleUnits",
+                  StringComparison.Ordinal) &&
+              program.Contains("BuildVisibleWorldUnits();", StringComparison.Ordinal) &&
+              program.Contains("foreach (WorldEntity foamUnit in _visibleWorldUnits)",
+                  StringComparison.Ordinal) &&
+              doodads.Contains("PortalVisibility(inst.WmoInstanceId, inst.OwnerGroups)",
+                  StringComparison.Ordinal),
+            "shared room-aware visual-unit admission or doodad-emitter portal gate drift");
     }
 
     private static void Check(bool condition, string message)

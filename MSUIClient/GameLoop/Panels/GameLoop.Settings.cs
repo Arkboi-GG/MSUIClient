@@ -1818,7 +1818,8 @@ public sealed partial class GameLoop
                 if (Slider("wdet", "Water detail", () => s.Water.DetailPercent,
                         v => { s.Water.DetailPercent = v; s.Water.DetailCustom = false; },
                         0f, 100f, "{0:F0}%",
-                        "Animation rate, frame cross-fade and shoreline softness. Does NOT touch\n" +
+                        "Animation rate and shoreline softness. Automatic quality levels keep\n" +
+                        "the reference client's discrete frame swaps (no cross-fade). Does NOT touch\n" +
                         "the colour set - 1.12 water is a dark, near-opaque textured surface and\n" +
                         "SYSTEM_WATER.md Draft 2 records why that is not a preference."))
                 {

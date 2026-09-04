@@ -91,8 +91,9 @@ public sealed class GameSettings
     /// v10: vanilla Camera Following Style became a persisted Smart/Always/Never control.
     /// v11: cursor scale and movable gameplay-frame positions became persistent.
     /// v12: HUD layouts (PLAN_21) replaced the chat-only offset; a Version 11 chat offset
-    ///      migrates into a Custom layout.</summary>
-    public int Version { get; set; } = 12;
+    ///      migrates into a Custom layout.
+    /// v13: non-custom water resolves to the real build-5875/1.12 shipped profile.</summary>
+    public int Version { get; set; } = 13;
 
     /// <summary>Name of the preset last selected, or "Custom". Cosmetic; the values below are the truth.</summary>
     public string ActivePreset { get; set; } = "Custom";
@@ -1286,17 +1287,33 @@ public sealed class GameSettings
         Detail.OcclusionCulling = t < 0.4f;
     }
 
-    /// <summary>Water detail percent -> the animation and softness knobs. Never touches the Draft 2 colour set.</summary>
+    /// <summary>
+    /// Water detail percent -> animation and shoreline softness. Seventy percent is the
+    /// shipped build-5875 presentation. Frame blending deliberately stays off at every
+    /// automatic quality level: the 1.12 client swaps the authored texture frames rather
+    /// than cross-fading them. Advanced settings can still opt into a custom blend.
+    /// </summary>
     public void ResolveWaterDetail()
     {
         if (Water.DetailCustom) return;
 
         float t = Math.Clamp(Water.DetailPercent / 100f, 0f, 1f);
-
-        Water.AnimationFps = Lerp(4f, 24f, t);
-        Water.FrameBlend = Lerp(0f, 1f, t);
-        Water.ShoreFade = Lerp(1f, 0.75f, t);
-        Water.ShoreWidth = Lerp(0.2f, 2.0f, t);
+        const float shipped = 0.70f;
+        if (t <= shipped)
+        {
+            float q = t / shipped;
+            Water.AnimationFps = Lerp(4f, 12f, q);
+            Water.ShoreFade = Lerp(1f, 0.85f, q);
+            Water.ShoreWidth = Lerp(0.2f, 1.2f, q);
+        }
+        else
+        {
+            float q = (t - shipped) / (1f - shipped);
+            Water.AnimationFps = Lerp(12f, 24f, q);
+            Water.ShoreFade = Lerp(0.85f, 0.75f, q);
+            Water.ShoreWidth = Lerp(1.2f, 2.0f, q);
+        }
+        Water.FrameBlend = 0f;
     }
 
     /// <summary>Run every composite that is not in custom mode. Cheap; call it after any composite moves.</summary>
@@ -1726,6 +1743,21 @@ public sealed class SettingsStore
             s.HudLayout ??= new HudLayoutSettings();
             HudLayoutLaw.Migrate11To12(s.HudLayout);
             s.Version = 12;
+        }
+
+        // v12 -> v13 (2026-09-04): the WaterSettings initializers described the
+        // build-5875 look, but ResolveWaterDetail immediately replaced the shipped
+        // 70% values with 18 FPS and 0.70 frame cross-fade. Move every non-custom
+        // install onto the actual 1.12 baseline once. Explicit Advanced/custom
+        // water remains the user's choice and is not touched.
+        if (s.Version < 13)
+        {
+            if (!s.Water.DetailCustom)
+            {
+                s.Water.DetailPercent = 70f;
+                s.ResolveWaterDetail();
+            }
+            s.Version = 13;
         }
 
     }

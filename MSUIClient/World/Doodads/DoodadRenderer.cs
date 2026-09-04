@@ -253,6 +253,11 @@ public sealed class DoodadRenderer : IDisposable
         /// bind-pose vertices/weights. Null = static (the vast majority).</summary>
         public M2Model? BoneAnimSource;
 
+        /// <summary>Visible vertices depend on a camera-facing/ignore-parent M2 bone.
+        /// These models require a camera- and placement-specific CPU pose and therefore
+        /// leave the shared instanced path.</summary>
+        public bool UsesCameraFacingBones;
+
         /// <summary>Clip evaluator for creature-grade decorative M2s. Null means
         /// the model uses the authored absolute animation-0 timeline instead.</summary>
         public M2Animator? BoneAnimator;
@@ -436,6 +441,8 @@ public sealed class DoodadRenderer : IDisposable
 
     private readonly Dictionary<string, Model?> _models = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _untexturedModelsReported =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Instances grouped by model, so each VAO binds once per frame.</summary>
     private readonly Dictionary<Model, List<Instance>> _byModel = [];
@@ -546,6 +553,8 @@ public sealed class DoodadRenderer : IDisposable
             {
                 var origin = new Vector3(inst.Transform.M41, inst.Transform.M42, inst.Transform.M43);
                 if (Vector3.DistanceSquared(origin, near) > r2) continue;
+                if (inst.WmoInstanceId >= 0 && PortalVisibility is not null &&
+                    !PortalVisibility(inst.WmoInstanceId, inst.OwnerGroups)) continue;
 
                 for (int e = 0; e < model.Emitters.Count; e++)
                 {
@@ -675,7 +684,7 @@ public sealed class DoodadRenderer : IDisposable
     /// unallocated <c>InstanceVbo</c>. That store is now seeded with one element at
     /// build (see BuildModel), so the fetch is in-bounds, and only the handful of
     /// GameObject models actually holding a pose leave the instanced path (see
-    /// <see cref="_animatedGoModels"/>) -- the static world stays instanced. With
+    /// <see cref="_perInstanceModels"/>) -- the static world stays instanced. With
     /// both in place the lane is on by default; set false to fall back to the pre-
     /// animation renderer (GameObjects then rest at their loader pose).
     /// </summary>
@@ -2155,16 +2164,6 @@ public sealed class DoodadRenderer : IDisposable
         var vertices = BuildVertexArray(m2, out var min, out var max);
 
         var indices = m2.Indices.ToArray();
-        if (DoodadBillboardFallbackLaw.SuppressUnsupportedMesh(sourcePath, m2))
-        {
-            // AshenvaleWisps' five green triangles are billboard cards, not
-            // ordinary static mesh. This renderer shares one VBO across every
-            // placement and therefore cannot give them the required
-            // camera/placement-specific pose. Keep the Model and its real flare
-            // emitter, but do not submit the unposed bind cards.
-            indices = [];
-            min = max = Vector3.Zero;
-        }
         bool hasGeometry = m2.Vertices.Count > 0 && indices.Length >= 3;
         if (!hasGeometry)
         {
@@ -2268,10 +2267,10 @@ public sealed class DoodadRenderer : IDisposable
         };
         model.Attach(_gl);
 
-        BuildBatches(m2, model, indices.Length);
+        BuildBatches(m2, model, indices.Length, sourcePath);
         BuildPickMesh(m2, model, indices);
         if (m2.Events.Count > 0) model.EventSource = m2;
-        ClassifyBoneAnimation(m2, model, hasGeometry);
+        ClassifyBoneAnimation(m2, model, hasGeometry, sourcePath);
         model.CollisionTriangles = BuildCollision(m2, CollisionBasisIndex);
         model.Emitters = m2.ParticleEmitters;
         model.EmitterTexturePaths = new string[m2.ParticleEmitters.Count];
@@ -2353,10 +2352,11 @@ public sealed class DoodadRenderer : IDisposable
         model.PickIndices = [.. pickIndices];
     }
 
-    private void BuildBatches(M2Model m2, Model model, int indexCount)
+    private void BuildBatches(M2Model m2, Model model, int indexCount, string sourcePath)
     {
-        foreach (var batch in m2.Batches)
+        for (int batchIndex = 0; batchIndex < m2.Batches.Count; batchIndex++)
         {
+            var batch = m2.Batches[batchIndex];
             if (batch.SubmeshIndex >= m2.Submeshes.Count) continue;
 
             // Match the vanilla/Benilla M2 alpha-combine gate. HouseSmoke,
@@ -2370,11 +2370,37 @@ public sealed class DoodadRenderer : IDisposable
             if (submesh.IndexStart + submesh.IndexCount > indexCount) continue;
 
             Texture? texture = null;
+            string texturePath = "";
+            int textureType = -1;
             if (batch.TextureIndex < m2.TextureLookup.Count)
             {
                 int texIdx = m2.TextureLookup[batch.TextureIndex];
                 if (texIdx >= 0 && texIdx < m2.Textures.Count)
-                    texture = ResolveTexture(m2.Textures[texIdx].Filename);
+                {
+                    M2TextureRef textureRef = m2.Textures[texIdx];
+                    texturePath = textureRef.Filename;
+                    textureType = unchecked((int)textureRef.Type);
+                    texture = ResolveTexture(texturePath);
+                }
+            }
+
+            // A flat opaque grey is a renderer diagnostic, never valid world art. In
+            // particular, old M2s with a replaceable/empty texture reference produce a
+            // free-standing grey card which vanishes when viewed from its culled back face.
+            // That is worse than omitting the unresolved batch, and it can mask the exact
+            // bad asset indefinitely. Keep the whole model resident (other batches may be
+            // valid), skip only this batch, and report the source once for diagnosis.
+            if (texture is null)
+            {
+                if (_untexturedModelsReported.Add(sourcePath))
+                {
+                    string authored = string.IsNullOrWhiteSpace(texturePath)
+                        ? $"<empty replaceable texture type {textureType}>"
+                        : texturePath;
+                    Console.WriteLine($"[doodad-untextured] {sourcePath} batch {batchIndex} " +
+                                      $"cannot resolve {authored} - batch suppressed");
+                }
+                continue;
             }
 
             var material = batch.MaterialIndex < m2.RenderFlags.Count
@@ -2409,9 +2435,7 @@ public sealed class DoodadRenderer : IDisposable
                 IndexStart = submesh.IndexStart,
                 IndexCount = submesh.IndexCount,
                 Texture = texture,
-                // Foliage is nearly always two-sided; when in doubt, draw both
-                // faces. A missing leaf reads as a bug, a doubled one does not.
-                TwoSided = twoSided || texture is null,
+                TwoSided = twoSided,
                 Unlit = unlit,
                 BlendMode = blendMode,
                 NoDepthWrite = material?.NoZWrite ?? false,
@@ -2593,7 +2617,7 @@ public sealed class DoodadRenderer : IDisposable
     /// model can be open and closed at once while the static scenery around them
     /// stays fully instanced. Empty in the steady state with the lane disabled.
     /// </summary>
-    private readonly HashSet<Model> _animatedGoModels = [];
+    private readonly HashSet<Model> _perInstanceModels = [];
 
     /// <summary>
     /// glBlendFunc per M2 blend mode, the same equations the WMO MOMT split
@@ -2664,6 +2688,9 @@ public sealed class DoodadRenderer : IDisposable
     /// </summary>
     public int AnimatedModelCount { get; private set; }
 
+    /// <summary>Loaded models routed through the camera/placement-specific billboard path.</summary>
+    public int BillboardModelCount { get; private set; }
+
     /// <summary>
     /// Decide whether a doodad model gets the per-frame CPU re-skin, and
     /// pre-size its scratch buffers. Also inflates the model's local cull
@@ -2671,12 +2698,17 @@ public sealed class DoodadRenderer : IDisposable
     /// mid-pop (2.78x) is not frustum-rejected at the screen edge — the
     /// instance AABBs are computed from these bounds at placement time.
     /// </summary>
-    private void ClassifyBoneAnimation(M2Model m2, Model model, bool hasGeometry)
+    private void ClassifyBoneAnimation(M2Model m2, Model model, bool hasGeometry,
+        string sourcePath)
     {
         if (!hasGeometry || !m2.HasSkeleton) return;
-        if (m2.Sequences.Count == 0 || !m2.HasAnimatedBones) return;
+
+        bool cameraFacing = DoodadBillboardLaw.RequiresPerInstancePose(m2);
+        bool animated = m2.Sequences.Count > 0 && m2.HasAnimatedBones;
+        if (!cameraFacing && !animated) return;
 
         model.BoneAnimSource = m2;
+        model.UsesCameraFacingBones = cameraFacing;
         model.AnimVertexScratch = new float[m2.Vertices.Count * FloatsPerVertex];
         model.AnimBoneMatrices = new Matrix4x4[m2.Bones.Count];
 
@@ -2685,15 +2717,24 @@ public sealed class DoodadRenderer : IDisposable
         // instead contain Stand, Walk, Run, attack, and other distinct AnimationData ids;
         // running their whole file timeline would cycle through every action, so those use
         // the normal idle clip evaluator.
-        bool animationZeroTimeline = m2.Sequences.All(sequence => sequence.AnimationId == 0);
-        if (!animationZeroTimeline)
+        bool animationZeroTimeline = animated &&
+            m2.Sequences.All(sequence => sequence.AnimationId == 0);
+        if (animated && !animationZeroTimeline)
         {
             model.BoneAnimator = M2Animator.Build(m2,
                 [0, 153, 154, 155, 156, 157], includeStaticSequences: true);
             model.BoneClip = model.BoneAnimator?.Find(0)
                 ?? model.BoneAnimator?.FindSequenceOrBake(0, includeStaticSequences: true);
         }
-        AnimatedModelCount++;
+        if (animated) AnimatedModelCount++;
+        if (cameraFacing)
+        {
+            BillboardModelCount++;
+            int unresolved = model.Batches.Count(batch => batch.Texture is null);
+            Console.WriteLine($"[doodad-billboard] {sourcePath} — {m2.Bones.Count} bone(s), " +
+                $"{m2.Vertices.Count} vertices, {model.Batches.Count} batch(es), " +
+                $"{unresolved} unresolved texture batch(es)");
+        }
 
         // Conservative animated bounds: every corner scaled by the largest
         // authored scale key about every bone pivot, padded by the largest
@@ -2730,12 +2771,13 @@ public sealed class DoodadRenderer : IDisposable
             model.LocalMax = max + pad;
         }
 
-        Console.WriteLine(
-            $"[doodad] animated doodad: {m2.Name} — {m2.Bones.Count} bone(s), " +
-            $"{m2.Vertices.Count} vertice(s), " +
-            (model.BoneClip is { } clip
-                ? $"idle {clip.AnimationId} ({clip.DurationSeconds:F3}s)"
-                : $"timeline loop {m2.AbsoluteTimelineDurationMs} ms"));
+        if (animated)
+            Console.WriteLine(
+                $"[doodad] animated doodad: {m2.Name} — {m2.Bones.Count} bone(s), " +
+                $"{m2.Vertices.Count} vertice(s), " +
+                (model.BoneClip is { } clip
+                    ? $"idle {clip.AnimationId} ({clip.DurationSeconds:F3}s)"
+                    : $"timeline loop {m2.AbsoluteTimelineDurationMs} ms"));
     }
 
     /// <summary>
@@ -2750,7 +2792,8 @@ public sealed class DoodadRenderer : IDisposable
     /// composed with the parent. In System.Numerics row-vector convention that
     /// is T(−pivot)·S·R·T(pivot+translation), then local · parent.
     /// </summary>
-    private unsafe void UpdateAnimatedVertices(Model model, Instance? instance = null)
+    private unsafe void UpdateAnimatedVertices(Model model, Instance? instance = null,
+        Camera? camera = null)
     {
         var m2 = model.BoneAnimSource;
         if (m2 is null || model.AnimVertexScratch is null || model.AnimBoneMatrices is null)
@@ -2765,7 +2808,9 @@ public sealed class DoodadRenderer : IDisposable
         DynamicStateAnimation? stateAnimation = instance?.StateAnimation;
         ulong sampleGuid = oneShot is null && stateAnimation is null
             ? 0 : instance!.DynamicGuid;
-        if (model.LastAnimSampleTime == NowSeconds &&
+        bool perInstanceBillboard = model.UsesCameraFacingBones &&
+            instance is not null && camera is not null;
+        if (!perInstanceBillboard && model.LastAnimSampleTime == NowSeconds &&
             model.LastAnimSampleDynamicGuid == sampleGuid) return;
         model.LastAnimSampleTime = NowSeconds;
         model.LastAnimSampleDynamicGuid = sampleGuid;
@@ -2812,6 +2857,9 @@ public sealed class DoodadRenderer : IDisposable
                     : local;
             }
         }
+
+        if (perInstanceBillboard)
+            DoodadBillboardLaw.Apply(m2, instance!.Transform, camera!, mats);
 
         var dst = model.AnimVertexScratch;
         for (int i = 0; i < m2.Vertices.Count; i++)
@@ -2896,12 +2944,15 @@ public sealed class DoodadRenderer : IDisposable
         // instanced path (and only for their own placements), so a resting chest
         // lid or a swinging door never de-instances the scenery around it. Empty
         // in the steady state, which keeps the whole world on the fast path.
-        _animatedGoModels.Clear();
+        _perInstanceModels.Clear();
+        foreach (Model model in _byModel.Keys)
+            if (model.UsesCameraFacingBones)
+                _perInstanceModels.Add(model);
         foreach (var entry in _dynamicByKey.Values)
             if (entry.Instance.StateAnimation is not null ||
                 entry.Instance.OneShot is { } oneShot &&
                 NowSeconds - oneShot.StartedAt < oneShot.DurationSeconds)
-                _animatedGoModels.Add(entry.Model);
+                _perInstanceModels.Add(entry.Model);
 
         _shader.Use();
         _shader.Set("uViewProjection", camera.RelativeViewProjection);
@@ -2953,7 +3004,7 @@ public sealed class DoodadRenderer : IDisposable
         if (UseInstancing)
         {
             // The whole world, minus any model holding an owner-local pose, on the
-            // instanced fast path (RenderInstanced skips exactly _animatedGoModels).
+            // instanced fast path (RenderInstanced skips exactly _perInstanceModels).
             _shader.Set("uUseInstancing", 1);
             RenderInstanced(viewProjection, eye, maxDistanceSq, highlighted, ref cullingOn);
 
@@ -2961,11 +3012,11 @@ public sealed class DoodadRenderer : IDisposable
             // its own held pose: a closed chest, the one open chest you are
             // looting, a door mid-swing. Skipped entirely when none exist, so the
             // steady-state world pays nothing for this second pass.
-            if (_animatedGoModels.Count > 0)
+            if (_perInstanceModels.Count > 0)
             {
                 _shader.Set("uUseInstancing", 0);
                 RenderNonInstanced(camera, eye, maxDistanceSq, viewProjection,
-                    highlighted, _animatedGoModels, ref cullingOn);
+                    highlighted, _perInstanceModels, ref cullingOn);
             }
 
             if (!cullingOn) _gl.Enable(EnableCap.CullFace);
@@ -3041,7 +3092,7 @@ public sealed class DoodadRenderer : IDisposable
                         instance.WorldMax - eye)) { FrustumCulledLastFrame++; continue; }
 
                 if (model.BoneAnimSource is not null)
-                    UpdateAnimatedVertices(model, instance);
+                    UpdateAnimatedVertices(model, instance, camera);
                 if (!bound)
                 {
                     _gl.BindVertexArray(model.Vao);
@@ -3140,7 +3191,7 @@ public sealed class DoodadRenderer : IDisposable
         foreach (var (model, instance) in _deferredBlended)
         {
             if (model.BoneAnimSource is not null)
-                UpdateAnimatedVertices(model, instance);
+                UpdateAnimatedVertices(model, instance, camera);
             if (!ReferenceEquals(model, boundModel))
             {
                 _gl.BindVertexArray(model.Vao);
@@ -3337,7 +3388,7 @@ public sealed class DoodadRenderer : IDisposable
             // shared instanced VBO can carry only one pose, so a closed chest and
             // the open chest beside it cannot both ride it. Skipping it here is
             // what keeps that pass from double-drawing over this one.
-            if (_animatedGoModels.Contains(model)) continue;
+            if (_perInstanceModels.Contains(model)) continue;
 
             long cullStarted = Stopwatch.GetTimestamp();
             cullModels++;

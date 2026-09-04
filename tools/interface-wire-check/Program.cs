@@ -66,6 +66,46 @@ static void CheckLightingDefaults()
               GameSettings.LightingSettings.ParityInteriorSpill &&
           GameSettings.LightingSettings.ParityInteriorSpill == 1.10f,
         "shipped Parity interior-brightness default drift");
+
+    GameSettings shipped = GameSettings.Defaults();
+    shipped.ResolveComposites();
+    Check(shipped.Version == 13 && shipped.Water.Enabled &&
+          shipped.Water.DrawWmoLiquid && !shipped.Water.UseAuthoredColors &&
+          shipped.Water.DetailPercent == 70f && !shipped.Water.DetailCustom &&
+          shipped.Water.AnimationFps == 12f && shipped.Water.FrameBlend == 0f &&
+          shipped.Water.ShoreFade == .85f && shipped.Water.ShoreWidth == 1.2f &&
+          shipped.Water.Opacity == 1f && shipped.Water.WaveAmplitude == 0f,
+        "shipped water no longer resolves to the build-5875/1.12 baseline");
+
+    string root = ClientConfig.FindRepoRoot();
+    string migrationPath = Path.Combine(Path.GetTempPath(),
+        $"msui-water-v13-{Guid.NewGuid():N}.json");
+    try
+    {
+        File.WriteAllText(migrationPath,
+            "{\"Settings\":{\"Version\":12,\"Water\":{\"DetailPercent\":43.75," +
+            "\"DetailCustom\":false,\"AnimationFps\":12.75,\"FrameBlend\":0.4375}}," +
+            "\"Presets\":[]}");
+        GameSettings migrated = SettingsStore.Load(root, migrationPath).Settings;
+        Check(migrated.Version == 13 && migrated.Water.DetailPercent == 70f &&
+              migrated.Water.AnimationFps == 12f && migrated.Water.FrameBlend == 0f &&
+              migrated.Water.ShoreFade == .85f && migrated.Water.ShoreWidth == 1.2f,
+            "v13 migration did not move non-custom water onto the shipped 1.12 baseline");
+
+        File.WriteAllText(migrationPath,
+            "{\"Settings\":{\"Version\":12,\"Water\":{\"DetailPercent\":43.75," +
+            "\"DetailCustom\":true,\"AnimationFps\":9.5,\"FrameBlend\":0.375," +
+            "\"ShoreFade\":0.91,\"ShoreWidth\":1.7}},\"Presets\":[]}");
+        GameSettings custom = SettingsStore.Load(root, migrationPath).Settings;
+        Check(custom.Version == 13 && custom.Water.DetailPercent == 43.75f &&
+              custom.Water.AnimationFps == 9.5f && custom.Water.FrameBlend == .375f &&
+              custom.Water.ShoreFade == .91f && custom.Water.ShoreWidth == 1.7f,
+            "v13 migration overwrote explicitly customized water");
+    }
+    finally
+    {
+        if (File.Exists(migrationPath)) File.Delete(migrationPath);
+    }
 }
 
 static void CheckPaperDollRegressions()
@@ -162,7 +202,7 @@ static void CheckGameMenuLayout()
             "\"FontScale\":1.35}," +
             "\"MenuLayout\":{}},\"Presets\":[]}");
         SettingsStore migrated = SettingsStore.Load(root, migrationPath);
-        Check(migrated.Settings.Version == 11 &&
+        Check(migrated.Settings.Version == 13 &&
               MathF.Abs(migrated.Settings.MenuLayout.Scale - 1.125f) < .0001f &&
               MathF.Abs(migrated.Settings.MenuLayout.TextScale - 1.35f) < .0001f,
             "menu layout migration did not preserve its existing chrome and text sizes");

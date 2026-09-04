@@ -50,7 +50,7 @@ public sealed partial class GameLoop
         Vector2 display = ImGui.GetIO().DisplaySize;
         Vector3 selfPosition = _controller?.Position ?? player.Position;
         _worldNameLabels.Clear();
-        foreach (WorldEntity unit in _entities.Units)
+        foreach (WorldEntity unit in _visibleWorldUnits)
         {
             bool own = unit.Guid == ControlledGuid;
             bool selected = unit.Guid == _selectionGuid;
@@ -123,7 +123,7 @@ public sealed partial class GameLoop
         Vector3 selfPosition = _controller?.Position ?? player.Position;
         List<PlateCandidate> candidates = [];
 
-        foreach (WorldEntity unit in _entities.Units)
+        foreach (WorldEntity unit in _visibleWorldUnits)
         {
             bool own = unit.Guid == ControlledGuid;
             bool namesEnabled = own ? Settings.Controls.ShowOwnName :

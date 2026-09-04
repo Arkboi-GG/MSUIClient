@@ -8,24 +8,17 @@ var mpq = new MpqMount(data);
 AdtTerrainReader.StormLibExtractor = mpq.ReadFile;
 var hit = mpq.ReadFileWithSupplier(path) ?? throw new Exception("asset missing");
 var m = M2Reader.Parse(hit.Data) ?? throw new Exception("parse failed");
-Check(DoodadBillboardFallbackLaw.SuppressUnsupportedMesh(path, m),
-    "real AshenvaleWisps billboard-card signature was not suppressed");
-string originalName = m.Name;
-m.Name = "Different";
-Check(DoodadBillboardFallbackLaw.SuppressUnsupportedMesh(path, m),
-    "canonical source path stopped matching when the internal name changed");
-Check(!DoodadBillboardFallbackLaw.SuppressUnsupportedMesh("Different.m2", m),
-    "same geometry under an unrelated path was broadly suppressed");
-m.Name = originalName;
+Check(DoodadBillboardLaw.RequiresPerInstancePose(m),
+    "real AshenvaleWisps billboard-card signature was not routed per instance");
 M2Vertex changed = m.Vertices[0];
 byte originalWeight = changed.BoneWeight0;
 changed.BoneWeight0 = 254;
 m.Vertices[0] = changed;
-Check(!DoodadBillboardFallbackLaw.SuppressUnsupportedMesh(path, m),
-    "non-rigid card unexpectedly matched the fallback");
+Check(DoodadBillboardLaw.RequiresPerInstancePose(m),
+    "weighted billboard card stopped requiring a per-instance pose");
 changed.BoneWeight0 = originalWeight;
 m.Vertices[0] = changed;
-Console.WriteLine("green-triangle fallback law checks passed");
+Console.WriteLine("doodad billboard routing law checks passed");
 Console.WriteLine($"source={hit.Supplier} bytes={hit.Data.Length} name={m.Name} version={m.Version}");
 Console.WriteLine($"verts={m.Vertices.Count} indices={m.Indices.Count} submeshes={m.Submeshes.Count} batches={m.Batches.Count} textures={m.Textures.Count} lookup={m.TextureLookup.Count} flags={m.RenderFlags.Count} bones={m.Bones.Count} seq={m.Sequences.Count} emitters={m.ParticleEmitters.Count} ribbons={m.RibbonEmitters.Count}");
 for (int i = 0; i < m.Textures.Count; i++)
@@ -57,6 +50,40 @@ var swBytes = mpq.ReadFile(stormwindPath) ?? throw new Exception("stormwind root
 var sw = WmoReader.ParseRoot(swBytes) ?? throw new Exception("stormwind root parse failed");
 Console.WriteLine($"stormwind doodads={sw.Doodads.Count} sets={sw.DoodadSets.Count}");
 for (int i=0;i<sw.DoodadSets.Count;i++) Console.WriteLine($"set[{i}] {sw.DoodadSets[i].Name} {sw.DoodadSets[i].FirstInstanceIndex}+{sw.DoodadSets[i].DoodadCount}");
+Console.WriteLine("stormwind camera-facing doodad census:");
+var unresolvedStormwind = new List<string>();
+foreach (var group in sw.Doodads.GroupBy(d => d.ModelPath,
+             StringComparer.OrdinalIgnoreCase).OrderBy(g => g.Key,
+             StringComparer.OrdinalIgnoreCase))
+{
+    var asset = mpq.ReadFile(group.Key)
+        ?? mpq.ReadFile(Path.ChangeExtension(group.Key, ".m2"))
+        ?? mpq.ReadFile(Path.ChangeExtension(group.Key, ".mdx"));
+    if (asset is null) continue;
+    M2Model? candidate = M2Reader.Parse(asset);
+    if (candidate is null) continue;
+
+    int unresolved = 0;
+    foreach (M2Batch batch in candidate.Batches)
+    {
+        int lookup = batch.TextureIndex < candidate.TextureLookup.Count
+            ? candidate.TextureLookup[batch.TextureIndex] : -1;
+        string texture = lookup >= 0 && lookup < candidate.Textures.Count
+            ? candidate.Textures[lookup].Filename : "";
+        if (texture.Length == 0 || AdtTerrainReader.ReadBlpPixels(data, texture) is null)
+            unresolved++;
+    }
+    if (unresolved > 0)
+        unresolvedStormwind.Add($"  {group.Key} placements={group.Count()} " +
+            $"bones={candidate.Bones.Count} vertices={candidate.Vertices.Count} " +
+            $"batches={candidate.Batches.Count} unresolved={unresolved}");
+    if (!DoodadBillboardLaw.RequiresPerInstancePose(candidate)) continue;
+    Console.WriteLine($"  {group.Key} placements={group.Count()} bones={candidate.Bones.Count} " +
+        $"vertices={candidate.Vertices.Count} batches={candidate.Batches.Count} " +
+        $"unresolved={unresolved}");
+}
+Console.WriteLine("stormwind unresolved mesh-texture census:");
+foreach (string row in unresolvedStormwind) Console.WriteLine(row);
 var matching = sw.Doodads.Select((d,i)=>(d,i)).Where(x=>x.d.ModelPath.Contains("ASHENVALEWISPS",StringComparison.OrdinalIgnoreCase)).ToArray();
 foreach(var x in matching) Console.WriteLine($"swDoodad[{x.i}] path={x.d.ModelPath} p=({x.d.PosX:R},{x.d.PosY:R},{x.d.PosZ:R}) q=({x.d.QuatX:R},{x.d.QuatY:R},{x.d.QuatZ:R},{x.d.QuatW:R}) scale={x.d.Scale:R} color={x.d.ColorR},{x.d.ColorG},{x.d.ColorB},{x.d.ColorA} sets={string.Join(',',sw.DoodadSets.Select((s,i)=>(s,i)).Where(z=>x.i>=z.s.FirstInstanceIndex&&x.i<z.s.FirstInstanceIndex+z.s.DoodadCount).Select(z=>$"{z.i}:{z.s.Name}"))}");
 var adt = AdtTerrainReader.ReadFromMpq(data,"Azeroth",48,30) ?? throw new Exception("ADT missing");

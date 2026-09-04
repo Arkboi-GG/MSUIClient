@@ -464,12 +464,13 @@ public sealed partial class GameLoop : IDisposable
     private double _foliageDrawMilliseconds;
 
     private double _liquidRenderMilliseconds;
-    private int _remoteWakeKnownLastFrame;
+    private readonly List<WorldEntity> _visibleWorldUnits = [];
+    private int _visibleUnitKnownLastFrame;
+    private int _visibleUnitDistanceCulledLastFrame;
+    private int _visibleUnitFrustumCulledLastFrame;
+    private int _visibleUnitPortalCulledLastFrame;
     private int _remoteWakeSampledLastFrame;
-    private int _remoteWakeDistanceCulledLastFrame;
-    private int _remoteWakeFrustumCulledLastFrame;
-    private int _remoteWakePortalCulledLastFrame;
-    private int _remoteWakeAdmissionLogFrames;
+    private int _visualUnitAdmissionLogFrames;
     private double _characterRenderMilliseconds;
     private double _creatureRenderMilliseconds;
     private double _selectionRenderMilliseconds;
@@ -2809,6 +2810,10 @@ public sealed partial class GameLoop : IDisposable
 
         _worldRenderMilliseconds = Stopwatch.GetElapsedTime(worldStarted).TotalMilliseconds;
 
+        // WMO.Render above completed this frame's room PVS. Reuse that verdict for every
+        // visual unit consumer below instead of making each subsystem walk the global store.
+        BuildVisibleWorldUnits();
+
         long characterStarted = Stopwatch.GetTimestamp();
         _gpuProfiler?.Begin(GpuFrameProfiler.Pass.Character);
         // Before the body, because the steed's saddle IS the body's transform. Deliberately
@@ -2967,11 +2972,7 @@ public sealed partial class GameLoop : IDisposable
             // and the display's collision height: the reference emits while
             // wading AND surface swimming, stopping only after a real dive below
             // two body heights.
-            _remoteWakeKnownLastFrame = 0;
             _remoteWakeSampledLastFrame = 0;
-            _remoteWakeDistanceCulledLastFrame = 0;
-            _remoteWakeFrustumCulledLastFrame = 0;
-            _remoteWakePortalCulledLastFrame = 0;
 
             if (_liquid.Enabled && _liquid.WakeEnabled)
             {
@@ -2998,42 +2999,14 @@ public sealed partial class GameLoop : IDisposable
                         waterDepth, collisionHeight, renderScale);
                 }
 
-                // Remote wakes are visual work. Do not perform the expensive WMO
-                // room/floor liquid probe for units that cannot contribute a pixel:
-                // first radius, then camera frustum, then the completed room PVS.
-                // The previous path queried every known unit in a global WMO; UBRS
-                // measured 224 triangle probes per frame for three nearby models.
-                Vector3 wakeEye = _window.Camera.Position;
-                Matrix4x4 viewProjection = _window.Camera.RelativeViewProjection;
-                float wakeDistance = _creatures?.AnimateDistance ?? 130f;
-                float wakeDistanceSq = wakeDistance * wakeDistance;
-                foreach (WorldEntity foamUnit in _entities.Units)
+                // Remote wakes consume the same admitted list as bodies, shadows and names.
+                // The previous path queried every known unit in a global WMO; UBRS measured
+                // 224 triangle probes per frame for three nearby models.
+                foreach (WorldEntity foamUnit in _visibleWorldUnits)
                 {
                     if (foamUnit.Guid == ControlledGuid || foamUnit.DisplayId <= 0) continue;
-                    _remoteWakeKnownLastFrame++;
                     Vector3 feet = foamUnit.Position;
-                    if (Vector3.DistanceSquared(feet, wakeEye) > wakeDistanceSq)
-                    {
-                        _remoteWakeDistanceCulledLastFrame++;
-                        continue;
-                    }
-
                     float renderScale = MathF.Max(foamUnit.Scale, 0.01f);
-                    float radius = MathF.Max(1f, renderScale * 2f);
-                    Vector3 relative = feet - wakeEye;
-                    if (!Camera.BoxInFrustum(viewProjection,
-                            relative - new Vector3(radius, radius, radius),
-                            relative + new Vector3(radius, radius, radius * 1.5f)))
-                    {
-                        _remoteWakeFrustumCulledLastFrame++;
-                        continue;
-                    }
-                    if (_wmo is not null && !_wmo.IsPointPortalVisible(feet))
-                    {
-                        _remoteWakePortalCulledLastFrame++;
-                        continue;
-                    }
-
                     _remoteWakeSampledLastFrame++;
                     float? waterDepth =
                         TryGetBodyLiquidSurface(feet, out float foamSurfaceZ, out _, waterOnly: true) &&
@@ -3051,14 +3024,16 @@ public sealed partial class GameLoop : IDisposable
             else
                 _liquid.ClearWake();
 
-            if (_config.DevTools && ++_remoteWakeAdmissionLogFrames >= 600)
+            if (_config.DevTools && ++_visualUnitAdmissionLogFrames >= 600)
             {
-                _remoteWakeAdmissionLogFrames = 0;
+                _visualUnitAdmissionLogFrames = 0;
                 Console.WriteLine(
-                    $"[water-wake-cull] frame {_window.FrameMs:F2} ms ({_window.Fps:F1} fps), " +
-                    $"liquid {_liquidRenderMilliseconds:F2} ms, known {_remoteWakeKnownLastFrame}, " +
-                    $"sampled {_remoteWakeSampledLastFrame}, distance {_remoteWakeDistanceCulledLastFrame}, " +
-                    $"frustum {_remoteWakeFrustumCulledLastFrame}, portal {_remoteWakePortalCulledLastFrame}");
+                    $"[visual-unit-cull] frame {_window.FrameMs:F2} ms ({_window.Fps:F1} fps), " +
+                    $"known {_visibleUnitKnownLastFrame}, admitted {_visibleWorldUnits.Count}, " +
+                    $"distance {_visibleUnitDistanceCulledLastFrame}, " +
+                    $"frustum {_visibleUnitFrustumCulledLastFrame}, " +
+                    $"portal {_visibleUnitPortalCulledLastFrame}, wake-sampled {_remoteWakeSampledLastFrame}, " +
+                    $"liquid {_liquidRenderMilliseconds:F2} ms");
             }
 
             // WMO liquid (MLIQ). A per-frame INT COMPARE against LiquidVersion,

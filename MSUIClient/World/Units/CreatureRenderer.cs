@@ -428,7 +428,7 @@ public sealed partial class CreatureRenderer : IDisposable
         catch (Exception e) { Console.WriteLine($"[creature] init failed: {e.Message}"); Ok = false; }
     }
 
-    public void Render(Camera camera, EntityStore entities)
+    public void Render(Camera camera, IReadOnlyList<WorldEntity> visibleUnits)
     {
         _attachedItems?.BeginGlowFrame();
         DrawnLastFrame = 0;
@@ -454,7 +454,7 @@ public sealed partial class CreatureRenderer : IDisposable
         _spellPoses.Clear();
 
         _orderedUnits.Clear();
-        foreach (WorldEntity entity in entities.Units)
+        foreach (WorldEntity entity in visibleUnits)
             if (entity.IsUnit && (!entity.IsPlayer || entity.Guid != SelfPlayerGuid))
                 _orderedUnits.Add(entity);
         _sortCameraPosition = camPos;

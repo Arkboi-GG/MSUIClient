@@ -833,7 +833,10 @@ public sealed partial class GameLoop
         // the ordinary path already latched it, and latching twice would fire it twice.
         IReadOnlyList<KeyValuePair<Key, ClientWindow.KeyPress>> taps =
             _window.DrainPressedSinceScan();
-        if (!typing && !super)
+        // Enter pressed on the glue screens can remain in the queued tap list even
+        // after it is released during loading.  World entry is an input boundary:
+        // drain those taps, but do not turn them into gameplay actions.
+        if (!typing && !super && !worldEntry)
         {
             foreach ((Key key, ClientWindow.KeyPress press) in taps)
             {
