@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using MSUIClient;
 using MSUIClient.Formats;
 using MSUIClient.World.Units;
@@ -145,7 +145,7 @@ internal static class ItemGlowClinicalChecks
               attached.Contains("source.ParticleEmitters.Count == 0 && source.RibbonEmitters.Count == 0",
                   StringComparison.Ordinal) &&
               attached.Contains("RenderMesh: false", StringComparison.Ordinal) &&
-              attached.Contains("FloatsPerVertex = 16", StringComparison.Ordinal) &&
+              attached.Contains("FloatsPerVertex = 18", StringComparison.Ordinal) &&
               attached.Contains("AttachedItemBillboardLaw.PreparePalette(",
                   StringComparison.Ordinal) &&
               attached.Contains("shader.SetVec4Array(\"uBones\"",
@@ -168,8 +168,8 @@ internal static class ItemGlowClinicalChecks
                   StringComparison.Ordinal) &&
               attachedVertex.Contains("uniform int uBoneCount", StringComparison.Ordinal) &&
               attachedVertex.Contains("uniform int uEnvironmentMap", StringComparison.Ordinal) &&
-              attachedVertex.Contains("reflect(normalize(viewPosition), viewNormal)", StringComparison.Ordinal) &&
-              attachedVertex.Contains("vUV = mappedUV + uUvOffset", StringComparison.Ordinal) &&
+              attachedVertex.Contains("- 2.0 * dot(viewPosition, viewNormal) * viewNormal;", StringComparison.Ordinal) &&
+              attachedVertex.Contains("vUV = mappedUV + (uEnvironmentMap != 0 ? vec2(0.0) : uUvOffset);", StringComparison.Ordinal) &&
               characterFragment.Contains("if (uUnlit == 0)", StringComparison.Ordinal) &&
               characterFragment.Contains("uFogPolicy == 4 ? 0.0", StringComparison.Ordinal) &&
               effects.Contains("SyncItemGlows", StringComparison.Ordinal) &&

@@ -66,7 +66,9 @@ internal static class ObserverBodyOwnershipClinicalChecks
         Check(streamedTeleport.Contains("_entities.ApplyServerAuthoredMove(", Ordinal) &&
               streamedTeleport.Contains("ObserveTeleportApplied(", Ordinal) &&
               streamedTeleport.Contains("net.TeleportAck(moverGuid, counter);", Ordinal) &&
-              streamedTeleport.Contains("break;", Ordinal) &&
+              // The adopt-and-ACK arm now exits with return; rather than a switch break;.
+              // Either way the requirement is the same: leave before the camera/residency work.
+              streamedTeleport.Contains("return;", Ordinal) &&
               !streamedTeleport.Contains("_controller.Teleport", Ordinal) &&
               !streamedTeleport.Contains("_window.Camera", Ordinal) &&
               !streamedTeleport.Contains("_residentCentre", Ordinal) &&
