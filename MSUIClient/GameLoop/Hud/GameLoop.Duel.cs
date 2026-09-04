@@ -10,6 +10,7 @@ public sealed partial class GameLoop
 {
     private ulong _duelArbiter;
     private ulong _duelPendingChallenger;
+    private ulong _duelPopupChallenger;
     private uint _duelCountdownRemaining;
     private double _duelCountdownNextAt;
 
@@ -23,6 +24,7 @@ public sealed partial class GameLoop
         }
         _duelArbiter = wire.Arbiter;
         _duelPendingChallenger = 0;
+        _duelPopupChallenger = 0;
         if (wire.Challenger == LocalPlayerGuid)
         {
             AddChatMessage(DuelFrameUiLaw.OwnRequestLine);
@@ -42,6 +44,7 @@ public sealed partial class GameLoop
         if (!started) AddChatMessage(DuelFrameUiLaw.CancelledLine);
         _duelArbiter = 0;
         _duelPendingChallenger = 0;
+        _duelPopupChallenger = 0;
         HideDuelPopups();
     }
 
@@ -98,12 +101,15 @@ public sealed partial class GameLoop
         ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(
             _staticPopupSlots, DuelFrameUiLaw.RequestedDefinition, dead,
             dataToken: challenger));
+        _duelPopupChallenger = _duelPendingChallenger;
         _duelPendingChallenger = 0;
     }
 
     private void StartDuelWith(ulong guid)
     {
         if (guid == 0 || guid == ControlledGuid || _spellCatalog is null) return;
+        if (RefuseTacticalFreezeLiveCommand("starting a duel")) return;
+        if (RefuseTacticalFrozenActor(guid, "duel them")) return;
         uint spellId = _actions.KnownSpells.FirstOrDefault(id =>
             _spellCatalog.TryGet(id, out SpellInfo spell) && DuelFrameUiLaw.IsDuelSpell(spell));
         if (spellId == 0) return;
@@ -115,6 +121,7 @@ public sealed partial class GameLoop
     {
         _duelArbiter = 0;
         _duelPendingChallenger = 0;
+        _duelPopupChallenger = 0;
         _duelCountdownRemaining = 0;
         _duelCountdownNextAt = 0;
         HideDuelPopups();

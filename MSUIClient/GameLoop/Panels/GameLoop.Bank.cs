@@ -29,6 +29,8 @@ public sealed partial class GameLoop
     // every read below keys on ControlledGuid (== the session player unpossessed).
     private bool RequestBank(ulong guid)
     {
+        if (RefuseTacticalFreezeLiveCommand("opening the bank")) return false;
+        if (RefuseTacticalFrozenActor(guid, "open its bank service")) return false;
         WorldEntity? banker = null;
         bool eligible = TryGetInteractionBodyPose(out WorldBodyPose sessionBody) &&
                         _entities.TryGet(guid, out banker) && banker.IsCreature &&
@@ -131,6 +133,8 @@ public sealed partial class GameLoop
     private bool DepositBankItem(byte sourceBag, byte sourceSlot, WorldEntity item)
     {
         if (!_bankOpen || _net is null) return false;
+        if (RefuseTacticalFreezeLiveCommand("moving bank items")) return false;
+        if (RefuseTacticalFrozenActor(_bankSource, "deposit through it")) return false;
         bool sent = _net.AutoBankItem(sourceBag, sourceSlot);
         EmitInterface("bank", "deposit-send", sent ? "SENT" : "SEND_FAILED", item.Guid,
             $"item={item.Entry};sourceBag={sourceBag};sourceSlot={sourceSlot};destination=server-selected;body={Convert.ToHexString(WorldSession.BuildAutoBankItemBody(sourceBag, sourceSlot))}");
@@ -158,6 +162,8 @@ public sealed partial class GameLoop
     private bool WithdrawBankSlot(int bankIndex, WorldEntity item)
     {
         if (!_bankOpen || _net is null || bankIndex is < 0 or >= 24) return false;
+        if (RefuseTacticalFreezeLiveCommand("moving bank items")) return false;
+        if (RefuseTacticalFrozenActor(_bankSource, "withdraw through it")) return false;
         byte sourceSlot = (byte)(39 + bankIndex);
         bool sent = _net.AutostoreBankItem(255, sourceSlot);
         EmitInterface("bank", "withdraw-send", sent ? "SENT" : "SEND_FAILED", item.Guid,
@@ -185,6 +191,8 @@ public sealed partial class GameLoop
     private bool BuyNextBankSlot()
     {
         if (!_bankOpen || _net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
+        if (RefuseTacticalFreezeLiveCommand("buying a bank slot")) return false;
+        if (RefuseTacticalFrozenActor(_bankSource, "buy a bank slot from it")) return false;
         _bankSlotCountBefore = player.Fields.BankBagSlotCount;
         bool sent = _net.BuyBankSlot(_bankSource);
         uint price = _bankPrices?.Price(_bankSlotCountBefore + 1) ?? 0;

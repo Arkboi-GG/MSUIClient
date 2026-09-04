@@ -718,6 +718,11 @@ public sealed partial class GameLoop
 
                             if ((Op)opcode == Op.SMSG_NEW_WORLD)
                             {
+                                // The old map's lock broadcaster cannot deliver its later
+                                // tombstone to an observer that has already crossed this
+                                // boundary. NEW_WORLD is therefore authoritative retirement
+                                // for every cached tactical lock and pose on this client.
+                                ResetTacticalFreezeWorldState();
                                 ClearRtsTerritoryCapture();
                                 if (!_worldLoadStarted)
                                     throw new InvalidDataException(
@@ -1050,6 +1055,12 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_SUI_PARTY_TAXI_RESULT:
                         ApplyPartyTaxiResult(body);
+                        break;
+                    case Op.SMSG_SUI_TACTICAL_FREEZE:
+                        ApplyTacticalFreezeSnapshot(body);
+                        break;
+                    case Op.SMSG_SUI_TACTICAL_QUEUE:
+                        ApplyTacticalQueueSnapshot(body);
                         break;
                     case Op.SMSG_SUI_PROXY:
                         ApplySuiProxy(body);

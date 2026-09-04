@@ -343,7 +343,9 @@ public sealed partial class GameLoop
             soldOut: false, usable: recent || VendorItemUsable(player, item),
             recent ? 37f : 44f, recent);
         bool clicked = recent ? input.LeftReleased : input.LeftReleased || input.RightReleased;
-        if (clicked) _net?.BuybackItem(_vendor!.VendorGuid, descriptor.WireInventorySlot);
+        if (clicked && !RefuseTacticalFreezeLiveCommand("buying back an item") &&
+            !RefuseTacticalFrozenActor(_vendor!.VendorGuid, "buy back an item from it"))
+            _net?.BuybackItem(_vendor!.VendorGuid, descriptor.WireInventorySlot);
         if (!input.Hovered || item is null) return;
 
         PreparedVendorTemplateTooltip tooltip = PrepareVendorTemplateTooltip(item, player);

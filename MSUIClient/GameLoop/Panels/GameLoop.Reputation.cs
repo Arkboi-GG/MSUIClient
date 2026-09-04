@@ -122,6 +122,7 @@ public sealed partial class GameLoop
         if (_net is null || slot is < 0 or >= 64) return;
         ReputationState state = _reputation[slot];
         if (!ReputationFrameUiLaw.CanToggleAtWar(state.Flags, totalStanding)) return;
+        if (RefuseTacticalFreezeLiveCommand("changing faction combat hostility")) return;
         _reputation[slot] = state with
         {
             Flags = ReputationFrameUiLaw.WithAtWar(state.Flags, atWar)

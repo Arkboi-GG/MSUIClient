@@ -27,12 +27,14 @@ public sealed partial class GameLoop
 
     private bool RequestBind(ulong guid)
     {
+        if (RefuseTacticalFrozenActor(guid, "bind through it")) return false;
         WorldEntity? inn = null; float distance = float.PositiveInfinity;
         // [SUI] The innkeeper binds the DRIVEN body (server: HandleBinderActivate as GetSuiActor).
         bool eligible = _net is { IsInWorld: true } &&
             TryGetInteractionBodyPose(out WorldBodyPose sessionBody) &&
             _entities.TryGet(guid, out inn) && inn.IsCreature && !inn.IsDead && (inn.NpcFlags & NpcInnkeeper) != 0 &&
             (distance = Vector3.Distance(sessionBody.Position, inn.Position)) <= BinderConfirmUiLaw.ServiceRange;
+        if (eligible && RefuseTacticalFreezeLiveCommand("binding a hearthstone")) return false;
         bool sent = eligible && _net!.BinderActivate(guid);
         EmitInterface("hearth", "bind-send", sent ? "SENT" : "REFUSED", guid,
             $"eligible={eligible};distance={distance:R};npcFlags=0x{inn?.NpcFlags ?? 0:X8};body={Convert.ToHexString(WorldSession.BuildBinderBody(guid))}");
@@ -91,6 +93,7 @@ public sealed partial class GameLoop
         {
             ulong guid = player.Fields.PlayerBackpackSlot(i);
             if (guid == 0 || !_entities.TryGet(guid, out WorldEntity item) || item.Entry != HearthstoneEntry) continue;
+            if (RefuseTacticalFreezeLiveCommand("using a hearthstone")) return false;
             _hearthFrom = sessionBody.Position; _hearthPending = true;
             _net.UseItem(255, (byte)(23 + i), 0);
             EmitInterface("hearth", "use-send", "SENT", guid,
@@ -190,6 +193,8 @@ public sealed partial class GameLoop
 
         if (accept)
         {
+            if (RefuseTacticalFreezeLiveCommand("binding a hearthstone")) return;
+            if (RefuseTacticalFrozenActor(_binderGuid, "bind through it")) return;
             _net?.BinderActivate(_binderGuid);
             _binderConfirmOpen = false;
             EmitInterface("hearth", "bind-confirm", "ACCEPTED", _binderGuid, "wire=CMSG_BINDER_ACTIVATE");

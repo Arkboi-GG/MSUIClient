@@ -109,6 +109,10 @@ public sealed class WorldEntity
 public sealed class EntityStore
 {
     private readonly Dictionary<ulong, WorldEntity> _entities = new();
+    // Monotonic spline-clock pause origin for each tactical-frozen streamed entity. The
+    // authoritative membership itself lives in TacticalFreezePoseLaw; this store owns only the
+    // clock rebasing required by its CreatureSpline instances.
+    private readonly Dictionary<ulong, long> _tacticalFreezeStartedMs = [];
 
     public IReadOnlyDictionary<ulong, WorldEntity> Entities => _entities;
     public int Count => _entities.Count;
@@ -161,7 +165,8 @@ public sealed class EntityStore
 
     public void StopMovement(ulong guid)
     {
-        if (_entities.TryGetValue(guid, out var entity)) entity.Spline = null;
+        if (!TacticalFreezePoseLaw.IsFrozen(guid) &&
+            _entities.TryGetValue(guid, out var entity)) entity.Spline = null;
     }
 
     /// <summary>
@@ -171,7 +176,8 @@ public sealed class EntityStore
     /// </summary>
     public void PredictServerMoveFacing(ulong guid, Vector3 destination)
     {
-        if (!_entities.TryGetValue(guid, out WorldEntity? entity) || entity.IsDead) return;
+        if (TacticalFreezePoseLaw.IsFrozen(guid) ||
+            !_entities.TryGetValue(guid, out WorldEntity? entity) || entity.IsDead) return;
         float dx = destination.X - entity.Position.X;
         float dy = destination.Y - entity.Position.Y;
         if (dx * dx + dy * dy > 1e-6f)
@@ -220,7 +226,8 @@ public sealed class EntityStore
                     if (_entities.TryGetValue(u.Guid, out var ent))
                     {
                         ent.Fields.Merge(u.Fields);
-                        if (ent.IsDead) ent.Spline = null;
+                        if (ent.IsDead && !TacticalFreezePoseLaw.IsFrozen(u.Guid))
+                            ent.Spline = null;
                     }
                     // A VALUES BLOCK IS NOT AN OBJECT ANNOUNCEMENT, AND TREATING IT AS ONE
                     // BUILT A HUSK THAT THE UI THEN WORE.
@@ -249,6 +256,7 @@ public sealed class EntityStore
             case UpdateKind.Movement:
                 if (_entities.TryGetValue(u.Guid, out var em) && u.Movement is { } movement)
                 {
+                    if (TacticalFreezePoseLaw.IsFrozen(u.Guid)) break;
                     em.Transport = movement.Transport;
                     em.TransportProgress = movement.TransportProgress;
                     if (movement.TransportProgress is not null)
@@ -264,7 +272,12 @@ public sealed class EntityStore
                 }
                 break;
             case UpdateKind.OutOfRange:
-                if (u.Guids is not null) foreach (var g in u.Guids) _entities.Remove(g);
+                if (u.Guids is not null)
+                    foreach (var g in u.Guids)
+                    {
+                        _entities.Remove(g);
+                        _tacticalFreezeStartedMs.Remove(g);
+                    }
                 break;
             case UpdateKind.Near:
                 break; // objects entering range; the CREATE that follows carries their data
@@ -275,6 +288,7 @@ public sealed class EntityStore
     public void ApplyMonsterMove(MonsterMove mm, long nowMs)
     {
         if (!_entities.TryGetValue(mm.Guid, out var e)) return;   // unknown guid — not streamed to us
+        if (TacticalFreezePoseLaw.IsFrozen(mm.Guid)) return;      // exact pose owns the old spline
 
         float? dictatedFacing = MonsterMoveFacingLaw.Resolve(mm.Facing, mm.Start, guid =>
             _entities.TryGetValue(guid, out WorldEntity? target) ? target.Position : null);
@@ -307,7 +321,8 @@ public sealed class EntityStore
     /// </summary>
     public void ApplyRemotePlayerMove(ulong guid, MovementInfo mi, long nowMs)
     {
-        if (!_entities.TryGetValue(guid, out var e) || !e.IsPlayer) return;
+        if (TacticalFreezePoseLaw.IsFrozen(guid) ||
+            !_entities.TryGetValue(guid, out var e) || !e.IsPlayer) return;
         e.FacingFromSpline = false;   // players face their reported aim, never the travel vector
         e.MoveFlags = mi.Flags;       // direction bits for gait selection (speed comes from the spline)
         e.Transport = mi.Transport;   // full rider-local frame follows every ON_TRANSPORT relay
@@ -347,7 +362,8 @@ public sealed class EntityStore
     /// <summary>A server-authored move for the locally driven mover is an immediate correction.</summary>
     public void ApplyServerAuthoredMove(ulong guid, MovementInfo mi, long nowMs)
     {
-        if (!_entities.TryGetValue(guid, out WorldEntity? entity)) return;
+        if (TacticalFreezePoseLaw.IsFrozen(guid) ||
+            !_entities.TryGetValue(guid, out WorldEntity? entity)) return;
         entity.Spline = null;
         entity.Position = mi.Position;
         entity.Orientation = mi.Orientation;
@@ -361,6 +377,13 @@ public sealed class EntityStore
     {
         foreach (var e in _entities.Values)
         {
+            if (TacticalFreezePoseLaw.IsFrozen(e.Guid))
+            {
+                _tacticalFreezeStartedMs.TryAdd(e.Guid, nowMs);
+                continue;
+            }
+            if (_tacticalFreezeStartedMs.Remove(e.Guid, out long frozenAt))
+                e.Spline?.RebaseAfterPause(Math.Max(0, nowMs - frozenAt));
             if (e.IsDead) { e.Spline = null; continue; }
             if (e.Spline is null) continue;
             bool running = e.Spline.Sample(nowMs, out Vector3 pos, out float? facing);
@@ -379,7 +402,8 @@ public sealed class EntityStore
         float maxStep = 8f * MathF.Max(0f, dt);
         foreach (WorldEntity entity in _entities.Values)
         {
-            if (!entity.IsCreature || entity.IsDead || entity.Spline is not null) continue;
+            if (TacticalFreezePoseLaw.IsFrozen(entity.Guid) || !entity.IsCreature ||
+                entity.IsDead || entity.Spline is not null) continue;
             ulong? targetGuid = entity.Fields.Target ?? entity.CombatTarget;
             if (targetGuid is null) continue;
 
@@ -406,8 +430,17 @@ public sealed class EntityStore
         return ((result % tau) + tau) % tau;
     }
 
-    public void Remove(ulong guid) => _entities.Remove(guid);
-    public void Clear() => _entities.Clear();
+    public void Remove(ulong guid)
+    {
+        _entities.Remove(guid);
+        _tacticalFreezeStartedMs.Remove(guid);
+    }
+
+    public void Clear()
+    {
+        _entities.Clear();
+        _tacticalFreezeStartedMs.Clear();
+    }
 
     /// <summary>Worldport seam: retain one client-simulated transport while
     /// dropping every map-local entity. The destination create refreshes it in
@@ -417,10 +450,13 @@ public sealed class EntityStore
         if (!_entities.TryGetValue(guid, out WorldEntity? retained))
         {
             _entities.Clear();
+            _tacticalFreezeStartedMs.Clear();
             return;
         }
         _entities.Clear();
         _entities[guid] = retained;
+        foreach (ulong frozenGuid in _tacticalFreezeStartedMs.Keys.Where(key => key != guid).ToArray())
+            _tacticalFreezeStartedMs.Remove(frozenGuid);
     }
 
     public IEnumerable<WorldEntity> Units => _entities.Values.Where(e => e.IsUnit);

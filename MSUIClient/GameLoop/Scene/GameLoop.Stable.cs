@@ -33,7 +33,9 @@ public sealed partial class GameLoop
     /// </summary>
     private void OpenStableForTarget()
     {
+        if (RefuseTacticalFreezeLiveCommand("opening the stable")) return;
         ulong guid = _selectionGuid;
+        if (RefuseTacticalFrozenActor(guid, "open its stable service")) return;
         if (guid == 0 || !_entities.TryGet(guid, out WorldEntity npc) || !npc.IsCreature)
         {
             ShowUiError("Target a stablemaster first.");
@@ -82,7 +84,8 @@ public sealed partial class GameLoop
 
         // The server does not re-push the list after an action, so ask again to keep
         // the window truthful (the active pet and slots just changed).
-        if (ok && StableNpcGuid != 0)
+        if (ok && StableNpcGuid != 0 && !TacticalFreezeBlocksLiveCommands &&
+            !IsTacticalActorFrozen(StableNpcGuid))
             _net?.RequestStabledPets(StableNpcGuid);
     }
 
@@ -90,21 +93,31 @@ public sealed partial class GameLoop
 
     private void StableActivePet()
     {
+        if (RefuseTacticalFreezeLiveCommand("stabling a pet")) return;
+        if (RefuseTacticalFrozenActor(StableNpcGuid, "stable a pet through it")) return;
+        if (RefuseTacticalFrozenActor(_petGuid, "stable it")) return;
         if (StableNpcGuid != 0) _net?.StablePet(StableNpcGuid);
     }
 
     private void UnstableSelectedPet(uint petNumber)
     {
+        if (RefuseTacticalFreezeLiveCommand("unstabling a pet")) return;
+        if (RefuseTacticalFrozenActor(StableNpcGuid, "unstable a pet through it")) return;
         if (StableNpcGuid != 0 && petNumber != 0) _net?.UnstablePet(StableNpcGuid, petNumber);
     }
 
     private void SwapSelectedPet(uint petNumber)
     {
+        if (RefuseTacticalFreezeLiveCommand("swapping stable pets")) return;
+        if (RefuseTacticalFrozenActor(StableNpcGuid, "swap pets through it")) return;
+        if (RefuseTacticalFrozenActor(_petGuid, "swap it out of the stable")) return;
         if (StableNpcGuid != 0 && petNumber != 0) _net?.SwapStablePet(StableNpcGuid, petNumber);
     }
 
     private void BuyStableSlot()
     {
+        if (RefuseTacticalFreezeLiveCommand("buying a stable slot")) return;
+        if (RefuseTacticalFrozenActor(StableNpcGuid, "buy a stable slot from it")) return;
         if (StableNpcGuid != 0) _net?.BuyStableSlot(StableNpcGuid);
     }
 

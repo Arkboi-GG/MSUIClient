@@ -754,6 +754,9 @@ public sealed partial class GameLoop
     {
         if (_areaTriggers is null || !TryGetInteractionBodyPose(out WorldBodyPose sessionBody)) return;
         if (_travelInProgress) return;
+        // Do not latch the volume while frozen/draining: after the authoritative plan completes,
+        // remaining inside must still be able to produce the first live CMSG_AREATRIGGER.
+        if (TacticalFreezeBlocksLiveCommands) return;
 
         // Area triggers are server-owned gameplay volumes for the body the session
         // acts as: the driven bot while possessing (the server runs the handler as

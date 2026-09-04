@@ -76,6 +76,8 @@ public sealed partial class GameLoop
         bool confirmed = false)
     {
         if (_groupLootRolls.Find(roll.Key) is null) return;
+        if (RefuseTacticalFreezeLiveCommand("rolling on loot")) return;
+        if (RefuseTacticalFrozenActor(roll.Key.LootedTarget, "roll on its loot")) return;
         bool bindOnPickup = _items?.TryGet(roll.ItemId, out ItemTemplate? template) == true &&
                             template?.Bonding == 1;
         if (!confirmed && bindOnPickup && vote is GroupLootVote.Need or GroupLootVote.Greed)

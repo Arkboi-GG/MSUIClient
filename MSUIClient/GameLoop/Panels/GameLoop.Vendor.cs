@@ -11,6 +11,8 @@ public sealed partial class GameLoop
 
     private bool RequestVendor(ulong guid)
     {
+        if (RefuseTacticalFreezeLiveCommand("opening a vendor")) return false;
+        if (RefuseTacticalFrozenActor(guid, "open its vendor inventory")) return false;
         string outcome = "REFUSED";
         string detail = "descriptorMissing";
         WorldEntity? npc = null;
@@ -89,6 +91,8 @@ public sealed partial class GameLoop
                 $"item={entry};count={count}");
             return false;
         }
+        if (RefuseTacticalFreezeLiveCommand("buying from a vendor")) return false;
+        if (RefuseTacticalFrozenActor(_vendor.VendorGuid, "buy from it")) return false;
         bool sent = _net?.BuyItem(_vendor.VendorGuid, entry, count) == true;
         EmitInterface("vendor", "buy", sent ? "SENT" : "SEND_FAILED",
             _vendor.VendorGuid,
@@ -101,6 +105,8 @@ public sealed partial class GameLoop
     private bool SellToOpenVendor(ulong itemGuid, byte count = 0)
     {
         if (_vendor is null || itemGuid == 0 || _net is null) return false;
+        if (RefuseTacticalFreezeLiveCommand("selling to a vendor")) return false;
+        if (RefuseTacticalFrozenActor(_vendor.VendorGuid, "sell to it")) return false;
         bool sent = _net.SellItem(_vendor.VendorGuid, itemGuid, count);
         EmitInterface("vendor", "sell", sent ? "SENT" : "SEND_FAILED",
             _vendor.VendorGuid, $"itemGuid=0x{itemGuid:X16};count={count}");

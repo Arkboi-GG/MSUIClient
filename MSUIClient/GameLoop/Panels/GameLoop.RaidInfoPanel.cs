@@ -134,7 +134,7 @@ public sealed partial class GameLoop
 
         bool inWorld = _net is { IsInWorld: true };
         if (VanillaButton(dl, "##raid-info-reset", "Reset Dungeons", min, buttonSize, scale, inWorld)
-            && inWorld)
+            && inWorld && !RefuseTacticalFreezeLiveCommand("resetting dungeon instances"))
             _net?.ResetInstances();
     }
 }

@@ -2137,7 +2137,12 @@ public sealed partial class GameLoop
                     // else goes IN with CMSG_AUTOBANK_ITEM. Bank-bag right-clicks used to send
                     // the deposit opcode for an item that was already deposited. 2026-09-01.
                     bool withdrawing = container == InventoryUiLaw.BankContainer || container is >= 5 and <= 10;
-                    if (withdrawing) _net.AutostoreBankItem(wire.Bag, wire.Slot);
+                    if (withdrawing)
+                    {
+                        if (!RefuseTacticalFreezeLiveCommand("withdrawing a bank item") &&
+                            !RefuseTacticalFrozenActor(_bankSource, "withdraw through it"))
+                            _net.AutostoreBankItem(wire.Bag, wire.Slot);
+                    }
                     else DepositBankItem(wire.Bag, wire.Slot, instance);
                 }
                 else if (_mailOpen && _mailTab == 1) AttachMailItem(instance.Guid, instance.Entry);

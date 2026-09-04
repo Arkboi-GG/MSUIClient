@@ -289,6 +289,17 @@ public sealed class WorldSession : IDisposable
     public void SuiPartyTaxi(byte flags, ulong flightMaster, IReadOnlyList<uint> nodes) =>
         SendPacket((ushort)Op.CMSG_SUI_PARTY_TAXI, PartyTaxiWire.BuildRequest(flags, flightMaster, nodes));
 
+    /// <summary>Request or release one capability-gated Tactical Freeze radius lock.</summary>
+    public void SuiTacticalFreeze(uint requestId, bool desiredActive, ulong lockId) =>
+        SendPacket((ushort)Op.CMSG_SUI_TACTICAL_FREEZE,
+            TacticalFreezeWire.BuildFreezeRequest(requestId, desiredActive, lockId));
+
+    /// <summary>Enqueue, cancel or clear explicit actor records under an authoritative lock.</summary>
+    public void SuiTacticalQueue(ulong lockId, uint requestId, byte operation,
+        IReadOnlyList<TacticalQueueRequestRecord> records) =>
+        SendPacket((ushort)Op.CMSG_SUI_TACTICAL_QUEUE,
+            TacticalFreezeWire.BuildQueueRequest(lockId, requestId, operation, records));
+
     /// <summary>
     /// RTS order. Empty subjects retains the legacy "whole real party" meaning;
     /// callers for temporary groups must always send a nonempty explicit list.

@@ -102,6 +102,8 @@ public sealed partial class GameLoop
             return;
         }
         if (from == to || from == 0 || to == 0) return;
+        if (RefuseTacticalFreezeLiveCommand("moving party items")) return;
+        if (RefuseTacticalFrozenActors([from, to], "move its party items")) return;
         _net?.SuiMemberItemMove(from, to, bag, slot);
     }
 
@@ -120,6 +122,8 @@ public sealed partial class GameLoop
             return;
         }
         if (owner == 0 || (srcBag == destBag && srcSlot == destSlot)) return;
+        if (RefuseTacticalFreezeLiveCommand("rearranging party items")) return;
+        if (RefuseTacticalFrozenActor(owner, "rearrange its party items")) return;
         _net?.SuiMemberItemRearrange(owner, srcBag, srcSlot, destBag, destSlot);
     }
 

@@ -1,4 +1,4 @@
-using MSUIClient;
+﻿using MSUIClient;
 using MSUIClient.Engine;
 
 /// <summary>
@@ -21,6 +21,8 @@ internal static class ObserverBodyOwnershipClinicalChecks
         string portals = Read(client, "GameLoop", "Scene", "GameLoop.RealPortals.cs");
         string runtime = Read(client, "Program.cs");
         string combat = Read(client, "GameLoop", "Combat", "GameLoop.CombatAnimations.cs");
+        // The victim-side swing reaction moved out of CombatAnimations into MeleeSounds.
+        string melee = Read(client, "GameLoop", "Combat", "GameLoop.MeleeSounds.cs");
         string casting = Read(client, "GameLoop", "Combat", "GameLoop.Casting.cs");
         string modes = Read(client, "GameLoop", "Scene", "GameLoop.MovementModes.cs");
         string speeds = Read(client, "GameLoop", "Scene", "GameLoop.MovementSpeed.cs");
@@ -66,7 +68,9 @@ internal static class ObserverBodyOwnershipClinicalChecks
         Check(streamedTeleport.Contains("_entities.ApplyServerAuthoredMove(", Ordinal) &&
               streamedTeleport.Contains("ObserveTeleportApplied(", Ordinal) &&
               streamedTeleport.Contains("net.TeleportAck(moverGuid, counter);", Ordinal) &&
-              streamedTeleport.Contains("break;", Ordinal) &&
+              // The adopt-and-ACK arm now exits with return; rather than a switch break;.
+              // Either way the requirement is the same: leave before the camera/residency work.
+              streamedTeleport.Contains("return;", Ordinal) &&
               !streamedTeleport.Contains("_controller.Teleport", Ordinal) &&
               !streamedTeleport.Contains("_window.Camera", Ordinal) &&
               !streamedTeleport.Contains("_residentCentre", Ordinal) &&
@@ -86,23 +90,34 @@ internal static class ObserverBodyOwnershipClinicalChecks
 
         Check(cursor.Contains("bool goSessionScoped = hoveredGo.GameObjectType is 9 or 19;",
                   Ordinal) &&
-              cursor.Contains("TryGetSessionBodyPose(out goActorBody)", Ordinal) &&
+              // POSSESS_LAW 2.1 names the world cursor verdict and loot explicitly: they gate
+              // on TryGetInteractionBodyPose, NEVER TryGetSessionBodyPose. This block used to
+              // require the session call for both the session-scoped game object and the loot
+              // branch, so it demanded the one call the law forbids here. Assert the law.
+              cursor.Contains("TryGetInteractionBodyPose(out goActorBody)", Ordinal) &&
               cursor.Contains("TryGetControlledBodyPose(out goActorBody)", Ordinal) &&
               cursor.Contains("if (serviceKind is not null)", Ordinal) &&
               cursor.Contains("hasActorPose = TryGetInteractionBodyPose(out actorPose);", Ordinal) &&
               cursor.Contains("else if (unit.IsDead", Ordinal) &&
-              cursor.Contains("hasActorPose = TryGetSessionBodyPose(out actorPose);", Ordinal) &&
+              cursor.Contains("POSSESS_LAW 2.1: loot is done by the driven body", Ordinal) &&
               cursor.Contains("hasActorPose = TryGetControlledBodyPose(out actorPose);", Ordinal) &&
+              !cursor.Contains("TryGetSessionBodyPose", Ordinal) &&
               !cursor.Contains("_controller.Position", Ordinal),
-            "world cursor must use session-body reach for loot, interaction-body reach for " +
-            "services, and controlled-body reach for combat");
+            "world cursor must use interaction-body reach for loot, services and " +
+            "session-scoped game objects (POSSESS_LAW 2.1), and controlled-body reach " +
+            "for combat");
 
+        // POSSESS_LAW 2.1 lists area triggers among the gates that use
+        // TryGetInteractionBodyPose and never TryGetSessionBodyPose. The out-variable is still
+        // named sessionBody in GameLoop.Instances.cs, which is why the rest of this block
+        // still matched while the call itself had already moved.
         Check(instances.Contains(
-                  "TryGetSessionBodyPose(out WorldBodyPose sessionBody)", Ordinal) &&
+                  "TryGetInteractionBodyPose(out WorldBodyPose sessionBody)", Ordinal) &&
               instances.Contains("Vector3 bodyPosition = sessionBody.Position;", Ordinal) &&
               instances.Contains("?.Contains(bodyPosition) == true", Ordinal) &&
               instances.Contains("_areaTriggers.Containing(mapId, bodyPosition)", Ordinal),
-            "area triggers must test the logged-in character body instead of the observer rig");
+            "area triggers must gate on the interaction body (POSSESS_LAW 2.1), never the " +
+            "observer rig");
         Check(portals.Contains(
                   "if (!ControllerOwnsControlledBodyPose || !RealPortalsEnabled", Ordinal),
             "local real-portal crossing must be disabled when the controller is an observer rig");
@@ -114,10 +129,10 @@ internal static class ObserverBodyOwnershipClinicalChecks
 
         Check(combat.Contains(
                   "swing.Attacker == ControlledGuid && !ControlledBodyIsStreamed", Ordinal) &&
-              combat.Contains(
+              melee.Contains(
                   "swing.Victim == ControlledGuid && !ControlledBodyIsStreamed", Ordinal) &&
               combat.Contains("_creatures?.TriggerCombatSwing(swing.Attacker", Ordinal) &&
-              combat.Contains("_creatures?.TriggerCombatReaction(swing.Victim", Ordinal) &&
+              melee.Contains("_creatures?.TriggerCombatReaction(swing.Victim", Ordinal) &&
               casting.Contains(
                   "target == ControlledGuid && !ControlledBodyIsStreamed", Ordinal) &&
               casting.Contains(
@@ -172,15 +187,17 @@ internal static class ObserverBodyOwnershipClinicalChecks
                   "public static float UnitMeleeReachSquared", Ordinal) &&
               cursorLaw.Contains(
                   "UnitMeleeReachSquared(playerCombatReach, unitCombatReach)", Ordinal) &&
-              loot.Contains("TryGetSessionBodyPose(out WorldBodyPose sessionBody)", Ordinal) &&
+              loot.Contains("TryGetInteractionBodyPose(out WorldBodyPose sessionBody)",
+                  Ordinal) &&
               loot.Contains("WorldCursorUiLaw.UnitMeleeReachSquared(", Ordinal) &&
               AppearsBefore(loot, "WorldCursorUiLaw.UnitMeleeReachSquared(",
                   "bool sent = _net.Loot(guid);") &&
               loot.Contains("if (ControlledBodyIsStreamed)", Ordinal) &&
-              loot.Contains("_creatures?.SetLootKneel(LocalPlayerGuid, kneeling);", Ordinal) &&
+              loot.Contains("_creatures?.SetLootKneel(ControlledGuid, kneeling);", Ordinal) &&
               creatures.Contains("private readonly HashSet<ulong> _lootKneeling", Ordinal) &&
               creatures.Contains("_lootKneeling.Contains(e.Guid)", Ordinal),
-            "loot reach and optimistic kneel must stay on the streamed session body");
+            "loot reach and optimistic kneel belong to the driven body: interaction-body " +
+            "reach (POSSESS_LAW 2.1) and ControlledGuid kneel (2.2), never the main");
 
         Check(casting.Contains(
                   "if (!CanAuthorControlledGameplay || _net is not { IsInWorld: true }) return false;",
@@ -216,7 +233,7 @@ internal static class ObserverBodyOwnershipClinicalChecks
                   Ordinal) &&
               characterPage.Contains("if (!CanAuthorSessionInventory) return false;", Ordinal) &&
               characterPage.Contains("sent = _net.SetAmmo(carried.Entry);", Ordinal) &&
-              deleteItem.Contains("if (!CanAuthorSessionInventory ||", Ordinal) &&
+              deleteItem.Contains("if (!CanAuthorControlledOrSelf ||", Ordinal) &&
               talents.Contains(
                   "if (!CanAuthorControlledGameplay || ControlledGuid != LocalPlayerGuid",
                   Ordinal) &&
@@ -231,7 +248,7 @@ internal static class ObserverBodyOwnershipClinicalChecks
         string questSweep = Slice(quest, "private void UpdateQuestGiverStatusQueries()",
             "private void BumpQuestStatusReask");
         Check(taxiSweep.Contains(
-                  "TryGetSessionBodyPose(out WorldBodyPose sessionBody)", Ordinal) &&
+                  "TryGetInteractionBodyPose(out WorldBodyPose sessionBody)", Ordinal) &&
               taxiSweep.Contains(
                   "Vector3.DistanceSquared(sessionBody.Position, unit.Position)", Ordinal) &&
               questSweep.Contains(
@@ -245,7 +262,7 @@ internal static class ObserverBodyOwnershipClinicalChecks
 
         Check(auction.Contains("private bool AuctioneerEligible(", Ordinal) &&
               auction.Contains(
-                  "TryGetSessionBodyPose(out WorldBodyPose sessionBody)", Ordinal) &&
+                  "TryGetInteractionBodyPose(out WorldBodyPose body)", Ordinal) &&
               auction.Contains("private bool AuctionSessionInRange", Ordinal) &&
               auction.Contains("private bool UpdateAuctionLifecycle()", Ordinal) &&
               tabard.Contains("private bool TabardDesignerEligible(", Ordinal) &&

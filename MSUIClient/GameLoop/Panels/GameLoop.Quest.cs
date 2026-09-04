@@ -119,13 +119,26 @@ public sealed partial class GameLoop
     }
 
     private bool RequestQuestStatus(ulong guid) => QuestGate(guid, "status", n => n.QuestgiverStatus(guid));
-    private bool RequestQuestHello(ulong guid) => QuestGate(guid, "hello", n => n.QuestgiverHello(guid));
-    private bool RequestQuestDetails(ulong guid, uint questId) => QuestGate(guid, "details", n => n.QuestgiverQuery(guid, questId));
+    private bool RequestQuestHello(ulong guid)
+    {
+        if (RefuseTacticalFreezeLiveCommand("opening quest services")) return false;
+        if (RefuseTacticalFrozenActor(guid, "open its quest service")) return false;
+        return QuestGate(guid, "hello", n => n.QuestgiverHello(guid));
+    }
+
+    private bool RequestQuestDetails(ulong guid, uint questId)
+    {
+        if (RefuseTacticalFreezeLiveCommand("opening quest details")) return false;
+        if (RefuseTacticalFrozenActor(guid, "request quest details from it")) return false;
+        return QuestGate(guid, "details", n => n.QuestgiverQuery(guid, questId));
+    }
 
     private bool AcceptQuest()
     {
         if (_questDetails is null) return false;
+        if (RefuseTacticalFreezeLiveCommand("accepting a quest")) return false;
         ulong giver = _questDetails.GiverGuid;
+        if (RefuseTacticalFrozenActor(giver, "accept a quest from them")) return false;
         uint quest = _questDetails.QuestId;
         SnapshotQuestEconomy();
         bool sent = QuestGate(giver, "accept", n => n.QuestgiverAccept(giver, quest));
@@ -149,8 +162,12 @@ public sealed partial class GameLoop
         return sent;
     }
 
-    private bool RequestQuestCompletion(ulong guid, uint id) => id != 0 &&
-        QuestGate(guid, "complete-request", n => n.QuestgiverComplete(guid, id));
+    private bool RequestQuestCompletion(ulong guid, uint id)
+    {
+        if (id == 0 || RefuseTacticalFreezeLiveCommand("opening quest completion")) return false;
+        if (RefuseTacticalFrozenActor(guid, "complete a quest with them")) return false;
+        return QuestGate(guid, "complete-request", n => n.QuestgiverComplete(guid, id));
+    }
 
     // Explicit protocol/dev command compatibility. Production Progress Continue uses
     // RequestQuestReward; this overload is only the named COMPLETE_QUEST request path.
@@ -166,12 +183,18 @@ public sealed partial class GameLoop
     {
         uint id = _questRequestItems?.QuestId ?? _questDetails?.QuestId ?? 0;
         ulong guid = _questRequestItems?.GiverGuid ?? _questDetails?.GiverGuid ?? 0;
+        if (id != 0 && RefuseTacticalFreezeLiveCommand("opening quest rewards")) return false;
+        if (id != 0 && RefuseTacticalFrozenActor(guid, "request a quest reward from them"))
+            return false;
         return id != 0 && QuestGate(guid, "reward-request", n => n.QuestgiverRequestReward(guid, id));
     }
 
     private bool ChooseQuestReward(uint choice)
     {
         if (_questOffer is null || choice >= Math.Max(1, _questOffer.ChoiceRewards.Count)) return false;
+        if (RefuseTacticalFreezeLiveCommand("completing a quest")) return false;
+        if (RefuseTacticalFrozenActor(_questOffer.GiverGuid,
+                "choose a quest reward from them")) return false;
         SnapshotQuestEconomy();
         bool rewarded = QuestGate(_questOffer.GiverGuid, "reward-choice",
             n => n.QuestgiverChooseReward(_questOffer.GiverGuid, _questOffer.QuestId, choice));
@@ -188,6 +211,8 @@ public sealed partial class GameLoop
     private bool AbandonQuest(ulong subject, uint questId)
     {
         if (_net is null || subject == 0 || questId == 0) return false;
+        if (RefuseTacticalFreezeLiveCommand("abandoning a quest")) return false;
+        if (RefuseTacticalFrozenActor(subject, "change its quests")) return false;
         var found = QuestLogForSubject(subject).FirstOrDefault(q => q.QuestId == questId);
         bool present = found.QuestId != 0 && found.Slot != QuestFactsWire.NoLogSlot;
         if (found.QuestId == 0)
@@ -1966,6 +1991,7 @@ public sealed partial class GameLoop
             return;
         }
         if (!yes) return;
+        if (RefuseTacticalFreezeLiveCommand("abandoning a quest")) return;
         if (AbandonQuest(confirmation.Subject, confirmation.QuestId))
         {
             PlayUiSound("igQuestLogAbandonQuest");
@@ -2031,6 +2057,7 @@ public sealed partial class GameLoop
             return;
         }
         if (!yes) return;
+        if (RefuseTacticalFreezeLiveCommand("abandoning party quests")) return;
         PartyQuestSubject[] requests = subjects.Select(guid =>
             new PartyQuestSubject(guid, PartyQuestWire.RewardChoiceAuto)).ToArray();
         if (RequestPartyQuestAct(PartyQuestWire.ActionAbandon,

@@ -15,6 +15,10 @@ public sealed partial class GameLoop
     // back. While it is set the level-triggered adopt below stands down, so an optimistic local
     // draw is not reverted — and not re-sent — on every frame of the round trip.
     private byte? _volunteeredSheathState;
+    // Tactical Freeze holds the attachment mirror and any in-flight ceremony at its sampled
+    // frame. On thaw the ordinary authoritative adoption gets one forced comparison without
+    // cancelling a still-valid ceremony whose server echo arrived while the body was held.
+    private bool _sheathTacticalFreezeHeld;
     // False until the mirror has taken the server's byte once for this body. Guards the resync
     // adoption from sounding; every later transition, whoever caused it, is audible.
     private bool _sheathSoundSynced;
@@ -26,8 +30,27 @@ public sealed partial class GameLoop
         if (_net is null || !_net.IsInWorld || _character is null ||
             !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
 
+        if (ControlledBodyTacticallyFrozen)
+        {
+            _sheathTacticalFreezeHeld = true;
+            // Consume the physical edge while held. A Z press made during the lock must not
+            // become a delayed draw/sheath command merely because the key is still down at thaw.
+            _sheathKeyWasDown = BindingBaseDown(GameBinding.Sheath);
+            return;
+        }
+        if (_sheathTacticalFreezeHeld)
+        {
+            _sheathTacticalFreezeHeld = false;
+            // Fields may have advanced while the visual mirror was intentionally held. Force
+            // one silent authoritative comparison now; matching ceremonies continue from their
+            // sampled frame, while a conflicting server byte follows the normal cancellation path.
+            _lastServerSheathState = byte.MaxValue;
+            _sheathSoundSynced = false;
+        }
+
         byte serverState = player.Fields.SheathState;
         byte adopted = serverState <= 2 ? serverState : (byte)0;
+        bool liveAuthorshipBlocked = TacticalFreezeBlocksLiveCommands;
         // Decided once per pass, not inside the writes: the mirror can already agree with the
         // server on the resync frame, and if the flag only flipped when a write happened to
         // occur, the first REAL server-driven change afterwards would be swallowed as a resync.
@@ -82,7 +105,8 @@ public sealed partial class GameLoop
         // Shot. Without this the ranged pose survived a single frame before being forced back to
         // melee — and with the cue attached, starting Auto Shot in melee range sounded a
         // spurious sword draw every time.
-        if (combatForcesDrawn && _visualSheathState != 2 && (_visualSheathState != 1 ||
+        if (!liveAuthorshipBlocked && combatForcesDrawn && _visualSheathState != 2 &&
+            (_visualSheathState != 1 ||
             _pendingCeremonialSheathState is not null))
         {
             _pendingCeremonialSheathState = null;
@@ -100,7 +124,7 @@ public sealed partial class GameLoop
         // base key separately so releasing a modifier before the base cannot manufacture an edge.
         bool physicalDown = BindingBaseDown(GameBinding.Sheath);
         bool acceptedDown = BindingDown(GameBinding.Sheath);
-        if (controllerOwnsBody && acceptedDown && !_sheathKeyWasDown &&
+        if (!liveAuthorshipBlocked && controllerOwnsBody && acceptedDown && !_sheathKeyWasDown &&
             !typing && !player.Engaged && !_character.SheathCeremonyActive)
         {
             byte next = _visualSheathState == 0 ? (byte)1 : (byte)0;
@@ -156,6 +180,7 @@ public sealed partial class GameLoop
         _lastServerSheathState = byte.MaxValue;
         _pendingCeremonialSheathState = null;
         _volunteeredSheathState = null;
+        _sheathTacticalFreezeHeld = false;
         _sheathSoundSynced = false;
         _character?.CancelSheathCeremony();
     }
@@ -203,13 +228,16 @@ public sealed partial class GameLoop
     private void SetVisualSheath(byte state, bool volunteer = true)
     {
         if (state > 2) return;
+        // Late combat/cast packets are presentation events, not permission to change the sampled
+        // body pose. UpdateSheathInput re-adopts the server byte on the first frame after thaw.
+        if (ControlledBodyTacticallyFrozen) return;
         bool ceremonyInFlight = _pendingCeremonialSheathState is not null ||
             _character?.SheathCeremonyActive == true;
         _pendingCeremonialSheathState = null;
         _character?.CancelSheathCeremony();
         if (_visualSheathState == state && !ceremonyInFlight) return;
         SetSheathVisualState(state, audible: true);
-        if (volunteer && ControllerOwnsControlledBodyPose)
+        if (volunteer && !TacticalFreezeBlocksLiveCommands && ControllerOwnsControlledBodyPose)
         {
             _net?.SetSheathed(state);
             _volunteeredSheathState = state;

@@ -30,7 +30,10 @@ public sealed partial class GameLoop
             unit.Fields.ChannelSpell != 0 || unit.InCombat) return;
 
         if (packet.UnitGuid == ControlledGuid && !ControlledBodyIsStreamed)
-            _character?.TriggerOneShot((int)emote.AnimationId);
+        {
+            if (!ControlledBodyTacticallyFrozen)
+                _character?.TriggerOneShot((int)emote.AnimationId);
+        }
         else
             _creatures?.TriggerOneShot(packet.UnitGuid, (int)emote.AnimationId);
 

@@ -1371,7 +1371,9 @@ public sealed partial class GameLoop
             case "/readycheck" or "/rc":
                 _net?.StartReadyCheck(); return true;
             case "/convertraid" or "/raidconvert":
-                _net?.GroupRaidConvert(); return true;
+                if (!RefuseTacticalFreezeLiveCommand("converting the party to a raid"))
+                    _net?.GroupRaidConvert();
+                return true;
         }
         // "/raid <message>" is RAID CHAT (SLASH_RAID); only the bare verb opens the Raid Info
         // panel. Matching "/raid" regardless of its arguments made raid chat unreachable
@@ -1466,12 +1468,19 @@ public sealed partial class GameLoop
             switch (groupCommand)
             {
                 case GroupSlashCommand.Invite:
-                    _net?.GroupInvite(name);
+                    if (!RefuseTacticalFreezeLiveCommand("inviting a party member") &&
+                        !RefuseTacticalFrozenActor(KnownPlayerGuid(name),
+                            "invite them to a party"))
+                        _net?.GroupInvite(name);
                     break;
                 case GroupSlashCommand.Uninvite:
                 {
                     PartyMember? member = _partyMembers.FirstOrDefault(member =>
                         member.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                    if (RefuseTacticalFreezeLiveCommand("removing a party member") ||
+                        RefuseTacticalFrozenActor(member?.Guid ?? 0,
+                            "remove them from the party"))
+                        break;
                     if (member is null || !TryPartyTestUninvite(member.Guid))
                         _net?.GroupUninvite(name);
                     break;
@@ -1481,7 +1490,9 @@ public sealed partial class GameLoop
                     PartyMember? member = _partyMembers.FirstOrDefault(member =>
                         member.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
                     if (member is null) AddChatMessage($"{name} is not in your party.");
-                    else if (!TryPartyTestPromote(member.Guid))
+                    else if (!RefuseTacticalFreezeLiveCommand("promoting a party member") &&
+                        !RefuseTacticalFrozenActor(member.Guid, "promote them") &&
+                        !TryPartyTestPromote(member.Guid))
                         _net?.GroupSetLeader(member.Guid);
                     break;
                 }
@@ -1553,7 +1564,8 @@ public sealed partial class GameLoop
                 return true;
             }
             case "/pvp":
-                _net?.TogglePvp();
+                if (!RefuseTacticalFreezeLiveCommand("changing PvP hostility"))
+                    _net?.TogglePvp();
                 return true;
             case "/played":
                 _net?.PlayedTime();

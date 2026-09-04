@@ -43,6 +43,13 @@ public sealed partial class GameLoop
             return false;
         }
         if (questId == 0 || subjects.Count == 0) return false;
+        if (RefuseTacticalFreezeLiveCommand("changing party quests")) return false;
+        if (npcGuid != 0 && RefuseTacticalFrozenActor(npcGuid,
+                "change party quests through it"))
+            return false;
+        if (RefuseTacticalFrozenActors(subjects.Select(subject => subject.Guid),
+                "change its quests"))
+            return false;
 
         bool sent = _net?.SuiPartyQuest(action, questId, npcGuid, subjects) == true;
         EmitInterface("party-quest", ActionName(action), sent ? "SENT" : "SEND_FAILED",
@@ -138,6 +145,10 @@ public sealed partial class GameLoop
     private void ShareQuestWithParty(uint questId)
     {
         if (questId == 0 || _net is not { IsInWorld: true }) return;
+        if (RefuseTacticalFreezeLiveCommand("sharing a quest")) return;
+        if (RefuseTacticalFrozenActors(CommandViewPartyGuids()
+                .Where(guid => guid != LocalPlayerGuid), "share a quest with them"))
+            return;
         bool sent = _net.PushQuestToParty(questId);
         EmitInterface("quest", "share", sent ? "SENT" : "SEND_FAILED",
             _net.PlayerGuid, $"quest={questId}");

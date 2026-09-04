@@ -192,7 +192,8 @@ public sealed partial class GameLoop
 
         // Armed ground AoE: track the terrain point under the cursor every frame so the
         // render pass can draw the 1.12 targeting rune circle there in realtime.
-        _groundCursorPoint = _groundCastSpell != 0 && !_window.MouseCaptured &&
+        _groundCursorPoint = (_groundCastSpell != 0 || _tacticalGroundSpellId != 0) &&
+            !_window.MouseCaptured &&
             !ImGui.GetIO().WantCaptureMouse && !IsQuestWatchTitleAt(_window.MousePosition) &&
             TryPickGround(_window.MousePosition, out Vector3 aim)
             ? aim : null;
@@ -224,6 +225,8 @@ public sealed partial class GameLoop
             // is still the sky, and its clicks are still orders.
             if (_freeView)
             {
+                if (TryHandleTacticalGroundCast(click, pressPick))
+                    continue;
                 HandleFreeCamWorldClick(click, pressPick);
                 continue;
             }
@@ -403,10 +406,12 @@ public sealed partial class GameLoop
         if (_net is null && !_creatorWorldRequested) return;
 
         bool canAuthor = CanAuthorControlledGameplay;
-        bool wasAttacking = canAuthor && (_attackTargetGuid != 0 ||
+        bool targetFrozen = IsTacticalActorFrozen(guid);
+        bool canAuthorSelection = canAuthor && !targetFrozen;
+        bool wasAttacking = canAuthorSelection && (_attackTargetGuid != 0 ||
             (_net is not null && _combat.IsEngaged(ControlledGuid)));
         bool changed = guid != _selectionGuid;
-        if (changed && canAuthor) StopPetAttackForOldTargetChange(_selectionGuid, guid);
+        if (changed && canAuthorSelection) StopPetAttackForOldTargetChange(_selectionGuid, guid);
         if (changed && wasAttacking)
         {
             EmitCombat("TargetSwitch", "selection-change", guid,
@@ -417,7 +422,9 @@ public sealed partial class GameLoop
         if (changed)
         {
             _selectionGuid = guid;
-            if (canAuthor) _net?.SetSelection(guid);
+            // Selection remains useful local UI while inspecting/queue-targeting a frozen body,
+            // but no live server selection mutation crosses that target-local boundary.
+            if (canAuthorSelection) _net?.SetSelection(guid);
             if (guid != 0 && _net is not null && _entities.TryGet(guid, out WorldEntity identity))
             {
                 if (identity.IsPlayer && _queriedPlayerNames.Add(guid)) _net.NameQuery(guid);
@@ -438,6 +445,7 @@ public sealed partial class GameLoop
             (beginAttack || (changed && wasAttacking)) &&
             _entities.TryGet(guid, out WorldEntity entity) && CanAttack(entity))
         {
+            if (RefuseTacticalFrozenActor(guid, "attack it")) return;
             if (_attackTargetGuid != guid)
             {
                 if (!ObserveAttackPrecondition(entity)) return;

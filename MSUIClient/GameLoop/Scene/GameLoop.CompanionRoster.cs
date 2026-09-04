@@ -86,6 +86,17 @@ public sealed partial class GameLoop
             EmitInterface("companions", "send", "NO_CAPABILITY", guid, $"action={action}");
             return false;
         }
+        // LIST is read-only and remains useful while frozen. Summon/dismiss mutate the live
+        // party and therefore follow the same lock gate as orders, possession and follow state.
+        if (action != CompanionWire.ActionList && TacticalFreezeBlocksLiveCommands)
+        {
+            RefuseTacticalFreezeLiveCommand("changing the companion roster");
+            EmitInterface("companions", "send", "TACTICAL_FREEZE", guid, $"action={action}");
+            return false;
+        }
+        if (action != CompanionWire.ActionList &&
+            RefuseTacticalFrozenActor(guid, "change its companion state"))
+            return false;
         bool sent = _net.SuiCompanion(action, guid);
         EmitInterface("companions", "send", sent ? "SENT" : "REFUSED", guid, $"action={action}");
         return sent;

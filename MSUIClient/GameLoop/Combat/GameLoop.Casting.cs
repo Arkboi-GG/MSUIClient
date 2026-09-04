@@ -83,7 +83,7 @@ public sealed partial class GameLoop
         if (_net is not null && packet.Caster == ControlledGuid)
         {
             if (ControlledBodyIsStreamed) _creatures?.BeginSpellVisual(packet.Caster, anim);
-            else _character?.BeginSpellVisual(anim);
+            else if (!ControlledBodyTacticallyFrozen) _character?.BeginSpellVisual(anim);
             if (info is { } startedInfo)
                 EmitSpellAnimation(startedInfo, "PRECAST", SpellStageKitId(startedInfo.VisualId, "precast"), anim, "SERVER_START");
             if (info?.Ranged == true) SetVisualSheath(2);
@@ -137,7 +137,7 @@ public sealed partial class GameLoop
             if (_pendingCastSpell == packet.SpellId) _pendingCastSpell = 0;
             if (_queuedMeleeSpell == packet.SpellId) _queuedMeleeSpell = 0;
             if (ControlledBodyIsStreamed) _creatures?.ReleaseSpellVisual(packet.Caster, anim);
-            else _character?.ReleaseSpellVisual(anim);
+            else if (!ControlledBodyTacticallyFrozen) _character?.ReleaseSpellVisual(anim);
             if (info is { } completedInfo)
                 EmitSpellAnimation(completedInfo, "CAST", SpellStageKitId(completedInfo.VisualId, "cast"), anim, "SERVER_GO");
             if (info?.Ranged == true) SetVisualSheath(2);
@@ -203,7 +203,10 @@ public sealed partial class GameLoop
         if (!missed) { ApplySpellImpact(target, spellId, visual); return; }
         if (reason is not (3 or 5)) return; // Benilla: Dodge and Block only.
         if (_net is not null && target == ControlledGuid && !ControlledBodyIsStreamed)
-            _character?.TriggerCombatReaction(reason, landedHit: false);
+        {
+            if (!ControlledBodyTacticallyFrozen)
+                _character?.TriggerCombatReaction(reason, landedHit: false);
+        }
         else _creatures?.TriggerCombatReaction(target, reason, landedHit: false);
     }
 
@@ -229,8 +232,11 @@ public sealed partial class GameLoop
             bool wound = anim is 8 or 9 or 10;
             if (_net is not null && target == ControlledGuid && !ControlledBodyIsStreamed)
             {
-                if (wound) _character?.TriggerCombatReaction(0, landedHit: true);
-                else _character?.TriggerOneShot(anim);
+                if (!ControlledBodyTacticallyFrozen)
+                {
+                    if (wound) _character?.TriggerCombatReaction(0, landedHit: true);
+                    else _character?.TriggerOneShot(anim);
+                }
             }
             else if (wound)
                 _creatures?.TriggerCombatReaction(target, 0, landedHit: true);
@@ -272,7 +278,7 @@ public sealed partial class GameLoop
     private void CancelControlledSpellVisual()
     {
         if (ControlledBodyIsStreamed) _creatures?.CancelSpellVisual(ControlledGuid);
-        else _character?.CancelSpellVisual();
+        else if (!ControlledBodyTacticallyFrozen) _character?.CancelSpellVisual();
     }
 
     private void ApplySpellFailure(ulong caster, uint spellId, string text)
@@ -538,7 +544,7 @@ public sealed partial class GameLoop
             PlaySpellSound(ControlledGuid, channelResolved?.Sound);
         }
         if (ControlledBodyIsStreamed) _creatures?.BeginSpellVisual(ControlledGuid, animation);
-        else _character?.BeginSpellVisual(animation);
+        else if (!ControlledBodyTacticallyFrozen) _character?.BeginSpellVisual(animation);
         if (_spellCatalog?.TryGet(spellId, out SpellInfo channelInfo) == true &&
             _spellVisualCatalog?.TryGetStages(channelInfo.VisualId, out SpellVisualStages channelStages) == true)
             EmitSpellAnimation(channelInfo, "CHANNEL", channelStages.Channel, animation, "SERVER_CHANNEL");
@@ -582,7 +588,10 @@ public sealed partial class GameLoop
         _spellEffects?.SpawnKit(unit, 0, kit, persistent: false, NowSeconds(), "PUSHED");
         PlaySpellSound(unit, kit.Sound);
         if (_net is not null && unit == ControlledGuid && !ControlledBodyIsStreamed)
-            _character?.ReleaseSpellVisual(kit.AnimationId);
+        {
+            if (!ControlledBodyTacticallyFrozen)
+                _character?.ReleaseSpellVisual(kit.AnimationId);
+        }
         else
             _creatures?.ReleaseSpellVisual(unit, kit.AnimationId);
     }

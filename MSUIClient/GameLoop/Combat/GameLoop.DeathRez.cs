@@ -267,6 +267,8 @@ public sealed partial class GameLoop
 
     private bool RequestRepop()
     {
+        if (RefuseTacticalFreezeLiveCommand("releasing your spirit")) return false;
+        if (RefuseTacticalFrozenActor(LocalPlayerGuid, "release its spirit")) return false;
         bool eligible = _net is { IsInWorld: true } &&
             _entities.TryGet(_net.PlayerGuid, out WorldEntity player) &&
             player.IsDead && (player.Fields.PlayerFlags & 0x10) == 0;
@@ -279,6 +281,8 @@ public sealed partial class GameLoop
 
     private bool ReclaimCorpse()
     {
+        if (RefuseTacticalFreezeLiveCommand("reclaiming your corpse")) return false;
+        if (RefuseTacticalFrozenActor(_corpseGuid, "reclaim it")) return false;
         bool timerReady = NowSeconds() >= _corpseReclaimReadyAt;
         bool inRange = TryGetSessionBodyPose(out WorldBodyPose sessionBody) &&
             _corpseLocation is { } corpse && corpse.DisplayMap == _config.Start.Map &&
@@ -297,6 +301,11 @@ public sealed partial class GameLoop
     private bool AnswerResurrect(bool accept, string source = "CLICK")
     {
         if (_resurrectOffer is not { } offer || _net is null) return false;
+        if (accept && RefuseTacticalFreezeLiveCommand("accepting a resurrection"))
+            return false;
+        if (accept && RefuseTacticalFrozenActor(offer.Caster,
+                "accept a resurrection from them"))
+            return false;
         bool sent = _net.ResurrectResponse(offer.Caster, accept);
         EmitInterface("death-rez", "resurrect-response",
             sent ? accept ? "ACCEPT_SENT" : "DECLINE_SENT" : "SEND_FAILED", offer.Caster,
@@ -315,6 +324,8 @@ public sealed partial class GameLoop
     {
         if (_spiritHealerGuid == 0 || _net is null) return;
         ulong healer = _spiritHealerGuid;
+        if (RefuseTacticalFreezeLiveCommand("resurrecting at a spirit healer")) return;
+        if (RefuseTacticalFrozenActor(healer, "resurrect through it")) return;
         if (!TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
             !_entities.TryGet(healer, out WorldEntity spiritHealer) ||
             Vector3.DistanceSquared(sessionBody.Position, spiritHealer.Position) >
@@ -445,6 +456,9 @@ public sealed partial class GameLoop
         if (accept) AcceptDeathDialog(dialog.Kind);
         else if (cancel && selfRes is not null)
         {
+            if (RefuseTacticalFreezeLiveCommand("using self-resurrection") ||
+                RefuseTacticalFrozenActor(LocalPlayerGuid, "resurrect itself"))
+                return;
             bool sent = _net?.SelfRes() == true;
             EmitInterface("death-rez", "self-res", sent ? "SENT" : "SEND_FAILED", LocalPlayerGuid,
                 $"spell={player.Fields.PlayerSelfResSpell};wire=CMSG_SELF_RES");

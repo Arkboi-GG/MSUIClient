@@ -81,6 +81,9 @@ public sealed partial class CreatureRenderer
     private readonly Dictionary<ulong, float> _mountAnimTime = [];
     private readonly Dictionary<ulong, (int Sequence, float Time)> _mountFootstepTime = [];
     private readonly Dictionary<ulong, float> _mountFlourishTime = [];
+    private readonly Dictionary<ulong, float> _mountFreezeEvaluationTime = [];
+    private readonly Dictionary<ulong, (M2Animator.Clip? Clip, float Time)> _mountLastVisual = [];
+    private readonly Dictionary<ulong, (M2Animator.Clip? Clip, float Time)> _mountFreezeVisuals = [];
     private readonly Dictionary<ulong, MountDraw> _mountsDrawn = [];
     private readonly Stopwatch _selfMountClock = Stopwatch.StartNew();
     private double _selfMountLastSeconds;
@@ -106,7 +109,8 @@ public sealed partial class CreatureRenderer
     /// <summary>Play AnimationData 94 on a rider's mount child, locally or from the SMSG.</summary>
     public void TriggerMountFlourish(ulong riderGuid)
     {
-        if (riderGuid != 0) _mountFlourishTime[riderGuid] = 0f;
+        if (riderGuid != 0 && !TacticalFreezePoseLaw.IsFrozen(riderGuid))
+            _mountFlourishTime[riderGuid] = 0f;
     }
 
     /// <summary>Publish the frame's mount count. Called once, at the end of the unit pass.</summary>
@@ -164,10 +168,7 @@ public sealed partial class CreatureRenderer
         seat = Matrix4x4.Identity;
         if (mountDisplayId <= 0 || !Ok || !Enabled || _shader is null)
         {
-            _mountsDrawn.Remove(guid);
-            _mountAnimTime.Remove(guid);
-            _mountFlourishTime.Remove(guid);
-            _mountFootstepTime.Remove(guid);
+            ForgetMount(guid);
             return false;
         }
 
@@ -241,6 +242,20 @@ public sealed partial class CreatureRenderer
         if (appearance is null) return false;
 
         MountTuning tune = TuningFor?.Invoke(mountDisplayId) ?? MountTuning.Neutral;
+        bool tacticallyFrozen = TacticalFreezePoseLaw.IsFrozen(guid);
+        float evaluationGlobalTime;
+        if (freezeAnimation)
+        {
+            if (!_mountFreezeEvaluationTime.TryGetValue(guid, out evaluationGlobalTime))
+                _mountFreezeEvaluationTime[guid] = evaluationGlobalTime = tacticallyFrozen
+                    ? EnsureTacticalFreezeStartedAt(guid)
+                    : _globalTime;
+        }
+        else
+        {
+            _mountFreezeEvaluationTime.Remove(guid);
+            evaluationGlobalTime = _globalTime;
+        }
 
         // The steed stands on the ground, so IT takes the render multiplier and the DBC
         // scale (display x model, which is all a mount has — there is no UNIT_FIELD_SCALE_X
@@ -302,17 +317,36 @@ public sealed partial class CreatureRenderer
                 if (!freezeAnimation)
                     at += dt * rate * MathF.Max(0.05f, tune.AnimationRate);
             }
+
+            // Hold the steed's exact clip identity as well as its clocks. Re-selecting from a
+            // newly received speed/flying state while frozen would visibly switch Run to Stand
+            // even though evaluation time and clip-local time were zero-rate.
+            if (freezeAnimation)
+            {
+                if (!_mountFreezeVisuals.TryGetValue(guid, out var held))
+                {
+                    held = _mountLastVisual.GetValueOrDefault(guid, (clip, at));
+                    _mountFreezeVisuals[guid] = held;
+                }
+                clip = held.Clip;
+                at = held.Time;
+            }
+            else
+            {
+                _mountFreezeVisuals.Remove(guid);
+                _mountLastVisual[guid] = (clip, at);
+            }
             if (float.IsNaN(at) || float.IsInfinity(at)) at = 0f;
             _mountAnimTime[guid] = at;
 
             if (clip is not null)
             {
                 pickClip = clip;
-                if (emitAnimationEvents)
+                if (emitAnimationEvents && !freezeAnimation)
                     EmitFootstepEvents(guid, mountDisplayId, position,
                         scale, model.Source, clip, at, mount: true);
                 boneCount = Math.Min(model.BoneCount, M2Animator.MaxBones);
-                model.Animator.Evaluate(clip, at, _globalTime, _mountSkin);
+                model.Animator.Evaluate(clip, at, evaluationGlobalTime, _mountSkin);
                 M2Animator.Pack(_mountSkin, boneCount, _mountPacked);
                 _shader.SetVec4Array("uBones", _mountPacked, boneCount * 3);
                 AnimatedLastFrame++;
@@ -505,6 +539,9 @@ public sealed partial class CreatureRenderer
         _mountAnimTime.Remove(guid);
         _mountFlourishTime.Remove(guid);
         _mountFootstepTime.Remove(guid);
+        _mountFreezeEvaluationTime.Remove(guid);
+        _mountLastVisual.Remove(guid);
+        _mountFreezeVisuals.Remove(guid);
     }
 
     /// <summary>Name a multi-crossing tick, at most once a second, so "many units

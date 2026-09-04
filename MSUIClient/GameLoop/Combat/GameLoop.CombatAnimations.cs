@@ -20,7 +20,10 @@ public sealed partial class GameLoop
         NoteSwingTimerMelee(swing);
 
         if (swing.Attacker == ControlledGuid && !ControlledBodyIsStreamed)
-            _character?.TriggerCombatSwing(offHand);
+        {
+            if (!ControlledBodyTacticallyFrozen)
+                _character?.TriggerCombatSwing(offHand);
+        }
         else
             _creatures?.TriggerCombatSwing(swing.Attacker, offHand);
     }

@@ -42,6 +42,7 @@ public sealed partial class GameLoop
             ShowUiError("You are not in a group.");
             return false;
         }
+        if (RefuseTacticalFreezeLiveCommand("changing party leadership")) return false;
 
         bool sent = _net.SuiPartyLead(PartyLeadWire.ActionClaim, LocalPlayerGuid);
         EmitInterface("party-lead", "claim", sent ? "SENT" : "REFUSED", LocalPlayerGuid, "");

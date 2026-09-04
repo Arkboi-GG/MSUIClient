@@ -638,4 +638,11 @@ public enum Op : ushort
     // count × { u64 guid, u8 reason } — see Net/PartyTaxiWire.cs.
     CMSG_SUI_PARTY_TAXI          = 0x0364,
     SMSG_SUI_PARTY_TAXI_RESULT   = 0x0365,
+    // TACTICAL_FREEZE v1 (capability bit 12): an explicit Command View button owns a
+    // localized server lock; Command View itself remains live. Queue packets carry the
+    // KOTOR-style per-actor plans authored while the lock is active.
+    CMSG_SUI_TACTICAL_FREEZE      = 0x0366, // decimal 870
+    SMSG_SUI_TACTICAL_FREEZE      = 0x0367, // decimal 871
+    CMSG_SUI_TACTICAL_QUEUE       = 0x0368, // decimal 872
+    SMSG_SUI_TACTICAL_QUEUE       = 0x0369, // decimal 873
 }

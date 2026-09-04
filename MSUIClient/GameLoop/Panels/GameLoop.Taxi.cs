@@ -19,6 +19,7 @@ public sealed partial class GameLoop
     private CreatureSpline? _serverRideSpline;
     private uint? _serverRideStoppedId;
     private Vector3 _serverRideStart;
+    private long? _serverRideTacticalPauseStartedMs;
     private TaxiNodeCatalog? _taxiNodes;
     private TaxiPathCatalog? _taxiPaths;
     private TaxiContinentCatalog? _taxiContinents;
@@ -52,6 +53,7 @@ public sealed partial class GameLoop
     {
         _serverRideSpline = null;
         _serverRideStoppedId = null;
+        _serverRideTacticalPauseStartedMs = null;
         _taxiLocked = false;
     }
 
@@ -60,7 +62,7 @@ public sealed partial class GameLoop
         _taxiMasterGuid = 0; _taxiCurrentNode = 0; _taxiKnownNodes.Clear();
         _taxiNodeKnown.Clear(); _taxiStatusAsked.Clear(); _taxiStatusLastHover = 0;
         _taxiOpen = false; _taxiLocked = false; _serverRideSpline = null;
-        _serverRideStoppedId = null;
+        _serverRideStoppedId = null; _serverRideTacticalPauseStartedMs = null;
         _taxiRoutes = [];
         _partyTaxiPendingMaster = 0; _partyTaxiPendingChain = null;
         _partyTaxiConfirmRows = []; _partyTaxiConfirmDestination = "";
@@ -82,6 +84,7 @@ public sealed partial class GameLoop
 
     private bool RequestTaxiStatus(ulong guid)
     {
+        if (RefuseTacticalFreezeLiveCommand("querying a flight master")) return false;
         bool eligible = TaxiMasterEligible(guid, out WorldEntity? master, out float distance);
         bool sent = eligible && _net!.TaxiNodeStatusQuery(guid);
         EmitInterface("taxi", "status-query", sent ? "SENT" : "REFUSED", guid,
@@ -91,6 +94,8 @@ public sealed partial class GameLoop
 
     private bool RequestTaxiMap(ulong guid)
     {
+        if (RefuseTacticalFreezeLiveCommand("opening the taxi map")) return false;
+        if (RefuseTacticalFrozenActor(guid, "open its taxi map")) return false;
         bool eligible = TaxiMasterEligible(guid, out WorldEntity? master, out float distance);
         bool sent = eligible && _net!.TaxiQueryAvailableNodes(guid);
         if (sent) _taxiMasterGuid = guid;
@@ -204,6 +209,9 @@ public sealed partial class GameLoop
 
     private bool ActivateTaxi(uint destination)
     {
+        if (RefuseTacticalFreezeLiveCommand("starting travel")) return false;
+        if (RefuseTacticalFrozenActor(_taxiMasterGuid, "start travel through it"))
+            return false;
         TaxiRouteView route = _taxiRoutes.FirstOrDefault(candidate => candidate.Node.Id == destination);
         bool known = _taxiKnownNodes.Contains(destination), distinct = destination != _taxiCurrentNode;
         bool resolved = route.Node.Id != 0 && route.Chain.Length >= 2;
@@ -260,6 +268,11 @@ public sealed partial class GameLoop
     private bool RequestPartyTaxi(byte flags, ulong flightMaster, uint[] chain)
     {
         if (_net is null || !_partyTaxiAvailable || chain.Length < PartyTaxiWire.MinNodes) return false;
+        if (RefuseTacticalFreezeLiveCommand("starting party travel")) return false;
+        if (RefuseTacticalFrozenActor(flightMaster, "start party travel through it"))
+            return false;
+        if (RefuseTacticalFrozenActors(CommandViewTaxiWalkers(), "start party travel"))
+            return false;
         bool sent;
         try { sent = _net.SuiPartyTaxi(flags, flightMaster, chain); }
         catch (ArgumentOutOfRangeException ex)
@@ -282,6 +295,7 @@ public sealed partial class GameLoop
     private void GatherPartyAtFlightMaster(ulong flightMaster)
     {
         if (_net is null || !_entities.TryGet(flightMaster, out WorldEntity master)) return;
+        if (RefuseTacticalFrozenActor(flightMaster, "approach it for party travel")) return;
         var stragglers = new List<ulong>();
         foreach (ulong guid in CommandViewTaxiWalkers())
         {
@@ -291,7 +305,8 @@ public sealed partial class GameLoop
                 stragglers.Add(guid);
         }
         if (stragglers.Count == 0) return;
-        _net.SuiOrder(0 /* ORDER_MOVE */, stragglers, 0, master.Position.X, master.Position.Y, master.Position.Z);
+        if (!TrySendLiveSuiOrder(0 /* ORDER_MOVE */, stragglers, 0,
+                master.Position.X, master.Position.Y, master.Position.Z)) return;
         if (stragglers.Count > 1) NoteCompanionOrder(0, stragglers);
         AddChatMessage($"{OrderSubjectLabel(stragglers)}: to {ResolveWorldUnitName(flightMaster)}.");
         EmitInterface("taxi", "party-gather", "ORDERED", flightMaster, $"count={stragglers.Count}");
@@ -470,6 +485,31 @@ public sealed partial class GameLoop
         EmitInterface("taxi", "arrival", "HANDED_OFF", _net?.PlayerGuid ?? 0,
             $"distance={distance:R};splineId={completedId};controlLocked=false;" +
             $"position={position.X:R}|{position.Y:R}|{position.Z:R}");
+        return false;
+    }
+
+    /// <summary>
+    /// A server ride can belong to any real player caught by another player's radius. The server
+    /// spline must hold at the sampled point just like ordinary movement, then have its origin
+    /// rebased before UpdateServerRide samples it again. A stop received while held is likewise
+    /// acknowledged only after thaw.
+    /// </summary>
+    private bool UpdateServerRideTacticalFreeze(bool frozen)
+    {
+        long now = MovementInfo.ClientUptimeMs();
+        if (frozen)
+        {
+            if ((_serverRideSpline is not null || _serverRideStoppedId is not null) &&
+                _serverRideTacticalPauseStartedMs is null)
+                _serverRideTacticalPauseStartedMs = now;
+            return _serverRideSpline is not null || _serverRideStoppedId is not null;
+        }
+
+        if (_serverRideTacticalPauseStartedMs is long started)
+        {
+            _serverRideSpline?.RebaseAfterPause(Math.Max(0, now - started));
+            _serverRideTacticalPauseStartedMs = null;
+        }
         return false;
     }
 

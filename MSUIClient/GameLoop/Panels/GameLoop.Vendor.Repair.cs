@@ -65,6 +65,9 @@ public sealed partial class GameLoop
     {
         if (!_vendorRepairMode) return false;
         if (_vendor is null || itemGuid == 0 || !VendorCanRepair()) return true;
+        if (RefuseTacticalFreezeLiveCommand("repairing an item")) return true;
+        if (RefuseTacticalFrozenActor(_vendor.VendorGuid, "repair an item through it"))
+            return true;
         _net?.RepairItem(_vendor.VendorGuid, itemGuid);
         return true;
     }
@@ -73,6 +76,9 @@ public sealed partial class GameLoop
     {
         if (_vendor is null || _net is null || !VendorCanRepair() ||
             ComputeVendorRepairAllCost(player) == 0)
+            return false;
+        if (RefuseTacticalFreezeLiveCommand("repairing items")) return false;
+        if (RefuseTacticalFrozenActor(_vendor.VendorGuid, "repair items through it"))
             return false;
         return _net.RepairItem(_vendor.VendorGuid, 0);
     }

@@ -44,7 +44,7 @@ public sealed partial class GameLoop
                 Unable: !valid).Stem);
             return;
         }
-        if (pointerOverUi || _groundCastSpell != 0) return;
+        if (pointerOverUi || _groundCastSpell != 0 || _tacticalGroundSpellId != 0) return;
 
         // Point is the reference's base in-world cursor. A unit verdict replaces it; empty world,
         // non-interactive geometry and gameobjects without a data-driven cursor retain Point.

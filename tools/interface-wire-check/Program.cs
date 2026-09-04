@@ -112,7 +112,10 @@ static void CheckGameMenuLayout()
         new Vector2(234f, 295.2f),
         new Vector2(GameMenuUiLaw.LayoutPopupWidth, GameMenuUiLaw.LayoutPopupHeight),
         new Vector2(1000f, 900f));
-    Check(authored == new Vector2(900f, 1150f) &&
+    // c5af6fe widened OptionsDefaultWidth from 450 to 900, so the authored default at scale 2
+    // is 1800 wide (under the 2000 * OptionsViewportWidth ceiling). OptionsMinWidth is still
+    // 450, which is why the minimum limits below are unchanged.
+    Check(authored == new Vector2(1800f, 1150f) &&
           remembered == new Vector2(1050f, 750f) &&
           smallViewport == new Vector2(672f, 460f) &&
           Near(mainDefault, new Vector2(234f, 321.6f)) &&
@@ -1725,6 +1728,12 @@ if (args.Contains("--companions-only", StringComparer.Ordinal))
 if (args.Contains("--party-taxi-only", StringComparer.Ordinal))
 {
     PartyTaxiClinicalChecks.Run();
+    return;
+}
+
+if (args.Contains("--tactical-freeze-only", StringComparer.Ordinal))
+{
+    TacticalFreezeClinicalChecks.Run();
     return;
 }
 
@@ -4716,6 +4725,7 @@ HovercastClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: Hovercast PASS");
 CompanionClinicalChecks.Run();
 PartyTaxiClinicalChecks.Run();
+TacticalFreezeClinicalChecks.Run();
 PossessLawClinicalChecks.Run();
 SwingTimerClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: SwingTimer PASS");

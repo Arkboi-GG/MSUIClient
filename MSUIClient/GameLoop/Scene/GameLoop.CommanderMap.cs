@@ -383,6 +383,8 @@ public sealed partial class GameLoop
     {
         if (action == CommanderMapUiLaw.HeroAction.None || subjectGuid == 0 || _net is null)
             return;
+        if (RefuseTacticalFreezeLiveCommand("changing RTS hero state")) return;
+        if (RefuseTacticalFrozenActor(subjectGuid, "change its RTS hero state")) return;
         if (_rtsPendingAction != 0)
         {
             CommanderShowNotice("An RTS hero action is already waiting for the server.");
@@ -698,11 +700,14 @@ public sealed partial class GameLoop
     {
         bool differentInstance = unit.InstanceableMap && !unit.SameMapAndInstance;
         bool pending = _rtsForceTakeControlGuid != 0;
+        bool tacticalBlocked = TacticalFreezeBlocksLiveCommands ||
+            IsTacticalActorFrozen(unit.Guid);
         bool enabled = unit.Alive && !unit.Busy && unit.ControlEligibleNow &&
-            !differentInstance && !pending;
+            !differentInstance && !pending && !tacticalBlocked;
         string label = !unit.Alive ? "DEAD" : unit.Busy ? "IN USE" :
             differentInstance ? "DIFFERENT INSTANCE" :
             !unit.ControlEligibleNow ? "UNAVAILABLE" :
+            tacticalBlocked ? "FROZEN" :
             pending && _rtsForceTakeControlGuid == unit.Guid ? "LOCATING..." :
             pending ? "CONTROL PENDING" : "TAKE CONTROL";
 

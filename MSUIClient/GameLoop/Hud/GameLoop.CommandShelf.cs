@@ -3,6 +3,7 @@ using System.Numerics;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Units;
 
 namespace MSUIClient;
 
@@ -24,7 +25,7 @@ public sealed partial class GameLoop
 
     // The PRIMARY of the current selection (WC3-style): the unit whose card + ability row fill the
     // console's middle panel, gold-bordered in the portrait grid. Set by single-clicking a portrait
-    // or Tab-cycling; resolves to selection[0] whenever it is unset or has left the selection.
+    // or Q-cycling; resolves to selection[0] whenever it is unset or has left the selection.
     private ulong _rtsPrimaryGuid;
     private ulong RtsPrimaryGuid =>
         _rtsPrimaryGuid != 0 && _freecamSelection.Contains(_rtsPrimaryGuid)
@@ -36,32 +37,16 @@ public sealed partial class GameLoop
     private bool SingleCharacterBagsOpen =>
         !_partyInventoryOpen && (_backpackOpen || _keyringOpen || _equippedBagOpen.Any(x => x));
 
-    /// <summary>Move the primary one slot through the current selection (Tab / Shift+Tab).</summary>
+    /// <summary>Move the primary one slot through the selected command cards (Q / Shift+Q).
+    /// An empty or one-card selection never expands to nearby faction units.</summary>
     private void CycleRtsPrimary(int dir)
     {
-        // Q walks the SELECTION when two or more are selected; otherwise (nothing, one, or the
-        // sticky lock) it walks the whole party roster, selected or not, pulling the new unit
-        // into the selection as primary (owner, 2026-09-01/02).
-        if (CommandViewLocked || _freecamSelection.Count < 2)
-        {
-            var roster = FreeCamSelectableGuids()
-                .Where(g => _entities.TryGet(g, out WorldEntity u) && !u.IsDead).ToList();
-            if (roster.Count == 0) return;
-            int at = roster.IndexOf(RtsPrimaryGuid != 0 ? RtsPrimaryGuid : _cvFollowGuid);
-            if (at < 0) at = 0;
-            ulong next = roster[((at + dir) % roster.Count + roster.Count) % roster.Count];
-            if (!_freecamSelection.Contains(next)) _freecamSelection.Insert(0, next);
-            _rtsPrimaryGuid = next;
-            if (SingleCharacterBagsOpen && _rtsPrimaryGuid != ControlledGuid)
-                BeginControlHandover(_rtsPrimaryGuid);
-            return;
-        }
-        if (_freecamSelection.Count == 0) return;
+        if (_freecamSelection.Count < 2) return;
         int idx = _freecamSelection.IndexOf(RtsPrimaryGuid);
         if (idx < 0) idx = 0;
         int n = _freecamSelection.Count;
         _rtsPrimaryGuid = _freecamSelection[((idx + dir) % n + n) % n];
-        // A single character's bag panel follows ControlledGuid, so when one is open Tab must hand
+        // A single character's bag panel follows ControlledGuid, so when one is open Q must hand
         // control to the new primary too — otherwise you keep staring at the previous character's
         // bags. The shared party browser is guid-addressed and needs no switch.
         if (SingleCharacterBagsOpen && _rtsPrimaryGuid != ControlledGuid)
@@ -88,6 +73,8 @@ public sealed partial class GameLoop
     /// </summary>
     private void BeginControlHandover(ulong subject)
     {
+        if (RefuseTacticalFreezeLiveCommand("changing control")) return;
+        if (subject != LocalPlayerGuid && RefuseTacticalFrozenActor(subject, "take control")) return;
         if (subject == LocalPlayerGuid)
         {
             // Come home to your own body — no possess needed; the release lands on you in the sky.
@@ -131,6 +118,9 @@ public sealed partial class GameLoop
             if (all) ToggleAllBags(); else ToggleBackpack();
             return;
         }
+        if (RefuseTacticalFreezeLiveCommand("changing control") ||
+            RefuseTacticalFrozenActor(subject, "take control"))
+            return;
         EnsurePossessingBot(subject);   // possess a bot, or release to your own char (subject == you)
         _pendingBagsSubject = subject;
         _pendingBagsAll = all;
@@ -170,6 +160,7 @@ public sealed partial class GameLoop
     // _selectionGuid: choosing a heal target must not replace the RTS command selection/focus.
     private ulong _rtsUnitCastPrimary;
     private uint _rtsUnitCastSpellId;
+    private ulong _rtsUnitCastTacticalLockId;
 
     /// <summary>
     /// Cast an ability from the PRIMARY's command card, riding the possess wire (step 2, no new
@@ -181,6 +172,25 @@ public sealed partial class GameLoop
         ulong explicitTarget = 0)
     {
         if (primary == 0 || spellId == 0) return;
+        TacticalLockView? ownedTactical = OwnedActiveTacticalLock;
+        // An owned active lock is the one sanctioned queue-authoring mode. A foreign held actor
+        // or an owned FIFO that is only draining must not arm a friendly cursor/pending handoff
+        // that can turn into a live cast after DRAINED.
+        if (ownedTactical is null &&
+            (RefuseTacticalFreezeLiveCommand("casting live spells") ||
+             RefuseTacticalFrozenActor(primary, "cast live spells")))
+        {
+            CancelRtsUnitCastTargeting(silent: true);
+            CancelPendingPrimaryCast();
+            return;
+        }
+        if (ownedTactical is not null &&
+            (!ownedTactical.Members.TryGetValue(primary, out TacticalFreezeMember frozenCaster) ||
+             !frozenCaster.Frozen || !frozenCaster.CommandableByRecipient))
+        {
+            ShowUiError("That frozen unit is read-only.");
+            return;
+        }
         SpellInfo? targetSpell = _spellCatalog?.TryGet(spellId, out SpellInfo foundSpell) == true
             ? foundSpell : null;
         bool acceptsFriendly = targetSpell is SpellInfo friendlySpell &&
@@ -199,6 +209,7 @@ public sealed partial class GameLoop
                 _pendingCastExplicitTarget = 0;
                 _rtsUnitCastPrimary = primary;
                 _rtsUnitCastSpellId = spellId;
+                _rtsUnitCastTacticalLockId = ownedTactical?.LockId ?? 0;
                 string spellName = targetSpell?.Name ?? $"Spell {spellId}";
                 SetRtsControlGroupStatus($"{spellName}: choose a friendly target " +
                     "(right-click or Escape cancels). Alt casts on the primary.");
@@ -206,6 +217,13 @@ public sealed partial class GameLoop
             }
             if (intent == RtsAbilityCastIntent.CastOnPrimary)
                 explicitTarget = primary;
+        }
+        // Under an owned Tactical Freeze the visible card authors this actor's server queue
+        // directly. It must never ride the possession hand-off used by live Command View casts.
+        if (TryQueueTacticalSpell(primary, spellId, explicitTarget))
+        {
+            CancelRtsUnitCastTargeting(silent: true);
+            return;
         }
         CancelRtsUnitCastTargeting(silent: true);
         // Already on the subject and able to author it — a driven bot, or your OWN character (which
@@ -230,6 +248,16 @@ public sealed partial class GameLoop
     private bool TryCommitRtsUnitCastTarget(ulong targetGuid)
     {
         if (_rtsUnitCastSpellId == 0) return false;
+        if (_rtsUnitCastTacticalLockId != 0 &&
+            OwnedActiveTacticalLock?.LockId != _rtsUnitCastTacticalLockId)
+        {
+            CancelRtsUnitCastTargeting(silent: true);
+            ShowUiError("That Tactical Freeze is no longer active.");
+            return true;
+        }
+        if (_rtsUnitCastTacticalLockId == 0 &&
+            RefuseTacticalFrozenActor(targetGuid, "target it with a live spell"))
+            return true;
         if (_rtsUnitCastPrimary == 0 || !_freecamSelection.Contains(_rtsUnitCastPrimary) ||
             _spellCatalog?.TryGet(_rtsUnitCastSpellId, out SpellInfo spell) != true)
         {
@@ -263,6 +291,7 @@ public sealed partial class GameLoop
         if (_rtsUnitCastSpellId == 0) return false;
         _rtsUnitCastPrimary = 0;
         _rtsUnitCastSpellId = 0;
+        _rtsUnitCastTacticalLockId = 0;
         if (!silent) SetRtsControlGroupStatus("Spell targeting cancelled.");
         return true;
     }
@@ -275,6 +304,11 @@ public sealed partial class GameLoop
     private void TryFirePendingPrimaryCast()
     {
         if (_pendingCastSpellId == 0) return;
+        if (TacticalFreezeBlocksLiveCommands)
+        {
+            CancelPendingPrimaryCast();
+            return;
+        }
         if (NowSeconds() - _pendingCastAt > 2.5)
         {
             _pendingCastSpellId = 0;
@@ -293,6 +327,14 @@ public sealed partial class GameLoop
         _pendingCastPrimary = 0;
         _pendingCastExplicitTarget = 0;
         TryCast(spellId, explicitTarget);
+    }
+
+    private void CancelPendingPrimaryCast()
+    {
+        _pendingCastPrimary = 0;
+        _pendingCastSpellId = 0;
+        _pendingCastExplicitTarget = 0;
+        _pendingCastAt = 0;
     }
 
     private const int RtsPrimaryAbilityLimit = 8;
@@ -361,6 +403,8 @@ public sealed partial class GameLoop
     private const string ConsoleIconCircle = @"Interface\Icons\spell_nature_wispsplode";
     private const string ConsoleIconSheathe = @"Interface\Icons\Ability_Warrior_Disarm";
     private const string ConsoleIconDraw = @"Interface\Icons\INV_Sword_04";
+    private const string ConsoleIconFreeze = @"Interface\Icons\Spell_Frost_FrostNova";
+    private const string ConsoleIconResume = @"Interface\Icons\Spell_Holy_HolyBolt";
 
     // Console geometry (logical units, × UI scale). Regions are fixed so the
     // dock reads as furniture, never a resizing tooltip.
@@ -385,6 +429,7 @@ public sealed partial class GameLoop
             HudPlacement.At(HudAnchor.Bottom, 0f, -12f),
             new Vector2(ConsoleWidth, ConsoleHeight));
         if (shelf.Hidden) return;
+        DrawTacticalQueueStrip(shelf, scale);
         ImGui.SetNextWindowPos(shelf.ScreenMin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(new Vector2(ConsoleWidth, ConsoleHeight) * scale,
             ImGuiCond.Always);
@@ -422,12 +467,16 @@ public sealed partial class GameLoop
 
     private void DrawRtsUnitCastTargetHint(float scale)
     {
-        if (_rtsUnitCastSpellId == 0 || _window.MouseCaptured) return;
-        string name = _spellCatalog?.TryGet(_rtsUnitCastSpellId, out SpellInfo spell) == true
+        uint targetingSpell = _rtsUnitCastSpellId != 0
+            ? _rtsUnitCastSpellId : _tacticalGroundSpellId;
+        if (targetingSpell == 0 || _window.MouseCaptured) return;
+        string name = _spellCatalog?.TryGet(targetingSpell, out SpellInfo spell) == true
             ? spell.Name ?? "Spell" : "Spell";
         ImGui.GetForegroundDrawList().AddText(
             ImGui.GetIO().MousePos + new Vector2(18f, 14f) * scale, 0xFF00E060,
-            $"{name}: select friendly target");
+            _tacticalGroundSpellId != 0
+                ? $"{name}: select target area for queue"
+                : $"{name}: select friendly target");
     }
 
     /// <summary>The WC3 command console's carved-stone tablet: dark stone body graduating into
@@ -464,7 +513,7 @@ public sealed partial class GameLoop
     /// WC3-style portrait grid of the CURRENT selection — the console's left region. Each cell is a
     /// unit's portrait over a health bar; the PRIMARY (whose card + abilities fill the middle panel)
     /// wears a gold border. Single-click makes a unit primary, double-click centers the camera,
-    /// Shift+click drops it. Tab / Shift+Tab cycle the primary. The saved-group "squad" grid
+    /// Shift+click drops it. Q / Shift+Q cycle the primary. The saved-group "squad" grid
     /// (DrawRtsSquadGrid) is shelved for the true-RTS mode.
     /// </summary>
     private void DrawRtsSelectionPortraits(ImDrawListPtr dl, Vector2 origin, float scale)
@@ -920,8 +969,22 @@ public sealed partial class GameLoop
     /// </summary>
     private void UsePrimaryQuickSlot(int slot)
     {
+        if (TacticalFreezeBlocksLiveCommands)
+        {
+            CancelPendingPrimaryItemUse();
+            if (OwnedActiveTacticalLock is not null)
+                ShowUiError("Items cannot be queued during Tactical Freeze.");
+            else
+                RefuseTacticalFreezeLiveCommand("using items");
+            return;
+        }
         ulong primary = RtsPrimaryGuid;
         if (primary == 0) return;
+        if (RefuseTacticalFrozenActor(primary, "use its items"))
+        {
+            CancelPendingPrimaryItemUse();
+            return;
+        }
         // Already on the subject (a driven bot, or your own char) → use now. As with casting, the
         // self path needs ControlledGuid == you, or the guid-less use would pop the possessed bot's
         // item; otherwise fall through to a release-home first.
@@ -942,10 +1005,16 @@ public sealed partial class GameLoop
     private void TryFirePendingPrimaryUse()
     {
         if (_pendingUseSlot < 0) return;
+        // Queue v1 has no item action. If an authoritative lock arrived while possession was in
+        // flight, disarm the old live-world use rather than letting it fire into frozen time.
+        if (TacticalFreezeBlocksLiveCommands)
+        {
+            CancelPendingPrimaryItemUse();
+            return;
+        }
         if (NowSeconds() - _pendingUseAt > 2.5)
         {
-            _pendingUseSlot = -1;
-            _pendingUsePrimary = 0;
+            CancelPendingPrimaryItemUse();
             return;
         }
         // Wait until control reaches the subject (a possessed bot, or your own body after a
@@ -956,10 +1025,14 @@ public sealed partial class GameLoop
         // land a few frames after control does, and firing before it arrived silently dropped the
         // use (the "cast a spell first" symptom). Keep retrying until it resolves or times out.
         if (SendPrimaryItemUse(ControlledGuid, _pendingUseSlot))
-        {
-            _pendingUseSlot = -1;
-            _pendingUsePrimary = 0;
-        }
+            CancelPendingPrimaryItemUse();
+    }
+
+    private void CancelPendingPrimaryItemUse()
+    {
+        _pendingUseSlot = -1;
+        _pendingUsePrimary = 0;
+        _pendingUseAt = 0;
     }
 
     /// <summary>
@@ -1021,13 +1094,19 @@ public sealed partial class GameLoop
 
         bool routeReady = _rtsWaypointChain.Count > 0 &&
             SameRtsMembers(_rtsWaypointSubjects, subjects);
+        TacticalLockView? ownedFreeze = OwnedActiveTacticalLock;
+        TacticalLockView? localFreeze = LocalActiveTacticalLock;
+        bool tacticalActive = ownedFreeze is not null;
+        bool frozenReadOnly = localFreeze is not null && ownedFreeze is null;
+        bool liveCommandsBlocked = TacticalFreezeBlocksLiveCommands ||
+            TacticalOrderActorsFrozen(subjects);
 
 
         bool SendImmediateOrder(byte orderType, ulong target = 0,
             float x = 0, float y = 0, float z = 0)
         {
             ClearRtsAttackQueue();
-            return _net.SuiOrder(orderType, subjects, target, x, y, z);
+            return TrySendLiveSuiOrder(orderType, subjects, target, x, y, z);
         }
 
 
@@ -1102,22 +1181,41 @@ public sealed partial class GameLoop
         }
 
         if (CardButton("##card-focus", ConsoleIconFocus, hostileTargeted && any
-                ? "Focus: send the selection at your current target"
+                ? tacticalActive
+                    ? "Focus: queue an attack for each commandable selected member"
+                    : "Focus: send the selection at your current target"
                 : "Focus needs a selection and a hostile target\n(click one in the world first)",
-                any && hostileTargeted) &&
-            SendImmediateOrder(1, _selectionGuid))
+                any && hostileTargeted && (tacticalActive || !liveCommandsBlocked)))
         {
-            NoteCompanionOrder(1, subjects);
-            AddChatMessage($"{OrderSubjectLabel(subjects)}: attack {ResolveWorldUnitName(_selectionGuid)}!");
+            if (tacticalActive)
+                TryQueueTacticalAttack(_selectionGuid);
+            else if (SendImmediateOrder(1, _selectionGuid))
+            {
+                NoteCompanionOrder(1, subjects);
+                AddChatMessage($"{OrderSubjectLabel(subjects)}: attack {ResolveWorldUnitName(_selectionGuid)}!");
+            }
         }
         if (CardButton("##card-regroup", ConsoleIconRegroup,
-                "Regroup: abandon the tactical route and\nescort the body you drive", any) &&
-            SendImmediateOrder(5, ControlledGuid))
+                tacticalActive
+                    ? "Regroup: queue movement to the body you drive"
+                    : "Regroup: abandon the tactical route and\nescort the body you drive",
+                any && (tacticalActive || !liveCommandsBlocked)))
         {
-            NoteCompanionOrder(5, subjects);
-            AddChatMessage($"{OrderSubjectLabel(subjects)}: regroup on {ResolveUnitName(ControlledGuid)}.");
+            if (tacticalActive)
+            {
+                if (_entities.TryGet(ControlledGuid, out WorldEntity regroupBody))
+                    TryQueueTacticalMove(regroupBody.Position);
+            }
+            else if (SendImmediateOrder(5, ControlledGuid))
+            {
+                NoteCompanionOrder(5, subjects);
+                AddChatMessage($"{OrderSubjectLabel(subjects)}: regroup on {ResolveUnitName(ControlledGuid)}.");
+            }
         }
-        if (CardButton("##card-hold", ConsoleIconHold, "Hold: stop and hold this spot", any) &&
+        if (CardButton("##card-hold", ConsoleIconHold,
+                liveCommandsBlocked
+                    ? "Hold is unavailable while Tactical Freeze owns the command queue"
+                    : "Hold: stop and hold this spot", any && !liveCommandsBlocked) &&
             SendImmediateOrder(2))
         {
             NoteCompanionOrder(2, subjects);
@@ -1131,11 +1229,15 @@ public sealed partial class GameLoop
             ? $"Patrol (armed): right-click ground to chain waypoints — " +
               $"{_rtsPatrolDraft.Count} so far.\nClick again to engage the loop; Escape cancels."
             : routeReady
-                ? "Patrol: Loop current route (Ready)"
-                : "Patrol: Click to loop current route\n" +
-                  "Route must have 2+ waypoints";
-        if (CardButton("##card-patrol", ConsoleIconPatrol, patrolTip,
-                any || _rtsPatrolAuthoring, _rtsPatrolAuthoring))
+                ? "Patrol: loop the authored waypoint route"
+                : "Patrol: click, then right-click ground points to chain\n" +
+                  "a route, then click Patrol again to engage the loop.";
+        if (CardButton("##card-patrol", ConsoleIconPatrol,
+                liveCommandsBlocked
+                    ? "Patrol is unavailable while Tactical Freeze owns the command queue"
+                    : patrolTip,
+                (any || _rtsPatrolAuthoring) && !liveCommandsBlocked,
+                _rtsPatrolAuthoring))
         {
             ClearRtsAttackQueue();
             if (_rtsPatrolAuthoring)
@@ -1156,14 +1258,16 @@ public sealed partial class GameLoop
                         BeginRtsPatrolAuthoring(subjects);
         }
         if (CardButton("##card-line", ConsoleIconLine,
-                "Line: standing army — ranks of five facing you,\nformed where the squad stands", any) &&
+                "Line: standing army — ranks of five facing you,\nformed where the squad stands",
+                any && !liveCommandsBlocked) &&
             SendImmediateOrder(SuiOrderFormationLine))
         {
             NoteCompanionOrder(SuiOrderFormationLine, subjects);
             AddChatMessage($"{OrderSubjectLabel(subjects)}: form ranks!");
         }
         if (CardButton("##card-circle", ConsoleIconCircle,
-                "Circle: evenly spaced ring, everyone facing outward", any) &&
+                "Circle: evenly spaced ring, everyone facing outward",
+                any && !liveCommandsBlocked) &&
             SendImmediateOrder(SuiOrderFormationCircle))
         {
             NoteCompanionOrder(SuiOrderFormationCircle, subjects);
@@ -1171,7 +1275,8 @@ public sealed partial class GameLoop
         }
         if (CardButton("##card-sheathe", _rtsWeaponsSheathed ? ConsoleIconDraw : ConsoleIconSheathe,
                 (_rtsWeaponsSheathed ? "Draw: weapons out" : "Sheathe: weapons away") +
-                " — parade discipline.\nEntering combat always draws steel.", any))
+                " — parade discipline.\nEntering combat always draws steel.",
+                any && !liveCommandsBlocked))
         {
             bool draw = _rtsWeaponsSheathed;
             if (SendImmediateOrder(SuiOrderSheath, 0, draw ? 1f : 0f))
@@ -1182,6 +1287,26 @@ public sealed partial class GameLoop
                     (draw ? "weapons out!" : "weapons away."));
             }
         }
+
+        // The deliberately empty eighth cell is the explicit lock toggle. Command View remains
+        // real-time until this card is pressed; an overlapping non-owner sees it lit/read-only.
+        bool freezeLit = localFreeze is not null;
+        bool canToggleFreeze = _tacticalFreezeAvailable && _tacticalFreezePendingRequest == 0 &&
+            (ownedFreeze is not null || (!TacticalFreezePoseLaw.IsFrozen(LocalPlayerGuid) &&
+                !ControlledBodyTacticallyFrozen));
+        string freezeTip = !_tacticalFreezeAvailable
+            ? "Tactical Freeze requires a newer SuperUI-Core"
+            : _tacticalFreezePendingRequest != 0
+                ? "Waiting for the server…"
+                : ownedFreeze is not null
+                    ? "Resume: release your radius lock and execute the queued plans"
+                    : frozenReadOnly
+                        ? $"Frozen by {ResolveTacticalOwner(localFreeze!.OwnerGuid)} — only its owner can Resume"
+                        : "Freeze: lock units in the radius, then queue up to five actions per member";
+        if (CardButton("##card-tactical-freeze",
+                ownedFreeze is not null ? ConsoleIconResume : ConsoleIconFreeze,
+                freezeTip, canToggleFreeze, freezeLit))
+            RequestTacticalFreezeToggle();
     }
 
     private static uint ClassChipColor(byte classId) => classId switch
@@ -1269,4 +1394,3 @@ public sealed partial class GameLoop
             _freecamSelection.Remove(dropPick);
     }
 }
-

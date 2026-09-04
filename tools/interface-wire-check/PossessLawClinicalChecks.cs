@@ -85,6 +85,7 @@ internal static class PossessLawClinicalChecks
 
         // ── 1.2 every mirrored frame is unwrapped ────────────────────────────
         string control = Read("GameLoop/Scene/GameLoop.Control.cs");
+        string commandShelf = Read("GameLoop/Hud/GameLoop.CommandShelf.cs");
         int proxyStart = control.IndexOf("private void ApplySuiProxy(byte[] body)", StringComparison.Ordinal);
         Check(proxyStart >= 0, "ApplySuiProxy is gone");
         string proxy = control[proxyStart..];
@@ -135,6 +136,17 @@ internal static class PossessLawClinicalChecks
             "POSSESS_LAW 5.3: our dialogs must auto-hide out of range (lifecycle not wired)");
         Check(control.Contains("_ => ControlledGuid,", StringComparison.Ordinal),
             "POSSESS_LAW 2.1: the Command View game-object walker must be the driven body (mailbox/plaque)");
+        int primaryCycleStart = commandShelf.IndexOf("private void CycleRtsPrimary(", StringComparison.Ordinal);
+        int primaryCycleEnd = commandShelf.IndexOf("private void EnsurePossessingBot(", StringComparison.Ordinal);
+        Check(primaryCycleStart >= 0 && primaryCycleEnd > primaryCycleStart,
+            "POSSESS_LAW 5.4: the selected-card primary cycle seam is gone");
+        string primaryCycle = commandShelf[primaryCycleStart..primaryCycleEnd];
+        Check(primaryCycle.Contains("_freecamSelection.Count < 2", StringComparison.Ordinal) &&
+              primaryCycle.Contains("_freecamSelection.IndexOf(RtsPrimaryGuid)", StringComparison.Ordinal) &&
+              !primaryCycle.Contains("FreeCamSelectableGuids(", StringComparison.Ordinal) &&
+              !primaryCycle.Contains("_freecamSelection.Insert(", StringComparison.Ordinal) &&
+              !primaryCycle.Contains("CommandViewLocked", StringComparison.Ordinal),
+            "POSSESS_LAW 5.4: Q must cycle only the selected command cards, never the local faction roster");
 
         // ── 2.4 world map: arrow = driven body, dots = the rest ──────────────
         string map = Read("GameLoop/Panels/GameLoop.WorldMap.cs");
@@ -228,6 +240,49 @@ internal static class PossessLawClinicalChecks
         Check(links.Contains("new Vector2(11.5f, 39.5f)", StringComparison.Ordinal) &&
               links.Contains("new Vector2(8.5f, 18.5f)", StringComparison.Ordinal),
             "POSSESS_LAW 7.6: party chain/WHO positions lost their owner-tuned placement");
+        Check(!control.Contains("DrawCommandViewChainLines(", StringComparison.Ordinal) &&
+              !control.Contains("DrawChainGlyph(draw, pa", StringComparison.Ordinal) &&
+              !control.Contains("DrawChainAnchorMedallion(draw, pa", StringComparison.Ordinal),
+            "POSSESS_LAW 7.7: chain art or connector lines returned to Command View world models");
+        Check(commandShelf.Contains("DrawChainGlyph(dl,", StringComparison.Ordinal) &&
+              commandShelf.Contains("DrawChainAnchorMedallion(dl,", StringComparison.Ordinal),
+            "POSSESS_LAW 7.7: the small command-card chain indicator must stay");
+
+        // ── 8: Tactical Freeze owner identity is not the driven-body identity ─
+        string tactical = Read("GameLoop/Scene/GameLoop.TacticalFreeze.cs");
+        string freezeWire = Read("Net/TacticalFreezeWire.cs");
+        string poseLaw = Read("World/Units/TacticalFreezePoseLaw.cs");
+        string shelf = Read("GameLoop/Hud/GameLoop.CommandShelf.cs");
+        string program = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.cs"));
+        Check(tactical.Contains("view.Active && view.OwnerGuid == LocalPlayerGuid", StringComparison.Ordinal) &&
+              tactical.Contains("owned.OwnerGuid != LocalPlayerGuid", StringComparison.Ordinal) &&
+              !tactical.Contains("OwnerGuid == ControlledGuid", StringComparison.Ordinal) &&
+              !tactical.Contains("OwnerGuid != ControlledGuid", StringComparison.Ordinal),
+            "POSSESS_LAW 8.2: Tactical Freeze authority must compare the socket owner to LocalPlayerGuid");
+        Check(freezeWire.Contains("anchorBodies != 1", StringComparison.Ordinal) &&
+              !freezeWire.Contains("guid != ownerGuid", StringComparison.Ordinal),
+            "POSSESS_LAW 8.2: the initiating driven body may differ from the real owner guid");
+        Check(control.Contains("PrepareTacticalCommandViewExit()", StringComparison.Ordinal) &&
+              tactical.Contains("RequestOwnedTacticalThawForViewExit()", StringComparison.Ordinal) &&
+              tactical.Contains("_tacticalFreezePendingDesiredActive", StringComparison.Ordinal) &&
+              tactical.Contains("TacticalFreezePoseLaw.ApplyLockSnapshot", StringComparison.Ordinal) &&
+              tactical.Contains("ResetTacticalFreezeState()", StringComparison.Ordinal),
+            "POSSESS_LAW 8.5: view exit must request thaw while snapshots/session teardown own state");
+        Check(program.Contains("controllerTacticalFrozen", StringComparison.Ordinal) &&
+              program.Contains("TacticalFreezePoseLaw.IsFrozen(ControlledGuid)", StringComparison.Ordinal),
+            "POSSESS_LAW 8.3: another frozen human can still predict movement through the controller");
+        int tacticalSpell = shelf.IndexOf("TryQueueTacticalSpell(primary, spellId, explicitTarget)",
+            StringComparison.Ordinal);
+        int spellHandoff = shelf.IndexOf("BeginControlHandover(primary);", tacticalSpell,
+            StringComparison.Ordinal);
+        Check(tacticalSpell >= 0 && spellHandoff > tacticalSpell,
+            "POSSESS_LAW 8.6: a frozen spell can possession-handoff before explicit queue authorship");
+        Check(shelf.Contains("Items cannot be queued during Tactical Freeze.", StringComparison.Ordinal) &&
+              shelf.Contains("CancelPendingPrimaryItemUse();", StringComparison.Ordinal),
+            "POSSESS_LAW 8.6: item quickslots can still author live-world use while frozen");
+        Check(!poseLaw.Contains("using MSUIClient;", StringComparison.Ordinal) &&
+              !poseLaw.Contains("GameLoop.", StringComparison.Ordinal),
+            "POSSESS_LAW 8.4: lower pose law must not reference the GameLoop layer");
 
         Console.WriteLine("interface-wire-check: PossessLaw PASS");
     }

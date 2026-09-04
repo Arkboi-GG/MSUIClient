@@ -53,7 +53,8 @@ public sealed partial class GameLoop
         // Cheap exits first so a disabled feature costs one bool read per press.
         if (!HovercastEnabled || _net is null || _spellCatalog is null) return 0;
 
-        bool armed = _groundCastSpell != 0 || _itemCastSpell != 0 || _rtsUnitCastSpellId != 0;
+        bool armed = _groundCastSpell != 0 || _tacticalGroundSpellId != 0 ||
+            _itemCastSpell != 0 || _rtsUnitCastSpellId != 0;
         uint spellId = slot.ActionId;
 
         HovercastVerdict verdict = HovercastLaw.Resolve(
