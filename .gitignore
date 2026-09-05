@@ -41,10 +41,18 @@ _wowee_ref/
 # gitlink or copied into this history. Recoverable independently via its own repo.
 .reference-vmangos-core/
 
-# Per-machine paths. client-config.json.example is committed instead, so
-# a fresh clone has a template without carrying anyone's local layout.
+# Per-machine paths.
 client-config.json
 local-credentials/
+
+# client-config.json.example was previously committed as a template (so a
+# fresh clone had one without carrying anyone's local layout), but a past
+# edit accidentally baked a real account/password into it instead of leaving
+# placeholders - GOA-branch only, this file never reaches main or upstream.
+# Ignored from here on so a future edit can't repeat that; a fresh clone
+# no longer gets an auto-provided template, see client-config.json's own
+# doc comments in ClientConfig.Net.cs for the expected shape instead.
+client-config.json.example
 
 # Per-user preferences written by the settings modal (Escape). Taste, not
 # wiring: it holds view distance, clutter density, water look and any named
@@ -52,6 +60,8 @@ local-credentials/
 # person's machine. The built-in quality levels live in code (GameSettings
 # .ApplyQuality), so a fresh clone is never short of a sane starting point.
 settings.json
+settings.client.json
+settings.creator.json
 
 # Per-character Encounter Lab combat doctrine (the two reusable slots, §8.9).
 # Rotation and positioning libraries are user preferences and stable across

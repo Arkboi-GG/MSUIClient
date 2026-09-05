@@ -72,6 +72,8 @@ public static partial class Program
             return 1;
         }
 
+        Engine.UI.ItemQualityLaw.Initialize(config);
+
         // A live protocol is evidence about the authenticated server session. Letting it boot
         // with networking disabled opens the offline world viewer, which looks runnable but can
         // never satisfy that contract and is dangerously easy to mistake for a live test.

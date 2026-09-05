@@ -272,7 +272,7 @@ public sealed partial class GameLoop
                 candidate => GameText.MeasureWidth(
                     GroupLootFrameUiLaw.NameFont, candidate, scale));
             uint nameColor = ImGui.ColorConvertFloat4ToU32(
-                GroupLootFrameUiLaw.QualityColor(item.Quality));
+                ItemQualityLaw.Color(item.Quality));
             for (int line = 0; line < nameLines.Count; line++)
                 GameText.Draw(draw, GroupLootFrameUiLaw.NameFont, nameLines[line],
                     GroupLootFrameUiLaw.NameLineMin(frame.Min, scale, line,

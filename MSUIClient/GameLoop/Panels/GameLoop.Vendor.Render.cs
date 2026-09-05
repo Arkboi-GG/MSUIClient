@@ -486,7 +486,7 @@ public sealed partial class GameLoop
         void AddPair(string left, string right) =>
             lines.Add(new(left, white, right, white));
 
-        Add(item.Name, ItemTooltipQualityColor(item.Quality));
+        Add(item.Name, ItemQualityLaw.Color(item.Quality));
         switch (item.Bonding)
         {
             case 1: Add("Binds when picked up"); break;

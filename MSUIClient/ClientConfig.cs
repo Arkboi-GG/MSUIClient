@@ -46,7 +46,7 @@ public sealed partial class ClientConfig
     public string? MmapPath { get; set; }
 
     /// <summary>realmd host, for Phase 2. Unused while the client is offline.</summary>
-    public string RealmdHost { get; set; } = "127.0.0.1";
+    public string RealmdHost { get; set; } = "192.168.0.2";
     public int RealmdPort { get; set; } = 3724;
 
     /// <summary>MangosSuperUI base URL for live, read-only realm data such as Quest Helper.</summary>
@@ -71,6 +71,15 @@ public sealed partial class ClientConfig
     public CameraConfig Camera { get; set; } = new();
     public MovementConfig Movement { get; set; } = new();
 
+    /// <summary>
+    /// Item quality tiers, by numeric quality. Defaults to stock vanilla's 7
+    /// (0 Poor .. 6 Artifact) so servers that don't customize this see identical
+    /// behavior to before this was configurable. A server running extra tiers
+    /// (e.g. a custom Quality 7/8) just adds entries here — nothing in the client
+    /// itself is hardcoded to exactly 7.
+    /// </summary>
+    public List<ItemQualityColorEntry> ItemQualityColors { get; set; } = ItemQualityColorEntry.Defaults();
+
     /// <summary>Repo root, resolved at load. Also used to locate Shaders/.</summary>
     [JsonIgnore]
     public string RepoRoot { get; private set; } = "";
@@ -82,6 +91,29 @@ public sealed partial class ClientConfig
     /// <summary>True when MmapPath survived validation and holds real files.</summary>
     [JsonIgnore]
     public bool HasMmaps => !string.IsNullOrWhiteSpace(MmapPath);
+
+    public sealed class ItemQualityColorEntry
+    {
+        public int Quality { get; set; }
+        public string Name { get; set; } = "";
+        public float R { get; set; }
+        public float G { get; set; }
+        public float B { get; set; }
+
+        /// <summary>Stock vanilla's 7 tiers — the exact values already duplicated
+        /// (and now de-duplicated) across GroupLootFrameUiLaw, ItemQualityLaw's
+        /// former per-panel copies, and the item Creator tool.</summary>
+        public static List<ItemQualityColorEntry> Defaults() =>
+        [
+            new() { Quality = 0, Name = "Poor",      R = 0.62f, G = 0.62f, B = 0.62f },
+            new() { Quality = 1, Name = "Common",    R = 1.00f, G = 1.00f, B = 1.00f },
+            new() { Quality = 2, Name = "Uncommon",  R = 0.12f, G = 1.00f, B = 0.00f },
+            new() { Quality = 3, Name = "Rare",      R = 0.00f, G = 0.44f, B = 0.87f },
+            new() { Quality = 4, Name = "Epic",      R = 0.64f, G = 0.21f, B = 0.93f },
+            new() { Quality = 5, Name = "Legendary", R = 1.00f, G = 0.50f, B = 0.00f },
+            new() { Quality = 6, Name = "Artifact",  R = 0.90f, G = 0.80f, B = 0.50f },
+        ];
+    }
 
     public sealed class WindowConfig
     {

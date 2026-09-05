@@ -434,7 +434,7 @@ public sealed partial class GameLoop
     private (string Name, uint Color) QuestRewardName(in QuestRewardItem row)
     {
         if (_items?.TryGet(row.ItemId, out ItemTemplate? item) == true && item is not null)
-            return (item.Name, ImGui.ColorConvertFloat4ToU32(ItemQualityColor(item.Quality)));
+            return (item.Name, ImGui.ColorConvertFloat4ToU32(ItemQualityLaw.Color(item.Quality)));
         return ("...", 0xffd8e0e6);
     }
 

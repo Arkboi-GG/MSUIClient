@@ -61,17 +61,6 @@ public sealed partial class GameLoop
         ("Two-Hand", 17), ("Off Hand", 22), ("Held", 23), ("Shield", 14), ("Ranged", 15),
     };
 
-    private static readonly Vector4[] CreatorQualityColors =
-    {
-        new(0.62f, 0.62f, 0.62f, 1f),   // poor
-        new(1f, 1f, 1f, 1f),            // common
-        new(0.12f, 1f, 0f, 1f),         // uncommon
-        new(0f, 0.44f, 0.87f, 1f),      // rare
-        new(0.64f, 0.21f, 0.93f, 1f),   // epic
-        new(1f, 0.50f, 0f, 1f),         // legendary
-        new(0.90f, 0.80f, 0.50f, 1f),   // artifact
-    };
-
     // ── per-modal layout dials ───────────────────────────────────────────────
     // Every window has a gear button opening ITS OWN dial set (PanelTuning in
     // the settings), multiplying on top of the shared modal dials - so each
@@ -1598,7 +1587,7 @@ public sealed partial class GameLoop
                 {
                     foreach (var item in _creatorSearchResults)
                     {
-                        var color = CreatorQualityColors[Math.Min(item.Quality, (byte)6)];
+                        var color = ItemQualityLaw.Color(item.Quality);
                         ImGui.PushStyleColor(ImGuiCol.Text, color);
                         bool clicked = CreatorResultRow($"{item.Name}##{item.Entry}");
                         ImGui.PopStyleColor();

@@ -716,7 +716,7 @@ public sealed partial class GameLoop
                     draw.AddImage((nint)check, checkMin, checkMin + DropdownCapsuleUiLaw.Check.Size * scale);
                 }
             }
-            uint color = i == 0 ? 0xffffffff : ImGui.ColorConvertFloat4ToU32(ItemQualityColor((uint)(i - 1)));
+            uint color = i == 0 ? 0xffffffff : ImGui.ColorConvertFloat4ToU32(ItemQualityLaw.Color((uint)(i - 1)));
             GameText.Draw(draw, DropdownCapsuleUiLaw.SelectionFont, rows[i],
                 min + DropdownCapsuleUiLaw.RowTextOffset * scale, scale, color);
             if (clicked)
@@ -906,7 +906,7 @@ public sealed partial class GameLoop
 
             float textTop=GameText.BoxCenteredTop("GameFontNormal",rowMin.Y,32,s);
             uint nameColor=item is null?0xffffffff:
-                ImGui.ColorConvertFloat4ToU32(ItemQualityColor(item.Quality));
+                ImGui.ColorConvertFloat4ToU32(ItemQualityLaw.Color(item.Quality));
             GameText.Draw(dl,"GameFontNormal",item?.Name??$"Item {row.Item}",
                 new Vector2(rowMin.X+(tab==1?41:43)*s,textTop),s,nameColor);
 
@@ -1096,7 +1096,7 @@ public sealed partial class GameLoop
                         GameText.EmPixels("NumberFontNormal", s) - 2f * s), s, 0xffffffff);
             GameText.Draw(dl,"GameFontNormal",item.Name,
                 origin+AuctionFrameUiLaw.OwnerItemName*s,s,
-                ImGui.ColorConvertFloat4ToU32(ItemQualityColor(item.Quality)));
+                ImGui.ColorConvertFloat4ToU32(ItemQualityLaw.Color(item.Quality)));
         }
         ImGui.SetCursorScreenPos(slotMin);
         bool clicked=ImGui.InvisibleButton("##auction-sell-item",

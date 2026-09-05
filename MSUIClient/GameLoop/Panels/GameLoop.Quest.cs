@@ -2718,7 +2718,7 @@ public sealed partial class GameLoop
             QuestFrameUiLaw.ItemNameFrameRect.Size, s);
         Vector2 nameMin = QuestFrameUiLaw.ItemNameTextMin(min, s);
         GameText.Draw(dl, "GameFontHighlight", name, nameMin, s,
-            item is null ? 0xffffffff : ImGui.ColorConvertFloat4ToU32(ItemQualityColor(item.Quality)));
+            item is null ? 0xffffffff : ImGui.ColorConvertFloat4ToU32(ItemQualityLaw.Color(item.Quality)));
         if (row.Count > 1) GameText.DrawRightAligned(dl, "NumberFontNormal", row.Count.ToString(),
             min + QuestFrameUiLaw.ItemCountAnchor * s, s);
         ImGui.SetCursorScreenPos(min);
@@ -2759,7 +2759,7 @@ public sealed partial class GameLoop
             CollectUiParityDraw(element + "/Name", "FontString", nameMin,
                 new(GameText.MeasureWidth(fontObject,name,s),GameText.EmPixels(fontObject,s)),
                 element, new("", item is null ? 0xffffffff :
-                        ImGui.ColorConvertFloat4ToU32(ItemQualityColor(item.Quality)), "OVERLAY",
+                        ImGui.ColorConvertFloat4ToU32(ItemQualityLaw.Color(item.Quality)), "OVERLAY",
                     "LEFT", element, "LEFT", 44, -12, FontObjectLaw.Get(fontObject).Face,
                     FontObjectLaw.Get(fontObject).Height, ClipRect:clip,
                     ClipMask:scrollName, Strata:"DIALOG"));

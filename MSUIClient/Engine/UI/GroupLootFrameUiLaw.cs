@@ -128,17 +128,6 @@ public static class GroupLootFrameUiLaw
             Math.Max(0, NameSize.Y * scale - Math.Max(0, lineCount) * pitch) * .5f +
             Math.Max(0, line) * pitch);
 
-    public static Vector4 QualityColor(uint quality) => quality switch
-    {
-        0 => new(.62f, .62f, .62f, 1),
-        2 => new(.12f, 1f, 0, 1),
-        3 => new(0, .44f, .87f, 1),
-        4 => new(.64f, .21f, .93f, 1),
-        5 => new(1f, .5f, 0, 1),
-        6 => new(.9f, .8f, .5f, 1),
-        _ => Vector4.One,
-    };
-
     public static string ItemLink(uint itemId, string name, uint quality) =>
         UiTextMarkupLaw.ItemLink(itemId, name, quality);
 

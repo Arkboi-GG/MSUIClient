@@ -506,7 +506,7 @@ public sealed partial class GameLoop
             if (_items?.TryGet(item.ItemId, out ItemTemplate? template) == true && template is not null)
             {
                 name = template.Name;
-                color = ItemQualityColor(template.Quality);
+                color = ItemQualityLaw.Color(template.Quality);
                 if (template.IconPath.Length > 0) icon = template.IconPath;
             }
             rows.Add(new LootRow(false, item.Slot, item.ItemId, name, icon, item.Count, color));
@@ -627,17 +627,6 @@ public sealed partial class GameLoop
                 LootFrameUiLaw.PagerUp.ScaledSize(s)))
             _lootPage += up ? -1 : 1;
     }
-
-    private static Vector4 ItemQualityColor(uint quality) => quality switch
-    {
-        0 => new Vector4(0.62f, 0.62f, 0.62f, 1f),
-        2 => new Vector4(0.12f, 1f, 0f, 1f),
-        3 => new Vector4(0f, 0.44f, 0.87f, 1f),
-        4 => new Vector4(0.64f, 0.21f, 0.93f, 1f),
-        5 => new Vector4(1f, 0.50f, 0f, 1f),
-        6 => new Vector4(0.90f, 0.80f, 0.50f, 1f),
-        _ => Vector4.One,
-    };
 
     /// <summary>"4 Gold 25 Silver 3 Copper", dropping zero denominations; 0 = "0 Copper".</summary>
     private static string FormatMoney(uint copper)

@@ -1070,13 +1070,6 @@ public sealed partial class GameLoop
                 count.ToString(), min + new Vector2(32f, 18f) * scale, scale);
     }
 
-    private static Vector4 ItemTooltipQualityColor(uint quality) => quality switch
-    {
-        0 => new Vector4(0.62f, 0.62f, 0.62f, 1), 2 => new Vector4(0.12f, 1f, 0, 1),
-        3 => new Vector4(0, 0.44f, 0.87f, 1), 4 => new Vector4(0.64f, 0.21f, 0.93f, 1),
-        5 => new Vector4(1f, 0.50f, 0, 1), 6 => new Vector4(0.90f, 0.80f, 0.50f, 1),
-        _ => Vector4.One,
-    };
 
     private enum PreparedItemTooltipPaintKind
     {
@@ -1254,7 +1247,7 @@ public sealed partial class GameLoop
         // Resolve every mutable ItemTemplate field, Stats entry, and Damages entry into an
         // immutable paint operation before the terminal tooltip stratum can invoke a renderer.
         operations.Add(PreparedItemTooltipColored(item.Name,
-            compact ? Vector4.One : ItemTooltipQualityColor(item.Quality)));
+            compact ? Vector4.One : ItemQualityLaw.Color(item.Quality)));
         Vector4 white = Vector4.One;
         Vector4 red = new(1f, 32f / 255f, 32f / 255f, 1f);
         Vector4 green = new(0f, 1f, 0f, 1f);
