@@ -438,6 +438,8 @@ public sealed partial class CharacterRenderer : IDisposable
     /// <summary>Edge-detect for the _combatAction movement-break rule in Update -
     /// see the comment there for why this has to be a change, not a level check.</summary>
     private bool _wasMovingLastFrame;
+    // Edge-detect for leaving a ground stand-state, which ends a seated consume - see Update.
+    private bool _wasSeatedLastFrame;
 
     // ── landing ──────────────────────────────────────────────────────────────
     private M2Animator.Clip? _landClip;
@@ -2737,6 +2739,40 @@ public sealed partial class CharacterRenderer : IDisposable
             _combatActionMasked = _combatAction is not null && CommittedLowerState(state);
         }
 
+        // ...with ONE clause re-checked every frame: the stand-state.
+        //
+        // Movement is local input, known the instant an action is armed. StandState is the
+        // SERVER's field (UNIT_FIELD_BYTES_1) and lands on its own schedule - for a drink it
+        // arrives a beat AFTER the eat emote it belongs to. Latching the route across that gap
+        // is what left a drinking character standing, eating full-body, for seconds before it
+        // finally sat (reported 2026-09-04; food happened to win the race, drink lost it).
+        //
+        // Upgrading full-body -> masked is safe in the way the reverse is not. It moves the
+        // action OFF the base and lets the seated pose show through underneath; a masked ->
+        // full-body downgrade mid-clip would drag the legs onto the action's own keys, which
+        // is the pop the arm-time latch exists to prevent. So the route only ever tightens.
+        if (_combatAction is not null && !_combatActionMasked && SeatedNow(state))
+        {
+            // Carry the elapsed full-body time onto the overlay clock so the bite continues
+            // from where it got to rather than snapping back to frame 0 as the character sits.
+            if (ReferenceEquals(_clip, _combatAction)) _actionOverlayTime = _clipTime;
+            _combatActionMasked = true;
+        }
+
+        // LEAVING the seat ends a seated consume outright. Standing or moving drops the
+        // Eating/Drinking aura server-side and stops the emote ticks, so the bite already in
+        // flight must not keep chewing on the torso over a standing idle for the rest of its
+        // duration. Only the seated -> not-seated EDGE does this: a cast masked by MOTION has
+        // nothing to do with the stand-state and is deliberately left alone, which is why this
+        // cannot just be folded into the movement-flag rule below.
+        if (_combatAction is not null && _combatActionMasked &&
+            _wasSeatedLastFrame && !SeatedNow(state))
+        {
+            _combatAction = null;
+            _combatActionMasked = false;
+        }
+        _wasSeatedLastFrame = SeatedNow(state);
+
         // A movement-flag CHANGE ends a FULL-BODY play, not just the clip's own
         // duration - confirmed against the Benilla trace (driver.rs:847-877: "when
         // oneshot_finished(id) OR a movement-flag change, drv.mode = Mode::Gait").
@@ -3333,6 +3369,15 @@ public sealed partial class CharacterRenderer : IDisposable
     }
 
     /// <summary>
+    /// The server is holding us in a ground stand-state right now. Split out of
+    /// <see cref="CommittedLowerState"/> because this is the one clause of the route that is
+    /// re-evaluated per frame rather than latched at arm time - see Update.
+    /// </summary>
+    private static bool SeatedNow(in UnitState state) =>
+        (UnitStandState)state.StandState is
+            UnitStandState.Sit or UnitStandState.Sleep or UnitStandState.Kneel;
+
+    /// <summary>
     /// The full Benilla committed_lower test for the local player - CharacterPoseLaw.CommittedLower
     /// fed from this frame's UnitState. Decides whether a one-shot masks to the SpineLow subtree or
     /// replaces the whole body, and is evaluated once per play (see the arm-time capture in Update).
@@ -3357,8 +3402,7 @@ public sealed partial class CharacterRenderer : IDisposable
             // Sit is the case food and drink hit - the server sets UNIT_FIELD_BYTES_1
             // StandState=Sit for both, verified on the wire. Chair-sit stand-states are not
             // rendered as seated poses here (see ChooseClip), so they stay excluded.
-            seated: (UnitStandState)state.StandState is
-                UnitStandState.Sit or UnitStandState.Sleep or UnitStandState.Kneel,
+            seated: SeatedNow(state),
             mounted: Mounted,
             combatAnimation: false,
             falling: !state.Grounded);

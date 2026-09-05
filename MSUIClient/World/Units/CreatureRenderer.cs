@@ -169,7 +169,8 @@ public sealed partial class CreatureRenderer : IDisposable
     // Benilla's route_oneshot verdict for each unit's CURRENT play, the per-guid mirror of
     // CharacterRenderer's _combatActionMasked. Keyed on the play's StartedAt so a fresh trigger
     // re-routes while a resend of the same play keeps the route it was armed with.
-    private readonly Dictionary<ulong, (float StartedAt, bool Masked)> _combatActionRoute = new();
+    private readonly Dictionary<ulong, (float StartedAt, bool Masked, bool Seated)>
+        _combatActionRoute = new();
     private readonly Dictionary<ulong, int> _spellHolds = new();
     private readonly HashSet<ulong> _lootKneeling = new();
     private readonly HashSet<ulong> _knownAlive = new();
@@ -609,6 +610,7 @@ public sealed partial class CreatureRenderer : IDisposable
                 // CharacterRenderer's arm-time capture, and for the same reason: re-deciding
                 // per frame would swap the base out from under a half-played clip.
                 bool remoteMasked = false;
+                bool remoteSeated = SeatedLoopAnimId(e.Fields.StandState) != 0;
                 if (_combatActions.TryGetValue(e.Guid, out CombatAction routedAction))
                 {
                     if (!_combatActionRoute.TryGetValue(e.Guid, out var route) ||
@@ -618,13 +620,28 @@ public sealed partial class CreatureRenderer : IDisposable
                             moving: remoteMoving,
                             turning: false,
                             swimming: (e.MoveFlags & (uint)MovementFlags.Swimming) != 0,
-                            seated: SeatedLoopAnimId(e.Fields.StandState) != 0,
+                            seated: remoteSeated,
                             mounted: mounted,
                             combatAnimation: false,
-                            falling: false));
+                            falling: false), remoteSeated);
                         _combatActionRoute[e.Guid] = route;
                     }
-                    remoteMasked = route.Masked;
+                    // The stand-state clause is live, exactly as for the local player - the
+                    // server's seat can land after the emote it belongs to, and a latched
+                    // full-body route would leave a drinking unit standing until the play ended.
+                    // See CharacterRenderer.Update. The route only ever tightens.
+                    if (!route.Masked && remoteSeated)
+                    {
+                        route = (route.StartedAt, true, true);
+                        _combatActionRoute[e.Guid] = route;
+                    }
+                    // Leaving the seat ends a seated consume, the mirror of the local rule.
+                    if (!animationFrozen && route.Seated && !remoteSeated)
+                    {
+                        _combatActions.Remove(e.Guid);
+                        _combatActionRoute.Remove(e.Guid);
+                    }
+                    else remoteMasked = route.Masked;
                 }
                 else _combatActionRoute.Remove(e.Guid);
 
