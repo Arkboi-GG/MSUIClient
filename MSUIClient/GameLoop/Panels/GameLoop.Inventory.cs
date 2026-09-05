@@ -998,6 +998,16 @@ public sealed partial class GameLoop
         bool blocked = spell is { } info
             ? _actions.IsOnCooldown(useSpell.SpellId, template.Entry, info, now)
             : _actions.IsOnCooldown(useSpell.SpellId, template.Entry, useSpell.Category, now);
+        // Which side authored the recovery this gate is about to enforce. item* are the SERVER's
+        // item_template columns (spellcooldown / spellcategorycooldown, -1 meaning "use the
+        // spell's own"); dbc* are the Spell.dbc fallbacks the client substitutes for a -1. The
+        // gate below never reaches the wire, so without this line a local block is
+        // indistinguishable from the server refusing the use.
+        Console.WriteLine($"[verdict:item-cooldown] time={NowSeconds():F3} entry={template.Entry} " +
+            $"spell={useSpell.SpellId} name={spell?.Name ?? "?"} category={useSpell.Category} " +
+            $"itemCooldownMs={useSpell.CooldownMs} itemCategoryCooldownMs={useSpell.CategoryCooldownMs} " +
+            $"dbcRecoveryMs={spell?.RecoveryMs ?? 0} dbcCategoryRecoveryMs={spell?.CategoryRecoveryMs ?? 0} " +
+            $"blocked={blocked}");
         if (useSpell.SpellId != 0 && blocked)
         {
             ShowSpellError(useSpell.SpellId, "LOCAL_ITEM_COOLDOWN", "Item is not ready yet.",
