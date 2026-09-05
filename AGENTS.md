@@ -5,16 +5,29 @@ rules that only live in chat get re-broken (owner, 2026-09-03: "I don't need to
 repeat myself over and over"). Tracked at the repo root (2026-09-03) so it travels with the code; the content is
 agent-agnostic on purpose. Tool-specific loaders may import it.
 
-## Read first, by topic
+## Read first: `shared_docs/`
 
-- Possession, companions, Command View, any NPC/loot/taxi/mail interaction, the
-  fleet follow: `POSSESS_LAW.md` — binding, enforced by
+`shared_docs/` is the TRACKED home of the team's design documents and laws (2026-09-04).
+`docs/` is git-ignored scratch and never travels; anything another agent or teammate must
+read goes in `shared_docs/` and gets a line here. Read the ones for your topic before
+touching the code:
+
+- `shared_docs/POSSESS_LAW.md` — possession, companions, Command View, any
+  NPC/loot/taxi/mail interaction, the fleet follow. Binding, enforced by
   `dotnet run --project tools/interface-wire-check -- --possess-law-only` and
   `tools/possess-law-check.sh` (Core, over ssh). Both must stay green after any
   change in those areas; add a check with every new rule.
-- The day-by-day record of the CRPG/RTS work: `docs/current/CRPG_RTS_WIP.md`
-  (append a dated section per round; never rewrite history).
-- Server handoff for possession routing: `docs/current/POSSESSION_ROUTING_HANDOFF.md`.
+- `shared_docs/CRPG_FREEZE_SYSTEM.md` — the CRPG/RTS freeze system.
+- `shared_docs/MACRO_BOOK.md` — the Macro Book: stable macro ids and the legacy
+  ranges, the v2 store, the embedded Core command export and how to regenerate it.
+- `CODE_STRUCTURE_LAW.md` (repo root) — where a `.cs` file goes and how it is named.
+
+`interface-wire-check --shared-docs-only` fails when a file in `shared_docs/` is not
+listed above, so adding a document means adding its line.
+
+Also, ignored on this machine only: the day-by-day CRPG/RTS record
+`docs/current/CRPG_RTS_WIP.md` (append a dated section per round; never rewrite
+history) and the server handoff `docs/current/POSSESSION_ROUTING_HANDOFF.md`.
 
 ## Standing rules (short form; the law files have the why)
 

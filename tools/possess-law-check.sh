@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# POSSESS_LAW (POSSESS_LAW.md), Core half. Run from this repo:
+# POSSESS_LAW (shared_docs/POSSESS_LAW.md), Core half. Run from this repo:
 #   bash tools/possess-law-check.sh            # over ssh against 192.168.0.2:~/vmangos
 #   bash tools/possess-law-check.sh --local ~/vmangos   # on the box itself
 # Greps the Core SOURCE for the rules that were broken and re-broken on 2026-09-03.

@@ -1540,10 +1540,18 @@ if (args.Contains("--world-map-only", StringComparer.Ordinal))
     return;
 }
 
-if (args.Contains("--macro-frame-only", StringComparer.Ordinal))
+if (args.Contains("--shared-docs-only", StringComparer.Ordinal))
 {
-    MacroFrameClinicalChecks.Run();
-    Console.WriteLine("interface-wire-check: MacroFrame PASS");
+    SharedDocsClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: SharedDocs PASS");
+    return;
+}
+
+if (args.Contains("--macro-book-only", StringComparer.Ordinal) ||
+    args.Contains("--macro-frame-only", StringComparer.Ordinal))
+{
+    MacroBookClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MacroBook PASS");
     return;
 }
 
@@ -4775,5 +4783,9 @@ GameplayImguiPolicyClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: GameplayImguiPolicy PASS");
 HudLayoutClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: HudLayout PASS");
+MacroBookClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: MacroBook PASS");
+SharedDocsClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: SharedDocs PASS");
 
 Console.WriteLine("interface wire checks passed: minimap projection/area/zone + action icons + gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + social + trade + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding + gameplay-text fence");

@@ -2,6 +2,8 @@
 
 **This document is binding. Read it before adding, moving, renaming, or splitting any `.cs` file in `MSUIClient/`.** It exists so the source tree stays legible as it grows. If a change would violate a rule here, either don't make it or update this law first — do not quietly break the pattern.
 
+> **Read `shared_docs/` too.** This law governs *where code lives*. The *behavioral* laws and design documents live in `shared_docs/` (tracked; `docs/` is git-ignored scratch): `POSSESS_LAW.md`, `CRPG_FREEZE_SYSTEM.md`, `MACRO_BOOK.md`, … — `AGENTS.md` lists them by topic. A feature that touches one of those areas is governed by its document there, and a new team document goes in `shared_docs/` with a line in `AGENTS.md` (the `--shared-docs-only` check enforces the listing).
+
 > Naming note: this is the *client's* code-structure law. The historical name people reach for is "Program structure," but the app's real god-class is **`GameLoop`**, not `Program` (see §1). The law is named for what it governs, not for the old file prefix.
 
 ---

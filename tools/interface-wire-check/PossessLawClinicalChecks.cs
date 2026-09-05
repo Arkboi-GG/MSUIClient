@@ -2,7 +2,7 @@ using MSUIClient;
 using MSUIClient.Engine.UI;
 
 /// <summary>
-/// POSSESS_LAW (POSSESS_LAW.md), client half. The rules that were broken
+/// POSSESS_LAW (shared_docs/POSSESS_LAW.md), client half. The rules that were broken
 /// and re-broken on 2026-09-03 are asserted against the SOURCE so they cannot drift back:
 /// interaction gates range from the driven body, purses read the driven body, every
 /// mirrored server frame is unwrapped, and a control change resets the body-scoped UI.

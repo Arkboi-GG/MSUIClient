@@ -613,6 +613,39 @@ public sealed partial class GameLoop
         return changed;
     }
 
+    /// <summary>
+    /// A FrameXML ScrollFrame + EditBox pair with no chrome of its own: the caller paints the
+    /// backdrop and the vanilla scroll bar. The ImGui input is sized to the CONTENT and clipped by
+    /// a scroll-less child parked at <paramref name="scrollLogical"/>, so ImGui never shows a
+    /// scroll bar of its own (the Macro Book's editor; the old MacroFrame did the same inline).
+    /// </summary>
+    private static bool VanillaBareMultilineText(string id, ref string value, uint capacity,
+        Vector2 min, Vector2 logicalSize, float scale, float scrollLogical,
+        float logicalContentHeight)
+    {
+        Vector2 size = logicalSize * scale;
+        ImGui.SetCursorScreenPos(min);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, Vector2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildBorderSize, 0);
+        ImGui.BeginChild(id + "-scroll", size, false,
+            ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoScrollbar |
+            ImGuiWindowFlags.NoScrollWithMouse);
+        ImGui.SetScrollY(scrollLogical * scale);
+        ImGui.SetCursorPos(Vector2.Zero);
+        ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgActive, Vector4.Zero);
+        ImGui.PushStyleColor(ImGuiCol.Border, Vector4.Zero);
+        bool changed = ImGui.InputTextMultiline(id, ref value, capacity,
+            new Vector2(logicalSize.X, MathF.Max(logicalSize.Y, logicalContentHeight)) * scale,
+            ImGuiInputTextFlags.NoHorizontalScroll);
+        ImGui.PopStyleColor(4);
+        ImGui.EndChild();
+        ImGui.PopStyleVar(3);
+        return changed;
+    }
+
     private bool VanillaInputTextMultiline(ImDrawListPtr draw, string id, byte[] buffer,
         Vector2 min, Vector2 logicalSize, float scale)
     {

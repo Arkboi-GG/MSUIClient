@@ -78,6 +78,8 @@
 			LogicalName="MSUIClient.Assets.UI.PartyChain.party-chain-unlinked.png" />
 		<EmbeddedResource Include="Assets\UI\PartyChain\party-chain-world-hold.png"
 			LogicalName="MSUIClient.Assets.UI.PartyChain.party-chain-world-hold.png" />
+		<EmbeddedResource Include="Data/vmangos-commands.tsv"
+			LogicalName="MSUIClient.Data.vmangos-commands.tsv" />
 	</ItemGroup>
 
 	<ItemGroup>
