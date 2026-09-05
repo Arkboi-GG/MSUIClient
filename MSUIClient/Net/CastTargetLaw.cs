@@ -53,6 +53,12 @@ public static class CastTargetLaw
     private const ushort LocationBits = SourceLocation | DestLocation;
     private const ushort ItemBits = 0x0010 | 0x1000;
 
+    /// <summary>Whether this spell's target mask includes the hostile-unit bit - i.e. it needs an
+    /// attackable enemy to bind to, not just self/friendly/party/raid. Used to decide whether a
+    /// press with no target selected should auto-acquire the nearest enemy before resolving,
+    /// same as the Attack button already does.</summary>
+    public static bool RequiresHostileUnit(in SpellInfo spell) => (TargetMask(spell) & Enemy) != 0;
+
     public static ushort TargetMask(in SpellInfo spell)
     {
         ushort word = (ushort)spell.Targets;
