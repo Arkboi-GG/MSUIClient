@@ -166,6 +166,10 @@ public sealed partial class CreatureRenderer : IDisposable
     /// its comment (and CharacterRenderer.Update's matching one) for why this has
     /// to be a change, not a level check. Pruned in PruneAnimState.</summary>
     private readonly Dictionary<ulong, bool> _wasMovingByGuid = new();
+    // Benilla's route_oneshot verdict for each unit's CURRENT play, the per-guid mirror of
+    // CharacterRenderer's _combatActionMasked. Keyed on the play's StartedAt so a fresh trigger
+    // re-routes while a resend of the same play keeps the route it was armed with.
+    private readonly Dictionary<ulong, (float StartedAt, bool Masked)> _combatActionRoute = new();
     private readonly Dictionary<ulong, int> _spellHolds = new();
     private readonly HashSet<ulong> _lootKneeling = new();
     private readonly HashSet<ulong> _knownAlive = new();
@@ -600,29 +604,61 @@ public sealed partial class CreatureRenderer : IDisposable
                 bool remoteMoving = (e.Spline?.AverageSpeed ?? 0f) > MovingEpsilon;
                 bool remoteMovementChanged = remoteMoving != _wasMovingByGuid.GetValueOrDefault(e.Guid);
                 _wasMovingByGuid[e.Guid] = remoteMoving;
-                if (!animationFrozen && remoteMovementChanged) _combatActions.Remove(e.Guid);
 
-                // Seated remote unit + an active emote/swing one-shot (someone else
-                // eating/drinking): mask it to the SpineLow subtree over the held
-                // seated pose instead of hijacking the whole body - the per-guid
-                // mirror of CharacterRenderer's SeatedMaskState fix. Resolve and
-                // expire the action HERE so the seated-loop branch below is free to
-                // be the base clip; it renders as a torso overlay at Evaluate time.
+                // Route this unit's one-shot ONCE per play - the per-guid mirror of
+                // CharacterRenderer's arm-time capture, and for the same reason: re-deciding
+                // per frame would swap the base out from under a half-played clip.
+                bool remoteMasked = false;
+                if (_combatActions.TryGetValue(e.Guid, out CombatAction routedAction))
+                {
+                    if (!_combatActionRoute.TryGetValue(e.Guid, out var route) ||
+                        route.StartedAt != routedAction.StartedAt)
+                    {
+                        route = (routedAction.StartedAt, CharacterPoseLaw.CommittedLower(
+                            moving: remoteMoving,
+                            turning: false,
+                            swimming: (e.MoveFlags & (uint)MovementFlags.Swimming) != 0,
+                            seated: SeatedLoopAnimId(e.Fields.StandState) != 0,
+                            mounted: mounted,
+                            combatAnimation: false,
+                            falling: false));
+                        _combatActionRoute[e.Guid] = route;
+                    }
+                    remoteMasked = route.Masked;
+                }
+                else _combatActionRoute.Remove(e.Guid);
+
+                // A movement-flag change ends a FULL-BODY play only. A masked overlay runs beside
+                // the base machine and owns its own clock - see CharacterRenderer.Update.
+                if (!animationFrozen && remoteMovementChanged && !remoteMasked)
+                {
+                    _combatActions.Remove(e.Guid);
+                    _combatActionRoute.Remove(e.Guid);
+                }
+
+                // Masked remote one-shot (someone else eating/drinking seated, or casting while
+                // running): layer it onto the SpineLow subtree over the base pose instead of
+                // hijacking the whole body. Resolve and expire the action HERE so the locomotion
+                // and seated-loop branches below are free to be the base clip; it renders as a
+                // torso overlay at Evaluate time.
                 M2Animator.Clip? torsoOverlay = null;
                 float torsoOverlayTime = 0f;
-                bool seatedMask = !remoteMoving && SeatedLoopAnimId(e.Fields.StandState) != 0;
-                if (seatedMask &&
-                    _combatActions.TryGetValue(e.Guid, out CombatAction seatedAction) &&
-                    ResolveCombatClip(model.Animator, unit, seatedAction) is { } seatedActionClip)
+                if (remoteMasked &&
+                    _combatActions.TryGetValue(e.Guid, out CombatAction maskedAction) &&
+                    ResolveCombatClip(model.Animator, unit, maskedAction) is { } maskedActionClip)
                 {
-                    float seatedActionTime = frozen ? at : _globalTime - seatedAction.StartedAt;
-                    if (!frozen && !seatedActionClip.Looping &&
-                        seatedActionTime >= seatedActionClip.DurationSeconds)
-                        _combatActions.Remove(e.Guid);   // one-shot done: plain seated pose
+                    float maskedActionTime = frozen ? at : _globalTime - maskedAction.StartedAt;
+                    if (!frozen && !maskedActionClip.Looping &&
+                        maskedActionTime >= maskedActionClip.DurationSeconds)
+                    {
+                        _combatActions.Remove(e.Guid);   // one-shot done: plain base pose
+                        _combatActionRoute.Remove(e.Guid);
+                        remoteMasked = false;
+                    }
                     else
                     {
-                        torsoOverlay = seatedActionClip;
-                        torsoOverlayTime = seatedActionTime;
+                        torsoOverlay = maskedActionClip;
+                        torsoOverlayTime = maskedActionTime;
                     }
                 }
 
@@ -636,14 +672,11 @@ public sealed partial class CreatureRenderer : IDisposable
                         : MathF.Min(deathAt + dt, clip?.DurationSeconds ?? deathAt + dt);
                     _deathTime[e.Guid] = at;
                 }
-                // The SEATED half of the Benilla committed_lower rule is now handled
-                // above (torsoOverlay) - !seatedMask keeps this full-body branch for
-                // the standing case. The MOVING half is still KNOWN WRONG (2026-08-16):
-                // full-body floats a moving remote unit's whole body instead of masking
-                // the one-shot to the SpineLow subtree with the legs still striding. See
-                // CharacterRenderer.ChooseClip's comment (Benilla driver.rs:631-644/
-                // 1137-1178) - that moving mask still needs building here too.
-                else if (!seatedMask &&
+                // Both halves of the Benilla committed_lower rule are handled above
+                // (torsoOverlay); !remoteMasked keeps this full-body branch for the case it is
+                // still correct for - a unit standing still, lower body free. See
+                // CharacterRenderer.ChooseClip (Benilla driver.rs:631-644/1137-1178).
+                else if (!remoteMasked &&
                     _combatActions.TryGetValue(e.Guid, out CombatAction action) &&
                     ResolveCombatClip(model.Animator, unit, action) is { } actionClip)
                 {
@@ -734,7 +767,8 @@ public sealed partial class CreatureRenderer : IDisposable
                     if (torsoOverlay is not null)
                         model.Animator.EvaluateWithArmOverlays(clip, at, null, 0f, 0f,
                             null, 0f, null, 0f, torsoOverlay, torsoOverlayTime,
-                            evaluationGlobalTime, _skin);
+                            evaluationGlobalTime, _skin,
+                            torsoOverlayWeight: CharacterPoseLaw.OneshotOverlayWeight);
                     else
                         model.Animator.Evaluate(clip, at, evaluationGlobalTime, _skin);
                     M2Animator.Pack(_skin, boneCount, _packed);
@@ -1507,6 +1541,7 @@ public sealed partial class CreatureRenderer : IDisposable
             _footstepTime.Remove(k);
             _animationEventOutOfViewSince.Remove(k);
             _wasMovingByGuid.Remove(k);
+            _combatActionRoute.Remove(k);
             _tacticalFreezeStartedAt.Remove(k);
             _tacticalFreezeVisuals.Remove(k);
         }
