@@ -947,6 +947,10 @@ public sealed class GameSettings
         /// the same interaction menu as their portrait. Off keeps world-model clicks
         /// selection-only and reserves menus for portraits.</summary>
         public bool WorldPlayerContextMenus { get; set; }
+        /// <summary>MSUI option: swap each rebuilt HUD element (unit frames first, more to
+        /// follow) for its Improved UI equivalent. Elements not yet rebuilt keep rendering
+        /// the vanilla default regardless of this setting.</summary>
+        public bool ImprovedUI { get; set; }
         /// <summary>
         /// Vanilla LOCK_ACTIONBAR. It blocks drag-start/drop while preserving Shift-click pickup.
         /// </summary>

@@ -197,12 +197,21 @@ public sealed partial class GameLoop
             DrawWorldUnitNames();
             DrawZoneTextSplash();
             DrawAutoFollowStatus();
-            DrawPlayerFrame();
+            if (Settings.Controls.ImprovedUI)
+            {
+                DrawImprovedPlayerFrame();
+                DrawImprovedTargetFrame();
+                DrawImprovedTargetOfTargetFrame();
+            }
+            else
+            {
+                DrawPlayerFrame();
+                DrawTargetFrame();
+            }
             // Player Power Bars sit beside the player frame, not instead of it: the AddOns
             // switch is off by default and either, neither or both may be on.
             DrawPlayerPowerBars();
             DrawSwingTimer();
-            DrawTargetFrame();
             DrawPetFrameAndActionBar();
             DrawStanceBar();
             DrawPartyFrames();

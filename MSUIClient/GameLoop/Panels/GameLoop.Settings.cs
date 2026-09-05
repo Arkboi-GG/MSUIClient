@@ -2118,6 +2118,10 @@ public sealed partial class GameLoop
                     "Open the player interaction menu when you right-click a player's model " +
                     "in the world. When disabled, world-model right-click only selects them; " +
                     "right-clicking a player or party portrait still opens the menu.");
+                Check("Improved UI", () => s.Controls.ImprovedUI,
+                    v => s.Controls.ImprovedUI = v,
+                    "Swap rebuilt HUD elements (unit frames first, more to follow) for their\n" +
+                    "Improved UI versions. Anything not rebuilt yet still shows the default.");
             }
             EndBox();
 
