@@ -139,6 +139,18 @@ public sealed partial class CreatureRenderer : IDisposable
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
 
+    /// <summary>
+    /// Room light per unit (World/Wmo/InteriorUnitLight.For): (rgb MOCV/255 of
+    /// the floor under the feet, a = interior weight). Null / zero weight = sky.
+    /// Asked once per drawn unit; its mount and attached items share the answer.
+    /// </summary>
+    public Func<ulong, Vector3, Vector4>? InteriorLightFor { get; set; }
+
+    /// <summary>The walls' VertexColorScale, so a unit matches the room it stands in.</summary>
+    public float BakedLightScale { get; set; } = 2f;
+
+    private Vector4 _currentInteriorLight;
+
     private const float DefaultWalkSpeed = 2.5f;
     private const float MovingEpsilon = 0.1f;
 
@@ -548,6 +560,12 @@ public sealed partial class CreatureRenderer : IDisposable
             // The steed draws FIRST, because the rider's instance transform is its saddle.
             // Until the mount model is resident this is false and the rider draws on the
             // ground as it always did — a mount pops in, it never blocks its rider.
+            // The room's light for this unit; the steed and the rider share it, and
+            // DrawUnitAttachments hands it to the items. Bound now so the mount draw
+            // below sees it too.
+            _currentInteriorLight = InteriorLightFor?.Invoke(e.Guid, e.Position) ?? Vector4.Zero;
+            _shader.Set("uInteriorLight", _currentInteriorLight);
+
             MountDraw mount = default;
             bool mounted = false;
             if (e.MountDisplayId > 0)
@@ -991,6 +1009,7 @@ public sealed partial class CreatureRenderer : IDisposable
         _attachedItems.SunIntensity = SunIntensity;
         _attachedItems.AmbientColor = AmbientColor;
         _attachedItems.AmbientIntensity = AmbientIntensity;
+        _attachedItems.BakedLightScale = BakedLightScale;
         _attachedItems.FogColor = FogColor;
         _attachedItems.FogStart = FogStart;
         _attachedItems.FogEnd = FogEnd;
@@ -1067,6 +1086,7 @@ public sealed partial class CreatureRenderer : IDisposable
             : 1f;
         _attachedItems.BodyTint = applyAuraVisual ? entity.AuraVisual.Tint : Vector3.One;
         _attachedItems.GlowOwnerKey = $"unit:{entity.Guid:X16}";
+        _attachedItems.InteriorLight = _currentInteriorLight;
         _attachedItems.Render(camera, transform, model.Source, skin, state.Mounts,
             entity.Fields.SheathState, entity.Guid, _globalTime);
     }
@@ -1240,6 +1260,9 @@ public sealed partial class CreatureRenderer : IDisposable
         _shader.Set("uHighlight", 0f);
         _shader.Set("uBodyAlpha", 1f);
         _shader.Set("uBodyTint", Vector3.One);
+        _currentInteriorLight = Vector4.Zero;   // a portrait booth is not a room
+        _shader.Set("uInteriorLight", _currentInteriorLight);
+        _shader.Set("uBakedLightScale", BakedLightScale);
         ApplyAttachmentAtmosphere();
 
         int boneCount = 0;
@@ -2587,10 +2610,14 @@ uniform float uBodyAlpha;
 uniform vec3 uBodyTint;
 uniform vec3 uAmbientColor;
 uniform float uAmbientIntensity;
+uniform vec4 uInteriorLight;     // room light under the feet: rgb MOCV/255, a interior weight (0 = daylight)
+uniform float uBakedLightScale;  // the walls' VertexColorScale - see character.frag
 uniform int uPointLightCount;
 uniform vec3 uPointLightPos[8];
 uniform vec3 uPointLightColor[8];
 out vec4 frag;
+const float InteriorFloorFill = 0.75;
+const float InteriorKey = 0.35;
 vec3 carriedPointLight(vec3 normal, vec3 worldPos){
     float d0=1e30,d1=1e30,d2=1e30; vec3 v0=vec3(0.0),v1=vec3(0.0),v2=vec3(0.0);
     vec3 c0=vec3(0.0),c1=vec3(0.0),c2=vec3(0.0);
@@ -2616,7 +2643,13 @@ void main(){
     if (!gl_FrontFacing) normal = -normal;
     float sunResponse = model2SunResponse(dot(normal, normalize(uSunDir)));
     vec3 light = uAmbientColor * uAmbientIntensity
-        + uSunColor * uSunIntensity * sunResponse + vec3(uHighlight);
+        + uSunColor * uSunIntensity * sunResponse;
+    if (uInteriorLight.a > 0.0) {
+        vec3 room = uInteriorLight.rgb * uBakedLightScale
+            * (InteriorFloorFill + InteriorKey * sunResponse);
+        light = mix(light, room, uInteriorLight.a);
+    }
+    light += vec3(uHighlight);
     light += vec3(WorldModelSelfFill);
     light += carriedPointLight(normal, vWorld);
     light = max(light, vec3(0.0));

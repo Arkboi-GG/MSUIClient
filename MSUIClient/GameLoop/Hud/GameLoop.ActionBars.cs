@@ -816,6 +816,8 @@ public sealed partial class GameLoop
                     ? 0xff1a1affu : 0xff999999u;
                 DrawActionText(dl, buttonMin,
                     FriendlyHotkey(BoundKeys(ActionBinding(i)).Primary), scale, hotkeyColor);
+                if (action.Kind == ActionSlot.Macro)
+                    DrawActionMacroName(dl, buttonMin, MacroName(action.ActionId), scale);
 
                 if (verdict.IsItem && verdict.StackCount > 0)
                     DrawActionCount(dl, buttonMax, verdict.StackCount, scale);
@@ -1216,6 +1218,8 @@ public sealed partial class GameLoop
                 uint hotkeyColor = verdict.Range == ButtonRange.OutOfRange
                     ? 0xff1a1affu : 0xff999999u;
                 DrawActionText(dl, buttonMin, hotkey, scale, hotkeyColor);
+                if (action.Kind == ActionSlot.Macro)
+                    DrawActionMacroName(dl, buttonMin, MacroName(action.ActionId), scale);
                 if (proofBar && hotkey.Length > 0)
                 {
                     Vector2 extent = new(
@@ -1427,6 +1431,8 @@ public sealed partial class GameLoop
                 var macroAction = new ActionSlot(ActionSlot.Macro, _draggingMacroId);
                 PlaceActionPayload(receiveSlot, macroAction);
             }
+            // Not a bar: the Macro Book's own list may be the drop (into a section, or a reorder).
+            else TryDropDraggedMacroInBook(_draggingMacroId);
 
             _draggingMacroId = 0;
             _pressedMacroId = 0;
@@ -1888,6 +1894,24 @@ public sealed partial class GameLoop
             buttonMin.Y + 2f * scale, 10f, scale);
         GameText.DrawRightAligned(dl, "NumberFontNormalSmallGray", text,
             new Vector2(buttonMin.X + 34f * scale, textTop), scale, color);
+    }
+
+    /// <summary>ActionButtonTemplate's $parentName: the macro's name in a 36x10
+    /// GameFontHighlightSmallOutline box at BOTTOM (0,2), clipped to what fits (the first
+    /// characters, no ellipsis - 1.12 clips too). Owner 2026-09-05.</summary>
+    private static void DrawActionMacroName(ImDrawListPtr dl, Vector2 buttonMin, string name,
+        float scale)
+    {
+        string label = MacroBookUiLaw.HotbarLabel(name, candidate =>
+            GameText.MeasureWidth(MacroBookUiLaw.HotbarNameFont, candidate, scale) / scale);
+        if (label.Length == 0) return;
+        float textTop = GameText.BoxCenteredTop(MacroBookUiLaw.HotbarNameFont,
+            MacroBookUiLaw.HotbarNameBoxTop(buttonMin.Y, scale), MacroBookUiLaw.HotbarNameHeight,
+            scale);
+        float width = GameText.MeasureWidth(MacroBookUiLaw.HotbarNameFont, label, scale);
+        GameText.Draw(dl, MacroBookUiLaw.HotbarNameFont, label,
+            new Vector2(buttonMin.X + (MacroBookUiLaw.HotbarNameWidth * scale - width) * .5f, textTop),
+            scale);
     }
 
     /// <summary>Stack count for an ITEM action, bottom-right (reference offset (-2,2)).</summary>

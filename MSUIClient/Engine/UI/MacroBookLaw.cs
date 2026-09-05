@@ -343,6 +343,67 @@ public static class MacroBookLaw
         return rows;
     }
 
+    // ── drag and drop (owner QoL round 2026-09-05) ──────────────────────────────────────
+
+    public enum DropKind
+    {
+        None,
+        /// <summary>Before or after another macro; the mover joins that macro's section.</summary>
+        BesideMacro,
+        /// <summary>Onto a section header: last in that section.</summary>
+        IntoSection,
+        /// <summary>Below the last row: ungrouped, last.</summary>
+        Ungrouped,
+        /// <summary>A section header before or after another section header.</summary>
+        BesideSection,
+    }
+
+    public readonly record struct Drop(DropKind Kind, string Section, uint MacroId, bool After)
+    {
+        public static Drop None => new(DropKind.None, "", 0, false);
+    }
+
+    /// <summary>Where a dragged MACRO lands on a row: beside a macro row (the lower half means
+    /// after it), or into a section header.</summary>
+    public static Drop MacroDropOn(Row row, bool lowerHalf) => row.Kind == RowKind.Section
+        ? new Drop(DropKind.IntoSection, row.Section, 0, false)
+        : new Drop(DropKind.BesideMacro, row.Section, row.MacroId, lowerHalf);
+
+    /// <summary>Where a dragged SECTION lands: only beside another section header.</summary>
+    public static Drop SectionDropOn(Row row, bool lowerHalf) => row.Kind == RowKind.Section
+        ? new Drop(DropKind.BesideSection, row.Section, 0, lowerHalf) : Drop.None;
+
+    /// <summary>The id order after moving <paramref name="moving"/> next to
+    /// <paramref name="anchor"/>. A self-drop or an unknown id leaves the order untouched.</summary>
+    public static IReadOnlyList<uint> ReorderBeside(IReadOnlyList<uint> order, uint moving,
+        uint anchor, bool after)
+    {
+        if (moving == anchor || !order.Contains(moving) || !order.Contains(anchor)) return order;
+        List<uint> result = order.Where(id => id != moving).ToList();
+        result.Insert(result.IndexOf(anchor) + (after ? 1 : 0), moving);
+        return result;
+    }
+
+    /// <summary>The section order after moving one header next to another (names compare
+    /// case-insensitively, like the store).</summary>
+    public static IReadOnlyList<string> ReorderSectionBeside(IReadOnlyList<string> order,
+        string moving, string anchor, bool after)
+    {
+        int from = IndexOfName(order, moving);
+        int to = IndexOfName(order, anchor);
+        if (from < 0 || to < 0 || from == to) return order;
+        List<string> result = order.Where((_, index) => index != from).ToList();
+        result.Insert(IndexOfName(result, anchor) + (after ? 1 : 0), order[from]);
+        return result;
+    }
+
+    private static int IndexOfName(IReadOnlyList<string> names, string name)
+    {
+        for (int index = 0; index < names.Count; index++)
+            if (names[index].Equals(name, StringComparison.OrdinalIgnoreCase)) return index;
+        return -1;
+    }
+
     public static int MaximumScroll(int rowCount, int visibleRows) =>
         Math.Max(0, rowCount - Math.Max(1, visibleRows));
 

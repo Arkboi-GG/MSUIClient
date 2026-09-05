@@ -192,6 +192,9 @@ public sealed class AttachedItemRenderer : IDisposable
     public float SunIntensity { get; set; } = 1.15f;
     public Vector3 AmbientColor { get; set; } = new(0.42f, 0.50f, 0.60f);
     public float AmbientIntensity { get; set; } = 0.85f;
+    /// <summary>The owner's room light (rgb MOCV/255, a interior weight); zero = sky.</summary>
+    public Vector4 InteriorLight { get; set; }
+    public float BakedLightScale { get; set; } = 2f;
     public float ShadowSoftness { get; set; } = 0f;   // zero selects CharacterRenderer's in-world Model2 response
     public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
     public float FogStart { get; set; } = 350f;
@@ -687,6 +690,8 @@ public sealed class AttachedItemRenderer : IDisposable
         shader.Set("uSunIntensity", SunIntensity);
         shader.Set("uAmbientColor", AmbientColor);
         shader.Set("uAmbientIntensity", AmbientIntensity);
+        shader.Set("uInteriorLight", InteriorLight);
+        shader.Set("uBakedLightScale", BakedLightScale);
         shader.Set("uShadowWrap", ShadowSoftness);
         shader.Set("uFogStart", FogStart);
         shader.Set("uFogEnd", FogEnd);

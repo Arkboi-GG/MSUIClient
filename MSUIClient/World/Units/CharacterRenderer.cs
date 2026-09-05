@@ -3803,6 +3803,8 @@ public sealed partial class CharacterRenderer : IDisposable
         _shader.Set("uSunIntensity", SunIntensity);
         _shader.Set("uAmbientColor", AmbientColor);
         _shader.Set("uAmbientIntensity", AmbientIntensity);
+        _shader.Set("uInteriorLight", InteriorLight);
+        _shader.Set("uBakedLightScale", BakedLightScale);
         _shader.Set("uShadowWrap", ShadowSoftness);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
@@ -3865,6 +3867,8 @@ public sealed partial class CharacterRenderer : IDisposable
             _attached.SunIntensity = SunIntensity;
             _attached.AmbientColor = AmbientColor;
             _attached.AmbientIntensity = AmbientIntensity;
+            _attached.InteriorLight = InteriorLight;
+            _attached.BakedLightScale = BakedLightScale;
             _attached.ShadowSoftness = ShadowSoftness;
             _attached.FogColor = FogColor;
             _attached.FogStart = FogStart;
@@ -3985,6 +3989,13 @@ public sealed partial class CharacterRenderer : IDisposable
     public float SunIntensity { get; set; } = 1.15f;
     public Vector3 AmbientColor { get; set; } = new(0.42f, 0.50f, 0.60f);
     public float AmbientIntensity { get; set; } = 0.85f;
+    /// <summary>
+    /// The room's light under the body (World/Wmo/InteriorUnitLight.For): rgb
+    /// MOCV/255, a interior weight; zero = sky. The game loop sets it per frame
+    /// for the local body; the booth and portraits leave it zero.
+    /// </summary>
+    public Vector4 InteriorLight { get; set; }
+    public float BakedLightScale { get; set; } = 2f;
     public float ShadowSoftness { get; set; } = 0f;   // zero selects in-world Model2 lighting; the glue booth uses its nonzero wrap preset
     public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
     public float FogStart { get; set; } = 350f;

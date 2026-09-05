@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine.UI;
 using MSUIClient.Net;
@@ -100,6 +100,8 @@ public sealed partial class GameLoop
             ConfirmPopupUiLaw.QuestAcceptPopupType => QuestConfirmPromptText(),
             ConfirmPopupUiLaw.ReadyCheckPopupType => ReadyCheckPromptText(),
             ConfirmPopupUiLaw.PartyFlightPopupType => PartyFlightPromptText(),
+            ConfirmPopupUiLaw.DeleteMacroPopupType =>
+                ConfirmPopupUiLaw.DeleteMacroText(first.DataToken ?? ""),
             FriendsFrameUiLaw.AddFriendPopupType => FriendsFrameUiLaw.AddFriendPopupText,
             FriendsFrameUiLaw.AddIgnorePopupType => FriendsFrameUiLaw.AddIgnorePopupText,
             CharacterBindingsUiLaw.PopupType => CharacterBindingsUiLaw.ConfirmText,

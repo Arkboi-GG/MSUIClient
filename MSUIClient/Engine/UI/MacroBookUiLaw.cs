@@ -256,6 +256,36 @@ public static class MacroBookUiLaw
             .Contains(filter, StringComparison.OrdinalIgnoreCase)).ToArray();
     }
 
+    // ── drag and drop ────────────────────────────────────────────────────────────────────
+    public const float DropLineThickness = 2f;
+    public const uint DropLineColor = 0xff00d1ffu;
+    /// <summary>The lower half of a row means "after it".</summary>
+    public static bool DropAfter(float rowTopY, float mouseY, float scale) =>
+        mouseY >= rowTopY + ListRowHeight * scale * .5f;
+    public const string SectionDragFont = "GameFontNormal";
+    public static readonly Vector2 SectionDragPreviewOffset = new(12, 8);
+
+    // ── the hotbar name label ────────────────────────────────────────────────────────────
+    /// <summary>ActionButtonTemplate's $parentName: a 36x10 GameFontHighlightSmallOutline box at
+    /// BOTTOM (0,2). 1.12 clips the name to the box; so do we (no ellipsis), after a hard cap so
+    /// a long name never costs a measure per character (owner 2026-09-05: "the first X
+    /// characters of the macro name").</summary>
+    public const string HotbarNameFont = "GameFontHighlightSmallOutline";
+    public const float HotbarNameWidth = 36f;
+    public const float HotbarNameHeight = 10f;
+    public const float HotbarNameBottomInset = 2f;
+    public const float ActionButtonSize = 36f;
+    public const int HotbarNameMaxCharacters = 8;
+    public static float HotbarNameBoxTop(float buttonTop, float scale) =>
+        buttonTop + (ActionButtonSize - HotbarNameBottomInset - HotbarNameHeight) * scale;
+    public static string HotbarLabel(string name, Func<string, float> logicalWidth)
+    {
+        string label = name.Trim();
+        if (label.Length > HotbarNameMaxCharacters) label = label[..HotbarNameMaxCharacters];
+        while (label.Length > 0 && logicalWidth(label) > HotbarNameWidth) label = label[..^1];
+        return label.TrimEnd();
+    }
+
     // shared art
     public const string SocketPath = @"Interface\Buttons\UI-EmptySlot-Disabled";
     public const string SelectedSocketPath = @"Interface\Buttons\UI-EmptySlot";

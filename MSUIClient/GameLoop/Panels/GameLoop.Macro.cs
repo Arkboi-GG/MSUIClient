@@ -101,6 +101,14 @@ public sealed partial class GameLoop
     private uint _pressedMacroId;
     private uint _draggingMacroId;
     private Vector2 _macroPressPosition;
+    private string _pressedSectionName = "";
+    private string _draggingSectionName = "";
+    private Vector2 _macroSectionPressPosition;
+    /// <summary>Where the current drag would land, from the last list draw. The hotbar's
+    /// FinishActionDrag runs BEFORE the book each frame, so a macro release is answered from
+    /// here (one frame stale, which is a pixel or two).</summary>
+    private MacroBookLaw.Drop _macroDrop = MacroBookLaw.Drop.None;
+    private uint _macroDeletePendingId;
     private bool _macroSectionMenuOpen;
     private bool _macroIconPickerOpen;
     private readonly byte[] _macroIconFilter = new byte[64];
@@ -141,6 +149,9 @@ public sealed partial class GameLoop
         if (!_macroOpen) return;
         _macroSectionMenuOpen = false;
         _macroIconPickerOpen = false;
+        _draggingSectionName = "";
+        _pressedSectionName = "";
+        _macroDrop = MacroBookLaw.Drop.None;
         SaveMacros();
         _macroOpen = false;
         if (playSound) PlayUiSound(MacroBookUiLaw.CloseSound, "ui.macro");
@@ -392,7 +403,9 @@ public sealed partial class GameLoop
         _selectedMacroSection = name;
     }
 
-    private void DeleteSelection()
+    /// <summary>Delete: a section ungroups its macros at once (nothing is lost); a macro is
+    /// asked about first through the stock StaticPopup and deleted by ConfirmDeleteMacro.</summary>
+    private void RequestDeleteSelection()
     {
         MacroBook book = CurrentMacroBook;
         if (_macroSectionSelected)
@@ -405,17 +418,123 @@ public sealed partial class GameLoop
             book.Sections.Remove(section);
             _macroEditorBoundId = 0;
             SelectFirstMacro();
+            SaveMacros();
+            PlayUiSound(MacroBookUiLaw.ClickSound, "ui.macro");
+            return;
         }
-        else
+        MacroDefinition? selected = SelectedMacro;
+        if (selected is null) return;
+        CommitMacroEditor();
+        _macroDeletePendingId = selected.Id;
+        bool dead = _entities.TryGet(ControlledGuid, out WorldEntity player) && player.IsDead;
+        ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.Show(_staticPopupSlots,
+            ConfirmPopupUiLaw.DeleteMacroDefinition, dead, dataToken: selected.Name));
+    }
+
+    /// <summary>The popup's Delete. The macro may have been re-selected or deleted meanwhile,
+    /// so it is looked up again by id.</summary>
+    private void ConfirmDeleteMacro()
+    {
+        uint id = _macroDeletePendingId;
+        _macroDeletePendingId = 0;
+        if (id == 0) return;
+        MacroBook book = MacroBookOf(id);
+        MacroDefinition? macro = book.Find(id);
+        if (macro is null) return;
+        if (_macroEditorBoundId == id) _macroEditorBoundId = 0;
+        book.Macros.Remove(macro);
+        if (_selectedMacroId == id && book == CurrentMacroBook) SelectFirstMacro();
+        SaveMacros();
+        _macroStatus = $"Deleted {macro.Name}.";
+        PlayUiSound(MacroBookUiLaw.ClickSound, "ui.macro");
+    }
+
+    // ── drag and drop inside the book ────────────────────────────────────────────────────
+
+    /// <summary>Called by the hotbar's FinishActionDrag when a macro is released anywhere but a
+    /// bar slot: the book's last computed drop target decides whether it was a move.</summary>
+    private void TryDropDraggedMacroInBook(uint id)
+    {
+        MacroBookLaw.Drop drop = _macroDrop;
+        _macroDrop = MacroBookLaw.Drop.None;
+        if (!_macroOpen || id == 0 || drop.Kind == MacroBookLaw.DropKind.None) return;
+        MacroBook book = CurrentMacroBook;
+        MacroDefinition? macro = book.Find(id);
+        if (macro is null) return;
+        switch (drop.Kind)
         {
-            MacroDefinition? macro = book.Find(_selectedMacroId);
-            if (macro is null) return;
-            _macroEditorBoundId = 0;
-            book.Macros.Remove(macro);
-            SelectFirstMacro();
+            case MacroBookLaw.DropKind.BesideMacro:
+                if (drop.MacroId == id) return;
+                macro.Section = drop.Section;
+                ApplyMacroOrder(book, MacroBookLaw.ReorderBeside(
+                    book.Macros.Select(existing => existing.Id).ToArray(), id, drop.MacroId,
+                    drop.After));
+                break;
+            case MacroBookLaw.DropKind.IntoSection:
+                macro.Section = drop.Section;
+                book.Macros.Remove(macro);
+                book.Macros.Add(macro);
+                if (book.FindSection(drop.Section) is { } owner) owner.Collapsed = false;
+                break;
+            case MacroBookLaw.DropKind.Ungrouped:
+                macro.Section = "";
+                book.Macros.Remove(macro);
+                book.Macros.Add(macro);
+                break;
+            default:
+                return;
         }
         SaveMacros();
+        _macroStatus = drop.Section.Length == 0 ? $"Moved {macro.Name}."
+            : $"Moved {macro.Name} to {drop.Section}.";
         PlayUiSound(MacroBookUiLaw.ClickSound, "ui.macro");
+    }
+
+    private static void ApplyMacroOrder(MacroBook book, IReadOnlyList<uint> order)
+    {
+        Dictionary<uint, MacroDefinition> byId = book.Macros.ToDictionary(macro => macro.Id);
+        book.Macros.Clear();
+        foreach (uint id in order)
+            if (byId.Remove(id, out MacroDefinition? macro)) book.Macros.Add(macro);
+        book.Macros.AddRange(byId.Values);
+    }
+
+    private void ApplySectionDrop(MacroBookLaw.Drop drop)
+    {
+        MacroBook book = CurrentMacroBook;
+        if (drop.Kind != MacroBookLaw.DropKind.BesideSection) return;
+        IReadOnlyList<string> order = MacroBookLaw.ReorderSectionBeside(
+            book.Sections.Select(section => section.Name).ToArray(), _draggingSectionName,
+            drop.Section, drop.After);
+        Dictionary<string, MacroSection> byName = book.Sections.ToDictionary(
+            section => section.Name, StringComparer.OrdinalIgnoreCase);
+        book.Sections.Clear();
+        foreach (string name in order)
+            if (byName.Remove(name, out MacroSection? section)) book.Sections.Add(section);
+        book.Sections.AddRange(byName.Values);
+        SaveMacros();
+        PlayUiSound(MacroBookUiLaw.ClickSound, "ui.macro");
+    }
+
+    private static void DrawMacroDropIndicator(ImDrawListPtr dl, Vector2 min, Vector2 size,
+        MacroBookLaw.Drop drop, float s)
+    {
+        float thickness = MacroBookUiLaw.DropLineThickness * s;
+        switch (drop.Kind)
+        {
+            case MacroBookLaw.DropKind.BesideMacro:
+            case MacroBookLaw.DropKind.BesideSection:
+            case MacroBookLaw.DropKind.Ungrouped:
+                float y = drop.After || drop.Kind == MacroBookLaw.DropKind.Ungrouped
+                    ? min.Y + size.Y : min.Y;
+                dl.AddRectFilled(new Vector2(min.X, y - thickness * .5f),
+                    new Vector2(min.X + size.X, y + thickness * .5f), MacroBookUiLaw.DropLineColor);
+                break;
+            case MacroBookLaw.DropKind.IntoSection:
+                dl.AddRect(min, min + size, MacroBookUiLaw.DropLineColor, 0f, ImDrawFlags.None,
+                    thickness);
+                break;
+        }
     }
 
     private void MoveSelectedMacroToSection(string section)
@@ -561,6 +680,10 @@ public sealed partial class GameLoop
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         if (ImGui.IsItemClicked()) CloseMacros();
 
+        if (_draggingSectionName.Length > 0)
+            GameText.Draw(ImGui.GetForegroundDrawList(), MacroBookUiLaw.SectionDragFont,
+                _draggingSectionName,
+                ImGui.GetIO().MousePos + MacroBookUiLaw.SectionDragPreviewOffset * s, s);
         if (_draggingMacroId != 0)
         {
             uint icon = _gameplayArt.Handle(MacroIcon(_draggingMacroId));
@@ -613,14 +736,35 @@ public sealed partial class GameLoop
         _macroListScroll = MacroBookLaw.ClampScroll(_macroListScroll, rows.Count, visible);
 
         uint highlight = _gameplayArt?.Handle(MacroBookUiLaw.RowHighlightPath) ?? 0;
+        // While something is being dragged the pressed row holds ImGui's active id and no other
+        // row can report hover, so drop targets come from geometry alone.
+        Vector2 mouse = ImGui.GetIO().MousePos;
+        bool draggingMacro = _draggingMacroId != 0;
+        bool draggingSection = _draggingSectionName.Length > 0;
+        MacroBookLaw.Drop drop = MacroBookLaw.Drop.None;
+        int shownRows = 0;
         for (int i = 0; i < visible; i++)
         {
             int rowIndex = _macroListScroll + i;
             if (rowIndex >= rows.Count) break;
+            shownRows++;
             MacroBookLaw.Row row = rows[rowIndex];
             MacroBookUiLaw.Rect rect = MacroBookUiLaw.ListRow(i);
             Vector2 min = rect.Minimum(origin, s);
             Vector2 size = rect.Size(s);
+            if ((draggingMacro || draggingSection) && rect.Contains(origin, s, mouse))
+            {
+                bool after = MacroBookUiLaw.DropAfter(min.Y, mouse.Y, s);
+                MacroBookLaw.Drop candidate = draggingMacro
+                    ? MacroBookLaw.MacroDropOn(row, after) : MacroBookLaw.SectionDropOn(row, after);
+                bool self = draggingMacro ? candidate.MacroId == _draggingMacroId
+                    : candidate.Section.Equals(_draggingSectionName, StringComparison.OrdinalIgnoreCase);
+                if (!self && candidate.Kind != MacroBookLaw.DropKind.None)
+                {
+                    drop = candidate;
+                    DrawMacroDropIndicator(dl, min, size, drop, s);
+                }
+            }
             if (row.Kind == MacroBookLaw.RowKind.Section)
             {
                 // The QuestLog plus/minus owns the left 20 px of the row; the row button
@@ -638,6 +782,14 @@ public sealed partial class GameLoop
                 bool selected = _macroSectionSelected && row.Section.Equals(
                     _selectedMacroSection, StringComparison.OrdinalIgnoreCase);
                 if (ImGui.IsItemClicked()) SelectSection(row.Section);
+                if (ImGui.IsItemActivated())
+                {
+                    _pressedSectionName = row.Section;
+                    _macroSectionPressPosition = mouse;
+                }
+                if (ImGui.IsItemActive() && _pressedSectionName == row.Section &&
+                    MacroBookUiLaw.DragStarted(_macroSectionPressPosition, mouse, s))
+                    _draggingSectionName = row.Section;
                 if ((selected || sectionHovered) && highlight != 0)
                     dl.AddImage((nint)highlight, min, min + size, Vector2.Zero, Vector2.One,
                         selected ? 0xffffffffu : 0x99ffffffu);
@@ -699,6 +851,26 @@ public sealed partial class GameLoop
                     GameText.BoxCenteredTop(font, min.Y, MacroBookUiLaw.ListRowHeight, s)), s);
         }
 
+        // Below the last row, still inside the list: a macro becomes ungrouped, last.
+        if (draggingMacro && drop.Kind == MacroBookLaw.DropKind.None &&
+            list.Contains(origin, s, mouse) && shownRows > 0 &&
+            mouse.Y >= MacroBookUiLaw.ListRow(shownRows - 1).Minimum(origin, s).Y +
+                MacroBookUiLaw.ListRowHeight * s)
+        {
+            drop = new MacroBookLaw.Drop(MacroBookLaw.DropKind.Ungrouped, "", 0, true);
+            MacroBookUiLaw.Rect last = MacroBookUiLaw.ListRow(shownRows - 1);
+            DrawMacroDropIndicator(dl, last.Minimum(origin, s), last.Size(s), drop, s);
+        }
+        _macroDrop = draggingMacro ? drop : MacroBookLaw.Drop.None;
+        if (draggingSection && ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+        {
+            if (drop.Kind == MacroBookLaw.DropKind.BesideSection) ApplySectionDrop(drop);
+            _draggingSectionName = "";
+            _pressedSectionName = "";
+        }
+        else if (!draggingSection && ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+            _pressedSectionName = "";
+
         MacroBookUiLaw.Rect bar = MacroBookUiLaw.ListScrollBar;
         DrawVanillaScrollBar(dl, "##macro-list-scroll", bar.Minimum(origin, s), bar.Height, s,
             _macroListScroll, MacroBookLaw.MaximumScroll(rows.Count, visible),
@@ -716,7 +888,7 @@ public sealed partial class GameLoop
         if (VanillaButton(dl, "Delete##macro", MacroBookUiLaw.DeleteText,
                 MacroBookUiLaw.DeleteButton.Minimum(origin, s),
                 MacroBookUiLaw.DeleteButton.LogicalSize, s, hasSelection))
-            DeleteSelection();
+            RequestDeleteSelection();
     }
 
     private void DrawMacroBookEditorColumn(ImDrawListPtr dl, Vector2 origin, float s)

@@ -22,6 +22,14 @@ stays so it reads as a 1.12 frame.
   required rank - GM / Dev / Admin - as a tag; click to insert).
 - **Run Macro** in place - a gear kit no longer needs a hotbar slot to be applied.
 - **Drag to hotbar** from any list row, double-click a row to run it, exactly as before.
+- **Drag inside the book** (QoL round 2026-09-05): drop a macro on another macro to reorder
+  (upper half = before, lower half = after; it joins that macro's section), on a section
+  header to move it there (last), or below the last row to ungroup it. Drag a section header
+  onto another header to reorder sections. A gold line / box shows where the drop lands.
+- **Delete asks first** for a macro (a stock yes/no StaticPopup naming the macro). Deleting a
+  section is not asked about: it only ungroups its macros.
+- **Hotbar buttons show the macro's name** in the 36x10 ActionButton name box at the bottom,
+  clipped to the first characters that fit (like 1.12, no ellipsis).
 - Escape closes the icon picker / section menu first, then the book.
 
 ## Stable ids (why the hotbars did not break)

@@ -20,6 +20,9 @@ touching the code:
 - `shared_docs/CRPG_FREEZE_SYSTEM.md` — the CRPG/RTS freeze system.
 - `shared_docs/MACRO_BOOK.md` — the Macro Book: stable macro ids and the legacy
   ranges, the v2 store, the embedded Core command export and how to regenerate it.
+- `shared_docs/INTERIOR_UNIT_LIGHT.md` — how units, mounts, items and server
+  gameobjects are lit inside a WMO (the floor's MOCV under the feet, one law with
+  the props); the `MSUI_INTERIORLIGHT_PROBE` offline proof.
 - `CODE_STRUCTURE_LAW.md` (repo root) — where a `.cs` file goes and how it is named.
 
 `interface-wire-check --shared-docs-only` fails when a file in `shared_docs/` is not

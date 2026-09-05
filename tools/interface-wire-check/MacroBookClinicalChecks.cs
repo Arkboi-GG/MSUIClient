@@ -19,7 +19,93 @@ internal static class MacroBookClinicalChecks
         CheckLint();
         CheckEmbeddedCatalogAndTemplates();
         CheckArchiveCatalogLaw();
+        CheckDragDropAndConfirm();
         CheckRuntimeSourceFence();
+    }
+
+    /// <summary>Owner QoL round 2026-09-05: drag macros into sections and to reorder, drag
+    /// section headers to reorder, ask before deleting a macro, name label on the hotbar.</summary>
+    private static void CheckDragDropAndConfirm()
+    {
+        uint[] order = [1, 2, 3, 4];
+        Check(MacroBookLaw.ReorderBeside(order, 4, 2, after: false).SequenceEqual([1u, 4u, 2u, 3u]) &&
+              MacroBookLaw.ReorderBeside(order, 1, 3, after: true).SequenceEqual([2u, 3u, 1u, 4u]) &&
+              MacroBookLaw.ReorderBeside(order, 2, 2, after: true).SequenceEqual(order) &&
+              MacroBookLaw.ReorderBeside(order, 9, 2, after: true).SequenceEqual(order) &&
+              MacroBookLaw.ReorderBeside(order, 1, 4, after: true).SequenceEqual([2u, 3u, 4u, 1u]),
+            "Macro reorder-beside law drifted");
+        string[] sections = ["A", "B", "C"];
+        Check(MacroBookLaw.ReorderSectionBeside(sections, "C", "A", after: false)
+                  .SequenceEqual(["C", "A", "B"]) &&
+              MacroBookLaw.ReorderSectionBeside(sections, "A", "c", after: true)
+                  .SequenceEqual(["B", "C", "A"]) &&
+              MacroBookLaw.ReorderSectionBeside(sections, "B", "B", after: true)
+                  .SequenceEqual(sections) &&
+              MacroBookLaw.ReorderSectionBeside(sections, "Z", "A", after: true)
+                  .SequenceEqual(sections),
+            "Section reorder-beside law drifted");
+        var sectionRow = new MacroBookLaw.Row(MacroBookLaw.RowKind.Section, "S", 0, "S", false, 2, false);
+        var macroRow = new MacroBookLaw.Row(MacroBookLaw.RowKind.Macro, "S", 7, "m", false, 0, true);
+        Check(MacroBookLaw.MacroDropOn(sectionRow, true) ==
+                  new MacroBookLaw.Drop(MacroBookLaw.DropKind.IntoSection, "S", 0, false) &&
+              MacroBookLaw.MacroDropOn(macroRow, true) ==
+                  new MacroBookLaw.Drop(MacroBookLaw.DropKind.BesideMacro, "S", 7, true) &&
+              MacroBookLaw.SectionDropOn(sectionRow, false) ==
+                  new MacroBookLaw.Drop(MacroBookLaw.DropKind.BesideSection, "S", 0, false) &&
+              MacroBookLaw.SectionDropOn(macroRow, false).Kind == MacroBookLaw.DropKind.None &&
+              !MacroBookUiLaw.DropAfter(100, 109, 1f) && MacroBookUiLaw.DropAfter(100, 110, 1f),
+            "Drop target projection drifted");
+        Check(MacroBookUiLaw.HotbarLabel("Caster Sixty Gear", label => label.Length * 6) == "Caster" &&
+              MacroBookUiLaw.HotbarLabel("  ab  ", label => label.Length * 6) == "ab" &&
+              MacroBookUiLaw.HotbarLabel("", _ => 0) == "" &&
+              MacroBookUiLaw.HotbarNameFont == "GameFontHighlightSmallOutline" &&
+              MacroBookUiLaw.HotbarNameBoxTop(100, 1f) == 124 &&
+              MacroBookUiLaw.HotbarNameMaxCharacters >= 6,
+            "Hotbar macro name label law drifted (36x10 box at BOTTOM (0,2), first characters that fit)");
+        Check(ConfirmPopupUiLaw.IsConfirmPopup(ConfirmPopupUiLaw.DeleteMacroPopupType) &&
+              ConfirmPopupUiLaw.Captions(ConfirmPopupUiLaw.DeleteMacroPopupType) == ("Delete", "Cancel") &&
+              ConfirmPopupUiLaw.DeleteMacroText("Kit").StartsWith("Delete the macro \"Kit\"?", StringComparison.Ordinal) &&
+              ConfirmPopupUiLaw.DeleteMacroDefinition.HasAccept &&
+              ConfirmPopupUiLaw.DeleteMacroDefinition.HasCancel &&
+              ConfirmPopupUiLaw.DeleteMacroDefinition.HideOnEscape,
+            "Delete-macro StaticPopup definition drifted");
+
+        string root = ClientConfig.FindRepoRoot();
+        string macro = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Macro.cs"));
+        string bars = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
+            "GameLoop.ActionBars.cs"));
+        string confirms = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Confirms.cs"));
+        Check(macro.Contains("TryDropDraggedMacroInBook(uint id)", StringComparison.Ordinal) &&
+              macro.Contains("MacroBookLaw.ReorderBeside(", StringComparison.Ordinal) &&
+              macro.Contains("MacroBookLaw.ReorderSectionBeside(", StringComparison.Ordinal) &&
+              macro.Contains("MacroBookLaw.MacroDropOn(row, after)", StringComparison.Ordinal) &&
+              macro.Contains("MacroBookLaw.SectionDropOn(row, after)", StringComparison.Ordinal) &&
+              macro.Contains("ConfirmPopupUiLaw.DeleteMacroDefinition", StringComparison.Ordinal) &&
+              macro.Contains("private void ConfirmDeleteMacro()", StringComparison.Ordinal) &&
+              macro.Contains("RequestDeleteSelection();", StringComparison.Ordinal) &&
+              !macro.Contains("private void DeleteSelection()", StringComparison.Ordinal),
+            "Macro Book drag/drop or delete-confirmation seams escaped their laws");
+        // The hotbar answers a macro release it does not receive by asking the book (it runs
+        // first in the frame), and paints the name on every macro button on every bar.
+        Check(bars.Contains("else TryDropDraggedMacroInBook(_draggingMacroId);", StringComparison.Ordinal) &&
+              CountOf(bars, "DrawActionMacroName(dl, buttonMin, MacroName(action.ActionId), scale);") == 2 &&
+              bars.Contains("MacroBookUiLaw.HotbarLabel(name,", StringComparison.Ordinal),
+            "Action bars must hand an off-bar macro release to the book and label macro buttons");
+        Check(confirms.Contains("DrawConfirmPopup(ConfirmPopupUiLaw.DeleteMacroPopupType);", StringComparison.Ordinal) &&
+              confirms.Contains("ConfirmDeleteMacro();", StringComparison.Ordinal) &&
+              confirms.Contains("ConfirmPopupUiLaw.DeleteMacroText(visible.Instance.DataToken", StringComparison.Ordinal),
+            "The delete-macro popup must be drawn and routed by the shared confirm popups");
+    }
+
+    private static int CountOf(string text, string needle)
+    {
+        int count = 0;
+        for (int at = text.IndexOf(needle, StringComparison.Ordinal); at >= 0;
+             at = text.IndexOf(needle, at + needle.Length, StringComparison.Ordinal))
+            count++;
+        return count;
     }
 
     private static void CheckIdsAndStore()
