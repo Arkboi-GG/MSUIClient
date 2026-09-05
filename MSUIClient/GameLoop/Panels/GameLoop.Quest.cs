@@ -1220,9 +1220,17 @@ public sealed partial class GameLoop
             string title = _questTitles.GetValueOrDefault(selected, $"Quest {selected}");
             DrawQuestLogDetail(dl, origin, s, player, selectedSlot, title);
             DrawQuestLogDetailScrollBar(dl, origin, s);
-            if (VanillaButton(dl, "##quest-abandon", "Abandon Quest",
-                    QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogAbandonRect),
-                    QuestFrameUiLaw.QuestLogAbandonRect.Size, s))
+            // The bottom action row's hit-rects land a few pixels below where players actually
+            // click (confirmed live: a click landing 4 screen px / ~5 logical units above
+            // QuestLogAbandonRect's top edge never registers). Rather than nudge the shared
+            // logical constants and risk shifting the drawn artwork, extend just the clickable
+            // area upward - extraHitTop never touches where the texture/label render.
+            const float bottomRowHitForgiveness = 8f;
+            Vector2 abandonMin = QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogAbandonRect);
+            bool abandonClicked = VanillaButton(dl, "##quest-abandon", "Abandon Quest",
+                abandonMin, QuestFrameUiLaw.QuestLogAbandonRect.Size, s,
+                extraHitTop: bottomRowHitForgiveness);
+            if (abandonClicked)
                 _questAbandonConfirmation = new(
                     !_freeView && ControlledGuid != 0 ? ControlledGuid : LocalPlayerGuid,
                     selected, title);
@@ -1238,11 +1246,11 @@ public sealed partial class GameLoop
             _questTemplates.GetValueOrDefault(shareQuest)?.Sharable == true;
         if (VanillaButton(dl, "##quest-push", "Share Quest",
                 QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogShareRect),
-                QuestFrameUiLaw.QuestLogShareRect.Size, s, canShare) && canShare)
+                QuestFrameUiLaw.QuestLogShareRect.Size, s, canShare, extraHitTop: 8f) && canShare)
             ShareQuestWithParty(shareQuest);
         if (VanillaButton(dl, "##quest-exit", "Exit",
                 QuestRectMin(origin, s, QuestFrameUiLaw.QuestLogExitRect),
-                QuestFrameUiLaw.QuestLogExitRect.Size, s)) _questLogOpen = false;
+                QuestFrameUiLaw.QuestLogExitRect.Size, s, extraHitTop: 8f)) _questLogOpen = false;
     }
 
     private static Vector2 QuestRectMin(Vector2 origin, float scale, QuestLogicalRect rect) =>
@@ -1491,7 +1499,7 @@ public sealed partial class GameLoop
                     y += 20f;
                     y = DrawQuestItemGrid(dl,
                         QuestFrameUiLaw.QuestLogDetailGridOrigin(contentOrigin, s), s, y,
-                        template.ChoiceRewards, false, "log-choice");
+                        template.ChoiceRewards, false, "log-choice", clip);
                     y += 5f;
                 }
                 if (template.FixedRewards.Count > 0 || template.Money > 0 || template.RewardSpell != 0)
@@ -1507,7 +1515,7 @@ public sealed partial class GameLoop
                     y += 20f;
                     y = DrawQuestItemGrid(dl,
                         QuestFrameUiLaw.QuestLogDetailGridOrigin(contentOrigin, s), s, y,
-                        template.FixedRewards, false, "log-reward");
+                        template.FixedRewards, false, "log-reward", clip);
                     if (template.RewardSpell != 0)
                     {
                         SpellInfo rewardSpell = default;
@@ -2106,9 +2114,9 @@ public sealed partial class GameLoop
         float contentHeight = panel switch
         {
             QuestNpcPanel.Greeting => DrawQuestGreetingContent(dl, content, s),
-            QuestNpcPanel.Detail => DrawQuestDetailContent(dl, content, s),
-            QuestNpcPanel.Progress => DrawQuestProgressContent(dl, content, s),
-            QuestNpcPanel.Reward => DrawQuestRewardContent(dl, content, s),
+            QuestNpcPanel.Detail => DrawQuestDetailContent(dl, content, s, scrollClip),
+            QuestNpcPanel.Progress => DrawQuestProgressContent(dl, content, s, scrollClip),
+            QuestNpcPanel.Reward => DrawQuestRewardContent(dl, content, s, scrollClip),
             _ => 0,
         };
         dl.PopClipRect();
@@ -2460,7 +2468,7 @@ public sealed partial class GameLoop
         return textHeight + 2;
     }
 
-    private float DrawQuestDetailContent(ImDrawListPtr dl, Vector2 p, float s)
+    private float DrawQuestDetailContent(ImDrawListPtr dl, Vector2 p, float s, QuestScreenRect clip)
     {
         if (_questDetails is null) return 0;
         float y = QuestFrameUiLaw.NpcContentInitialY;
@@ -2494,10 +2502,10 @@ public sealed partial class GameLoop
                 objectiveHeight, s), "BenillaQuestDetailScrollChild",0xff202020);
         y += objectiveHeight/s+15;
         return DrawQuestRewardSet(dl, p, s, y, _questDetails.ChoiceRewards,
-            _questDetails.FixedRewards, _questDetails.Money, selectable: false);
+            _questDetails.FixedRewards, _questDetails.Money, selectable: false, clip);
     }
 
-    private float DrawQuestProgressContent(ImDrawListPtr dl, Vector2 p, float s)
+    private float DrawQuestProgressContent(ImDrawListPtr dl, Vector2 p, float s, QuestScreenRect clip)
     {
         if (_questRequestItems is null) return 0;
         float y = QuestFrameUiLaw.NpcContentInitialY;
@@ -2552,11 +2560,11 @@ public sealed partial class GameLoop
                 ClassifyUiParity($"BenillaQuestProgressMoneyCoin{denomination}", "Frame",
                     "BenillaQuestProgressScrollChild", "NOT-DRAWN", "no-required-money");
         }
-        y = DrawQuestItemGrid(dl, p, s, y, _questRequestItems.RequiredItems, selectable: false, "required");
+        y = DrawQuestItemGrid(dl, p, s, y, _questRequestItems.RequiredItems, selectable: false, "required", clip);
         return Math.Max(334, y + 10);
     }
 
-    private float DrawQuestRewardContent(ImDrawListPtr dl, Vector2 p, float s)
+    private float DrawQuestRewardContent(ImDrawListPtr dl, Vector2 p, float s, QuestScreenRect clip)
     {
         if (_questOffer is null) return 0;
         float y = QuestFrameUiLaw.NpcContentInitialY;
@@ -2575,12 +2583,12 @@ public sealed partial class GameLoop
             "BenillaQuestRewardScrollChild",0xff202020);
         y += bodyHeight/s+10;
         return DrawQuestRewardSet(dl, p, s, y, _questOffer.ChoiceRewards,
-            _questOffer.FixedRewards, _questOffer.Money, selectable: true);
+            _questOffer.FixedRewards, _questOffer.Money, selectable: true, clip);
     }
 
     private float DrawQuestRewardSet(ImDrawListPtr dl, Vector2 p, float s, float y,
         IReadOnlyList<QuestRewardItem> choices, IReadOnlyList<QuestRewardItem> fixedItems,
-        int money, bool selectable)
+        int money, bool selectable, QuestScreenRect clip)
     {
         string prefix = QuestNpcPanelNow() == QuestNpcPanel.Detail
             ? "BenillaQuestDetail" : "BenillaQuestReward";
@@ -2628,7 +2636,7 @@ public sealed partial class GameLoop
                     GameText.EmPixels("QuestFont", s), s), child,
                 FontObjectLaw.Get("QuestFont").Color);
             y += 20;
-            y = DrawQuestItemGrid(dl, p, s, y, choices, selectable, "choice");
+            y = DrawQuestItemGrid(dl, p, s, y, choices, selectable, "choice", clip);
             y += 5;
         }
         else if (_uiParityArmed && _uiParityPanel == "quest-frame")
@@ -2665,7 +2673,7 @@ public sealed partial class GameLoop
                     ClassifyUiParity(prefix + $"MoneyCoin{denomination}", "Frame", child,
                         "NOT-DRAWN", "quest-has-no-money-reward");
             y += 20;
-            y = DrawQuestItemGrid(dl, p, s, y, fixedItems, selectable: false, "reward");
+            y = DrawQuestItemGrid(dl, p, s, y, fixedItems, selectable: false, "reward", clip);
         }
         else if (_uiParityArmed && _uiParityPanel == "quest-frame")
         {
@@ -2679,12 +2687,12 @@ public sealed partial class GameLoop
     }
 
     private float DrawQuestItemGrid(ImDrawListPtr dl, Vector2 p, float s, float y,
-        IReadOnlyList<QuestRewardItem> items, bool selectable, string kind)
+        IReadOnlyList<QuestRewardItem> items, bool selectable, string kind, QuestScreenRect clip)
     {
         int count = Math.Min(items.Count, QuestFrameUiLaw.MaxItems);
         for (int i = 0; i < count; i++)
             DrawQuestItemRow(dl, QuestFrameUiLaw.ItemGridRowMin(p, y, i, s),
-                s, items[i], selectable, i, kind);
+                s, items[i], selectable, i, kind, clip);
         if (_uiParityArmed && _uiParityPanel == "quest-frame")
         {
             string scrollChild = QuestPanelStem(QuestNpcPanelNow()) + "ScrollChild";
@@ -2699,7 +2707,7 @@ public sealed partial class GameLoop
     }
 
     private void DrawQuestItemRow(ImDrawListPtr dl, Vector2 min, float s, QuestRewardItem row,
-        bool selectable, int index, string kind)
+        bool selectable, int index, string kind, QuestScreenRect visibilityClip)
     {
         if (_items is not null && _net is not null) _items.Require(row.ItemId, QuestGiverGuid(), _net);
         string name = "...";
@@ -2723,8 +2731,22 @@ public sealed partial class GameLoop
             min + QuestFrameUiLaw.ItemCountAnchor * s, s);
         ImGui.SetCursorScreenPos(min);
         Vector2 itemSize = QuestFrameUiLaw.ItemHitRect.ScaledSize(s);
-        bool clicked = ImGui.InvisibleButton($"##quest-{kind}-{index}", itemSize);
-        bool hovered = ImGui.IsItemHovered();
+        // A scrolled-away row still reaches this call with real (off-clip) screen coordinates -
+        // rendering already skips it via the caller's PushClipRect, but an InvisibleButton has no
+        // such awareness and would silently claim the hover/click at wherever those coordinates
+        // land on screen, ahead of whatever real, on-screen widget gets submitted after it this
+        // frame (confirmed live: a long quest's reward row landed squarely on the Quest Log's
+        // Abandon button and ate every click meant for it). Skip the widget entirely when the
+        // row doesn't actually intersect the visible area, rather than just discarding the result.
+        // A row that only PARTIALLY peeks past the clip (e.g. a couple of pixels at the scroll
+        // edge) still had its entire, oversized hit-region active under an any-overlap test -
+        // most of a barely-visible sliver was still fully clickable, which is what was still
+        // reaching the Quest Log's Abandon button. Require full containment instead: a row is
+        // only interactive if the whole of it is actually on screen.
+        bool rowVisible = min.X >= visibilityClip.Min.X && min.X + itemSize.X <= visibilityClip.Max.X &&
+            min.Y >= visibilityClip.Min.Y && min.Y + itemSize.Y <= visibilityClip.Max.Y;
+        bool clicked = rowVisible && ImGui.InvisibleButton($"##quest-{kind}-{index}", itemSize);
+        bool hovered = rowVisible && ImGui.IsItemHovered();
         if (_uiParityArmed && _uiParityPanel == "quest-frame")
         {
             string element = QuestItemElementName(kind, index);
