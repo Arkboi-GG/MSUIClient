@@ -1003,7 +1003,10 @@ public sealed partial class GameLoop
         // spell's own"); dbc* are the Spell.dbc fallbacks the client substitutes for a -1. The
         // gate below never reaches the wire, so without this line a local block is
         // indistinguishable from the server refusing the use.
-        Console.WriteLine($"[verdict:item-cooldown] time={NowSeconds():F3} entry={template.Entry} " +
+        // path=useitem, NOT "bag": SendItemUse is the shared CMSG_USE_ITEM tail and serves a bag
+        // click AND an action-bar press or hotkey (UseItemAction routes here). Only the command
+        // shelf has a gate of its own, and it reports path=shelf.
+        Console.WriteLine($"[verdict:item-cooldown] time={NowSeconds():F3} path=useitem entry={template.Entry} " +
             $"spell={useSpell.SpellId} name={spell?.Name ?? "?"} category={useSpell.Category} " +
             $"itemCooldownMs={useSpell.CooldownMs} itemCategoryCooldownMs={useSpell.CategoryCooldownMs} " +
             $"dbcRecoveryMs={spell?.RecoveryMs ?? 0} dbcCategoryRecoveryMs={spell?.CategoryRecoveryMs ?? 0} " +
