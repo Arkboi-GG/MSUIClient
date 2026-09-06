@@ -31,6 +31,12 @@ public static class DeathPackets
         return result;
     }
 
+    public static byte ParsePlayerSkinned(byte[] body)
+    {
+        if (body.Length != 1) throw new InvalidDataException("Player skinned requires one byte");
+        return body[0]; // Current Core writes zero; do not invent another meaning for its flag.
+    }
+
     public static uint ParseReclaimDelay(byte[] body)
     {
         if (body.Length != 4)

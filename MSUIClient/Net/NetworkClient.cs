@@ -26,6 +26,7 @@ public enum NetState
     InWorld,
     Failed,
     Disconnected,
+    RealmSelect,      // authenticated auth list, no world socket yet
 }
 
 /// <summary>The server-authoritative pose to snap to on entering (or changing) world.</summary>
@@ -43,7 +44,7 @@ public sealed record NetSettings(
     int TimeoutMs = 10000,
     bool WorldUsesRealmdHost = true);
 
-public sealed class NetworkClient : IDisposable
+public sealed partial class NetworkClient : IDisposable
 {
     // Large open-world events can legitimately deliver many thousands of ordered object,
     // movement and aura packets before the render thread finishes adopting the first burst.
@@ -82,9 +83,11 @@ public sealed class NetworkClient : IDisposable
     /// <summary>The human realm NAME from the realmlist (e.g. "Barrens Local (PVP)"), set once a realm is
     /// picked at logon. Empty before the first connection. The glue chrome shows this instead of host:port.</summary>
     public string RealmName { get; private set; } = "";
+    public string AccountStorageKey { get; private set; }
 
     /// <summary>The account roster, published when we reach CharacterSelect. Read by the select screen.</summary>
     public IReadOnlyList<Character> Characters { get; private set; } = Array.Empty<Character>();
+    public AccountDataState AccountData { get; } = new();
 
     // Character-select park: the worker waits on _pick until the app calls SelectCharacter.
     private readonly ManualResetEventSlim _pick = new(false);
@@ -92,7 +95,7 @@ public sealed class NetworkClient : IDisposable
 
     // Park action: the app either enters the world with a pick, or fires a character CREATE while
     // still parked at select (benilla carries both over the same pick channel).
-    private enum ParkReq { None, Enter, Create, Delete }
+    private enum ParkReq { None, Enter, Create, Delete, Rename, ChangeRealm }
     private volatile ParkReq _parkReq = ParkReq.None;
     private readonly object _createLock = new();
     private CharCreateParams _pendingCreate;
@@ -107,6 +110,7 @@ public sealed class NetworkClient : IDisposable
         SocketWriteObserver? socketWriteObserver = null)
     {
         _cfg = cfg;
+        AccountStorageKey = MSUIClient.Engine.MacroStore.AccountKey(cfg.RealmdHost, cfg.RealmdPort, cfg.Account);
         _wireObserver = wireObserver;
         _socketWriteObserver = socketWriteObserver;
         _account = cfg.Account;
@@ -119,6 +123,8 @@ public sealed class NetworkClient : IDisposable
     /// <summary>Set credentials (from the login screen) and start connecting.</summary>
     public void Login(string account, string password)
     {
+        // An active attempt owns its credentials and local account namespace.
+        if (_worker is { IsAlive: true }) return;
         _account = account;
         _password = password;
         Start();
@@ -127,6 +133,9 @@ public sealed class NetworkClient : IDisposable
     /// <summary>Pick a character at the select screen — unblocks the worker to send CMSG_PLAYER_LOGIN.</summary>
     public void SelectCharacter(ulong guid)
     {
+        if (State != NetState.CharacterSelect) return;
+        Interlocked.Exchange(ref _characterLoginFailure, -1);
+        if (Characters.FirstOrDefault(c => c.Guid == guid)?.RequiresRename == true) return;
         _pickGuid = guid;
         _parkReq = ParkReq.Enter;
         _pick.Set();
@@ -137,6 +146,7 @@ public sealed class NetworkClient : IDisposable
     /// roster; the app polls the result via <see cref="TryTakeCreateResult"/>.</summary>
     public void CreateCharacter(in CharCreateParams p)
     {
+        if (State != NetState.CharacterSelect) return;
         lock (_createLock) { _pendingCreate = p; _createResult = -1; }
         _parkReq = ParkReq.Create;
         _pick.Set();
@@ -147,6 +157,7 @@ public sealed class NetworkClient : IDisposable
     /// row disappears without a reconnect. The app polls via <see cref="TryTakeDeleteResult"/>.</summary>
     public void DeleteCharacter(ulong guid)
     {
+        if (State != NetState.CharacterSelect) return;
         lock (_createLock) { _pendingDelete = guid; _deleteResult = -1; }
         _parkReq = ParkReq.Delete;
         _pick.Set();
@@ -208,6 +219,8 @@ public sealed class NetworkClient : IDisposable
     /// roster, a half-open socket, a queued packet or a pending character pick.</summary>
     private void ResetForNewAttempt()
     {
+        AccountStorageKey = MSUIClient.Engine.MacroStore.AccountKey(_cfg.RealmdHost, _cfg.RealmdPort, _account);
+        Interlocked.Exchange(ref _characterLoginFailure, -1);
         try { _pingTimer?.Dispose(); } catch { }
         _pingTimer = null;
         try { _session?.Dispose(); } catch { }
@@ -226,10 +239,13 @@ public sealed class NetworkClient : IDisposable
         PlayerGuid = 0;
         PlayerName = "";
         RealmName = "";
+        ResetRealmSelection();
         _pickGuid = 0;
         _parkReq = ParkReq.None;
         _pick.Reset();
         lock (_createLock) { _createResult = -1; _deleteResult = -1; }
+        ResetCharacterRename();
+        AccountData.Reset();
 
         State = NetState.Idle;
         _status = "connecting";
@@ -361,6 +377,16 @@ public sealed class NetworkClient : IDisposable
         InWorld(s => s.SuiPortalReady(packet));
     public void SetActiveMover(ulong guid) { try { _session?.SetActiveMover(guid); } catch { } }
     public bool Inspect(ulong guid) => InWorld(s => s.Inspect(guid));
+    public bool QueryAreaSpiritHealer(ulong guide) => InWorld(s => s.QueryAreaSpiritHealer(guide));
+    public bool QueueAreaSpiritHealer(ulong guide) => InWorld(s => s.QueueAreaSpiritHealer(guide));
+    public bool RequestBattlefieldPositions() => InWorld(s => s.RequestBattlefieldPositions());
+    public bool RequestBattlefieldScores() => InWorld(s => s.RequestBattlefieldScores());
+    public bool RequestBattlefieldStatus() => InWorld(s => s.RequestBattlefieldStatus());
+    public bool JoinBattlefield(ulong source, uint map, uint instance, bool asGroup) => InWorld(s => s.JoinBattlefield(source, map, instance, asGroup));
+    public bool BattlefieldPort(uint map, bool enter) => InWorld(s => s.BattlefieldPort(map, enter));
+    public bool LeaveBattlefield(uint map) => InWorld(s => s.LeaveBattlefield(map));
+    public bool InspectHonor(ulong guid) => InWorld(s => s.InspectHonor(guid));
+    public bool RequestPetInfo() => InWorld(s => s.RequestPetInfo());
     public bool PetAction(ulong petGuid, uint packedAction, ulong targetGuid) =>
         InWorld(s => s.PetAction(petGuid, packedAction, targetGuid));
     public bool PetStopAttack(ulong petGuid) => InWorld(s => s.PetStopAttack(petGuid));
@@ -370,6 +396,7 @@ public sealed class NetworkClient : IDisposable
         InWorld(s => s.PetCancelAura(petGuid, spellId));
     public bool PetSpellAutocast(ulong petGuid, uint spellId, bool enabled) =>
         InWorld(s => s.PetSpellAutocast(petGuid, spellId, enabled));
+    public bool PetUnlearn(ulong petGuid) => InWorld(s => s.PetUnlearn(petGuid));
     public bool PetAbandon(ulong petGuid) => InWorld(s => s.PetAbandon(petGuid));
     public bool PetRename(ulong petGuid, string name) => InWorld(s => s.PetRename(petGuid, name));
     public void ZoneUpdate(uint zoneId) { try { _session?.ZoneUpdate(zoneId); } catch { } }
@@ -412,6 +439,15 @@ public sealed class NetworkClient : IDisposable
 
     /// <summary>Tell a whisper sender that the local player is ignoring them.</summary>
     public bool ChatIgnored(ulong senderGuid) => InWorld(s => s.ChatIgnored(senderGuid));
+
+    public void KnockbackAck(ulong guid, uint counter, MovementInfo info)
+    {
+        if (State == NetState.InWorld)
+        {
+            try { _session?.KnockbackAck(guid, counter, info); }
+            catch { /* dropped on disconnect */ }
+        }
+    }
 
     public void ForceSpeedChangeAck(ulong guid, MovementSpeedKind kind, uint counter,
         MovementInfo info, float speed)
@@ -531,6 +567,9 @@ public sealed class NetworkClient : IDisposable
         try { _session.MountSpecial(); return true; } catch { return false; }
     }
 
+    public bool ReadItem(byte bag, byte slot) => InWorld(s => s.ReadItem(bag, slot));
+    public bool WrapItem(byte paperBag, byte paperSlot, byte itemBag, byte itemSlot)
+        => InWorld(s => s.WrapItem(paperBag, paperSlot, itemBag, itemSlot));
     public void OpenItem(byte bag, byte slot) { try { _session?.OpenItem(bag, slot); } catch { } }
     public void DestroyItem(byte bag, byte slot, byte count)
     { try { _session?.DestroyItem(bag, slot, count); } catch { } }
@@ -652,6 +691,8 @@ public sealed class NetworkClient : IDisposable
         try { _session.NpcTextQuery(textId, guid); return true; } catch { return false; }
     }
     public bool ListInventory(ulong guid) { if (State!=NetState.InWorld||_session is null) return false; try { _session.ListInventory(guid); return true; } catch { return false; } }
+    public bool BuyItemInSlot(ulong vendor, uint item, ulong bag, byte slot, byte count)
+    { if (State != NetState.InWorld || _session is null) return false; try { _session.BuyItemInSlot(vendor,item,bag,slot,count); return true; } catch { return false; } }
     public bool BuyItem(ulong vendor, uint item, byte count) { if (State!=NetState.InWorld||_session is null) return false; try { _session.BuyItem(vendor,item,count); return true; } catch { return false; } }
     public bool SellItem(ulong vendor, ulong item, byte count) { if (State!=NetState.InWorld||_session is null) return false; try { _session.SellItem(vendor,item,count); return true; } catch { return false; } }
     public bool BuybackItem(ulong vendor, uint slot) { if (State!=NetState.InWorld||_session is null) return false; try { _session.BuybackItem(vendor,slot); return true; } catch { return false; } }
@@ -661,6 +702,9 @@ public sealed class NetworkClient : IDisposable
     public bool AutoEquipItem(byte bag, byte slot) => InWorld(s => s.AutoEquipItem(bag, slot));
     public bool AutostoreBagItem(byte sourceBag, byte sourceSlot, byte destinationBag) =>
         InWorld(s => s.AutostoreBagItem(sourceBag, sourceSlot, destinationBag));
+    public bool MarkTutorial(uint wireBit) => wireBit < 256 && InWorld(s => s.MarkTutorial(wireBit));
+    public bool ClearTutorials() => InWorld(s => s.ClearTutorials());
+    public bool ResetTutorials() => InWorld(s => s.ResetTutorials());
     public bool SetAmmo(uint entry) => InWorld(s => s.SetAmmo(entry));
     public bool SwapInventoryItems(byte sourceSlot, byte destinationSlot) => InWorld(s => s.SwapInventoryItems(sourceSlot, destinationSlot));
     public bool SwapItems(byte destinationBag, byte destinationSlot, byte sourceBag, byte sourceSlot) =>
@@ -733,114 +777,145 @@ public sealed class NetworkClient : IDisposable
         var timeout = TimeSpan.FromMilliseconds(_cfg.TimeoutMs);
         try
         {
-            // 1. realmd logon.
-            SetState(NetState.ConnectingRealm, $"connecting to realmd {_cfg.RealmdHost}:{_cfg.RealmdPort}");
-            var logon = RealmClient.Logon(_cfg.RealmdHost, _cfg.RealmdPort, _account, _password, timeout);
-
-            if (logon.Realms.Count == 0) { Fail("realm list is empty"); return; }
-            RealmInfo realm = PickRealm(logon.Realms);
-            RealmName = realm.Name;                 // published for the glue chrome (name, not host:port)
-            var (worldHost, worldPort) = HostPort(realm.Address, _cfg.WorldPortFallback);
-            // Private servers usually run mangosd on the same box as realmd, and the realmlist DB
-            // often advertises an internal / unreachable IP (yours advertised 10.30.37.30). Prefer the
-            // realmd host we already reached, keeping the advertised port.
-            if (_cfg.WorldUsesRealmdHost && !string.IsNullOrWhiteSpace(_cfg.RealmdHost)
-                && !string.Equals(worldHost, _cfg.RealmdHost, StringComparison.OrdinalIgnoreCase))
-            {
-                Console.WriteLine($"[net] realm advertises world {worldHost}:{worldPort}; using realmd host {_cfg.RealmdHost} instead");
-                worldHost = _cfg.RealmdHost;
-            }
-
-            // 2. world connect + auth handshake.
-            SetState(NetState.ConnectingWorld, $"connecting to world {worldHost}:{worldPort} ({realm.Name})");
-            _session = WorldSession.Connect(worldHost, worldPort, _account, logon.SessionKey,
-                timeout, _wireObserver, _socketWriteObserver);
-
-            // 3-5 repeat on the same authenticated world socket. SMSG_LOGOUT_COMPLETE ends one
-            // character session, not the account session: refresh the roster, park again, and let
-            // the player choose another character without inventing a reconnect.
-            bool allowConfiguredFastPath = true;
+            bool forceRealmSelection = false;
             while (_running)
             {
-                SetState(NetState.Authenticating, "requesting character list");
-                var chars = _session.CharEnum();
-                Characters = chars;
+                // 1. realmd logon.
+                SetState(NetState.ConnectingRealm, $"connecting to realmd {_cfg.RealmdHost}:{_cfg.RealmdPort}");
+                var logon = RealmClient.Logon(_cfg.RealmdHost, _cfg.RealmdPort, _account, _password, timeout);
 
-                ulong wanted = 0;
-                // Dev fast path is consumed once. A deliberate logout must show character select,
-                // never bounce straight back into the configured character.
-                if (allowConfiguredFastPath && !string.IsNullOrWhiteSpace(_cfg.CharacterName))
-                    wanted = chars.FirstOrDefault(c =>
-                        string.Equals(c.Name, _cfg.CharacterName, StringComparison.OrdinalIgnoreCase))?.Guid ?? 0;
-                allowConfiguredFastPath = false;
-
-                if (wanted == 0)
+                if (logon.Realms.Count == 0) { Fail("realm list is empty"); return; }
+                RealmInfo? realm = WaitForRealm(logon.Realms, forceRealmSelection);
+                if (realm is null || !_running) return;
+                RealmName = realm.Name;                 // published for the glue chrome (name, not host:port)
+                var (worldHost, worldPort) = HostPort(realm.Address, _cfg.WorldPortFallback);
+                // Private servers usually run mangosd on the same box as realmd, and the realmlist DB
+                // often advertises an internal / unreachable IP (yours advertised 10.30.37.30). Prefer the
+                // realmd host we already reached, keeping the advertised port.
+                if (_cfg.WorldUsesRealmdHost && !string.IsNullOrWhiteSpace(_cfg.RealmdHost)
+                    && !string.Equals(worldHost, _cfg.RealmdHost, StringComparison.OrdinalIgnoreCase))
                 {
-                    // Park at character select. Create/delete are serviced on this worker so their
-                    // reply and the refreshed roster stay ordered on the socket.
-                    while (true)
-                    {
-                        SetState(NetState.CharacterSelect,
-                            chars.Count == 0 ? "no characters on this account" : $"character select - {chars.Count} character(s)");
-                        _pickGuid = 0;
-                        _pick.Reset();
-                        _pick.Wait();
-                        if (!_running) return;
-
-                        ParkReq req = _parkReq;
-                        _parkReq = ParkReq.None;
-                        if (req == ParkReq.Create)
-                        {
-                            CharCreateParams create;
-                            lock (_createLock) create = _pendingCreate;
-                            SetState(NetState.CharacterSelect, $"creating {create.Name}...");
-                            byte code = _session.CreateCharacter(create);
-                            if (code == 0x2E)
-                            {
-                                chars = _session.CharEnum();
-                                Characters = chars;
-                            }
-                            lock (_createLock) _createResult = code;
-                            continue;
-                        }
-                        if (req == ParkReq.Delete)
-                        {
-                            ulong doomed;
-                            lock (_createLock) doomed = _pendingDelete;
-                            SetState(NetState.CharacterSelect, "deleting character...");
-                            byte code = _session.DeleteCharacter(doomed);
-                            if (code == 0x39)
-                            {
-                                chars = _session.CharEnum();
-                                Characters = chars;
-                            }
-                            lock (_createLock) _deleteResult = code;
-                            continue;
-                        }
-
-                        wanted = _pickGuid;
-                        if (req == ParkReq.Enter && wanted != 0) break;
-                    }
+                    Console.WriteLine($"[net] realm advertises world {worldHost}:{worldPort}; using realmd host {_cfg.RealmdHost} instead");
+                    worldHost = _cfg.RealmdHost;
                 }
 
-                Character? pick = chars.FirstOrDefault(c => c.Guid == wanted);
-                if (pick is null) { Fail("selected character not found in roster"); return; }
-                Player = pick;
-                PlayerGuid = pick.Guid;
-                PlayerName = pick.Name;
+                // 2. world connect + auth handshake.
+                SetState(NetState.ConnectingWorld, $"connecting to world {worldHost}:{worldPort} ({realm.Name})");
+                _session = WorldSession.Connect(worldHost, worldPort, _account, logon.SessionKey,
+                    timeout, _wireObserver, _socketWriteObserver);
 
-                SetState(NetState.EnteringWorld, $"entering world as {pick.Name} (L{pick.Level})");
-                _session.PlayerLogin(pick.Guid);
-                _session.SetActiveMover(pick.Guid);
+                // 3-5 repeat on the same authenticated world socket. SMSG_LOGOUT_COMPLETE ends one
+                // character session, not the account session: refresh the roster, park again, and let
+                // the player choose another character without inventing a reconnect.
+                bool allowConfiguredFastPath = !forceRealmSelection;
+                bool changeRealmRequested = false;
+                while (_running)
+                {
+                    SetState(NetState.Authenticating, "requesting character list");
+                    var chars = _session.CharEnum();
+                    Characters = chars;
 
-                // LOGIN_VERIFY_WORLD flips us to InWorld. A clean logout returns true and loops
-                // back through CharEnum; socket failure still escapes through the outer catch.
-                if (!ReadLoop()) return;
+                    ulong wanted = 0;
+                    // Dev fast path is consumed once. A deliberate logout must show character select,
+                    // never bounce straight back into the configured character.
+                    if (allowConfiguredFastPath && !string.IsNullOrWhiteSpace(_cfg.CharacterName))
+                        wanted = chars.FirstOrDefault(c =>
+                            !c.RequiresRename && string.Equals(c.Name, _cfg.CharacterName, StringComparison.OrdinalIgnoreCase))?.Guid ?? 0;
+                    allowConfiguredFastPath = false;
+
+                    if (wanted == 0)
+                    {
+                        // Park at character select. Create/delete are serviced on this worker so their
+                        // reply and the refreshed roster stay ordered on the socket.
+                        while (true)
+                        {
+                            SetState(NetState.CharacterSelect,
+                                chars.Count == 0 ? "no characters on this account" : $"character select - {chars.Count} character(s)");
+                            _pick.Wait();
+                            _pick.Reset();
+                            if (!_running) return;
+
+                            ParkReq req = _parkReq;
+                            _parkReq = ParkReq.None;
+                            if (req == ParkReq.ChangeRealm) { changeRealmRequested = true; break; }
+                            if (req == ParkReq.Create)
+                            {
+                                CharCreateParams create;
+                                lock (_createLock) create = _pendingCreate;
+                                SetState(NetState.CharacterSelect, $"creating {create.Name}...");
+                                byte code = _session.CreateCharacter(create);
+                                if (code == 0x2E)
+                                {
+                                    chars = _session.CharEnum();
+                                    Characters = chars;
+                                }
+                                lock (_createLock) _createResult = code;
+                                continue;
+                            }
+                            if (req == ParkReq.Delete)
+                            {
+                                ulong doomed;
+                                lock (_createLock) doomed = _pendingDelete;
+                                SetState(NetState.CharacterSelect, "deleting character...");
+                                byte code = _session.DeleteCharacter(doomed);
+                                if (code == 0x39)
+                                {
+                                    chars = _session.CharEnum();
+                                    Characters = chars;
+                                }
+                                lock (_createLock) _deleteResult = code;
+                                continue;
+                            }
+
+                            if (req == ParkReq.Rename)
+                            {
+                                ServiceCharacterRename(ref chars);
+                                continue;
+                            }
+                            wanted = _pickGuid;
+                            if (req == ParkReq.Enter && wanted != 0 &&
+                                chars.FirstOrDefault(c => c.Guid == wanted)?.RequiresRename != true) break;
+                        }
+                    }
+
+                    if (changeRealmRequested) break;
+
+                    Character? pick = chars.FirstOrDefault(c => c.Guid == wanted);
+                    if (pick is null) { Fail("selected character not found in roster"); return; }
+                    Player = pick;
+                    PlayerGuid = pick.Guid;
+                    PlayerName = pick.Name;
+                    AccountData.Reset(pick.Guid);
+
+                    SetState(NetState.EnteringWorld, $"entering world as {pick.Name} (L{pick.Level})");
+                    _session.PlayerLogin(pick.Guid);
+                    _session.SetActiveMover(pick.Guid);
+
+                    // LOGIN_VERIFY_WORLD flips us to InWorld. Logout or a rejected login returns true and loops
+                    // back through CharEnum; socket failure still escapes through the outer catch.
+                    if (!ReadLoop()) return;
+                    Player = null;
+                    PlayerGuid = 0;
+                    PlayerName = "";
+                    _pickGuid = 0;
+                    _parkReq = ParkReq.None;
+                }
+                if (!changeRealmRequested) return;
+                // Close only the local world connection, on its owning worker. Refresh
+                // auth to avoid retaining a stale realm list across a deliberate switch.
+                _pingTimer?.Dispose();
+                _pingTimer = null;
+                _session?.Dispose();
+                _session = null;
+                Characters = Array.Empty<Character>();
                 Player = null;
                 PlayerGuid = 0;
                 PlayerName = "";
-                _pickGuid = 0;
-                _parkReq = ParkReq.None;
+                RealmName = "";
+                AccountData.Reset();
+                ResetCharacterRename();
+                while (_inbound.TryDequeue(out _)) { }
+                forceRealmSelection = true;
             }
         }
         catch (Exception ex) when (_running)
@@ -857,11 +932,12 @@ public sealed class NetworkClient : IDisposable
             // attempt after a failure - the missing half of the retry bug documented on Start().
             // Ordering is safe: the `when (_running)` filters above are evaluated before this runs,
             // so a genuine error still reports through Fail() and a Stop() still reads as shutdown.
+            AccountData.Reset();
             _running = false;
         }
     }
 
-    /// <returns>True only for a clean SMSG_LOGOUT_COMPLETE boundary.</returns>
+    /// <returns>True when logout or a rejected login returns the authenticated socket to character select.</returns>
     private bool ReadLoop()
     {
         var session = _session!;
@@ -871,6 +947,16 @@ public sealed class NetworkClient : IDisposable
             bool logoutComplete = false;
             switch ((Op)opcode)
             {
+                case Op.SMSG_ACCOUNT_DATA_MD5:
+                    foreach (uint type in AccountData.ApplyDigests(body)) session.RequestAccountData(type);
+                    continue;
+                case Op.SMSG_UPDATE_ACCOUNT_DATA:
+                    if (!AccountData.ApplyUpdate(body))
+                        Console.WriteLine("[net] account cache response was unrequested or did not match its digest");
+                    continue;
+                case Op.SMSG_CHARACTER_LOGIN_FAILED:
+                    if (RecordCharacterLoginFailure(body)) { AccountData.Reset(); return true; }
+                    break;
                 case Op.SMSG_LOGIN_VERIFY_WORLD:
                     {
                         var r = new PacketReader(body);
@@ -910,6 +996,7 @@ public sealed class NetworkClient : IDisposable
                         break;
                     }
                 case Op.SMSG_LOGOUT_COMPLETE:
+                    AccountData.Reset();
                     logoutComplete = true;
                     break;
             }
@@ -958,14 +1045,6 @@ public sealed class NetworkClient : IDisposable
         Console.WriteLine($"[net] FAILED: {reason}");
     }
 
-    private RealmInfo PickRealm(List<RealmInfo> realms)
-    {
-        if (!string.IsNullOrWhiteSpace(_cfg.RealmName))
-            foreach (var r in realms)
-                if (string.Equals(r.Name, _cfg.RealmName, StringComparison.OrdinalIgnoreCase)) return r;
-        return realms[0];
-    }
-
     /// <summary>Split "host:port" (realm address). A bare host or non-numeric suffix keeps the default port.</summary>
     public static (string Host, int Port) HostPort(string address, int defaultPort)
     {
@@ -980,6 +1059,7 @@ public sealed class NetworkClient : IDisposable
     {
         _running = false;
         _pick.Set();                  // wake a worker parked at character select so it can exit
+        WakeRealmSelection();        // realm selection owns no world socket
         try { _pingTimer?.Dispose(); } catch { }
         _pingTimer = null;
         _pingSentAt.Clear();
@@ -989,6 +1069,7 @@ public sealed class NetworkClient : IDisposable
         _worker = null;
         while (_inbound.TryDequeue(out _)) { }
         Characters = Array.Empty<Character>();
+        AccountData.Reset();
         if (State != NetState.Failed) State = NetState.Disconnected;
     }
 

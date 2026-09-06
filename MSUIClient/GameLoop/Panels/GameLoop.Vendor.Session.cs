@@ -65,6 +65,7 @@ public sealed partial class GameLoop
     {
         if (_vendor is null) return false;
         _vendor = null;
+        _vendorPickup = null;
 
         for (int container = 0; container <= 4; container++)
         {
@@ -85,6 +86,7 @@ public sealed partial class GameLoop
     private void ResetVendor()
     {
         _vendor = null;
+        _vendorPickup = null;
         _vendorRepairMode = false;
         _vendorHoveredRow = -1;
         _vendorRightPressedRow = -1;

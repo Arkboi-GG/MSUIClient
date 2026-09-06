@@ -607,9 +607,9 @@ public sealed partial class GameLoop
         CastTargetCandidate? selected = null;
         ulong selectedGuid = explicitTarget != 0 ? explicitTarget : _selectionGuid;
         if (selectedGuid != 0 && _entities.TryGet(selectedGuid, out WorldEntity selectedEntity))
-            selected = CastCandidate(selectedEntity, selectedGuid == actorGuid);
+            selected = CastCandidate(selectedEntity, selectedGuid == actorGuid, actorGuid);
         CastTargetCandidate? self = _entities.TryGet(actorGuid, out WorldEntity actorEntity)
-            ? CastCandidate(actorEntity, isSelf: true) : null;
+            ? CastCandidate(actorEntity, isSelf: true, casterGuid: actorGuid) : null;
         CastTargetVerdict verdict = CastTargetLaw.Resolve(
             spell, selected, self, autoSelfCast: explicitTarget == 0);
 

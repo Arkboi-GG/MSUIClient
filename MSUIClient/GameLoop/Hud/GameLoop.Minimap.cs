@@ -73,6 +73,7 @@ public sealed partial class GameLoop
         Vector2 root = minimapFrame.LogicalOrigin;
         Vector2 rootPx = root * s;
         ImDrawListPtr dl = ImGui.GetBackgroundDrawList();
+        DrawWorldStateCaptureBars(dl, rootPx, s);
 
         // ToggleMinimap hides the map body, not its toggle. Keeping this control alive is
         // what lets the stock 1.12 minimap be reopened after it has been collapsed.
@@ -111,6 +112,7 @@ public sealed partial class GameLoop
         bool squareMap = PainterlyUi || _freeView;
         Vector2 mapMin = (root + (squareMap ? new Vector2(12, 26) : new Vector2(35, 22))) * s;
         Vector2 mapMax = mapMin + new Vector2(squareMap ? 168 : 140) * s;
+        DrawBattlefieldQueueControl(mapMin, mapMax, s);
         // Local movement is client-authoritative in 1.12. The controller is the
         // continuously updated truth; the object-store entity is only the last
         // server snapshot and can remain unchanged for seconds.

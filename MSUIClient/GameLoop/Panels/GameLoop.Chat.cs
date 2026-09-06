@@ -114,6 +114,14 @@ public sealed partial class GameLoop
         _chatScroll = 0;
     }
 
+    private void ApplyPlayTimeWarning(byte[] body)
+    {
+        string? text = PlayTimeWarningUiLaw.Text(PlayTimeWarningPackets.Parse(body), InventoryGlobalString);
+        if (text is null) return;
+        AddChatMessage(text, ChatFrameLaw.MsgType.System);
+        ShowUiError(text);
+    }
+
     private void ApplyExplorationExperience(byte[] body)
     {
         ExplorationExperiencePacket packet = ExplorationPackets.Parse(body);
@@ -1300,7 +1308,13 @@ public sealed partial class GameLoop
         }
         if (raw.Length > 0 && !TrySubmitClientSlashCommand(raw) && !TrySubmitTextEmote(raw))
         {
-            (ChatFrameLaw.MsgType type, string? target, string message) = ParseChatCommand(raw);
+            if (ParseChatCommand(raw) is not { } parsed)
+            {
+                AddChatMessage(InventoryGlobalString("HELP_TEXT_SIMPLE",
+                    "Type '/help' for a listing of a few commands."));
+                return;
+            }
+            (ChatFrameLaw.MsgType type, string? target, string message) = parsed;
             // The server echoes our own line back as SMSG_MESSAGECHAT, so there is
             // no local echo here - it appears when the round-trip lands.
             // A bare /afk or /dnd is a TOGGLE with an empty message; everything else needs text.
@@ -1341,6 +1355,11 @@ public sealed partial class GameLoop
         // action its FrameXML slash handler runs.
         switch (command)
         {
+            case "/help" or "/h" or "/?":
+                AddChatMessage("Chat: /say, /party, /raid, /guild, /whisper <name> <message>, /reply.");
+                AddChatMessage("Players: /who, /friend <name>, /ignore <name>, /inspect, /trade, /duel.");
+                AddChatMessage("Character: /played, /logout, /quit. Interface: /editui.");
+                return true;
             case "/logout" or "/camp":
                 RequestLogout(quitting: false); return true;
             // MSUI: the HUD layout editor (PLAN_21), also Options -> Interface -> Edit HUD layout.
@@ -1637,12 +1656,8 @@ public sealed partial class GameLoop
     /// <summary>
     /// One of the 169 numbered text emotes (/wave, /dance, ...)? Sends
     /// CMSG_TEXT_EMOTE against the current target (untargeted if none) and
-    /// returns true. Must run before ParseChatCommand: that function's default
-    /// case doesn't know these commands and would otherwise send the literal
-    /// "/wave" text as a Say. Anything with extra words after the command (e.g.
-    /// "/e is thinking") is deliberately NOT matched here - that is CHAT_MSG_EMOTE,
-    /// a different, still-unwired freeform-text system (see the TODO on
-    /// DrawChatMenuButton), not one of these canned ones.
+    /// returns true. Runs before ordinary chat/slash parsing. Extra words (for example
+    /// "/e is thinking") belong to freeform CHAT_MSG_EMOTE, not these numbered emotes.
     /// </summary>
     private bool TrySubmitTextEmote(string raw)
     {
@@ -1722,7 +1737,7 @@ public sealed partial class GameLoop
     /// channel (/s /y /g /o /p /raid, and /w Name for a whisper); anything else is
     /// Say. Unknown slashes fall through to Say verbatim.
     /// </summary>
-    private (ChatFrameLaw.MsgType, string?, string) ParseChatCommand(string raw)
+    private (ChatFrameLaw.MsgType, string?, string)? ParseChatCommand(string raw)
     {
         if (!raw.StartsWith('/')) return (ChatFrameLaw.MsgType.Say, null, raw);
         int sp = raw.IndexOf(' ');
@@ -1755,7 +1770,7 @@ public sealed partial class GameLoop
                 string msg = sp2 < 0 ? "" : rest[(sp2 + 1)..].TrimStart();
                 return (ChatFrameLaw.MsgType.Whisper, target.Length > 0 ? target : null, msg);
             }
-            default: return (ChatFrameLaw.MsgType.Say, null, raw);
+            default: return null;
         }
     }
 

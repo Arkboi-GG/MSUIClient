@@ -89,6 +89,9 @@ public sealed record CombatSpellMiss(
     uint SpellId,
     IReadOnlyList<CombatMiss> Misses) : CombatEvent;
 
+public sealed record CombatSpellOutcome(
+    ulong Caster, ulong Target, uint SpellId, bool Immune, bool Debug) : CombatEvent;
+
 public sealed record CombatXpGain(
     ulong Victim,
     uint Total,
@@ -110,6 +113,10 @@ public static class CombatPacketParser
         var r = new PacketReader(body);
         CombatEvent result = opcode switch
         {
+            Op.SMSG_SPELLDISPELLOG or Op.SMSG_DISPEL_FAILED or Op.SMSG_SPELLINSTAKILLLOG or Op.SMSG_PARTYKILLLOG
+                => CombatNoticePackets.Parse(opcode, r.ReadBytes(r.Remaining)),
+            Op.SMSG_ENCHANTMENTLOG => EnchantmentNoticePackets.Parse(r.ReadBytes(r.Remaining)),
+            Op.SMSG_SPELLLOGEXECUTE => SpellExecutePackets.Parse(r.ReadBytes(r.Remaining)),
             Op.SMSG_ATTACKSTART => ReadAttackStart(r),
             Op.SMSG_ATTACKSTOP => ReadAttackStop(r),
             Op.SMSG_ATTACKERSTATEUPDATE => ReadMeleeSwing(r),
@@ -121,6 +128,9 @@ public static class CombatPacketParser
             Op.SMSG_ENVIRONMENTALDAMAGELOG => ReadEnvironmentalDamage(r),
             Op.SMSG_SPELLLOGMISS => ReadSpellMiss(r),
             Op.SMSG_LOG_XPGAIN => ReadXpGain(r),
+            Op.SMSG_PROCRESIST or Op.SMSG_SPELLORDAMAGE_IMMUNE => new CombatSpellOutcome(
+                r.ReadU64(), r.ReadU64(), r.ReadU32(), opcode == Op.SMSG_SPELLORDAMAGE_IMMUNE,
+                r.ReadU8() != 0),
             _ => throw new ArgumentOutOfRangeException(nameof(opcode), opcode, "not a combat packet"),
         };
         if (r.Remaining != 0)

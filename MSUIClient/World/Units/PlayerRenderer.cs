@@ -402,6 +402,10 @@ public sealed class PlayerRenderer : IDisposable
         float RateFor(M2Animator.Clip? clip) =>
             clip is not null && clip.MoveSpeed > 0.01f ? Math.Clamp(speed / clip.MoveSpeed, 0.25f, 3f) : 1f;
 
+        if (e.IsAirborne)
+            return animator.Resolve(unit, BaseAnimationTrack, 40, true, 39, 0);
+        if (e.IsHovering && !moving)
+            return animator.Resolve(unit, BaseAnimationTrack, 193, true, 135, 0);
         if ((flags & (uint)MovementFlags.Swimming) != 0)
         {
             if (!moving) return animator.Resolve(unit, BaseAnimationTrack, 41, true, 0);
@@ -422,9 +426,9 @@ public sealed class PlayerRenderer : IDisposable
                 rate = RateFor(back);
                 return back;
             }
-            M2Animator.Clip? clip = speed >= FastRunSpeed
+            M2Animator.Clip? clip = !e.IsWalking && speed >= FastRunSpeed
                 ? animator.Resolve(unit, BaseAnimationTrack, 143, true, 5, 4, 0)
-                : speed > 2f * walk
+                : !e.IsWalking && speed > 2f * walk
                     ? animator.Resolve(unit, BaseAnimationTrack, 5, true, 4, 0)
                     : animator.Resolve(unit, BaseAnimationTrack, 4, true, 5, 0);
             rate = RateFor(clip);

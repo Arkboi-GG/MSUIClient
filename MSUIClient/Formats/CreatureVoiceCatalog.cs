@@ -25,7 +25,10 @@ public readonly record struct CreatureVoice(
     uint LoopSound,
     uint ImpactType,
     uint JumpStartSound,
-    uint JumpEndSound);
+    uint JumpEndSound,
+    uint PetAttackSound = 0,
+    uint PetOrderSound = 0,
+    uint PetDismissSound = 0);
 
 /// <summary>CreatureDisplayInfo.SoundID -> CreatureSoundData voice kits, with model fallback.</summary>
 public sealed class CreatureVoiceCatalog
@@ -75,7 +78,10 @@ public sealed class CreatureVoiceCatalog
                     soundDbc.GetUInt(row, 19), soundDbc.GetUInt(row, 20),
                     soundDbc.GetUInt(row, 21), soundDbc.GetUInt(row, 23),
                     soundDbc.GetUInt(row, 24), soundDbc.GetUInt(row, 25),
-                    soundDbc.GetUInt(row, 26));
+                    soundDbc.GetUInt(row, 26),
+                    soundDbc.FieldCount >= 30 ? soundDbc.GetUInt(row, 27) : 0,
+                    soundDbc.FieldCount >= 30 ? soundDbc.GetUInt(row, 28) : 0,
+                    soundDbc.FieldCount >= 30 ? soundDbc.GetUInt(row, 29) : 0);
         }
         var modelSounds = new Dictionary<uint, uint>();
         var modelHeights = new Dictionary<uint, float>();

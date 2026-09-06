@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using System.Diagnostics;
 using System.Text;
 using ImGuiNET;
@@ -326,17 +326,23 @@ public sealed partial class GameLoop
                 net.Stop();
             DiscardPendingNetApplicationState();
             ResetQuestSession(clearStatusStore: true);
+            _tutorialFlags?.ResetSession();
             ResetPetActionBar();
+            ResetPetInfoRefresh();
             ResetVendor();
             // Frozen group-session clear feeds PARTY_INVITE_CANCEL before the retained UI feed
             // drops the roster. ResetParty is idempotent after the first edge; a decline attempt
             // may be rejected by the already-closed socket and is not claimed as a successful wire.
             ResetParty();
+            _forcedReactions.Clear();
             // No socket means no possession and no free view: the server's forced-release
             // ACK can never arrive to end them, so the client has to drop both itself.
             ResetSuiControl();
             ResetCommanderState();
             ResetPlayerIdentitySession();
+            ResetWeatherSession();
+            ResetBattlefieldSession();
+            ResetReputationSession();
             UpdatePartyInviteLifecycle();
             return;
         }
@@ -449,6 +455,7 @@ public sealed partial class GameLoop
             // NEW_WORLD is a map boundary, but group state is session-owned and must
             // survive zoning; the disconnected/session edge above is the authoritative reset.
             ResetPetActionBar();
+            ResetPetInfoRefresh();
             EnterPlayerAuraWorld(_net.PlayerGuid);
             ResetMovementModes();
             ResetControlledSpeeds();
@@ -640,6 +647,9 @@ public sealed partial class GameLoop
                 Op packetOpcode = (Op)opcode;
                 switch (packetOpcode)
                 {
+                    case Op.SMSG_TUTORIAL_FLAGS:
+                        ApplyTutorialFlags(body);
+                        break;
                     case Op.SMSG_TRANSFER_PENDING:
                         {
                             TransferPendingPacket transfer =
@@ -692,6 +702,7 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_LOGIN_VERIFY_WORLD:
                     case Op.SMSG_NEW_WORLD:
+                        ClearWorldStateUi();
                         {
                             // Recognition itself is the ordered boundary. Even a
                             // malformed/duplicate NEW_WORLD must stop this drain;
@@ -822,16 +833,46 @@ public sealed partial class GameLoop
                         ApplyReadyCheck(body);
                         break;
                     case Op.SMSG_PET_SPELLS:
-                        ApplyPetSpells(body);
+                        ApplyActorPetPacket(Op.SMSG_PET_SPELLS, body, net.PlayerGuid);
                         break;
                     case Op.SMSG_PET_MODE:
-                        ApplyPetMode(body);
+                        ApplyActorPetPacket(Op.SMSG_PET_MODE, body, net.PlayerGuid);
+                        break;
+                    case Op.SMSG_UPDATE_INSTANCE_OWNERSHIP:
+                        ApplyInstanceOwnership(body, net.PlayerGuid);
+                        break;
+                    case Op.SMSG_UPDATE_LAST_INSTANCE:
+                        ApplyLastInstance(body, net.PlayerGuid);
+                        break;
+                    case Op.SMSG_RAID_GROUP_ONLY:
+                        ApplyRaidGroupOnly(body, net.PlayerGuid);
+                        break;
+                    case Op.SMSG_OPEN_CONTAINER:
+                        ApplyServerContainerOpen(body);
+                        break;
+                    case Op.SMSG_ITEM_TIME_UPDATE:
+                        ApplyItemTime(body);
+                        break;
+                    case Op.SMSG_READ_ITEM_OK:
+                    case Op.SMSG_READ_ITEM_FAILED:
+                        ApplyItemReadResult(packetOpcode, body);
+                        break;
+                    case Op.SMSG_GAMEOBJECT_PAGETEXT:
+                        ApplyGameObjectPageText(body, net.PlayerGuid);
+                        break;
+                    case Op.SMSG_PET_TAME_FAILURE:
+                    case Op.SMSG_PET_NAME_INVALID:
+                    case Op.SMSG_PET_BROKEN:
+                        ApplyPetNotice(packetOpcode, body, net.PlayerGuid);
+                        break;
+                    case Op.SMSG_PET_ACTION_SOUND:
+                        ApplyPetActionSound(body, net.PlayerGuid);
                         break;
                     case Op.SMSG_PET_ACTION_FEEDBACK:
-                        ApplyPetActionFeedback(body);
+                        ApplyActorPetPacket(Op.SMSG_PET_ACTION_FEEDBACK, body, net.PlayerGuid);
                         break;
                     case Op.SMSG_PET_CAST_FAILED:
-                        ApplyPetCastFailed(body);
+                        ApplyActorPetPacket(Op.SMSG_PET_CAST_FAILED, body, net.PlayerGuid);
                         break;
                     case Op.SMSG_SPELL_COOLDOWN:
                         ApplyAddressedSpellCooldowns(body);
@@ -847,6 +888,33 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_COOLDOWN_CHEAT:
                         ApplyCooldownCheat(body);
+                        break;
+                    case Op.SMSG_AREA_SPIRIT_HEALER_TIME:
+                        ApplyAreaSpiritHealerTime(body);
+                        break;
+                    case Op.MSG_BATTLEGROUND_PLAYER_POSITIONS:
+                        ApplyBattlefieldPositions(body);
+                        break;
+                    case Op.SMSG_BATTLEGROUND_PLAYER_JOINED:
+                        ApplyBattlefieldRosterNotice(body, true);
+                        break;
+                    case Op.SMSG_BATTLEGROUND_PLAYER_LEFT:
+                        ApplyBattlefieldRosterNotice(body, false);
+                        break;
+                    case Op.MSG_PVP_LOG_DATA:
+                        ApplyBattlefieldScores(body);
+                        break;
+                    case Op.SMSG_BATTLEFIELD_LIST:
+                        ApplyBattlefieldList(body);
+                        break;
+                    case Op.SMSG_BATTLEFIELD_STATUS:
+                        ApplyBattlefieldStatus(body);
+                        break;
+                    case Op.SMSG_GROUP_JOINED_BATTLEGROUND:
+                        ApplyBattlefieldJoinResult(body);
+                        break;
+                    case Op.MSG_INSPECT_HONOR_STATS:
+                        ApplyInspectHonor(body, net.PlayerGuid);
                         break;
                     case Op.SMSG_INSPECT:
                         ApplyInspect(body);
@@ -894,6 +962,12 @@ public sealed partial class GameLoop
                     case Op.SMSG_GMTICKET_GETTICKET:
                         ApplyHelpTicketPacket((Op)opcode, body);
                         break;
+                    case Op.SMSG_SET_FACTION_ATWAR:
+                        ApplyFactionAtWar(body);
+                        break;
+                    case Op.SMSG_SET_FORCED_REACTIONS:
+                        _forcedReactions.Apply(net.PlayerGuid, body);
+                        break;
                     case Op.SMSG_INITIALIZE_FACTIONS:
                         ApplyInitialFactions(body);
                         break;
@@ -903,15 +977,42 @@ public sealed partial class GameLoop
                     case Op.SMSG_SET_FACTION_STANDING:
                         ApplyFactionStanding(body);
                         break;
-                    case Op.SMSG_SET_PROFICIENCY:
-                        {
-                            ProficiencyPacket proficiency = ProficiencyPackets.Parse(body);
-                            _itemProficiencies[proficiency.ItemClass] =
-                                proficiency.SubclassMask;
-                        }
+                    case Op.SMSG_SET_FLAT_SPELL_MODIFIER:
+                    case Op.SMSG_SET_PCT_SPELL_MODIFIER:
+                        ApplySpellModifier(body, LocalPlayerGuid, packetOpcode == Op.SMSG_SET_PCT_SPELL_MODIFIER);
                         break;
+                    case Op.SMSG_SET_PROFICIENCY:
+                        ApplyItemProficiency(body, LocalPlayerGuid);
+                        break;
+                    case Op.MSG_MOVE_TELEPORT:
+                    {
+                        MovementRelay teleport = MovementRelayPackets.Parse((Op)opcode, body);
+                        if (ControllerOwnsMovementPose(teleport.Guid))
+                            ApplyServerAuthoredSelfMove(teleport);
+                        else
+                            _entities.ApplyRemoteTeleport(teleport.Guid, teleport.Movement, MovementInfo.ClientUptimeMs());
+                        break;
+                    }
                     case Op.MSG_MOVE_TELEPORT_ACK:
                         ApplyMoveTeleportAck(net, body);
+                        break;
+                    case Op.SMSG_SPLINE_MOVE_ROOT:
+                    case Op.SMSG_SPLINE_MOVE_UNROOT:
+                    case Op.SMSG_SPLINE_MOVE_FEATHER_FALL:
+                    case Op.SMSG_SPLINE_MOVE_NORMAL_FALL:
+                    case Op.SMSG_SPLINE_MOVE_SET_HOVER:
+                    case Op.SMSG_SPLINE_MOVE_UNSET_HOVER:
+                    case Op.SMSG_SPLINE_MOVE_WATER_WALK:
+                    case Op.SMSG_SPLINE_MOVE_LAND_WALK:
+                    case Op.SMSG_SPLINE_MOVE_SET_RUN_MODE:
+                    case Op.SMSG_SPLINE_MOVE_SET_WALK_MODE:
+                        _entities.ApplySplineMovementMode(SplineMovementModePackets.Parse((Op)opcode, body));
+                        break;
+                    case Op.SMSG_MOVE_KNOCK_BACK:
+                        ApplyKnockbackCommand(net, body);
+                        break;
+                    case Op.MSG_MOVE_KNOCK_BACK:
+                        ApplyKnockbackRelay(body);
                         break;
                     case Op.SMSG_FORCE_WALK_SPEED_CHANGE:
                     case Op.SMSG_FORCE_RUN_SPEED_CHANGE:
@@ -944,6 +1045,11 @@ public sealed partial class GameLoop
                     case Op.MSG_MOVE_STOP_SWIM:
                     case Op.MSG_MOVE_SET_FACING:
                     case Op.MSG_MOVE_SET_PITCH:
+                    case Op.MSG_MOVE_ROOT:
+                    case Op.MSG_MOVE_UNROOT:
+                    case Op.MSG_MOVE_HOVER:
+                    case Op.MSG_MOVE_FEATHER_FALL:
+                    case Op.MSG_MOVE_WATER_WALK:
                     case Op.MSG_MOVE_HEARTBEAT:
                     {
                         MovementRelay relay = MovementRelayPackets.Parse((Op)opcode, body);
@@ -996,6 +1102,7 @@ public sealed partial class GameLoop
                         foreach (CompressedMovementRecord compressed in
                                  CompressedMovementPackets.Parse(body))
                         {
+                            if (ApplyAdditionalBatchedMovement(compressed)) continue;
                             if (compressed.Relay is MovementRelay relay)
                             {
                                 if (relay.Guid == ControlledGuid && ControllerOwnsControlledBodyPose)
@@ -1006,8 +1113,8 @@ public sealed partial class GameLoop
                             }
                             // Mass bot movement batches creature splines and spline speeds
                             // into the same envelope; route them to their standalone handlers.
-                            else if (compressed.Opcode == Op.SMSG_MONSTER_MOVE)
-                                ApplyMonsterMovePacket(compressed.Body);
+                            else if (compressed.Opcode is Op.SMSG_MONSTER_MOVE or Op.SMSG_MONSTER_MOVE_TRANSPORT)
+                                ApplyMonsterMovePacket(compressed.Body, compressed.Opcode == Op.SMSG_MONSTER_MOVE_TRANSPORT);
                             else if (compressed.Opcode is Op.SMSG_SPLINE_SET_WALK_SPEED
                                      or Op.SMSG_SPLINE_SET_RUN_SPEED
                                      or Op.SMSG_SPLINE_SET_RUN_BACK_SPEED
@@ -1033,7 +1140,8 @@ public sealed partial class GameLoop
                         }
                         break;
                     case Op.SMSG_MONSTER_MOVE:
-                        ApplyMonsterMovePacket(body);
+                    case Op.SMSG_MONSTER_MOVE_TRANSPORT:
+                        ApplyMonsterMovePacket(body, (Op)opcode == Op.SMSG_MONSTER_MOVE_TRANSPORT);
                         break;
                     case Op.SMSG_AI_REACTION:
                         // Dev window: the server's own aggro moment (no-op while closed).
@@ -1117,7 +1225,7 @@ public sealed partial class GameLoop
                         }
                         break;
                     case Op.SMSG_UPDATE_AURA_DURATION:
-                        ApplyAuraDuration(body);
+                        ApplyAuraDuration(body, net.PlayerGuid);
                         break;
                     case Op.SMSG_INITIAL_SPELLS:
                         OwnActions.ApplyInitialSpells(body, MovementInfo.ClientUptimeMs() / 1000.0);
@@ -1153,11 +1261,14 @@ public sealed partial class GameLoop
                         }
                         break;
                     case Op.SMSG_GOSSIP_MESSAGE:
-                        ApplyGossipMenu(body);
+                        ApplyGossipMenu(body, LocalPlayerGuid);
+                        break;
+                    case Op.SMSG_PET_UNLEARN_CONFIRM:
+                        ApplyPetUnlearnConfirm(body, LocalPlayerGuid);
                         break;
                     case Op.SMSG_GOSSIP_COMPLETE:
                         EmitInterface("gossip", "complete", "RECEIVED", _gossipMenu?.SourceGuid ?? 0, "serverClosed=true");
-                        ResetGossip();
+                        if (ControlledGuid == LocalPlayerGuid) CompleteGossip();
                         CloseQuestNpcFrame(playSound: true);
                         break;
                     case Op.SMSG_GOSSIP_POI:
@@ -1194,13 +1305,13 @@ public sealed partial class GameLoop
                         ApplyTrainerFailure(body);
                         break;
                     case Op.SMSG_BINDER_CONFIRM:
-                        ApplyBinderConfirm(body);
+                        ApplyBinderConfirm(body, LocalPlayerGuid);
                         break;
                     case Op.SMSG_BINDPOINTUPDATE:
                         ApplyBindPoint(body);
                         break;
                     case Op.SMSG_PLAYERBOUND:
-                        ApplyPlayerBound(body);
+                        ApplyPlayerBound(body, LocalPlayerGuid);
                         break;
                     case Op.SMSG_TAXINODE_STATUS:
                         ApplyTaxiNodeStatus(body);
@@ -1337,11 +1448,15 @@ public sealed partial class GameLoop
                     case Op.SMSG_SELL_ITEM:
                         ApplyVendorSellFailure(body);
                         break;
+                    case Op.SMSG_INVALIDATE_PLAYER:
+                        ApplyInvalidatePlayer(body);
+                        break;
                     case Op.SMSG_NAME_QUERY_RESPONSE:
                         {
                             PlayerNameQueryResponse response =
                                 PlayerNamePackets.ParseResponse(body);
                             _queriedPlayerNames.Remove(response.Guid);
+                            RefreshVisiblePlayerIdentity(response);
                             // Keep a negative answer too. ContainsKey is the ask-once gate, so an
                             // unknown GUID must not spin another query every frame.
                             _playerNames[response.Guid] = response.Name;
@@ -1381,7 +1496,7 @@ public sealed partial class GameLoop
                         {
                             var result = SpellPacketParser.ParseResult(body);
                             if (result.Status == 2)
-                                EnqueueSpellPresentation(new SpellCastResultEvent(result.SpellId, result.Reason));
+                                EnqueueSpellPresentation(new SpellCastResultEvent(net.PlayerGuid, result.SpellId, result.Reason) { Context = result.Context });
                         }
                         break;
                     case Op.SMSG_SPELL_FAILED_OTHER:
@@ -1401,11 +1516,11 @@ public sealed partial class GameLoop
                         {
                             SpellChannelStartPacket channel = SpellLifecyclePacketParser.ParseChannelStart(body);
                             EnqueueSpellPresentation(new SpellChannelStartEvent(
-                                channel.SpellId, channel.DurationMs));
+                                net.PlayerGuid, channel.SpellId, channel.DurationMs));
                         }
                         break;
                     case Op.MSG_CHANNEL_UPDATE:
-                        EnqueueSpellPresentation(new SpellChannelUpdateEvent(
+                        EnqueueSpellPresentation(new SpellChannelUpdateEvent(net.PlayerGuid,
                             SpellLifecyclePacketParser.ParseChannelUpdate(body)));
                         break;
                     case Op.SMSG_SPELL_UPDATE_CHAIN_TARGETS:
@@ -1418,11 +1533,20 @@ public sealed partial class GameLoop
                             EnqueueSpellPresentation(new SpellKitPushEvent(r.ReadU64(), r.ReadU32()));
                         }
                         break;
+                    case Op.SMSG_FEIGN_DEATH_RESISTED:
+                        EnqueueFeignDeathResisted(net.PlayerGuid, body);
+                        break;
+                    case Op.SMSG_CANCEL_COMBAT:
+                        if (body.Length != 0)
+                            throw new InvalidDataException(
+                                $"SMSG_CANCEL_COMBAT expected empty body, got {body.Length}");
+                        EnqueueSpellPresentation(new SpellCombatCancelledEvent(net.PlayerGuid));
+                        break;
                     case Op.SMSG_CANCEL_AUTO_REPEAT:
                         if (body.Length != 0)
                             throw new InvalidDataException(
                                 $"SMSG_CANCEL_AUTO_REPEAT expected empty body, got {body.Length}");
-                        EnqueueSpellPresentation(new SpellAutoRepeatCancelledEvent());
+                        EnqueueSpellPresentation(new SpellAutoRepeatCancelledEvent(net.PlayerGuid));
                         break;
                     case Op.SMSG_LOOT_RESPONSE:
                         ApplyLootResponse(body);
@@ -1484,6 +1608,14 @@ public sealed partial class GameLoop
                     case Op.SMSG_SPELLDAMAGESHIELD:
                     case Op.SMSG_ENVIRONMENTALDAMAGELOG:
                     case Op.SMSG_SPELLLOGMISS:
+                    case Op.SMSG_SPELLDISPELLOG:
+                    case Op.SMSG_DISPEL_FAILED:
+                    case Op.SMSG_SPELLINSTAKILLLOG:
+                    case Op.SMSG_PARTYKILLLOG:
+                    case Op.SMSG_ENCHANTMENTLOG:
+                    case Op.SMSG_SPELLLOGEXECUTE:
+                    case Op.SMSG_PROCRESIST:
+                    case Op.SMSG_SPELLORDAMAGE_IMMUNE:
                     case Op.SMSG_LOG_XPGAIN:
                         CombatEvent combatEvent = _combat.Apply(
                             CombatPacketParser.Parse((Op)opcode, body), _entities);
@@ -1506,6 +1638,9 @@ public sealed partial class GameLoop
                     case Op.SMSG_RESURRECT_REQUEST:
                         ApplyResurrectRequest(body);
                         break;
+                    case Op.SMSG_PLAYER_SKINNED:
+                        ApplyPlayerSkinned(body);
+                        break;
                     case Op.MSG_CORPSE_QUERY:
                         ApplyCorpseQuery(body);
                         break;
@@ -1519,13 +1654,13 @@ public sealed partial class GameLoop
                         ApplyDurabilityDamageDeath(body);
                         break;
                     case Op.SMSG_START_MIRROR_TIMER:
-                        ApplyMirrorTimerStart(body);
+                        ApplyMirrorTimerStart(body, net.PlayerGuid);
                         break;
                     case Op.SMSG_PAUSE_MIRROR_TIMER:
-                        ApplyMirrorTimerPause(body);
+                        ApplyMirrorTimerPause(body, net.PlayerGuid);
                         break;
                     case Op.SMSG_STOP_MIRROR_TIMER:
-                        ApplyMirrorTimerStop(body);
+                        ApplyMirrorTimerStop(body, net.PlayerGuid);
                         break;
                     case Op.SMSG_ATTACKSWING_NOTINRANGE:
                     case Op.SMSG_ATTACKSWING_BADFACING:
@@ -1550,6 +1685,9 @@ public sealed partial class GameLoop
                     case Op.SMSG_CHAT_WRONG_FACTION:
                         if (body.Length != 0) throw new InvalidDataException("SMSG_CHAT_WRONG_FACTION body must be empty");
                         AddChatMessage("You can only whisper to members of your alliance.");
+                        break;
+                    case Op.SMSG_PLAY_TIME_WARNING:
+                        ApplyPlayTimeWarning(body);
                         break;
                     case Op.SMSG_PLAYED_TIME:
                         HandlePlayedTime(body);
@@ -1836,6 +1974,9 @@ public sealed partial class GameLoop
             ForgetCreatureVoiceState(u.Guids);
         }
         _entities.Apply(u, MovementInfo.ClientUptimeMs());
+        if ((u.Kind is UpdateKind.CreateObject or UpdateKind.CreateObject2) &&
+            (u.Type is ObjectTypeId.Unit or ObjectTypeId.Player))
+            _combat.ApplySnapshot(u.Guid, u.Movement?.MeleeTarget, _entities);
         // A CREATURE'S LEVEL CHANGING IS NOT A LEVEL-UP, IT IS A RESPAWN, and this used to
         // fire the hardcoded Unit Level Up kit on every one of them.
         //
@@ -2382,7 +2523,7 @@ public sealed partial class GameLoop
             return;
         }
         _creatures.SelfPlayerGuid = RenderSelfGuid;
-        _creatures.Render(_window.Camera, _visibleWorldUnits);
+        _creatures.Render(_window.Camera, _visibleWorldUnits, _visibleWorldCorpses);
     }
 
     /// <summary>
@@ -2390,9 +2531,12 @@ public sealed partial class GameLoop
     /// combat, targeting, audio and the minimap deliberately keep the complete entity store;
     /// this list answers only whether a unit can contribute a world-space pixel this frame.
     /// </summary>
+    private readonly List<WorldEntity> _visibleWorldCorpses = [];
+
     private void BuildVisibleWorldUnits()
     {
         _visibleWorldUnits.Clear();
+        _visibleWorldCorpses.Clear();
         _visibleUnitKnownLastFrame = 0;
         _visibleUnitDistanceCulledLastFrame = 0;
         _visibleUnitFrustumCulledLastFrame = 0;
@@ -2439,6 +2583,14 @@ public sealed partial class GameLoop
             }
 
             _visibleWorldUnits.Add(unit);
+        }
+        foreach (WorldEntity corpse in _entities.Entities.Values)
+        {
+            if (corpse.Type != ObjectTypeId.Corpse) continue;
+            var appearance = new CorpseAppearance(corpse.Fields);
+            if (!appearance.CanRenderBody || Vector3.DistanceSquared(appearance.Position, eye) > distanceSq ||
+                (_wmo is not null && !_wmo.IsPointPortalVisible(appearance.Position))) continue;
+            _visibleWorldCorpses.Add(corpse);
         }
     }
 
@@ -2492,6 +2644,7 @@ public sealed partial class GameLoop
         if (!_config.Server.Enabled || _net is null) return;
 
         NetState st = _net.State;
+        if (st != NetState.CharacterSelect) CloseCharacterRename();
         if (st == NetState.InWorld)
         {
             DrawCombatHud();
@@ -2517,6 +2670,12 @@ public sealed partial class GameLoop
 
         // Character select is full-bleed skinned chrome (its own window), like the login. The create
         // screen (Program.CharCreate.cs) is a client-side overlay on the same parked net state.
+        if (st == NetState.RealmSelect)
+        {
+            DrawRealmSelection();
+            DrawScreenshotStatus();
+            return;
+        }
         if (st == NetState.CharacterSelect)
         {
             if (_charCreateOpen) { DrawCharacterCreate(); DrawCreateTuning(); } else DrawCharacterSelect();
@@ -3084,12 +3243,14 @@ public sealed partial class GameLoop
     /// to a 1024x768 glue canvas by s = height/768. Layout from SYSTEM_CHARACTER_SELECT.md section 4
     /// (benilla char_select/screen.rs + CharacterSelect.xml): WoW logo top-left; the selected name over
     /// the model; Enter World + a rotate pair bottom-centre; Back + Delete bottom-right; a right-column
-    /// frame holding the realm banner, a disabled Change Realm, up to ten character rows, and Create
-    /// New Character. Realm select, the delete dialog, the create screen and AreaTable zone names are
+    /// frame holding the realm banner, Change Realm, up to ten character rows, and Create
+    /// New Character. The realm chooser, delete dialog, create screen and AreaTable zone names are
     /// later phases (those buttons are present-but-disabled for now).
     /// </summary>
     private void DrawCharacterSelect()
     {
+        bool characterLoginFailureOpen = PrepareCharacterLoginFailureDialog();
+        bool characterRenameOpen = PrepareCharacterRenameDialog();
         var io = ImGui.GetIO();
         Vector2 disp = io.DisplaySize;
         float s = MathF.Max(disp.Y / GlueCanvasH, 0.5f);
@@ -3143,6 +3304,7 @@ public sealed partial class GameLoop
         // Capture the glue font + atlas for the after-render GL text pass (valid only in-frame).
         _glueAdd?.SetGlueFont(ImGui.GetFont(), (uint)ImGui.GetIO().Fonts.TexID.ToInt64());
 
+        if (characterLoginFailureOpen || characterRenameOpen) ImGui.BeginDisabled();
         ulong enterGuid = 0;
 
         // WoW logo, TOPLEFT (3,7) 256x128 - same asset/placement as the login.
@@ -3214,13 +3376,21 @@ public sealed partial class GameLoop
         else
             dl.AddRectFilled(frameMin, frameMax, ImGui.ColorConvertFloat4ToU32(new Vector4(0f, 0f, 0f, 0.72f)));
 
-        // Realm banner (the realm NAME from the realmlist, not host:port) + a DISABLED Change Realm.
+        // Realm banner and a worker-ordered return to a refreshed auth realm list.
         GlueText(dl, RealmDisplayName(), frameMin.X + frameW * 0.5f, frameMin.Y + 10f * s, 14f * s, WowSkin.GlueGold, 1);
         // Change Realm: width = the panel minus an inset each side, so it stays centred in the column
         // however the panel is resized. Height and both offsets are dials (they were 12 / 32 / 30).
         float crInset = GlueTune.ChangeRealmInset * s;
         ImGui.SetCursorScreenPos(new Vector2(frameMin.X + crInset, frameMin.Y + GlueTune.ChangeRealmTop * s));
-        _skin?.GlueButton("Change Realm", new Vector2(frameW - crInset * 2f, GlueTune.ChangeRealmH * s), enabled: false);
+        if (_skin?.GlueButton("Change Realm", new Vector2(frameW - crInset * 2f, GlueTune.ChangeRealmH * s)) == true)
+        {
+            if (_net.RequestRealmSelection())
+            {
+                CloseDeleteConfirm();
+                CancelPendingWorldCurtain();
+                _charSelectionRestored = false;
+            }
+        }
 
         // Up to ten character rows (name / "Level X Class" / zone). The 1.12 palette: the NAME stays
         // gold (GlueGold) whether selected or not - the bright-yellow highlight box IS the selection
@@ -3338,7 +3508,7 @@ public sealed partial class GameLoop
         // gated on (a roster with a live selection), and stood down while the delete confirmation
         // owns the keyboard - it wants the typed character name, and Enter there must not enter
         // the world instead - or while a launch-configuration modal is up.
-        bool enterKey = !ImGui.GetIO().WantTextInput && _deleteConfirmGuid == 0 &&
+        bool enterKey = !characterLoginFailureOpen && !characterRenameOpen && !ImGui.GetIO().WantTextInput && _deleteConfirmGuid == 0 &&
             !LoginConfigurationModalOpen &&
             (ImGui.IsKeyPressed(ImGuiKey.Enter, false) ||
              ImGui.IsKeyPressed(ImGuiKey.KeypadEnter, false));
@@ -3370,7 +3540,7 @@ public sealed partial class GameLoop
         bool backClicked = _skin?.GlueButton("Back", backSize) ?? ImGui.Button("Back", backSize);
         // Escape does the same thing as Back, unless the delete confirmation is up - that dialog
         // owns Escape itself (cancels the delete) and must not also back out to the login screen.
-        bool backKey = _deleteConfirmGuid == 0 && ImGui.IsKeyPressed(ImGuiKey.Escape, false);
+        bool backKey = !characterLoginFailureOpen && !characterRenameOpen && _deleteConfirmGuid == 0 && ImGui.IsKeyPressed(ImGuiKey.Escape, false);
         if (backClicked || backKey)
         {
             PlayUiSound(CharSelectUiLaw.BackSound, CharSelectUiLaw.SoundCategory);
@@ -3494,6 +3664,7 @@ public sealed partial class GameLoop
             _selectedChar = 0;
         }
 
+        if (enterGuid != 0 && BeginRequiredCharacterRename(enterGuid)) enterGuid = 0;
         if (enterGuid != 0)
         {
             PlayUiSound(CharSelectUiLaw.EnterWorldSound, CharSelectUiLaw.SoundCategory);
@@ -3511,6 +3682,9 @@ public sealed partial class GameLoop
             }
             _net.SelectCharacter(enterGuid);
         }
+        if (characterLoginFailureOpen || characterRenameOpen) ImGui.EndDisabled();
+        if (characterLoginFailureOpen) DrawCharacterLoginFailureDialog(dl, disp, s);
+        else if (characterRenameOpen) DrawCharacterRenameDialog(dl, disp, s);
         if (_skin is not null) _skin.Scale = savedScale;
         ImGui.End();
     }
@@ -3697,9 +3871,9 @@ public sealed partial class GameLoop
 
     /// <summary>Creature locomotion: attach the server spline so this body walks. Serves the
     /// standalone SMSG_MONSTER_MOVE case and the records batched inside SMSG_COMPRESSED_MOVES.</summary>
-    private void ApplyMonsterMovePacket(byte[] body)
+    private void ApplyMonsterMovePacket(byte[] body, bool onTransport = false)
     {
-        var mm = MonsterMoveParser.Parse(body);
+        var mm = MonsterMoveParser.Parse(body, onTransport);
         if (mm is null) return;
         ObserveServerRideSpline(mm);
         _entities.ApplyMonsterMove(mm, MovementInfo.ClientUptimeMs());

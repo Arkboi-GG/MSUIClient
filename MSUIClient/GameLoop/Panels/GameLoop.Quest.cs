@@ -45,7 +45,7 @@ public sealed partial class GameLoop
     private readonly List<QuestWatchTitleHit> _questWatchTitleHits = [];
     private readonly Dictionary<uint, double> _questAutoWatchExpiries = [];
     private readonly HashSet<uint> _questAutoWatchPending = [];
-    private readonly Dictionary<uint, string> _questProgress = [];
+    private readonly Dictionary<(ulong Owner, uint Quest), string> _questProgress = [];
     private readonly Dictionary<uint, string> _questTitles = [];
     private readonly Dictionary<uint, QuestTemplate> _questTemplates = [];
     private readonly HashSet<uint> _questQueries = [];
@@ -456,20 +456,31 @@ public sealed partial class GameLoop
             $"quest={_questOffer.QuestId};choices={_questOffer.ChoiceRewards.Count};fixed={_questOffer.FixedRewards.Count};money={_questOffer.Money};title={SanitizeEvidence(_questOffer.Title)}");
     }
 
-    private void ApplyQuestKill(byte[] body)
+    private void ApplyQuestKill(byte[] body) => ApplyQuestNotice(Op.SMSG_QUESTUPDATE_ADD_KILL, body, LocalPlayerGuid);
+
+    private void ApplyOwnedQuestKill(byte[] body, ulong owner)
     {
         QuestKillUpdate value = QuestPackets.ParseKill(body);
-        _questProgress[value.QuestId] = $"entry {value.Entry}: {value.Current}/{value.Required}";
-        ShowUiInfo(QuestKillProgressText(value));
+        _questProgress[(owner, value.QuestId)] = $"entry {value.Entry}: {value.Current}/{value.Required}";
+        ShowQuestNotice(owner, QuestKillProgressText(value));
         AutoWatchQuest(value.QuestId);
         EmitInterface("quest", "objective-kill", "UPDATED", value.Guid,
             $"quest={value.QuestId};entry={value.Entry};current={value.Current};required={value.Required}");
     }
 
-    private void ApplyQuestItem(byte[] body)
+    private void ApplyQuestItem(byte[] body) => ApplyQuestNotice(Op.SMSG_QUESTUPDATE_ADD_ITEM, body, LocalPlayerGuid);
+
+    private void ApplyOwnedQuestItem(byte[] body, ulong owner)
     {
         var value = QuestPackets.ParseItem(body);
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        if (owner != LocalPlayerGuid)
+        {
+            // ADD_ITEM contains an increment, not a quest ID or current total. The
+            // companion's authoritative item counters arrive in its quest facts.
+            (_pendingQuestItemNotices ??= []).Add((owner, value.ItemId));
+            RequestPartyQuestFacts("quest-item-notice");
+        }
+        else if (_entities.TryGet(owner, out WorldEntity player))
             foreach (uint questId in MergedOwnQuestLog().Select(q => q.QuestId))
                 if (_questTemplates.TryGetValue(questId, out QuestTemplate? template) &&
                     template.Objectives.Any(o => o.ItemId == value.ItemId && o.ItemCount > 0))
@@ -477,13 +488,13 @@ public sealed partial class GameLoop
                     AutoWatchQuest(questId);
                     QuestLogObjective objective = template.Objectives.First(o =>
                         o.ItemId == value.ItemId && o.ItemCount > 0);
-                    uint current = Math.Min(CarriedCount(value.ItemId), objective.ItemCount);
+                    uint current = Math.Min(CarriedCount(value.ItemId, player.Guid), objective.ItemCount);
                     string label = objective.Text.Length > 0 ? objective.Text :
                         _items?.TryGet(value.ItemId, out ItemTemplate? item) == true && item is not null
                             ? item.Name : "...";
-                    ShowUiInfo($"{label}: {current}/{objective.ItemCount}");
+                    ShowQuestNotice(owner, $"{label}: {current}/{objective.ItemCount}");
                 }
-        EmitInterface("quest", "objective-item", "UPDATED", 0, $"item={value.ItemId};added={value.Count}");
+        EmitInterface("quest", "objective-item", "UPDATED", owner, $"item={value.ItemId};added={value.Count}");
     }
 
     private void ObserveQuestItemTemplateLanding(uint itemId)
@@ -498,23 +509,29 @@ public sealed partial class GameLoop
             $"item={itemId};selectionReset=true");
     }
 
-    private void ApplyQuestObjectiveComplete(byte[] body)
+    private void ApplyQuestObjectiveComplete(byte[] body) => ApplyQuestNotice(Op.SMSG_QUESTUPDATE_COMPLETE, body, LocalPlayerGuid);
+
+    private void ApplyOwnedQuestObjectiveComplete(byte[] body, ulong owner)
     {
-        uint id = QuestPackets.ParseQuestId(body); _questProgress[id] = "complete";
+        uint id = QuestPackets.ParseQuestId(body); _questProgress[(owner, id)] = "complete";
         string title = _questTitles.GetValueOrDefault(id, "");
-        ShowUiInfo(title.Length > 0 ? $"{title} (Complete)" : "Objective Complete.");
+        ShowQuestNotice(owner, title.Length > 0 ? $"{title} (Complete)" : "Objective Complete.");
         AutoWatchQuest(id);
-        EmitInterface("quest", "objective", "COMPLETE", 0, $"quest={id}");
+        EmitInterface("quest", "objective", "COMPLETE", owner, $"quest={id}");
     }
 
-    private void ApplyQuestComplete(byte[] body)
+    private void ApplyQuestComplete(byte[] body) => ApplyQuestNotice(Op.SMSG_QUESTGIVER_QUEST_COMPLETE, body, LocalPlayerGuid);
+
+    private void ApplyOwnedQuestComplete(byte[] body, ulong owner)
     {
         QuestComplete value = QuestPackets.ParseComplete(body);
-        _questHelperRewardedThisSession.Add(value.QuestId);
+        if (owner == LocalPlayerGuid) _questHelperRewardedThisSession.Add(value.QuestId);
         ulong giver = QuestGiverGuid();
-        _questRewardPending = value.QuestId; _questExpectedXp = value.Experience; _questExpectedMoney = value.Money;
-        EmitInterface("quest", "reward", "COMPLETED", _net?.PlayerGuid ?? 0,
+        if (owner == LocalPlayerGuid)
+        { _questRewardPending = value.QuestId; _questExpectedXp = value.Experience; _questExpectedMoney = value.Money; }
+        EmitInterface("quest", "reward", "COMPLETED", owner,
             $"quest={value.QuestId};xp={value.Experience};money={value.Money};items={value.Rewards.Count};xpBefore={_questXpBefore};moneyBefore={_questMoneyBefore}");
+        if (owner != ControlledGuid) return;
         PlayUiSound("iQuestComplete");
         CloseQuestNpcFrame(playSound: true);
         if (giver != 0 && !GuidInfo.IsItem(giver)) RequestQuestStatus(giver);
@@ -582,8 +599,13 @@ public sealed partial class GameLoop
         _questAutoWatchPending.Clear();
         _questLogSnapshot.Clear();
         _questLogSnapshotKnown = false;
+        _questProgress.Clear();
+        _questHelperRewardedThisSession.Clear();
+        _questRewardPending = 0;
+        _pendingQuestItemNotices?.Clear();
         _questQueries.Clear();
         _questWorldStates.Clear();
+        ClearWorldStateUi();
         ClearRtsTerritoryCapture();
         if (clearStatusStore)
         {
@@ -639,15 +661,14 @@ public sealed partial class GameLoop
         _taxiOpen || _vendor is not null || _gossipMenu is not null || _deathRezOpen ||
         _tabardOpen || _loot.IsOpen || _itemTextRead is not null;
 
-    private string ExpandQuestText(string text)
+    private string ExpandQuestText(string text) => ExpandQuestTextForOwner(text, ControlledGuid);
+
+    private string ExpandQuestTextForOwner(string text, ulong subjectGuid)
     {
         QuestTextMacroLaw.Subject? subject = null;
         if (_net is not null)
         {
-            // [SUI] P4b: while driving a party bot, personalise the quest text with the
-            // BOT's name/race/class/gender — it is the one the giver is addressing — not
-            // the logged-in character. ControlledGuid IS your own guid when unpossessed.
-            ulong subjectGuid = ControlledGuid;
+            // NPC dialog uses the driven body; stored log/party text supplies its owner.
             string subjectName = subjectGuid == _net.PlayerGuid
                 ? _net.PlayerName : ResolveUnitName(subjectGuid);
             if (_entities.TryGet(subjectGuid, out WorldEntity player))
@@ -667,17 +688,12 @@ public sealed partial class GameLoop
 
     private void ApplyInitialWorldStates(byte[] body)
     {
-        var r = new PacketReader(body);
-        uint mapId = r.ReadU32();
-        uint zoneId = r.ReadU32();
-        ResetRtsTerritoryCaptureContext(mapId, zoneId);
-        ushort count = r.ReadU16();
-        if (r.Remaining != count * 8)
-            throw new InvalidDataException($"world-state init count {count} has {r.Remaining} bytes");
-        var received = new (uint Id, uint Value)[count];
-        for (int i = 0; i < count; i++) received[i] = (r.ReadU32(), r.ReadU32());
-        QuestWorldStateLaw.ApplyInit(_questWorldStates, received);
-        foreach ((uint id, uint value) in received)
+        InitialWorldStatesPacket packet = InitialWorldStatesPacket.Parse(body);
+        // Validate the complete packet before changing either the custom overlay or stock HUD.
+        ResetRtsTerritoryCaptureContext(packet.Map, packet.Zone);
+        SetWorldStateUiContext(packet.Map, packet.Zone, packet.Values);
+        QuestWorldStateLaw.ApplyInit(_questWorldStates, packet.Values);
+        foreach ((uint id, uint value) in packet.Values)
             ApplyRtsTerritoryWorldState(id, value);
     }
 
@@ -688,39 +704,42 @@ public sealed partial class GameLoop
         uint id = r.ReadU32();
         uint value = r.ReadU32();
         _questWorldStates[id] = value;
+        ApplyWorldStateUiValue(id, value);
         ApplyRtsTerritoryWorldState(id, value);
     }
 
-    private void ApplyQuestError(Op opcode, byte[] body)
+    private void ApplyQuestError(Op opcode, byte[] body) => ApplyQuestNotice(opcode, body, LocalPlayerGuid);
+
+    private void ApplyOwnedQuestError(Op opcode, byte[] body, ulong owner)
     {
         switch (opcode)
         {
             case Op.SMSG_QUESTGIVER_QUEST_INVALID:
             {
                 uint reason = QuestPackets.ParseInvalidReason(body);
-                ulong giver = QuestGiverGuid();
-                AddChatMessage(QuestGlobalString(QuestFrameUiLaw.InvalidReasonKey(reason)));
-                CloseQuestNpcFrame(playSound: true);
-                EmitInterface("quest", "error", "DISPLAYED_CHAT", giver,
-                    $"opcode=0x{(ushort)opcode:X4};reason={reason}");
+                ulong giver = owner == ControlledGuid ? QuestGiverGuid() : 0;
+                ShowQuestChat(owner, QuestGlobalString(QuestFrameUiLaw.InvalidReasonKey(reason)));
+                if (owner == ControlledGuid) CloseQuestNpcFrame(playSound: true);
+                EmitInterface("quest", "error", "DISPLAYED_CHAT", owner,
+                    $"opcode=0x{(ushort)opcode:X4};giver=0x{giver:X};reason={reason}");
                 break;
             }
             case Op.SMSG_QUESTGIVER_QUEST_FAILED:
             {
                 QuestGiverFailure failed = QuestPackets.ParseGiverFailure(body);
-                ulong giver = QuestGiverGuid();
+                ulong giver = owner == ControlledGuid ? QuestGiverGuid() : 0;
                 string title = QuestTitleForFailure(failed.QuestId);
-                AddChatMessage(QuestGlobalString(QuestFrameUiLaw.GiverFailureKey(failed.Reason), title));
-                if (failed.Reason is 4 or 50) ShowUiError(QuestGlobalString("ERR_INV_FULL"));
-                CloseQuestNpcFrame(playSound: true);
-                EmitInterface("quest", "error", "DISPLAYED_CHAT", giver,
-                    $"opcode=0x{(ushort)opcode:X4};quest={failed.QuestId};reason={failed.Reason}");
+                ShowQuestChat(owner, QuestGlobalString(QuestFrameUiLaw.GiverFailureKey(failed.Reason), title));
+                if (failed.Reason is 4 or 50) ShowQuestNotice(owner, QuestGlobalString("ERR_INV_FULL"), error: true);
+                if (owner == ControlledGuid) CloseQuestNpcFrame(playSound: true);
+                EmitInterface("quest", "error", "DISPLAYED_CHAT", owner,
+                    $"opcode=0x{(ushort)opcode:X4};giver=0x{giver:X};quest={failed.QuestId};reason={failed.Reason}");
                 break;
             }
             case Op.SMSG_QUESTLOG_FULL:
                 if (body.Length != 0) throw new InvalidDataException($"quest-log-full has {body.Length} bytes");
-                ShowUiError(QuestGlobalString("ERR_QUEST_LOG_FULL"));
-                EmitInterface("quest", "error", "DISPLAYED_ERROR", QuestGiverGuid(),
+                ShowQuestNotice(owner, QuestGlobalString("ERR_QUEST_LOG_FULL"), error: true);
+                EmitInterface("quest", "error", "DISPLAYED_ERROR", owner,
                     $"opcode=0x{(ushort)opcode:X4}");
                 break;
             case Op.SMSG_QUESTUPDATE_FAILED:
@@ -728,9 +747,9 @@ public sealed partial class GameLoop
             {
                 uint quest = QuestPackets.ParseQuestId(body);
                 string title = QuestTitleForFailure(quest);
-                AddChatMessage(title.Length == 0 ? "Quest failed."
+                ShowQuestChat(owner, title.Length == 0 ? "Quest failed."
                     : QuestGlobalString("ERR_QUEST_FAILED_S", title));
-                EmitInterface("quest", "error", "DISPLAYED_CHAT", 0,
+                EmitInterface("quest", "error", "DISPLAYED_CHAT", owner,
                     $"opcode=0x{(ushort)opcode:X4};quest={quest}");
                 break;
             }
@@ -1444,7 +1463,7 @@ public sealed partial class GameLoop
         float y = QuestFrameUiLaw.QuestLogDetailInitialY;
         if (_questTemplates.TryGetValue(selectedSlot.QuestId, out QuestTemplate? template))
         {
-            y += DrawQuestWrappedText(dl, template.ObjectivesText,
+            y += DrawQuestWrappedText(dl, ExpandQuestTextForOwner(template.ObjectivesText, player.Guid),
                 QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s),
                 QuestFrameUiLaw.QuestLogDetailTextWidth, "QuestFont", s, 0xff202020) / s;
             if (template.ObjectivesText.Length > 0) y += 8f;
@@ -1458,10 +1477,9 @@ public sealed partial class GameLoop
                     0xff202020);
                 y += 22f;
             }
-            for (int i = 0; i < template.Objectives.Count; i++)
             {
-                foreach ((string text, bool finished) in QuestObjectiveLines(
-                    player, selectedSlot.Counters, i, template.Objectives[i]))
+                foreach ((string text, bool finished) in QuestTemplateObjectiveLines(
+                    player, selectedSlot.Counters, template))
                 {
                     y += DrawQuestWrappedText(dl, finished ? text + " (Complete)" : text,
                         QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s),
@@ -1469,16 +1487,28 @@ public sealed partial class GameLoop
                         finished ? 0xff333333 : 0xff000000) / s + 2f;
                 }
             }
+            uint requiredMoney = QuestRewardUiLaw.RequiredMoney(template);
+            if (requiredMoney > 0)
+            {
+                GameText.Draw(dl, "QuestFont", "Required money:",
+                    QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s), s,
+                    player.Fields.Coinage >= requiredMoney ? 0xff333333 : 0xff202020);
+                y += 18f;
+                DrawQuestMoney(dl, QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s), requiredMoney, s, "QuestLogRequiredMoney");
+                y += 20f;
+            }
             y += 8f;
             GameText.Draw(dl, "QuestTitleFont", "Description",
                 QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s), s, 0xff202020);
             y += 20f;
-            y += DrawQuestWrappedText(dl, ExpandQuestText(template.Details),
+            y += DrawQuestWrappedText(dl, ExpandQuestTextForOwner(template.Details, player.Guid),
                 QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s),
                 QuestFrameUiLaw.QuestLogDetailTextWidth, "QuestFont", s, 0xff202020) / s;
             y += 10f;
+            uint rewardMoney = QuestRewardUiLaw.RewardMoney(template, player.Level,
+                _config.RealmMaxPlayerLevel, _config.RealmMoneyRate);
             bool hasRewards = template.ChoiceRewards.Count > 0 || template.FixedRewards.Count > 0 ||
-                template.Money != 0 || template.RewardSpell != 0;
+                rewardMoney != 0 || template.RewardSpell != 0;
             if (hasRewards)
             {
                 GameText.Draw(dl, "QuestTitleFont", "Rewards",
@@ -1494,16 +1524,16 @@ public sealed partial class GameLoop
                         template.ChoiceRewards, false, "log-choice");
                     y += 5f;
                 }
-                if (template.FixedRewards.Count > 0 || template.Money > 0 || template.RewardSpell != 0)
+                if (template.FixedRewards.Count > 0 || rewardMoney > 0 || template.RewardSpell != 0)
                 {
                     string receive = template.ChoiceRewards.Count > 0
                         ? "You will also receive:" : "You will receive:";
                     GameText.Draw(dl, "QuestFont", receive,
                         QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s), s, 0xff202020);
-                    if (template.Money > 0)
+                    if (rewardMoney > 0)
                         DrawQuestMoney(dl,
                             QuestFrameUiLaw.QuestLogDetailMoneyMin(contentOrigin, y, s),
-                            (uint)template.Money, s, "QuestLogMoney");
+                            rewardMoney, s, "QuestLogMoney");
                     y += 20f;
                     y = DrawQuestItemGrid(dl,
                         QuestFrameUiLaw.QuestLogDetailGridOrigin(contentOrigin, s), s, y,
@@ -1530,7 +1560,7 @@ public sealed partial class GameLoop
         }
         else
         {
-            y += DrawQuestWrappedText(dl, _questProgress.GetValueOrDefault(selectedSlot.QuestId,
+            y += DrawQuestWrappedText(dl, _questProgress.GetValueOrDefault((player.Guid, selectedSlot.QuestId),
                     "Retrieving quest details..."),
                 QuestFrameUiLaw.QuestLogDetailTextMin(contentOrigin, y, s),
                 QuestFrameUiLaw.QuestLogDetailTextWidth, "QuestFont", s, 0xff202020) / s;
@@ -1600,6 +1630,16 @@ public sealed partial class GameLoop
     /// ReqCreatureOrGO[i]); when the index carries both, the collect line falls
     /// back to the item's own name rather than repeating the kill's label.
     /// </summary>
+    private IEnumerable<(string Text, bool Finished)> QuestTemplateObjectiveLines(
+        WorldEntity player, uint packedCounters, QuestTemplate template)
+    {
+        for (int i = 0; i < template.Objectives.Count; i++)
+            foreach (var line in QuestObjectiveLines(player, packedCounters, i, template.Objectives[i]))
+                yield return line;
+        if (!string.IsNullOrWhiteSpace(template.EndText))
+            yield return (ExpandQuestTextForOwner(template.EndText, player.Guid), QuestHelperUiLaw.QuestComplete(packedCounters));
+    }
+
     private IEnumerable<(string Text, bool Finished)> QuestObjectiveLines(
         WorldEntity player, uint packedCounters, int index, QuestLogObjective objective)
     {
@@ -1624,7 +1664,7 @@ public sealed partial class GameLoop
         // NOT else-if. See the summary.
         if (collect)
         {
-            uint current = Math.Min(CarriedCount(objective.ItemId), objective.ItemCount);
+            uint current = Math.Min(CarriedCount(objective.ItemId, player.Guid), objective.ItemCount);
             string label = kill ? "" : objective.Text;
             if (label.Length == 0)
                 label = QuestObjectiveItemLabel(objective.ItemId);
@@ -1694,8 +1734,7 @@ public sealed partial class GameLoop
             ShowUiError("Quest details are still loading.");
             return;
         }
-        bool hasObjectives = template.Objectives.Any(o =>
-            o.CreatureOrGo != 0 && o.RequiredCount > 0 || o.ItemId != 0 && o.ItemCount > 0);
+        bool hasObjectives = template.HasTrackableObjectives;
         if (!hasObjectives)
         {
             ShowUiError("This quest has no objectives to track");
@@ -1719,8 +1758,7 @@ public sealed partial class GameLoop
             return;
         }
         _questAutoWatchPending.Remove(questId);
-        if (!template.Objectives.Any(o => o.CreatureOrGo != 0 && o.RequiredCount > 0 ||
-            o.ItemId != 0 && o.ItemCount > 0)) return;
+        if (!template.HasTrackableObjectives) return;
         if (!QuestHeldByTrackerOwner(questId))
         {
             // Accept/result and objective packets can beat the update fields or party-facts
@@ -1861,10 +1899,9 @@ public sealed partial class GameLoop
                 _questTitles.GetValueOrDefault(questId, $"Quest {questId}"), true, false));
             bool collapsed = _questWatchCollapsed.Contains(questId);
             int objectives = 0, complete = 0;
-            for (int i = 0; i < template.Objectives.Count; i++)
             {
-                foreach ((string text, bool finished) in QuestObjectiveLines(
-                    player, slot.Counters, i, template.Objectives[i]))
+                foreach ((string text, bool finished) in QuestTemplateObjectiveLines(
+                    player, slot.Counters, template))
                 {
                     objectives++;
                     if (finished) complete++;

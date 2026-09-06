@@ -180,6 +180,20 @@ public sealed partial class GameLoop
         return _professionOpen;
     }
 
+    private void ResetProfessionOnControlChange()
+    {
+        _professionOpen = false;
+        _professionPanelKind = null;
+        _professionCraftType = _professionOpenerSpell = _professionLine = 0;
+        _professionCraftSpell = _professionSkillPendingSpell = 0;
+        _professionProductPending = _professionProductPendingSpell = 0;
+        _professionProductSpellGoObserved = false;
+        _professionBatchRemaining = 0;
+        _professionLastCreatedProduct = _professionLastCreatedDelta = 0;
+        _professionRecipes.Clear();
+        _professionKnownSnapshot.Clear();
+    }
+
     private bool CloseProfessionFrame()
     {
         if (!_professionOpen) return false;
@@ -451,7 +465,7 @@ public sealed partial class GameLoop
     private bool GetSkillValueAndBonus(uint line, out ushort value, out ushort max, out int bonus)
     {
         value = max = 0; bonus = 0;
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
         for (int slot = 0; slot < 128; slot++)
         {
             ushort field = (ushort)(ObjectFields.PLAYER_SKILL_INFO_1_1 + slot * 3);
@@ -465,9 +479,9 @@ public sealed partial class GameLoop
         return false;
     }
 
-    private uint BackpackCount(uint entry)
+    private uint BackpackCount(uint entry, ulong? ownerGuid = null)
     {
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return 0;
+        if (_net is null || !_entities.TryGet(ownerGuid ?? ControlledGuid, out WorldEntity player)) return 0;
         uint count = 0;
         for (int slot = 0; slot < 16; slot++)
         {
@@ -490,10 +504,10 @@ public sealed partial class GameLoop
         return count;
     }
 
-    private uint CarriedCount(uint entry)
+    private uint CarriedCount(uint entry, ulong? ownerGuid = null)
     {
-        uint count = BackpackCount(entry);
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return count;
+        uint count = BackpackCount(entry, ownerGuid);
+        if (_net is null || !_entities.TryGet(ownerGuid ?? ControlledGuid, out WorldEntity player)) return count;
         // Tools may be equipped (weapon, off-hand, profession item) rather than bagged. Reagent
         // counts deliberately use BackpackCount and exclude this equipment band.
         for (int slot = 0; slot < 19; slot++)
@@ -512,7 +526,7 @@ public sealed partial class GameLoop
         if (!BeginVanillaWindow("##profession", UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[panelIndex]),
                 ProfessionFrameUiLaw.FrameSize(1f),
                 out ImDrawListPtr dl, out Vector2 origin, out float s)) { ImGui.End(); return; }
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player))
             DrawUnitPortraitImage(dl, player,
                 origin + ProfessionFrameUiLaw.PortraitOffset * s,
                 ProfessionFrameUiLaw.PortraitSize * s, 0, false);

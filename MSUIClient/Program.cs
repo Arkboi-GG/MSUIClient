@@ -1564,6 +1564,11 @@ public sealed partial class GameLoop : IDisposable
         SnapshotLoadUnitsBeforePump();
         long loadNetStarted = Stopwatch.GetTimestamp();
         PumpNet(dt); // Phase 2 networking pump (no-op unless server.enabled)
+        UpdatePetInfoRefresh();
+        UpdateBattlefields();
+        UpdateBattlefieldScores();
+        UpdateBattlefieldPositions();
+        UpdateAreaSpiritHealer();
         UpdateMail(dt);
         _loadNetPumpMilliseconds = Stopwatch.GetElapsedTime(loadNetStarted).TotalMilliseconds;
         UpdateIceBlockFreezeState();
@@ -2010,12 +2015,11 @@ public sealed partial class GameLoop : IDisposable
         if (_freeView && CommandViewLaw.OrbitsFocus(commandViewScheme) && !CommandViewLocked)
             OrbitCommandViewRig(_commandViewYawDelta);
 
-        // Drunkenness belongs to the logged-in player even while another unit is possessed.
-        // Current Benilla adds this pulse to movement facing (unless a keyboard turn is held)
-        // and to active swim pitch; it deliberately has no normal-play FOV effect.
+        // The body being driven owns its movement intoxication. A non-player body
+        // has no PLAYER_BYTES_3 field; the session character must not lend it one.
         byte drunkByte = ControllerOwnsControlledBodyPose &&
-            _entities.TryGet(LocalPlayerGuid, out WorldEntity sessionPlayer)
-            ? sessionPlayer.Fields.PlayerDrunkByte
+            _entities.TryGet(ControlledGuid, out WorldEntity movementPlayer) && movementPlayer.IsPlayer
+            ? movementPlayer.Fields.PlayerDrunkByte
             : (byte)0;
         float drunkWobble = translating
             ? DrunkMovementLaw.Wobble(MovementInfo.ClientUptimeMs(),
@@ -2137,7 +2141,8 @@ public sealed partial class GameLoop : IDisposable
             UpdateServerRideTacticalFreeze(tacticalLiveAuthorshipBlocked);
         bool serverRideActive = serverRideHeldByTacticalFreeze ||
             (!tacticalLiveAuthorshipBlocked && UpdateServerRide());
-        if (!serverRideActive && !controllerTacticalFrozen) _controller.Update(dt, input);
+        if (!serverRideActive && !controllerTacticalFrozen && !vanillaControlLocked)
+            _controller.Update(dt, input);
         UpdatePredictedBreath();
         ReconcileControlledTransportRider();
         ResolveRealPortalMovement(movementPreviousPosition);
@@ -2898,7 +2903,7 @@ public sealed partial class GameLoop : IDisposable
             if (_groundCastSpell != 0 && _groundCursorPoint is { } reticle &&
                 _spellCatalog?.TryGet(_groundCastSpell, out SpellInfo groundSpell) == true)
                 _spellEffectMeshes.RenderTargetingMarker(_window.Camera, reticle,
-                    _spellCatalog.TargetingRadius(groundSpell));
+                    ActorSpellTargetingRadius(groundSpell, ControlledGuid));
         }
         // CRPG free-view ground FX: selection rings + move markers share the decal machinery
         // and depth-test against the units drawn above, so rings tuck behind the models.

@@ -17,6 +17,18 @@ public sealed partial class GameLoop
     private sealed record GameObjectTemplate(uint Entry, uint Type, uint DisplayId, string Name,
         string Icon, int[] Data)
     {
+        public uint PageHead => Type switch
+        {
+            9 => unchecked((uint)Math.Max(0, Data[0])),
+            10 => unchecked((uint)Math.Max(0, Data[7])),
+            _ => 0,
+        };
+        public uint PageMaterial => Type switch
+        {
+            9 => unchecked((uint)Math.Max(0, Data[2])),
+            10 => unchecked((uint)Math.Max(0, Data[9])),
+            _ => 0,
+        };
         public uint LockId => Type switch
         {
             0 or 1 => unchecked((uint)Math.Max(0, Data[1])),
@@ -62,6 +74,10 @@ public sealed partial class GameLoop
             !_factions.TryGet(goFaction, out FactionTemplateRow goTemplate) ||
             !_factions.TryGet(player.Fields.FactionTemplate, out FactionTemplateRow playerTemplate))
             return null;
+        if (_forcedReactions.TryGet(ReactionPlayerOwner(player), goTemplate.Faction, out FactionReaction forced))
+            return forced == FactionReaction.Hostile;
+        if (TryReputationReaction(go, goTemplate, player, playerTemplate, out FactionReaction standing))
+            return standing == FactionReaction.Hostile;
         return goTemplate.ReactionToward(playerTemplate) == FactionReaction.Hostile;
     }
 

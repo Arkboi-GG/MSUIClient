@@ -237,6 +237,27 @@ public sealed class WorldSession : IDisposable
         }
     }
 
+    public void RequestAccountData(uint type)
+        => SendPacket((ushort)Op.CMSG_REQUEST_ACCOUNT_DATA, AccountDataPackets.Request(type));
+
+    /// <summary>Required rename, serviced only by the character-select worker.</summary>
+    public CharacterRenameResult RenameCharacter(ulong guid, string name)
+    {
+        SendPacket((ushort)Op.CMSG_CHAR_RENAME, CharacterRenamePackets.Build(guid, name));
+        while (true)
+        {
+            var (opcode, body) = ReceivePacket();
+            if (opcode == (ushort)Op.SMSG_CHAR_RENAME)
+            {
+                CharacterRenameResult result = CharacterRenamePackets.Parse(body);
+                if (result.Succeeded && result.Guid != guid)
+                    throw new InvalidDataException("rename reply character mismatch");
+                return result;
+            }
+            if (opcode == (ushort)Op.SMSG_WARDEN_DATA) throw new WardenRequiredException();
+        }
+    }
+
     // CMSG_CHAR_CREATE body (benilla-protocol messages/client.rs char_create, byte-exact vs vmangos
     // Packets/Character.cpp): name (CString) + race, class, gender, skin, face, hairStyle, hairColor,
     // facialHair, outfitId(0). The server reads and ignores outfitId, recomputing start gear.
@@ -536,10 +557,46 @@ public sealed class WorldSession : IDisposable
     public void LogoutCancel() =>
         SendPacket((ushort)Op.CMSG_LOGOUT_CANCEL, ReadOnlySpan<byte>.Empty);
 
+    public void MarkTutorial(uint wireBit)
+    {
+        if (wireBit >= 256) throw new ArgumentOutOfRangeException(nameof(wireBit));
+        var w = new PacketWriter(4); w.WriteU32(wireBit); SendPacket((ushort)Op.CMSG_TUTORIAL_FLAG, w.ToArray());
+    }
+    public void ClearTutorials() => SendPacket((ushort)Op.CMSG_TUTORIAL_CLEAR, ReadOnlySpan<byte>.Empty);
+    public void ResetTutorials() => SendPacket((ushort)Op.CMSG_TUTORIAL_RESET, ReadOnlySpan<byte>.Empty);
+
     public void SetSelection(ulong guid) => SendFullGuid(Op.CMSG_SET_SELECTION, guid);
     public void FarSight(bool engage) =>
         SendPacket((ushort)Op.CMSG_FAR_SIGHT, ViewSubjectLaw.VoteBody(engage));
     public void Inspect(ulong guid) => SendFullGuid(Op.CMSG_INSPECT, guid);
+    public void QueryAreaSpiritHealer(ulong guide)
+    {
+        var writer = new PacketWriter(); writer.WriteU64(guide);
+        SendPacket((ushort)Op.CMSG_AREA_SPIRIT_HEALER_QUERY, writer.ToArray());
+    }
+    public void QueueAreaSpiritHealer(ulong guide)
+    {
+        var writer = new PacketWriter(); writer.WriteU64(guide);
+        SendPacket((ushort)Op.CMSG_AREA_SPIRIT_HEALER_QUEUE, writer.ToArray());
+    }
+    public void RequestBattlefieldPositions() => SendPacket((ushort)Op.MSG_BATTLEGROUND_PLAYER_POSITIONS, ReadOnlySpan<byte>.Empty);
+    public void RequestBattlefieldScores() => SendPacket((ushort)Op.MSG_PVP_LOG_DATA, ReadOnlySpan<byte>.Empty);
+    public void RequestBattlefieldStatus() => SendPacket((ushort)Op.CMSG_BATTLEFIELD_STATUS, ReadOnlySpan<byte>.Empty);
+    public void JoinBattlefield(ulong source, uint map, uint instance, bool asGroup)
+    {
+        var w = new PacketWriter(); w.WriteU64(source); w.WriteU32(map); w.WriteU32(instance); w.WriteU8(asGroup ? (byte)1 : (byte)0);
+        SendPacket((ushort)Op.CMSG_BATTLEMASTER_JOIN, w.ToArray());
+    }
+    public void BattlefieldPort(uint map, bool enter)
+    {
+        var w = new PacketWriter(); w.WriteU32(map); w.WriteU8(enter ? (byte)1 : (byte)0);
+        SendPacket((ushort)Op.CMSG_BATTLEFIELD_PORT, w.ToArray());
+    }
+    public void LeaveBattlefield(uint map)
+    {
+        var w = new PacketWriter(); w.WriteU32(map); SendPacket((ushort)Op.CMSG_LEAVE_BATTLEFIELD, w.ToArray());
+    }
+    public void InspectHonor(ulong guid) => SendFullGuid(Op.MSG_INSPECT_HONOR_STATS, guid);
     public void PetAction(ulong petGuid, uint packedAction, ulong targetGuid)
         => SendPacket((ushort)Op.CMSG_PET_ACTION,
             BuildPetActionBody(petGuid, packedAction, targetGuid));
@@ -549,6 +606,7 @@ public sealed class WorldSession : IDisposable
         w.WriteU64(petGuid); w.WriteU32(packedAction); w.WriteU64(targetGuid);
         return w.ToArray();
     }
+    public void RequestPetInfo() => SendPacket((ushort)Op.CMSG_REQUEST_PET_INFO, ReadOnlySpan<byte>.Empty);
     public void PetStopAttack(ulong petGuid) => SendFullGuid(Op.CMSG_PET_STOP_ATTACK, petGuid);
     public void PetSetAction(ulong petGuid, IReadOnlyList<(uint Position, uint Packed)> entries)
         => SendPacket((ushort)Op.CMSG_PET_SET_ACTION, BuildPetSetActionBody(petGuid, entries));
@@ -580,6 +638,7 @@ public sealed class WorldSession : IDisposable
         w.WriteU64(petGuid); w.WriteU32(spellId); w.WriteU8(enabled ? (byte)1 : (byte)0);
         return w.ToArray();
     }
+    public void PetUnlearn(ulong petGuid) => SendFullGuid(Op.CMSG_PET_UNLEARN, petGuid);
     public void PetAbandon(ulong petGuid)
         => SendPacket((ushort)Op.CMSG_PET_ABANDON, BuildPetAbandonBody(petGuid));
     public static byte[] BuildPetAbandonBody(ulong petGuid)
@@ -933,6 +992,10 @@ public sealed class WorldSession : IDisposable
         w.WriteU32(apply ? 1u : 0u);
         return w.ToArray();
     }
+
+    /// <summary>Acknowledge an addressed knockback with full GUID, counter and impulse.</summary>
+    public void KnockbackAck(ulong guid, uint counter, MovementInfo info) =>
+        SendPacket((ushort)Op.CMSG_MOVE_KNOCK_BACK_ACK, KnockbackPackets.BuildAck(guid, counter, info));
 
     /// <summary>Acknowledge an addressed force-speed change with full guid, live pose and echo.</summary>
     public void ForceSpeedChangeAck(ulong guid, MovementSpeedKind kind, uint counter,
@@ -1437,6 +1500,13 @@ public sealed class WorldSession : IDisposable
         var w = new PacketWriter(14); w.WriteU64(vendorGuid); w.WriteU32(itemId);
         w.WriteU8(count); w.WriteU8(0); return w.ToArray();
     }
+    public void BuyItemInSlot(ulong vendorGuid, uint itemId, ulong bagGuid, byte slot, byte count)
+        => SendPacket((ushort)Op.CMSG_BUY_ITEM_IN_SLOT, BuildBuyItemInSlotBody(vendorGuid, itemId, bagGuid, slot, count));
+    public static byte[] BuildBuyItemInSlotBody(ulong vendorGuid, uint itemId, ulong bagGuid, byte slot, byte count)
+    {
+        var w = new PacketWriter(22); w.WriteU64(vendorGuid); w.WriteU32(itemId);
+        w.WriteU64(bagGuid); w.WriteU8(slot); w.WriteU8(count); return w.ToArray();
+    }
     public void SellItem(ulong vendorGuid, ulong itemGuid, byte count)
         => SendPacket((ushort)Op.CMSG_SELL_ITEM,
             BuildSellItemBody(vendorGuid, itemGuid, count));
@@ -1468,6 +1538,14 @@ public sealed class WorldSession : IDisposable
         w.WriteU8(bag); w.WriteU8(slot); w.WriteU8(spellSlot); w.WriteU16(0);
         SendPacket((ushort)Op.CMSG_USE_ITEM, w.AsSpan());
     }
+
+    public void ReadItem(byte bag, byte slot)
+        => SendPacket((ushort)Op.CMSG_READ_ITEM, BuildReadItemBody(bag, slot));
+
+    public static byte[] BuildReadItemBody(byte bag, byte slot) => [bag, slot];
+
+    public void WrapItem(byte paperBag, byte paperSlot, byte itemBag, byte itemSlot)
+        => SendPacket((ushort)Op.CMSG_WRAP_ITEM, [paperBag, paperSlot, itemBag, itemSlot]);
 
     public void OpenItem(byte bag, byte slot)
         => SendPacket((ushort)Op.CMSG_OPEN_ITEM, BuildOpenItemBody(bag, slot));

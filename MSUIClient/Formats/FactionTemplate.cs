@@ -12,6 +12,7 @@ public sealed class FactionTemplateRow
 {
     public uint Id;
     public uint Faction;
+    public uint Flags;
     public uint GroupMask;
     public uint FriendGroupMask;
     public uint EnemyGroupMask;
@@ -62,6 +63,7 @@ public sealed class FactionTemplateCatalog
             {
                 Id = dbc.GetUInt(i, 0),
                 Faction = dbc.GetUInt(i, 1),
+                Flags = dbc.GetUInt(i, 2),
                 GroupMask = dbc.GetUInt(i, 3),
                 FriendGroupMask = dbc.GetUInt(i, 4),
                 EnemyGroupMask = dbc.GetUInt(i, 5),

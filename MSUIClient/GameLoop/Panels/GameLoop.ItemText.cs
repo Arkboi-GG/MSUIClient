@@ -19,6 +19,7 @@ public sealed partial class GameLoop
         public uint TextId { get; init; }
         public uint MaterialId { get; set; }
         public uint PageHead { get; set; }
+        public ulong WorldOwnerGuid { get; set; }
         public List<uint> Visited { get; } = [];
     }
 
@@ -36,6 +37,7 @@ public sealed partial class GameLoop
 
     private void OpenItemTextLetter(WorldEntity instance, ItemTemplate item)
     {
+        _pendingItemRead = null;
         if (_itemTextRead?.ObjectGuid == instance.Guid)
         {
             CloseItemText(playSound: true);
@@ -62,9 +64,10 @@ public sealed partial class GameLoop
             $"entry={instance.Entry};text={textId};creator={creator};wire=ITEM_TEXT_QUERY_ONLY");
     }
 
-    private void OpenItemTextPages(ulong guid, string title, uint pageHead, uint materialId)
+    private void OpenItemTextPages(ulong guid, string title, uint pageHead, uint materialId, bool toggle = true)
     {
-        if (_itemTextRead?.ObjectGuid == guid)
+        _pendingItemRead = null;
+        if (toggle && _itemTextRead?.ObjectGuid == guid)
         {
             CloseItemText(playSound: true);
             return;
@@ -87,21 +90,32 @@ public sealed partial class GameLoop
             $"page={pageHead};material={materialId};wire=PAGE_TEXT_QUERY_ONLY");
     }
 
-    private void OpenGameObjectText(WorldEntity go)
+    private void OpenGameObjectText(WorldEntity go, bool toggle = true)
     {
         _gameObjectGuid = go.Guid;
         if (_gameObjectTemplates.TryGetValue(go.Entry, out GameObjectTemplate? template))
-            OpenItemTextPages(go.Guid, template.Name, unchecked((uint)Math.Max(0, template.Data[0])),
-                unchecked((uint)Math.Max(0, template.Data[2])));
+            OpenItemTextPages(go.Guid, template.Name, template.PageHead, template.PageMaterial, toggle);
         else
         {
-            OpenItemTextPages(go.Guid, "...", 0, 0);
+            OpenItemTextPages(go.Guid, "...", 0, 0, toggle);
             RequireGameObjectTemplate(go);
         }
+        if (_itemTextRead is { } read) read.WorldOwnerGuid = ControlledGuid;
+    }
+
+    private void ApplyGameObjectPageText(byte[] body, ulong owner)
+    {
+        ulong guid = ObjectNoticePackets.ParseGuid(body, Op.SMSG_GAMEOBJECT_PAGETEXT);
+        if (owner == 0 || owner != ControlledGuid ||
+            !_entities.TryGet(guid, out WorldEntity go) || go.Type != ObjectTypeId.GameObject ||
+            go.GameObjectType is not (9 or 10) || !TryGetInteractionBodyPose(out WorldBodyPose actor) ||
+            Vector3.Distance(actor.Position, go.Position) > GameObjectInteractDistance) return;
+        OpenGameObjectText(go, toggle: false);
     }
 
     private bool CloseItemText(bool playSound)
     {
+        _pendingItemRead = null;
         if (_itemTextRead is null) return false;
         ulong guid = _itemTextRead.ObjectGuid;
         _itemTextRead = null;
@@ -117,8 +131,8 @@ public sealed partial class GameLoop
         if (_itemTextRead is not { Kind: ItemTextSourceKind.Pages } read ||
             !_entities.TryGet(read.ObjectGuid, out WorldEntity go) || go.Entry != template.Entry) return;
         read.Title = template.Name;
-        read.MaterialId = unchecked((uint)Math.Max(0, template.Data[2]));
-        read.PageHead = unchecked((uint)Math.Max(0, template.Data[0]));
+        read.MaterialId = template.PageMaterial;
+        read.PageHead = template.PageHead;
         if (read.Visited.Count == 0 && read.PageHead != 0) read.Visited.Add(read.PageHead);
         QueryItemTextPageIfMissing(read.PageHead, read.ObjectGuid);
     }
@@ -160,6 +174,12 @@ public sealed partial class GameLoop
 
     private void DrawItemTextFrame()
     {
+        if (_itemTextRead is { WorldOwnerGuid: not 0 } worldRead &&
+            (worldRead.WorldOwnerGuid != ControlledGuid ||
+             !_entities.TryGet(worldRead.ObjectGuid, out WorldEntity go) ||
+             !TryGetInteractionBodyPose(out WorldBodyPose actor) ||
+             Vector3.Distance(actor.Position, go.Position) > GameObjectInteractDistance))
+            CloseItemText(playSound: false);
         if (_itemTextRead is not { } read || _gameplayArt is null) return;
         if (!BeginVanillaWindow("##item-text", ItemTextFrameUiLaw.FrameOrigin(1f),
                 ItemTextFrameUiLaw.FrameSize(1f), out ImDrawListPtr draw, out Vector2 origin,

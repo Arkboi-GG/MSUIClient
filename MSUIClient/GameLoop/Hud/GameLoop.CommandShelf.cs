@@ -270,7 +270,7 @@ public sealed partial class GameLoop
             return true;
         }
         CastTargetCandidate candidate = CastCandidate(target,
-            isSelf: targetGuid == _rtsUnitCastPrimary);
+            isSelf: targetGuid == _rtsUnitCastPrimary, casterGuid: _rtsUnitCastPrimary);
         CastTargetVerdict verdict = CastTargetLaw.Resolve(spell, candidate, self: null,
             autoSelfCast: false);
         if (verdict.Kind != CastTargetKind.Unit || verdict.Guid != targetGuid)
@@ -1070,8 +1070,9 @@ public sealed partial class GameLoop
         }
         if (!_net.UseItem(255, (byte)(23 + slot), tpl.UseSpellIndex)) return true;
         ScheduleControlledInventoryRefresh(unit);   // re-sync a possessed bot's consumed item
-        store.StartItemUseCooldown(instance.Entry, useSpell, spell, now);
-        if (spell is { } committed) store.StartGlobalCooldown(useSpell.SpellId, committed, now);
+        store.StartItemUseCooldown(instance.Entry, useSpell, spell, now,
+            spell is { } cooldownSpell ? ActorSpellModifiers(unit, cooldownSpell, SpellModifierStore.Cooldown) : default);
+        if (spell is { } committed) StartActorGlobalCooldown(store, unit, committed, now);
         return true;
     }
 

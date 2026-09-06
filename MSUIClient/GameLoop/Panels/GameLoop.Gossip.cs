@@ -25,7 +25,10 @@ public sealed partial class GameLoop
     private const float GossipInteractDistance = NpcSessionUiLaw.ServiceRange;
 
     private GossipMenu? _gossipMenu;
+    private ulong _gossipOwnerGuid;
     private string? _gossipGreeting;
+    private NpcTextBlock? _gossipGreetingBlock;
+    private bool _gossipGreetingResolved;
     private readonly Dictionary<uint, NpcText> _npcTextRecords = [];
     private uint _gossipSourceFlags;
     private float _gossipScroll;
@@ -34,8 +37,14 @@ public sealed partial class GameLoop
 
     private void ResetGossip()
     {
+        ResetAreaSpiritHealer();
+        ResetPetUnlearn();
+        HideGossipCode();
+        _gossipOwnerGuid = 0;
         _gossipMenu = null;
         _gossipGreeting = null;
+        _gossipGreetingBlock = null;
+        _gossipGreetingResolved = false;
         _gossipSourceFlags = 0;
         _gossipScroll = 0;
     }
@@ -89,9 +98,9 @@ public sealed partial class GameLoop
             detail = $"distance={distance:R};npcFlags=0x{target.NpcFlags:X8};route={ClassifyGossipRoute(target.NpcFlags, "")}";
             if (sent)
             {
-                _gossipMenu = null;
-                _gossipGreeting = null;
+                ResetGossip();
                 _gossipSourceFlags = target.NpcFlags;
+                RememberAreaSpiritHealerGossip(guid, target.NpcFlags);
             }
         }
         EmitInterface("gossip", "hello", outcome, guid, detail);
@@ -100,14 +109,16 @@ public sealed partial class GameLoop
 
     private bool UpdateGossipLifecycle()
     {
-        if (_gossipMenu is null ||
-            !TryGetInteractionBodyPose(out WorldBodyPose sessionBody)) return false;
+        if (_gossipMenu is null) return false;
         ulong sourceGuid = _gossipMenu.SourceGuid;
-        bool sourceAvailable = _entities.TryGet(sourceGuid, out WorldEntity source);
-        float distanceSquared = sourceAvailable
-            ? Vector3.DistanceSquared(sessionBody.Position, source.Position)
+        WorldBodyPose actorPose = default;
+        bool actorAvailable = _gossipOwnerGuid == ControlledGuid &&
+            TryGetInteractionBodyPose(out actorPose);
+        bool sourceAvailable = _entities.TryGet(sourceGuid, out WorldEntity source) && !source.IsDead;
+        float distanceSquared = actorAvailable && sourceAvailable
+            ? Vector3.DistanceSquared(actorPose.Position, source.Position)
             : float.PositiveInfinity;
-        if (!NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
+        if (actorAvailable && !NpcSessionUiLaw.ShouldClose(true, true, sourceAvailable, distanceSquared))
             return false;
         ResetGossip();
         EmitInterface("gossip", "lifecycle-close", "CLOSED", sourceGuid,
@@ -117,9 +128,13 @@ public sealed partial class GameLoop
         return true;
     }
 
-    private void ApplyGossipMenu(byte[] body)
+    private void ApplyGossipMenu(byte[] body, ulong owner)
     {
         GossipMenu menu = GossipPackets.ParseMenu(body);
+        if (owner == 0 || owner != ControlledGuid) return;
+        HideGossipCode();
+        ResetPetUnlearn();
+        _gossipOwnerGuid = owner;
         // Some streamed spawns carry a stale innkeeper bit even though their creature-query
         // identity explicitly names another vendor profession. Never expose the bind menu for
         // that mismatch; enter the vendor service directly.
@@ -134,6 +149,8 @@ public sealed partial class GameLoop
         }
         _gossipMenu = menu;
         _gossipGreeting = null;
+        _gossipGreetingBlock = null;
+        _gossipGreetingResolved = false;
         _gossipScroll = 0;
         byte sourceGender = 0;
         if (_entities.TryGet(menu.SourceGuid, out WorldEntity source))
@@ -145,7 +162,7 @@ public sealed partial class GameLoop
             $"textId={menu.TextId};options={menu.Options.Count};quests={menu.Quests.Count};npcFlags=0x{_gossipSourceFlags:X8}");
         if (_npcTextRecords.TryGetValue(menu.TextId, out NpcText? cached))
         {
-            _gossipGreeting = DrawGossipGreeting(cached, sourceGender);
+            ResolveGossipGreeting(cached, sourceGender);
             EmitInterface("gossip", "text-query", "CACHE_HIT", menu.SourceGuid,
                 $"textId={menu.TextId};gender={sourceGender}");
         }
@@ -170,9 +187,9 @@ public sealed partial class GameLoop
         byte sourceGender = _entities.TryGet(_gossipMenu.SourceGuid, out WorldEntity source)
             ? source.Fields.Bytes0.Gender
             : (byte)0;
-        _gossipGreeting = DrawGossipGreeting(text, sourceGender);
+        if (!_gossipGreetingResolved) ResolveGossipGreeting(text, sourceGender);
         EmitInterface("gossip", "text", "DECODED", _gossipMenu.SourceGuid,
-            $"textId={text.TextId};blocks={text.Blocks.Count};gender={sourceGender};selectedChars={_gossipGreeting.Length}");
+            $"textId={text.TextId};blocks={text.Blocks.Count};gender={sourceGender};selectedChars={_gossipGreeting?.Length ?? 0}");
     }
 
     private void ApplyGossipPoi(byte[] body)
@@ -189,9 +206,14 @@ public sealed partial class GameLoop
             $"name={SanitizeEvidence(poi.Name)}");
     }
 
-    private static string DrawGossipGreeting(NpcText text, byte sourceGender) =>
-        GossipUiLaw.SelectGreeting(text.Blocks, sourceGender,
-            GossipUiLaw.GreetingRoll(Random.Shared)) ?? "";
+    private void ResolveGossipGreeting(NpcText text, byte sourceGender)
+    {
+        int index = GossipUiLaw.SelectGreetingBlock(text.Blocks, sourceGender, GossipUiLaw.GreetingRoll(Random.Shared));
+        _gossipGreetingBlock = index >= 0 ? text.Blocks[index] : null;
+        _gossipGreeting = _gossipGreetingBlock is { } block
+            ? sourceGender == 1 ? block.FemaleText : block.MaleText : "";
+        _gossipGreetingResolved = true;
+    }
 
     private bool SelectGossipOption(int visualIndex)
     {
@@ -202,17 +224,14 @@ public sealed partial class GameLoop
             return false;
         }
         GossipOption option = _gossipMenu.Options[visualIndex];
-        if (option.Coded)
-        {
-            EmitInterface("gossip", "select", "REFUSED_CODE_REQUIRED", _gossipMenu.SourceGuid,
-                $"visualIndex={visualIndex};listId={option.ListId}");
-            return false;
-        }
+        if (UpdateGossipLifecycle() || _gossipMenu is null) return false;
+        if (option.Coded) return ShowGossipCode(option);
         if (RefuseTacticalFreezeLiveCommand("selecting a gossip option")) return false;
         if (RefuseTacticalFrozenActor(_gossipMenu.SourceGuid,
                 "select a gossip option from it")) return false;
         string route = ClassifyGossipRoute(_gossipSourceFlags, option.Text);
         bool sent = _net?.GossipSelect(_gossipMenu.SourceGuid, option.ListId) == true;
+        if (sent) RememberPetUnlearnSelection(_gossipMenu.SourceGuid);
         EmitInterface("gossip", "select", sent ? "SENT" : "SEND_FAILED", _gossipMenu.SourceGuid,
             $"visualIndex={visualIndex};listId={option.ListId};icon={option.Icon};route={route};text={SanitizeEvidence(option.Text)}");
         return sent;
@@ -319,7 +338,7 @@ public sealed partial class GameLoop
                     _ => displayText,
                 });
             rows.Add((false, i, displayText,
-                GossipUiLaw.OptionIcon(option.Icon), !option.Coded, 0, 0));
+                GossipUiLaw.OptionIcon(option.Icon), true, 0, 0));
         }
         float[] rowHeights = rows.Select(row => GossipUiLaw.RowHeight(
             MeasureQuestWrappedText(row.Text, GossipUiLaw.RowTextWidth,

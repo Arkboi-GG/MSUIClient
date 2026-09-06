@@ -2,8 +2,11 @@ using System.Globalization;
 using System.Numerics;
 using System.Text;
 using MSUIClient.Formats;
+using MSUIClient.Net;
 
 namespace MSUIClient.Engine.UI;
+
+public delegate SpellModifierTotals SpellTooltipModifierResolver(SpellInfo spell, byte operation);
 
 /// <summary>Resolved spell tooltip content. Rendering owns fonts/colours/geometry, not DBC math.</summary>
 public readonly record struct SpellTooltipView(string Name, string Rank, string? Cost,
@@ -57,24 +60,26 @@ public static class SpellTooltipLaw
     public static Vector2 RightTextPosition(Vector2 origin, Vector2 frameSize, float y,
         float scale) => new(origin.X + frameSize.X - Pad * scale, y);
 
-    public static SpellTooltipView Build(in SpellInfo spell, SpellCatalog catalog, uint casterLevel = 0)
+    public static SpellTooltipView Build(in SpellInfo spell, SpellCatalog catalog, uint casterLevel = 0,
+        float castSpeedMultiplier = 1f, SpellRangeRow? rangeOverride = null, SpellTooltipModifierResolver? modifiers = null)
     {
         string? cost = Cost(spell);
-        string? range = Range(spell, catalog);
+        string? range = Range(spell, catalog, rangeOverride);
         bool omitCast = spell.Passive || spell.EffectIds?.FirstOrDefault() is 47 or 78;
-        string? cast = omitCast ? null : spell.CastTimeMs > 0
-            ? $"{Trim(spell.CastTimeMs / 1000f)} sec cast"
+        int castTime = SpellTimingLaw.CastTimeMilliseconds(spell, castSpeedMultiplier);
+        string? cast = omitCast ? null : castTime > 0
+            ? $"{Trim(castTime / 1000f)} sec cast"
             : cost is null ? "Instant" : "Instant cast";
         uint recovery = Math.Max(spell.RecoveryMs, spell.CategoryRecoveryMs);
         string? cooldown = recovery == 0 ? null : recovery >= 60_000
             ? $"{Trim(recovery / 60_000f)} min cooldown"
             : $"{Trim(recovery / 1000f)} sec cooldown";
         return new SpellTooltipView(spell.Name, spell.Rank, cost, range, cast, cooldown,
-            Substitute(spell.Description, spell, catalog, casterLevel));
+            Substitute(spell.Description, spell, catalog, casterLevel, modifiers));
     }
 
     public static string Substitute(string text, in SpellInfo spell, SpellCatalog catalog,
-        uint casterLevel = 0)
+        uint casterLevel = 0, SpellTooltipModifierResolver? modifiers = null)
     {
         if (string.IsNullOrEmpty(text) || !text.Contains('$')) return text;
         var output = new StringBuilder(text.Length + 24);
@@ -84,24 +89,14 @@ public static class SpellTooltipLaw
         {
             if (text[i] != '$') { output.Append(text[i++]); continue; }
             int start = i++;
-            double scale = 1;
-            if (i < text.Length && text[i] is '/' or '*')
-            {
-                char op = text[i++];
-                int numberStart = i;
-                while (i < text.Length && (char.IsDigit(text[i]) || text[i] == '.')) i++;
-                if (double.TryParse(text[numberStart..i], NumberStyles.Float,
-                        CultureInfo.InvariantCulture, out double n) && n != 0)
-                {
-                    if (i < text.Length && text[i] == ';') i++;
-                    scale = op == '/' ? 1 / n : n;
-                }
-            }
+            double scale = ReadScale(text, ref i);
 
             int idStart = i;
             while (i < text.Length && char.IsDigit(text[i])) i++;
             uint reference = 0;
             if (i > idStart) uint.TryParse(text[idStart..i], out reference);
+            // Both $/5;123s1 and $123/5;s1 occur in authored 5875 strings.
+            if (reference != 0) scale *= ReadScale(text, ref i);
 
             if (i < text.Length && char.ToLowerInvariant(text[i]) is 'l' or 'g')
             {
@@ -126,7 +121,7 @@ public static class SpellTooltipLaw
             SpellInfo target = spell;
             if (reference != 0 && !catalog.TryGet(reference, out target))
             { output.Append(text[start..i]); continue; }
-            if (TryValue(token, slot, target, catalog, casterLevel, scale,
+            if (TryValue(token, slot, target, catalog, casterLevel, scale, modifiers,
                     out string value, out double numeric))
             { output.Append(value); lastValue = numeric; }
             else output.Append(text[start..i]);
@@ -134,10 +129,26 @@ public static class SpellTooltipLaw
         return output.ToString();
     }
 
+    private static double ReadScale(string text, ref int index)
+    {
+        if (index >= text.Length || text[index] is not ('/' or '*')) return 1;
+        int start = index, cursor = index + 1;
+        while (cursor < text.Length && (char.IsDigit(text[cursor]) || text[cursor] == '.')) cursor++;
+        if (cursor >= text.Length || text[cursor] != ';' ||
+            !double.TryParse(text[(start + 1)..cursor], NumberStyles.Float,
+                CultureInfo.InvariantCulture, out double factor) || !double.IsFinite(factor) ||
+            (text[start] == '/' && factor == 0)) return 1;
+        index = cursor + 1;
+        return text[start] == '/' ? 1 / factor : factor;
+    }
+
     private static bool TryValue(char token, int slot, SpellInfo spell, SpellCatalog catalog,
-        uint casterLevel, double scale, out string value, out double numeric)
+        uint casterLevel, double scale, SpellTooltipModifierResolver? modifiers, out string value, out double numeric)
     {
         value = ""; numeric = 0;
+        SpellModifierTotals Mod(byte operation) => modifiers?.Invoke(spell, operation) ?? default;
+        int ModifiedDuration() => spell.DurationMs < 0 ? spell.DurationMs :
+            (int)Math.Clamp(Mod(1).ApplyInteger(spell.DurationMs), 0, int.MaxValue);
         int Scale(long v) => (int)Math.Round(v * scale, MidpointRounding.AwayFromZero);
         (long min, long max) Bounds()
         {
@@ -175,13 +186,13 @@ public static class SpellTooltipLaw
             {
                 var (lo, hi) = Bounds(); long period = Math.Max(1, At(spell.EffectAmplitudes, slot));
                 if (period == 1 && At(spell.EffectAmplitudes, slot) == 0) period = 5000;
-                long duration = Math.Max(0, spell.DurationMs);
+                long duration = Math.Max(0, ModifiedDuration());
                 int a = Math.Abs(Scale(Math.Abs(lo) * duration / period));
                 int b = Math.Abs(Scale(Math.Abs(hi) * duration / period));
                 value = a == b ? a.ToString() : $"{a} to {b}"; numeric = b; return true;
             }
             case 'd': case 'D':
-                value = Duration(spell.DurationMs); numeric = Math.Max(0, spell.DurationMs / 1000d); return true;
+                value = Duration(ModifiedDuration()); numeric = Math.Max(0, ModifiedDuration() / 1000d); return true;
             case 't': case 'T':
             {
                 uint ms = At(spell.EffectAmplitudes, slot); if (ms == 0) ms = 5000;
@@ -194,14 +205,34 @@ public static class SpellTooltipLaw
                 // "$a1" visible is a useful authoring diagnostic, but it is not player-facing law.
                 if (!catalog.TryGetRadius(index, out SpellRadiusRow radius))
                 { numeric = 0; value = "0"; return true; }
-                numeric = radius.Radius; value = Trim(numeric); return true;
+                numeric = Math.Max(0, Mod(SpellModifierStore.Radius).ApplyFloat(radius.Radius)); value = Trim(numeric); return true;
             }
             case 'h': case 'H':
                 numeric = spell.ProcChance; value = spell.ProcChance.ToString(); return true;
             case 'x': case 'X':
-                numeric = At(spell.EffectChainTargets, slot); value = numeric.ToString("0", CultureInfo.InvariantCulture); return true;
+                numeric = Math.Clamp(Mod(17).ApplyInteger(At(spell.EffectChainTargets, slot)), 0, uint.MaxValue); value = numeric.ToString("0", CultureInfo.InvariantCulture); return true;
             case 'e': case 'E':
-                numeric = At(spell.EffectMultipleValues, slot); value = Trim(numeric); return true;
+                numeric = Mod(27).ApplyFloat(At(spell.EffectMultipleValues, slot)); value = Trim(numeric); return true;
+            // Build-5875 authored descriptions use these independent fields: charges are not
+            // aura stacks, target count is not chain count, and damage multiplier is not the
+            // effect's multiple-value field. Cross-spell references share the same decoder.
+            case 'n': case 'N':
+                numeric = Math.Clamp(Mod(4).ApplyInteger(spell.ProcCharges), 0, uint.MaxValue) * scale; value = Trim(numeric); return true;
+            case 'u': case 'U':
+                numeric = spell.StackAmount * scale; value = Trim(numeric); return true;
+            case 'v': case 'V':
+                numeric = spell.MaxTargetLevel * scale; value = Trim(numeric); return true;
+            case 'i': case 'I':
+                numeric = spell.MaxAffectedTargets * scale; value = Trim(numeric); return true;
+            case 'q': case 'Q':
+                numeric = At(spell.EffectMiscValues, slot) * scale; value = Trim(numeric); return true;
+            case 'b': case 'B':
+                numeric = At(spell.EffectPointsPerComboPoint, slot) * scale; value = Trim(numeric); return true;
+            case 'f': case 'F':
+                numeric = At(spell.EffectDamageMultipliers, slot) * scale; value = Trim(numeric); return true;
+            case 'r': case 'R':
+                if (!catalog.TryGetRange(spell.RangeIndex, out SpellRangeRow range)) return false;
+                numeric = (range.Melee || range.Max <= 0 ? range.Max : Math.Max(0, Mod(SpellModifierStore.Range).ApplyFloat(range.Max))) * scale; value = Trim(numeric); return true;
             default: return false;
         }
     }
@@ -209,18 +240,28 @@ public static class SpellTooltipLaw
     private static string? Cost(in SpellInfo spell)
     {
         if (spell.OnNextSwing) return "Next melee";
+        if (spell.UsesAllPower) return spell.PowerType switch
+        {
+            0 => "Uses 100% mana", 1 => "All Rage", 2 => "All Focus", 3 => "All Energy",
+            4 => "All Happiness", SpellResourceLaw.HealthPower => "All Health", _ => null,
+        };
         if (spell.ManaCost > 0) return spell.PowerType switch
         {
             1 => $"{spell.ManaCost / 10} Rage",
             3 => $"{spell.ManaCost} Energy",
+            SpellResourceLaw.HealthPower => $"{spell.ManaCost} Health",
             _ => $"{spell.ManaCost} Mana",
         };
-        return spell.ManaCostPercent > 0 ? $"{spell.ManaCostPercent}% of base mana" : null;
+        return spell.ManaCostPercent > 0
+            ? $"{spell.ManaCostPercent}% of base {(spell.PowerType == SpellResourceLaw.HealthPower ? "health" : "mana")}"
+            : null;
     }
 
-    private static string? Range(in SpellInfo spell, SpellCatalog catalog)
+    private static string? Range(in SpellInfo spell, SpellCatalog catalog, SpellRangeRow? rangeOverride)
     {
-        if (!catalog.TryGetRange(spell.RangeIndex, out SpellRangeRow range)) return null;
+        SpellRangeRow range;
+        if (rangeOverride is { } overridden) range = overridden;
+        else if (!catalog.TryGetRange(spell.RangeIndex, out range)) return null;
         if (range.Melee) return "Melee Range";
         if (range.Max <= 0) return null;
         return range.Min > 0 ? $"{Trim(range.Min)}-{Trim(range.Max)} yd range"

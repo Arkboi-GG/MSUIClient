@@ -58,15 +58,15 @@ public sealed partial class GameLoop
     }
 
     /// <summary>
-    /// A ranged shot went off. Auto Shot and wand Shoot are recognised by SpellInfo.Ranged
-    /// rather than by the addon's English-name table, so a custom ranged spell is covered
-    /// without touching a list.
+    /// Core resets the ranged attack timer when an auto-repeat shot fires.
+    /// Other ranged abilities (for example Arcane Shot) do not restart that timer.
+    /// The auto-repeat attribute also covers custom shots without a name table.
     /// </summary>
     private void NoteSwingTimerRanged(uint spellId, in SpellInfo info, ulong caster)
     {
         var cfg = SwingTimerSettings;
         if (!cfg.Enabled || !cfg.TrackRanged || _net is null) return;
-        if (caster != ControlledGuid || !info.Ranged) return;
+        if (caster != ControlledGuid || !info.AutoRepeat) return;
         if (!_entities.TryGet(ControlledGuid, out WorldEntity self)) return;
 
         float duration = SwingTimerLaw.SwingSeconds(self.Fields.RangedAttackTime);

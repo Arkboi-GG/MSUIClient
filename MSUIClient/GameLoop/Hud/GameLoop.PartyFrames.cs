@@ -382,6 +382,34 @@ public sealed partial class GameLoop
                 if (!string.IsNullOrEmpty(effect.Value)) PlayUiSound(effect.Value);
                 continue;
             }
+            if (effect.Type == GossipCodeUiLaw.PopupType)
+            {
+                ApplyGossipCodePopupEffect(effect);
+                continue;
+            }
+            if (IsBattlefieldInvite(effect.Type))
+            {
+                ApplyBattlefieldPopupEffect(effect);
+                continue;
+            }
+            if (effect.Type == AreaSpiritHealerUiLaw.PopupType)
+            {
+                ApplyAreaSpiritHealerPopupEffect(effect);
+                continue;
+            }
+            if (effect.Type == PetUnlearnUiLaw.PopupType)
+            {
+                ApplyPetUnlearnPopupEffect(effect);
+                continue;
+            }
+            if (effect.Type == TrainerServiceUiLaw.PopupType)
+            {
+                if (effect.Kind == StaticPopupCoordinatorLaw.EffectKind.Accept) AcceptTrainerConfirmation();
+                else if (effect.Kind is StaticPopupCoordinatorLaw.EffectKind.CancelWithoutReason or
+                    StaticPopupCoordinatorLaw.EffectKind.CancelOverride or StaticPopupCoordinatorLaw.EffectKind.CancelClicked or
+                    StaticPopupCoordinatorLaw.EffectKind.CancelTimeout) _trainerConfirmation = null;
+                continue;
+            }
             if (DeleteItemUiLaw.IsDeletePopupType(effect.Type))
             {
                 switch (effect.Kind)
@@ -554,7 +582,10 @@ public sealed partial class GameLoop
             GuildFrameUiLaw.MemberPopup(_staticPopupSlots);
         (int Slot, StaticPopupCoordinatorLaw.Instance Instance)? guildRank =
             GuildFrameUiLaw.Popup(_staticPopupSlots, GuildFrameUiLaw.AddRankPopupType);
-        if (_petRenameEditFocused && petRename is { } petFocused)
+        var gossipCode = ConfirmPopupUiLaw.Visible(_staticPopupSlots, GossipCodeUiLaw.PopupType);
+        if (_gossipCodeEditFocused && gossipCode is { } codeFocused)
+            plan = StaticPopupCoordinatorLaw.EditBoxEscape(_staticPopupSlots, codeFocused.Slot);
+        else if (_petRenameEditFocused && petRename is { } petFocused)
             plan = StaticPopupCoordinatorLaw.EditBoxEscape(_staticPopupSlots,
                 petFocused.Slot);
         else if (_guildAddMemberEditFocused && guildAdd is { } guildFocused)

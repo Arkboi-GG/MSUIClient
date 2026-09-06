@@ -772,6 +772,13 @@ public sealed partial class GameLoop
             ImGui.IsMouseReleased(ImGuiMouseButton.Left) && ImGui.IsItemDeactivated();
         bool leftClicked = !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Left);
         bool rightClicked = !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Right);
+        bool giftWrapClick = _giftWrap is not null && (leftClicked || rightClicked);
+        if (giftWrapClick)
+        {
+            if (rightClicked) CancelGiftWrapping();
+            else TryWrapGift(InventoryUiLaw.EquipmentContainer, slot);
+            leftClicked = rightClicked = false;
+        }
         bool dressUpClick = leftClicked && ImGui.GetIO().KeyCtrl && instance is not null;
         if (dressUpClick)
         {
@@ -802,7 +809,7 @@ public sealed partial class GameLoop
         }
         else if (action == PaperDollUiLaw.SlotClickAction.Use && instance is not null && item is not null)
             SendItemUse(InventoryUiLaw.PlayerInventoryBag, (byte)slot, instance, item);
-        if (!dressUpClick && !_vendorRepairMode && _itemCastSpell == 0 && _enchantConfirmation is null)
+        if (!giftWrapClick && _giftWrap is null && !dressUpClick && !_vendorRepairMode && _itemCastSpell == 0 && _enchantConfirmation is null)
             HandleInventoryDrag(InventoryUiLaw.EquipmentContainer, slot, guid, item);
 
         if (_uiParityArmed && _uiParityPanel == "character-frame")
@@ -950,7 +957,7 @@ public sealed partial class GameLoop
         bool isAmmo = PaperDollUiLaw.IsAmmo(item.InventoryType);
         bool sent;
         if (isAmmo)
-            sent = _net.SetAmmo(carried.Entry);
+            sent = SelectAmmo(carried.Entry);
         else if (item.InventoryType != 0 &&
                  InventoryUiLaw.ToWire(_carriedContainer, _carriedSlot) is { } wire)
             sent = _net.AutoEquipItem(wire.Bag, wire.Slot);
@@ -1431,13 +1438,14 @@ public sealed partial class GameLoop
         // the parent (e.g. Alliance) is a collapsible header with no bar of its own; parentless
         // factions collect under "Other".
         var factions = new List<(int Slot, FactionInfo Info, int Standing, byte Flags)>();
-        if (_factionCatalog is not null)
-            for (int i = 0; i < _reputation.Length; i++)
-                if (ReputationFrameUiLaw.IsVisible(_reputation[i].Flags) &&
+        ReputationState[]? reputation = ReputationFor(player.Guid);
+        if (_factionCatalog is not null && reputation is not null)
+            for (int i = 0; i < reputation.Length; i++)
+                if (reputation[i] is { } state && ReputationFrameUiLaw.IsVisible(state.Flags) &&
                     _factionCatalog.TryGetByReputationIndex(i, out FactionInfo info))
                     factions.Add((i, info,
                         info.BaseStanding(player.Fields.Bytes0.Race, player.Fields.Bytes0.Class) +
-                        _reputation[i].Standing, _reputation[i].Flags));
+                        state.Standing, state.Flags));
         // Header identity is the live 0x08 flag. Inactive rows are re-parented under the synthetic
         // Inactive group; parentless rows use the synthetic Other group.
         factions = factions.Where(x => !ReputationFrameUiLaw.IsHeader(x.Flags)).ToList();
@@ -1581,7 +1589,7 @@ public sealed partial class GameLoop
                 out FactionInfo info) != true || _skin is null)
             return;
 
-        ReputationState state = _reputation[_selectedReputationSlot];
+        if (ReputationFor(player.Guid)?[_selectedReputationSlot] is not { } state) return;
         if (!ReputationFrameUiLaw.IsVisible(state.Flags))
         {
             _reputationDetailOpen = false;
@@ -1709,12 +1717,14 @@ public sealed partial class GameLoop
     }
 
     private void DrawHonorPage(ImDrawListPtr dl, Vector2 p, float s, WorldEntity player)
+        => DrawHonorStatisticsPage(dl, p, s, HonorStatistics.FromFields(player.Fields));
+
+    private void DrawHonorStatisticsPage(ImDrawListPtr dl, Vector2 p, float s, HonorStatistics f)
     {
         DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-Honor-TopLeft", p + new Vector2(22, 69) * s, new(256), s);
         DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-Honor-TopRight", p + new Vector2(275, 69) * s, new(128, 256), s);
         DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-Honor-BottomLeft", p + new Vector2(22, 325) * s, new(256, 128), s);
         DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-Honor-BottomRight", p + new Vector2(275, 325) * s, new(128), s);
-        ObjectFields f = player.Fields;
         var session = f.SessionKills; var yesterday = f.YesterdayKills;
         var week = f.ThisWeekKills; var last = f.LastWeekKills;
         // HonorFrameCurrentPVPTitle: GameFontNormal, TOP anchor (0,-87) - the centered rank

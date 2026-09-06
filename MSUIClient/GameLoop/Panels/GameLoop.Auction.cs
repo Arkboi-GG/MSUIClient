@@ -902,12 +902,14 @@ public sealed partial class GameLoop
                 GameText.DrawRightAligned(dl,"NumberFontNormal",row.Count.ToString(),
                     rowMin+new Vector2(27f*s,32f*s-GameText.EmPixels("NumberFontNormal",s)-2f*s),s,0xffffffff);
             if (ImGui.IsMouseHoveringRect(rowMin, rowMin + new Vector2(32) * s) && item is not null)
-                ShowAuctionRowTooltip(item, row.Count, row.Id, rowMin, s);
+                ShowAuctionRowTooltip(item, row.Count, row.Id, rowMin, s,
+                    RemoteTooltipInstance(row.RandomPropertyId, row.PermEnchant, row.SpellCharges));
 
             float textTop=GameText.BoxCenteredTop("GameFontNormal",rowMin.Y,32,s);
             uint nameColor=item is null?0xffffffff:
                 ImGui.ColorConvertFloat4ToU32(ItemQualityColor(item.Quality));
-            GameText.Draw(dl,"GameFontNormal",item?.Name??$"Item {row.Item}",
+            GameText.Draw(dl,"GameFontNormal",item is null ? $"Item {row.Item}" :
+                _itemRandomProperties?.ItemName(item.Name, row.RandomPropertyId) ?? item.Name,
                 new Vector2(rowMin.X+(tab==1?41:43)*s,textTop),s,nameColor);
 
             uint current=row.Bid==0?row.StartBid:row.Bid;
@@ -1062,10 +1064,11 @@ public sealed partial class GameLoop
     }
 
     /// <summary>The row's item hover: the shared item tooltip, seated off the icon's right edge.</summary>
-    private void ShowAuctionRowTooltip(ItemTemplate item, uint count, ulong ownerToken, Vector2 iconMin, float s)
+    private void ShowAuctionRowTooltip(ItemTemplate item, uint count, ulong ownerToken, Vector2 iconMin, float s,
+        WorldEntity? instance = null)
     {
         if (_skin is null) return;
-        ItemTooltipBodySnapshot body = PrepareItemTooltipBodySnapshot(item, count);
+        ItemTooltipBodySnapshot body = PrepareItemTooltipBodySnapshot(item, count, liveInstance: instance);
         OfferPreparedItemTooltip(new("item:auction-row", ownerToken), body,
             iconMin + new Vector2(34 * s, 0), nextWindowPivot: new Vector2(0, 1));
     }
@@ -1094,7 +1097,7 @@ public sealed partial class GameLoop
                     slotMin + new Vector2(32f * s,
                         AuctionFrameUiLaw.OwnerItemSlot.Height * s -
                         GameText.EmPixels("NumberFontNormal", s) - 2f * s), s, 0xffffffff);
-            GameText.Draw(dl,"GameFontNormal",item.Name,
+            GameText.Draw(dl,"GameFontNormal",ItemTooltipInstanceName(item, sellItem),
                 origin+AuctionFrameUiLaw.OwnerItemName*s,s,
                 ImGui.ColorConvertFloat4ToU32(ItemQualityColor(item.Quality)));
         }
@@ -1108,7 +1111,7 @@ public sealed partial class GameLoop
             if(highlight!=0)dl.AddImage((nint)highlight,slotMin,
                 slotMin+AuctionFrameUiLaw.OwnerItemSlot.Size*s);
             if (item is not null)
-                ShowAuctionRowTooltip(item, sellItem!.Fields.ItemStackCount, sellItem.Guid, slotMin, s);
+                ShowAuctionRowTooltip(item, sellItem!.Fields.ItemStackCount, sellItem.Guid, slotMin, s, sellItem);
         }
         if(clicked)
         {

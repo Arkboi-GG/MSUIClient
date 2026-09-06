@@ -21,11 +21,15 @@ namespace MSUIClient.Net;
 public sealed class MonsterMove
 {
     public ulong Guid;
+    public ulong TransportGuid; // nonzero points/facing are in this platform's local frame
     public uint SplineId;
     public Vector3 Start;
     public Vector3[] Points = Array.Empty<Vector3>();  // travel order [start .. endpoint], raw WoW space
     public uint DurationMs;
     public bool Flying;          // spline flag 0x200 — also selects the Catmull-Rom point layout
+    public bool Cyclic;
+    public bool Falling;
+    public bool EnterCycle;
     public bool Stop;            // move type 1 — freeze in place, no path follows
     public MonsterMoveFacing Facing;
 }
@@ -70,12 +74,13 @@ public static class MonsterMoveParser
     private const uint SplineFlagFlying = 0x200;   // == Mask_CatmullRom in 1.12
 
     /// <summary>Decode the packet body. Returns null only on a malformed/underrun packet.</summary>
-    public static MonsterMove? Parse(byte[] body)
+    public static MonsterMove? Parse(byte[] body, bool onTransport = false)
     {
         try
         {
             var r = new PacketReader(body);
             var mm = new MonsterMove { Guid = r.ReadPackedGuid() };
+            if (onTransport) mm.TransportGuid = r.ReadPackedGuid();
 
             Vector3 start = r.ReadVector3();
             mm.Start = start;
@@ -102,6 +107,9 @@ public static class MonsterMoveParser
             uint flags = r.ReadU32();
             mm.DurationMs = r.ReadU32();
             mm.Flying = (flags & SplineFlagFlying) != 0;
+            mm.Falling = (flags & 0x2) != 0;
+            mm.Cyclic = (flags & 0x00100000) != 0;
+            mm.EnterCycle = (flags & 0x00200000) != 0;
 
             uint count = r.ReadU32();
             var points = new List<Vector3>((int)Math.Min(count + 1, 0xFFFF)) { start };
@@ -109,7 +117,14 @@ public static class MonsterMoveParser
             if (mm.Flying)
             {
                 // Catmull-Rom path: `count` absolute control points, verbatim.
-                for (uint i = 0; i < count; i++) points.Add(r.ReadVector3());
+                for (uint i = 0; i < count; i++)
+                {
+                    Vector3 point = r.ReadVector3();
+                    // Core cyclic wire: fake p0, then real p0..pn. The header already
+                    // supplies p0; normalize those duplicate controls to one closed ring.
+                    if (mm.Cyclic && mm.EnterCycle && i < 2) continue;
+                    points.Add(point);
+                }
             }
             else
             {
@@ -158,38 +173,59 @@ public sealed class CreatureSpline
     public bool Flying { get; }
     public uint Id { get; }
     public bool Cyclic { get; }
+    public bool Falling { get; }
+    public ulong TransportGuid { get; }
+    private readonly float[] _fallEndMs;
+    public MonsterMoveFacing FinalFacing { get; }
 
     public CreatureSpline(Vector3[] points, uint durationMs, bool flying, long startMs,
-        uint id = 0, bool cyclic = false)
+        uint id = 0, bool cyclic = false, MonsterMoveFacing finalFacing = default, bool falling = false, ulong transportGuid = 0)
     {
-        _pts = points;
+        _pts = cyclic && points.Length > 2 && points[0] == points[^1]
+            ? points[..^1] : points;
         _durationMs = Math.Max(1u, durationMs);
         Flying = flying;
         _startMs = startMs;
         Id = id;
         Cyclic = cyclic;
-        _segLen = new float[Math.Max(0, points.Length - 1)];
+        FinalFacing = finalFacing;
+        Falling = falling;
+        TransportGuid = transportGuid;
+        _segLen = new float[_pts.Length < 2 ? 0 : Cyclic ? _pts.Length : _pts.Length - 1];
+        _fallEndMs = new float[_segLen.Length];
         float sum = 0f;
         for (int i = 0; i < _segLen.Length; i++)
         {
-            _segLen[i] = Vector3.Distance(points[i], points[i + 1]);
+            if (Flying)
+            {
+                // Core SplineBase estimates each smooth segment with three subdivisions.
+                Vector3 previous = _pts[i];
+                for (int step = 1; step <= 3; step++)
+                {
+                    Vector3 point = CatmullRom(i, step / 3f, out _);
+                    _segLen[i] += Vector3.Distance(previous, point);
+                    previous = point;
+                }
+            }
+            else _segLen[i] = Vector3.Distance(_pts[i], _pts[(i + 1) % _pts.Length]);
             sum += _segLen[i];
+            if (Falling)
+                _fallEndMs[i] = Math.Max(i == 0 ? 0 : _fallEndMs[i - 1],
+                    FallTrajectory.Time(_pts[0].Z - _pts[(i + 1) % _pts.Length].Z) * 1000);
         }
         _total = sum;
     }
 
     /// <summary>
-    /// Resume a create-block spline at the server-authored fraction already travelled. Cyclic
-    /// metadata is retained, but like current Benilla the path is sampled for this one remaining
-    /// traversal; continuous cyclic following remains a separate transport/motion concern.
+    /// Resume the server-authored phase. Cyclic paths remain active across every duration boundary.
     /// </summary>
-    public static CreatureSpline? Resume(CreateSpline spline, long nowMs)
+    public static CreatureSpline? Resume(CreateSpline spline, long nowMs, ulong transportGuid = 0)
     {
         if (spline.DurationMs == 0 || spline.Path.Length < 2 ||
-            spline.TimePassedMs >= spline.DurationMs)
+            (!spline.Cyclic && spline.TimePassedMs >= spline.DurationMs))
             return null;
         return new CreatureSpline(spline.Path, spline.DurationMs, spline.Flying,
-            nowMs - spline.TimePassedMs, spline.Id, spline.Cyclic);
+            nowMs - spline.TimePassedMs, spline.Id, spline.Cyclic, spline.Facing, spline.Falling, transportGuid);
     }
 
     /// <summary>Average speed along the whole path (yd/s) — used to pick walk vs run later.</summary>
@@ -212,15 +248,15 @@ public sealed class CreatureSpline
     /// </summary>
     public bool Sample(long nowMs, out Vector3 pos, out float? facing)
     {
-        float frac = (nowMs - _startMs) / (float)_durationMs;
-        bool running = frac < 1f;
-        frac = Math.Clamp(frac, 0f, 1f);
+        long elapsed = Math.Max(0, nowMs - _startMs);
+        bool running = Cyclic || elapsed < _durationMs;
+        float frac = (Cyclic ? elapsed % _durationMs : Math.Min(elapsed, _durationMs)) / (float)_durationMs;
 
         if (_pts.Length < 2 || _total <= 1e-4f)
         {
-            pos = _pts[_pts.Length - 1];
+            pos = _pts.Length == 0 ? Vector3.Zero : _pts[^1];
             facing = null;
-            return running;
+            return _pts.Length > 0 && running;
         }
 
         float want = frac * _total;
@@ -229,6 +265,17 @@ public sealed class CreatureSpline
         float len = _segLen[seg] > 1e-4f ? _segLen[seg] : 1f;
         float lt = Math.Clamp(want / len, 0f, 1f);
 
+        if (Falling)
+        {
+            // Falling spline segment times are cumulative fall times, not distance/speed.
+            float at = Math.Min(elapsed, _durationMs);
+            seg = 0;
+            while (seg < _fallEndMs.Length - 1 && at > _fallEndMs[seg]) ++seg;
+            float start = seg == 0 ? 0 : _fallEndMs[seg - 1];
+            float span = _fallEndMs[seg] - start;
+            lt = span > 0 ? Math.Clamp((at - start) / span, 0, 1) : 1;
+        }
+
         Vector3 dir;
         if (Flying)
         {
@@ -236,21 +283,27 @@ public sealed class CreatureSpline
         }
         else
         {
-            Vector3 a = _pts[seg], b = _pts[seg + 1];
+            Vector3 a = _pts[seg], b = _pts[(seg + 1) % _pts.Length];
             pos = a + (b - a) * lt;
             dir = b - a;
         }
 
+        if (Falling)
+        {
+            pos.Z = Math.Max(_pts[^1].Z, _pts[0].Z - FallTrajectory.Distance(Math.Min(elapsed, _durationMs) / 1000.0));
+            if (!running) pos = _pts[^1];
+        }
         facing = (dir.X * dir.X + dir.Y * dir.Y) > 1e-6f ? MathF.Atan2(dir.Y, dir.X) : (float?)null;
         return running;
     }
 
     private Vector3 CatmullRom(int i, float t, out Vector3 tangent)
     {
-        Vector3 p0 = _pts[Math.Max(0, i - 1)];
+        Vector3 p0 = Cyclic ? _pts[(i + _pts.Length - 1) % _pts.Length]
+            : i == 0 ? 2f * _pts[0] - _pts[1] : _pts[i - 1];
         Vector3 p1 = _pts[i];
-        Vector3 p2 = _pts[Math.Min(_pts.Length - 1, i + 1)];
-        Vector3 p3 = _pts[Math.Min(_pts.Length - 1, i + 2)];
+        Vector3 p2 = _pts[Cyclic ? (i + 1) % _pts.Length : Math.Min(_pts.Length - 1, i + 1)];
+        Vector3 p3 = _pts[Cyclic ? (i + 2) % _pts.Length : Math.Min(_pts.Length - 1, i + 2)];
         float t2 = t * t, t3 = t2 * t;
         Vector3 c0 = 2f * p1;
         Vector3 c1 = -p0 + p2;

@@ -34,10 +34,10 @@ public sealed partial class ClientConfig
         /// <summary>Account password. Kept in client-config.json, which is gitignored.</summary>
         public string Password { get; set; } = "";
 
-        /// <summary>Realm to pick from the realm list. Null/empty = the first realm.</summary>
+        /// <summary>Preferred available realm. Null/empty shows a chooser when multiple realms are advertised.</summary>
         public string? Realm { get; set; }
 
-        /// <summary>Character to log in as. Null/empty = the first character on the account.</summary>
+        /// <summary>Character to log in as. Null/empty leaves the worker at character selection.</summary>
         public string? Character { get; set; }
 
         /// <summary>

@@ -141,32 +141,45 @@ public sealed class PlayerActions
 
     /// <summary>Local SMSG_SPELL_GO self-insert, including the ranged-weapon category pad.</summary>
     public void StartSpellCooldown(uint spell, in SpellInfo info, uint rangedAttackTimeMs,
-        double nowSeconds)
+        double nowSeconds, SpellModifierTotals modifiers = default)
     {
         ulong categoryMs = (ulong)info.CategoryRecoveryMs +
             (info.RangedSpeedCooldown ? rangedAttackTimeMs : 0u);
-        AddRecord(spell, itemEntry: 0, info.Category, info.CategoryWildcard, info.RecoveryMs,
-            (uint)Math.Min(categoryMs, uint.MaxValue), info.CooldownOnEvent,
+        var recovery = ModifiedRecovery(info.RecoveryMs, info.Category, (uint)Math.Min(categoryMs, uint.MaxValue), modifiers);
+        AddRecord(spell, itemEntry: 0, info.Category, info.CategoryWildcard, recovery.Spell,
+            recovery.Category, info.CooldownOnEvent,
             gcdCategory: 0, gcdMs: 0, nowSeconds);
     }
 
-    /// <summary>Cast-send GCD node. It remains separate from the later GO recovery node.</summary>
-    public void StartGlobalCooldown(uint spell, in SpellInfo info, double nowSeconds)
+    public static (uint Spell, uint Category) ModifiedRecovery(uint recoveryMs, uint category,
+        uint categoryMs, SpellModifierTotals modifiers)
     {
-        if (info.StartRecoveryMs == 0) return;
+        // Core applies operation11 to spell recovery when present, otherwise its category recovery.
+        if (recoveryMs != 0) recoveryMs = (uint)Math.Clamp(modifiers.ApplyInteger(recoveryMs), 0, uint.MaxValue);
+        else if (category != 0 && categoryMs != 0)
+            categoryMs = (uint)Math.Clamp(modifiers.ApplyInteger(categoryMs), 0, uint.MaxValue);
+        return (recoveryMs, categoryMs);
+    }
+
+    /// <summary>Cast-send GCD node. It remains separate from the later GO recovery node.</summary>
+    public void StartGlobalCooldown(uint spell, in SpellInfo info, double nowSeconds, uint? durationMs = null)
+    {
+        uint duration = durationMs ?? info.StartRecoveryMs;
+        if (duration == 0) return;
         AddRecord(spell, itemEntry: 0, category: 0, categoryWildcard: false,
             spellDurationMs: 0, categoryDurationMs: 0, info.CooldownOnEvent,
-            info.StartRecoveryCategory, info.StartRecoveryMs, nowSeconds);
+            info.StartRecoveryCategory, duration, nowSeconds);
     }
 
     /// <summary>Client-computed item-use recovery from the selected item spell slot.</summary>
     public void StartItemUseCooldown(uint itemEntry, in ItemSpellTemplate useSpell,
-        SpellInfo? spell, double nowSeconds)
+        SpellInfo? spell, double nowSeconds, SpellModifierTotals modifiers = default)
     {
         uint recoveryMs = useSpell.CooldownMs >= 0
             ? (uint)useSpell.CooldownMs : spell?.RecoveryMs ?? 0;
         uint categoryMs = useSpell.CategoryCooldownMs >= 0
             ? (uint)useSpell.CategoryCooldownMs : spell?.CategoryRecoveryMs ?? 0;
+        (recoveryMs, categoryMs) = ModifiedRecovery(recoveryMs, useSpell.Category, categoryMs, modifiers);
         bool wildcard = spell is { } resolved && resolved.Category == useSpell.Category &&
             resolved.CategoryWildcard;
         AddRecord(useSpell.SpellId, itemEntry, useSpell.Category, wildcard, recoveryMs,
@@ -176,14 +189,16 @@ public sealed class PlayerActions
 
     /// <summary>SMSG_SPELL_COOLDOWN server override/refresh node.</summary>
     public void ApplyWireCooldown(uint spell, uint wireDurationMs, SpellInfo? info,
-        double nowSeconds)
+        double nowSeconds, SpellModifierTotals recoveryModifiers = default, SpellModifierTotals gcdModifiers = default)
     {
         bool held = info?.CooldownOnEvent ?? false;
         uint recoveryMs = wireDurationMs != 0 ? wireDurationMs : info?.RecoveryMs ?? 0;
         uint category = info?.Category ?? 0;
         uint categoryMs = wireDurationMs == 0 ? info?.CategoryRecoveryMs ?? 0 : 0;
+        if (wireDurationMs == 0)
+            (recoveryMs, categoryMs) = ModifiedRecovery(recoveryMs, category, categoryMs, recoveryModifiers);
         uint gcdCategory = held ? 0 : info?.StartRecoveryCategory ?? 0;
-        uint gcdMs = held ? 0 : info?.StartRecoveryMs ?? 0;
+        uint gcdMs = held ? 0 : (uint)Math.Clamp(gcdModifiers.ApplyInteger(info?.StartRecoveryMs ?? 0), 0, uint.MaxValue);
         AddRecord(spell, itemEntry: 0, category,
             info is { } resolved && resolved.Category == category && resolved.CategoryWildcard,
             recoveryMs, categoryMs, held, gcdCategory, gcdMs, nowSeconds);

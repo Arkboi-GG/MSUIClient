@@ -20,6 +20,13 @@ public static class TransportRiderLaw
             NormalizeOrientation(localOrientation + transportYaw));
     }
 
+    public static Vector3 ToLocal(Vector3 transportPosition, float transportYaw, Vector3 worldPosition)
+    {
+        Vector3 delta = worldPosition - transportPosition;
+        float sin = MathF.Sin(-transportYaw), cos = MathF.Cos(-transportYaw);
+        return new(delta.X * cos - delta.Y * sin, delta.X * sin + delta.Y * cos, delta.Z);
+    }
+
     public static float NormalizeOrientation(float orientation)
     {
         float wrapped = orientation % (MathF.PI * 2f);

@@ -374,10 +374,8 @@ public sealed partial class GameLoop
                     if (_items?.TryGet(row.ItemId, out ItemTemplate? item) == true && item is not null)
                         OfferPreparedItemTooltip(
                             new GameTooltipOwnerKey($"item:giver-party:{questId}:{guid}", (ulong)(k + 1)),
-                            // The reward is THIS member's: judge proficiency red against them, not
-                            // the commander. For a non-local member the snapshot paints no red
-                            // (we only know the login character's proficiencies client-side), so a
-                            // mace no longer reads red just because YOU cannot use it.
+                            // Reward proficiency follows this member's known masks. An unknown
+                            // member stays unclassified until its own proficiency state arrives.
                             PrepareItemTooltipBodySnapshot(item, row.Count, ownerGuid: guid));
                     else HoverTip("Retrieving item information...");
                 }

@@ -428,7 +428,8 @@ public sealed partial class CreatureRenderer : IDisposable
         catch (Exception e) { Console.WriteLine($"[creature] init failed: {e.Message}"); Ok = false; }
     }
 
-    public void Render(Camera camera, IReadOnlyList<WorldEntity> visibleUnits)
+    public void Render(Camera camera, IReadOnlyList<WorldEntity> visibleUnits,
+        IReadOnlyList<WorldEntity>? visibleCorpses = null)
     {
         _attachedItems?.BeginGlowFrame();
         DrawnLastFrame = 0;
@@ -457,6 +458,7 @@ public sealed partial class CreatureRenderer : IDisposable
         foreach (WorldEntity entity in visibleUnits)
             if (entity.IsUnit && (!entity.IsPlayer || entity.Guid != SelfPlayerGuid))
                 _orderedUnits.Add(entity);
+        AppendCorpseRenderViews(visibleCorpses, _orderedUnits);
         _sortCameraPosition = camPos;
         _orderedUnits.Sort(CompareUnitDistance);
 
@@ -811,6 +813,11 @@ public sealed partial class CreatureRenderer : IDisposable
         info = default;
         if (_resolver is null || !_resolver.TryResolve(entity.DisplayId, out CreatureModelInfo model))
             return false;
+        if (TryCorpseAppearance(entity, out var corpse))
+        {
+            info = corpse.ModelInfo(model);
+            return true;
+        }
         if (!entity.IsPlayer)
         {
             info = model;
@@ -977,7 +984,7 @@ public sealed partial class CreatureRenderer : IDisposable
 
     private static bool CastsGroundShadow(WorldEntity entity)
     {
-        if (entity.Flying || entity.Spline?.Flying == true) return false;
+        if (entity.Flying || entity.IsHovering || entity.Spline?.Flying == true) return false;
         const uint airborneOrSwimming =
             (uint)(MovementFlags.Falling | MovementFlags.Swimming);
         return (entity.MoveFlags & airborneOrSwimming) == 0;
@@ -1008,7 +1015,12 @@ public sealed partial class CreatureRenderer : IDisposable
         string suffix = RaceGenderCode(info.ExtRace, info.ExtSex);
         var equipment = new CharacterEquipment();
         string signature;
-        if (entity.IsPlayer)
+        if (TryCorpseAppearance(entity, out var corpse))
+        {
+            equipment = corpse.BuildEquipment();
+            signature = corpse.Signature();
+        }
+        else if (entity.IsPlayer)
         {
             var parts = new List<string>(19);
             for (int slot = 0; slot < 19; slot++)
@@ -1319,7 +1331,9 @@ public sealed partial class CreatureRenderer : IDisposable
     {
         rate = 1f;
         float speed = e.Spline?.AverageSpeed ?? 0f;
-        bool flying = e.Flying || e.Spline?.Flying == true;
+        bool flying = e.Flying || e.IsHovering || e.Spline?.Flying == true;
+        if (e.IsAirborne && !flying)
+            return animator.Resolve(unit, BaseAnimationTrack, 40, true, 39, 0);
         if (e.Spline is null || speed <= MovingEpsilon)
         {
             // Flying is durable actor state; the spline only says whether the body is travelling
@@ -1354,7 +1368,7 @@ public sealed partial class CreatureRenderer : IDisposable
         }
 
         float walk = e.Speeds is { Length: > 0 } sp && sp[0] > 0f ? sp[0] : DefaultWalkSpeed;
-        M2Animator.Clip? clip = speed > 2f * walk
+        M2Animator.Clip? clip = !e.IsWalking && speed > 2f * walk
             ? animator.Resolve(unit, BaseAnimationTrack, 5, true, 4, 0)
             : animator.Resolve(unit, BaseAnimationTrack, 4, true, 5, 0);
 

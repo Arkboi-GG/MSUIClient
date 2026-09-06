@@ -5,7 +5,7 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    // Frozen build-5875 registered-panel descriptors for the 22 MSUI host surfaces that have a
+    // Frozen build-5875 registered-panel descriptors for the 24 MSUI host surfaces that have a
     // current visibility predicate. Unregistered and special-purpose frames are intentionally not
     // present. The two profession descriptors remain separate and are selected only from exact
     // retained opener provenance; diagnostic/manual profession opens remain unresolved.
@@ -33,6 +33,8 @@ public sealed partial class GameLoop
         new("GameMenuFrame", UiPanelOwnershipLaw.Area.Center, WhileDead: true),
         new("OptionsFrame", UiPanelOwnershipLaw.Area.Center, WhileDead: true),
         new("WorldMapFrame", UiPanelOwnershipLaw.Area.Fullscreen, WhileDead: true),
+        new("BattlefieldFrame", UiPanelOwnershipLaw.Area.Left),
+        new("WorldStateScoreFrame", UiPanelOwnershipLaw.Area.Center, WhileDead: true),
     ];
 
     private readonly UiPanelOwnershipObserver _uiPanelOwnershipObserver = new();
@@ -74,6 +76,8 @@ public sealed partial class GameLoop
         IncludeWhen(_settingsOpen && _menuPage == MenuPage.GameMenu, 19);
         IncludeWhen(_settingsOpen && _menuPage != MenuPage.GameMenu, 20);
         IncludeWhen(_worldMapOpen, 21);
+        IncludeWhen(_battlefieldList is not null, 22);
+        IncludeWhen(_battlefieldScoreOpen, 23);
 
         // Diagnostic/manual opens deliberately retain no opener kind. Do not infer one from their
         // skill line (including Enchanting/333).
@@ -240,6 +244,10 @@ public sealed partial class GameLoop
     {
         switch (id)
         {
+            case "WorldStateScoreFrame":
+                if (!_battlefieldScoreOpen) return false; _battlefieldScoreOpen = false; return true;
+            case "BattlefieldFrame":
+                if (_battlefieldList is null) return false; CloseBattlefieldList(); return true;
             case "BenillaGossipFrame":
                 if (_gossipMenu is null && _gossipGreeting is null) return false;
                 ResetGossip(); return true;

@@ -9,6 +9,7 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private TrainerList? _trainer;
+    private ulong _trainerOwnerGuid;
     private HashSet<uint>? _trainerKnownBefore;
     private int _trainerSelected;
     private int _trainerScroll;
@@ -42,8 +43,9 @@ public sealed partial class GameLoop
 
     private bool UpdateTrainerLifecycle()
     {
-        if (_trainer is null ||
-            !TryGetInteractionBodyPose(out WorldBodyPose sessionBody)) return false;
+        if (_trainer is null) return false;
+        if (_trainerOwnerGuid != ControlledGuid || !TryGetInteractionBodyPose(out WorldBodyPose sessionBody))
+        { CloseTrainerSession(playSound: true); return true; }
         ulong trainerGuid = _trainer.TrainerGuid;
         bool sourceAvailable = _entities.TryGet(trainerGuid, out WorldEntity trainer);
         float distanceSquared = sourceAvailable
@@ -65,6 +67,7 @@ public sealed partial class GameLoop
         bool freshSession = _trainer?.TrainerGuid != incoming.TrainerGuid;
         if (_trainer is not null && freshSession) CloseTrainerSession(playSound: true);
         _trainer = incoming;
+        _trainerOwnerGuid = ControlledGuid;
         if (freshSession)
         {
             _trainerSelected = 0;
@@ -85,6 +88,8 @@ public sealed partial class GameLoop
         if (_trainer is null) return false;
         ulong guid = _trainer.TrainerGuid;
         _trainer = null;
+        _trainerOwnerGuid = 0;
+        CancelTrainerConfirmation();
         _trainerKnownBefore = null;
         if (playSound)
             PlayUiSound(TrainerFrameUiLaw.CloseSound, TrainerFrameUiLaw.SoundCategory);
@@ -111,22 +116,28 @@ public sealed partial class GameLoop
         for (int i = 0; i < 5; i++) w.WriteU32(0);
     }
 
-    private bool BuyTrainerSpell(uint serviceSpellId)
+    private bool BuyTrainerSpell(uint serviceSpellId, bool confirmed = false)
     {
         TrainerSpell? row = _trainer?.Spells.FirstOrDefault(s => s.ServiceSpellId == serviceSpellId);
         if (_trainer is null || row is not { ServiceSpellId: not 0 } spell)
         { EmitInterface("trainer", "buy", "REFUSED_UNKNOWN", _trainer?.TrainerGuid ?? 0, $"spell={serviceSpellId}"); return false; }
         uint money = 0;
         if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player)) money = player.Fields.Coinage;
-        if (spell.State != 0 || money < spell.Cost)
+        if (!TrainerServiceUiLaw.CanPurchase(spell, money))
         {
             string reason = spell.State != 0 ? $"state={spell.State}" : $"money={money};cost={spell.Cost}";
             EmitInterface("trainer", "buy", "REFUSED_UNAVAILABLE", _trainer.TrainerGuid,
                 $"spell={serviceSpellId};{reason}"); return false;
         }
+        if (_trainerOwnerGuid != ControlledGuid ||
+            !TryGetInteractionBodyPose(out WorldBodyPose actorPose) ||
+            !_entities.TryGet(_trainer.TrainerGuid, out WorldEntity trainerNpc) || trainerNpc.IsDead ||
+            !NpcSessionUiLaw.InRange(Vector3.DistanceSquared(actorPose.Position, trainerNpc.Position))) return false;
         if (RefuseTacticalFreezeLiveCommand("training a spell")) return false;
         if (RefuseTacticalFrozenActor(_trainer.TrainerGuid, "train through it")) return false;
-        _trainerKnownBefore = _actions.KnownSpells.ToHashSet();
+        if (spell.PrimaryProfessionDialog && !confirmed)
+            return ShowTrainerConfirmation(spell);
+        _trainerKnownBefore = ActionsFor(ControlledGuid).KnownSpells.ToHashSet();
         bool sent = _net?.TrainerBuySpell(_trainer.TrainerGuid, serviceSpellId) == true;
         EmitInterface("trainer", "buy", sent ? "SENT" : "SEND_FAILED", _trainer.TrainerGuid,
             $"spell={serviceSpellId};cost={spell.Cost};money={money}");
@@ -184,7 +195,7 @@ public sealed partial class GameLoop
             relisted = RequestTrainer(result.TrainerGuid);
         }
         EmitInterface("trainer", "buy", "SUCCEEDED", result.TrainerGuid,
-            $"serviceSpell={result.ServiceSpellId};knownBefore={_trainerKnownBefore?.Count ?? _actions.KnownSpells.Count};rowRefreshed={refreshed};relisted={relisted}");
+            $"serviceSpell={result.ServiceSpellId};knownBefore={_trainerKnownBefore?.Count ?? ActionsFor(ControlledGuid).KnownSpells.Count};rowRefreshed={refreshed};relisted={relisted}");
     }
 
     private void ApplyTrainerFailure(byte[] body)
@@ -206,9 +217,9 @@ public sealed partial class GameLoop
     private void ObserveTrainerLearned(uint spellId)
     {
         if (_trainerKnownBefore is null) return;
-        bool added = !_trainerKnownBefore.Contains(spellId) && _actions.KnownSpells.Contains(spellId);
+        bool added = !_trainerKnownBefore.Contains(spellId) && ActionsFor(ControlledGuid).KnownSpells.Contains(spellId);
         EmitInterface("trainer", "spellbook-delta", added ? "ADDED" : "UNCHANGED",
-            _trainer?.TrainerGuid ?? 0, $"learnedSpell={spellId};knownAfter={_actions.KnownSpells.Count}");
+            _trainer?.TrainerGuid ?? 0, $"learnedSpell={spellId};knownAfter={ActionsFor(ControlledGuid).KnownSpells.Count}");
         _trainerKnownBefore = null;
     }
 
@@ -423,16 +434,27 @@ public sealed partial class GameLoop
                 hoveredTrainerServiceTooltip = PrepareSharedSpellTooltip(
                     new("spell:trainer-service", selected.ServiceSpellId),
                     selected.ServiceSpellId, scale, SpellTooltipPlacement.OwnerRight,
-                    tooltipMinimum, tooltipMaximum);
+                    tooltipMinimum, tooltipMaximum,
+                    TrainerRequirements(selected).Select(x => (x.Text, x.Color)).ToArray());
             DrawTrainerWrappedText(dl, TrainerFrameUiLaw.DetailNameFont,
                 info?.Name ?? $"Service {selected.ServiceSpellId}", origin,
                 TrainerFrameUiLaw.DetailNameBox, scale,
                 TrainerFrameUiLaw.DetailNameMaxLines);
-            if (selected.RequiredLevel > 0)
+            var requirements = TrainerRequirements(selected);
+            if (requirements.Count > 0)
+            {
                 DrawTrainerWrappedText(dl, TrainerFrameUiLaw.DetailRequirementFont,
-                    $"Requires level {selected.RequiredLevel}", origin,
+                    string.Join("; ", requirements.Select(x => x.Text)), origin,
                     TrainerFrameUiLaw.DetailRequirementBox, scale,
                     TrainerFrameUiLaw.DetailRequirementMaxLines);
+                Vector2 requirementMin = origin + TrainerFrameUiLaw.DetailRequirementBox.Min * scale;
+                Vector2 requirementMax = requirementMin + TrainerFrameUiLaw.DetailRequirementBox.Size * scale;
+                if (ImGui.IsMouseHoveringRect(requirementMin, requirementMax, false))
+                    hoveredTrainerServiceTooltip = PrepareSharedSpellTooltip(
+                        new("spell:trainer-service", selected.ServiceSpellId), selected.ServiceSpellId,
+                        scale, SpellTooltipPlacement.OwnerRight, requirementMin, requirementMax,
+                        requirements.Select(x => (x.Text, x.Color)).ToArray());
+            }
             if (selected.Cost > 0)
             {
                 Vector2 costAt = origin + TrainerFrameUiLaw.DetailCostLabel * scale;
@@ -448,7 +470,7 @@ public sealed partial class GameLoop
                 info?.Description ?? "", origin, TrainerFrameUiLaw.DetailDescriptionBox,
                 scale, TrainerFrameUiLaw.DetailDescriptionMaxLines);
         }
-        bool canTrain=selected.ServiceSpellId!=0&&selected.State==0&&money>=selected.Cost;
+        bool canTrain=TrainerServiceUiLaw.CanPurchase(selected, money);
         if (VanillaButton(dl, "##trainer-train", "Train",
                 origin + TrainerFrameUiLaw.Train.Min * scale,
                 TrainerFrameUiLaw.Train.Size, scale, canTrain))

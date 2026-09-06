@@ -11,7 +11,9 @@ public sealed record GossipMenu(
     IReadOnlyList<GossipOption> Options,
     IReadOnlyList<GossipQuest> Quests);
 
-public readonly record struct NpcTextBlock(float Probability, string MaleText, string FemaleText);
+public readonly record struct DialogueEmote(uint Id, uint DelayMs);
+public readonly record struct NpcTextBlock(float Probability, string MaleText, string FemaleText,
+    uint Language = 0, IReadOnlyList<DialogueEmote>? Emotes = null);
 public sealed record NpcText(uint TextId, IReadOnlyList<NpcTextBlock> Blocks);
 public readonly record struct GossipPoi(
     uint Flags, Vector2 Position, uint Icon, uint Data, string Name);
@@ -49,8 +51,14 @@ public static class GossipPackets
             float probability = r.ReadF32();
             string m = r.ReadCString();
             string f = r.ReadCString();
-            r.Skip(7 * sizeof(uint));
-            blocks.Add(new NpcTextBlock(probability, m, f));
+            uint language = r.ReadU32();
+            var emotes = new DialogueEmote[3];
+            for (int e = 0; e < emotes.Length; e++)
+            {
+                uint delay = r.ReadU32(), id = r.ReadU32();
+                emotes[e] = new(id, delay);
+            }
+            blocks.Add(new NpcTextBlock(probability, m, f, language, emotes));
         }
         if (r.Remaining != 0)
             throw new InvalidDataException($"SMSG_NPC_TEXT_UPDATE has {r.Remaining} trailing byte(s)");

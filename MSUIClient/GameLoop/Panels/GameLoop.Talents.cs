@@ -376,7 +376,8 @@ public sealed partial class GameLoop
                     TalentFrameUiLaw.TalentTooltipSeat(min, buttonRect.Size * s);
                 uint casterLevel = entity?.Level ?? 0;
                 SpellTooltipView displayTooltip = spell is SpellInfo displaySpell
-                    ? SpellTooltipLaw.Build(displaySpell, _spellCatalog!, casterLevel)
+                    ? SpellTooltipLaw.Build(displaySpell, _spellCatalog!, casterLevel,
+                        entity?.Fields.CastSpeedMultiplier ?? 1f)
                     : new(name, "", null, null, null, null, "");
                 string? nextRankDescription = null;
                 if (rank > 0 && rank < talent.RankSpells.Length &&

@@ -1461,8 +1461,9 @@ public sealed partial class GameLoop
             if (hi != 0) dl.AddImage((nint)hi, min, min + slotSize);
             if (item is not null)
             {
+                _entities.TryGet(_mailAttachmentGuid, out WorldEntity attachment);
                 ItemTooltipBodySnapshot tooltipBody =
-                    PrepareItemTooltipBodySnapshot(item, count);
+                    PrepareItemTooltipBodySnapshot(item, count, liveInstance: attachment);
                 MailUiLaw.TooltipSeat tooltipSeat =
                     MailUiLaw.RightTooltipSeat(min, slotSize);
                 OfferPreparedItemTooltip(
@@ -1850,7 +1851,9 @@ public sealed partial class GameLoop
             if (item is not null && row is not null)
             {
                 ItemTooltipBodySnapshot tooltipBody = PrepareItemTooltipBodySnapshot(
-                    item, row.ItemCount, row.ItemDurability, row.ItemMaxDurability);
+                    item, row.ItemCount, row.ItemDurability, row.ItemMaxDurability,
+                    liveInstance: RemoteTooltipInstance(row.ItemRandomProperty, row.ItemPermEnchant,
+                        unchecked((int)row.ItemCharges)));
                 if (row.Cod > 0)
                 {
                     string codAmount = FormatMoney(row.Cod);

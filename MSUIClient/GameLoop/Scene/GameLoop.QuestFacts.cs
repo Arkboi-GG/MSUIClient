@@ -277,6 +277,7 @@ public sealed partial class GameLoop
             log.Entries.Any(entry => entry.QuestId == id && !entry.Rewarded)).ToArray())
             AutoWatchQuest(questId);
 
+        FlushQuestItemNotices(log.Subject);
         int overflow = log.Entries.Count(e => e.Overflow);
         Console.WriteLine($"[quest-facts] {ResolveUnitName(log.Subject)}: " +
             $"{log.Entries.Length} quests" + (overflow > 0 ? $" ({overflow} past the log slots)" : ""));

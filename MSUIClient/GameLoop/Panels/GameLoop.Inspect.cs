@@ -43,7 +43,7 @@ public sealed partial class GameLoop
             Vector3.DistanceSquared(controlledBody.Position, unit.Position));
         if (!canInspect) return false;
 
-        if (!_net.Inspect(guid)) return false;
+        if (!SubmitInspectQuery(guid)) return false;
 
         // Inspect is a left UIPanel. Preserve MSUI's existing panels, but do not stack them in the
         // same slot behind this one.
@@ -63,6 +63,7 @@ public sealed partial class GameLoop
 
     private void CloseInspect(bool playSound)
     {
+        ResetInspectHonor();
         if (!_inspectOpen) return;
         _inspectOpen = false;
         _inspectGuid = 0;
@@ -165,42 +166,51 @@ public sealed partial class GameLoop
             $"Level {player.Level} {RaceName(b.Race)} {ClassName(b.Class)}",
             p + new Vector2(198, 41) * s, s);
 
-        InspectUiLaw.LogicalRect model = InspectUiLaw.ModelRect;
-        Vector2 modelMin = p + new Vector2(model.X, model.Y) * s;
-        if (parity)
-            CollectUiParityDraw("InspectModel", "PlayerModel", modelMin,
-                new Vector2(model.Width, model.Height) * s, "InspectPaperDollFrame",
-                new("", 0xffffffff, "ARTWORK", "TOPLEFT", "InspectPaperDollFrame",
-                    "TOPLEFT", 65, -78, TexCoords: "0|1|1|0",
-                    ContentRect: new Vector4(modelMin.X, modelMin.Y,
-                        modelMin.X + model.Width * s, modelMin.Y + model.Height * s),
-                    ClipRect: panelClip, ClipMask: "WINDOW_RECT", BlendMode: "BLEND",
-                    Visible: _inspectPaperDollUsable,
-                    InteractionState: _inspectPaperDollUsable ? "live-remote-paper-doll" : "model-unavailable",
-                    Strata: "MEDIUM"));
-        if (_inspectPaperDoll is not null && _inspectPaperDollUsable)
-            dl.AddImage((nint)_inspectPaperDoll.TextureHandle, modelMin,
-                modelMin + new Vector2(model.Width, model.Height) * s,
-                new Vector2(0, 1), new Vector2(1, 0));
-        DrawInspectRotationButton(dl, p + new Vector2(65, 78) * s, left: true, s);
-        DrawInspectRotationButton(dl, p + new Vector2(100, 78) * s, left: false, s);
+        if (_inspectHonorPage) DrawInspectHonorPage(dl, p, s);
+        else
+        {
+            InspectUiLaw.LogicalRect model = InspectUiLaw.ModelRect;
+            Vector2 modelMin = p + new Vector2(model.X, model.Y) * s;
+            if (parity)
+                CollectUiParityDraw("InspectModel", "PlayerModel", modelMin,
+                    new Vector2(model.Width, model.Height) * s, "InspectPaperDollFrame",
+                    new("", 0xffffffff, "ARTWORK", "TOPLEFT", "InspectPaperDollFrame",
+                        "TOPLEFT", 65, -78, TexCoords: "0|1|1|0",
+                        ContentRect: new Vector4(modelMin.X, modelMin.Y,
+                            modelMin.X + model.Width * s, modelMin.Y + model.Height * s),
+                        ClipRect: panelClip, ClipMask: "WINDOW_RECT", BlendMode: "BLEND",
+                        Visible: _inspectPaperDollUsable,
+                        InteractionState: _inspectPaperDollUsable ? "live-remote-paper-doll" : "model-unavailable",
+                        Strata: "MEDIUM"));
+            if (_inspectPaperDoll is not null && _inspectPaperDollUsable)
+                dl.AddImage((nint)_inspectPaperDoll.TextureHandle, modelMin,
+                    modelMin + new Vector2(model.Width, model.Height) * s,
+                    new Vector2(0, 1), new Vector2(1, 0));
+            DrawInspectRotationButton(dl, p + new Vector2(65, 78) * s, left: true, s);
+            DrawInspectRotationButton(dl, p + new Vector2(100, 78) * s, left: false, s);
 
-        for (int i = 0; i < LeftPaperDollSlots.Length; i++)
-            DrawInspectSlot(dl, p + new Vector2(21, 74 + i * 41) * s, s, player,
-                LeftPaperDollSlots[i].Slot, LeftPaperDollSlots[i].Empty);
-        for (int i = 0; i < RightPaperDollSlots.Length; i++)
-            DrawInspectSlot(dl, p + new Vector2(305, 74 + i * 41) * s, s, player,
-                RightPaperDollSlots[i].Slot, RightPaperDollSlots[i].Empty);
-        for (int i = 0; i < WeaponPaperDollSlots.Length; i++)
-            DrawInspectSlot(dl, p + new Vector2(122 + i * 42, 385) * s, s, player,
-                WeaponPaperDollSlots[i].Slot, WeaponPaperDollSlots[i].Empty);
+            for (int i = 0; i < LeftPaperDollSlots.Length; i++)
+                DrawInspectSlot(dl, p + new Vector2(21, 74 + i * 41) * s, s, player,
+                    LeftPaperDollSlots[i].Slot, LeftPaperDollSlots[i].Empty);
+            for (int i = 0; i < RightPaperDollSlots.Length; i++)
+                DrawInspectSlot(dl, p + new Vector2(305, 74 + i * 41) * s, s, player,
+                    RightPaperDollSlots[i].Slot, RightPaperDollSlots[i].Empty);
+            for (int i = 0; i < WeaponPaperDollSlots.Length; i++)
+                DrawInspectSlot(dl, p + new Vector2(122 + i * 42, 385) * s, s, player,
+                    WeaponPaperDollSlots[i].Slot, WeaponPaperDollSlots[i].Empty);
+
+        }
 
         // PanelTemplates_SelectTab disables the selected tab; the physical button is inert.
         float tabWidth = VanillaCharacterTabWidth("Character", s, 0);
-        VanillaTab(dl, "##inspect-tab-character",
+        if (VanillaTab(dl, "##inspect-tab-character",
             p + new Vector2(60 - tabWidth * .5f, 434) * s,
-            "Character", tabWidth, s, selected: true, enabled: false);
-        if (parity) CollectInspectTabTelemetry(p, s, panelClip, tabWidth);
+            "Character", tabWidth, s, selected: !_inspectHonorPage, enabled: _inspectHonorPage)) ResetInspectHonor();
+        float honorWidth = VanillaCharacterTabWidth("Honor", s, 1);
+        Vector2 honorTab = p + new Vector2(60 + tabWidth * .5f + 4,434) * s;
+        if (VanillaTab(dl, "##inspect-tab-honor", honorTab, "Honor", honorWidth, s,
+            selected: _inspectHonorPage, enabled: !_inspectHonorPage)) RequestInspectHonor();
+        if (parity && !_inspectHonorPage) CollectInspectTabTelemetry(p, s, panelClip, tabWidth);
 
         Vector2 close = p + new Vector2(InspectUiLaw.CloseRect.X, InspectUiLaw.CloseRect.Y) * s;
         DrawImageButton(dl, "##inspect-close", close,
@@ -212,10 +222,11 @@ public sealed partial class GameLoop
         if (ImGui.IsItemClicked()) CloseInspect(playSound: true);
         if (parity)
         {
-            ClassifyUiParity("InspectHonorFrame", "Frame", "InspectFrame", "NOT-DRAWN",
-                "reference-honor-surface-intentionally-absent");
-            ClassifyUiParity("InspectFrameTab2", "Button", "InspectFrame", "NOT-DRAWN",
-                "reference-honor-tab-intentionally-absent");
+            if (!_inspectHonorPage)
+                ClassifyUiParity("InspectHonorFrame", "Frame", "InspectFrame", "NOT-DRAWN", "inactive-character-page");
+            CollectUiParityDraw("InspectFrameTab2", "Button", honorTab, new Vector2(honorWidth,32)*s, "InspectFrame",
+                new("", 0, "HIT_TARGET", "TOPLEFT", "InspectFrame", "TOPLEFT", 60 + tabWidth * .5f + 4, -434,
+                    Visible: true, Enabled: !_inspectHonorPage, InteractionState: _inspectHonorPage ? "selected" : "available"));
             ClassifyUiParity("InspectAmmoSlot", "Button", "InspectPaperDollFrame", "NOT-DRAWN",
                 "reference-inspect-has-no-ammo-slot");
             ClassifyUiParity("InspectBagSlots", "Frame", "InspectPaperDollFrame", "NOT-DRAWN",
@@ -527,6 +538,9 @@ public sealed partial class GameLoop
         // Preserve MSUI's established item body, then append only the public inspected-player
         // enchant names. Foreign durability, counts, creator and private item data stay absent.
         ItemTooltipBodySnapshot body = PrepareItemTooltipBodySnapshot(item, 1);
+        string name = _itemRandomProperties?.ItemName(item.Name, fields.PlayerVisibleItemRandomProperty(slot)) ?? item.Name;
+        if (name != item.Name && !body.Operations.IsEmpty)
+            body = body with { Operations = body.Operations.SetItem(0, body.Operations[0] with { Text = name }) };
         var enchantOperations = new List<PreparedItemTooltipPaintOp>();
         for (int enchantSlot = 0;
              InspectUiLaw.VisibleEnchantsAllowed(item.Flags) && enchantSlot < 7;

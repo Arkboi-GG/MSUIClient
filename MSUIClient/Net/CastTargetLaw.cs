@@ -2,7 +2,7 @@ using MSUIClient.Formats;
 
 namespace MSUIClient.Net;
 
-public enum CastTargetKind { SelfImplicit, Unit, Ground, Item, Refused }
+public enum CastTargetKind { SelfImplicit, Unit, Ground, Item, GameObject, ItemOrGameObject, Refused }
 
 public enum CastTargetReason
 {
@@ -12,6 +12,7 @@ public enum CastTargetReason
     SelfFallback,
     GroundTargeting,
     ItemTargeting,
+    GameObjectTargeting,
     InvalidItemTarget,
     NoValidUnit,
     UnavailableOrPassive,
@@ -27,17 +28,21 @@ public enum CastTargetReason
     MissingReagent,
     MissingTool,
     MissingSpellFocus,
+    WrongForm,
+    CasterAuraState,
+    TargetAuraState,
+    ComboTarget,
 }
 
 public readonly record struct CastTargetCandidate(
-    ulong Guid, bool IsSelf, bool Friendly, bool Attackable, bool Dead);
+    ulong Guid, bool IsSelf, bool Friendly, bool Attackable, bool Dead, bool PartyEligible = false);
 
 public readonly record struct CastTargetVerdict(
     CastTargetKind Kind, CastTargetReason Reason, ulong Guid = 0);
 
 /// <summary>
 /// Pure build-5875 ArmCast/BindTarget law, transcribed from Benilla ui_action/cast_target.rs.
-/// Non-unit cursor targets are refused until their separate item/GO/ground binders exist.
+/// Item, gameobject/locked and location words bind through separate cursor consumers.
 /// </summary>
 public static class CastTargetLaw
 {
@@ -52,6 +57,7 @@ public static class CastTargetLaw
     private const ushort SourceLocation = 0x0020, DestLocation = 0x0040;
     private const ushort LocationBits = SourceLocation | DestLocation;
     private const ushort ItemBits = 0x0010 | 0x1000;
+    private const ushort Object = 0x0800, Locked = 0x4000;
 
     public static ushort TargetMask(in SpellInfo spell)
     {
@@ -82,6 +88,12 @@ public static class CastTargetLaw
         // can't bind (item/string) keep refusing below.
         if ((word & LocationBits) != 0 && (word & ~(UnitBits | LocationBits)) == 0)
             return new(CastTargetKind.Ground, CastTargetReason.GroundTargeting);
+        // Core Spell::CheckTargetMode accepts ITEM or GAMEOBJECT for LOCKED.
+        // An explicit GAMEOBJECT requirement (e.g. Disarm Trap implicit23) still excludes items.
+        if ((word & (Object | Locked)) != 0 && (word & ~(Object | Locked)) == 0)
+            return (word & Object) != 0
+                ? new(CastTargetKind.GameObject, CastTargetReason.GameObjectTargeting)
+                : new(CastTargetKind.ItemOrGameObject, CastTargetReason.ItemTargeting);
         if ((word & ItemBits) != 0 && (word & ~(UnitBits | ItemBits)) == 0)
             return new(CastTargetKind.Item, CastTargetReason.ItemTargeting);
         if ((word & ~UnitBits) != 0)
@@ -92,6 +104,12 @@ public static class CastTargetLaw
             return new(CastTargetKind.Unit, CastTargetReason.SelfFallback, player.Guid);
         return new(CastTargetKind.Refused, CastTargetReason.NoValidUnit);
     }
+
+    public static bool AcceptsItem(in SpellInfo spell) =>
+        Resolve(spell, null, null).Kind is CastTargetKind.Item or CastTargetKind.ItemOrGameObject;
+
+    public static bool AcceptsGameObject(in SpellInfo spell) =>
+        Resolve(spell, null, null).Kind is CastTargetKind.GameObject or CastTargetKind.ItemOrGameObject;
 
     /// <summary>
     /// Whether this spell can bind an explicitly chosen friendly unit other than the caster,
@@ -104,7 +122,7 @@ public static class CastTargetLaw
     public static bool AcceptsExplicitFriendlyUnit(in SpellInfo spell)
     {
         var living = new CastTargetCandidate(1, IsSelf: false, Friendly: true,
-            Attackable: false, Dead: false);
+            Attackable: false, Dead: false, PartyEligible: true);
         var dead = living with { Dead = true };
         var hostile = new CastTargetCandidate(2, IsSelf: false, Friendly: false,
             Attackable: true, Dead: false);
@@ -123,8 +141,10 @@ public static class CastTargetLaw
     private static ushort ClearSatisfied(ushort word, in CastTargetCandidate candidate)
     {
         bool assist = candidate.IsSelf || candidate.Friendly;
-        if ((word & Party) != 0 && candidate.IsSelf) word &= unchecked((ushort)~Party);
-        if ((word & Raid) != 0 && candidate.IsSelf) word &= unchecked((ushort)~Raid);
+        if ((word & Party) != 0 && !candidate.IsSelf && assist && candidate.PartyEligible) word &= unchecked((ushort)~Party);
+        // Core TARGET_UNIT_RAID selects the explicit friendly target; group membership
+        // controls later raid/class expansion, not whether the seed unit can be selected.
+        if ((word & Raid) != 0 && assist) word &= unchecked((ushort)~Raid);
         if ((word & Assist) != 0 && assist) word &= unchecked((ushort)~Assist);
         if ((word & Enemy) != 0 && !candidate.IsSelf && candidate.Attackable) word &= unchecked((ushort)~Enemy);
         if ((word & Unit) != 0) word &= unchecked((ushort)~Unit);

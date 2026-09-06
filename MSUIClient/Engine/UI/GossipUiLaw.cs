@@ -91,7 +91,14 @@ public static class GossipUiLaw
     /// is fixed for the whole draw and empty strings in that column are excluded;
     /// the other column is never a fallback. Roll has the reference's [1,2) shape.
     /// </summary>
-    public static string? SelectGreeting(
+    public static string? SelectGreeting(IReadOnlyList<NpcTextBlock> blocks, byte npcGender, float roll)
+    {
+        int selected = SelectGreetingBlock(blocks, npcGender, roll);
+        return selected < 0 ? null : npcGender == 1 ? blocks[selected].FemaleText : blocks[selected].MaleText;
+    }
+
+    /// <summary>Return the same selected row for text, language and its emote sequence.</summary>
+    public static int SelectGreetingBlock(
         IReadOnlyList<NpcTextBlock> blocks, byte npcGender, float roll)
     {
         bool female = npcGender == 1;
@@ -111,9 +118,9 @@ public static class GossipUiLaw
             string column = female ? block.FemaleText : block.MaleText;
             if (column.Length == 0) continue;
             accumulated += block.Probability;
-            if (threshold <= accumulated) return column;
+            if (threshold <= accumulated) return i;
         }
-        return null;
+        return -1;
     }
 
     /// <summary>The reference constructs a uniform [1,2) float from 23 PRNG mantissa bits.</summary>

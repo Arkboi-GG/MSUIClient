@@ -45,6 +45,10 @@ public sealed partial class GameLoop
 
     private void ResetTargeting()
     {
+        _groundCastSpell = 0;
+        _groundCursorPoint = null;
+        CancelItemTargeting();
+        CancelGiftWrapping();
         CloseInspect(playSound: false);
         ResetAutoFollowSession();
         _questMarkerModels?.Clear();
@@ -77,7 +81,10 @@ public sealed partial class GameLoop
     /// </summary>
     private void ResetPlayerIdentitySession()
     {
+        _pendingItemRead = null;
+        _spellModifiers?.Clear();
         _itemProficiencies.Clear();
+        _companionItemProficiencies.Clear();
         _playerNames.Clear();
         _playerTraits.Clear();
         _petNames.Clear();
@@ -220,6 +227,8 @@ public sealed partial class GameLoop
             // owns the click the same way, so dropping a probe never also issues an
             // order. No-op unless a placement is armed.
             if (HandleEncounterLabClick(click)) continue;
+            if (TryHandleGiftWorldClick(click)) continue;
+            if (TryHandleObjectSpellClick(click, pressPick)) continue;
             // CRPG free view: clicks are selection + RTS orders, never target/attack/loot.
             // Keyed on the CAMERA, not the control state — commanding a toon from the sky
             // is still the sky, and its clicks are still orders.
@@ -472,38 +481,15 @@ public sealed partial class GameLoop
         _attackTargetGuid = 0;
     }
 
-    private bool CanAttack(WorldEntity target)
-    {
-        if (_net is null || target.Guid == ControlledGuid || target.IsDead ||
-            (target.Fields.UnitFlags & AttackDisqualifiers) != 0)
-            return false;
+    private bool CanAttack(WorldEntity target) => CanActorAttack(target, ControlledGuid);
 
-        // PvP/duel/group reaction is a later slice. Do not turn arbitrary nearby
-        // players into hostile targets while that state is absent.
-        if (target.IsPlayer) return false;
+    private FactionReaction ReactionPlayerToward(WorldEntity target) =>
+        _net is not null && _entities.TryGet(ControlledGuid, out WorldEntity actor)
+            ? ReactionBetween(actor, target) : FactionReaction.Neutral;
 
-        return ReactionPlayerToward(target) != FactionReaction.Friendly;
-    }
-
-    private FactionReaction ReactionPlayerToward(WorldEntity target)
-    {
-        if (_net is null || _factions is null ||
-            !_entities.TryGet(ControlledGuid, out WorldEntity player) ||
-            !_factions.TryGet(player.Fields.FactionTemplate, out FactionTemplateRow own) ||
-            !_factions.TryGet(target.Fields.FactionTemplate, out FactionTemplateRow other))
-            return FactionReaction.Neutral;
-        return own.ReactionToward(other);
-    }
-
-    private FactionReaction ReactionTargetTowardPlayer(WorldEntity target)
-    {
-        if (_net is null || _factions is null ||
-            !_entities.TryGet(ControlledGuid, out WorldEntity player) ||
-            !_factions.TryGet(target.Fields.FactionTemplate, out FactionTemplateRow other) ||
-            !_factions.TryGet(player.Fields.FactionTemplate, out FactionTemplateRow own))
-            return FactionReaction.Neutral;
-        return other.ReactionToward(own);
-    }
+    private FactionReaction ReactionTargetTowardPlayer(WorldEntity target) =>
+        _net is not null && _entities.TryGet(ControlledGuid, out WorldEntity actor)
+            ? ReactionBetween(target, actor) : FactionReaction.Neutral;
 
     /// <summary>Terrain point currently under the cursor while ground-targeting is armed
     /// (null when not armed or nothing pickable). Feeds the rune-circle marker draw.</summary>

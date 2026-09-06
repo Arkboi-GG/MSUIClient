@@ -16,7 +16,9 @@ public static class MovementRelayPackets
         Op.MSG_MOVE_START_PITCH_UP or Op.MSG_MOVE_START_PITCH_DOWN or
         Op.MSG_MOVE_STOP_PITCH or Op.MSG_MOVE_SET_RUN_MODE or Op.MSG_MOVE_SET_WALK_MODE or
         Op.MSG_MOVE_FALL_LAND or Op.MSG_MOVE_START_SWIM or Op.MSG_MOVE_STOP_SWIM or
-        Op.MSG_MOVE_SET_FACING or Op.MSG_MOVE_SET_PITCH or Op.MSG_MOVE_HEARTBEAT;
+        Op.MSG_MOVE_SET_FACING or Op.MSG_MOVE_SET_PITCH or Op.MSG_MOVE_HEARTBEAT or
+        Op.MSG_MOVE_ROOT or Op.MSG_MOVE_UNROOT or Op.MSG_MOVE_HOVER or
+        Op.MSG_MOVE_FEATHER_FALL or Op.MSG_MOVE_WATER_WALK or Op.MSG_MOVE_TELEPORT;
 
     public static MovementRelay Parse(Op opcode, byte[] body)
     {

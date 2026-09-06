@@ -10,19 +10,37 @@ public sealed partial class GameLoop
     private const uint HearthstoneEntry = 6948;
     private const uint HearthSpell = 8690;
     private ulong _binderGuid;
+    private ulong _binderOwnerGuid;
     private (uint Map, Vector3 Position)? _bindPoint;
+    private uint _bindPointAreaId;
     private bool _binderConfirmOpen;
     private string _binderAreaName = BinderConfirmUiLaw.FallbackAreaName;
     private bool _hearthPending;
+    private ulong _hearthOwnerGuid;
     private Vector3 _hearthFrom;
 
     private void ResetHearth()
     {
-        _binderGuid = 0;
+        ResetBinderConfirmation();
         _bindPoint = null;
+        _bindPointAreaId = 0;
         _binderConfirmOpen = false;
         _binderAreaName = BinderConfirmUiLaw.FallbackAreaName;
+        ResetHearthAttempt();
+    }
+
+    private void ResetHearthAttempt()
+    {
         _hearthPending = false;
+        _hearthOwnerGuid = 0;
+    }
+
+    private void ResetBinderConfirmation()
+    {
+        _binderGuid = 0;
+        _binderOwnerGuid = 0;
+        _binderConfirmOpen = false;
+        _binderAreaName = BinderConfirmUiLaw.FallbackAreaName;
     }
 
     private bool RequestBind(ulong guid)
@@ -41,9 +59,11 @@ public sealed partial class GameLoop
         if (sent) _binderGuid = guid; return sent;
     }
 
-    private void ApplyBinderConfirm(byte[] body)
+    private void ApplyBinderConfirm(byte[] body, ulong owner)
     {
         BinderConfirmPacket packet = BinderPackets.ParseConfirm(body);
+        if (owner == 0 || owner != ControlledGuid) return;
+        _binderOwnerGuid = owner;
         _binderGuid = packet.BinderGuid;
         _binderAreaName = CurrentBinderAreaName();
         _binderConfirmOpen = true;
@@ -55,18 +75,20 @@ public sealed partial class GameLoop
     {
         BindPointPacket packet = BinderPackets.ParseBindPoint(body);
         _bindPoint = (packet.MapId, packet.Position);
+        _bindPointAreaId = packet.AreaId;
         EmitInterface("hearth", "bind-point", "UPDATED", _binderGuid,
             $"map={packet.MapId};position={packet.Position.X:R}|{packet.Position.Y:R}|{packet.Position.Z:R};bytes={body.Length}");
     }
 
-    private void ApplyPlayerBound(byte[] body)
+    private void ApplyPlayerBound(byte[] body, ulong owner)
     {
         PlayerBoundPacket packet = BinderPackets.ParsePlayerBound(body);
+        if (owner == 0 || owner != ControlledGuid) return;
         _binderConfirmOpen = false;
-        Vector3 listener = TryGetSessionBodyPose(out WorldBodyPose sessionBody)
+        Vector3 listener = TryGetInteractionBodyPose(out WorldBodyPose sessionBody)
             ? sessionBody.Position
             : Vector3.Zero;
-        _spellSounds?.Play(BinderConfirmUiLaw.BoundSoundId, LocalPlayerGuid, listener, listener,
+        _spellSounds?.Play(BinderConfirmUiLaw.BoundSoundId, owner, listener, listener,
             category: "ui.binder");
         EnsureAreaTableForMinimap();
         string? message = BinderConfirmUiLaw.PlayerBoundText(_areas?.AreaName(packet.AreaId));
@@ -87,40 +109,42 @@ public sealed partial class GameLoop
 
     private bool UseHearthstone()
     {
-        if (_net is null || !TryGetSessionBodyPose(out WorldBodyPose sessionBody) ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        if (!CanAuthorControlledOrSelf || _net is null ||
+            !TryGetInteractionBodyPose(out WorldBodyPose actorBody) ||
+            !_entities.TryGet(ControlledGuid, out WorldEntity player) || !player.IsPlayer) return false;
         for (int i = 0; i < 16; i++)
         {
             ulong guid = player.Fields.PlayerBackpackSlot(i);
             if (guid == 0 || !_entities.TryGet(guid, out WorldEntity item) || item.Entry != HearthstoneEntry) continue;
             if (RefuseTacticalFreezeLiveCommand("using a hearthstone")) return false;
-            _hearthFrom = sessionBody.Position; _hearthPending = true;
-            _net.UseItem(255, (byte)(23 + i), 0);
+            if (!_net.UseItem(255, (byte)(23 + i), 0)) return false;
+            _hearthFrom = actorBody.Position; _hearthPending = true;
+            _hearthOwnerGuid = ControlledGuid;
             EmitInterface("hearth", "use-send", "SENT", guid,
                 $"entry={HearthstoneEntry};bag=255;slot={23+i};spellSlot=0;from={_hearthFrom.X:R}|{_hearthFrom.Y:R}|{_hearthFrom.Z:R}");
             return true;
         }
-        EmitInterface("hearth", "use-send", "REFUSED_NO_ITEM", _net.PlayerGuid, $"entry={HearthstoneEntry}"); return false;
+        EmitInterface("hearth", "use-send", "REFUSED_NO_ITEM", ControlledGuid, $"entry={HearthstoneEntry}"); return false;
     }
 
-    private void ObserveHearthSpellGo(uint spellId)
+    private void ObserveHearthSpellGo(uint spellId, ulong owner)
     {
-        if (spellId != HearthSpell) return;
-        EmitInterface("hearth", "cast", "COMPLETED", _net?.PlayerGuid ?? 0,
-            $"spell={spellId};castBar=server-go;cooldownSeconds={_actions.CooldownRemaining(spellId, NowSeconds()):0.0}");
+        if (spellId != HearthSpell || owner == 0 || owner != ControlledGuid) return;
+        EmitInterface("hearth", "cast", "COMPLETED", owner,
+            $"spell={spellId};castBar=server-go;cooldownSeconds={ActionsFor(owner).CooldownRemaining(spellId, NowSeconds()):0.0}");
     }
 
     private void ObserveHearthTeleport(ulong guid, Vector3 position)
     {
-        if (!_hearthPending || guid != _net?.PlayerGuid) return;
+        if (!_hearthPending || guid != _hearthOwnerGuid || guid != ControlledGuid) return;
         _hearthPending = false; float delta = Vector3.Distance(_hearthFrom, position);
         EmitInterface("hearth", "teleport", delta > 1 ? "VERIFIED" : "MISMATCH", guid,
-            $"from={_hearthFrom.X:R}|{_hearthFrom.Y:R}|{_hearthFrom.Z:R};to={position.X:R}|{position.Y:R}|{position.Z:R};distance={delta:R};bindMap={_bindPoint?.Map ?? uint.MaxValue}");
+            $"from={_hearthFrom.X:R}|{_hearthFrom.Y:R}|{_hearthFrom.Z:R};to={position.X:R}|{position.Y:R}|{position.Z:R};distance={delta:R};bindMap={(guid == LocalPlayerGuid ? _bindPoint?.Map : null) ?? uint.MaxValue}");
     }
 
     private void SimulateHearthFlow()
     {
-        var confirm = new PacketWriter(); confirm.WriteU64(0xF130000127000001); ApplyBinderConfirm(confirm.ToArray());
+        var confirm = new PacketWriter(); confirm.WriteU64(0xF130000127000001); ApplyBinderConfirm(confirm.ToArray(), ControlledGuid);
         var point = new PacketWriter(); point.WriteF32(-9464.5f); point.WriteF32(62.1f); point.WriteF32(56.0f); point.WriteU32(0); ApplyBindPoint(point.ToArray());
         _actions.StartCooldown(HearthSpell, 0, 3_600_000, NowSeconds());
         EmitInterface("hearth", "cast", "COMPLETED", 1, $"spell={HearthSpell};castBar=server-go;cooldownSeconds=3600");
@@ -131,7 +155,8 @@ public sealed partial class GameLoop
     private bool BinderConfirmationInRange(out float distance)
     {
         distance = float.PositiveInfinity;
-        bool playerAvailable = TryGetSessionBodyPose(out WorldBodyPose sessionBody);
+        if (_binderOwnerGuid == 0 || _binderOwnerGuid != ControlledGuid) return false;
+        bool playerAvailable = TryGetInteractionBodyPose(out WorldBodyPose sessionBody);
         bool binderAvailable = _entities.TryGet(_binderGuid, out WorldEntity binder);
         if (playerAvailable && binderAvailable)
             distance = Vector3.Distance(sessionBody.Position, binder.Position);

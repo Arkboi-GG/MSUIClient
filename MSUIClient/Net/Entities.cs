@@ -34,6 +34,9 @@ public sealed class WorldEntity
     // each frame by EntityStore.TickSplines; cleared when it finishes or an
     // authoritative position snapshot supersedes it.
     public CreatureSpline? Spline;
+    public ObservedJump? AirborneMotion;
+    public float MovementPitch;
+    public JumpInfo? MovementJump;
 
     /// <summary>
     /// Persistent airborne presentation state, independent of whether a movement spline is
@@ -103,7 +106,10 @@ public sealed class WorldEntity
     internal bool FacingFromSpline = true;
 
     /// <summary>True while a spline is actively moving this unit (drives future walk/run animation choice).</summary>
-    public bool IsMoving => Spline is not null;
+    public bool IsMoving => Spline is not null || AirborneMotion is not null;
+    public bool IsAirborne => Spline?.Falling == true || (MoveFlags & (uint)MovementFlags.Falling) != 0;
+    public bool IsHovering => (MoveFlags & (uint)MovementFlags.Hover) != 0;
+    public bool IsWalking => (MoveFlags & (uint)MovementFlags.WalkMode) != 0;
 }
 
 public sealed class EntityStore
@@ -119,7 +125,7 @@ public sealed class EntityStore
     public int UnitCount => _entities.Values.Count(e => e.IsUnit);
     public int CreatureCount => _entities.Values.Count(e => e.IsCreature);
     public int PlayerCount => _entities.Values.Count(e => e.IsPlayer);
-    public int MovingCount => _entities.Values.Count(e => e.Spline is not null);
+    public int MovingCount => _entities.Values.Count(e => e.IsMoving);
 
     public bool TryGet(ulong guid, out WorldEntity entity) => _entities.TryGetValue(guid, out entity!);
 
@@ -163,10 +169,27 @@ public sealed class EntityStore
         }
     }
 
+    public void ApplySplineMovementMode(SplineMovementModeChange change)
+    {
+        if (!_entities.TryGetValue(change.Guid, out WorldEntity? entity) || !entity.IsUnit) return;
+        entity.MoveFlags = change.Apply ? entity.MoveFlags | (uint)change.Flag :
+            entity.MoveFlags & ~(uint)change.Flag;
+        if (change.Apply && change.Flag == MovementFlags.Root)
+        {
+            entity.MoveFlags &= ~(LocomotionMask | (uint)(MovementFlags.Falling |
+                MovementFlags.FallingFar | MovementFlags.SplineEnabled));
+            StopMovement(change.Guid);
+        }
+    }
+
     public void StopMovement(ulong guid)
     {
         if (!TacticalFreezePoseLaw.IsFrozen(guid) &&
-            _entities.TryGetValue(guid, out var entity)) entity.Spline = null;
+            _entities.TryGetValue(guid, out var entity))
+        {
+            entity.Spline = null;
+            entity.AirborneMotion = null;
+        }
     }
 
     /// <summary>
@@ -208,14 +231,17 @@ public sealed class EntityStore
                     e.Orientation = u.Movement.Orientation;
                     e.Speeds = u.Movement.Speeds;
                 }
+                e.Engaged = e.IsUnit && u.Movement?.MeleeTarget is > 0;
+                e.CombatTarget = e.Engaged ? u.Movement!.MeleeTarget : null;
                 e.Transport = u.Movement?.Transport;
                 e.TransportProgress = u.Movement?.TransportProgress;
                 if (e.TransportProgress is not null) e.TransportProgressReceivedMs = nowMs;
                 if (!e.IsDead && u.Movement?.Spline is { } createSpline)
                 {
                     e.FacingFromSpline = true;
-                    e.Spline = CreatureSpline.Resume(createSpline, nowMs);
+                    e.Spline = CreatureSpline.Resume(createSpline, nowMs, e.Transport?.Guid ?? 0);
                 }
+                if (u.Movement?.Living is { } living) ApplyLivingState(e, living, nowMs);
                 if (e.IsDead) e.Spline = null;
                 _entities[u.Guid] = e;   // a fresh create drops any prior spline with the old entity
                 break;
@@ -227,7 +253,10 @@ public sealed class EntityStore
                     {
                         ent.Fields.Merge(u.Fields);
                         if (ent.IsDead && !TacticalFreezePoseLaw.IsFrozen(u.Guid))
+                        {
                             ent.Spline = null;
+                            ent.AirborneMotion = null;
+                        }
                     }
                     // A VALUES BLOCK IS NOT AN OBJECT ANNOUNCEMENT, AND TREATING IT AS ONE
                     // BUILT A HUSK THAT THE UI THEN WORE.
@@ -265,9 +294,11 @@ public sealed class EntityStore
                     {
                         // An authoritative position snapshot supersedes an in-progress spline.
                         em.Spline = null;
+                        em.AirborneMotion = null;
                         em.Position = mp;
                         em.Orientation = movement.Orientation;
                         if (movement.Speeds is not null) em.Speeds = movement.Speeds;
+                        if (movement.Living is { } living) ApplyLivingState(em, living, nowMs);
                     }
                 }
                 break;
@@ -284,19 +315,32 @@ public sealed class EntityStore
         }
     }
 
+    private static void ApplyLivingState(WorldEntity entity, MovementInfo movement, long nowMs)
+    {
+        entity.MoveFlags = movement.Flags;
+        entity.MovementPitch = movement.Pitch;
+        entity.MovementJump = movement.Jump;
+        if (!entity.IsDead && entity.Spline is null && movement.Transport is null &&
+            (movement.Flags & (uint)MovementFlags.Falling) != 0 && movement.Jump is not null)
+        {
+            entity.AirborneMotion = new ObservedJump(movement, nowMs);
+            entity.FacingFromSpline = false;
+        }
+    }
+
     /// <summary>Attach a freshly parsed SMSG_MONSTER_MOVE to its unit (replacing any in-progress spline).</summary>
     public void ApplyMonsterMove(MonsterMove mm, long nowMs)
     {
         if (!_entities.TryGetValue(mm.Guid, out var e)) return;   // unknown guid — not streamed to us
         if (TacticalFreezePoseLaw.IsFrozen(mm.Guid)) return;      // exact pose owns the old spline
 
-        float? dictatedFacing = MonsterMoveFacingLaw.Resolve(mm.Facing, mm.Start, guid =>
-            _entities.TryGetValue(guid, out WorldEntity? target) ? target.Position : null);
-        if (dictatedFacing is { } snap) e.Orientation = snap;
-
+        e.AirborneMotion = null;
+        if (mm.TransportGuid == 0) e.Transport = null;
         if (mm.Stop || mm.DurationMs == 0 || mm.Points.Length < 2)
         {
-            e.Spline = null;                                       // freeze where the unit is
+            e.Spline = null;
+            float? dictatedFacing = ResolveSplineFacing(mm.Facing, mm.Start, mm.TransportGuid);
+            ApplySplinePose(e, mm.Start, dictatedFacing, mm.TransportGuid);
             return;
         }
         // SMSG_MONSTER_MOVE is a server-owned path even when its subject is a Player bot.
@@ -304,7 +348,7 @@ public sealed class EntityStore
         // human drives that same body, so turns follow the new path after a free-view order.
         e.FacingFromSpline = true;
         e.Spline = new CreatureSpline(mm.Points, mm.DurationMs, mm.Flying, nowMs,
-            mm.SplineId);
+            mm.SplineId, mm.Cyclic, mm.Facing, mm.Falling, mm.TransportGuid);
     }
 
     /// <summary>Position-changing movement flags (turning/pitch alone do not relocate a unit).</summary>
@@ -322,11 +366,24 @@ public sealed class EntityStore
     public void ApplyRemotePlayerMove(ulong guid, MovementInfo mi, long nowMs)
     {
         if (TacticalFreezePoseLaw.IsFrozen(guid) ||
-            !_entities.TryGetValue(guid, out var e) || !e.IsPlayer) return;
+            !_entities.TryGetValue(guid, out var e) || !e.IsUnit) return;
         e.FacingFromSpline = false;   // players face their reported aim, never the travel vector
         e.MoveFlags = mi.Flags;       // direction bits for gait selection (speed comes from the spline)
         e.Transport = mi.Transport;   // full rider-local frame follows every ON_TRANSPORT relay
 
+        e.MovementPitch = mi.Pitch;
+        e.MovementJump = mi.Jump;
+        e.AirborneMotion = null;
+        if (!e.IsDead && (mi.Flags & (uint)MovementFlags.Falling) != 0 && mi.Jump is not null &&
+            mi.Transport is null)
+        {
+            e.Position = mi.Position;
+            e.Orientation = mi.Orientation;
+            e.Spline = null;
+            e.AirborneMotion = new ObservedJump(mi, nowMs);
+            e.LastMoveMs = nowMs;
+            return;
+        }
         if (e.IsDead || (mi.Flags & LocomotionMask) == 0)
         {
             // Dead, or a stop / turn-only / fall-land / reface: snap to the authoritative pose.
@@ -359,17 +416,77 @@ public sealed class EntityStore
         e.Spline = new CreatureSpline(new[] { e.Position, mi.Position }, (uint)dt, flying: false, nowMs);
     }
 
+    /// <summary>Observer teleport is an immediate pose replacement, even with locomotion bits set.</summary>
+    public void ApplyRemoteTeleport(ulong guid, MovementInfo movement, long nowMs)
+    {
+        if (TacticalFreezePoseLaw.IsFrozen(guid) ||
+            !_entities.TryGetValue(guid, out WorldEntity? entity)) return;
+        entity.Spline = null;
+        entity.AirborneMotion = null;
+        entity.Position = movement.Position;
+        entity.Orientation = movement.Orientation;
+        entity.MoveFlags = movement.Flags;
+        entity.Transport = movement.Transport;
+        entity.MovementPitch = movement.Pitch;
+        entity.MovementJump = movement.Jump;
+        entity.LastMoveMs = nowMs;
+    }
+
     /// <summary>A server-authored move for the locally driven mover is an immediate correction.</summary>
     public void ApplyServerAuthoredMove(ulong guid, MovementInfo mi, long nowMs)
     {
         if (TacticalFreezePoseLaw.IsFrozen(guid) ||
             !_entities.TryGetValue(guid, out WorldEntity? entity)) return;
         entity.Spline = null;
+        entity.AirborneMotion = null;
+        entity.MovementPitch = mi.Pitch;
+        entity.MovementJump = mi.Jump;
         entity.Position = mi.Position;
         entity.Orientation = mi.Orientation;
         entity.MoveFlags = ServerAuthoredMovementLaw.MergeFlags(entity.MoveFlags, mi.Flags);
         entity.Transport = mi.Transport;
         entity.LastMoveMs = nowMs;
+    }
+
+    public float? ResolveSplineFacing(MonsterMoveFacing facing, Vector3 position, ulong transportGuid) =>
+        MonsterMoveFacingLaw.Resolve(facing, position, guid =>
+        {
+            if (!_entities.TryGetValue(guid, out WorldEntity? target)) return null;
+            if (transportGuid == 0) return target.Position;
+            return _entities.TryGetValue(transportGuid, out WorldEntity? parent)
+                ? TransportRiderLaw.ToLocal(parent.Position, parent.GameObjectFacing, target.Position) : null;
+        });
+
+    public bool TryComposeTransportPose(ulong guid, Vector3 localPosition, float localYaw,
+        out TransportRiderLaw.WorldPose world)
+    {
+        if (guid == 0) { world = new(localPosition, localYaw); return true; }
+        if (_entities.TryGetValue(guid, out WorldEntity? parent))
+        {
+            world = TransportRiderLaw.Compose(parent.Position, parent.GameObjectFacing, localPosition, localYaw);
+            return true;
+        }
+        world = default;
+        return false;
+    }
+
+    private void ApplySplinePose(WorldEntity entity, Vector3 position, float? facing, ulong transportGuid)
+    {
+        if (transportGuid == 0)
+        {
+            entity.Position = position;
+            if (facing is { } worldYaw) entity.Orientation = worldYaw;
+            return;
+        }
+        float localYaw = facing ?? (entity.Transport is { } old && old.Guid == transportGuid
+            ? old.Orientation : _entities.TryGetValue(transportGuid, out WorldEntity? parent)
+                ? entity.Orientation - parent.GameObjectFacing : 0);
+        entity.Transport = new TransportPose(transportGuid, position, localYaw);
+        if (TryComposeTransportPose(transportGuid, position, localYaw, out var world))
+        {
+            entity.Position = world.Position;
+            entity.Orientation = world.Orientation;
+        }
     }
 
     /// <summary>Advance every active spline. Call once per frame with a monotonic ms clock.</summary>
@@ -383,13 +500,23 @@ public sealed class EntityStore
                 continue;
             }
             if (_tacticalFreezeStartedMs.Remove(e.Guid, out long frozenAt))
+            {
                 e.Spline?.RebaseAfterPause(Math.Max(0, nowMs - frozenAt));
-            if (e.IsDead) { e.Spline = null; continue; }
+                e.AirborneMotion?.RebaseAfterPause(Math.Max(0, nowMs - frozenAt));
+            }
+            if (e.IsDead) { e.Spline = null; e.AirborneMotion = null; continue; }
+            if (e.AirborneMotion is { } airborne)
+            {
+                e.Position = airborne.Sample(nowMs);
+                continue;
+            }
             if (e.Spline is null) continue;
             bool running = e.Spline.Sample(nowMs, out Vector3 pos, out float? facing);
-            e.Position = pos;
-            if (facing is { } f && e.FacingFromSpline) e.Orientation = f;
-            if (!running) e.Spline = null;   // finished — hold at the endpoint
+            float? poseFacing = e.FacingFromSpline ? facing : null;
+            if (!running)
+                poseFacing = ResolveSplineFacing(e.Spline.FinalFacing, pos, e.Spline.TransportGuid) ?? poseFacing;
+            ApplySplinePose(e, pos, poseFacing, e.Spline.TransportGuid);
+            if (!running) e.Spline = null;
         }
     }
 
@@ -403,7 +530,7 @@ public sealed class EntityStore
         foreach (WorldEntity entity in _entities.Values)
         {
             if (TacticalFreezePoseLaw.IsFrozen(entity.Guid) || !entity.IsCreature ||
-                entity.IsDead || entity.Spline is not null) continue;
+                entity.IsDead || entity.IsMoving) continue;
             ulong? targetGuid = entity.Fields.Target ?? entity.CombatTarget;
             if (targetGuid is null) continue;
 

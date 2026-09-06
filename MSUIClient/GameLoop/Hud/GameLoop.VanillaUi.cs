@@ -573,7 +573,8 @@ public sealed partial class GameLoop
 
     /// <summary>FrameXML EditBox with no authored backdrop and zero text insets.</summary>
     private static bool VanillaBareInputText(string id, byte[] buffer, Vector2 min,
-        Vector2 logicalSize, Vector2 logicalTextInset, float scale)
+        Vector2 logicalSize, Vector2 logicalTextInset, float scale,
+        ImGuiInputTextFlags flags = ImGuiInputTextFlags.None)
     {
         Vector2 inset = logicalTextInset * scale;
         Vector2 inputSize = (logicalSize - logicalTextInset * 2) * scale;
@@ -585,7 +586,7 @@ public sealed partial class GameLoop
         ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBgActive, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.Border, Vector4.Zero);
-        bool changed = ImGui.InputText(id, buffer, (uint)buffer.Length);
+        bool changed = ImGui.InputText(id, buffer, (uint)buffer.Length, flags);
         ImGui.PopStyleColor(4);
         ImGui.PopStyleVar();
         return changed;

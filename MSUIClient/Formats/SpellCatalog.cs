@@ -26,8 +26,14 @@ public readonly record struct SpellInfo(
     uint ActiveIconId = 0, string ActiveIconPath = "",
     uint[]? EffectTriggerSpells = null,
     int StanceBarOrder = 0,
-    bool CategoryWildcard = false)
+    bool CategoryWildcard = false,
+    uint AttributesEx = 0, uint Stances = 0, uint StancesNot = 0, uint DamageClass = 0,
+    uint CasterAuraState = 0, uint TargetAuraState = 0, uint ManaCostPerLevel = 0,
+    uint ProcCharges = 0, uint StackAmount = 0, uint MaxTargetLevel = 0,
+    uint MaxAffectedTargets = 0, float[]? EffectDamageMultipliers = null,
+    float[]? EffectPointsPerComboPoint = null, uint SpellFamily = 0, ulong SpellFamilyFlags = 0)
 {
+    public bool UsesAllPower => (AttributesEx & 0x2) != 0;
     public bool Passive => (Attributes & 0x40) != 0;
     public bool HiddenClientSide => (Attributes & 0x80) != 0;
     public bool TradeSkill => (Attributes & 0x20) != 0;
@@ -83,6 +89,8 @@ public sealed class SpellCatalog
     private readonly Dictionary<uint, uint> _createdItems = new();
     private readonly Dictionary<uint, uint[]> _tools = new();
     private readonly Dictionary<uint, uint> _declaredLanguages = new();
+    private readonly Dictionary<uint, uint> _modifierFamilies = new();
+    public uint ModifierFamilyForClass(uint classId) => _modifierFamilies.GetValueOrDefault(classId);
 
     public int Count => _spells.Count;
     public IEnumerable<SpellInfo> Spells => _spells.Values;
@@ -162,6 +170,10 @@ public sealed class SpellCatalog
         }
 
         var result = new SpellCatalog();
+        DbcFile? classes = Parse(mpq, @"DBFilesClient\ChrClasses.dbc");
+        if (classes is not null && classes.FieldCount >= 16)
+            for (int row = 0; row < classes.RecordCount; row++)
+                result._modifierFamilies[classes.GetUInt(row, 0)] = classes.GetUInt(row, 15);
 
         // SpellCategory flags bit 0x2 makes that category match every cooldown query. In the
         // shipped 5875 data this is category 351 (wand Shoot), but read the authored table
@@ -217,6 +229,7 @@ public sealed class SpellCatalog
             uint activeIconId = spells.GetUInt(row, 118);
             iconMap.TryGetValue(activeIconId, out string? activeIcon);
             uint castTimeIndex = spells.GetUInt(row, 18), durationIndex = spells.GetUInt(row, 30);
+            var classification = SpellClassificationColumns.Read(spells, row);
             result._spells[id] = new SpellInfo(
                 id, spells.GetString(row, 120), spells.GetString(row, 129), icon ?? "",
                 spells.GetUInt(row, 6), spells.GetUInt(row, 8), spells.GetUInt(row, 9),
@@ -236,7 +249,7 @@ public sealed class SpellCatalog
                 Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 88 + i)).ToArray(),
                 Enumerable.Range(0, 3).Select(i => spells.GetInt(row, 106 + i)).ToArray(),
                 Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 103 + i)).ToArray(),
-                spells.GetUInt(row, 15), spells.GetUInt(row, 2),
+                classification.RequiredFocus, classification.Category,
                 CastUi: spells.GetUInt(row, 3), ProcChance: spells.GetUInt(row, 25),
                 AuraDescription: spells.GetString(row, 147),
                 EffectDieSides: Enumerable.Range(0, 3).Select(i => spells.GetInt(row, 64 + i)).ToArray(),
@@ -253,7 +266,7 @@ public sealed class SpellCatalog
                 BaseLevel: spells.GetUInt(row, 28),
                 EffectDicePerLevel: Enumerable.Range(0, 3).Select(i => spells.GetFloat(row, 70 + i)).ToArray(),
                 EffectRealPointsPerLevel: Enumerable.Range(0, 3).Select(i => spells.GetFloat(row, 73 + i)).ToArray(),
-                DispelType: spells.GetUInt(row, 14),
+                DispelType: classification.DispelType,
                 EquippedItemClass: spells.GetInt(row, 58),
                 EquippedItemSubclassMask: spells.GetUInt(row, 59),
                 EquippedItemInventoryTypeMask: spells.GetUInt(row, 60),
@@ -261,18 +274,19 @@ public sealed class SpellCatalog
                 EffectTriggerSpells: Enumerable.Range(0, 3)
                     .Select(i => spells.GetUInt(row, 109 + i)).ToArray(),
                 StanceBarOrder: spells.GetInt(row, 166),
-                CategoryWildcard: wildcardCategories.Contains(spells.GetUInt(row, 15)));
-            uint[] tools = Enumerable.Range(0, 2).Select(i => spells.GetUInt(row, 39 + i))
-                .Where(x => x != 0).ToArray();
-            if (tools.Length > 0) result._tools[id] = tools;
-            var reagents = new List<SpellReagent>(8);
-            for (int i = 0; i < 8; i++)
-            {
-                int item = spells.GetInt(row, 41 + i);
-                int count = spells.GetInt(row, 49 + i);
-                if (item > 0 && count > 0) reagents.Add(new((uint)item, (uint)count));
-            }
-            if (reagents.Count > 0) result._reagents[id] = reagents.ToArray();
+                CategoryWildcard: wildcardCategories.Contains(classification.Category),
+                AttributesEx: spells.GetUInt(row, 7),
+                Stances: spells.GetUInt(row, 11), StancesNot: spells.GetUInt(row, 12), DamageClass: spells.GetUInt(row, 164),
+                CasterAuraState: spells.GetUInt(row, 16), TargetAuraState: spells.GetUInt(row, 17), ManaCostPerLevel: spells.GetUInt(row, 33),
+                ProcCharges: spells.GetUInt(row, 26), StackAmount: spells.GetUInt(row, 39),
+                MaxTargetLevel: spells.GetUInt(row, 159), MaxAffectedTargets: spells.GetUInt(row, 163),
+                EffectDamageMultipliers: Enumerable.Range(0, 3).Select(i => spells.GetFloat(row, 167 + i)).ToArray(),
+                EffectPointsPerComboPoint: Enumerable.Range(0, 3).Select(i => spells.GetFloat(row, 112 + i)).ToArray(),
+                SpellFamily: spells.GetUInt(row, 160),
+                SpellFamilyFlags: spells.GetUInt(row, 161) | ((ulong)spells.GetUInt(row, 162) << 32));
+            var requirements = SpellRequirementColumns.Read(spells, row);
+            if (requirements.Tools.Length > 0) result._tools[id] = requirements.Tools;
+            if (requirements.Reagents.Length > 0) result._reagents[id] = requirements.Reagents;
             for (int i = 0; i < 3; i++)
                 if (spells.GetUInt(row, 61 + i) == 24 && spells.GetUInt(row, 103 + i) != 0)
                 { result._createdItems[id] = spells.GetUInt(row, 103 + i); break; }

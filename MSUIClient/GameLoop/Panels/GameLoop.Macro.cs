@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using ImGuiNET;
+using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
@@ -81,6 +82,8 @@ public sealed partial class GameLoop
         bool migrateLegacy = !File.Exists(accountPath) && !File.Exists(characterPath);
         try
         {
+            bool mayReadLegacyJson = _net?.IsInWorld == true && MacroStore.MigrateLegacy(
+                _config.RepoRoot, _net.AccountStorageKey, _net.RealmName, _net.PlayerName);
             if (File.Exists(accountPath) || File.Exists(characterPath))
             {
                 AppendMacroSet(ReadMacroStore(accountPath));
@@ -89,7 +92,7 @@ public sealed partial class GameLoop
             else
             {
                 string legacyPath = Path.Combine(_config.RepoRoot, "macros.json");
-                if (File.Exists(legacyPath))
+                if (mayReadLegacyJson && File.Exists(legacyPath))
                     _macros.AddRange(JsonSerializer.Deserialize<List<MacroDefinition>>(
                         File.ReadAllText(legacyPath)) ?? []);
             }
@@ -115,11 +118,15 @@ public sealed partial class GameLoop
 
     private (string AccountPath, string CharacterPath) MacroStorePaths()
     {
-        string directory = Path.Combine(_config.RepoRoot, "macros");
-        string realm = MacroFrameUiLaw.StoreFileToken(_net?.RealmName ?? "Realm");
-        string character = MacroFrameUiLaw.StoreFileToken(_net?.PlayerName ?? "Character");
-        return (Path.Combine(directory, "account.txt"),
-            Path.Combine(directory, $"{realm}-{character}.txt"));
+        string accountKey;
+        if (_net is not null) accountKey = _net.AccountStorageKey;
+        else
+        {
+            NetSettings settings = _config.ToNetSettings();
+            accountKey = MacroStore.AccountKey(settings.RealmdHost, settings.RealmdPort, settings.Account);
+        }
+        return MacroStore.Paths(_config.RepoRoot, accountKey,
+            _net?.RealmName ?? "Realm", _net?.PlayerName ?? "Character");
     }
 
     private static IReadOnlyList<MacroDefinition> ReadMacroStore(string path)

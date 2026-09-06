@@ -145,6 +145,31 @@ public sealed class CharacterController
     /// </summary>
     public Vector3 HorizontalVelocity { get; private set; }
 
+    /// <summary>Server impulse retained in the movement wire until landing or a pose reset.</summary>
+    public JumpInfo? ForcedJump { get; private set; }
+    public bool FallResetArc { get; private set; }
+    private bool _fallResetPending, _fallResetBeganJump;
+
+    /// <summary>Consume a real upward collision once; never infer it from a frame-time gap.</summary>
+    public bool ConsumeFallReset(out bool beganJump)
+    {
+        beganJump = _fallResetBeganJump;
+        bool pending = _fallResetPending;
+        _fallResetPending = _fallResetBeganJump = false;
+        return pending;
+    }
+
+    public void ApplyKnockback(JumpInfo jump)
+    {
+        FallResetArc = _fallResetPending = _fallResetBeganJump = false;
+        ForcedJump = jump;
+        Grounded = false;
+        FallTimeMs = 0;
+        Velocity.Z = -jump.ZSpeed;
+        HorizontalVelocity = new Vector3(jump.CosAngle * jump.XySpeed,
+            jump.SinAngle * jump.XySpeed, 0);
+    }
+
     /// <summary>Magnitude of <see cref="HorizontalVelocity"/>, for convenience.</summary>
     public float PlanarSpeed => HorizontalVelocity.Length();
 
@@ -438,6 +463,8 @@ public sealed class CharacterController
 
     public void Teleport(float x, float y, float z)
     {
+        FallResetArc = _fallResetPending = _fallResetBeganJump = false;
+        ForcedJump = null;
         Position = new Vector3(x, y, z);
         Velocity = Vector3.Zero;
         HorizontalVelocity = Vector3.Zero;
@@ -523,6 +550,7 @@ public sealed class CharacterController
         dt = MathF.Min(dt, 0.05f);
 
         Yaw = Normalize(input.Yaw);
+        bool breachedThisUpdate = false;
 
         if (_swimBreachActive && Velocity.Z <= SwimmingMovementLaw.JumpSpeed * 0.5f)
             _swimBreachActive = false;
@@ -532,6 +560,8 @@ public sealed class CharacterController
             SwimPitch = 0f;
         if (nextSwimming && !Swimming)
         {
+            FallResetArc = _fallResetPending = _fallResetBeganJump = false;
+            ForcedJump = null;
             Velocity = Vector3.Zero;
             Grounded = false;
             FallTimeMs = 0f;
@@ -545,6 +575,7 @@ public sealed class CharacterController
 
         if (Flying)
         {
+            FallResetArc = _fallResetPending = _fallResetBeganJump = false;
             UpdateFlying(dt, input, forward, right);
             return;
         }
@@ -563,6 +594,7 @@ public sealed class CharacterController
             }
             Swimming = false;
             _swimBreachActive = true;
+            breachedThisUpdate = true;
             Velocity.Z = SwimmingMovementLaw.JumpSpeed;
         }
         else
@@ -581,7 +613,13 @@ public sealed class CharacterController
         var wish = forward * input.Forward + right * input.Strafe;
         var move = Vector3.Zero;
         HorizontalVelocity = Vector3.Zero;
-        if (wish.LengthSquared() > 1e-6f)
+        if (ForcedJump is { } impulse)
+        {
+            HorizontalVelocity = new Vector3(impulse.CosAngle * impulse.XySpeed,
+                impulse.SinAngle * impulse.XySpeed, 0);
+            move = HorizontalVelocity * dt;
+        }
+        else if (wish.LengthSquared() > 1e-6f)
         {
             HorizontalVelocity = Vector3.Normalize(wish) * speed;
             move = HorizontalVelocity * dt;
@@ -592,6 +630,7 @@ public sealed class CharacterController
 
         if (jumped)
         {
+            FallResetArc = _fallResetPending = _fallResetBeganJump = false;
             Velocity.Z = _opts.JumpVelocity * MathF.Max(0.05f, JumpMultiplier);
             Grounded = false;
         }
@@ -606,13 +645,46 @@ public sealed class CharacterController
         if (Velocity.Z < -terminalVelocity) Velocity.Z = -terminalVelocity;
         float verticalStartZ = Position.Z;
         Position.Z += Velocity.Z * dt;
+        bool hitCeiling = ResolveRisingCeiling(verticalStartZ);
+        if (hitCeiling) _fallResetBeganJump = jumped || breachedThisUpdate;
 
-        ResolveGround(wasGrounded && !jumped,
+        // A first-frame ceiling hit can be within the floor's landing epsilon. Keep the
+        // contact as an airborne edge; the following downward frame owns actual landing.
+        if (hitCeiling) Grounded = false;
+        else ResolveGround(wasGrounded && !jumped,
             MathF.Max(0f, verticalStartZ - Position.Z), terrainMoveStart);
 
         LastBlockAgeSeconds += dt;
 
-        FallTimeMs = Grounded ? 0f : FallTimeMs + dt * 1000f;
+        if (Grounded)
+        {
+            ForcedJump = null;
+            FallResetArc = _fallResetPending = _fallResetBeganJump = false;
+        }
+        FallTimeMs = Grounded || hitCeiling ? 0f : FallTimeMs + dt * 1000f;
+    }
+
+    private bool ResolveRisingCeiling(float startZ)
+    {
+        float rise = Position.Z - startZ;
+        if (Velocity.Z <= 0 || rise <= 0 || !HasGeometryCollision) return false;
+        float allowed = rise;
+        bool blocked = false;
+        foreach (Vector2 direction in SupportProbeDirections)
+        {
+            Vector3 origin = new(Position.X + direction.X * _opts.Radius,
+                Position.Y + direction.Y * _opts.Radius, startZ + _opts.Height - TerrainSkin);
+            if (RaycastGeometry(origin, Vector3.UnitZ, rise + TerrainSkin) is not { } hit ||
+                hit.Normal.Z >= -0.01f || hit.Distance > rise + TerrainSkin) continue;
+            allowed = MathF.Min(allowed, MathF.Max(0, hit.Distance - TerrainSkin));
+            blocked = true;
+        }
+        if (!blocked) return false;
+        Position.Z = startZ + allowed;
+        Velocity.Z = 0;
+        FallResetArc = _fallResetPending = true;
+        if (ForcedJump is { } jump) ForcedJump = jump with { ZSpeed = 0 };
+        return true;
     }
 
     private void UpdateSwimming(float dt, in MovementInput input)

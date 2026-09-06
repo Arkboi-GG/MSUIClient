@@ -37,7 +37,7 @@ namespace MSUIClient.World.Doodads;
 ///   dropped past a draw distance. Without all three this is tens of thousands
 ///   of draw calls a frame.
 /// </summary>
-public sealed class DoodadRenderer : IDisposable
+public sealed partial class DoodadRenderer : IDisposable
 {
     /// <summary>The Command View interior cut for this frame (Engine/WorldCut.cs), or null.
     /// Set by GameLoop from WmoRenderer.ActiveCut after the cell update.</summary>
@@ -269,6 +269,8 @@ public sealed class DoodadRenderer : IDisposable
         /// <summary>Retained only when the M2 has event markers. Dynamic
         /// GameObject audio reads this parsed timeline; it never reloads the model.</summary>
         public M2Model? EventSource;
+        public M2Model? AttachmentSource;
+        public Matrix4x4[]? AttachmentSkin;
 
         /// <summary>Interleaved skinned vertices, reused every frame.</summary>
         public float[]? AnimVertexScratch;
@@ -373,6 +375,7 @@ public sealed class DoodadRenderer : IDisposable
         /// baked into CollisionWorld. Ordinary stationary GameObjects retain the snapshot path.
         /// </summary>
         public bool LiveCollision;
+        public bool CosmeticOnly;
 
         /// <summary>An exact AnimationData one-shot owned by this dynamic
         /// GameObject placement. Static scenery never carries one.</summary>
@@ -934,6 +937,9 @@ public sealed class DoodadRenderer : IDisposable
         _byModel.Clear();
         _cullBounds.Clear();
         _placed.Clear();
+        _dynamicArtKits.Clear();
+        _artKitOwnerScratch.Clear();
+        _dynamicArtKitParts.Clear();
         _dynamicByKey.Clear();   // instances died with _byModel; the GO sync re-adds via HasDynamic
         _dynamicWmoProps.Clear();
         InstanceCount = 0;
@@ -1861,6 +1867,7 @@ public sealed class DoodadRenderer : IDisposable
     /// self-heal any drift regardless.</summary>
     public bool RemoveDynamic(ulong key)
     {
+        RemoveDynamicArtKit(key);
         if (!_dynamicByKey.Remove(key, out var entry)) return false;
         return RemoveDynamicInstance(entry.Model, entry.Instance);
     }
@@ -2270,6 +2277,11 @@ public sealed class DoodadRenderer : IDisposable
         BuildBatches(m2, model, indices.Length, sourcePath);
         BuildPickMesh(m2, model, indices);
         if (m2.Events.Count > 0) model.EventSource = m2;
+        if (m2.Attachments.Count > 0)
+        {
+            model.AttachmentSource = m2;
+            model.AttachmentSkin = new Matrix4x4[m2.Bones.Count];
+        }
         ClassifyBoneAnimation(m2, model, hasGeometry, sourcePath);
         model.CollisionTriangles = BuildCollision(m2, CollisionBasisIndex);
         model.Emitters = m2.ParticleEmitters;
@@ -2535,7 +2547,7 @@ public sealed class DoodadRenderer : IDisposable
 
             foreach (var instance in instances)
             {
-                if (instance.LiveCollision) continue;
+                if (instance.LiveCollision || instance.CosmeticOnly) continue;
                 into.Add(new CollisionBatch(tris, instance.Transform, instance.Path, 0));
                 solid++;
             }
@@ -2567,7 +2579,7 @@ public sealed class DoodadRenderer : IDisposable
 
             foreach (var instance in instances)
             {
-                if (instance.LiveCollision) continue;
+                if (instance.LiveCollision || instance.CosmeticOnly) continue;
                 int source = world.RegisterSource(Path.GetFileName(instance.Path));
                 var m = instance.Transform;
 
@@ -2792,30 +2804,9 @@ public sealed class DoodadRenderer : IDisposable
     /// composed with the parent. In System.Numerics row-vector convention that
     /// is T(−pivot)·S·R·T(pivot+translation), then local · parent.
     /// </summary>
-    private unsafe void UpdateAnimatedVertices(Model model, Instance? instance = null,
-        Camera? camera = null)
+    private void EvaluateAnimationMatrices(Model model, M2Model m2,
+        DynamicAnimation? oneShot, DynamicStateAnimation? stateAnimation, Matrix4x4[] mats)
     {
-        var m2 = model.BoneAnimSource;
-        if (m2 is null || model.AnimVertexScratch is null || model.AnimBoneMatrices is null)
-            return;
-        DynamicAnimation? oneShot = instance?.OneShot;
-        if (oneShot is not null &&
-            NowSeconds - oneShot.StartedAt >= oneShot.DurationSeconds)
-        {
-            instance!.OneShot = null;
-            oneShot = null;
-        }
-        DynamicStateAnimation? stateAnimation = instance?.StateAnimation;
-        ulong sampleGuid = oneShot is null && stateAnimation is null
-            ? 0 : instance!.DynamicGuid;
-        bool perInstanceBillboard = model.UsesCameraFacingBones &&
-            instance is not null && camera is not null;
-        if (!perInstanceBillboard && model.LastAnimSampleTime == NowSeconds &&
-            model.LastAnimSampleDynamicGuid == sampleGuid) return;
-        model.LastAnimSampleTime = NowSeconds;
-        model.LastAnimSampleDynamicGuid = sampleGuid;
-
-        var mats = model.AnimBoneMatrices;
         if (model.BoneAnimator is not null && oneShot is not null)
         {
             M2Animator.Clip? clip = model.BoneAnimator.FindOrBake(oneShot.AnimationId);
@@ -2857,6 +2848,34 @@ public sealed class DoodadRenderer : IDisposable
                     : local;
             }
         }
+
+    }
+
+    private unsafe void UpdateAnimatedVertices(Model model, Instance? instance = null,
+        Camera? camera = null)
+    {
+        var m2 = model.BoneAnimSource;
+        if (m2 is null || model.AnimVertexScratch is null || model.AnimBoneMatrices is null)
+            return;
+        DynamicAnimation? oneShot = instance?.OneShot;
+        if (oneShot is not null &&
+            NowSeconds - oneShot.StartedAt >= oneShot.DurationSeconds)
+        {
+            instance!.OneShot = null;
+            oneShot = null;
+        }
+        DynamicStateAnimation? stateAnimation = instance?.StateAnimation;
+        ulong sampleGuid = oneShot is null && stateAnimation is null
+            ? 0 : instance!.DynamicGuid;
+        bool perInstanceBillboard = model.UsesCameraFacingBones &&
+            instance is not null && camera is not null;
+        if (!perInstanceBillboard && model.LastAnimSampleTime == NowSeconds &&
+            model.LastAnimSampleDynamicGuid == sampleGuid) return;
+        model.LastAnimSampleTime = NowSeconds;
+        model.LastAnimSampleDynamicGuid = sampleGuid;
+
+        var mats = model.AnimBoneMatrices;
+        EvaluateAnimationMatrices(model, m2, oneShot, stateAnimation, mats);
 
         if (perInstanceBillboard)
             DoodadBillboardLaw.Apply(m2, instance!.Transform, camera!, mats);
@@ -2938,6 +2957,10 @@ public sealed class DoodadRenderer : IDisposable
             RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             return;
         }
+
+        // Retained despawn placements no longer have gameplay entities, but their
+        // cosmetic children still follow the parent's current animation until removal.
+        UpdateDynamicArtKitPoses();
 
         // Which GameObject models hold a live owner-local pose this frame -- a
         // retained state pose or an unfinished transition. Only these leave the

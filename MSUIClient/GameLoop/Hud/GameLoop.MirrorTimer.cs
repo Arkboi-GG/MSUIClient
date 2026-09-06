@@ -24,8 +24,9 @@ public sealed partial class GameLoop
         _serverBreathObservedThisImmersion = false;
     }
 
-    private void ApplyMirrorTimerStart(byte[] body)
+    private void ApplyMirrorTimerStart(byte[] body, ulong owner)
     {
+        if (owner == 0 || owner != ControlledGuid) return;
         MirrorTimerStart packet = MirrorTimerPackets.ParseStart(body);
         if (packet.Kind == MirrorTimerKind.Breath)
             _serverBreathObservedThisImmersion = true;
@@ -36,8 +37,9 @@ public sealed partial class GameLoop
             $"durationMs={packet.DurationMs};scale={packet.Scale};paused={packet.Paused}");
     }
 
-    private void ApplyMirrorTimerPause(byte[] body)
+    private void ApplyMirrorTimerPause(byte[] body, ulong owner)
     {
+        if (owner == 0 || owner != ControlledGuid) return;
         (uint rawKind, bool paused) = MirrorTimerPackets.ParsePause(body);
         if (rawKind == (uint)MirrorTimerKind.Breath)
             _serverBreathObservedThisImmersion = true;
@@ -46,8 +48,9 @@ public sealed partial class GameLoop
             $"paused={paused}");
     }
 
-    private void ApplyMirrorTimerStop(byte[] body)
+    private void ApplyMirrorTimerStop(byte[] body, ulong owner)
     {
+        if (owner == 0 || owner != ControlledGuid) return;
         uint rawKind = MirrorTimerPackets.ParseStop(body);
         if (rawKind == (uint)MirrorTimerKind.Breath)
             _serverBreathObservedThisImmersion = true;

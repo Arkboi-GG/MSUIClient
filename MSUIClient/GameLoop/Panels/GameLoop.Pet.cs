@@ -136,7 +136,9 @@ public sealed partial class GameLoop
             if (store is null) continue;
             SpellInfo spell = default;
             bool resolved = _spellCatalog?.TryGet(spellId, out spell) == true;
-            store.ApplyWireCooldown(spellId, wireMs, resolved ? spell : null, now);
+            store.ApplyWireCooldown(spellId, wireMs, resolved ? spell : null, now,
+                resolved ? ActorSpellModifiers(caster, spell, SpellModifierStore.Cooldown) : default,
+                resolved ? ActorSpellModifiers(caster, spell, SpellModifierStore.GlobalCooldown) : default);
         }
     }
 
@@ -178,6 +180,20 @@ public sealed partial class GameLoop
         ulong guid = r.ReadU64();
         uint state = r.ReadU32();
         if (guid == _petGuid) _petState = state;
+    }
+
+    private void ApplyPetNotice(Op opcode, byte[] body, ulong owner)
+    {
+        PetNotice? parsed = PetNoticePackets.Parse(opcode, body);
+        if (parsed is not { } notice || owner == 0) return;
+        string text = InventoryGlobalString(notice.Key, notice.Fallback);
+        if (notice.TameFailure)
+            text = InventoryGlobalString("ERR_TAME_FAILED", "%s.").Replace("%s", text);
+        if (owner == ControlledGuid) ShowUiError(text);
+        else if (owner == LocalPlayerGuid)
+            AddChatMessage($"[{_net?.PlayerName ?? "Character"}] {text}");
+        // A notice never invents pet teardown or reopens a rename dialog: those
+        // need their own authoritative state, absent from these packet bodies.
     }
 
     private void ApplyPetActionFeedback(byte[] body)
@@ -279,7 +295,21 @@ public sealed partial class GameLoop
     /// </summary>
     private void ResetBodySessionUiOnControlChange()
     {
+        ResetPossessedClientControl();
+        ResetTrade(); // Local offer/acceptance state belongs to the body just left.
+        ResetMirrorTimers();
+        ResetWeatherOnControlChange();
+        ResetReputationBodyUi();
+        ResetBinderConfirmation();
+        ResetHearthAttempt();
+        _pendingQuestItemNotices?.Clear();
+        _vendorPickup = null;
+        ResetGossip();
         ResetPetActionBar();
+        ResetPetInfoRefresh();
+        ResetInspectHonor();
+        ResetBattlefieldBodyUi();
+        ResetProfessionOnControlChange();
         ClearLootOnControlChange();
         CloseBankSession(playSound: false);
         // A taxi map or ride belonged to the body we just left: the released bot keeps

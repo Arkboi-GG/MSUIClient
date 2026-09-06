@@ -31,6 +31,7 @@ public sealed class SkillLineCatalog
     private readonly Dictionary<uint, SkillLineInfo> _lines = new();
     private readonly Dictionary<uint, SkillCategoryInfo> _categories = new();
     private readonly Dictionary<uint, uint> _spellLines = new();
+    private readonly Dictionary<uint, uint> _spellRankLines = new();
     private readonly Dictionary<uint, SkillRecipeInfo> _recipes = new();
     private readonly Dictionary<uint, List<SkillRecipeInfo>> _recipesByLine = new();
     private readonly Dictionary<uint, List<RaceClassRoute>> _raceClassRoutes = new();
@@ -43,6 +44,8 @@ public sealed class SkillLineCatalog
     public bool TryGet(uint id, out SkillLineInfo line) => _lines.TryGetValue(id, out line);
     public IEnumerable<SkillLineInfo> Lines => _lines.Values;
     public bool TryGetCategory(uint id, out SkillCategoryInfo category) => _categories.TryGetValue(id, out category);
+    // Core builds its rank map in ascending SkillLineAbility row-ID order.
+    public uint SpellRankLine(uint spellId) => _spellRankLines.GetValueOrDefault(spellId);
     public uint SpellLine(uint spellId) => _spellLines.GetValueOrDefault(spellId);
     /// <summary>
     /// The 1.12 spellbook tab for a known spell. Generic/racial/proficiency lines whose matching
@@ -110,6 +113,7 @@ public sealed class SkillLineCatalog
             result._lines[id] = new SkillLineInfo(id, category, lines.GetString(row, 3),
                 lines.GetString(row, 12), string.IsNullOrWhiteSpace(icon) ? "" : icon);
         }
+        var firstRankRowIds = new Dictionary<uint, uint>();
         if (abilities is { FieldCount: >= 15 })
             for (int row = 0; row < abilities.RecordCount; row++)
             {
@@ -117,6 +121,12 @@ public sealed class SkillLineCatalog
                 if (spell == 0) continue;
                 uint line = abilities.GetUInt(row, 1);
                 result._spellLines.TryAdd(spell, line);
+                uint rowId = abilities.GetUInt(row, 0);
+                if (!firstRankRowIds.TryGetValue(spell, out uint previousRow) || rowId < previousRow)
+                {
+                    firstRankRowIds[spell] = rowId;
+                    result._spellRankLines[spell] = line;
+                }
                 var recipe = new SkillRecipeInfo(spell, line, abilities.GetUInt(row, 7),
                     abilities.GetUInt(row, 11), abilities.GetUInt(row, 10));
                 result._classAbilities.Add(new ClassAbilityRow(spell, line,

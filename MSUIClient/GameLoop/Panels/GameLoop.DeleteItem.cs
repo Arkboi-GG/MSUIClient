@@ -22,6 +22,8 @@ public sealed partial class GameLoop
 
     private void TryOpenDeleteItemConfirmation()
     {
+        if (_vendorPickup is not null && ImGui.IsMouseReleased(ImGuiMouseButton.Left) && !ImGui.IsAnyItemHovered())
+        { _vendorPickup = null; return; }
         if (!CanAuthorControlledOrSelf || _deleteItemConfirmation is not null ||
             !HasCarriedItem ||
             !ImGui.IsMouseReleased(ImGuiMouseButton.Left) || ImGui.IsAnyItemHovered() ||
@@ -94,6 +96,11 @@ public sealed partial class GameLoop
                 DeleteItemUiLaw.ConfirmText(first.DataToken ?? ""),
             DuelFrameUiLaw.RequestedPopupType =>
                 DuelFrameUiLaw.RequestedText(first.DataToken ?? ""),
+            InstanceBootUiLaw.PopupType => InstanceBootText(ControlledGuid, first.TimeLeft),
+            _ when IsBattlefieldInvite(first.Definition.Type) => BattlefieldInviteText(first.Definition.Type),
+            AreaSpiritHealerUiLaw.PopupType => AreaSpiritHealerPromptText(),
+            PetUnlearnUiLaw.PopupType => PetUnlearnPromptText(),
+            TrainerServiceUiLaw.PopupType => TrainerConfirmationText(),
             DuelFrameUiLaw.OutOfBoundsPopupType =>
                 DuelFrameUiLaw.OutOfBoundsText(first.TimeLeft),
             ConfirmPopupUiLaw.SummonPopupType => SummonPromptText(),
@@ -119,7 +126,8 @@ public sealed partial class GameLoop
         int lines = WrapTooltipText(text, "GameFontHighlight", scale,
             DeleteItemUiLaw.TextWidth * scale).Count();
         float textHeight = lines * GameText.LinePitch("GameFontHighlight", 1);
-        float buttonHeight = first.Definition.Type == DuelFrameUiLaw.OutOfBoundsPopupType
+        if (first.Definition.Type == PetUnlearnUiLaw.PopupType) textHeight += PetUnlearnUiLaw.MoneyExtraHeight;
+        float buttonHeight = first.Definition.Type is DuelFrameUiLaw.OutOfBoundsPopupType or InstanceBootUiLaw.PopupType
             ? 0 : DeleteItemUiLaw.ButtonHeight;
         return StaticPopupCoordinatorLaw.Height(textHeight, buttonHeight,
             StaticPopupCoordinatorLaw.NarrowEditBoxHeight, first.Definition.HasEditBox);

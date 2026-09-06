@@ -4,6 +4,7 @@ using MSUIClient.Net;
 using MSUIClient.Player;
 using MSUIClient.World.Collision;
 using MSUIClient.World.Wmo;
+using MSUIClient.World.Units;
 
 namespace MSUIClient;
 
@@ -214,7 +215,8 @@ public sealed partial class GameLoop
     {
         foreach (WorldEntity rider in _entities.Units)
         {
-            if ((rider.Guid == ControlledGuid && !ControlledBodyIsStreamed) ||
+            if (TacticalFreezePoseLaw.IsFrozen(rider.Guid) ||
+                (rider.Guid == ControlledGuid && !ControlledBodyIsStreamed) ||
                 rider.Transport is not { } local ||
                 (!_elevatorTransports.ContainsKey(local.Guid) &&
                  !_moTransports.ContainsKey(local.Guid)) ||

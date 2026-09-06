@@ -70,6 +70,7 @@ public sealed class ObjectFields
     public const ushort UNIT_AURAFLAGS = 95;         // 8 nibbles per dword
     public const ushort UNIT_AURALEVELS = 101;       // 4 bytes per dword
     public const ushort UNIT_AURAAPPLICATIONS = 113; // stack-minus-one bytes
+    public const ushort UNIT_AURASTATE = 125;
     public const ushort UNIT_BASEATTACKTIME = 126;
     public const ushort UNIT_RANGEDATTACKTIME = 128;
     public const ushort UNIT_BOUNDINGRADIUS = 129;   // f32, horizontal bounding radius (yd)
@@ -94,8 +95,15 @@ public sealed class ObjectFields
     public const ushort UNIT_FIELD_PETNEXTLEVELEXP = 142;
     public const ushort UNIT_DYNAMIC_FLAGS = 143;
     public const ushort UNIT_CHANNEL_SPELL = 144;
+    public const ushort UNIT_MOD_CAST_SPEED = 145;
     public const ushort UNIT_CREATED_BY_SPELL = 146;
     public const ushort UNIT_BASE_MANA = 162;        // PRIVATE+OWNER_ONLY: only our own descriptor
+    public const ushort UNIT_BASE_HEALTH = 163;
+    public const ushort PLAYER_SELF_RES_SPELL = 1224;
+    public const ushort UNIT_ATTACK_POWER_MULTIPLIER = 167;
+    public const ushort UNIT_RANGED_ATTACK_POWER_MULTIPLIER = 170;
+    public const ushort UNIT_POWER_COST_MODIFIER = 173;
+    public const ushort UNIT_POWER_COST_MULTIPLIER = 180;
     public const ushort UNIT_NPC_FLAGS = 147;
     // Confirmed the same way as UNIT_FIELD_BYTES_1 above: read directly out of
     // vmangos/core's UpdateFields_1_12_1.h (OBJECT_END+0x8E), cross-checked
@@ -126,13 +134,16 @@ public sealed class ObjectFields
     public const ushort GAMEOBJECT_FACTION = 20;
     public const ushort GAMEOBJECT_TYPE_ID = 21;
     public const ushort GAMEOBJECT_STATE = 14;
+    public const ushort GAMEOBJECT_ARTKIT = 23;
     public const ushort GAMEOBJECT_LEVEL = 22;
 
     public const ushort ITEM_STACK_COUNT = 14;
     public const ushort ITEM_FIELD_CREATOR = 10;     // guid
+    public const ushort ITEM_FIELD_GIFTCREATOR = 12;  // guid
     public const ushort ITEM_SPELL_CHARGES = 16;
     public const ushort ITEM_FLAGS = 21;
     public const ushort ITEM_FIELD_ENCHANTMENT = 22; // seven triples: id, duration, charges
+    public const ushort ITEM_RANDOM_PROPERTIES = 44;
     public const ushort ITEM_TEXT_ID = 45;
     public const ushort ITEM_DURABILITY = 46;
     public const ushort ITEM_MAXDURABILITY = 47;
@@ -200,6 +211,8 @@ public sealed class ObjectFields
     public const ushort PLAYER_BYTES = 193;          // skin/face/hairstyle/haircolor
     public const ushort PLAYER_BYTES_2 = 194;        // facial hair, etc.
     public const ushort PLAYER_BYTES_3 = 195;        // byte1: server-authored drunkenness (0..100)
+    public const ushort PLAYER_DUEL_ARBITER = 188;   // public GUID; UNIT_END + 0
+    public const ushort PLAYER_DUEL_TEAM = 196;      // public team; UNIT_END + 8 (header comments omit OBJECT_END)
     public const ushort PLAYER_FLAGS = 190;
 
     private readonly Dictionary<ushort, uint> _fields;
@@ -302,6 +315,7 @@ public sealed class ObjectFields
         uint bits = GetU32((ushort)(PLAYER_EXPLORED_ZONES_1 + word)) ?? 0;
         return (bits & (1u << (int)(exploreFlag % 32))) != 0;
     }
+    public uint GameObjectArtKit => GetU32(GAMEOBJECT_ARTKIT) ?? 0;
     public float Scale => GetF32(OBJECT_SCALE_X) ?? 1f;
     public int DisplayId => GetI32(UNIT_DISPLAYID) ?? 0;
     public uint GameObjectDisplayId => GetU32(GAMEOBJECT_DISPLAYID) ?? 0;
@@ -363,6 +377,7 @@ public sealed class ObjectFields
     public bool InCombat => (UnitFlags & 0x0008_0000u) != 0;
     public byte UnitStandState => (byte)(GetU32(UNIT_FIELD_BYTES_1) ?? 0);
     /// <summary>`UNIT_FIELD_BYTES_1` byte two — the active shapeshift form id.</summary>
+    public float CastSpeedMultiplier => GetF32(UNIT_MOD_CAST_SPEED) ?? 1f;
     public byte ShapeshiftForm => (byte)((GetU32(UNIT_FIELD_BYTES_1) ?? 0) >> 16);
     /// <summary>UNIT_FIELD_BYTES_1 byte three bit 0x2: the archived CREEP/stealth gate.</summary>
     public bool UnitIsStealthed => (((GetU32(UNIT_FIELD_BYTES_1) ?? 0) >> 24) & 0x02u) != 0;
@@ -389,6 +404,11 @@ public sealed class ObjectFields
     public float BoundingRadius => GetF32(UNIT_BOUNDINGRADIUS) ?? 0f;
     /// <summary>Base the percent-cost spells scale from; only present on our own descriptor.</summary>
     public uint BaseMana => GetU32(UNIT_BASE_MANA) ?? 0;
+    public uint BaseHealth => GetU32(UNIT_BASE_HEALTH) ?? 0;
+    public int PowerCostModifier(int school) => school is >= 0 and < 7
+        ? GetI32((ushort)(UNIT_POWER_COST_MODIFIER + school)) ?? 0 : 0;
+    public float PowerCostMultiplier(int school) => school is >= 0 and < 7
+        ? GetF32((ushort)(UNIT_POWER_COST_MULTIPLIER + school)) ?? 0 : 0;
 
     public uint VirtualItemDisplay(int slot) => slot is >= 0 and < 3
         ? GetU32((ushort)(UNIT_VIRTUAL_ITEM_SLOT_DISPLAY + slot)) ?? 0 : 0;
@@ -456,8 +476,10 @@ public sealed class ObjectFields
         ? GetU32((ushort)(ITEM_FIELD_ENCHANTMENT + slot * 3 + 1)) ?? 0 : 0;
     public uint ItemEnchantmentCharges(int slot) => slot is >= 0 and < 7
         ? GetU32((ushort)(ITEM_FIELD_ENCHANTMENT + slot * 3 + 2)) ?? 0 : 0;
+    public int ItemRandomProperty => unchecked((int)(GetU32(ITEM_RANDOM_PROPERTIES) ?? 0));
     public uint ItemTextId => GetU32(ITEM_TEXT_ID) ?? 0;
     public ulong ItemCreator => GetGuid(ITEM_FIELD_CREATOR) ?? 0;
+    public ulong ItemGiftCreator => GetGuid(ITEM_FIELD_GIFTCREATOR) ?? 0;
     public uint ItemDurability => GetU32(ITEM_DURABILITY) ?? 0;
     public uint ItemMaxDurability => GetU32(ITEM_MAXDURABILITY) ?? 0;
     public uint ContainerNumSlots => GetU32(CONTAINER_NUM_SLOTS) ?? 0;
@@ -473,6 +495,8 @@ public sealed class ObjectFields
         index is >= 0 and < 19 && enchantSlot is >= 0 and < 7
             ? GetU32((ushort)(PLAYER_VISIBLE_ITEM_1_0 + index * 12 + 1 + enchantSlot)) ?? 0
             : 0;
+    public int PlayerVisibleItemRandomProperty(int index) => index is >= 0 and < 19
+        ? unchecked((short)(GetU32((ushort)(PLAYER_VISIBLE_ITEM_1_0 + index * 12 + 8)) ?? 0)) : 0;
     public ulong PlayerBackpackSlot(int index) => index is >= 0 and < 16 ? GetGuid((ushort)(PLAYER_PACK_SLOT_1 + index * 2)) ?? 0 : 0;
     public ulong PlayerBankSlot(int index) => index is >= 0 and < 24 ? GetGuid((ushort)(PLAYER_BANK_SLOT_1 + index * 2)) ?? 0 : 0;
     public ulong PlayerBankBagSlot(int index) => index is >= 0 and < 6 ? GetGuid((ushort)(PLAYER_BANK_BAG_SLOT_1 + index * 2)) ?? 0 : 0;
@@ -488,8 +512,9 @@ public sealed class ObjectFields
     public uint TalentPoints => GetU32(PLAYER_CHARACTER_POINTS1) ?? 0;
     public uint FreeProfessions => GetU32(PLAYER_CHARACTER_POINTS2) ?? 0;
     public uint Coinage => GetU32(PLAYER_COINAGE) ?? 0;
-    /// <summary>PLAYER_SELF_RES_SPELL (UNIT_END + 0x40C = 1218, PRIVATE): the soulstone / Reincarnation spell the release dialog may cast via CMSG_SELF_RES.</summary>
-    public uint PlayerSelfResSpell => GetU32(1218) ?? 0;
+    /// <summary>PLAYER_SELF_RES_SPELL (UNIT_END + 0x40C = 1224, PRIVATE): the soulstone / Reincarnation spell the release dialog may cast via CMSG_SELF_RES.</summary>
+    public uint PlayerSelfResSpell => GetU32(PLAYER_SELF_RES_SPELL) ?? 0;
+    public uint AuraState => GetU32(UNIT_AURASTATE) ?? 0;
     public byte PlayerComboPoints => (byte)((GetU32(PLAYER_FIELD_BYTES) ?? 0) >> 8);
     public ulong PlayerComboTarget => GetGuid(PLAYER_FIELD_COMBO_TARGET) ?? 0;
     public byte BankBagSlotCount => (byte)((GetU32(PLAYER_BYTES_2) ?? 0) >> 16);
@@ -518,6 +543,18 @@ public sealed class ObjectFields
             ushort value = (ushort)(GetU32((ushort)(first + 1)) ?? 0);
             yield return (slot, skillId, value);
         }
+    }
+
+    /// <summary>Core GetSkillValueBase: trained rank plus permanent bonuses, excluding temporary/item bonuses.</summary>
+    public uint PlayerSkillValueBase(uint skillId)
+    {
+        foreach (var skill in PlayerSkills())
+            if (skill.SkillId == skillId)
+            {
+                uint bonuses = GetU32((ushort)(PLAYER_SKILL_INFO_1_1 + skill.Slot * 3 + 2)) ?? 0;
+                return (uint)Math.Max(0, skill.Value + (short)(bonuses >> 16));
+            }
+        return 0;
     }
 
     public uint PlayerSkillValueWithBonuses(uint skillId)
@@ -583,8 +620,10 @@ public sealed class ObjectFields
     public uint MainAttackTime => GetU32(UNIT_BASEATTACKTIME) ?? 0;
     public uint OffhandAttackTime => GetU32((ushort)(UNIT_BASEATTACKTIME + 1)) ?? 0;
     public uint RangedAttackTime => GetU32(UNIT_RANGEDATTACKTIME) ?? 0;
-    public int AttackPower => (GetI32(UNIT_ATTACK_POWER) ?? 0) + PackedSignedLow(UNIT_ATTACK_POWER_MODS) + PackedSignedHigh(UNIT_ATTACK_POWER_MODS);
-    public int RangedAttackPower => (GetI32(UNIT_RANGED_ATTACK_POWER) ?? 0) + PackedSignedLow(UNIT_RANGED_ATTACK_POWER_MODS) + PackedSignedHigh(UNIT_RANGED_ATTACK_POWER_MODS);
+    public int AttackPower => (int)(Math.Max(0, AttackPowerBase + AttackPowerPositive + AttackPowerNegative)
+        * (1f + (GetF32(UNIT_ATTACK_POWER_MULTIPLIER) ?? 0)));
+    public int RangedAttackPower => (int)(Math.Max(0, RangedAttackPowerBase + RangedAttackPowerPositive + RangedAttackPowerNegative)
+        * (1f + (GetF32(UNIT_RANGED_ATTACK_POWER_MULTIPLIER) ?? 0)));
     public int AttackPowerBase => GetI32(UNIT_ATTACK_POWER) ?? 0;
     public int AttackPowerPositive => PackedSignedLow(UNIT_ATTACK_POWER_MODS);
     public int AttackPowerNegative => PackedSignedHigh(UNIT_ATTACK_POWER_MODS);
@@ -608,6 +647,7 @@ public sealed class ObjectFields
     public bool PlayerIsGhost => (PlayerFlags & 0x10u) != 0;
     public bool PlayerShowsHelm => (PlayerFlags & 0x400u) == 0;
     public bool PlayerShowsCloak => (PlayerFlags & 0x800u) == 0;
+    public byte? PlayerHighestHonorRank => GetU32(PLAYER_FIELD_BYTES) is { } bytes ? (byte)(bytes >> 24) : null;
     public uint PlayerFieldBytes => GetU32(PLAYER_FIELD_BYTES) ?? 0;
     public int WatchedFactionIndex =>
         GetI32(PLAYER_FIELD_WATCHED_FACTION_INDEX) ?? -1;

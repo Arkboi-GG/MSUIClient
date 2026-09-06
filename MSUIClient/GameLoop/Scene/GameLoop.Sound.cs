@@ -404,9 +404,42 @@ public sealed partial class GameLoop
     private bool ServerSoundPlaybackHeld
         => !_soundscapePlaybackArmed || _worldLoading || _soundscape is null;
 
-    private void ApplyWeather(byte[] body)
+    private WeatherPacket? _mainBodyWeather;
+
+    private void ResetWeatherSession()
     {
+        _mainBodyWeather = null;
+        ResetWeatherPresentation();
+    }
+
+    private void ResetWeatherPresentation()
+    {
+        _weatherSoundKit = 0;
+        _weatherVisual?.Apply(0, 0, instant: true, NowSeconds());
+        _weatherPrecipitation?.ResetSession();
+    }
+
+    private void ResetWeatherOnControlChange()
+    {
+        // Old indoor-held pools and fades must not travel with the camera. A new
+        // companion gets its authoritative snapshot after the control ack.
+        ResetWeatherPresentation();
+        if (ControlledGuid == LocalPlayerGuid && _mainBodyWeather is { } own)
+            ApplyWeatherState(own with { Instant = true });
+    }
+
+    private void ApplyWeather(byte[] body) => ApplyActorWeather(body, LocalPlayerGuid);
+
+    private void ApplyActorWeather(byte[] body, ulong owner)
+    {
+        if (owner == 0 || owner != LocalPlayerGuid && owner != ControlledGuid) return;
         WeatherPacket weather = WeatherPackets.Parse(body);
+        if (owner == LocalPlayerGuid) _mainBodyWeather = weather;
+        if (owner == ControlledGuid) ApplyWeatherState(weather);
+    }
+
+    private void ApplyWeatherState(WeatherPacket weather)
+    {
         // The sound kit is state, unlike the three one-shot/server-music pushes:
         // retain it through a loading cover so the ambience selector sees the
         // destination zone's weather when playback arms. Grade is visual-only.

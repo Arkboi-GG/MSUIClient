@@ -37,8 +37,14 @@ public sealed partial class GameLoop
         ulong owner = ControlledGuid;
         if (owner == _castStateOwner) return;
         bool live = _castBarPhase != CastBarPhase.Hidden || _pendingCastSpell != 0 ||
-            _queuedMeleeSpell != 0;
+            _queuedMeleeSpell != 0 || _autoRepeatSpell != 0;
         _castStateOwner = owner;
+        // Reset local intent only: a handoff must not cancel the new actor on the server.
+        _autoRepeatSpell = 0;
+        _groundCastSpell = 0;
+        _groundCursorPoint = null;
+        CancelItemTargeting();
+        CancelGiftWrapping();
         if (!live) return;
         if (_castBarPhase != CastBarPhase.Hidden)
             EmitCastBarVerdict("CONTROL_CHANGED", _castBarSpell);
@@ -87,8 +93,7 @@ public sealed partial class GameLoop
             if (info is { } startedInfo)
                 EmitSpellAnimation(startedInfo, "PRECAST", SpellStageKitId(startedInfo.VisualId, "precast"), anim, "SERVER_START");
             if (info?.Ranged == true) SetVisualSheath(2);
-            if (packet.CastTimeMs > 0 && info?.Ranged != true)
-                BeginCastBar(packet.SpellId, packet.CastTimeMs, channel: false);
+            ApplyControlledCastStart(packet.SpellId, packet.CastTimeMs, info);
         }
         else _creatures?.BeginSpellVisual(packet.Caster, anim);
     }
@@ -142,18 +147,18 @@ public sealed partial class GameLoop
                 EmitSpellAnimation(completedInfo, "CAST", SpellStageKitId(completedInfo.VisualId, "cast"), anim, "SERVER_GO");
             if (info?.Ranged == true) SetVisualSheath(2);
             // Auto Shot / wand Shoot reload: the rail restarts on the real SPELL_GO,
-            // identified by SpellInfo.Ranged rather than by the addon's name table.
+            // identified by the auto-repeat attribute, not every ranged ability.
             if (info is { } rangedInfo)
                 NoteSwingTimerRanged(packet.SpellId, rangedInfo, packet.Caster);
             CompleteCastBar(packet.SpellId);
             ObserveProfessionSpellGo(packet.SpellId);
-            ObserveHearthSpellGo(packet.SpellId);
+            ObserveHearthSpellGo(packet.SpellId, packet.Caster);
             if (info is { } completed)
             {
                 uint rangedAttackTimeMs = completed.RangedSpeedCooldown &&
                     _entities.TryGet(packet.Caster, out WorldEntity cooldownCaster)
                         ? cooldownCaster.Fields.RangedAttackTime : 0;
-                _actions.StartSpellCooldown(packet.SpellId, completed,
+                StartActorSpellCooldown(_actions, packet.Caster, completed,
                     rangedAttackTimeMs, now);
             }
         }
@@ -162,7 +167,7 @@ public sealed partial class GameLoop
         EmitCombat("SpellGoTargets", "server-packet", packet.Targets.Unit ?? 0,
             $"spell={packet.SpellId};mask=0x{packet.Targets.Mask:X4};hits={packet.Hits.Length};" +
             $"hitGuids={string.Join('|', packet.Hits.Select(guid => $"0x{guid:X16}"))};" +
-            $"misses={packet.Misses.Length};missInfo={string.Join('|', packet.Misses.Select(miss => $"0x{miss.Guid:X16}:{miss.Reason}"))};explicitUnit=" +
+            $"misses={packet.Misses.Length};missInfo={string.Join('|', packet.Misses.Select(miss => $"0x{miss.Guid:X16}:{miss.Reason}:reflect={miss.ReflectionReason?.ToString() ?? "none"}"))};explicitUnit=" +
             (packet.Targets.Unit is { } explicitUnit ? $"0x{explicitUnit:X16}" : "none"));
 
         SpellVisualStages visualStages = default;
@@ -281,6 +286,29 @@ public sealed partial class GameLoop
         else if (!ControlledBodyTacticallyFrozen) _character?.CancelSpellVisual();
     }
 
+    private void ApplySpellCastFailureResult(uint spellId, byte reason, ulong? source = null,
+        SpellCastFailureContext? context = null)
+    {
+        ulong caster = source ?? ControlledGuid;
+        // The event retains its origin across queued control acknowledgements.
+        if (caster != ControlledGuid)
+        {
+            ApplySpellFailure(caster, spellId, "FAILED");
+            return;
+        }
+        FailRealPortalCastPrewarmResult(spellId);
+        string name = SpellCastResultNames.Name(reason);
+        EmitSpellServerResult(spellId, name);
+        string power = _spellCatalog?.TryGet(spellId, out SpellInfo spell) == true
+            ? PowerName((byte)spell.PowerType) : "POWER";
+        string text = ContextualSpellFailureText(reason, power, context);
+        ShowSpellError(spellId, name, text, "SMSG_CAST_RESULT");
+        ObserveProfessionSpellFailure(spellId, name);
+        ApplySpellFailure(caster, spellId,
+            reason is 0x23 or 0x24 ? "INTERRUPTED" : text.Length > 0 ? text : "FAILED");
+        RestorePermanentCastFailureCooldown(caster, spellId, context);
+    }
+
     private void ApplySpellFailure(ulong caster, uint spellId, string text)
     {
         FailRealPortalCastPrewarm(caster, spellId);
@@ -288,9 +316,11 @@ public sealed partial class GameLoop
         {
             if (_pendingCastSpell == spellId) _pendingCastSpell = 0;
             if (_queuedMeleeSpell == spellId) _queuedMeleeSpell = 0;
+            if (_autoRepeatSpell == spellId) _autoRepeatSpell = 0;
             _globalCooldownUntil = 0;
-            _actions.ClearGlobalCooldown(spellId);
-            _actions.ClearCooldown(spellId);
+            PlayerActions actions = ActionsFor(caster);
+            actions.ClearGlobalCooldown(spellId);
+            actions.ClearCooldown(spellId);
             CancelControlledSpellVisual();
             FailCastBar(spellId, text);
         }
@@ -353,6 +383,19 @@ public sealed partial class GameLoop
         EmitCastBarVerdict("CANCEL_SEND", spell, cancelSource: "MOVEMENT_CAST");
         _net.CancelCast(spell);
         ApplySpellFailure(ControlledGuid, spell, "INTERRUPTED");
+    }
+
+    private void ApplyServerCombatCancelled(ulong caster)
+    {
+        _combat.ApplySnapshot(caster, null, _entities);
+        if (caster != ControlledGuid) return;
+        _attackTargetGuid = 0;
+        _queuedMeleeSpell = 0;
+        if (_autoRepeatSpell != 0)
+        {
+            if (_pendingCastSpell == _autoRepeatSpell) _pendingCastSpell = 0;
+            ApplyAutoRepeatCancelled();
+        }
     }
 
     private void ApplyAutoRepeatCancelled()
@@ -453,6 +496,14 @@ public sealed partial class GameLoop
         if (_spellSounds is null || soundId is not uint id || id == 0) return 0;
         Vector3 listener = _controller?.Position ?? source;
         return _spellSounds.Play(id, unit, source, listener, forceLoop, trackHold);
+    }
+
+    private void ApplyControlledCastStart(uint spell, uint durationMs, SpellInfo? info)
+    {
+        // Aimed Shot and other timed ranged abilities have ordinary cast bars.
+        // Auto-repeat's start announces persistent firing intent, not a timed cast.
+        if (durationMs > 0 && info?.AutoRepeat != true)
+            BeginCastBar(spell, durationMs, channel: false);
     }
 
     private void BeginCastBar(uint spell, uint durationMs, bool channel)

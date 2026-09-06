@@ -79,6 +79,7 @@ public sealed partial class GameLoop
         if (_net is null) return;
 
         if (combatEvent is CombatXpGain xp) PostCombatXpGain(xp);
+        PostCombatNotice(combatEvent);
 
         foreach (ulong victim in CombatFeedbackLaw.FeedbackVictims(combatEvent))
         {
@@ -228,6 +229,7 @@ public sealed partial class GameLoop
             DrawChatFrame();
             DrawCenterCombatText();
             DrawRtsTerritoryCapture();
+            DrawWorldStateUi();
             DrawCastingBar();
             DrawMirrorTimerFrames();
             DrawActionBars();
@@ -236,6 +238,8 @@ public sealed partial class GameLoop
             DrawRestXpFrame();
             DrawTaxiFrame();
             DrawGossipFrame();
+            DrawBattlefieldFrame();
+            DrawBattlefieldScoreFrame();
             DrawVendorFrame();
             DrawTrainerFrame();
             DrawQuestFrame();
@@ -278,6 +282,7 @@ public sealed partial class GameLoop
             DrawPartyInvite();
             DrawGuildInvitePopup();
             DrawDuelPopups();
+            DrawInstanceBootWarning();
             DrawConfirmPopups();
             DrawDeleteItemConfirmation();
             DrawCharacterBindingsConfirmation();

@@ -34,7 +34,7 @@ public sealed partial class GameLoop
         if (player is null || player.IsDead ||
             _actions.IsOnCooldown(spell.Id, 0, spell, now))
             return false;
-        return SpellResourceGate(spell, out _, out _);
+        return ControlledActorSpellResourceGate(spell, out _, out _);
     }
 
     private void ActivateStanceSpell(in SpellInfo spell, bool active)

@@ -261,6 +261,13 @@ public sealed partial class GameLoop
         DrawConfirmPopup(ConfirmPopupUiLaw.GiverChoicePopupType);
         DrawConfirmPopup(ConfirmPopupUiLaw.DisableControlGuidePopupType);
         DrawConfirmPopup(ConfirmPopupUiLaw.PartyFlightPopupType);
+        UpdatePetUnlearnConfirmation();
+        DrawConfirmPopup(PetUnlearnUiLaw.PopupType);
+        UpdateTrainerConfirmation();
+        DrawConfirmPopup(TrainerServiceUiLaw.PopupType);
+        for (int slot = 0; slot < 3; slot++) DrawConfirmPopup(BattlefieldInviteType(slot));
+        DrawConfirmPopup(AreaSpiritHealerUiLaw.PopupType);
+        DrawGossipCodePopup();
         DrawLootMasterMenu();
     }
 
@@ -271,8 +278,7 @@ public sealed partial class GameLoop
             ConfirmPopupUiLaw.Visible(_staticPopupSlots, type);
         if (popup is not { } visible || _skin is null) return;
         float scale = GameplayUiScale();
-        // The Command View NPC chooser is the one popup with N buttons (one per thing the NPC
-        // offers); the rest are the stock accept/decline pair.
+        // The NPC chooser has N buttons; the area spirit guide has one centered Cancel.
         bool chooser = type == ConfirmPopupUiLaw.GiverChoicePopupType;
         string text = type switch
         {
@@ -282,16 +288,25 @@ public sealed partial class GameLoop
                 ResolveWorldUnitName(_cvGiverChoiceGuid), _cvGiverChoiceOptions),
             ConfirmPopupUiLaw.DisableControlGuidePopupType => ConfirmPopupUiLaw.DisableControlGuideText,
             ConfirmPopupUiLaw.PartyFlightPopupType => PartyFlightPromptText(),
+            AreaSpiritHealerUiLaw.PopupType => AreaSpiritHealerPromptText(),
+            PetUnlearnUiLaw.PopupType => PetUnlearnPromptText(),
+            TrainerServiceUiLaw.PopupType => TrainerConfirmationText(),
+            _ when IsBattlefieldInvite(type) => BattlefieldInviteText(type),
             _ => QuestConfirmPromptText(),
         };
-        (string acceptCaption, string declineCaption) = ConfirmPopupUiLaw.Captions(type);
+        (string acceptCaption, string declineCaption) = IsBattlefieldInvite(type)
+            ? ("Enter Battle", "Hide") : type == TrainerServiceUiLaw.PopupType
+            ? ("Yes", "No") : type == PetUnlearnUiLaw.PopupType
+            ? (InventoryGlobalString("ACCEPT", "Accept"), InventoryGlobalString("CANCEL", "Cancel"))
+            : ConfirmPopupUiLaw.Captions(type);
         string[] lines = WrapTooltipText(text, "GameFontHighlight", scale,
             DuelFrameUiLaw.PopupTextWidth * scale).ToArray();
         float logicalTextHeight = lines.Length * GameText.LinePitch("GameFontHighlight", 1);
+        float contentHeight = logicalTextHeight + (type == PetUnlearnUiLaw.PopupType ? PetUnlearnUiLaw.MoneyExtraHeight : 0);
         Vector2 origin = StaticPopupOrigin(visible.Slot, DuelFrameUiLaw.PopupWidth, scale);
         Vector2 size = (chooser
             ? ConfirmPopupUiLaw.GiverChoicePopupSize(logicalTextHeight, _cvGiverChoiceOptions.Count)
-            : DuelFrameUiLaw.PopupSize(logicalTextHeight, buttons: true)) * scale;
+            : DuelFrameUiLaw.PopupSize(contentHeight, buttons: true)) * scale;
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
@@ -308,6 +323,7 @@ public sealed partial class GameLoop
         for (int i = 0; i < lines.Length; i++)
             GameText.DrawCentered(draw, "GameFontHighlight", lines[i],
                 origin + DuelFrameUiLaw.TextLineCenter(i) * scale, scale);
+        if (type == PetUnlearnUiLaw.PopupType) DrawPetUnlearnMoney(draw, origin, logicalTextHeight, scale);
         int clicked = 0;   // 1-based button, 0 = none
         if (chooser)
         {
@@ -318,14 +334,20 @@ public sealed partial class GameLoop
                         scale, capture: false, clip: Vector4.Zero))
                     clicked = i + 1;
         }
+        else if (type == AreaSpiritHealerUiLaw.PopupType)
+        {
+            if (DrawPartyInviteButton(draw, $"StaticPopup{visible.Slot}Button1", InventoryGlobalString("CANCEL", "Cancel"),
+                    origin + AreaSpiritHealerUiLaw.ButtonMin(contentHeight) * scale,
+                    scale, capture: false, clip: Vector4.Zero)) clicked = 1;
+        }
         else
         {
             if (DrawPartyInviteButton(draw, $"StaticPopup{visible.Slot}Button1", acceptCaption,
-                    origin + DuelFrameUiLaw.ButtonMin(1, logicalTextHeight) * scale,
+                    origin + DuelFrameUiLaw.ButtonMin(1, contentHeight) * scale,
                     scale, capture: false, clip: Vector4.Zero))
                 clicked = 1;
             else if (DrawPartyInviteButton(draw, $"StaticPopup{visible.Slot}Button2", declineCaption,
-                    origin + DuelFrameUiLaw.ButtonMin(2, logicalTextHeight) * scale,
+                    origin + DuelFrameUiLaw.ButtonMin(2, contentHeight) * scale,
                     scale, capture: false, clip: Vector4.Zero))
                 clicked = 2;
         }

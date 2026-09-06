@@ -1949,7 +1949,7 @@ public class M2Reader
     //   +2   uint16 variationId
     //   +4   uint32 startTimestamp  (ms on shared anim timeline)
     //   +8   uint32 endTimestamp
-    //  +12   float  movespeed       (skipped)
+    //  +12   float  movespeed
     //  +16   uint32 flags           (bit 0 set = clamp; clear = loop)
     //  +20   uint16 frequency       (skipped)
     //  +22   uint16 padding
@@ -1957,8 +1957,8 @@ public class M2Reader
     //  +28   uint32 maximumRepetitions (skipped)
     //  +32   uint32 blendTime       (ms; the cross-fade duration into this clip)
     //  +36   M2Box  bounds          (minimum xyz, maximum xyz)
-    //  +60   float  boundsRadius    (skipped)
-    //  +64   int16  nextAnimationId (skipped — sequence chaining is TODO)
+    //  +60   float  boundsRadius
+    //  +64   int16  next variation index (skipped; all 6,885 mounted links keep animation ID)
     //  +66   uint16 aliasNextId     (skipped)
     private static void ParseSequences(byte[] data, uint count, uint offset, M2Model model)
     {

@@ -295,9 +295,8 @@ public sealed partial class GameLoop
                         OfferPreparedItemTooltip(
                             new GameTooltipOwnerKey($"item:quest-party-rail:{questId}:{guid}",
                                 (ulong)(k + 1)),
-                            // This column's reward is THIS member's: judge proficiency red against
-                            // them, not the commander. A non-local member paints no red (we only
-                            // know the login character's proficiencies client-side).
+                            // This column uses its member's own known proficiency masks;
+                            // unavailable masks remain unclassified.
                             PrepareItemTooltipBodySnapshot(item, row.Count, ownerGuid: guid));
                     else HoverTip("Retrieving item information...");
                 }

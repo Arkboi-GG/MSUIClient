@@ -23,12 +23,14 @@ public enum UpdateKind : byte
 /// <summary>The pose (and, for a LIVING block, movement speeds) an update entry carries.</summary>
 public sealed class MovementBlock
 {
+    public MovementInfo? Living; // complete create/movement state, including jump and pitch
     public Vector3? Position;
     public float Orientation;
     public float[]? Speeds;   // [walk, run, run_back, swim, swim_back, turn_rate]; null for non-living
     public TransportPose? Transport; // rider-local pose from a LIVING ON_TRANSPORT tail
     public uint? TransportProgress;  // transport GO path-domain clock (UPDATE_FLAG_TRANSPORT)
     public CreateSpline? Spline;
+    public ulong? MeleeTarget; // UPDATEFLAG_MELEE_ATTACKING carries the current victim
 
     // MovementBlock update_flag bits.
     private const byte TRANSPORT = 0x02, MELEE_ATTACKING = 0x04, HIGH_GUID = 0x08, ALL = 0x10, LIVING = 0x20, HAS_POSITION = 0x40;
@@ -44,17 +46,12 @@ public sealed class MovementBlock
 
         if ((updateFlag & LIVING) != 0)
         {
-            uint flags = r.ReadU32();
-            r.ReadU32();                       // timestamp
-            mb.Position = r.ReadVector3();
-            mb.Orientation = r.ReadF32();
-
-            if ((flags & MF_ON_TRANSPORT) != 0)
-                mb.Transport = new TransportPose(r.ReadU64(), r.ReadVector3(), r.ReadF32());
-            if ((flags & MF_SWIMMING) != 0) r.ReadF32();     // pitch
-            r.ReadF32();                                     // fall_time (an f32 in this block)
-            if ((flags & MF_JUMPING) != 0) r.Skip(16);       // z_speed, cos, sin, xy_speed
-            if ((flags & MF_SPLINE_ELEVATION) != 0) r.ReadF32();
+            MovementInfo living = MovementInfo.Read(r);
+            mb.Living = living;
+            uint flags = living.Flags;
+            mb.Position = living.Position;
+            mb.Orientation = living.Orientation;
+            mb.Transport = living.Transport;
 
             var s = new float[6];
             for (int i = 0; i < 6; i++) s[i] = r.ReadF32();
@@ -63,9 +60,10 @@ public sealed class MovementBlock
             if ((flags & MF_SPLINE_ENABLED) != 0)
             {
                 uint sf = r.ReadU32();
-                if ((sf & SPLINE_FINAL_ANGLE) != 0) r.ReadF32();
-                else if ((sf & SPLINE_FINAL_TARGET) != 0) r.ReadU64();
-                else if ((sf & SPLINE_FINAL_POINT) != 0) r.ReadVector3();
+                MonsterMoveFacing facing = MonsterMoveFacing.None;
+                if ((sf & SPLINE_FINAL_ANGLE) != 0) facing = MonsterMoveFacing.ToAngle(r.ReadF32());
+                else if ((sf & SPLINE_FINAL_TARGET) != 0) facing = MonsterMoveFacing.ToTarget(r.ReadU64());
+                else if ((sf & SPLINE_FINAL_POINT) != 0) facing = MonsterMoveFacing.ToSpot(r.ReadVector3());
                 uint timePassedMs = r.ReadU32();
                 uint durationMs = r.ReadU32();
                 uint id = r.ReadU32();
@@ -76,12 +74,13 @@ public sealed class MovementBlock
 
                 // vmangos' raw control array is [phantom, p0, ..., pn, tail]. Only the
                 // inner range is walkable; fewer than four controls cannot hold a path.
-                if (pathNodes.Count >= 4)
+                bool cyclic = (sf & 0x10_0000) != 0;
+                if (pathNodes.Count >= (cyclic ? 5 : 4))
                     mb.Spline = new CreateSpline(
-                        pathNodes.GetRange(1, pathNodes.Count - 2).ToArray(),
+                        pathNodes.GetRange(1, pathNodes.Count - (cyclic ? 3 : 2)).ToArray(),
                         id, timePassedMs, durationMs,
                         Flying: (sf & 0x200) != 0,
-                        Cyclic: (sf & 0x10_0000) != 0);
+                        Cyclic: cyclic, Facing: facing, Falling: (sf & 2) != 0);
             }
         }
         else if ((updateFlag & HAS_POSITION) != 0)
@@ -92,7 +91,7 @@ public sealed class MovementBlock
 
         if ((updateFlag & HIGH_GUID) != 0) r.ReadU32();
         if ((updateFlag & ALL) != 0) r.ReadU32();
-        if ((updateFlag & MELEE_ATTACKING) != 0) r.ReadPackedGuid();
+        if ((updateFlag & MELEE_ATTACKING) != 0) mb.MeleeTarget = r.ReadPackedGuid();
         if ((updateFlag & TRANSPORT) != 0) mb.TransportProgress = r.ReadU32();
 
         return mb;
@@ -101,7 +100,8 @@ public sealed class MovementBlock
 
 /// <summary>A spline already in progress when a unit's create block enters interest range.</summary>
 public sealed record CreateSpline(
-    Vector3[] Path, uint Id, uint TimePassedMs, uint DurationMs, bool Flying, bool Cyclic);
+    Vector3[] Path, uint Id, uint TimePassedMs, uint DurationMs, bool Flying, bool Cyclic,
+    MonsterMoveFacing Facing = default, bool Falling = false);
 
 public sealed class ObjectUpdate
 {

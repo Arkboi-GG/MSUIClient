@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine;
@@ -692,6 +692,50 @@ public sealed partial class GameLoop
         if (QuestStatusRefreshLaw.PacketReasks(innerOp)) BumpQuestStatusReask();
         switch (innerOp)
         {
+            case Op.SMSG_SET_FLAT_SPELL_MODIFIER:
+            case Op.SMSG_SET_PCT_SPELL_MODIFIER:
+                ApplySpellModifier(inner, source, innerOp == Op.SMSG_SET_PCT_SPELL_MODIFIER);
+                break;
+            case Op.SMSG_SET_PROFICIENCY:
+                ApplyItemProficiency(inner, source);
+                break;
+            case Op.SMSG_CANCEL_COMBAT:
+                if (inner.Length != 0) throw new InvalidDataException("Cancel combat requires empty body");
+                EnqueueSpellPresentation(new SpellCombatCancelledEvent(source));
+                break;
+            case Op.SMSG_CANCEL_AUTO_REPEAT:
+                if (inner.Length != 0) throw new InvalidDataException("Cancel repeat requires empty body");
+                EnqueueSpellPresentation(new SpellAutoRepeatCancelledEvent(source));
+                break;
+            case Op.MSG_CHANNEL_START:
+                var channel = SpellLifecyclePacketParser.ParseChannelStart(inner);
+                EnqueueSpellPresentation(new SpellChannelStartEvent(source, channel.SpellId, channel.DurationMs));
+                break;
+            case Op.MSG_CHANNEL_UPDATE:
+                EnqueueSpellPresentation(new SpellChannelUpdateEvent(source,
+                    SpellLifecyclePacketParser.ParseChannelUpdate(inner)));
+                break;
+            case Op.SMSG_UPDATE_AURA_DURATION:
+                ApplyAuraDuration(inner, source);
+                break;
+            case Op.SMSG_INVENTORY_CHANGE_FAILURE:
+                ApplyInventoryChangeFailure(inner);
+                break;
+            case Op.SMSG_START_MIRROR_TIMER:
+                ApplyMirrorTimerStart(inner, source);
+                break;
+            case Op.SMSG_PAUSE_MIRROR_TIMER:
+                ApplyMirrorTimerPause(inner, source);
+                break;
+            case Op.SMSG_STOP_MIRROR_TIMER:
+                ApplyMirrorTimerStop(inner, source);
+                break;
+            case Op.SMSG_FEIGN_DEATH_RESISTED:
+                EnqueueFeignDeathResisted(source, inner);
+                break;
+            case Op.SMSG_SET_FORCED_REACTIONS:
+                _forcedReactions.Apply(source, inner);
+                break;
             case Op.SMSG_ACTION_BUTTONS:
                 store.ApplyButtons(inner);
                 // Bots own no server-side buttons; an empty wire bar hands the
@@ -700,6 +744,9 @@ public sealed partial class GameLoop
                     PopulateBotBar(source);
                 break;
             case Op.SMSG_INITIAL_SPELLS:
+                // Paired Core replays all nonzero modifier cells immediately after this snapshot.
+                // Direct main login can receive modifiers before INITIAL_SPELLS, so only reset the proxy owner here.
+                _spellModifiers?.Remove(source);
                 store.ApplyInitialSpells(inner, MovementInfo.ClientUptimeMs() / 1000.0);
                 if (store.OccupiedCount == 0 && store.KnownSpells.Count > 0)
                     PopulateBotBar(source);
@@ -736,7 +783,7 @@ public sealed partial class GameLoop
                 {
                     var result = SpellPacketParser.ParseResult(inner);
                     if (result.Status == 2)
-                        EnqueueSpellPresentation(new SpellCastResultEvent(result.SpellId, result.Reason));
+                        EnqueueSpellPresentation(new SpellCastResultEvent(source, result.SpellId, result.Reason) { Context = result.Context });
                 }
                 break;
             // [SUI] P4b: NPC-interaction reply frames of the driven bot. The server
@@ -747,12 +794,32 @@ public sealed partial class GameLoop
             // at the controlled body (TryGetInteractionBodyPose) and are redirected
             // to the bot server-side, so the round trip stays on the bot end to end.
             case Op.SMSG_GOSSIP_MESSAGE:
-                ApplyGossipMenu(inner);
+                ApplyGossipMenu(inner, source);
+                break;
+            case Op.SMSG_INITIALIZE_FACTIONS:
+            case Op.SMSG_SET_FACTION_VISIBLE:
+            case Op.SMSG_SET_FACTION_STANDING:
+            case Op.SMSG_SET_FACTION_ATWAR:
+                ApplyReputationPacket(innerOp, inner, source);
+                break;
+            case Op.SMSG_WEATHER:
+                ApplyActorWeather(inner, source);
+                break;
+            case Op.SMSG_PET_UNLEARN_CONFIRM:
+                ApplyPetUnlearnConfirm(inner, source);
                 break;
             case Op.SMSG_GOSSIP_COMPLETE:
                 EmitInterface("gossip", "complete", "RECEIVED", source, "serverClosed=true;proxied=true");
-                ResetGossip();
+                CompleteGossip();
+                _pendingItemRead = null;
                 CloseQuestNpcFrame(playSound: true);
+                break;
+            // Partner-side trade replies address the bot's socket-less session and have no direct duplicate.
+            case Op.SMSG_TRADE_STATUS:
+                ApplyTradeStatus(inner);
+                break;
+            case Op.SMSG_TRADE_STATUS_EXTENDED:
+                ApplyTradeExtended(inner);
                 break;
             case Op.SMSG_GOSSIP_POI:
                 ApplyGossipPoi(inner);
@@ -773,10 +840,15 @@ public sealed partial class GameLoop
                 ApplyQuestOffer(inner);
                 break;
             case Op.SMSG_QUESTGIVER_QUEST_COMPLETE:
-                ApplyQuestComplete(inner);
-                break;
             case Op.SMSG_QUESTGIVER_QUEST_INVALID:
-                ApplyQuestError(Op.SMSG_QUESTGIVER_QUEST_INVALID, inner);
+            case Op.SMSG_QUESTGIVER_QUEST_FAILED:
+            case Op.SMSG_QUESTLOG_FULL:
+            case Op.SMSG_QUESTUPDATE_COMPLETE:
+            case Op.SMSG_QUESTUPDATE_FAILED:
+            case Op.SMSG_QUESTUPDATE_FAILEDTIMER:
+            case Op.SMSG_QUESTUPDATE_ADD_ITEM:
+            case Op.SMSG_QUESTUPDATE_ADD_KILL:
+                ApplyQuestNotice(innerOp, inner, source);
                 break;
             // [SUI] P4b vendor/trainer/repair: the driven bot's shop and trainer reply
             // frames, when the reply routed through the bot's socket (a gossip
@@ -832,16 +904,42 @@ public sealed partial class GameLoop
             // frames address the pet owner's (the bot's) session. The bar is reset on
             // every control change (ApplySuiControlAck) and rebuilt from these.
             case Op.SMSG_PET_SPELLS:
-                ApplyPetSpells(inner);
+                ApplyActorPetPacket(Op.SMSG_PET_SPELLS, inner, source);
                 break;
             case Op.SMSG_PET_MODE:
-                ApplyPetMode(inner);
+                ApplyActorPetPacket(Op.SMSG_PET_MODE, inner, source);
+                break;
+            case Op.SMSG_UPDATE_INSTANCE_OWNERSHIP:
+                ApplyInstanceOwnership(inner, source);
+                break;
+            case Op.SMSG_UPDATE_LAST_INSTANCE:
+                ApplyLastInstance(inner, source);
+                break;
+            case Op.SMSG_RAID_GROUP_ONLY:
+                ApplyRaidGroupOnly(inner, source);
+                break;
+            case Op.SMSG_OPEN_CONTAINER:
+                ApplyServerContainerOpen(inner);
+                break;
+            case Op.SMSG_ITEM_TIME_UPDATE:
+                ApplyItemTime(inner);
+                break;
+            case Op.SMSG_GAMEOBJECT_PAGETEXT:
+                ApplyGameObjectPageText(inner, source);
+                break;
+            case Op.SMSG_PET_TAME_FAILURE:
+            case Op.SMSG_PET_NAME_INVALID:
+            case Op.SMSG_PET_BROKEN:
+                ApplyPetNotice(innerOp, inner, source);
+                break;
+            case Op.SMSG_PET_ACTION_SOUND:
+                ApplyPetActionSound(inner, source);
                 break;
             case Op.SMSG_PET_ACTION_FEEDBACK:
-                ApplyPetActionFeedback(inner);
+                ApplyActorPetPacket(Op.SMSG_PET_ACTION_FEEDBACK, inner, source);
                 break;
             case Op.SMSG_PET_CAST_FAILED:
-                ApplyPetCastFailed(inner);
+                ApplyActorPetPacket(Op.SMSG_PET_CAST_FAILED, inner, source);
                 break;
             // [SUI] taxi: the driven bot took (or was refused) a flight; the verdict left
             // on ITS session. The flight spline itself is a public monster-move on the
@@ -877,10 +975,10 @@ public sealed partial class GameLoop
                 ApplyTalentWipeConfirm(inner);
                 break;
             case Op.SMSG_BINDER_CONFIRM:
-                ApplyBinderConfirm(inner);
+                ApplyBinderConfirm(inner, source);
                 break;
             case Op.SMSG_PLAYERBOUND:
-                ApplyPlayerBound(inner);
+                ApplyPlayerBound(inner, source);
                 break;
             case Op.MSG_AUCTION_HELLO:
                 ApplyAuctionHello(inner);

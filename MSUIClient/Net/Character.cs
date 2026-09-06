@@ -20,9 +20,12 @@ public sealed class Character
     public uint Map;
     public Vector3 Position;
     public uint Flags;     // CHARACTER_FLAG_* (ghost, hide-helm/cloak, rename)
+    public uint PetDisplayId, PetLevel, PetFamily; // saved current pet supplied by CHAR_ENUM
     public CharEnumEquip[] Equipment = new CharEnumEquip[19];
 
     public const uint FlagGhost = 0x2000;
+    public const uint FlagRename = 0x4000;
+    public bool RequiresRename => (Flags & FlagRename) != 0;
 
     public bool IsGhost => (Flags & FlagGhost) != 0;
 
@@ -51,9 +54,9 @@ public sealed class Character
         r.ReadU32();            // guild id (discard)
         c.Flags = r.ReadU32();
         r.ReadU8();             // first-login (discard)
-        r.ReadU32();            // pet display id (discard)
-        r.ReadU32();            // pet level (discard)
-        r.ReadU32();            // pet family (discard)
+        c.PetDisplayId = r.ReadU32();
+        c.PetLevel = r.ReadU32();
+        c.PetFamily = r.ReadU32();
         for (int i = 0; i < 19; i++)
             c.Equipment[i] = new CharEnumEquip(r.ReadU32(), r.ReadU8());
         r.ReadU32();            // first bag display id (discard)

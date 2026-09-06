@@ -194,7 +194,7 @@ public sealed partial class GameLoop
                 _net is { IsInWorld: true } && (_autoRepeatSpell != 0 ||
                     _pendingCastSpell != 0 ||
                     _castBarPhase == CastBarPhase.Casting && _castBarSpell != 0),
-                _groundCastSpell != 0 || _itemCastSpell != 0 || _rtsUnitCastSpellId != 0,
+                _giftWrap is not null || _groundCastSpell != 0 || _itemCastSpell != 0 || _rtsUnitCastSpellId != 0,
                 _loot.IsOpen || HasPlayerPanelForEscape(),
                 _selectionGuid != 0));
 
@@ -250,7 +250,7 @@ public sealed partial class GameLoop
 
     private bool HasPlayerPanelForEscape() =>
         _bindingCapture is not null || _keybindingsOpen || _tradeOpen || _inspectOpen || _dressUpOpen ||
-        _auctionOpen || _mailOpen || _gossipMenu is not null || _gossipGreeting is not null ||
+        _auctionOpen || _mailOpen || _battlefieldList is not null || _battlefieldQueueMenu || _battlefieldScoreOpen || _gossipMenu is not null || _gossipGreeting is not null ||
         QuestNpcPanelNow() != QuestNpcPanel.None ||
         _vendor is not null || _trainer is not null || _gameObjectGuid != 0 || _worldMapOpen ||
         _commanderMapOpen || _rtsControlGroupCommandOpen || _companionsOpen ||
@@ -268,6 +268,7 @@ public sealed partial class GameLoop
 
     private bool TryClosePlayerPanelOnEscape()
     {
+        if (_battlefieldQueueMenu) { _battlefieldQueueMenu = false; return true; }
         if (CloseItemRefTooltip()) return true;
         if (_dressUpOpen) { CloseDressUp(); return true; }
         if (_rtsControlGroupCommandOpen) { _rtsControlGroupCommandOpen = false; return true; }

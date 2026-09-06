@@ -12,6 +12,7 @@ public sealed class TalentCatalog
     private readonly Dictionary<uint, TalentTabInfo> _tabs = [];
     private readonly Dictionary<uint, TalentInfo> _talents = [];
 
+    public bool IsRankSpell(uint spell) => _talents.Values.Any(talent => talent.RankSpells.Contains(spell));
     public int TalentCount => _talents.Count;
     public IReadOnlyCollection<TalentTabInfo> Tabs => _tabs.Values;
     public bool TryGet(uint id, out TalentInfo talent) => _talents.TryGetValue(id, out talent);

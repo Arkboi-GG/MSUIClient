@@ -24,6 +24,7 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private GameObjectDisplayTable? _gameObjectDisplays;
+    private GameObjectArtKitCatalog? _gameObjectArtKits;
     private bool _gameObjectDisplaysAttempted;
 
     /// <summary>Last-synced signature per placed gameobject GUID. A mismatch
@@ -84,6 +85,7 @@ public sealed partial class GameLoop
     {
         if (_gameObjectDisplaysAttempted || _mpq is null) return;
         _gameObjectDisplaysAttempted = true;
+        _gameObjectArtKits = GameObjectArtKitCatalog.Load(_mpq);
         byte[]? bytes = _mpq.ReadFile(GameObjectDisplayTable.MpqPath);
         _gameObjectDisplays = bytes is null ? null : GameObjectDisplayTable.Parse(bytes);
         if (_gameObjectDisplays is null)
@@ -263,6 +265,10 @@ public sealed partial class GameLoop
             RemoveGameObjectPlacement(guid);
 
         UpdateGameObjectStateAnimations();
+        // Reconcile after pose changes, even when display/position stayed unchanged.
+        foreach (WorldEntity entity in _entities.Entities.Values)
+            if (entity.IsGameObject && _doodads.HasDynamic(entity.Guid))
+                _doodads.SyncDynamicArtKit(entity.Guid, _gameObjectArtKits?.Find(entity.Fields.GameObjectArtKit));
     }
 
     private void UpdateGameObjectStateAnimations()

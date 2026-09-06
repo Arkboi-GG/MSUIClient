@@ -168,6 +168,8 @@ public sealed partial class GameLoop
             CloseWorldMapDropdowns();
         }
 
+        DrawBattlefieldMapPositions(dl, haveMapArea, area, playerMap, mapMin, mapSize, s);
+
         // The marker is the body being DRIVEN, read the same way the minimap reads it: the
         // controller while it owns the body (client-authoritative movement), the entity
         // stream otherwise (free view, possessed bot pose while rooted, etc). Possessing a
@@ -354,7 +356,7 @@ public sealed partial class GameLoop
             members.Add((LocalPlayerGuid, ResolveUnitName(LocalPlayerGuid)));
         foreach ((ulong guid, string name) in members)
         {
-            if (guid == 0 || guid == ControlledGuid) continue;
+            if (guid == 0 || guid == ControlledGuid || BattlefieldMapHasPlayer(guid)) continue;
             Vector3 position;
             if (_entities.TryGet(guid, out WorldEntity unit))
                 position = UnitWorldPosition(unit);

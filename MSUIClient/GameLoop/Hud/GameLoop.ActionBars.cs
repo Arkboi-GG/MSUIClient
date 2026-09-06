@@ -37,6 +37,18 @@ public sealed partial class GameLoop
     private int _hoveredActionSlot = -1;
     private uint _pendingCastSpell;
     private uint _autoRepeatSpell;
+
+    private bool ControlledActorSpellResourceGate(in SpellInfo spell, out uint available, out uint cost)
+    {
+        available = 0; cost = spell.ManaCost;
+        return _net is not null && _entities.TryGet(ControlledGuid, out WorldEntity actor) &&
+            ActorCanPaySpell(spell, actor, out available, out cost);
+    }
+    private bool ActorCanPaySpell(in SpellInfo spell, WorldEntity actor, out uint available, out uint cost) =>
+        SpellResourceLaw.CanPay(spell, actor.Fields, out available, out cost,
+            SpellResourceLaw.Rank(spell, actor, _skillLines?.SpellRankLine(spell.Id) ?? 0),
+            ActorSpellModifiers(actor.Guid, spell, SpellModifierStore.Cost));
+
     private uint _queuedMeleeSpell;
     private double _globalCooldownUntil;
     private int _actionPage = 1;
@@ -52,6 +64,7 @@ public sealed partial class GameLoop
         {
             _spellCatalog = SpellCatalog.Load(_mpq);
             _enchantCatalog = EnchantCatalog.Load(_mpq);
+            _itemRandomProperties = ItemRandomPropertyCatalog.Load(_mpq);
             _spellVisualCatalog = SpellVisualCatalog.Load(_mpq);
             _shapeshiftForms = ShapeshiftFormCatalog.Load(_mpq);
             _gameplayArt = new GameplayArt(gl, _mpq);
@@ -218,6 +231,7 @@ public sealed partial class GameLoop
 
     private void TryCast(uint spellId, ulong explicitTarget = 0)
     {
+        CancelGiftWrapping();
         if (_net is null) return;
         if (_spellCatalog is null || !_spellCatalog.TryGet(spellId, out SpellInfo spell))
         {
@@ -298,6 +312,8 @@ public sealed partial class GameLoop
             }
         }
 
+        if (RefuseSpellForm(spell)) return;
+        if (RefuseSpellReactive(spell, 0, checkTarget: false)) return;
         SpellReagent? missingReagent = _spellCatalog.Reagents(spellId)
             .FirstOrDefault(reagent => CarriedCount(reagent.ItemId) < reagent.Count);
         if (missingReagent is { ItemId: not 0 } reagent)
@@ -335,7 +351,7 @@ public sealed partial class GameLoop
             EmitCastVerdict(spellId, CastTargetReason.GroundTargeting, 0, sent: false);
             return;
         }
-        if (targetVerdict.Kind == CastTargetKind.Item)
+        if (targetVerdict.Kind is CastTargetKind.Item or CastTargetKind.GameObject or CastTargetKind.ItemOrGameObject)
         {
             _groundCastSpell = 0;
             ClearEnchantConfirmation();
@@ -358,7 +374,7 @@ public sealed partial class GameLoop
             RefuseCast(spellId, $"LOCAL_{rangeFailure.Reason}", rangeFailure.Text);
             return;
         }
-        if (!SpellResourceGate(spell, out _, out _))
+        if (!ControlledActorSpellResourceGate(spell, out _, out _))
         {
             EmitCastVerdict(spellId, CastTargetReason.NotEnoughPower, target, sent: false);
             RefuseCast(spellId, "LOCAL_NO_POWER", $"Not enough {PowerName((byte)spell.PowerType).ToLowerInvariant()}");
@@ -388,6 +404,8 @@ public sealed partial class GameLoop
             EmitCastVerdict(spellId, CastTargetReason.UnavailableOrPassive, target, sent: false);
             return;
         }
+        if (RefuseSpellForm(spell)) return;
+        if (RefuseSpellReactive(spell, target)) return;
         bool sent = ground is { } dest
             ? _net.CastSpellAtLocation(spellId, dest)
             : _net.CastSpell(spellId, target);
@@ -399,8 +417,7 @@ public sealed partial class GameLoop
         if (spell.StartRecoveryMs > 0)
         {
             double now = NowSeconds();
-            _globalCooldownUntil = now + spell.StartRecoveryMs / 1000.0;
-            _actions.StartGlobalCooldown(spellId, spell, now);
+            StartActorGlobalCooldown(_actions, ControlledGuid, spell, now);
         }
     }
 
@@ -415,13 +432,16 @@ public sealed partial class GameLoop
     /// <summary>Armed ground-target spell awaiting a terrain click; 0 = not targeting.</summary>
     private uint _groundCastSpell;
 
-    /// <summary>Armed item-target spell awaiting an occupied bag or paper-doll click.</summary>
+    /// <summary>Armed item/object spell awaiting a compatible bag, paper-doll or world click.</summary>
     private uint _itemCastSpell;
 
     private void CommitItemCast(uint spellId, ulong itemGuid)
     {
         if (!CanAuthorControlledGameplay || _net is null || _spellCatalog is null ||
             !_spellCatalog.TryGet(spellId, out SpellInfo spell)) return;
+        if (!CastTargetLaw.AcceptsItem(spell)) return;
+        if (RefuseSpellForm(spell)) return;
+        if (RefuseSpellReactive(spell, 0, checkTarget: false)) return;
         bool sent = _net.CastSpellOnItem(spellId, itemGuid);
         EmitCastVerdict(spellId, CastTargetReason.ItemTargeting, itemGuid, sent);
         if (!sent) return;
@@ -433,8 +453,7 @@ public sealed partial class GameLoop
         if (spell.StartRecoveryMs > 0)
         {
             double now = NowSeconds();
-            _globalCooldownUntil = now + spell.StartRecoveryMs / 1000.0;
-            _actions.StartGlobalCooldown(spellId, spell, now);
+            StartActorGlobalCooldown(_actions, ControlledGuid, spell, now);
         }
     }
 
@@ -446,6 +465,7 @@ public sealed partial class GameLoop
 
     private bool TryCancelSpellTargetingOnEscape()
     {
+        if (_giftWrap is not null) { CancelGiftWrapping(); return true; }
         if (CancelRtsUnitCastTargeting(silent: false)) return true;
         if (_tacticalGroundSpellId != 0)
         {
@@ -476,6 +496,7 @@ public sealed partial class GameLoop
         float selfReach = _entities.TryGet(ControlledGuid, out WorldEntity self)
             ? self.Fields.CombatReach : 1.5f;
         float targetReach = target.Fields.CombatReach;
+        row = ActorSpellRange(spell, ControlledGuid, row);
         float min = row.Min, max = row.Max;
         if (row.Melee) { min = 0f; max = MathF.Max(selfReach + targetReach + 1.3333f, 5f); }
         else
@@ -521,10 +542,30 @@ public sealed partial class GameLoop
             Console.WriteLine($"[verdict:cast] {verdict.ToLine()}");
     }
 
-    private CastTargetCandidate CastCandidate(WorldEntity candidate, bool isSelf) => new(
-        candidate.Guid, isSelf,
-        isSelf || ReactionPlayerToward(candidate) == FactionReaction.Friendly,
-        !isSelf && CanAttack(candidate), candidate.IsDead);
+    private CastTargetCandidate CastCandidate(WorldEntity candidate, bool isSelf, ulong? casterGuid = null)
+    {
+        ulong actor = casterGuid ?? ControlledGuid;
+        bool partyEligible = false;
+        if (_entities.TryGet(actor, out WorldEntity caster))
+        {
+            CastPartyUnit casterUnit = CastPartyUnit.From(caster);
+            CastPartyUnit targetUnit = CastPartyUnit.From(candidate);
+            bool sameGroup = InKnownGroup(casterUnit.GroupPlayer) && InKnownGroup(targetUnit.GroupPlayer);
+            partyEligible = CastPartyTargetLaw.Accepts(casterUnit, targetUnit, sameGroup);
+        }
+        return new(candidate.Guid, isSelf,
+            isSelf || (caster is not null && ReactionBetween(caster, candidate) == FactionReaction.Friendly),
+            !isSelf && CanActorAttack(candidate, actor), candidate.IsDead, partyEligible);
+    }
+
+    private bool InKnownGroup(ulong guid)
+    {
+        if (!_partyInGroup || guid == 0) return false;
+        if (guid == LocalPlayerGuid) return true;
+        foreach (PartyMember member in _partyMembers)
+            if (member.Guid == guid) return true;
+        return false;
+    }
 
     private void DrawActionBars()
     {
@@ -1928,16 +1969,16 @@ public sealed partial class GameLoop
                 }
                 else
                 {
-                    byte powerType = (byte)sp.PowerType;
-                    uint baseAmount = sp.ManaCostPercent == 0 ? 0u
-                        : powerType == 0 ? p.Fields.BaseMana
-                        : p.Fields.MaxPower(powerType);
-                    uint cost = sp.ManaCost + baseAmount * sp.ManaCostPercent / 100;
-                    uint power = p.Fields.Power(powerType);
+                    bool canPay = ActorCanPaySpell(sp, p, out uint power, out uint cost);
                     powerCost = (int)Math.Min(cost, int.MaxValue);
                     currentPower = (int)Math.Min(power, int.MaxValue);
-                    if (cost > 0 && power < cost)
+                    if (!canPay)
                         usability = ButtonUsability.NotEnoughPower;
+                    if (SpellFormRestrictionFor(sp, p) != SpellFormRestriction.None)
+                        usability = ButtonUsability.Unusable;
+                    WorldEntity? reactiveTarget = _entities.TryGet(_selectionGuid, out WorldEntity selected) ? selected : null;
+                    if (SpellReactiveLaw.Refusal(sp, p, reactiveTarget) is not null)
+                        usability = ButtonUsability.Unusable;
                 }
             }
             else if (isItem)
@@ -1984,6 +2025,7 @@ public sealed partial class GameLoop
         float selfReach = _entities.TryGet(ControlledGuid, out WorldEntity self)
             ? self.Fields.CombatReach : 1.5f;
         float targetReach = target.Fields.CombatReach;
+        row = ActorSpellRange(spell, ControlledGuid, row);
         float min = row.Min, max = row.Max;
         if (row.Melee)
         {
