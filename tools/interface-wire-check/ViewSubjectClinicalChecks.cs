@@ -65,8 +65,9 @@ internal static class ViewSubjectClinicalChecks
               host.Contains("_farSightAwaitingFreeViewClear = ownership.AwaitClear",
                   StringComparison.Ordinal) &&
               host.Contains("_entities.TryGet(anchor", StringComparison.Ordinal) &&
-              program.Contains("_window.Camera.Target = _controller.Position;\n        UpdateViewSubject();",
-                  StringComparison.Ordinal) &&
+              program.Contains("_window.Camera.Target = _freeView", StringComparison.Ordinal) &&
+               program.Contains(": _controller.Position;\n        UpdateViewSubject();",
+                   StringComparison.Ordinal) &&
               sound.Contains("SpatialAudioLaw.CharacterListener(_controller.Position)",
                   StringComparison.Ordinal),
             "far-sight local-owner/free-view hand-off/edge-vote/body-fallback/character-audio wiring drift");

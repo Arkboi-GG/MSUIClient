@@ -81,7 +81,7 @@ internal static class ElevatorTransportClinicalChecks
               render.Contains("liveCollision: _elevatorTransports.ContainsKey(e.Guid)",
                   StringComparison.Ordinal) &&
               doodads.Contains("TryRaycastDynamicCollision", StringComparison.Ordinal) &&
-              doodads.Contains("if (instance.LiveCollision) continue;",
+              doodads.Contains("if (instance.LiveCollision || instance.CosmeticOnly) continue;",
                   StringComparison.Ordinal) &&
               doodads.Contains("entry.Instance.Transform = transform;", StringComparison.Ordinal),
             "type-11 anchor/re-create/render-order production wiring drifted");

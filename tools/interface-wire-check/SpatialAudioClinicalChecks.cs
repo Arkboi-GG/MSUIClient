@@ -225,7 +225,7 @@ internal static class SpatialAudioClinicalChecks
               creatureRenderer.Contains("const uint MoreAudible = 0x20", StringComparison.Ordinal) &&
               creatureRenderer.Contains("AnimationEventElectionLaw.PaddedRadius", StringComparison.Ordinal) &&
               creatureRenderer.Contains("ForgetAnimationEventClocks", StringComparison.Ordinal) &&
-              creatureMounts.Contains("if (emitAnimationEvents)", StringComparison.Ordinal) &&
+              creatureMounts.Contains("if (emitAnimationEvents && !freezeAnimation)", StringComparison.Ordinal) &&
               creatureMounts.IndexOf("_mountFootstepTime.Remove(guid)",
                   creatureMounts.IndexOf("if (mountDisplayId <= 0", StringComparison.Ordinal),
                   StringComparison.Ordinal) >= 0 &&

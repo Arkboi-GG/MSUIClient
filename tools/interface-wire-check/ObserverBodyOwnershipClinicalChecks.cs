@@ -1,4 +1,4 @@
-﻿using MSUIClient;
+using MSUIClient;
 using MSUIClient.Engine;
 
 /// <summary>
@@ -171,8 +171,8 @@ internal static class ObserverBodyOwnershipClinicalChecks
 
         Check(targeting.Contains("bool canAuthor = CanAuthorControlledGameplay;", Ordinal) &&
               targeting.Contains(
-                  "if (changed && canAuthor) StopPetAttackForOldTargetChange", Ordinal) &&
-              targeting.Contains("if (canAuthor) _net?.SetSelection(guid);", Ordinal) &&
+                  "if (changed && canAuthorSelection) StopPetAttackForOldTargetChange", Ordinal) &&
+              targeting.Contains("if (canAuthorSelection) _net?.SetSelection(guid);", Ordinal) &&
               targeting.Contains("if (canAuthor && _net is not null && guid != 0", Ordinal) &&
               targeting.Contains("if (!CanAuthorControlledGameplay || _net is null", Ordinal),
             "plain Free View selection must remain local and wire-silent");
@@ -232,7 +232,7 @@ internal static class ObserverBodyOwnershipClinicalChecks
                   "if (!CanAuthorSessionInventory || _net is null || slot is < 0 or >= 19",
                   Ordinal) &&
               characterPage.Contains("if (!CanAuthorSessionInventory) return false;", Ordinal) &&
-              characterPage.Contains("sent = _net.SetAmmo(carried.Entry);", Ordinal) &&
+              characterPage.Contains("sent = SelectAmmo(carried.Entry);", Ordinal) &&
               deleteItem.Contains("if (!CanAuthorControlledOrSelf ||", Ordinal) &&
               talents.Contains(
                   "if (!CanAuthorControlledGameplay || ControlledGuid != LocalPlayerGuid",

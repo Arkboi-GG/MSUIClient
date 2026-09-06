@@ -183,6 +183,19 @@ public sealed partial class GameLoop
             ApplyCommandViewNpcChoice(effect.Kind);
             return;
         }
+        if (effect.Type == ConfirmPopupUiLaw.DeleteMacroPopupType)
+        {
+            // Only Delete deletes; Escape, Cancel, an override or a replacement forget the ask.
+            if (effect.Kind == StaticPopupCoordinatorLaw.EffectKind.Accept) ConfirmDeleteMacro();
+            else if (effect.Kind is StaticPopupCoordinatorLaw.EffectKind.CancelClicked or
+                     StaticPopupCoordinatorLaw.EffectKind.CancelWithoutReason or
+                     StaticPopupCoordinatorLaw.EffectKind.CancelOverride or
+                     StaticPopupCoordinatorLaw.EffectKind.CancelTimeout or
+                     StaticPopupCoordinatorLaw.EffectKind.Hide or
+                     StaticPopupCoordinatorLaw.EffectKind.OnHide)
+                _macroDeletePendingId = 0;
+            return;
+        }
         if (effect.Type == ConfirmPopupUiLaw.DisableControlGuidePopupType)
         {
             // Only an explicit Disable turns the guide off; Escape, Cancel and an override all
@@ -261,6 +274,7 @@ public sealed partial class GameLoop
         DrawConfirmPopup(ConfirmPopupUiLaw.GiverChoicePopupType);
         DrawConfirmPopup(ConfirmPopupUiLaw.DisableControlGuidePopupType);
         DrawConfirmPopup(ConfirmPopupUiLaw.PartyFlightPopupType);
+        DrawConfirmPopup(ConfirmPopupUiLaw.DeleteMacroPopupType);
         UpdatePetUnlearnConfirmation();
         DrawConfirmPopup(PetUnlearnUiLaw.PopupType);
         UpdateTrainerConfirmation();
@@ -288,6 +302,8 @@ public sealed partial class GameLoop
                 ResolveWorldUnitName(_cvGiverChoiceGuid), _cvGiverChoiceOptions),
             ConfirmPopupUiLaw.DisableControlGuidePopupType => ConfirmPopupUiLaw.DisableControlGuideText,
             ConfirmPopupUiLaw.PartyFlightPopupType => PartyFlightPromptText(),
+            ConfirmPopupUiLaw.DeleteMacroPopupType =>
+                ConfirmPopupUiLaw.DeleteMacroText(visible.Instance.DataToken ?? ""),
             AreaSpiritHealerUiLaw.PopupType => AreaSpiritHealerPromptText(),
             PetUnlearnUiLaw.PopupType => PetUnlearnPromptText(),
             TrainerServiceUiLaw.PopupType => TrainerConfirmationText(),

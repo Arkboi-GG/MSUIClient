@@ -414,6 +414,8 @@ public sealed partial class GameLoop : IDisposable
     private AssetWorkerPool? _assetWorkers;
     private WmoRenderer? _wmo;
     private DoodadRenderer? _doodads;
+    // Room light for the dynamic M2s (units, mounts, items) - one law with the props.
+    private readonly InteriorUnitLight _interiorUnitLight = new();
     private LiquidRenderer? _liquid;
 
     private FoliageRenderer? _foliage;
@@ -738,6 +740,8 @@ public sealed partial class GameLoop : IDisposable
         {
             _wmo = new WmoRenderer(gl, _config, _uploads, _assetWorkers);
             _wmo.LoadShaders(shaderDir);
+            _interiorUnitLight.Wmo = _wmo;
+            _interiorUnitLight.TerrainHeight = (x, y) => _terrain?.SampleHeight(x, y);
         }
         catch (Exception ex)
         {
@@ -1540,6 +1544,9 @@ public sealed partial class GameLoop : IDisposable
         // Scripted offline swimming-collision proof (MSUI_SWIM_PROBE).
         UpdateSwimProbe();
 
+        // Scripted offline interior unit-light proof (MSUI_INTERIORLIGHT_PROBE).
+        UpdateInteriorLightProbe();
+
         // Cart-kit charges, cooldowns and the slows they applied.
         UpdateMountKit(NowSeconds());
 
@@ -2309,6 +2316,9 @@ public sealed partial class GameLoop : IDisposable
         _wmo?.SetPartySightSubject(sightFeet,
             sightFeet is Vector3 sf ? _terrain?.SampleHeight(sf.X, sf.Y) : null);
         _wmo?.UpdateCameraCell(portalEye, _terrain?.SampleHeight(portalEye.X, portalEye.Y));
+        // Unit room light follows the same world state the cell update just saw.
+        _interiorUnitLight.Enabled = (_doodads?.InteriorLighting ?? true) && !_interiorUnitLightProbeOff;
+        _interiorUnitLight.BeginFrame(_worldTime);
         // The cut resolved by the cell update is one world-space rule shared by three renderers.
         WorldCut? activeCut = _wmo?.ActiveCut;
         if (_terrain is not null) _terrain.Cut = activeCut;
@@ -2835,7 +2845,10 @@ public sealed partial class GameLoop : IDisposable
         _creatures?.BeginItemGlowFrame();
         if (WarmStage(3) && _character is not null && _controller is not null && !_freeView &&
             _window.Camera.EffectiveDistance > FirstPersonBodyHide)
+        {
+            _character.InteriorLight = _interiorUnitLight.For(RenderSelfGuid, _controller.Position);
             _character.Render(_window.Camera, BuildUnitState(includeAuraVisual: true));
+        }
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Character);
         _characterRenderMilliseconds = Stopwatch.GetElapsedTime(characterStarted).TotalMilliseconds;
 
@@ -3248,6 +3261,7 @@ public sealed partial class GameLoop : IDisposable
             renderer.SunIntensity = _atmosphere.SunIntensity;
             renderer.AmbientColor = _atmosphere.AmbientColor;
             renderer.AmbientIntensity = _atmosphere.AmbientIntensity;
+            renderer.BakedLightScale = _doodads?.VertexColorScale ?? 2f;
             renderer.FogColor = _atmosphere.FogColor;
             renderer.FogStart = _atmosphere.ShaderFogStart;
             renderer.FogEnd = _atmosphere.ShaderFogEnd;
@@ -3260,6 +3274,7 @@ public sealed partial class GameLoop : IDisposable
             renderer.SunIntensity = _atmosphere.SunIntensity;
             renderer.AmbientColor = _atmosphere.AmbientColor;
             renderer.AmbientIntensity = _atmosphere.AmbientIntensity;
+            renderer.BakedLightScale = _doodads?.VertexColorScale ?? 2f;
             renderer.FogColor = _atmosphere.FogColor;
             renderer.FogStart = _atmosphere.ShaderFogStart;
             renderer.FogEnd = _atmosphere.ShaderFogEnd;
@@ -3903,6 +3918,10 @@ public sealed partial class GameLoop : IDisposable
                 ImGui.TextDisabled(
                     $"  distance {_doodads.DrawDistance:F0} yd  alpha {_doodads.AlphaCutoff:F2}  " +
                     $"MODD {(_doodads.InteriorLighting ? $"x{_doodads.VertexColorScale:F2}" : "off")}");
+                ImGui.TextDisabled(
+                    $"  unit room light: {_interiorUnitLight.InteriorCount}/{_interiorUnitLight.Tracked} " +
+                    $"indoors  {_interiorUnitLight.ResolvesThisFrame} floor ray(s)/frame  " +
+                    $"go lit {_doodads.InteriorLitCount}");
             }
             }
 

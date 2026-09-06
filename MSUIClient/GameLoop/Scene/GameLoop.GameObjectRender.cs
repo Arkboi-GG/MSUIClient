@@ -99,6 +99,38 @@ public sealed partial class GameLoop
     /// store (a full walk each frame rather than create/destroy hooks): the
     /// store has no spawn events, and the walk is a few dozen entities.
     /// </summary>
+    // A gameobject (mailbox, chest, brazier) is a dynamic M2 in the room it stands
+    // in, lit like the room's own props: the floor's baked MOCV under it, or the
+    // sky. WmoRenderer.ResolveInteriorLight is the one law; this converts to the
+    // doodad payload (a = daylight blend). The building usually streams in AFTER
+    // the server has spawned its gameobjects, so placements are re-asked whenever
+    // a WMO becomes resident, and every couple of seconds for doors and hulls.
+    private int _gameObjectLightVersion = -1;
+    private float _gameObjectLightRefreshAt;
+    private const float GameObjectLightRefreshSeconds = 2f;
+
+    private Vector4 GameObjectInteriorLight(Vector3 position)
+    {
+        if (_wmo is null || _doodads is null || !_doodads.InteriorLighting || _interiorUnitLightProbeOff)
+            return new Vector4(0f, 0f, 0f, 1f);
+        return _wmo.ResolveInteriorLight(position, _terrain?.SampleHeight(position.X, position.Y))
+            is Vector3 color
+            ? new Vector4(color, 0f)
+            : new Vector4(0f, 0f, 0f, 1f);
+    }
+
+    private void RefreshGameObjectInteriorLight()
+    {
+        if (_wmo is null || _doodads is null) return;
+        bool worldChanged = _wmo.ResidentVersion != _gameObjectLightVersion || _interiorUnitLightProbeOff;
+        if (!worldChanged && _worldTime - _gameObjectLightRefreshAt < GameObjectLightRefreshSeconds)
+            return;
+        _gameObjectLightVersion = _wmo.ResidentVersion;
+        _gameObjectLightRefreshAt = _worldTime;
+        foreach (var (guid, placed) in _gameObjectPlacements)
+            _doodads.TrySetDynamicLight(guid, GameObjectInteriorLight(placed.Position));
+    }
+
     private void UpdateGameObjectDoodads()
     {
         if (_doodads is null) return;
@@ -118,6 +150,8 @@ public sealed partial class GameLoop
 
         EnsureGameObjectDisplays();
         if (_gameObjectDisplays is null) return;
+
+        RefreshGameObjectInteriorLight();
 
         foreach (WorldEntity e in _entities.Entities.Values)
         {
@@ -236,7 +270,8 @@ public sealed partial class GameLoop
 
             switch (_doodads.AddDynamic(e.Guid, modelPath, transform,
                         liveCollision: _elevatorTransports.ContainsKey(e.Guid) ||
-                            GameObjectAnimationLaw.CollisionFollowsState(e.GameObjectType)))
+                            GameObjectAnimationLaw.CollisionFollowsState(e.GameObjectType),
+                        light: GameObjectInteriorLight(e.Position)))
             {
                 case DoodadRenderer.DynamicPlacement.Placed:
                     _gameObjectPlacements[e.Guid] = signature;

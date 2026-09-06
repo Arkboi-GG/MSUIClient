@@ -64,7 +64,7 @@ internal static class PartyLeadClinicalChecks
             "0x035A/0x035B stay reserved for P4's vendor slice — narrowed by the owner, " +
             "not abandoned, so a live design still names them");
 
-        // ── Parity law: this is SuperUI furniture, not a vanilla verb ────────
+        // ── SuperUI furniture: slash aliases plus the party-member popup row ──
         Check(PartyLeadCommandLaw.IsClaimLead("/claimlead") &&
               PartyLeadCommandLaw.IsClaimLead("/TakeLead"),
             "the claim-lead aliases must resolve, case-insensitively");
@@ -73,11 +73,9 @@ internal static class PartyLeadClinicalChecks
             "GroupSlashCommandLaw is a PARITY surface listing vanilla's own GlobalStrings " +
             "aliases; a SuperUI-only verb in it makes the parity tables assert a command " +
             "the 1.12 client never had");
-        Check(!Enum.GetNames<UnitPopupRow>().Any(row =>
-                  row.Contains("Lead", StringComparison.OrdinalIgnoreCase) &&
-                  !row.Equals("LootPromote", StringComparison.Ordinal)),
-            "the unit popup mirrors Benilla's UnitPopup.xml exactly — a claim-lead row " +
-            "there would be a parity break, which is why the verb is a slash command");
+        Check(Enum.IsDefined(UnitPopupRow.ClaimLead) &&
+              UnitPopupUiLaw.RowText(UnitPopupRow.ClaimLead) == "Claim Party Lead",
+            "the SuperUI claim-lead party popup row is missing or renamed");
 
         // ── Wiring nobody would notice was gone ──────────────────────────────
         string root = ClientConfig.FindRepoRoot();

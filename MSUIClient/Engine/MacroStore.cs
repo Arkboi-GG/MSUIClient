@@ -28,7 +28,7 @@ public static class MacroStore
     }
 
     public static string LegacyCharacterFile(string realm, string character) =>
-        $"{MacroFrameUiLaw.StoreFileToken(realm)}-{MacroFrameUiLaw.StoreFileToken(character)}.txt";
+        $"{MacroBookLaw.StoreFileToken(realm)}-{MacroBookLaw.StoreFileToken(character)}.txt";
 
     /// <summary>
     /// The formerly shared files have no account metadata. Their first authenticated reader claims

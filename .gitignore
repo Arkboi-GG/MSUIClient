@@ -100,9 +100,11 @@ project.assets.json
 # Per-user assistant/editor state.
 /.claude/
 
-# Agent workspace state. AGENTS.md (the standing brief) and POSSESS_LAW.md are
-# TRACKED since 2026-09-03 so the rules travel with the repo; machine-specific
-# facts (box IP, ssh host, install one-liner) live in the ignored AGENTS.local.md.
+# Agent workspace state. AGENTS.md (the standing brief), CODE_STRUCTURE_LAW.md and
+# the shared_docs/ folder (POSSESS_LAW, CRPG_FREEZE_SYSTEM, MACRO_BOOK, ...) are
+# TRACKED so the rules travel with the repo (docs/ stays ignored scratch);
+# machine-specific facts (box IP, ssh host, install one-liner) live in the ignored
+# AGENTS.local.md.
 /AGENTS.local.md
 /.agents/
 /.codex/

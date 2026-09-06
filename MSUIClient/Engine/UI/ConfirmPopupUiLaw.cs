@@ -151,13 +151,27 @@ public static class ConfirmPopupUiLaw
     public static readonly StaticPopupCoordinatorLaw.Definition DisableControlGuideDefinition = new(
         DisableControlGuidePopupType, HideOnEscape: true, HasAccept: true, HasCancel: true);
 
+    /// <summary>The Macro Book's Delete asks first (owner 2026-09-05): a stock yes/no
+    /// StaticPopup whose data token is the macro's name. Sections are not asked about - deleting
+    /// one only ungroups its macros.</summary>
+    public const string DeleteMacroPopupType = "SUI_DELETE_MACRO";
+    public const string DeleteText = "Delete";
+
+    public static string DeleteMacroText(string name) =>
+        $"Delete the macro \"{(string.IsNullOrWhiteSpace(name) ? "New Macro" : name.Trim())}\"?\n" +
+        "Any hotbar button using it will go empty.";
+
+    public static readonly StaticPopupCoordinatorLaw.Definition DeleteMacroDefinition = new(
+        DeleteMacroPopupType, HideOnEscape: true, HasAccept: true, HasCancel: true);
+
     public static bool IsConfirmPopup(string type) =>
         type is SummonPopupType or QuestAcceptPopupType or ReadyCheckPopupType or GiverChoicePopupType
-            or DisableControlGuidePopupType;
+            or DisableControlGuidePopupType or DeleteMacroPopupType;
 
     public static (string Accept, string Decline) Captions(string type) =>
         type == ReadyCheckPopupType ? (ReadyText, NotReadyText)
         : type == DisableControlGuidePopupType ? (DisableText, CancelText)
+        : type == DeleteMacroPopupType ? (DeleteText, CancelText)
         : type == PartyFlightPopupType ? (FlyText, CancelText)
         : (AcceptText, DeclineText);
 

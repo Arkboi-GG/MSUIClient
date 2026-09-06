@@ -385,8 +385,12 @@ static void CheckKeyBindingsFrameFitsItsArt()
     float rowsEnd = KeyBindingsUiLaw.Rows.Y + KeyBindingsUiLaw.VisibleRows * KeyBindingsUiLaw.RowPitch;
     if (rowsEnd > KeyBindingsUiLaw.Defaults.Y)
         bad.Add($"rows end {rowsEnd} overlaps the button row at {KeyBindingsUiLaw.Defaults.Y}");
-    if (KeyBindingsUiLaw.ScrollHeight > KeyBindingsUiLaw.Rows.Height + 0.01f)
-        bad.Add("scroll bar is taller than the row band it scrolls");
+    // Blizzard's scrollbar occupies its own carved slot, above and below the
+    // searchable row band. Keep it aligned to that authored y=53..443 region.
+    float scrollEnd = KeyBindingsUiLaw.ScrollMinimum.Y + KeyBindingsUiLaw.ScrollHeight;
+    if (Math.Abs(KeyBindingsUiLaw.ScrollMinimum.Y - 53f) > .01f ||
+        Math.Abs(scrollEnd - 443f) > .01f)
+        bad.Add($"scroll bar left its authored y=53..443 slot ({KeyBindingsUiLaw.ScrollMinimum.Y}..{scrollEnd})");
 
     Check(bad.Count == 0, "Key Bindings frame does not fit its own artwork: " + string.Join(" | ", bad));
 
@@ -1540,10 +1544,18 @@ if (args.Contains("--world-map-only", StringComparer.Ordinal))
     return;
 }
 
-if (args.Contains("--macro-frame-only", StringComparer.Ordinal))
+if (args.Contains("--shared-docs-only", StringComparer.Ordinal))
 {
-    MacroFrameClinicalChecks.Run();
-    Console.WriteLine("interface-wire-check: MacroFrame PASS");
+    SharedDocsClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: SharedDocs PASS");
+    return;
+}
+
+if (args.Contains("--macro-book-only", StringComparer.Ordinal) ||
+    args.Contains("--macro-frame-only", StringComparer.Ordinal))
+{
+    MacroBookClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MacroBook PASS");
     return;
 }
 
@@ -3753,7 +3765,8 @@ Check(inspectPortraitDraw >= 0 && inspectBackgroundDraw > inspectPortraitDraw,
 Check(inspectSource.Contains("UiPanelFrameOrigin(UiPanelOwnershipRegistry[11], s)",
           StringComparison.Ordinal) &&
       inspectRingDraw >= 0 && inspectHighlightDraw > inspectRingDraw &&
-      inspectSource.Contains("enabled: false", StringComparison.Ordinal) &&
+      inspectSource.Contains("selected: !_inspectHonorPage, enabled: _inspectHonorPage", StringComparison.Ordinal) &&
+       inspectSource.Contains("selected: _inspectHonorPage, enabled: !_inspectHonorPage", StringComparison.Ordinal) &&
       inspectSource.Contains("ImGui.IsItemActivated()", StringComparison.Ordinal) &&
       inspectSource.Contains("ImGui.IsItemDeactivated()", StringComparison.Ordinal) &&
       inspectSource.Contains("PaperDollUiLaw.EquipmentSlotLabel(slot)", StringComparison.Ordinal) &&
@@ -4393,7 +4406,10 @@ string partyCaptureSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRo
     "MSUIClient", "Program.DevTools.UiParity.cs"));
 string painterlyUiSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.PainterlyUi.cs"));
-PartyFrameClinicalChecks.CheckFrozenStaticPopupSources(ClientConfig.FindRepoRoot());
+string frozenPartySource = Path.Combine(ClientConfig.FindRepoRoot(), "parity", "snapshots",
+    "current", "benilla.source.zip");
+if (!args.Contains("--available-fixtures", StringComparer.Ordinal) || File.Exists(frozenPartySource))
+    PartyFrameClinicalChecks.CheckFrozenStaticPopupSources(ClientConfig.FindRepoRoot());
 int partyParseRoster = partyRuntimeSource.IndexOf("PartyFramePacketLaw.ParseRoster(body)",
     StringComparison.Ordinal);
 int partyCommitRoster = partyRuntimeSource.IndexOf("_partyMembers.Clear();", partyParseRoster,
@@ -4460,7 +4476,7 @@ Check(partyRuntimeSource.Contains("PartyFrameUiLaw.IsLeaveRoster(wire)",
       partyRuntimeSource.Contains("party-tooltip-slot-token-is-absent-during-fade",
           StringComparison.Ordinal) &&
       partyRuntimeSource.Contains(
-          "string fontObject = hovered ? \"GameFontHighlight\" : \"GameFontNormal\";",
+          "string fontObject = !enabled ? \"GameFontDisable\"",
           StringComparison.Ordinal) &&
       !partyRuntimeSource.Contains("DialogButtonHighlightText", StringComparison.Ordinal) &&
       !partyRuntimeSource.Contains("DialogButtonNormalText", StringComparison.Ordinal) &&
@@ -4775,5 +4791,9 @@ GameplayImguiPolicyClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: GameplayImguiPolicy PASS");
 HudLayoutClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: HudLayout PASS");
+MacroBookClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: MacroBook PASS");
+SharedDocsClinicalChecks.Run();
+Console.WriteLine("interface-wire-check: SharedDocs PASS");
 
 Console.WriteLine("interface wire checks passed: minimap projection/area/zone + action icons + gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + social + trade + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding + gameplay-text fence");

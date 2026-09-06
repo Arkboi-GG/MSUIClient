@@ -81,14 +81,16 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
             GameMenu,
             new("OptionsFrame", UiPanelOwnershipLaw.Area.Center, WhileDead: true),
             WorldMap,
+            new("BattlefieldFrame", UiPanelOwnershipLaw.Area.Left),
+            new("WorldStateScoreFrame", UiPanelOwnershipLaw.Area.Center, WhileDead: true),
         ];
         FieldInfo registryField = typeof(GameLoop).GetField("UiPanelOwnershipRegistry",
             BindingFlags.Static | BindingFlags.NonPublic) ??
             throw new InvalidDataException("UI-panel observer registry seam is missing");
         Check(registryField.GetValue(null) is UiPanelOwnershipLaw.Panel[] actual &&
               actual.SequenceEqual(expected) && actual.Select(panel => panel.Id).Distinct(
-                  StringComparer.Ordinal).Count() == 22,
-            "UI-panel observer 22-row id/area/pushable/whileDead registry drift");
+                  StringComparer.Ordinal).Count() == 24,
+            "UI-panel observer 24-row id/area/pushable/whileDead registry drift");
     }
 
     private static void CheckAuthoredSeatOrigins()

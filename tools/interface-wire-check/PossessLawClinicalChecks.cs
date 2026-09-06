@@ -2,7 +2,7 @@ using MSUIClient;
 using MSUIClient.Engine.UI;
 
 /// <summary>
-/// POSSESS_LAW (POSSESS_LAW.md), client half. The rules that were broken
+/// POSSESS_LAW (shared_docs/POSSESS_LAW.md), client half. The rules that were broken
 /// and re-broken on 2026-09-03 are asserted against the SOURCE so they cannot drift back:
 /// interaction gates range from the driven body, purses read the driven body, every
 /// mirrored server frame is unwrapped, and a control change resets the body-scoped UI.
@@ -60,12 +60,13 @@ internal static class PossessLawClinicalChecks
         "MSG_MOVE_TELEPORT_ACK",
         "SMSG_SHOW_BANK", "MSG_LIST_STABLED_PETS", "MSG_TALENT_WIPE_CONFIRM", "SMSG_BINDER_CONFIRM",
         "SMSG_PLAYERBOUND", "MSG_AUCTION_HELLO",
+        "SMSG_TRADE_STATUS", "SMSG_TRADE_STATUS_EXTENDED",
     ];
 
-    /// <summary>Whitelisted frames the client deliberately does not act on (trade/mail arrive
-    /// on the direct dispatch too; their proxy copy is inert by design).</summary>
+    /// <summary>Whitelisted mail notices also arrive on the direct dispatch;
+    /// their proxy copy is inert by design.</summary>
     private static readonly string[] MirroredButInert =
-        ["SMSG_TRADE_STATUS", "SMSG_TRADE_STATUS_EXTENDED", "SMSG_RECEIVED_MAIL", "MSG_QUERY_NEXT_MAIL_TIME"];
+        ["SMSG_RECEIVED_MAIL", "MSG_QUERY_NEXT_MAIL_TIME"];
 
     public static void Run()
     {
@@ -101,7 +102,10 @@ internal static class PossessLawClinicalChecks
         string pet = Read("GameLoop/Panels/GameLoop.Pet.cs");
         int resetStart = pet.IndexOf("private void ResetBodySessionUiOnControlChange()", StringComparison.Ordinal);
         Check(resetStart >= 0, "ResetBodySessionUiOnControlChange is gone");
-        string reset = pet[resetStart..(resetStart + 900)];
+        int resetEnd = pet.IndexOf("\n    private void StopPetAttackForOldTargetChange",
+            resetStart, StringComparison.Ordinal);
+        Check(resetEnd > resetStart, "ResetBodySessionUiOnControlChange boundary is gone");
+        string reset = pet[resetStart..resetEnd];
         foreach (string call in new[] { "ResetPetActionBar();", "ClearLootOnControlChange();", "CloseBankSession(playSound: false);", "CloseTaxiMap(playSound: false);", "DiscardServerRideWithoutAck();" })
             Check(reset.Contains(call, StringComparison.Ordinal), $"POSSESS_LAW 2.3: control change no longer does {call}");
         int grantCalls = control.Split("ResetBodySessionUiOnControlChange();").Length - 1;

@@ -1737,7 +1737,7 @@ public sealed partial class DoodadRenderer : IDisposable
     /// swallowed as a duplicate.
     /// </summary>
     public DynamicPlacement AddDynamic(ulong key, string modelPath, Matrix4x4 transform,
-        bool liveCollision = false)
+        bool liveCollision = false, Vector4? light = null)
     {
         RemoveDynamic(key);
 
@@ -1769,14 +1769,32 @@ public sealed partial class DoodadRenderer : IDisposable
             DynamicGuid = key,
             LiveCollision = liveCollision,
             AppearStart = ResolveAppearStart($"go|{key:X16}"),
+            Light = light ?? ExteriorLight,
         };
         list.Add(instance);
         CullBoundsFor(model).Add(new CullBounds(min, max));
         _dynamicByKey[key] = (model, instance);
+        if (instance.Light.W < 0.5f) InteriorLitCount++;
 
         InstanceCount++;
         TotalTriangles += model.TriangleCount;
         return DynamicPlacement.Placed;
+    }
+
+    /// <summary>
+    /// Re-light one dynamic placement (a server gameobject) - the room under it
+    /// resolved after it was placed, or it moved. Same payload as MODD light:
+    /// rgb = baked colour / 255, a = daylight blend (0 interior, 1 exterior).
+    /// </summary>
+    public bool TrySetDynamicLight(ulong key, Vector4 light)
+    {
+        if (!_dynamicByKey.TryGetValue(key, out var entry)) return false;
+        Instance instance = entry.Instance;
+        if (instance.Light == light) return true;
+        if (instance.Light.W < 0.5f) InteriorLitCount--;
+        instance.Light = light;
+        if (light.W < 0.5f) InteriorLitCount++;
+        return true;
     }
 
     /// <summary>

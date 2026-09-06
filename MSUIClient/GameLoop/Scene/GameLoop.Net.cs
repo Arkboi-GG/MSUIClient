@@ -149,6 +149,7 @@ public sealed partial class GameLoop
                 _creatures = new CreatureRenderer(
                     gl, _mpq, _config, _creatureLifecycle, _assetWorkers, _uploads);
                 _creatures.AnimationResolved = CaptureAnimationChoice;
+                _creatures.InteriorLightFor = _interiorUnitLight.For;
                 _creatures.TuningFor = MountTuningFor;
                 _creatures.EmoteAnimResolver = ResolveEmoteAnim;
                 _creatures.TypeFlagsFor = entry =>

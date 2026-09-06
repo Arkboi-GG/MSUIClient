@@ -1,0 +1,852 @@
+name	security	runnable	has_subcommands
+account	SEC_PLAYER	0	1
+account characters	SEC_GAMEMASTER	1	0
+account cleardata	SEC_PLAYER	1	0
+account create	SEC_CONSOLE	1	0
+account delete	SEC_CONSOLE	1	0
+account onlinelist	SEC_CONSOLE	1	0
+account lock	SEC_PLAYER	1	0
+account set	SEC_ADMINISTRATOR	0	1
+account set addon	SEC_CONSOLE	1	0
+account set gmlevel	SEC_CONSOLE	1	0
+account set password	SEC_CONSOLE	1	0
+account set locked	SEC_ADMINISTRATOR	1	0
+account password	SEC_PLAYER	1	0
+account	SEC_PLAYER	1	0
+auction	SEC_TICKETMASTER	0	1
+auction alliance	SEC_TICKETMASTER	1	0
+auction goblin	SEC_TICKETMASTER	1	0
+auction horde	SEC_TICKETMASTER	1	0
+auction	SEC_TICKETMASTER	1	0
+cast	SEC_DEVELOPER	0	1
+cast back	SEC_DEVELOPER	1	0
+cast dist	SEC_DEVELOPER	1	0
+cast self	SEC_DEVELOPER	1	0
+cast target	SEC_DEVELOPER	1	0
+cast	SEC_DEVELOPER	1	0
+character	SEC_TICKETMASTER	0	1
+character aiinfo	SEC_MODERATOR	1	0
+character deleted	SEC_GAMEMASTER	0	1
+character deleted delete	SEC_CONSOLE	1	0
+character deleted list	SEC_GAMEMASTER	0	1
+character deleted list account	SEC_GAMEMASTER	1	0
+character deleted list name	SEC_GAMEMASTER	1	0
+character deleted restore	SEC_BASIC_ADMIN	1	0
+character deleted old	SEC_CONSOLE	1	0
+character erase	SEC_CONSOLE	1	0
+character level	SEC_DEVELOPER	1	0
+character rename	SEC_GAMEMASTER	1	0
+character reputation	SEC_TICKETMASTER	1	0
+character hasitem	SEC_TICKETMASTER	1	0
+character race	SEC_BASIC_ADMIN	1	0
+character skin	SEC_BASIC_ADMIN	1	0
+character fillflys	SEC_GAMEMASTER	1	0
+character premade	SEC_BASIC_ADMIN	0	1
+character premade gear	SEC_BASIC_ADMIN	1	0
+character premade spec	SEC_BASIC_ADMIN	1	0
+character premade savegear	SEC_DEVELOPER	1	0
+character premade savespec	SEC_DEVELOPER	1	0
+character clean	SEC_ADMINISTRATOR	0	1
+character clean todelete	SEC_ADMINISTRATOR	1	0
+character clean items	SEC_ADMINISTRATOR	1	0
+character citytitle	SEC_ADMINISTRATOR	1	0
+charge	SEC_GAMEMASTER	1	0
+cheat	SEC_GAMEMASTER	0	1
+cheat fly	SEC_GAMEMASTER	1	0
+cheat fixedz	SEC_GAMEMASTER	1	0
+cheat beastmaster	SEC_GAMEMASTER	1	0
+cheat god	SEC_GAMEMASTER	1	0
+cheat cooldown	SEC_GAMEMASTER	1	0
+cheat casttime	SEC_GAMEMASTER	1	0
+cheat powercost	SEC_GAMEMASTER	1	0
+cheat debuffs	SEC_GAMEMASTER	1	0
+cheat criticals	SEC_GAMEMASTER	1	0
+cheat castchecks	SEC_GAMEMASTER	1	0
+cheat procs	SEC_GAMEMASTER	1	0
+cheat triggerpass	SEC_GAMEMASTER	1	0
+cheat ignoretriggers	SEC_GAMEMASTER	1	0
+cheat immunepc	SEC_GAMEMASTER	1	0
+cheat immunenpc	SEC_GAMEMASTER	1	0
+cheat untargetable	SEC_GAMEMASTER	1	0
+cheat waterwalk	SEC_GAMEMASTER	1	0
+cheat wallclimb	SEC_GAMEMASTER	1	0
+cheat debugtargetinfo	SEC_GAMEMASTER	1	0
+cheat status	SEC_GAMEMASTER	1	0
+debug	SEC_TICKETMASTER	0	1
+debug anim	SEC_GAMEMASTER	1	0
+debug bg	SEC_ADMINISTRATOR	1	0
+debug bytes1	SEC_DEVELOPER	1	0
+debug bytes2	SEC_DEVELOPER	1	0
+debug condition	SEC_TICKETMASTER	1	0
+debug getitemstate	SEC_DEVELOPER	1	0
+debug lrecipient	SEC_GAMEMASTER	1	0
+debug getitemvalue	SEC_DEVELOPER	1	0
+debug getvaluebyindex	SEC_DEVELOPER	1	0
+debug getvaluebyname	SEC_DEVELOPER	1	0
+debug getprevplaytime	SEC_DEVELOPER	1	0
+debug moditemvalue	SEC_DEVELOPER	1	0
+debug modvalue	SEC_DEVELOPER	1	0
+debug play	SEC_TICKETMASTER	0	1
+debug play cinematic	SEC_TICKETMASTER	1	0
+debug play sound	SEC_TICKETMASTER	1	0
+debug play text	SEC_TICKETMASTER	1	0
+debug play music	SEC_TICKETMASTER	1	0
+debug send	SEC_GAMEMASTER	0	1
+debug send buyerror	SEC_DEVELOPER	1	0
+debug send channelnotify	SEC_DEVELOPER	1	0
+debug send chatmmessage	SEC_DEVELOPER	1	0
+debug send equiperror	SEC_DEVELOPER	1	0
+debug send opcode	SEC_DEVELOPER	1	0
+debug send poi	SEC_DEVELOPER	1	0
+debug send qpartymsg	SEC_DEVELOPER	1	0
+debug send qinvalidmsg	SEC_DEVELOPER	1	0
+debug send mailerror	SEC_DEVELOPER	1	0
+debug send sellerror	SEC_DEVELOPER	1	0
+debug send spellfail	SEC_DEVELOPER	1	0
+debug send visual	SEC_DEVELOPER	1	0
+debug send chanvisual	SEC_DEVELOPER	1	0
+debug send chanvisualnext	SEC_DEVELOPER	1	0
+debug send impact	SEC_DEVELOPER	1	0
+debug send openbag	SEC_GAMEMASTER	1	0
+debug send worldstate	SEC_DEVELOPER	1	0
+debug setaurastate	SEC_DEVELOPER	1	0
+debug setitemvalue	SEC_DEVELOPER	1	0
+debug setvaluebyindex	SEC_DEVELOPER	1	0
+debug setvaluebyname	SEC_DEVELOPER	1	0
+debug setprevplaytime	SEC_DEVELOPER	1	0
+debug spellcheck	SEC_CONSOLE	1	0
+debug spellcoefs	SEC_DEVELOPER	1	0
+debug spellmods	SEC_DEVELOPER	1	0
+debug forceupdate	SEC_DEVELOPER	1	0
+debug los	SEC_DEVELOPER	1	1
+debug los check	SEC_DEVELOPER	1	0
+debug los allow	SEC_DEVELOPER	1	0
+debug moveto	SEC_GAMEMASTER	1	0
+debug movedistance	SEC_DEVELOPER	1	0
+debug faceme	SEC_GAMEMASTER	1	0
+debug assert	SEC_ADMINISTRATOR	1	0
+debug pvpcredit	SEC_DEVELOPER	1	0
+debug unitstate	SEC_GAMEMASTER	1	0
+debug control	SEC_GAMEMASTER	1	0
+debug monster	SEC_GAMEMASTER	1	0
+debug time	SEC_ADMINISTRATOR	1	0
+debug moveflags	SEC_GAMEMASTER	1	0
+debug movespline	SEC_GAMEMASTER	1	0
+debug movemotion	SEC_DEVELOPER	1	0
+debug factionchange_items	SEC_ADMINISTRATOR	1	0
+debug loottable	SEC_DEVELOPER	1	0
+debug utf8overflow	SEC_ADMINISTRATOR	1	0
+debug chatfreeze	SEC_ADMINISTRATOR	1	0
+deplenish	SEC_GAMEMASTER	1	0
+replenish	SEC_GAMEMASTER	1	0
+event	SEC_GAMEMASTER	0	1
+event list	SEC_GAMEMASTER	1	0
+event start	SEC_BASIC_ADMIN	1	0
+event stop	SEC_BASIC_ADMIN	1	0
+event enable	SEC_DEVELOPER	1	0
+event disable	SEC_DEVELOPER	1	0
+event	SEC_GAMEMASTER	1	0
+gm	SEC_PLAYER	0	1
+gm chat	SEC_MODERATOR	1	0
+gm fly	SEC_GAMEMASTER	1	0
+gm ingame	SEC_PLAYER	1	0
+gm list	SEC_ADMINISTRATOR	1	0
+gm visible	SEC_TICKETMASTER	1	0
+gm setview	SEC_TICKETMASTER	1	0
+gm	SEC_TICKETMASTER	1	0
+honor	SEC_GAMEMASTER	0	1
+honor add	SEC_BASIC_ADMIN	1	0
+honor addkill	SEC_BASIC_ADMIN	1	0
+honor show	SEC_TICKETMASTER	1	0
+honor setrp	SEC_BASIC_ADMIN	1	0
+honor reset	SEC_BASIC_ADMIN	1	0
+go	SEC_TICKETMASTER	0	1
+go creature	SEC_TICKETMASTER	1	0
+go graveyard	SEC_TICKETMASTER	1	0
+go grid	SEC_TICKETMASTER	1	0
+go object	SEC_TICKETMASTER	1	0
+go target	SEC_TICKETMASTER	1	0
+go taxinode	SEC_TICKETMASTER	1	0
+go trigger	SEC_TICKETMASTER	1	0
+go zonexy	SEC_TICKETMASTER	1	0
+go xy	SEC_TICKETMASTER	1	0
+go xyz	SEC_TICKETMASTER	1	0
+go xyzo	SEC_TICKETMASTER	1	0
+go forward	SEC_TICKETMASTER	1	0
+go up	SEC_TICKETMASTER	1	0
+go relative	SEC_TICKETMASTER	1	0
+go warsong	SEC_TICKETMASTER	1	0
+go arathi	SEC_TICKETMASTER	1	0
+go alterac	SEC_TICKETMASTER	1	0
+go	SEC_TICKETMASTER	1	0
+gobject	SEC_TICKETMASTER	0	1
+gobject add	SEC_DEVELOPER	1	0
+gobject tmpadd	SEC_GAMEMASTER	1	0
+gobject delete	SEC_DEVELOPER	1	0
+gobject move	SEC_GAMEMASTER	1	0
+gobject near	SEC_TICKETMASTER	1	0
+gobject target	SEC_GAMEMASTER	1	0
+gobject turn	SEC_GAMEMASTER	1	0
+gobject info	SEC_TICKETMASTER	1	0
+gobject ufinfo	SEC_DEVELOPER	1	0
+gobject select	SEC_TICKETMASTER	1	0
+gobject despawn	SEC_GAMEMASTER	1	0
+gobject toggle	SEC_GAMEMASTER	1	0
+gobject reset	SEC_GAMEMASTER	1	0
+gobject respawn	SEC_GAMEMASTER	1	0
+gobject use	SEC_GAMEMASTER	1	0
+gobject setgostate	SEC_GAMEMASTER	1	0
+gobject setlootstate	SEC_GAMEMASTER	1	0
+gobject customanim	SEC_GAMEMASTER	1	0
+gobject spawnanim	SEC_GAMEMASTER	1	0
+gobject despawnanim	SEC_GAMEMASTER	1	0
+guild	SEC_GAMEMASTER	0	1
+guild create	SEC_GAMEMASTER	1	0
+guild delete	SEC_BASIC_ADMIN	1	0
+guild invite	SEC_GAMEMASTER	1	0
+guild uninvite	SEC_GAMEMASTER	1	0
+guild rank	SEC_GAMEMASTER	1	0
+guild rename	SEC_BASIC_ADMIN	1	0
+guild showlog	SEC_GAMEMASTER	1	0
+instance	SEC_TICKETMASTER	0	1
+instance continents	SEC_BASIC_ADMIN	1	0
+instance getdata	SEC_GAMEMASTER	1	0
+instance setdata	SEC_GAMEMASTER	1	0
+instance listbinds	SEC_GAMEMASTER	1	0
+instance unbind	SEC_GAMEMASTER	1	0
+instance groupunbind	SEC_BASIC_ADMIN	1	0
+instance stats	SEC_BASIC_ADMIN	1	0
+instance savedata	SEC_BASIC_ADMIN	1	0
+instance switch	SEC_BASIC_ADMIN	1	0
+instance perfinfos	SEC_BASIC_ADMIN	1	0
+instance smartrebind	SEC_TICKETMASTER	1	0
+learn	SEC_MODERATOR	0	1
+learn all	SEC_ADMINISTRATOR	1	0
+learn all_gm	SEC_GAMEMASTER	1	0
+learn all_crafts	SEC_GAMEMASTER	1	0
+learn all_default	SEC_TICKETMASTER	1	0
+learn all_lang	SEC_MODERATOR	1	0
+learn all_myclass	SEC_DEVELOPER	1	0
+learn all_myspells	SEC_DEVELOPER	1	0
+learn all_mytalents	SEC_DEVELOPER	1	0
+learn all_mytaxis	SEC_TICKETMASTER	1	0
+learn all_recipes	SEC_GAMEMASTER	1	0
+learn all_trainer	SEC_GAMEMASTER	1	0
+learn all_items	SEC_GAMEMASTER	1	0
+learn	SEC_DEVELOPER	1	0
+list	SEC_TICKETMASTER	0	1
+list auras	SEC_TICKETMASTER	1	0
+list creature	SEC_TICKETMASTER	1	0
+list clicktomove	SEC_TICKETMASTER	1	0
+list exploredareas	SEC_TICKETMASTER	1	0
+list item	SEC_TICKETMASTER	1	0
+list object	SEC_TICKETMASTER	1	0
+list talents	SEC_TICKETMASTER	1	0
+list maps	SEC_TICKETMASTER	1	0
+list movegens	SEC_TICKETMASTER	1	0
+list hostilerefs	SEC_TICKETMASTER	1	0
+list threat	SEC_TICKETMASTER	1	0
+list visibleguids	SEC_TICKETMASTER	1	0
+lookup	SEC_MODERATOR	0	1
+lookup account	SEC_GAMEMASTER	0	1
+lookup account email	SEC_BASIC_ADMIN	1	0
+lookup account ip	SEC_BASIC_ADMIN	1	0
+lookup account iponline	SEC_BASIC_ADMIN	1	0
+lookup account name	SEC_GAMEMASTER	1	0
+lookup area	SEC_TICKETMASTER	1	0
+lookup creature	SEC_TICKETMASTER	1	0
+lookup creaturemodel	SEC_TICKETMASTER	1	0
+lookup event	SEC_TICKETMASTER	1	0
+lookup faction	SEC_TICKETMASTER	1	0
+lookup item	SEC_TICKETMASTER	1	0
+lookup itemset	SEC_TICKETMASTER	1	0
+lookup object	SEC_TICKETMASTER	1	0
+lookup quest	SEC_TICKETMASTER	1	0
+lookup player	SEC_MODERATOR	0	1
+lookup player account	SEC_GAMEMASTER	1	0
+lookup player email	SEC_BASIC_ADMIN	1	0
+lookup player ip	SEC_BASIC_ADMIN	1	0
+lookup player name	SEC_MODERATOR	1	0
+lookup player character	SEC_TICKETMASTER	1	0
+lookup pool	SEC_TICKETMASTER	1	0
+lookup skill	SEC_TICKETMASTER	1	0
+lookup spell	SEC_TICKETMASTER	1	0
+lookup sound	SEC_TICKETMASTER	1	0
+lookup taxinode	SEC_TICKETMASTER	1	0
+lookup tele	SEC_TICKETMASTER	1	0
+lookup guild	SEC_MODERATOR	1	0
+modify	SEC_TICKETMASTER	0	1
+modify hp	SEC_GAMEMASTER	1	0
+modify mana	SEC_GAMEMASTER	1	0
+modify rage	SEC_GAMEMASTER	1	0
+modify energy	SEC_GAMEMASTER	1	0
+modify money	SEC_BASIC_ADMIN	1	0
+modify speed	SEC_TICKETMASTER	1	0
+modify swim	SEC_TICKETMASTER	1	0
+modify scale	SEC_GAMEMASTER	1	0
+modify bwalk	SEC_TICKETMASTER	1	0
+modify fly	SEC_TICKETMASTER	1	0
+modify aspeed	SEC_TICKETMASTER	1	0
+modify faction	SEC_GAMEMASTER	1	0
+modify tp	SEC_BASIC_ADMIN	1	0
+modify mount	SEC_GAMEMASTER	1	0
+modify honor	SEC_BASIC_ADMIN	1	0
+modify rep	SEC_BASIC_ADMIN	1	0
+modify drunk	SEC_TICKETMASTER	1	0
+modify exhaustion	SEC_GAMEMASTER	1	0
+modify emotestate	SEC_GAMEMASTER	1	0
+modify morph	SEC_GAMEMASTER	1	0
+modify gender	SEC_GAMEMASTER	1	0
+modify strength	SEC_BASIC_ADMIN	1	0
+modify agility	SEC_BASIC_ADMIN	1	0
+modify stamina	SEC_BASIC_ADMIN	1	0
+modify intellect	SEC_BASIC_ADMIN	1	0
+modify spirit	SEC_BASIC_ADMIN	1	0
+modify armor	SEC_BASIC_ADMIN	1	0
+modify holy	SEC_BASIC_ADMIN	1	0
+modify fire	SEC_BASIC_ADMIN	1	0
+modify nature	SEC_BASIC_ADMIN	1	0
+modify frost	SEC_BASIC_ADMIN	1	0
+modify shadow	SEC_BASIC_ADMIN	1	0
+modify arcane	SEC_BASIC_ADMIN	1	0
+modify ap	SEC_BASIC_ADMIN	1	0
+modify rangeap	SEC_BASIC_ADMIN	1	0
+modify spellpower	SEC_BASIC_ADMIN	1	0
+modify crit	SEC_BASIC_ADMIN	1	0
+modify rangecrit	SEC_BASIC_ADMIN	1	0
+modify spellcrit	SEC_BASIC_ADMIN	1	0
+modify mainspeed	SEC_BASIC_ADMIN	1	0
+modify offspeed	SEC_BASIC_ADMIN	1	0
+modify rangespeed	SEC_BASIC_ADMIN	1	0
+modify castspeed	SEC_BASIC_ADMIN	1	0
+modify block	SEC_BASIC_ADMIN	1	0
+modify dodge	SEC_BASIC_ADMIN	1	0
+modify parry	SEC_BASIC_ADMIN	1	0
+modify combreach	SEC_BASIC_ADMIN	1	0
+modify boundrad	SEC_BASIC_ADMIN	1	0
+modify xprate	SEC_PLAYER	1	0
+modify hairstyle	SEC_BASIC_ADMIN	1	0
+modify haircolor	SEC_BASIC_ADMIN	1	0
+modify skincolor	SEC_BASIC_ADMIN	1	0
+modify accessories	SEC_BASIC_ADMIN	1	0
+npc	SEC_MODERATOR	0	1
+npc additem	SEC_DEVELOPER	1	0
+npc addweapon	SEC_GAMEMASTER	1	0
+npc aiinfo	SEC_MODERATOR	1	0
+npc allowmove	SEC_GAMEMASTER	1	0
+npc allowattack	SEC_GAMEMASTER	1	0
+npc despawn	SEC_GAMEMASTER	1	0
+npc delitem	SEC_DEVELOPER	1	0
+npc evade	SEC_GAMEMASTER	1	0
+npc follow	SEC_GAMEMASTER	1	0
+npc unfollow	SEC_GAMEMASTER	1	0
+npc info	SEC_MODERATOR	1	0
+npc move	SEC_GAMEMASTER	1	0
+npc reloadspawn	SEC_DEVELOPER	1	0
+npc playemote	SEC_TICKETMASTER	1	0
+npc say	SEC_TICKETMASTER	1	0
+npc summon	SEC_GAMEMASTER	1	0
+npc textemote	SEC_TICKETMASTER	1	0
+npc whisper	SEC_TICKETMASTER	1	0
+npc yell	SEC_TICKETMASTER	1	0
+npc tame	SEC_GAMEMASTER	1	0
+npc spawn	SEC_MODERATOR	0	1
+npc spawn add	SEC_DEVELOPER	1	0
+npc spawn addentry	SEC_DEVELOPER	1	0
+npc spawn delete	SEC_DEVELOPER	1	0
+npc spawn info	SEC_MODERATOR	1	0
+npc spawn set	SEC_DEVELOPER	0	1
+npc spawn set entry	SEC_DEVELOPER	1	0
+npc spawn set displayid	SEC_DEVELOPER	1	0
+npc spawn set emotestate	SEC_DEVELOPER	1	0
+npc spawn set standstate	SEC_DEVELOPER	1	0
+npc spawn set sheathstate	SEC_DEVELOPER	1	0
+npc spawn set movetype	SEC_DEVELOPER	1	0
+npc spawn set wanderdistance	SEC_DEVELOPER	1	0
+npc spawn set respawntime	SEC_DEVELOPER	1	0
+npc spawn set deathstate	SEC_DEVELOPER	1	0
+npc spawn set auras	SEC_DEVELOPER	1	0
+npc spawn move	SEC_DEVELOPER	1	0
+npc set	SEC_GAMEMASTER	0	1
+npc set entry	SEC_GAMEMASTER	1	0
+npc set level	SEC_GAMEMASTER	1	0
+npc set faction	SEC_GAMEMASTER	1	0
+npc set flag	SEC_GAMEMASTER	1	0
+npc set displayid	SEC_GAMEMASTER	1	0
+npc set movetype	SEC_GAMEMASTER	1	0
+npc set wanderdistance	SEC_GAMEMASTER	1	0
+npc set respawntime	SEC_GAMEMASTER	1	0
+npc set reactstate	SEC_GAMEMASTER	1	0
+npc group	SEC_DEVELOPER	0	1
+npc group add	SEC_DEVELOPER	1	0
+npc group addrel	SEC_DEVELOPER	1	0
+npc group del	SEC_DEVELOPER	1	0
+npc group link	SEC_DEVELOPER	1	0
+unit	SEC_MODERATOR	0	1
+unit aiinfo	SEC_MODERATOR	1	0
+unit info	SEC_MODERATOR	1	0
+unit moveinfo	SEC_MODERATOR	1	0
+unit speedinfo	SEC_MODERATOR	1	0
+unit statinfo	SEC_MODERATOR	1	0
+unit ufinfo	SEC_DEVELOPER	1	0
+unit factioninfo	SEC_MODERATOR	1	0
+unit show	SEC_MODERATOR	0	1
+unit show race	SEC_MODERATOR	1	0
+unit show class	SEC_MODERATOR	1	0
+unit show gender	SEC_MODERATOR	1	0
+unit show powertype	SEC_MODERATOR	1	0
+unit show form	SEC_MODERATOR	1	0
+unit show visflags	SEC_MODERATOR	1	0
+unit show miscflags	SEC_MODERATOR	1	0
+unit show emotestate	SEC_MODERATOR	1	0
+unit show standstate	SEC_MODERATOR	1	0
+unit show sheathstate	SEC_MODERATOR	1	0
+unit show unitstate	SEC_MODERATOR	1	0
+unit show unitflags	SEC_MODERATOR	1	0
+unit show npcflags	SEC_MODERATOR	1	0
+unit show moveflags	SEC_MODERATOR	1	0
+unit show createspell	SEC_MODERATOR	1	0
+unit show combattimer	SEC_MODERATOR	1	0
+pool	SEC_GAMEMASTER	0	1
+pool list	SEC_GAMEMASTER	1	0
+pool update	SEC_ADMINISTRATOR	1	0
+pool spawns	SEC_GAMEMASTER	1	0
+pool	SEC_GAMEMASTER	1	0
+pdump	SEC_ADMINISTRATOR	0	1
+pdump load	SEC_ADMINISTRATOR	1	0
+pdump write	SEC_ADMINISTRATOR	1	0
+quest	SEC_GAMEMASTER	0	1
+quest add	SEC_BASIC_ADMIN	1	0
+quest complete	SEC_BASIC_ADMIN	1	0
+quest status	SEC_GAMEMASTER	1	0
+quest remove	SEC_GAMEMASTER	1	0
+reload	SEC_DEVELOPER	0	1
+reload all	SEC_ADMINISTRATOR	1	0
+reload all_area	SEC_ADMINISTRATOR	1	0
+reload all_gossips	SEC_ADMINISTRATOR	1	0
+reload all_item	SEC_ADMINISTRATOR	1	0
+reload all_locales	SEC_ADMINISTRATOR	1	0
+reload all_loot	SEC_ADMINISTRATOR	1	0
+reload all_npc	SEC_ADMINISTRATOR	1	0
+reload all_quest	SEC_ADMINISTRATOR	1	0
+reload all_scripts	SEC_ADMINISTRATOR	1	0
+reload all_spell	SEC_ADMINISTRATOR	1	0
+reload anticheat	SEC_ADMINISTRATOR	1	0
+reload config	SEC_ADMINISTRATOR	1	0
+reload account_banned	SEC_ADMINISTRATOR	1	0
+reload areatrigger_involvedrelation	SEC_DEVELOPER	1	0
+reload areatrigger_tavern	SEC_DEVELOPER	1	0
+reload areatrigger_teleport	SEC_DEVELOPER	1	0
+reload autobroadcast	SEC_ADMINISTRATOR	1	0
+reload character_pet	SEC_ADMINISTRATOR	1	0
+reload cinematic_waypoints	SEC_DEVELOPER	1	0
+reload command	SEC_ADMINISTRATOR	1	0
+reload conditions	SEC_DEVELOPER	1	0
+reload crafting_variants	SEC_DEVELOPER	1	0
+reload creature	SEC_DEVELOPER	1	0
+reload creature_ai_events	SEC_DEVELOPER	1	0
+reload creature_battleground	SEC_DEVELOPER	1	0
+reload creature_display_info_addon	SEC_DEVELOPER	1	0
+reload creature_groups	SEC_DEVELOPER	1	0
+reload creature_involvedrelation	SEC_DEVELOPER	1	0
+reload creature_loot_template	SEC_DEVELOPER	1	0
+reload creature_onkill_reputation	SEC_DEVELOPER	1	0
+reload creature_questrelation	SEC_DEVELOPER	1	0
+reload creature_spells	SEC_DEVELOPER	1	0
+reload creature_spells_scripts	SEC_DEVELOPER	1	0
+reload creature_template	SEC_DEVELOPER	1	0
+reload disenchant_loot_template	SEC_DEVELOPER	1	0
+reload event_scripts	SEC_DEVELOPER	1	0
+reload exploration_basexp	SEC_DEVELOPER	1	0
+reload fishing_loot_template	SEC_DEVELOPER	1	0
+reload game_graveyard_zone	SEC_DEVELOPER	1	0
+reload game_tele	SEC_DEVELOPER	1	0
+reload game_weather	SEC_DEVELOPER	1	0
+reload gameobject	SEC_DEVELOPER	1	0
+reload gameobject_battleground	SEC_DEVELOPER	1	0
+reload gameobject_involvedrelation	SEC_DEVELOPER	1	0
+reload gameobject_loot_template	SEC_DEVELOPER	1	0
+reload gameobject_questrelation	SEC_DEVELOPER	1	0
+reload gameobject_requirement	SEC_DEVELOPER	1	0
+reload gameobject_scripts	SEC_DEVELOPER	1	0
+reload gameobject_template	SEC_DEVELOPER	1	0
+reload generic_scripts	SEC_DEVELOPER	1	0
+reload gossip_menu	SEC_DEVELOPER	1	0
+reload gossip_menu_option	SEC_DEVELOPER	1	0
+reload gossip_scripts	SEC_DEVELOPER	1	0
+reload instance_buff_removal	SEC_DEVELOPER	1	0
+reload ip_banned	SEC_ADMINISTRATOR	1	0
+reload item_enchantment_template	SEC_DEVELOPER	1	0
+reload item_loot_template	SEC_DEVELOPER	1	0
+reload item_required_target	SEC_DEVELOPER	1	0
+reload item_template	SEC_DEVELOPER	1	0
+reload locales_creature	SEC_DEVELOPER	1	0
+reload locales_gameobject	SEC_DEVELOPER	1	0
+reload locales_gossip_menu_option	SEC_DEVELOPER	1	0
+reload locales_item	SEC_DEVELOPER	1	0
+reload locales_page_text	SEC_DEVELOPER	1	0
+reload locales_points_of_interest	SEC_DEVELOPER	1	0
+reload locales_quest	SEC_DEVELOPER	1	0
+reload mail_loot_template	SEC_DEVELOPER	1	0
+reload mangos_string	SEC_DEVELOPER	1	0
+reload map_loot_disabled	SEC_DEVELOPER	1	0
+reload map_template	SEC_DEVELOPER	1	0
+reload npc_gossip	SEC_DEVELOPER	1	0
+reload npc_text	SEC_DEVELOPER	1	0
+reload npc_trainer	SEC_DEVELOPER	1	0
+reload npc_vendor	SEC_DEVELOPER	1	0
+reload page_text	SEC_DEVELOPER	1	0
+reload pet_name_generation	SEC_DEVELOPER	1	0
+reload petitions	SEC_ADMINISTRATOR	1	0
+reload pickpocketing_loot_template	SEC_DEVELOPER	1	0
+reload player_factionchange_items	SEC_DEVELOPER	1	0
+reload player_factionchange_mounts	SEC_DEVELOPER	1	0
+reload player_factionchange_quests	SEC_DEVELOPER	1	0
+reload player_factionchange_reputations	SEC_DEVELOPER	1	0
+reload player_factionchange_spells	SEC_DEVELOPER	1	0
+reload points_of_interest	SEC_DEVELOPER	1	0
+reload quest_end_scripts	SEC_DEVELOPER	1	0
+reload quest_greeting	SEC_DEVELOPER	1	0
+reload quest_start_scripts	SEC_DEVELOPER	1	0
+reload quest_template	SEC_DEVELOPER	1	0
+reload quest_variants	SEC_DEVELOPER	1	0
+reload reference_loot_template	SEC_DEVELOPER	1	0
+reload reputation_reward_rate	SEC_DEVELOPER	1	0
+reload reputation_spillover_template	SEC_DEVELOPER	1	0
+reload reserved_name	SEC_ADMINISTRATOR	1	0
+reload skill_fishing_base_level	SEC_DEVELOPER	1	0
+reload skinning_loot_template	SEC_DEVELOPER	1	0
+reload spell_area	SEC_DEVELOPER	1	0
+reload spell_chain	SEC_DEVELOPER	1	0
+reload spell_disabled	SEC_DEVELOPER	1	0
+reload spell_elixir	SEC_DEVELOPER	1	0
+reload spell_group	SEC_DEVELOPER	1	0
+reload spell_group_stack_rules	SEC_DEVELOPER	1	0
+reload spell_learn_spell	SEC_DEVELOPER	1	0
+reload spell_mod	SEC_DEVELOPER	1	0
+reload spell_pet_auras	SEC_DEVELOPER	1	0
+reload spell_proc_event	SEC_DEVELOPER	1	0
+reload spell_proc_item_enchant	SEC_DEVELOPER	1	0
+reload spell_script_target	SEC_DEVELOPER	1	0
+reload spell_scripts	SEC_DEVELOPER	1	0
+reload spell_target_position	SEC_DEVELOPER	1	0
+reload spell_template	SEC_DEVELOPER	1	0
+reload spell_threats	SEC_DEVELOPER	1	0
+reload taxi_path_transitions	SEC_DEVELOPER	1	0
+reload trainer_greeting	SEC_DEVELOPER	1	0
+reload variables	SEC_DEVELOPER	1	0
+reset	SEC_GAMEMASTER	0	1
+reset honor	SEC_DEVELOPER	1	0
+reset level	SEC_DEVELOPER	1	0
+reset spells	SEC_DEVELOPER	1	0
+reset stats	SEC_DEVELOPER	1	0
+reset talents	SEC_GAMEMASTER	1	0
+reset items	SEC_ADMINISTRATOR	1	0
+reset all	SEC_ADMINISTRATOR	1	0
+spec	SEC_PLAYER	0	1
+spec save	SEC_PLAYER	1	0
+spec show	SEC_GAMEMASTER	1	0
+spec load	SEC_PLAYER	1	0
+spec bars	SEC_GAMEMASTER	1	0
+spec init	SEC_PLAYER	1	0
+spec respec	SEC_PLAYER	1	0
+testbars	SEC_GAMEMASTER	1	0
+server	SEC_PLAYER	0	1
+server corpses	SEC_ADMINISTRATOR	1	0
+server exit	SEC_CONSOLE	1	0
+server idlerestart	SEC_ADMINISTRATOR	0	1
+server idlerestart cancel	SEC_ADMINISTRATOR	1	0
+server idlerestart	SEC_ADMINISTRATOR	1	0
+server idleshutdown	SEC_ADMINISTRATOR	0	1
+server idleshutdown cancel	SEC_ADMINISTRATOR	1	0
+server idleshutdown	SEC_ADMINISTRATOR	1	0
+server info	SEC_PLAYER	1	0
+server log	SEC_CONSOLE	0	1
+server log filter	SEC_CONSOLE	1	0
+server log level	SEC_CONSOLE	1	0
+server motd	SEC_PLAYER	1	0
+server plimit	SEC_ADMINISTRATOR	1	0
+server resetallraids	SEC_ADMINISTRATOR	1	0
+server restart	SEC_ADMINISTRATOR	0	1
+server restart cancel	SEC_ADMINISTRATOR	1	0
+server restart	SEC_ADMINISTRATOR	1	0
+server shutdown	SEC_ADMINISTRATOR	0	1
+server shutdown cancel	SEC_ADMINISTRATOR	1	0
+server shutdown	SEC_ADMINISTRATOR	1	0
+server set	SEC_ADMINISTRATOR	0	1
+server set motd	SEC_ADMINISTRATOR	1	0
+tele	SEC_TICKETMASTER	0	1
+tele add	SEC_DEVELOPER	1	0
+tele del	SEC_DEVELOPER	1	0
+tele name	SEC_TICKETMASTER	1	0
+tele group	SEC_TICKETMASTER	1	0
+tele	SEC_TICKETMASTER	1	0
+trigger	SEC_TICKETMASTER	0	1
+trigger active	SEC_TICKETMASTER	1	0
+trigger near	SEC_TICKETMASTER	1	0
+trigger	SEC_TICKETMASTER	1	0
+wp	SEC_TICKETMASTER	0	1
+wp show	SEC_TICKETMASTER	1	0
+wp add	SEC_DEVELOPER	1	0
+wp modify	SEC_DEVELOPER	1	0
+wp export	SEC_ADMINISTRATOR	1	0
+service	SEC_ADMINISTRATOR	0	1
+service del_characters	SEC_ADMINISTRATOR	1	0
+bot	SEC_ADMINISTRATOR	0	1
+bot add	SEC_ADMINISTRATOR	1	0
+bot add_all	SEC_ADMINISTRATOR	1	0
+bot delete	SEC_ADMINISTRATOR	1	0
+bot info	SEC_ADMINISTRATOR	1	0
+bot reload	SEC_ADMINISTRATOR	1	0
+bot stop	SEC_ADMINISTRATOR	1	0
+bot start	SEC_ADMINISTRATOR	1	0
+bot addai	SEC_ADMINISTRATOR	1	0
+bot ranadd	SEC_ADMINISTRATOR	1	0
+ahbot	SEC_ADMINISTRATOR	0	1
+ahbot reload	SEC_ADMINISTRATOR	1	0
+ahbot update	SEC_ADMINISTRATOR	1	0
+partybot	SEC_ADMINISTRATOR	0	1
+partybot add	SEC_ADMINISTRATOR	1	0
+partybot clone	SEC_ADMINISTRATOR	1	0
+partybot load	SEC_ADMINISTRATOR	1	0
+partybot setrole	SEC_ADMINISTRATOR	1	0
+partybot attackstart	SEC_ADMINISTRATOR	1	0
+partybot attackstop	SEC_ADMINISTRATOR	1	0
+partybot pull	SEC_ADMINISTRATOR	1	0
+partybot aoe	SEC_ADMINISTRATOR	1	0
+partybot caststart	SEC_ADMINISTRATOR	1	0
+partybot caststop	SEC_ADMINISTRATOR	1	0
+partybot ccmark	SEC_ADMINISTRATOR	1	0
+partybot focusmark	SEC_ADMINISTRATOR	1	0
+partybot clearmarks	SEC_ADMINISTRATOR	1	0
+partybot cometome	SEC_ADMINISTRATOR	1	0
+partybot usegobject	SEC_ADMINISTRATOR	1	0
+partybot pause	SEC_ADMINISTRATOR	1	0
+partybot unpause	SEC_ADMINISTRATOR	1	0
+partybot unequip	SEC_ADMINISTRATOR	1	0
+partybot remove	SEC_ADMINISTRATOR	1	0
+battlebot	SEC_ADMINISTRATOR	0	1
+battlebot add	SEC_ADMINISTRATOR	0	1
+battlebot add alterac	SEC_ADMINISTRATOR	1	0
+battlebot add arathi	SEC_ADMINISTRATOR	1	0
+battlebot add warsong	SEC_ADMINISTRATOR	1	0
+battlebot remove	SEC_ADMINISTRATOR	1	0
+battlebot removeall	SEC_ADMINISTRATOR	1	0
+battlebot showpath	SEC_ADMINISTRATOR	1	0
+battlebot showallpaths	SEC_ADMINISTRATOR	1	0
+sui	SEC_ADMINISTRATOR	0	1
+sui possess	SEC_ADMINISTRATOR	1	0
+sui release	SEC_ADMINISTRATOR	1	0
+sui worldstate	SEC_ADMINISTRATOR	1	0
+sui rts	SEC_ADMINISTRATOR	1	0
+sui companion	SEC_ADMINISTRATOR	1	0
+world	SEC_ADMINISTRATOR	0	1
+world update	SEC_ADMINISTRATOR	1	0
+world cansee	SEC_ADMINISTRATOR	1	0
+world detail	SEC_ADMINISTRATOR	1	0
+possess	SEC_GAMEMASTER	1	0
+cinematic	SEC_DEVELOPER	0	1
+cinematic addwp	SEC_DEVELOPER	1	0
+cinematic gotime	SEC_DEVELOPER	1	0
+cinematic listwp	SEC_DEVELOPER	1	0
+escort	SEC_TICKETMASTER	0	1
+escort create	SEC_DEVELOPER	1	0
+escort addwp	SEC_DEVELOPER	1	0
+escort modwp	SEC_DEVELOPER	1	0
+escort clearwp	SEC_DEVELOPER	1	0
+escort showwp	SEC_TICKETMASTER	1	0
+escort hidewp	SEC_TICKETMASTER	1	0
+bg	SEC_GAMEMASTER	0	1
+bg status	SEC_GAMEMASTER	1	0
+bg start	SEC_GAMEMASTER	1	0
+bg stop	SEC_GAMEMASTER	1	0
+bg	SEC_GAMEMASTER	1	0
+spell	SEC_GAMEMASTER	0	1
+spell effects	SEC_GAMEMASTER	1	0
+spell info	SEC_GAMEMASTER	1	0
+spell search	SEC_GAMEMASTER	1	0
+spell iconfix	SEC_DEVELOPER	1	0
+pvp	SEC_GAMEMASTER	1	0
+variable	SEC_DEVELOPER	1	0
+aura	SEC_BASIC_ADMIN	1	0
+nameaura	SEC_BASIC_ADMIN	1	0
+unaura	SEC_GAMEMASTER	1	0
+announce	SEC_BASIC_ADMIN	1	0
+notify	SEC_BASIC_ADMIN	1	0
+goname	SEC_TICKETMASTER	1	0
+namego	SEC_TICKETMASTER	1	0
+group	SEC_GAMEMASTER	0	1
+group additem	SEC_GAMEMASTER	1	0
+group revive	SEC_GAMEMASTER	1	0
+group replenish	SEC_GAMEMASTER	1	0
+group summon	SEC_GAMEMASTER	1	0
+groupgo	SEC_TICKETMASTER	1	0
+gocorpse	SEC_TICKETMASTER	1	0
+commands	SEC_PLAYER	1	0
+demorph	SEC_GAMEMASTER	1	0
+namedie	SEC_GAMEMASTER	1	0
+die	SEC_GAMEMASTER	1	0
+fear	SEC_GAMEMASTER	1	0
+knockback	SEC_GAMEMASTER	1	0
+revive	SEC_GAMEMASTER	1	0
+mount	SEC_GAMEMASTER	1	0
+dismount	SEC_PLAYER	1	0
+gps	SEC_MODERATOR	1	0
+guid	SEC_MODERATOR	1	0
+help	SEC_PLAYER	1	0
+itemmove	SEC_GAMEMASTER	1	0
+cooldown	SEC_GAMEMASTER	0	1
+cooldown list	SEC_GAMEMASTER	1	0
+cooldown clear	SEC_GAMEMASTER	1	0
+cooldown clearclientside	SEC_GAMEMASTER	1	0
+unlearn	SEC_GAMEMASTER	0	1
+unlearn all_gm	SEC_GAMEMASTER	1	0
+unlearn all_crafts	SEC_GAMEMASTER	1	0
+unlearn all_recipes	SEC_GAMEMASTER	1	0
+unlearn	SEC_GAMEMASTER	1	0
+removeriding	SEC_GAMEMASTER	1	0
+distance	SEC_MODERATOR	1	0
+angle	SEC_MODERATOR	1	0
+recall	SEC_MODERATOR	1	0
+save	SEC_PLAYER	1	0
+saveall	SEC_ADMINISTRATOR	1	0
+kick	SEC_TICKETMASTER	1	0
+ban	SEC_TICKETMASTER	0	1
+ban account	SEC_GAMEMASTER	1	0
+ban allip	SEC_ADMINISTRATOR	1	0
+ban character	SEC_GAMEMASTER	1	0
+ban ip	SEC_ADMINISTRATOR	1	0
+ban note	SEC_TICKETMASTER	1	0
+ban warn	SEC_TICKETMASTER	1	0
+unban	SEC_ADMINISTRATOR	0	1
+unban account	SEC_ADMINISTRATOR	1	0
+unban character	SEC_ADMINISTRATOR	1	0
+unban ip	SEC_ADMINISTRATOR	1	0
+baninfo	SEC_TICKETMASTER	0	1
+baninfo account	SEC_TICKETMASTER	1	0
+baninfo character	SEC_TICKETMASTER	1	0
+baninfo ip	SEC_GAMEMASTER	1	0
+banlist	SEC_TICKETMASTER	0	1
+banlist account	SEC_TICKETMASTER	1	0
+banlist character	SEC_TICKETMASTER	1	0
+banlist ip	SEC_GAMEMASTER	1	0
+start	SEC_PLAYER	1	0
+unstuck	SEC_PLAYER	1	0
+taxicheat	SEC_TICKETMASTER	1	0
+linkgrave	SEC_DEVELOPER	1	0
+neargrave	SEC_TICKETMASTER	1	0
+explorecheat	SEC_TICKETMASTER	1	0
+hover	SEC_TICKETMASTER	1	0
+levelup	SEC_GAMEMASTER	1	0
+showarea	SEC_TICKETMASTER	1	0
+hidearea	SEC_TICKETMASTER	1	0
+additem	SEC_GAMEMASTER	1	0
+deleteitem	SEC_GAMEMASTER	1	0
+additemset	SEC_GAMEMASTER	1	0
+bank	SEC_TICKETMASTER	1	0
+wchange	SEC_BASIC_ADMIN	1	0
+ticket	SEC_TICKETMASTER	0	1
+ticket assign	SEC_TICKETMASTER	1	0
+ticket close	SEC_TICKETMASTER	1	0
+ticket closedlist	SEC_TICKETMASTER	1	0
+ticket counter	SEC_TICKETMASTER	1	0
+ticket comment	SEC_TICKETMASTER	1	0
+ticket complete	SEC_TICKETMASTER	1	0
+ticket delete	SEC_GAMEMASTER	1	0
+ticket escalate	SEC_TICKETMASTER	1	0
+ticket escalatedlist	SEC_GAMEMASTER	1	0
+ticket list	SEC_TICKETMASTER	1	0
+ticket next	SEC_TICKETMASTER	1	0
+ticket notify	SEC_TICKETMASTER	1	0
+ticket onlinelist	SEC_TICKETMASTER	1	0
+ticket previous	SEC_TICKETMASTER	1	0
+ticket reload	SEC_TICKETMASTER	1	0
+ticket reset	SEC_ADMINISTRATOR	1	0
+ticket response	SEC_TICKETMASTER	0	1
+ticket response reset	SEC_GAMEMASTER	1	0
+ticket response append	SEC_TICKETMASTER	1	0
+ticket response appendln	SEC_TICKETMASTER	1	0
+ticket togglesystem	SEC_ADMINISTRATOR	1	0
+ticket unassign	SEC_TICKETMASTER	1	0
+ticket viewid	SEC_TICKETMASTER	1	0
+ticket viewname	SEC_TICKETMASTER	1	0
+ticket	SEC_TICKETMASTER	1	0
+maxskill	SEC_GAMEMASTER	1	0
+setskill	SEC_GAMEMASTER	1	0
+whispers	SEC_MODERATOR	1	0
+wr	SEC_PLAYER	1	0
+pinfo	SEC_TICKETMASTER	1	0
+groupinfo	SEC_TICKETMASTER	1	0
+pbcast	SEC_ADMINISTRATOR	1	1
+pbcast stats	SEC_ADMINISTRATOR	1	0
+pbcast setthreads	SEC_ADMINISTRATOR	1	0
+respawn	SEC_BASIC_ADMIN	1	0
+send	SEC_MODERATOR	0	1
+send mass	SEC_ADMINISTRATOR	0	1
+send mass items	SEC_ADMINISTRATOR	1	0
+send mass mail	SEC_ADMINISTRATOR	1	0
+send mass money	SEC_ADMINISTRATOR	1	0
+send items	SEC_ADMINISTRATOR	1	0
+send mail	SEC_MODERATOR	1	0
+send message	SEC_ADMINISTRATOR	1	0
+send money	SEC_ADMINISTRATOR	1	0
+mute	SEC_MODERATOR	1	0
+unmute	SEC_TICKETMASTER	1	0
+movegens	SEC_TICKETMASTER	1	0
+cometome	SEC_GAMEMASTER	1	0
+aoedamage	SEC_GAMEMASTER	1	0
+damage	SEC_GAMEMASTER	1	0
+combatstop	SEC_GAMEMASTER	1	0
+repairitems	SEC_GAMEMASTER	1	0
+stable	SEC_TICKETMASTER	1	0
+quit	SEC_CONSOLE	1	0
+mmap	SEC_GAMEMASTER	0	1
+mmap path	SEC_GAMEMASTER	1	0
+mmap loc	SEC_GAMEMASTER	1	0
+mmap loadedtiles	SEC_GAMEMASTER	1	0
+mmap stats	SEC_GAMEMASTER	1	0
+mmap testarea	SEC_GAMEMASTER	1	0
+mmap connect	SEC_ADMINISTRATOR	1	0
+mmap reload	SEC_ADMINISTRATOR	1	0
+mmap unload	SEC_ADMINISTRATOR	1	0
+mmap	SEC_ADMINISTRATOR	1	0
+video	SEC_GAMEMASTER	0	1
+video expendables	SEC_GAMEMASTER	1	0
+video turn	SEC_GAMEMASTER	1	0
+video	SEC_GAMEMASTER	1	0
+freeze	SEC_TICKETMASTER	1	0
+unfreeze	SEC_TICKETMASTER	1	0
+anticheat	SEC_TICKETMASTER	1	0
+groupspell	SEC_ADMINISTRATOR	0	1
+groupspell add	SEC_ADMINISTRATOR	1	0
+groupspell rule	SEC_ADMINISTRATOR	1	0
+pet	SEC_GAMEMASTER	0	1
+pet learnspell	SEC_DEVELOPER	1	0
+pet unlearnspell	SEC_DEVELOPER	1	0
+pet list	SEC_GAMEMASTER	1	0
+pet rename	SEC_GAMEMASTER	1	0
+pet delete	SEC_GAMEMASTER	1	0
+pet loyalty	SEC_GAMEMASTER	1	0
+pet info	SEC_MODERATOR	1	0
+channel	SEC_MODERATOR	0	1
+channel join	SEC_MODERATOR	1	0
+channel leave	SEC_MODERATOR	1	0
+log	SEC_GAMEMASTER	1	0
+sniff	SEC_ADMINISTRATOR	1	0
+spamer	SEC_MODERATOR	0	1
+spamer mute	SEC_MODERATOR	1	0
+spamer unmute	SEC_TICKETMASTER	1	0
+spamer list	SEC_TICKETMASTER	1	0
+antispam	SEC_TICKETMASTER	0	1
+antispam add	SEC_TICKETMASTER	1	0
+antispam remove	SEC_BASIC_ADMIN	1	0
+antispam replace	SEC_TICKETMASTER	1	0
+antispam removereplace	SEC_BASIC_ADMIN	1	0
+gold	SEC_BASIC_ADMIN	0	1
+gold remove	SEC_BASIC_ADMIN	1	0
+wareffort	SEC_DEVELOPER	0	1
+wareffort info	SEC_DEVELOPER	1	0
+wareffort setgongtime	SEC_DEVELOPER	1	0
+wareffort setstage	SEC_DEVELOPER	1	0
+wareffort getresource	SEC_DEVELOPER	1	0
+wareffort setresource	SEC_DEVELOPER	1	0

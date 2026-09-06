@@ -291,7 +291,8 @@ public sealed partial class GameLoop
         if (_gameObjectGuid != 0) { _gameObjectGuid = 0; return true; }
         if (_worldMapOpen) { _worldMapOpen = false; return true; }
         if (_commanderMapOpen) { _commanderMapOpen = false; return true; }
-        if (_macroPopupOpen) { CloseMacroPopup(accepted: false); return true; }
+        if (_macroIconPickerOpen) { _macroIconPickerOpen = false; return true; }
+        if (_macroSectionMenuOpen) { _macroSectionMenuOpen = false; return true; }
         if (_macroOpen) { CloseMacros(); return true; }
         if (_helpOpen) { _helpOpen = false; return true; }
         if (_socialOpen || _guildOpen) return CloseFriendsFrame();
