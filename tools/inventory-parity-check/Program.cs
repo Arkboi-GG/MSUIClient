@@ -75,6 +75,15 @@ Require(InventoryUiLaw.BagBarAction(0, false, false) == InventoryUiLaw.BagBarCli
         InventoryUiLaw.BagBarAction(2, false, true) == InventoryUiLaw.BagBarClickAction.ToggleBag &&
         InventoryUiLaw.BagBarAction(2, false, false) == InventoryUiLaw.BagBarClickAction.None,
     "bag-bar click routing drift");
+// Issue #28: a bag-bar click is FrameXML OnClick (release on the button, no drag). A
+// press that travelled past the drag threshold is OnDragStart and must not toggle the
+// window, else the appearing bag window steals focus and kills the bag-slot drag.
+Require(InventoryUiLaw.BagBarClicked(true, true, 0f, 6f) &&
+        InventoryUiLaw.BagBarClicked(true, true, 5.9f, 6f) &&
+        !InventoryUiLaw.BagBarClicked(true, true, 6f, 6f) &&
+        !InventoryUiLaw.BagBarClicked(true, false, 0f, 6f) &&
+        !InventoryUiLaw.BagBarClicked(false, true, 0f, 6f),
+    "bag-bar release-click (OnClick vs OnDragStart) drift");
 Require(InventoryUiLaw.HoverCursor(true, true) == "Buy" &&
         InventoryUiLaw.HoverCursor(false, true) == "Inspect" &&
         InventoryUiLaw.HoverCursor(false, false) is null,

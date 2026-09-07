@@ -583,7 +583,16 @@ public sealed partial class GameLoop
             ImGui.SetCursorScreenPos(min);
             ImGui.InvisibleButton($"##bag-button-{container}", new Vector2(buttonSize) * s);
             bool hovered = ImGui.IsItemHovered();
-            if (!_settingsOpen && ImGui.IsItemClicked())
+            // FrameXML's bag buttons act OnClick (mouse-up) and OnDragStart, never on
+            // mouse-down. Acting on press toggled a closed bag's window open the moment a
+            // drag began, and that freshly appearing window took focus and cleared the
+            // bar button's active id, so the drag never started: a bag could only be moved
+            // between slots once its window was already open (issue #28). A click is now
+            // press+release on the same button with no drag past the threshold.
+            bool clicked = InventoryUiLaw.BagBarClicked(ImGui.IsItemDeactivated(), hovered,
+                ImGui.GetMouseDragDelta(ImGuiMouseButton.Left, 0f).Length(),
+                ImGui.GetIO().MouseDragThreshold);
+            if (!_settingsOpen && clicked)
             {
                 switch (InventoryUiLaw.BagBarAction(container, HasCarriedItem, bagGuid != 0))
                 {

@@ -124,6 +124,15 @@ public static class InventoryUiLaw
         right && hasCarried ? SlotClickAction.ClearCarried :
         right && hasInstance ? SlotClickAction.ContextAction : SlotClickAction.None;
 
+    /// <summary>
+    /// A bag-bar button "click" is FrameXML OnClick: the press that ended on this button
+    /// (deactivated while still hovered) without the cursor travelling past the drag
+    /// threshold. Anything past the threshold was an OnDragStart pickup and must not
+    /// toggle the window (that toggle-on-press is what killed bag-slot drags, issue #28).
+    /// </summary>
+    public static bool BagBarClicked(bool deactivated, bool hovered, float dragDistance,
+        float dragThreshold) => deactivated && hovered && dragDistance < Math.Max(0f, dragThreshold);
+
     public static BagBarClickAction BagBarAction(int container, bool hasCarried, bool occupied) =>
         container == 0 ? BagBarClickAction.ToggleBackpack :
         hasCarried ? BagBarClickAction.PickupOrPlace :
