@@ -1463,6 +1463,8 @@ public sealed partial class GameLoop
             SaveBotBarSlot(slot, 0);
         _actionCursor = action;
         _actionCursorChangedThisFrame = true;
+        if (action.Kind is ActionSlot.Spell or ActionSlot.Macro)
+            PlayUiSound("igSpellBookSpellIconPickup", "ui.actionbar");
         return true;
     }
 
@@ -1484,6 +1486,10 @@ public sealed partial class GameLoop
             SaveBotBarSlot(slot, held.Packed);   // layered bot bars, chosen layer
         _actionCursor = displaced;
         _actionCursorChangedThisFrame = true;
+        // SoundEntries 833 resolves to Sound\Interface\uSpellIconDrop.wav.
+        // Play only after placement succeeds, including drops onto occupied slots.
+        if (held.Kind is ActionSlot.Spell or ActionSlot.Macro)
+            PlayUiSound("igSpellBookSpellIconDrop", "ui.actionbar");
     }
 
     private void DrawActionCursorPayload(WorldEntity? player, float scale)

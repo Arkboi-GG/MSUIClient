@@ -194,9 +194,10 @@ public sealed partial class GameLoop
         if (_config.DevTools && _devOverlayVisible && _spellbookFontCalibrationOpen)
             DrawSpellbookFontCalibration(p, s);
 
-        if (_pressedSpellId != 0 && ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
+        if (_pressedSpellId != 0 && _draggingSpellId != _pressedSpellId &&
+            ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
             Vector2.Distance(ImGui.GetIO().MousePos, _spellPressPosition) > 6f * s)
-            _draggingSpellId = _pressedSpellId;
+            PickupSpellToCursor(_pressedSpellId);
         if (_pressedPetBookWord != 0 && ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
             Vector2.Distance(ImGui.GetIO().MousePos, _spellPressPosition) > 6f * s &&
             _spellCatalog.TryGet(PetSpellBookUiLaw.SpellId(_pressedPetBookWord),
@@ -240,6 +241,7 @@ public sealed partial class GameLoop
         ClearPetActionCursor();
         _draggingSpellId = spellId;
         _pressedActionSlot = -1;
+        PlayUiSound("igSpellBookSpellIconPickup", "ui.actionbar");
     }
 
     private void PickupPetBookSpell(uint packed, in SpellInfo spell)

@@ -837,8 +837,12 @@ public sealed partial class GameLoop
                 _macroPressPosition = ImGui.GetIO().MousePos;
             }
             if (ImGui.IsItemActive() && _pressedMacroId == row.MacroId &&
+                _draggingMacroId != _pressedMacroId &&
                 MacroBookUiLaw.DragStarted(_macroPressPosition, ImGui.GetIO().MousePos, s))
+            {
                 _draggingMacroId = _pressedMacroId;
+                PlayUiSound("igSpellBookSpellIconPickup", "ui.actionbar");
+            }
             if (clicked) SelectMacro(row.MacroId);
             if (hovered && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
                 ExecuteMacro(row.MacroId);
