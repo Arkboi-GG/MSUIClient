@@ -211,6 +211,9 @@ public sealed partial class GameLoop
         switch (slot.Kind)
         {
             case ActionSlot.Spell when slot.ActionId == 6603:
+                // 1.12: pressing Attack with nothing selected picks the nearest valid enemy
+                // within a sensible range, rather than silently doing nothing.
+                if (_selectionGuid == 0) AutoAcquireAttackTarget();
                 if (_selectionGuid != 0) CommitSelection(_selectionGuid, beginAttack: true);
                 break;
             case ActionSlot.Spell:
@@ -227,6 +230,37 @@ public sealed partial class GameLoop
                 ExecuteMacro(slot.ActionId);
                 break;
         }
+    }
+
+    /// <summary>Nearest valid enemy within <see cref="TargetCycleLaw.AttackAcquireRange"/>, or 0
+    /// if none qualifies. Deliberately simpler than <see cref="CycleEnemyTarget"/>: this is a
+    /// one-shot pick, not a cycle, so it skips that method's screen-off-center weighting and
+    /// recent-history bookkeeping and just takes the closest eligible unit by distance. Shared by
+    /// the Attack button and by every other offensive spell's own auto-acquire in <see cref="TryCast"/>.</summary>
+    private ulong NearestAutoAcquirableEnemy()
+    {
+        if (!TryGetControlledBodyPose(out WorldBodyPose body)) return 0;
+        ulong nearest = 0;
+        float nearestDistance = float.PositiveInfinity;
+        foreach (WorldEntity unit in _entities.Units)
+        {
+            if (unit.Guid == ControlledGuid || unit.Fields.ReadsDead || !CanAttack(unit)) continue;
+            if (unit.IsCreature &&
+                _creatureQueryRecords.TryGetValue(unit.Entry, out CreatureQueryInfo? query) &&
+                query?.CreatureType == 8)
+                continue;
+            float distance = Vector3.Distance(unit.Position, body.Position);
+            if (distance > TargetCycleLaw.AttackAcquireRange || distance >= nearestDistance) continue;
+            nearestDistance = distance;
+            nearest = unit.Guid;
+        }
+        return nearest;
+    }
+
+    private void AutoAcquireAttackTarget()
+    {
+        ulong nearest = NearestAutoAcquirableEnemy();
+        if (nearest != 0) CommitSelection(nearest, beginAttack: false);
     }
 
     private void TryCast(uint spellId, ulong explicitTarget = 0)
@@ -306,6 +340,14 @@ public sealed partial class GameLoop
         {
             if (caster.Fields.MountDisplayId != 0 && (spell.Attributes & 0x0100_0000u) == 0)
             {
+                // Pressing the same mount spell that's already active dismounts, same as the
+                // Stance Bar toggling a shapeshift form off - everything else stays refused.
+                if (caster.Fields.Auras().Any(row => row.SpellId == spellId))
+                {
+                    _net.CancelAura(spellId);
+                    EmitCastVerdict(spellId, CastTargetReason.Mounted, 0, sent: true);
+                    return;
+                }
                 EmitCastVerdict(spellId, CastTargetReason.Mounted, 0, sent: false);
                 RefuseCast(spellId, "LOCAL_MOUNTED", "You are mounted");
                 return;
@@ -336,6 +378,15 @@ public sealed partial class GameLoop
             RefuseCast(spellId, "LOCAL_MISSING_FOCUS",
                 $"Requires {SpellFocusName(spell.RequiredFocus)}.");
             return;
+        }
+
+        // 1.12: pressing an offensive spell with nothing selected picks the nearest valid enemy
+        // and starts attacking it, same as the Attack button - this is the generic version of
+        // that fix, covering every spell whose target mask requires a hostile unit.
+        if (explicitTarget == 0 && _selectionGuid == 0 && CastTargetLaw.RequiresHostileUnit(spell))
+        {
+            ulong autoTarget = NearestAutoAcquirableEnemy();
+            if (autoTarget != 0) CommitSelection(autoTarget, beginAttack: true);
         }
 
         CastTargetVerdict targetVerdict = ResolveCastTarget(spell, explicitTarget);
