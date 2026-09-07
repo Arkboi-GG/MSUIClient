@@ -90,12 +90,17 @@ public sealed partial class GameLoop
     private bool VanillaButton(ImDrawListPtr draw, string id, string caption,
         Vector2 min, Vector2 logicalSize, float scale, bool enabled = true,
         string? normalFont = null, string? highlightFont = null,
-        string? disabledFont = null)
+        string? disabledFont = null, float extraHitTop = 0f)
     {
         Vector2 size = logicalSize * scale;
-        ImGui.SetCursorScreenPos(min);
+        // Purely a hit-test forgiveness margin - the drawn texture/label below still use the
+        // untouched min/size, so this never shifts what the button looks like, only how far
+        // above its visible top edge a click still counts.
+        Vector2 hitMin = min - new Vector2(0f, extraHitTop * scale);
+        Vector2 hitSize = size + new Vector2(0f, extraHitTop * scale);
+        ImGui.SetCursorScreenPos(hitMin);
         if (!enabled) ImGui.BeginDisabled();
-        bool releasedInside = ImGui.InvisibleButton(id, size);
+        bool releasedInside = ImGui.InvisibleButton(id, hitSize);
         bool held = enabled && ImGui.IsItemActive();
         bool hovered = enabled && ImGui.IsItemHovered();
         if (!enabled) ImGui.EndDisabled();
