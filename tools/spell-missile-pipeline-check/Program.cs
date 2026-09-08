@@ -298,6 +298,31 @@ Near(lateFeed.AnimationTime, 0, 0,
 Near(lateFrame.EmitterInstances(.4, ExpiredPose).First().AnimationTime, .1, 1e-6,
     "missile InFlight clock did not advance from actual launch");
 
+// Empty hit lists still launch a missile at the fixed wire point. No entity at
+// that point is required, and a moving caster cannot redirect it after release.
+var groundRuntime = new SpellEffectSource(mpq);
+Vector3 groundPoint = new(0, 10, 0);
+int groundImpacts = 0;
+groundRuntime.SpawnMissile(10, 4054, arcanePath, 0,
+    SpellVisualCatalog.NoMissileAttachment, 10, 0, false, 0, null, RuntimePose,
+    (target, spell, missed, _) =>
+    {
+        Check(target == 0 && spell == 4054 && !missed, "ground arrival became a unit impact");
+        groundImpacts++;
+    }, destination: groundPoint);
+groundRuntime.Tick(0, RuntimePose);
+groundRuntime.Tick(.25, RuntimePose);
+NearV(groundRuntime.Snapshot(4054, .25, RuntimePose).Single().Position,
+    groundPoint * .25f, 1e-5f, "fixed destination missile did not travel toward wire point");
+groundRuntime.Tick(1, RuntimePose);
+groundRuntime.Tick(2, RuntimePose);
+Check(groundImpacts == 1 && groundRuntime.ActiveCount == 0,
+    "ground arrival did not hand off exactly once and clean up");
+Check(visuals.TryGetStages(148, out var dynamiteStages) &&
+    visuals.TryGetKit(dynamiteStages.AreaKit, out var dynamiteArea) &&
+    dynamiteArea.Sound == 38 && dynamiteArea.Effects.Count == 0 &&
+    dynamiteArea.AnimationId is null, "dynamite ground arrival sound-only contract changed");
+
 Console.WriteLine($"[missile-census] speed-spells={speedSpells} visuals={withVisual} " +
     $"distinct-visuals={visualIds.Count} model-spells={withModel} ammo-fallback={ammoFallback}");
 Console.WriteLine($"[missile-census] model-paths={modelPaths.Count} resolved={resolvedModels} " +

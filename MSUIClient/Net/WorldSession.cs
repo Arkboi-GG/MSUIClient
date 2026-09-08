@@ -1532,11 +1532,22 @@ public sealed class WorldSession : IDisposable
         return w.ToArray();
     }
 
-    public void UseItem(byte bag, byte slot, byte spellSlot)
+    public void UseItem(byte bag, byte slot, byte spellSlot, ulong targetGuid = 0,
+        System.Numerics.Vector3? destination = null)
+        => SendPacket((ushort)Op.CMSG_USE_ITEM, BuildUseItemBody(bag, slot, spellSlot, targetGuid, destination));
+
+    public static byte[] BuildUseItemBody(byte bag, byte slot, byte spellSlot, ulong targetGuid = 0,
+        System.Numerics.Vector3? destination = null)
     {
-        var w = new PacketWriter(5);
-        w.WriteU8(bag); w.WriteU8(slot); w.WriteU8(spellSlot); w.WriteU16(0);
-        SendPacket((ushort)Op.CMSG_USE_ITEM, w.AsSpan());
+        var w = new PacketWriter(26);
+        w.WriteU8(bag); w.WriteU8(slot); w.WriteU8(spellSlot);
+        w.WriteU16((ushort)((targetGuid != 0 ? 0x0002 : 0) | (destination.HasValue ? 0x0040 : 0)));
+        if (targetGuid != 0) w.WritePackedGuid(targetGuid);
+        if (destination is { } point)
+        {
+            w.WriteF32(point.X); w.WriteF32(point.Y); w.WriteF32(point.Z);
+        }
+        return w.ToArray();
     }
 
     public void ReadItem(byte bag, byte slot)

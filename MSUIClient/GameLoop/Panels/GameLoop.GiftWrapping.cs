@@ -25,8 +25,7 @@ public sealed partial class GameLoop
             !GiftWrapLaw.IsPaper(template, paper.Fields.ItemFlags, paper.Fields.ItemGiftCreator) ||
             RefuseTacticalFreezeLiveCommand("wrapping an item")) return false;
         CancelItemTargeting();
-        _groundCastSpell = 0;
-        _groundCursorPoint = null;
+        CancelGroundTargeting();
         CancelStackSplit();
         _giftWrap = new(ControlledGuid, paper.Guid, paper.Entry, container, slot);
         return true;

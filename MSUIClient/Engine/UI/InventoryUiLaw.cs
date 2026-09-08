@@ -45,6 +45,10 @@ public static class InventoryUiLaw
         pushed ? KeyringPushedTexture : KeyringNormalTexture;
 
     public readonly record struct WirePosition(byte Bag, byte Slot);
+    public readonly record struct DragPress(ulong Actor, int Container, int Slot, ulong Item);
+
+    public static bool SameDragSource(DragPress? press, ulong actor, int container, int slot, ulong item) =>
+        actor != 0 && item != 0 && press == new DragPress(actor, container, slot, item);
     public readonly record struct BackgroundGeometry(
         int Rows, bool PlusTwo, float TopHeight, float MiddleHeight, float BottomHeight,
         Vector2 TopUvY, Vector2 MiddleUvY, Vector2 BottomUvY)

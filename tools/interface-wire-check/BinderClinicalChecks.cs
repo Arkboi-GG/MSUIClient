@@ -31,8 +31,9 @@ internal static class BinderClinicalChecks
         pointWriter.WriteF32(62.1f);
         pointWriter.WriteF32(56f);
         pointWriter.WriteU32(0);
+        pointWriter.WriteU32(87); // trailing AreaTable id in SMSG_BINDPOINTUPDATE
         BindPointPacket point = BinderPackets.ParseBindPoint(pointWriter.ToArray());
-        Check(point.Position == new Vector3(-9464.5f, 62.1f, 56f) && point.MapId == 0,
+        Check(point.Position == new Vector3(-9464.5f, 62.1f, 56f) && point.MapId == 0 && point.AreaId == 87,
             "bind-point body drift");
 
         Check(BinderConfirmUiLaw.Prompt("Stormwind City") ==

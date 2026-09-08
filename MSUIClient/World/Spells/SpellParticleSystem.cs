@@ -1259,6 +1259,28 @@ public sealed class SpellParticleSystem : IDisposable
             p.GeneratedHeadsLastFrame, p.GeneratedTailsLastFrame,
             p.TextureReadyLastFrame, p.DrawnLastFrame)).ToArray();
 
+    /// <summary>Observe one exact spell instance, including its child emitters.
+    /// Submitted quads are diagnostic evidence, not proof of visible screen pixels.</summary>
+    public (int Pools, int LiveParticles, int DrawnParticles) VisualState(string instancePath)
+    {
+        int pools = 0, live = 0, submitted = 0;
+        foreach (var pair in _pools)
+        {
+            // A prefix match would let instance #1 count the particles of #10.
+            if (!pair.Key.Path.Equals(instancePath, StringComparison.OrdinalIgnoreCase)) continue;
+            Observe(pair.Value);
+            foreach (Pool child in pair.Value.Children) Observe(child);
+        }
+        return (pools, live, submitted);
+
+        void Observe(Pool pool)
+        {
+            pools++;
+            live += pool.Particles.Count;
+            submitted += pool.DrawnLastFrame;
+        }
+    }
+
     private static string CloudTrace(Pool pool)
     {
         if (pool.Particles.Count == 0) return "cloud=empty";

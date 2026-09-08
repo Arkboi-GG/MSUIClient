@@ -276,7 +276,15 @@ public sealed partial class CreatureRenderer : IDisposable
     public void BeginSpellVisual(ulong guid, ushort? animationId)
     {
         if (TacticalFreezePoseLaw.IsFrozen(guid)) return;
-        if (animationId is { } id && id != 0) _spellHolds[guid] = id;
+        if (animationId is { } id && id != 0)
+        {
+            _spellHolds[guid] = id;
+            if (_combatActions.TryGetValue(guid, out CombatAction release) && release.AnimationId == id)
+            {
+                _combatActions.Remove(guid);
+                _combatActionRoute.Remove(guid);
+            }
+        }
         else _spellHolds.Remove(guid);
         _animTime[guid] = 0f;
     }
@@ -605,7 +613,7 @@ public sealed partial class CreatureRenderer : IDisposable
             int boneCount = 0;
             M2Animator.Clip? pickClip = null;
             if (Animate && model.Animator is not null && model.BoneCount > 0 &&
-                (e.IsDead || Vector3.Distance(e.Position, camPos) <= AnimateDistance))
+                (e.Fields.ReadsDead || Vector3.Distance(e.Position, camPos) <= AnimateDistance))
             {
                 string unit = e.IsPlayer ? $"player:{e.Guid:X16}" : $"creature:{e.DisplayId}";
                 if (!_animTime.TryGetValue(e.Guid, out float at)) at = InitialPhase(e.Guid);
@@ -622,7 +630,7 @@ public sealed partial class CreatureRenderer : IDisposable
                 // unlike an ordinary one-shot swing/emote, which the real client
                 // would mask to the upper body and keep playing regardless of when
                 // it started (tabled - see the "KNOWN WRONG" comments).
-                bool remoteMoving = (e.Spline?.AverageSpeed ?? 0f) > MovingEpsilon;
+                bool remoteMoving = (e.RenderMotionSpeed ?? e.Spline?.AverageSpeed ?? 0f) > MovingEpsilon;
                 bool remoteMovementChanged = remoteMoving != _wasMovingByGuid.GetValueOrDefault(e.Guid);
                 _wasMovingByGuid[e.Guid] = remoteMoving;
 
@@ -699,7 +707,7 @@ public sealed partial class CreatureRenderer : IDisposable
                     }
                 }
 
-                if (e.IsDead)
+                if (e.Fields.ReadsDead && !e.Fields.PlayerIsGhost)
                 {
                     clip = model.Animator.Resolve(unit, ActionAnimationTrack, 1, true, 6, 0);
                     rate = 1f;
@@ -824,7 +832,7 @@ public sealed partial class CreatureRenderer : IDisposable
                 worldModel, model.Source, poseSkin,
                 GeosetFilter ? appearance.VisibleGeosets : null,
                 pickClip?.BoundsCenter ?? Vector3.Zero,
-                pickClip?.BoundsRadius ?? 0f);
+                pickClip?.BoundsRadius ?? 0f, modelKey, pickClip?.AnimationId ?? -1);
 
             bool filter = GeosetFilter && appearance.VisibleGeosets is not null;
             _gl.BindVertexArray(model.Vao);
@@ -905,6 +913,13 @@ public sealed partial class CreatureRenderer : IDisposable
     {
         info = default;
         if (!entity.IsPlayer) return false;
+        if (entity.Fields.HasDisplayTransform)
+        {
+            // A wolf, bear or polymorph uses its authored display appearance;
+            // player skin and equipment do not belong on that replacement model.
+            info = model;
+            return true;
+        }
         (byte race, _, byte sex, _) = entity.Fields.Bytes0;
         if (race is < 1 or > 8 || sex > 1) return false;
         (byte skin, byte face, byte hairStyle, byte hairColor) =
@@ -1077,7 +1092,8 @@ public sealed partial class CreatureRenderer : IDisposable
         in CreatureModelInfo info, Matrix4x4 transform, Matrix4x4[] skin,
         bool applyAuraVisual = false, float alphaMultiplier = 1f)
     {
-        if (model.Source.Attachments.Count == 0 || _attachedItems is null) return;
+        if (model.Source.Attachments.Count == 0 || _attachedItems is null ||
+            entity.IsPlayer && entity.Fields.HasDisplayTransform) return;
         uint head = info.HasExtended && info.ExtEquipment.Length > 0
             ? info.ExtEquipment[0] : 0;
         uint shoulders = info.HasExtended && info.ExtEquipment.Length > 1
@@ -1150,8 +1166,12 @@ public sealed partial class CreatureRenderer : IDisposable
         _attachedItems.BodyTint = applyAuraVisual ? entity.AuraVisual.Tint : Vector3.One;
         _attachedItems.GlowOwnerKey = $"unit:{entity.Guid:X16}";
         _attachedItems.InteriorLight = _currentInteriorLight;
+        byte heldSheath = FishingLineLaw.PresentationSheath(entity.Fields.SheathState,
+            _combatActions.TryGetValue(entity.Guid, out CombatAction fishingAction)
+                ? fishingAction.AnimationId : -1,
+            _spellHolds.GetValueOrDefault(entity.Guid, -1));
         _attachedItems.Render(camera, transform, model.Source, skin, state.Mounts,
-            entity.Fields.SheathState, entity.Guid, _globalTime);
+            heldSheath, entity.Guid, _globalTime);
     }
 
     public IReadOnlyList<ItemGlowPlacement> ItemGlowPlacements =>
@@ -1404,11 +1424,29 @@ public sealed partial class CreatureRenderer : IDisposable
         WorldEntity e, M2Animator animator, string unit, bool lootKneeling, out float rate)
     {
         rate = 1f;
-        float speed = e.Spline?.AverageSpeed ?? 0f;
+        float speed = e.RenderMotionSpeed ?? e.Spline?.AverageSpeed ?? 0f;
         bool flying = e.Flying || e.IsHovering || e.Spline?.Flying == true;
+        // Display transforms (including Aquatic Form) use this renderer too.
+        // Vanilla's swim selector: turn > strafe > backward > forward > idle.
+        // Select from movement flags so vertical-only movement still treads water.
+        uint flags = e.MoveFlags;
+        if ((flags & (uint)MovementFlags.Swimming) != 0)
+        {
+            int swimId = (flags & (uint)(MovementFlags.TurnLeft | MovementFlags.TurnRight)) != 0 ? 41
+                : (flags & (uint)MovementFlags.StrafeLeft) != 0 ? 43
+                : (flags & (uint)MovementFlags.StrafeRight) != 0 ? 44
+                : (flags & (uint)MovementFlags.Backward) != 0 ? 45
+                : (flags & (uint)MovementFlags.Forward) != 0 ? 42 : 41;
+            M2Animator.Clip? swim = swimId is 43 or 44
+                ? animator.Resolve(unit, BaseAnimationTrack, swimId, true, 42, 41, 0)
+                : animator.Resolve(unit, BaseAnimationTrack, swimId, true, 41, 0);
+            if (swim is not null && swim.AnimationId != 41 && swim.MoveSpeed > 0.01f)
+                rate = Math.Clamp(speed / swim.MoveSpeed, 0.25f, 3f);
+            return swim;
+        }
         if (e.IsAirborne && !flying)
             return animator.Resolve(unit, BaseAnimationTrack, 40, true, 39, 0);
-        if (e.Spline is null || speed <= MovingEpsilon)
+        if ((e.Spline is null && e.RenderMotionSpeed is null) || speed <= MovingEpsilon)
         {
             // Flying is durable actor state; the spline only says whether the body is travelling
             // right now. Prefer the model's authored Hover loop, then its generic Fly cycle. The
@@ -1425,6 +1463,8 @@ public sealed partial class CreatureRenderer : IDisposable
 
             return e.Engaged
                 ? animator.Resolve(unit, BaseAnimationTrack, 25, true, 26, 27, 28, 0)
+                : e.Fields.UnitIsStealthed
+                ? animator.Resolve(unit, BaseAnimationTrack, 120, true, 0)
                 : animator.Resolve(unit, BaseAnimationTrack, 0, true);
         }
 
@@ -1440,6 +1480,18 @@ public sealed partial class CreatureRenderer : IDisposable
                 rate = Math.Clamp(speed / flight.MoveSpeed, 0.25f, 3f);
             return flight;
         }
+
+        if ((flags & (uint)MovementFlags.Backward) != 0)
+        {
+            M2Animator.Clip? back = animator.Resolve(unit, BaseAnimationTrack, 13, true, 4, 0);
+            if (back is not null && back.MoveSpeed > 0.01f)
+                rate = Math.Clamp(speed / back.MoveSpeed, 0.25f, 3f);
+            return back;
+        }
+        // UNIT_FIELD_BYTES_1 byte3 CREEP drives pose independently of aura alpha.
+        // StealthWalk119 is absent from vanilla's locomotion-rate whitelist.
+        if (e.Fields.UnitIsStealthed)
+            return animator.Resolve(unit, BaseAnimationTrack, 119, true, 4, 0);
 
         float walk = e.Speeds is { Length: > 0 } sp && sp[0] > 0f ? sp[0] : DefaultWalkSpeed;
         M2Animator.Clip? clip = !e.IsWalking && speed > 2f * walk
@@ -1480,26 +1532,27 @@ public sealed partial class CreatureRenderer : IDisposable
 
     private void TrackLifeState(WorldEntity entity)
     {
-        if (entity.IsDead)
+        if (entity.Fields.ReadsDead && !entity.Fields.PlayerIsGhost)
         {
             bool witnessedAlive = _knownAlive.Remove(entity.Guid);
             if (_observedDead.Add(entity.Guid))
                 _deathTime[entity.Guid] = witnessedAlive ? 0f : float.PositiveInfinity;
-            if (entity.IsCreature)
+            if (entity.IsCreature && entity.IsDead)
                 _deadCreatureSeenAt[entity.Guid] = _globalTime;
             _combatActions.Remove(entity.Guid);
             return;
         }
 
         bool resurrected = _observedDead.Remove(entity.Guid);
-        if (entity.IsCreature && _deadCreatureSeenAt.Remove(entity.Guid))
+        bool respawned = entity.IsCreature && _deadCreatureSeenAt.Remove(entity.Guid);
+        if (respawned)
             resurrected = true;
         _deathTime.Remove(entity.Guid);
         _knownAlive.Add(entity.Guid);
         if (resurrected)
         {
             _combatActions[entity.Guid] = new CombatAction(7, _globalTime, _globalTime + 3f);
-            if (entity.IsCreature)
+            if (respawned)
                 _respawnFadeStartedAt[entity.Guid] = _globalTime;
         }
     }

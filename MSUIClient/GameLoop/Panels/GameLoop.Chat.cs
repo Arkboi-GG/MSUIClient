@@ -25,6 +25,7 @@ public sealed partial class GameLoop
     private ChatMenuLevel _chatMenuSubmenu;
     private double _chatMenuCloseAt;
     private string _chatLastTellTarget = "";
+    private double _chatWhisperQuietUntil;
     private ExplorationSoundCatalog? _explorationSounds;
     private ChatLanguageCatalog? _chatLanguages;
     private bool _chatLanguageLoadAttempted;
@@ -192,6 +193,15 @@ public sealed partial class GameLoop
             : ResolveChatName(packet.SenderGuid);
         if (type == ChatFrameLaw.MsgType.Whisper && sender.Length > 0)
             _chatLastTellTarget = sender;
+        if (type == ChatFrameLaw.MsgType.Whisper)
+        {
+            double now = NowSeconds();
+            if (ChatFeedbackLaw.WhisperAlertDue(now, _chatWhisperQuietUntil))
+                PlayUiSound("TellMessage", "ui.chat");
+            _chatWhisperQuietUntil = now + ChatFeedbackLaw.WhisperQuietSeconds;
+        }
+        else if (type == ChatFrameLaw.MsgType.RaidWarning)
+            PlayUiSound("RaidWarning", "ui.chat");
         if (type == ChatFrameLaw.MsgType.System) UpdateGmModeFrom(message);
         string channel = packet.Channel.Length == 0 ? "" :
             ChatChannelLaw.DisplayName(_chatChannels, packet.Channel);
@@ -715,7 +725,11 @@ public sealed partial class GameLoop
             uint hi = _gameplayArt?.AdditiveHandle(@"Interface\Buttons\UI-Common-MouseHilight") ?? 0;
             if (hi != 0) dl.AddImage((nint)hi, min, min + size);
         }
-        if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left)) click();
+        if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        {
+            click();
+            PlayUiSound(ChatFeedbackLaw.ScrollCue(direction), "ui.chat-scroll");
+        }
 
         if (!_uiParityArmed || _uiParityPanel != "chat-frame") return;
         string name = direction switch { "ScrollUp" => "ChatFrame1UpButton",
@@ -1355,6 +1369,8 @@ public sealed partial class GameLoop
         // action its FrameXML slash handler runs.
         switch (command)
         {
+            case "/macro" or "/m":
+                OpenMacros(); return true;
             case "/help" or "/h" or "/?":
                 AddChatMessage("Chat: /say, /party, /raid, /guild, /whisper <name> <message>, /reply.");
                 AddChatMessage("Players: /who, /friend <name>, /ignore <name>, /inspect, /trade, /duel.");

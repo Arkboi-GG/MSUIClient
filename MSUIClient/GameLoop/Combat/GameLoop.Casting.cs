@@ -41,8 +41,7 @@ public sealed partial class GameLoop
         _castStateOwner = owner;
         // Reset local intent only: a handoff must not cancel the new actor on the server.
         _autoRepeatSpell = 0;
-        _groundCastSpell = 0;
-        _groundCursorPoint = null;
+        CancelGroundTargeting();
         CancelItemTargeting();
         CancelGiftWrapping();
         if (!live) return;
@@ -71,7 +70,7 @@ public sealed partial class GameLoop
 
     private void ApplySpellStart(SpellStartPacket packet)
     {
-        MarkAnimationSequenceStage(packet.SpellId, "PRECAST");
+        MarkAnimationSequenceStage(packet.SpellId, "PRECAST", packet.Caster);
         BeginRealPortalCastPrewarm(packet);
         if (_net is not null && packet.Caster == ControlledGuid)
             EmitSpellServerResult(packet.SpellId, "SMSG_SPELL_START");
@@ -100,7 +99,7 @@ public sealed partial class GameLoop
 
     private void ApplySpellGo(SpellGoPacket packet)
     {
-        MarkAnimationSequenceStage(packet.SpellId, "CAST");
+        MarkAnimationSequenceStage(packet.SpellId, "CAST", packet.Caster);
         ObserveRealPortalCastGo(packet);
         // Encounter Lab tape: passive ground-truth recording. No-op unless the Lab
         // window is open AND recording is armed (instrumentation-hazard rule).
@@ -178,6 +177,30 @@ public sealed partial class GameLoop
         bool ammoFallback = missilePath is null;
         missilePath ??= _spellEffects?.AmmoModelPath(packet.AmmoDisplayId);
         string? ammoTexture = ammoFallback ? _spellEffects?.AmmoTexturePath(packet.AmmoDisplayId) : null;
+
+        // The destination has its own presentation even when no units were hit.
+        // A no-missile visual births its one-shot at GO; the pure location missile
+        // instead uses the normal release gate and hands off its area sound on arrival.
+        if (packet.Targets.Destination is { } destination)
+        {
+            if (_spellVisualCatalog?.TryGetDestinationBurst(visual, out string burst) == true)
+                _spellEffects?.SpawnGroundBurst(packet.Caster, packet.SpellId, burst, destination, now);
+            if (packet.Hits.Length == 0 && packet.Misses.Length == 0 &&
+                info is { Speed: > 0 } groundInfo && _spellEffects is not null)
+            {
+                long groundVoice = 0;
+                _spellEffects.SpawnMissile(packet.Caster, packet.SpellId, missilePath, 0,
+                    SpellVisualCatalog.NoMissileAttachment, groundInfo.Speed, now, false, 0,
+                    anim, SpellEffectUnitPose,
+                    (_, _, _, _) => PlaySpellSoundAt(packet.Caster,
+                        ResolveSpellKit(visual, static s => s.AreaKit)?.Sound, destination,
+                        forceLoop: false, trackHold: false),
+                    ammoTexture,
+                    launched: () => groundVoice = PlaySpellSound(packet.Caster,
+                        hasStages ? visualStages.MissileSound : 0, forceLoop: true, trackHold: false),
+                    ended: () => _spellSounds?.Stop(groundVoice), destination: destination);
+            }
+        }
 
         foreach ((ulong target, bool missed, byte reason) in
             packet.Hits.Select(g => (g, false, (byte)0))
@@ -836,7 +859,7 @@ public sealed partial class GameLoop
         // The first-person body's pose is the CONTROLLER's — which in the free view is the
         // fly rig, i.e. the middle of the screen. A spell cast from up there has to come out
         // of the caster standing in the world, so fall through to its streamed pose.
-        if (guid == ControlledGuid && ControllerOwnsControlledBodyPose)
+        if (guid == ControlledGuid && ControllerOwnsControlledBodyPose && !ControlledUsesDisplayModel)
             return _character?.SpellPose(BuildUnitState()) ?? SpellUnitPose.Missing;
         if (_creatures?.TryGetSpellPose(guid, out SpellUnitPose pose) == true)
             return pose;

@@ -663,17 +663,20 @@ public sealed partial class GameLoop
     }
 
     private bool VanillaInputInt(ImDrawListPtr draw, string id, ref int value,
-        Vector2 min, Vector2 logicalSize, float scale)
+        Vector2 min, Vector2 logicalSize, float scale, bool zeroTextInsets = false)
     {
         DrawVanillaInputBorder(draw, min, logicalSize, scale);
-        ImGui.SetCursorScreenPos(min + new Vector2(6, 2) * scale);
-        ImGui.SetNextItemWidth((logicalSize.X - 12) * scale);
+        float inset = zeroTextInsets ? 0f : 6f;
+        ImGui.SetCursorScreenPos(min + new Vector2(inset, 2) * scale);
+        ImGui.SetNextItemWidth((logicalSize.X - inset * 2) * scale);
+        if (zeroTextInsets) ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, Vector2.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBgActive, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.Border, Vector4.Zero);
         bool changed = ImGui.InputInt(id, ref value, 0, 0);
         ImGui.PopStyleColor(4);
+        if (zeroTextInsets) ImGui.PopStyleVar();
         return changed;
     }
 

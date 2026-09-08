@@ -91,15 +91,20 @@ internal static class MailFrameClinicalChecks
               MailUiLaw.OpenMailTopClose == new MailUiLaw.LogicalRect(321, 9, 32, 32),
             "OpenMailFrame attachment-chain or button geometry drift");
 
-        Check(MailUiLaw.ConfirmationFrame == new MailUiLaw.LogicalRect(0, 0, 360, 96) &&
-              MailUiLaw.ConfirmationOrigin(new Vector2(1920, 1080), 1.5f) ==
-                  new Vector2(690, 192) &&
-              MailUiLaw.ConfirmationAlert == new MailUiLaw.LogicalRect(12, 8, 64, 64) &&
-              MailUiLaw.ConfirmationMessagePosition(false) == new Vector2(180, 30) &&
-              MailUiLaw.ConfirmationMessagePosition(true) == new Vector2(218, 30) &&
-              MailUiLaw.ConfirmationAccept == new MailUiLaw.LogicalRect(48, 68, 128, 20) &&
-              MailUiLaw.ConfirmationCancel == new MailUiLaw.LogicalRect(184, 68, 128, 20),
-            "Mail confirmation geometry drift");
+        var plainMoney = MailUiLaw.LayoutConfirmation(false, true, 12);
+        var alertMoney = MailUiLaw.LayoutConfirmation(true, true, 36);
+        var alertItem = MailUiLaw.LayoutConfirmation(true, false, 36);
+        Check(plainMoney.Size == new Vector2(320, 88) &&
+              MailUiLaw.ConfirmationOrigin(new Vector2(1920, 1080), 1.5f, plainMoney) ==
+                  new Vector2(720, 192) &&
+              alertMoney.Size == new Vector2(420, 112) &&
+              alertMoney.Alert == new MailUiLaw.LogicalRect(12, 24, 64, 64) &&
+              alertMoney.Money == new Vector2(210, 57) &&
+              alertMoney.Accept == new MailUiLaw.LogicalRect(76, 76, 128, 20) &&
+              alertMoney.Cancel == new MailUiLaw.LogicalRect(217, 76, 128, 20) &&
+              alertItem.Size.Y == alertMoney.Size.Y - 16 &&
+              alertItem.Accept.Y == alertMoney.Accept.Y - 16,
+            "Mail confirmation must reserve wrapped text, money and buttons without overlap");
         Check(MailUiLaw.Clip(new Vector2(10, 20), new Vector2(30, 40)) ==
                   new Vector4(10, 20, 40, 60),
             "Mail screen clip geometry drift");
@@ -116,10 +121,20 @@ internal static class MailFrameClinicalChecks
                   "new Vector2", StringComparison.Ordinal) &&
               source.Contains("MailUiLaw.OpenMailAttachmentSlot(slotIndex)",
                   StringComparison.Ordinal) &&
-              source.Contains("MailUiLaw.ConfirmationAccept", StringComparison.Ordinal),
+              source.Contains("layout.Accept, s, \"accept\"", StringComparison.Ordinal),
             "Mail satellite renderers must consume rule-owned geometry");
 
         string inboxRow = MethodBody(source, "private void DrawMailInboxRow");
+        string confirmation = MethodBody(source, "private void DrawMailConfirmation");
+        Check(confirmation.Contains("MailConfirmationKind.Cod => row!.Cod", StringComparison.Ordinal) &&
+              confirmation.Contains("MailConfirmationKind.DeleteMoney => row!.Money", StringComparison.Ordinal) &&
+              confirmation.Contains("MailConfirmationKind.SendMoney => MailAmountCopper()", StringComparison.Ordinal) &&
+              confirmation.Contains("DrawMailMoneyDisplay(dl, copper", StringComparison.Ordinal) &&
+              confirmation.Contains("centered: true", StringComparison.Ordinal) &&
+              confirmation.Contains("WrapTooltipText(message, \"GameFontHighlight\"", StringComparison.Ordinal) &&
+              confirmation.Contains("lines.Length * pitch", StringComparison.Ordinal) &&
+              confirmation.Contains("origin + layout.Money * s", StringComparison.Ordinal),
+            "Mail confirmation must show the actual COD, deletion, or sending amount before acceptance");
         string sendSlot = MethodBody(source, "private void DrawMailSendSlot");
         string openSlot = MethodBody(source, "private bool DrawOpenMailSlot");
         Check(inboxRow.Contains("OfferOwnerAnchoredSharedGameTooltip(tooltipOwner,",

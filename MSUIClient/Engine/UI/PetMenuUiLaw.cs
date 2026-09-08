@@ -42,6 +42,9 @@ public static class PetMenuUiLaw
     public static readonly StaticPopupCoordinatorLaw.Definition RenameConfirmDefinition = new(
         RenameConfirmPopupType, HideOnEscape: true, HasAccept: true, HasCancel: true);
 
+    public static bool ControlledBy(ulong? summonedBy, ulong? charmedBy, ulong actor) =>
+        actor != 0 && (charmedBy.HasValue ? charmedBy == actor : summonedBy == actor);
+
     public static (bool CanAbandon, bool CanRename) Predicates(
         ulong? summonedBy, ulong playerGuid, uint unitFlags) =>
         summonedBy != playerGuid

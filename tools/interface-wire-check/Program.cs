@@ -1446,6 +1446,27 @@ if (args.Contains("--stand-state-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--equip-binding-only", StringComparer.Ordinal))
+{
+    EquipBindingClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: EquipBinding PASS");
+    return;
+}
+
+if (args.Contains("--use-item-only", StringComparer.Ordinal))
+{
+    UseItemClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: UseItem PASS");
+    return;
+}
+
+if (args.Contains("--body-display-only", StringComparer.Ordinal))
+{
+    BodyDisplayClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: BodyDisplay PASS");
+    return;
+}
+
 if (args.Contains("--mount-special-only", StringComparer.Ordinal))
 {
     MountSpecialClinicalChecks.Run();
@@ -1837,6 +1858,7 @@ MerchantProtocolClinicalChecks.Run();
 UnitPopupClinicalChecks.Run();
 HardwareCursorClinicalChecks.Run();
 CooldownProtocolClinicalChecks.Run();
+UseItemClinicalChecks.Run();
 TradeProtocolClinicalChecks.Run();
 SocialProtocolClinicalChecks.Run();
 ChatClinicalChecks.Run();
@@ -2903,9 +2925,9 @@ Check(MailUiLaw.NoMailQueryStamp == -1f &&
       MailUiLaw.HasNewMail(0) && !MailUiLaw.HasNewMail(-86400) &&
       !MailUiLaw.HasNewMail(5), "mail pending countdown law");
 Check(MailUiLaw.OpenMailOrigin(new Vector2(384, 104), 1f) == new Vector2(758, 104) &&
-      MailUiLaw.ConfirmationSize(1.5f) == new Vector2(540, 144) &&
-      MailUiLaw.ConfirmationOrigin(new Vector2(1920, 1080), 1.5f) ==
-          new Vector2(690, 192),
+      MailUiLaw.LayoutConfirmation(false, true, 12).Size * 1.5f == new Vector2(480, 132) &&
+      MailUiLaw.ConfirmationOrigin(new Vector2(1920, 1080), 1.5f,
+          MailUiLaw.LayoutConfirmation(false, true, 12)) == new Vector2(720, 192),
       "mail child-frame and confirmation positioning law drift");
 Check(MultiActionBarUiLaw.WireSlot(BottomMultiActionBar.Left, 0) == 60 &&
       MultiActionBarUiLaw.WireSlot(BottomMultiActionBar.Left, 11) == 71 &&
@@ -3944,6 +3966,18 @@ Check((ushort)Op.CMSG_UNLEARN_SKILL == SkillFrameUiLaw.UnlearnOpcode &&
           .SequenceEqual(Convert.FromHexString("78563412")),
     "SkillFrame CMSG_UNLEARN_SKILL 0x0202 or exact u32 little-endian body drift");
 uint[] primaryProfessionLines = [164, 165, 171, 197, 202, 333, 393];
+Check(new uint[] { 183, 51, 126, 163, 50, 118 }.All(id => !spellbookSkills.AnnouncesSkillUps(id, 4, 3)) &&
+      new uint[] { 43, 95, 185, 129, 356 }.All(id => spellbookSkills.AnnouncesSkillUps(id, 4, 3)) &&
+      !spellbookSkills.AnnouncesSkillUps(26, 1, 1) && !spellbookSkills.AnnouncesSkillUps(473, 1, 1) &&
+      !spellbookSkills.AnnouncesSkillUps(6, 1, 1) && !spellbookSkills.AnnouncesSkillUps(95, 0, 1),
+    "skill message race/class 0x402 gates must hide internal/mono skills and retain ordinary skill gains");
+Check(LevelUpChatLaw.Lines(2, 15, 38, new uint[] { 0, 0, 1, 2, 1 }).SequenceEqual(new[]
+      { "Congratulations, you have reached level 2!", "You have gained 15 hit points and 38 mana.",
+        "Your Stamina increases by 1.", "Your Intellect increases by 2.", "Your Spirit increases by 1." }) &&
+      LevelUpChatLaw.Lines(10, 22, 0, new uint[] { 2, 0, 1, 0, 0 }).SequenceEqual(new[]
+      { "Congratulations, you have reached level 10!", "You have gained 22 hit points.",
+        "You have gained 1 talent point.", "Your Strength increases by 2.", "Your Stamina increases by 1." }),
+    "level-up chat must preserve mana/health branches, talent threshold and positive stats in native order");
 uint[] protectedSkillLines = [8, 43, 95, 98, 129, 185, 356, 762];
 Check(primaryProfessionLines.All(id => spellbookSkills.Abandonable(id, 1, 1)) &&
       protectedSkillLines.All(id => !spellbookSkills.Abandonable(id, 1, 1)) &&
@@ -4784,6 +4818,7 @@ PartyTaxiClinicalChecks.Run();
 TacticalFreezeClinicalChecks.Run();
 PossessLawClinicalChecks.Run();
 SwingTimerClinicalChecks.Run();
+EquipBindingClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: SwingTimer PASS");
 // The ImGui-widget ratchet only ratchets if the DEFAULT run enforces it; behind
 // --imgui-policy-only alone, an enrolled panel could regress unnoticed.

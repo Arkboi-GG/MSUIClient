@@ -52,6 +52,8 @@ public sealed partial class GameLoop
     private uint _queuedMeleeSpell;
     private double _globalCooldownUntil;
     private int _actionPage = 1;
+    private ulong _bonusBarActor;
+    private bool _bonusBarShown;
     private const int ActionPageCount = 6;
     private readonly ActionButtonVerdict?[] _lastActionButtonVerdicts =
         new ActionButtonVerdict?[120];
@@ -85,6 +87,7 @@ public sealed partial class GameLoop
 
     private void UpdateActionBarInput(bool typing)
     {
+        UpdateBonusBarFeedback();
         for (int i = 0; i < _actionKeyWasDown.Length; i++)
         {
             bool altPrimaryCast = RtsCastOnPrimaryBindingDown(ActionBinding(i));
@@ -361,15 +364,21 @@ public sealed partial class GameLoop
         if (missingReagent is { ItemId: not 0 } reagent)
         {
             EmitCastVerdict(spellId, CastTargetReason.MissingReagent, 0, sent: false);
+            _items?.Require(reagent.ItemId, 0, _net);
+            string reagentName = _items?.TryGet(reagent.ItemId, out ItemTemplate? reagentItem) == true &&
+                !string.IsNullOrWhiteSpace(reagentItem?.Name) ? reagentItem.Name : "the required reagent";
             RefuseCast(spellId, "LOCAL_MISSING_REAGENT",
-                $"Missing reagent {reagent.ItemId} ({CarriedCount(reagent.ItemId)}/{reagent.Count}).");
+                $"Missing {reagentName} ({CarriedCount(reagent.ItemId)}/{reagent.Count}).");
             return;
         }
         uint missingTool = _spellCatalog.Tools(spellId).FirstOrDefault(tool => CarriedCount(tool) == 0);
         if (missingTool != 0)
         {
             EmitCastVerdict(spellId, CastTargetReason.MissingTool, 0, sent: false);
-            RefuseCast(spellId, "LOCAL_MISSING_TOOL", $"Requires item {missingTool}.");
+            _items?.Require(missingTool, 0, _net);
+            string toolName = _items?.TryGet(missingTool, out ItemTemplate? toolItem) == true &&
+                !string.IsNullOrWhiteSpace(toolItem?.Name) ? toolItem.Name : "a required tool";
+            RefuseCast(spellId, "LOCAL_MISSING_TOOL", $"Requires {toolName}.");
             return;
         }
         if (!HasNearbySpellFocus(spell.RequiredFocus))
@@ -398,13 +407,14 @@ public sealed partial class GameLoop
             // left-click binds a terrain point and commits (Program.Targeting.cs), a
             // right-click cancels. All the gates above have already passed.
             CancelItemTargeting();
+            CancelGroundTargeting();
             _groundCastSpell = spellId;
             EmitCastVerdict(spellId, CastTargetReason.GroundTargeting, 0, sent: false);
             return;
         }
         if (targetVerdict.Kind is CastTargetKind.Item or CastTargetKind.GameObject or CastTargetKind.ItemOrGameObject)
         {
-            _groundCastSpell = 0;
+            CancelGroundTargeting();
             ClearEnchantConfirmation();
             _itemCastSpell = spellId;
             EmitCastVerdict(spellId, CastTargetReason.ItemTargeting, 0, sent: false);
@@ -475,7 +485,8 @@ public sealed partial class GameLoop
     /// <summary>Commit an armed ground-target cast at a bound world point.</summary>
     private void CommitGroundCast(uint spellId, Vector3 dest)
     {
-        _groundCastSpell = 0;
+        if (TryCommitGroundItemUse(spellId, dest)) return;
+        CancelGroundTargeting();
         if (_spellCatalog is null || !_spellCatalog.TryGet(spellId, out SpellInfo spell)) return;
         CommitCastSend(spell, spellId, 0, dest, CastTargetReason.GroundTargeting);
     }
@@ -525,8 +536,7 @@ public sealed partial class GameLoop
         }
         if (_groundCastSpell != 0)
         {
-            _groundCastSpell = 0;
-            _groundCursorPoint = null;
+            CancelGroundTargeting();
             return true;
         }
         if (_itemCastSpell == 0) return false;
@@ -709,13 +719,6 @@ public sealed partial class GameLoop
         if (!ImGui.Begin("##main-action-bar", flags)) { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
         double now = MovementInfo.ClientUptimeMs() / 1000.0;
-        // Ground-targeting cursor hint. Drawn here (inside the ImGui frame) rather than in
-        // UpdateTargeting, which runs pre-NewFrame where draw-list access is an access
-        // violation in native ImGui.
-        if (_groundCastSpell != 0 && !_window.MouseCaptured)
-            ImGui.GetForegroundDrawList().AddText(
-                ImGui.GetIO().MousePos + new Vector2(18f, 14f) * scale, 0xFF00E060,
-                "Select target area");
         if (_pressedActionSlot >= 0 &&
             ActionBarLockLaw.DragGestureAllowed(Settings.Controls.LockActionBars) &&
             ImGui.IsMouseDown(_actionPressMouseButton) &&
@@ -998,10 +1001,12 @@ public sealed partial class GameLoop
         bool[] pushedSlots = new bool[MultiActionBarUiLaw.ButtonsPerBar];
         ImGuiWindowFlags inputFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav |
-            ImGuiWindowFlags.NoBringToFrontOnFocus;
+            ImGuiWindowFlags.NoBringToFrontOnFocus | ImGuiWindowFlags.NoFocusOnAppearing;
 
         // The authored 500x38 parent is not mouse-enabled. Give only live buttons a 36x36 input
         // host so hidden empty slots and the six-pixel gaps genuinely pass through to the world.
+        // Empty hosts appear when an item is picked up. They must not take focus and clear the
+        // source slot's active mouse ID: that would cancel its drag before a payload can start.
         // Zeroing the three window styles is what makes that host actually BE 36x36: the default
         // WindowPadding <8,8> insets a window's InnerClipRect (which clips the hover test) by 4px
         // per side, and WindowMinSize <32,32> floors the host below UI scale 0.89. The stance bar
@@ -1520,8 +1525,13 @@ public sealed partial class GameLoop
     {
         if (!ImGui.IsMouseReleased(ImGuiMouseButton.Left) &&
             !ImGui.IsMouseReleased(ImGuiMouseButton.Right)) return;
+        FinishActionDragAt(_hoveredActionSlot);
+    }
+
+    private void FinishActionDragAt(int hoveredSlot)
+    {
         int receiveSlot = ActionBarLockLaw.ReceiveDragAllowed(Settings.Controls.LockActionBars)
-            ? _hoveredActionSlot : -1;
+            ? hoveredSlot : -1;
         if (_draggingMacroId != 0)
         {
             if (receiveSlot >= 0)
@@ -1563,8 +1573,10 @@ public sealed partial class GameLoop
         {
             if (receiveSlot >= 0)
                 PlaceActionPayload(receiveSlot, held);
-
-            _actionCursor = null;
+            else
+                _actionCursor = null;
+            // PlaceActionPayload owns the resulting cursor: an occupied slot displaced its
+            // action onto it. Clearing here used to discard that action after every bar swap.
         }
         else if (HasCarriedItem)
         {
@@ -1658,7 +1670,7 @@ public sealed partial class GameLoop
                 GameTooltipOwnerKey tooltipOwner = new("micro-button", (ulong)button.Id + 1);
                 string tooltipLabel = MicroMenuUiLaw.TooltipTitle(button.Label,
                     MicroMenuBindingText(button.Id));
-                string newbieText = button.NewbieText;
+                string newbieText = MicroMenuUiLaw.Description(button, OwnQuestHeldCap);
                 OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
                 {
                     ImGui.BeginTooltip();
@@ -1745,7 +1757,7 @@ public sealed partial class GameLoop
         // Round copy: this is a crop of the bake laid over round button art, and
         // the crop's own corners fall OUTSIDE the inscribed circle - the square
         // bake shows booth black in them.
-        uint portrait = _freeView
+        uint portrait = ControlledBodyIsStreamed
             ? PartyPortraitHandle(ControlledGuid)
             : RoundAperturePortrait(_playerPortrait, PlayerPortraitCurrent);
         if (portrait == 0) return;
@@ -1935,7 +1947,26 @@ public sealed partial class GameLoop
         return clicked;
     }
 
-    private int ActionWireSlot(int button) => (_actionPage - 1) * 12 + button;
+    private uint ControlledBonusBarOffset =>
+        _entities.TryGet(ControlledGuid, out WorldEntity actor) &&
+        _shapeshiftForms?.TryGet(actor.Fields.ShapeshiftForm, out ShapeshiftFormInfo form) == true
+            ? form.BonusActionBar : 0;
+
+    private int ActionWireSlot(int button) =>
+        StanceBarUiLaw.MainActionWireSlot(button, _actionPage, ControlledBonusBarOffset);
+
+    private void UpdateBonusBarFeedback()
+    {
+        bool shown = !_freeView && _actionPage == 1 && ControlledBonusBarOffset is >= 1 and <= 4;
+        if (_bonusBarActor != ControlledGuid)
+        {
+            _bonusBarActor = ControlledGuid;
+            _bonusBarShown = shown;
+            return;
+        }
+        if (shown && !_bonusBarShown) PlayUiSound("igBonusBarOpen", "ui.actionbar");
+        _bonusBarShown = shown;
+    }
 
     private void ChangeActionPage(int delta)
     {

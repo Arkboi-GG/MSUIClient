@@ -208,6 +208,8 @@ public sealed partial class GameLoop
                 if (_adts?.TryPeek(projection.TileColumn, projection.TileRow, out var adt) == true)
                     areaId = projection.AreaId(adt);
             }
+            if (areaId == 0)
+                areaId = _areas?.SingleZoneForMap((uint)_config.Start.Map) ?? 0;
 
             // Commit through the doorway dwell: an identity that AGREES with what
             // is playing resets the pending run; a changed one must hold for

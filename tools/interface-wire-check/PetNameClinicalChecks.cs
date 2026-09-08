@@ -42,6 +42,12 @@ internal static class PetNameClinicalChecks
               network.Contains("case Op.SMSG_PET_NAME_QUERY_RESPONSE", StringComparison.Ordinal) &&
               network.Contains("_petNames[response.PetNumber]", StringComparison.Ordinal),
             "pet-name runtime request/cache wiring drift");
+        Check(ObjectFields.UNIT_FIELD_PET_NAME_TIMESTAMP == 140 &&
+              names.Contains("timestamp != unit.Fields.PetNameTimestamp", StringComparison.Ordinal) &&
+              network.Contains("_petNameTimestamps[response.PetNumber] = response.Timestamp",
+                  StringComparison.Ordinal) &&
+              targeting.Contains("_petNameTimestamps.Clear()", StringComparison.Ordinal),
+            "pet name changes must invalidate the versioned cache and world leave must clear it");
     }
 
     private static void Check(bool condition, string message)

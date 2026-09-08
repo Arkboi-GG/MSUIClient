@@ -143,8 +143,15 @@ public static class PetPaperDollUiLaw
     public static float ExperienceFraction(uint current, uint next) =>
         next == 0 ? 0 : Math.Clamp((float)current / next, 0, 1);
 
-    public static (ushort Total, ushort Spent) TrainingPoints(uint packed) =>
-        ((ushort)(packed >> 16), (ushort)packed);
+    // Core Pet::GetDispTP: negative available points are negated; nonnegative
+    // available points are encoded as -(points + 1). This is not a ushort pair.
+    public static int AvailableTrainingPoints(uint raw)
+    {
+        int encoded = unchecked((int)raw);
+        return encoded < 0 ? ~encoded : -encoded;
+    }
+    public static uint TotalTrainingPoints(uint level, byte loyalty) =>
+        level * (uint)Math.Max(0, loyalty - 1);
 
     /// <summary>Advance the live pet model pane without catching up time spent closed.</summary>
     public static float LiveAnimationStep(double now, double previous) =>

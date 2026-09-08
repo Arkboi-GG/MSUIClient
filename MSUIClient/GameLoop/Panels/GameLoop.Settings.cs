@@ -252,7 +252,7 @@ public sealed partial class GameLoop
         _bindingCapture is not null || _keybindingsOpen || _tradeOpen || _inspectOpen || _dressUpOpen ||
         _auctionOpen || _mailOpen || _battlefieldList is not null || _battlefieldQueueMenu || _battlefieldScoreOpen || _gossipMenu is not null || _gossipGreeting is not null ||
         QuestNpcPanelNow() != QuestNpcPanel.None ||
-        _vendor is not null || _trainer is not null || _gameObjectGuid != 0 || _worldMapOpen ||
+        _vendor is not null || _trainer is not null || _itemTextRead is not null || _worldMapOpen ||
         _commanderMapOpen || _rtsControlGroupCommandOpen || _companionsOpen ||
         _macroOpen || _helpOpen || _socialOpen || _guildOpen || _professionOpen || _bankOpen ||
         _tabardOpen || _taxiOpen && !_taxiLocked || _talentOpen || _questLogOpen ||
@@ -288,7 +288,7 @@ public sealed partial class GameLoop
         if (QuestNpcPanelNow() != QuestNpcPanel.None) { CloseQuestNpcFrame(playSound: true); return true; }
         if (_vendor is not null) { CloseVendorSession(); return true; }
         if (_trainer is not null) return CloseTrainerSession();
-        if (_gameObjectGuid != 0) { _gameObjectGuid = 0; return true; }
+        if (_itemTextRead is not null) { CloseItemText(playSound: true); return true; }
         if (_worldMapOpen) { _worldMapOpen = false; return true; }
         if (_commanderMapOpen) { _commanderMapOpen = false; return true; }
         if (_macroIconPickerOpen) { _macroIconPickerOpen = false; return true; }
@@ -318,6 +318,7 @@ public sealed partial class GameLoop
     /// </summary>
     private bool TryCloseUnregisteredSurfaceForCenterOpen()
     {
+        if (_itemTextRead is not null) { CloseItemText(playSound: true); return true; }
         if (_rtsControlGroupCommandOpen) { _rtsControlGroupCommandOpen = false; return true; }
         if (_bindingCapture is not null) { _bindingCapture = null; return true; }
         if (_keybindingsOpen)
@@ -327,7 +328,6 @@ public sealed partial class GameLoop
             _bindingSnapshot = null; _keybindingsOpen = false; return true;
         }
         if (_auctionOpen) { ResetAuction(); return true; }
-        if (_gameObjectGuid != 0) { _gameObjectGuid = 0; return true; }
         if (_commanderMapOpen) { _commanderMapOpen = false; return true; }
         if (_helpOpen) { _helpOpen = false; return true; }
         if (_tabardOpen) { _tabardOpen = false; return true; }

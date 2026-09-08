@@ -31,6 +31,13 @@ public sealed partial class GameLoop
             _items?.TryGet(instance.Entry, out ItemTemplate? item) != true || item is null)
             return;
 
+        if (!DeleteItemUiLaw.CanDestroy(item.Flags))
+        {
+            ShowUiError(InventoryGlobalString("ERR_DROP_BOUND_ITEM"));
+            ClearCarriedItem();
+            return;
+        }
+
         byte count = (byte)Math.Clamp(_carriedCount ?? 0, 0, byte.MaxValue);
         _deleteItemConfirmation =
             new(_carriedContainer, _carriedSlot, item.Name, count, item.Quality);
@@ -69,6 +76,19 @@ public sealed partial class GameLoop
             return;
         }
 
+        if (ResolveInventoryItem(pending.Container, pending.Slot) is not { } instance ||
+            _items?.TryGet(instance.Entry, out ItemTemplate? item) != true || item is null)
+        {
+            CancelDeleteItem();
+            return;
+        }
+        if (!DeleteItemUiLaw.CanDestroy(item.Flags))
+        {
+            ShowUiError(InventoryGlobalString("ERR_DROP_BOUND_ITEM"));
+            CancelDeleteItem();
+            return;
+        }
+
         _net.DestroyItem(wire.Bag, wire.Slot, pending.Count);
         AddPendingBagLock(pending.Container, pending.Slot, ++_pendingBagOperation);
         EmitInterface("inventory", "destroy", "SENT", ResolveCarriedItem()?.Guid ?? 0,
@@ -92,6 +112,7 @@ public sealed partial class GameLoop
         {
             PartyInvitePopupType => $"{first.DataToken ?? ""} invites you to a group.",
             DeleteItemUiLaw.PopupType => DeleteItemUiLaw.Text(first.DataToken ?? ""),
+            EquipBindingUiLaw.EquipType or EquipBindingUiLaw.AutoEquipType => EquipBindingUiLaw.Text,
             DeleteItemUiLaw.ConfirmPopupType =>
                 DeleteItemUiLaw.ConfirmText(first.DataToken ?? ""),
             DuelFrameUiLaw.RequestedPopupType =>

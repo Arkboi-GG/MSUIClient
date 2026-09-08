@@ -201,7 +201,7 @@ public sealed partial class GameLoop
             DrawMaterialCorner(draw, origin, scale, material, "BotRight", ItemTextFrameUiLaw.MaterialBottomRight);
         }
 
-        uint titleColor = ImGui.ColorConvertFloat4ToU32(ItemTextFrameUiLaw.TitleColor(material));
+        uint titleColor = ImGui.ColorConvertFloat4ToU32(ItemTextFrameUiLaw.TitleColor);
         GameText.DrawCentered(draw, "GameFontNormal", read.Title,
             origin + ItemTextFrameUiLaw.Title.Min * scale + ItemTextFrameUiLaw.Title.Size * scale * .5f,
             scale, titleColor);
@@ -231,7 +231,7 @@ public sealed partial class GameLoop
 
         var lines = new List<ItemTextFrameUiLaw.TextBlock>();
         foreach (ItemTextFrameUiLaw.TextBlock block in
-                 ItemTextFrameUiLaw.ComposeBlocks(source, creator))
+                 ItemTextFrameUiLaw.ComposeBlocks(ExpandQuestText(source), creator))
         {
             string[] wrapped = WrapTooltipText(block.Text, "ItemTextFontNormal", scale,
                 ItemTextFrameUiLaw.Body.Width * scale).ToArray();

@@ -1,0 +1,92 @@
+--- a/src/game/SuperUiContent/SuiBots/AiBotAIMain.cpp
++++ b/src/game/SuperUiContent/SuiBots/AiBotAIMain.cpp
+@@ -1404,31 +1404,15 @@
+ 
+     if (pBoss->GetMapId() != me->GetMapId())
+     {
+-        CB_HIT(me->GetGUIDLow(), "cpp-main: boss on other map, instance-follow path");
+-        // [PLAYERPARTY] Instance-follow (2026-07-08): the boss crossed a map boundary
+-        // (dungeon portal — or a boat/taxi, which we deliberately wait out).
+-        if (pBoss->HasUnitState(UNIT_STATE_TAXI_FLIGHT) || pBoss->GetTransport())
+-        {
+-            CB_HIT(me->GetGUIDLow(), "cpp-main: boss in transit, waiting");
+-            m_bossOffMapMs = 0;   // in transit — he'll land; don't chase a moving platform
+-            return;
+-        }
+-
+-        m_bossOffMapMs += AIBOT_UPDATE_INTERVAL;
+-        if (m_bossOffMapMs < AIBOT_PARTY_INSTANCE_DWELL_MS)
+-        {
+-            CB_HITV(me->GetGUIDLow(), "cpp-main: off-map dwell accruing", m_bossOffMapMs);
+-            return;
+-        }
+-
++        // The current standing rule keeps followers at their own position when
++        // the driven body ports. A map boundary must not become a delayed summon.
+         m_bossOffMapMs = 0;
+-        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL,
+-            "[AIBOT-PARTY] %s: boss on map %u (we are on %u) — instance-follow TeleportTo (%.1f, %.1f, %.1f)",
+-            me->GetName(), pBoss->GetMapId(), me->GetMapId(),
+-            pBoss->GetPositionX(), pBoss->GetPositionY(), pBoss->GetPositionZ());
+-        me->TeleportTo(pBoss->GetMapId(),
+-            pBoss->GetPositionX(), pBoss->GetPositionY(), pBoss->GetPositionZ(),
+-            me->GetOrientation());
++        if (!m_suiLandedHold)
++        {
++            m_suiLandedHold = true;
++            SuiPossess::NotifyChainChanged(me);
++        }
++        SuiStopFollowForHold();
+         return;
+     }
+ 
+@@ -1436,15 +1420,8 @@
+ 
+     float const dist = me->GetDistance(pBoss);
+ 
+-    // [SUI-TAXI] Which gap is this? The same boss standing far from where he stood last
+-    // tick took a port (hearth, summon, portal): catch up by teleport as always. A NEW boss
+-    // (the human hopped to another body — a flyer that landed across the zone, say) far
+-    // away is not a port: the rest of the party STAYS (owner 2026-09-03), and only walks
+-    // once he comes back within catch-up range. First observation of a boss never holds.
+-    // The position is recorded EVERY tick, flight included (a gryphon covers ~32 yd per
+-    // tick, well under the port threshold) — recording only on non-flight ticks made the
+-    // landing read as a 1872-yard port and the main catch-up teleported to Westfall,
+-    // which in turn broke the possession (owner, 14:58).
++    // Record the anchor every tick, including flights. A far body switch or
++    // a discontinuous movement of the same body leaves the party holding.
+     ObjectGuid const bossGuid = pBoss->GetObjectGuid();
+     bool const bossChanged = !m_suiLastBossGuid.IsEmpty() && m_suiLastBossGuid != bossGuid;
+     bool const bossPorted = !bossChanged && !m_suiLastBossGuid.IsEmpty() &&
+@@ -1453,19 +1430,12 @@
+     m_suiLastBossX = pBoss->GetPositionX();
+     m_suiLastBossY = pBoss->GetPositionY();
+     m_suiLastBossZ = pBoss->GetPositionZ();
+-    if (bossChanged && !bossPorted && dist > AIBOT_PARTY_CATCHUP_TELEPORT && !m_suiLandedHold)
+-    {
+-        CB_HIT(me->GetGUIDLow(), "cpp-main: human hopped to a far body, holding");
++    if ((bossChanged || bossPorted) && dist > AIBOT_PARTY_CATCHUP_TELEPORT && !m_suiLandedHold)
++    {
++        CB_HIT(me->GetGUIDLow(), "cpp-main: anchor hopped or ported away, holding");
+         m_suiLandedHold = true;
+         SuiPossess::NotifyChainChanged(me);
+     }
+-    // POSSESS_LAW 4.3: a PORT of the driven body (the mage-tower portal, a summon) is
+-    // followed by the chain — every linked member, the unattended main included,
+-    // catch-up teleports after it (owner 2026-09-03: "the non-main follow me through the
+-    // portal ... at least it worked"). The main's own catch-up teleport no longer breaks
+-    // the possession (SuiPossess::OnPlayerTeleport, possessor near case). Flights and
+-    // hops are NOT ports: those hold (above / below).
+-
+     // Owner 2026-09-03: in direct control the rest of the party STAYS when the driven
+     // body takes a flight. Hold while he flies; when he lands far away, keep holding
+     // (the left-behind latch) rather than catch-up teleporting after the gryphon.
+@@ -1487,7 +1457,7 @@
+         }
+     }
+ 
+-    // [SUI-TAXI] Left-behind hold (landed a flight alone, or the human hopped far away):
++    // [SUI-TAXI] Left-behind hold (flight, distant body switch, or anchor port):
+     // hold here. The boss coming within catch-up range releases it and formation resumes.
+     if (m_suiLandedHold)
+     {

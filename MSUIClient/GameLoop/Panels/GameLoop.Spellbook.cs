@@ -253,6 +253,7 @@ public sealed partial class GameLoop
         _draggingPetActionPassive = spell.Passive;
         _draggingPetActionIcon = spell.IconPath;
         _pressedActionSlot = -1;
+        PlayUiSound(PetSpellBookUiLaw.PickupSound, "ui.actionbar");
     }
 
     private void CastPetBookSpell(uint packed, in SpellInfo spell, WorldEntity? pet)

@@ -8,6 +8,21 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
+    private ulong _pvpFeedbackOwner;
+    private string? _pvpFeedbackIcon;
+
+    private void UpdatePlayerPvpFeedback(ulong owner, string? icon)
+    {
+        if (_pvpFeedbackOwner != owner)
+        {
+            _pvpFeedbackOwner = owner;
+            _pvpFeedbackIcon = icon;
+            return;
+        }
+        if (icon != _pvpFeedbackIcon && icon is not null)
+            PlayUiSound("igPVPUpdate", "ui.pvp");
+        _pvpFeedbackIcon = icon;
+    }
     /// <summary>Resolved logical origin of the PlayerFrame (HUD layout registry, PLAN_21); the
     /// bot-bar hover test and the party chain rail measure from it.</summary>
     private Vector2 _playerFrameOrigin = new(-19, 4);
@@ -145,6 +160,7 @@ public sealed partial class GameLoop
 
         string? pvpPath = UnitFrameUiLaw.PvpIcon(unit.Fields.Bytes0.Race,
             unit.Fields.UnitFlags, unit.Fields.PlayerFlags);
+        if (playerFrame && !HudPreview) UpdatePlayerPvpFeedback(unit.Guid, pvpPath);
         if (pvpPath is not null)
         {
             Vector2 pvpMin = p + new Vector2(playerFrame ? 18f : 171f, 20f) * s;
@@ -706,7 +722,7 @@ public sealed partial class GameLoop
             texture = PetPortraitHandle(unit.Guid);
         // Free view: the streamed-body booth is the authority for EVERY player
         // face (owner 2026-08-28) — the rig bake only fills in while it bakes.
-        if (texture == 0 && unit.IsPlayer && _freeView)
+        if (texture == 0 && unit.IsPlayer && (_freeView || unit.Fields.HasDisplayTransform))
             texture = PartyPortraitHandle(unit.Guid);
         // Only when the bake is actually OF this unit (PlayerPortraitCurrent) —
         // a stale bake of the previously driven bot must fall through to the

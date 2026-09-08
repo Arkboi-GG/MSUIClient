@@ -1,6 +1,7 @@
 using System.Numerics;
 using MSUIClient;
 using MSUIClient.Engine.UI;
+using MSUIClient.Formats;
 using MSUIClient.Net;
 
 internal static class PetMenuClinicalChecks
@@ -8,6 +9,12 @@ internal static class PetMenuClinicalChecks
     public static void Run()
     {
         const ulong player = 0x0102_0304_0506_0708;
+        Check(PetMenuUiLaw.ControlledBy(null, player, player) &&
+              PetMenuUiLaw.ControlledBy(player, null, player) &&
+              !PetMenuUiLaw.ControlledBy(player, player + 1, player) &&
+              !PetMenuUiLaw.ControlledBy(player, null, player + 1) &&
+              !PetMenuUiLaw.ControlledBy(null, null, 0),
+            "pet menu must admit the acting body's charms and summons, never another controller");
         Check(PetMenuUiLaw.Predicates(player, player,
                   PetMenuUiLaw.AbandonFlag | PetMenuUiLaw.RenameFlag) == (true, true) &&
               PetMenuUiLaw.Predicates(player, player, PetMenuUiLaw.AbandonFlag) ==
@@ -95,6 +102,47 @@ internal static class PetMenuClinicalChecks
             "pet abandon or rename packet body drift");
 
         string root = ClientConfig.FindRepoRoot();
+        Check(PetFrameUiLaw.HappinessOffset == new Vector2(121, 19) &&
+              PetFrameUiLaw.HappinessSize == new Vector2(24, 23) &&
+              PetFrameUiLaw.HappinessUv(1).Min.X == .375f &&
+              PetFrameUiLaw.HappinessUv(2).Min.X == .1875f &&
+              PetFrameUiLaw.HappinessUv(3).Min.X == 0,
+            "pet happiness layout/atlas regions drift from mounted PetFrame.xml/lua");
+        string petData = Path.Combine(root, "GameData", "Data");
+        if (Directory.Exists(petData))
+        {
+            using var mpq = new MpqMount(petData);
+            var petSkills = SkillLineCatalog.Load(mpq) ?? throw new InvalidDataException("SkillLine catalogs missing");
+            Check(petSkills.TrainingPointCost(2649) == 0 && petSkills.TrainingPointCost(17253) == 1 &&
+                  petSkills.TrainingPointCost(17255) == 4 &&
+                  petSkills.AbilityChainRoot(17255) == 17253 &&
+                  petSkills.AbilityChainRoot(14916) == 2649 &&
+                  petSkills.AbilityChainRoot(17253) != petSkills.AbilityChainRoot(16827),
+                "mounted pet training must keep free Growl, Bite point costs and separate ability chains");
+            SpellCatalog petSpells = SpellCatalog.Load(mpq) ?? throw new InvalidDataException("Spell.dbc missing");
+            Check(petSpells.TryGet(17262, out SpellInfo biteTeacher) &&
+                  string.IsNullOrWhiteSpace(biteTeacher.Description) &&
+                  PetTrainingUiLaw.TaughtAbility(biteTeacher.EffectIds, biteTeacher.EffectTriggerSpells) == 17255 &&
+                  petSpells.TryGet(17255, out SpellInfo biteAbility) &&
+                  SpellTooltipLaw.Substitute(biteAbility.Description, biteAbility, petSpells).Contains("damage", StringComparison.Ordinal) &&
+                  !SpellTooltipLaw.Substitute(biteAbility.Description, biteAbility, petSpells).Contains('$'),
+                "Bite's blank teacher description must resolve from the taught rank and substitute its damage");
+            var stablePrices = StableSlotPriceTable.Parse(mpq.ReadFile(StableSlotPriceTable.MpqPath)
+                ?? throw new InvalidDataException("StableSlotPrices.dbc missing"))
+                ?? throw new InvalidDataException("StableSlotPrices.dbc malformed");
+            Check(stablePrices.NextPrice(0) == 500 && stablePrices.NextPrice(1) == 50000 &&
+                  stablePrices.NextPrice(2) is null,
+                "mounted stable prices must preserve 5 silver, 5 gold, and the purchased-slot cap");
+            var personalities = PetPersonalityCatalog.Parse(mpq.ReadFile(PetPersonalityCatalog.MpqPath)
+                ?? throw new InvalidDataException("PetPersonality.dbc missing"))
+                ?? throw new InvalidDataException("PetPersonality.dbc malformed");
+            Check(personalities.Happiness(0) == new PetHappinessInfo(1, 75, -10) &&
+                  personalities.Happiness(332999)?.Bucket == 1 &&
+                  personalities.Happiness(333000) == new PetHappinessInfo(2, 100, 5) &&
+                  personalities.Happiness(665999)?.Bucket == 2 &&
+                  personalities.Happiness(666000) == new PetHappinessInfo(3, 125, 20),
+                "mounted hunter happiness boundaries/damage/loyalty rates drift");
+        }
         string petFrame = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop",
             "Panels", "GameLoop.Pet.cs"));
         string popup = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
@@ -111,7 +159,7 @@ internal static class PetMenuClinicalChecks
               petFrame.Contains("UnitPopupWhich.Pet", StringComparison.Ordinal) &&
               petFrame.Contains("ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse",
                   StringComparison.Ordinal) &&
-              popup.Contains("pet.Fields.SummonedBy == LocalPlayerGuid",
+              popup.Contains("pet.Fields.SummonedBy, pet.Fields.CharmedBy, ControlledGuid",
                   StringComparison.Ordinal) &&
               popup.Contains("UnitPopupUiLaw.VisiblePetRows", StringComparison.Ordinal) &&
               popup.Contains("ShowPetAbandonPopup(guid)", StringComparison.Ordinal) &&

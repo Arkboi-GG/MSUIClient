@@ -115,10 +115,12 @@ public sealed partial class CharacterRenderer : IDisposable
         public bool Swimming;
         public float SwimPitch;
         public bool Engaged;
+        public bool Stealthed;
 
         /// <summary>UNIT_FIELD_BYTES_1's StandState byte (see UnitStandState) - the
         /// server's own field, not client-guessed. Default 0 (Stand).</summary>
         public byte StandState;
+        public bool ReadsDead;
 
         /// <summary>UNIT_NPC_EMOTESTATE's raw Emotes.dbc id (Dance, ...), or 0. See
         /// ObjectFields.UNIT_NPC_EMOTESTATE's doc comment.</summary>
@@ -351,6 +353,8 @@ public sealed partial class CharacterRenderer : IDisposable
     private float _combatReactionTime;
     private bool _combatReactionMasked;
     private M2Animator.Clip? _spellHold;
+    private ulong _deathPoseGuid;
+    private bool _deathPoseActive;
     // Upper-body action mask (seated eat/drink/emote, and any one-shot armed while the lower
     // body is committed - moving, swimming, mounted). _combatAction is layered onto the SpineLow
     // subtree over the locomotion or seated base (Render) instead of hijacking the whole body -
@@ -379,6 +383,7 @@ public sealed partial class CharacterRenderer : IDisposable
     public string CurrentPresentationAnimation =>
         _spellHold?.Name ?? _combatAction?.Name ?? _clip?.Name ?? "none";
     public string CurrentBaseAnimation => _clip?.Name ?? "none";
+    public int CurrentBaseAnimationId => _clip?.AnimationId ?? -1;
     public string PreviousBaseAnimation => _previousClip?.Name ?? "none";
     public float CurrentBlendWeight => _blendDuration <= 0f
         ? 1f : 1f - Math.Clamp(_blendRemaining / _blendDuration, 0f, 1f);
@@ -2680,6 +2685,23 @@ public sealed partial class CharacterRenderer : IDisposable
         // reached by the cast and stops every character animation clock until the aura ends.
         if (state.FreezePose) return;
 
+        if (state.Guid != _deathPoseGuid)
+        {
+            _deathPoseGuid = state.Guid;
+            _deathPoseActive = false;
+        }
+        if (state.ReadsDead)
+        {
+            // Health death and Feign Death share the held corpse pose. Neither
+            // a late cast release nor a wound may overlay the fallen body.
+            _combatAction = null;
+            _combatReaction = null;
+            _spellHold = null;
+        }
+        else if (_deathPoseActive)
+            _combatAction = _animator?.Resolve("player", ActionAnimationTrack, 7, true, 0);
+        _deathPoseActive = state.ReadsDead;
+
         AdvanceSheathCeremony(dt);
 
         MeasureMotion(dt, state);
@@ -2945,6 +2967,14 @@ public sealed partial class CharacterRenderer : IDisposable
     {
         if (_animator is null || animationId is not { } id || id == 0) { _spellHold = null; return; }
         _spellHold = _animator.Resolve("player", SpellHoldAnimationTrack, id, true);
+        // A cast and its channel can author the same loop (First Aid:123).
+        // Transfer that pose to the held track; otherwise the looping release
+        // action outranks it and survives CHANNEL_STOP forever.
+        if (_spellHold is not null && _combatAction?.AnimationId == id)
+        {
+            _combatAction = null;
+            _combatActionMasked = false;
+        }
         if (_spellHold is not null) RestartCombatActionFor(_spellHold);
     }
 
@@ -3412,6 +3442,9 @@ public sealed partial class CharacterRenderer : IDisposable
         rate = 1f;
         if (_animator is null || BindPose || BoneOverflow) return null;
 
+        if (state.ReadsDead)
+            return _animator.Resolve("player", BaseAnimationTrack, 1, true, 6, 0);
+
         // Seated, and it outranks everything below: there is no locomotion to choose while
         // the steed does the travelling, and vanilla dismounts you before a cast or a swing
         // could ever want the frames. 91 is "Mount" in AnimationData.dbc.
@@ -3660,7 +3693,9 @@ public sealed partial class CharacterRenderer : IDisposable
                 return _animator.Resolve("player", BaseAnimationTrack, ready, false, 25, 0);
             }
 
-            return _animator.Resolve("player", BaseAnimationTrack, 0, false);
+            return state.Stealthed
+                ? _animator.Resolve("player", BaseAnimationTrack, 120, false, 0)
+                : _animator.Resolve("player", BaseAnimationTrack, 0, false);
         }
 
         // Angle between where the character is FACING and where he is actually
@@ -3670,6 +3705,12 @@ public sealed partial class CharacterRenderer : IDisposable
         // facing = (cos Y, sin Y) and right = (sin Y, -cos Y), a direction at
         // (Yaw + phi) gives forwardness = cos(phi) and sideness = -sin(phi).
         float phi = MathF.Atan2(-_sideness, _forwardness);
+
+        // CREEP is a descriptor pose flag, independent of translucent aura rendering.
+        // Backward retains precedence; the authored creep cycle always runs at1x.
+        bool stealthBacking = state.HasIntent ? state.Forward < -0.01f : MathF.Abs(phi) > 1.92f;
+        if (state.Stealthed && !stealthBacking)
+            return _animator.Resolve("player", BaseAnimationTrack, 119, false, 4, 0);
 
         bool rotating = Strafe is StrafeStyle.Split or StrafeStyle.WholeBody
                      || (Strafe == StrafeStyle.LowerBody && _animator.TwistBone >= 0);
@@ -3944,7 +3985,8 @@ public sealed partial class CharacterRenderer : IDisposable
             _attached.FogColor = FogColor;
             _attached.FogStart = FogStart;
             _attached.FogEnd = FogEnd;
-            _attached.SheathState = SheathState;
+            _attached.SheathState = FishingLineLaw.PresentationSheath(SheathState,
+                _combatAction?.AnimationId ?? -1, _spellHold?.AnimationId ?? -1);
             _attached.BodyAlpha = bodyAlpha;
             _attached.BodyTint = bodyTint;
         }

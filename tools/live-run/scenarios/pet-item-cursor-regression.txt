@@ -1,0 +1,62 @@
+wait 2
+pet-gesture inspect
+sound mark
+pet-gesture pickup-book 3110
+wait 1
+pet-gesture assert-cursor 3110
+sound assert-category 1 igAbilityIconPickup ui.actionbar
+sound mark
+pet-gesture drop 3
+wait 1
+pet-gesture assert-cursor 0
+sound assert-category 0 any ui.actionbar
+pet-gesture pickup-book 3110
+wait 1
+sound mark
+pet-gesture drop 4
+wait 1
+pet-gesture assert-slot 4 3110
+pet-gesture assert-slot 3 0
+sound assert-category 1 igAbilityIconDrop ui.actionbar
+pet-gesture clear
+sound mark
+pet-gesture pickup-slot 4
+wait 1
+pet-gesture assert-cursor 3110
+sound assert-category 1 igAbilityIconPickup ui.actionbar
+sound mark
+pet-gesture drop 5
+wait 1
+pet-gesture assert-slot 5 3110
+sound assert-category 1 igAbilityIconDrop ui.actionbar
+pet-gesture clear
+pet-gesture pickup-book 18728
+wait 1
+sound mark
+pet-gesture drop 4
+wait 1
+pet-gesture assert-cursor 0
+pet-gesture assert-slot 4 0
+sound assert-category 0 any ui.actionbar
+pet-gesture pickup-book 3110
+wait 1
+pet-gesture drop 0
+wait 1
+pet-gesture assert-slot 0 3110
+pet-gesture assert-slot 5 2
+pet-gesture clear
+pet-gesture pickup-slot 0
+wait 1
+pet-gesture drop 3
+wait 1
+pet-gesture clear
+pet-gesture pickup-slot 5
+wait 1
+pet-gesture drop 0
+wait 1
+pet-gesture assert-slot 0 2
+pet-gesture assert-slot 3 3110
+pet-gesture clear
+pet-gesture inspect
+dump checklist-pet-gestures
+wait 1

@@ -1,5 +1,6 @@
 using MSUIClient;
 using MSUIClient.Engine.UI;
+using MSUIClient.Net;
 
 /// <summary>
 /// POSSESS_LAW (shared_docs/POSSESS_LAW.md), client half. The rules that were broken
@@ -15,6 +16,7 @@ internal static class PossessLawClinicalChecks
     private static readonly string[] DrivenBodyGateFiles =
     [
         "GameLoop/Panels/GameLoop.Loot.cs",
+        "GameLoop/Panels/GameLoop.EquipBinding.cs",
         "GameLoop/Panels/GameLoop.Bank.cs",
         "GameLoop/Panels/GameLoop.Taxi.cs",
         "GameLoop/Panels/GameLoop.Mail.cs",
@@ -70,8 +72,34 @@ internal static class PossessLawClinicalChecks
 
     public static void Run()
     {
+        Check(ObjectFields.StoredAttackTimeMilliseconds(BitConverter.SingleToUInt32Bits(1900f)) == 1900 &&
+              ObjectFields.StoredAttackTimeMilliseconds(BitConverter.SingleToUInt32Bits(2000f)) == 2000 &&
+              ObjectFields.StoredAttackTimeMilliseconds(BitConverter.SingleToUInt32Bits(1500.75f)) == 1500 &&
+              ObjectFields.StoredAttackTimeMilliseconds(BitConverter.SingleToUInt32Bits(-1f)) == 0 &&
+              ObjectFields.StoredAttackTimeMilliseconds(BitConverter.SingleToUInt32Bits(float.NaN)) == 0,
+            "raw Core snapshot attack-time floats must become ordinary uint milliseconds");
+        string snapshotSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
+            "MSUIClient/GameLoop/Scene/GameLoop.Control.cs"));
+        Check(snapshotSource.Split("ObjectFields.StoredAttackTimeMilliseconds(r.ReadU32())",
+                  StringSplitOptions.None).Length == 4,
+            "all three snapshot attack clocks must use the raw-float conversion");
         string root = ClientConfig.FindRepoRoot();
         string Read(string rel) => SourceText.Read(Path.Combine(root, "MSUIClient", rel.Replace('/', Path.DirectorySeparatorChar)));
+
+        InventoryUiLaw.DragPress dragPress = new(0x221, -100, 7, 0x079C);
+        Check(InventoryUiLaw.SameDragSource(dragPress, 0x221, -100, 7, 0x079C) &&
+              !InventoryUiLaw.SameDragSource(dragPress, 0x223, -100, 7, 0x0686) &&
+              !InventoryUiLaw.SameDragSource(dragPress, 0x221, -100, 7, 0x079D) &&
+              !InventoryUiLaw.SameDragSource(dragPress, 0x221, 0, 7, 0x079C) &&
+              !InventoryUiLaw.SameDragSource(null, 0x221, -100, 7, 0x079C),
+            "a held inventory drag must retain its pressed actor, slot and item until cancelled");
+        string dragSource = Read("GameLoop/Panels/GameLoop.Inventory.cs");
+        int clearDrag = dragSource.IndexOf("private void ClearCarriedItem()", StringComparison.Ordinal);
+        int afterClearDrag = dragSource.IndexOf("private void ClearCarriedItemOnEscape()", clearDrag, StringComparison.Ordinal);
+        Check(dragSource[clearDrag..afterClearDrag].Contains("_inventoryDragPress = null", StringComparison.Ordinal) &&
+              dragSource.Contains("InventoryDragSourcePressed(container, slot, guid) &&", StringComparison.Ordinal) &&
+              dragSource.Contains("InventoryDragSourcePressed(InventoryUiLaw.EquipmentContainer, equipmentSlot, guid) &&", StringComparison.Ordinal),
+            "cursor reset and both native inventory drag sources must enforce the retained press");
 
         // ── 2.1 gates range from the driven body ─────────────────────────────
         foreach (string rel in DrivenBodyGateFiles)
@@ -86,6 +114,27 @@ internal static class PossessLawClinicalChecks
 
         // ── 1.2 every mirrored frame is unwrapped ────────────────────────────
         string control = Read("GameLoop/Scene/GameLoop.Control.cs");
+        string objectUse = Read("GameLoop/Scene/GameLoop.GameObjects.cs");
+        Check(objectUse.Contains("go.GameObjectType == 17\n        ? 100f", StringComparison.Ordinal) &&
+              objectUse.Contains("interactDistance = GameObjectUseDistance(go);", StringComparison.Ordinal) &&
+              control.Contains("float limit = GameObjectUseDistance(subject);", StringComparison.Ordinal),
+            "2.1 Fishing use and Command View arrival must share the distant bobber range");
+        string questRewards = Read("GameLoop/Panels/GameLoop.Quest.cs");
+        int objectGateStart = questRewards.IndexOf("else if (_entities.TryGet(guid, out WorldEntity go)", StringComparison.Ordinal);
+        int objectGateEnd = questRewards.IndexOf("else if (TryGetInteractionBodyPose", objectGateStart, StringComparison.Ordinal);
+        Check(objectGateStart >= 0 && objectGateEnd > objectGateStart &&
+              questRewards[objectGateStart..objectGateEnd].Contains("go.IsGameObject && go.GameObjectType == 2", StringComparison.Ordinal) &&
+              questRewards[objectGateStart..objectGateEnd].Contains("TryGetInteractionBodyPose(out WorldBodyPose objectActor)", StringComparison.Ordinal) &&
+              questRewards[objectGateStart..objectGateEnd].Contains("!CanAuthorControlledGameplay", StringComparison.Ordinal) &&
+              questRewards[objectGateStart..objectGateEnd].Contains("distance <= GameObjectInteractDistance", StringComparison.Ordinal) &&
+              questRewards.Contains("npc.IsGameObject ? GameObjectInteractDistance * GameObjectInteractDistance", StringComparison.Ordinal),
+            "2.1 Object quest givers must gate and leash at the driven body's object interaction range");
+        int rewardStart = questRewards.IndexOf("private uint QuestNpcRewardMoney(", StringComparison.Ordinal);
+        int rewardEnd = questRewards.IndexOf("private float DrawQuestRewardSet(", rewardStart, StringComparison.Ordinal);
+        Check(rewardStart >= 0 && rewardEnd > rewardStart &&
+              questRewards[rewardStart..rewardEnd].Contains("TryGet(ControlledGuid, out WorldEntity actor)", StringComparison.Ordinal) &&
+              questRewards[rewardStart..rewardEnd].Contains("actor.Level", StringComparison.Ordinal),
+            "2.2 NPC quest max-level reward bonus must follow the driven body");
         string commandShelf = Read("GameLoop/Hud/GameLoop.CommandShelf.cs");
         int proxyStart = control.IndexOf("private void ApplySuiProxy(byte[] body)", StringComparison.Ordinal);
         Check(proxyStart >= 0, "ApplySuiProxy is gone");
@@ -106,7 +155,33 @@ internal static class PossessLawClinicalChecks
             resetStart, StringComparison.Ordinal);
         Check(resetEnd > resetStart, "ResetBodySessionUiOnControlChange boundary is gone");
         string reset = pet[resetStart..resetEnd];
-        foreach (string call in new[] { "ResetPetActionBar();", "ClearLootOnControlChange();", "CloseBankSession(playSound: false);", "CloseTaxiMap(playSound: false);", "DiscardServerRideWithoutAck();" })
+        Check(reset.Contains("CancelGroundTargeting();", StringComparison.Ordinal),
+            "POSSESS_LAW 2.3: ground item intent must clear on both body-control acknowledgements");
+        string itemTargeting = Read("GameLoop/Panels/GameLoop.Inventory.Targeting.cs");
+        Check(itemTargeting.Contains("ControlledGuid != intent.Actor", StringComparison.Ordinal) &&
+              itemTargeting.Contains("copy.Item.Guid != intent.Item", StringComparison.Ordinal) &&
+              itemTargeting.Contains("_groundItemUse = null;", StringComparison.Ordinal) &&
+              itemTargeting.Contains("!CanAuthorControlledOrSelf", StringComparison.Ordinal),
+            "POSSESS_LAW 2.3: ground-item consumption must retain actor/item identity and clear cancelled intent");
+        string groundClicks = Read("GameLoop/Combat/GameLoop.Targeting.cs");
+        int groundCursor = groundClicks.IndexOf("if (_groundCastSpell != 0)", StringComparison.Ordinal);
+        int commandClicks = groundClicks.IndexOf("HandleFreeCamWorldClick(click, pressPick)", StringComparison.Ordinal);
+        Check(groundCursor >= 0 && commandClicks > groundCursor &&
+              groundClicks[groundCursor..commandClicks].Contains("CommitGroundCast(armed, latchedGround)", StringComparison.Ordinal) &&
+              groundClicks[groundCursor..commandClicks].Contains("CancelGroundTargeting();", StringComparison.Ordinal),
+            "POSSESS_LAW 2.3: armed ground gestures must commit/cancel before Command View orders");
+        string groundFeedback = Read("GameLoop/Combat/GameLoop.GroundFx.cs");
+        Check(groundFeedback.Contains("TryGetWorldBodyPose(actor, out WorldBodyPose pose)", StringComparison.Ordinal) &&
+              groundFeedback.Contains("GroundPointAcceptable(spell.Id, ControlledGuid, point)", StringComparison.Ordinal) &&
+              groundFeedback.Contains("ActorSpellRange(spell, actor, raw)", StringComparison.Ordinal),
+            "POSSESS_LAW 2.3: ground hover range must use the actor's physical pose and range modifiers");
+        string itemUse = Read("GameLoop/Panels/GameLoop.Inventory.cs");
+        Check(itemUse.Contains("PlayerActions itemActions = ActionsFor(ControlledGuid);", StringComparison.Ordinal) &&
+              itemUse.Contains("itemActions.IsItemOnCooldown(template.Entry, useSpell, spell, now)", StringComparison.Ordinal) &&
+              itemUse.Contains("itemActions.StartItemUseCooldown(", StringComparison.Ordinal) &&
+              itemUse.Contains("ActionsFor(ControlledGuid).TryCooldownDisplay(item.UseSpellId", StringComparison.Ordinal),
+            "POSSESS_LAW 2.3: bag cooldowns must stay with their actor, not inspected bars");
+        foreach (string call in new[] { "ClearCarriedItem();", "CancelStackSplit();", "ClearActionBarCursorOnEscape();", "ResetMail();", "ResetPetActionBar();", "ClearLootOnControlChange();", "CloseBankSession(playSound: false);", "CloseTaxiMap(playSound: false);", "DiscardServerRideWithoutAck();" })
             Check(reset.Contains(call, StringComparison.Ordinal), $"POSSESS_LAW 2.3: control change no longer does {call}");
         int grantCalls = control.Split("ResetBodySessionUiOnControlChange();").Length - 1;
         Check(grantCalls >= 2, "POSSESS_LAW 2.3: the reset must run on BOTH the grant and the release ack");
@@ -287,6 +362,29 @@ internal static class PossessLawClinicalChecks
         Check(!poseLaw.Contains("using MSUIClient;", StringComparison.Ordinal) &&
               !poseLaw.Contains("GameLoop.", StringComparison.Ordinal),
             "POSSESS_LAW 8.4: lower pose law must not reference the GameLoop layer");
+
+        string petPopup = Read("GameLoop/Hud/GameLoop.UnitPopup.cs");
+        Check(petPopup.Contains("pet.Fields.SummonedBy, pet.Fields.CharmedBy, ControlledGuid",
+                  StringComparison.Ordinal) &&
+              !petPopup.Contains("pet.Fields.SummonedBy == LocalPlayerGuid", StringComparison.Ordinal),
+            "POSSESS_LAW 2.3: pet menus must admit the driven body's charms and summons");
+
+        string stable = Read("GameLoop/Scene/GameLoop.Stable.cs");
+        string petTraining = Read("GameLoop/Panels/GameLoop.PetTraining.cs");
+        Check(petTraining.Contains("pet.Fields.SummonedBy == ControlledGuid", StringComparison.Ordinal),
+            "POSSESS_LAW 2.2: pet training requirements must resolve the driven body's pet");
+        string stablePanel = Read("GameLoop/Panels/GameLoop.StablePanel.cs");
+        Check(stable.Contains("_entities.TryGet(ControlledGuid, out WorldEntity actor)", StringComparison.Ordinal) &&
+              stable.Contains("actor.Fields.Coinage >= price", StringComparison.Ordinal) &&
+              stable.Contains("CanBuyStableSlot(price)) _net?.BuyStableSlot", StringComparison.Ordinal) &&
+              stablePanel.Contains("bool canBuy = CanBuyStableSlot(price);", StringComparison.Ordinal),
+            "POSSESS_LAW 2.2: stable prices and purchase gates must use the acting body's purse");
+        Check(stable.Contains("TryGetInteractionBodyPose(out WorldBodyPose actor)", StringComparison.Ordinal) &&
+              stable.Contains("NpcSessionUiLaw.InRange(Vector3.DistanceSquared(actor.Position, npc.Position))",
+                  StringComparison.Ordinal) &&
+              stable.Contains("if (!StableSourceInRange(list.NpcGuid)) return;", StringComparison.Ordinal) &&
+              stablePanel.Contains("UpdateStableLifecycle();", StringComparison.Ordinal),
+            "POSSESS_LAW 2.1/4.4: stable replies and open panels must obey the acting body's range");
 
         Console.WriteLine("interface-wire-check: PossessLaw PASS");
     }

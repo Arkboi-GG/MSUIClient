@@ -53,6 +53,15 @@ Command View walker. `TryGetSessionBodyPose` is legal only for things that are
 genuinely the main's: its own corpse/rez, the dev live-run tool, the tabard/help
 frames until they are routed.
 
+Quest-giver game objects (type 2, including wanted posters) use that same driven
+body for every quest request and the open panel's range leash, at the game-object
+interaction distance. They must not fall through the NPC-only descriptor gate.
+
+Fishing bobbers use Core's 100-yard interaction range, measured from the acting
+body. Direct use and Command View arrival use the same object-distance helper;
+the ordinary six-yard device limit must not make a cast's own bobber unreachable.
+Fishing channel/cursor ownership and server ownership checks still apply.
+
 2.2 Purse and bag displays read `ControlledGuid`'s entity, never
 `_net.PlayerGuid`. The coin the panel shows is the coin that pays.
 
@@ -60,6 +69,30 @@ frames until they are routed.
 pet bar, loot window, bank session, taxi map, server ride
 (`ResetBodySessionUiOnControlChange`). The server pushes the new body's pet bar
 after the ack.
+
+Pet context menus resolve ownership against the driven body and admit its charmed
+creatures as well as its summons. A temporary charm offers Dismiss; it must not
+lose its menu merely because SUMMONEDBY is empty.
+
+Carried items, stack-split dialogs and spell/macro/action cursors also clear on
+both control acknowledgements. Container/slot coordinates from the old body must
+never be reinterpreted against the new body's inventory.
+
+An armed ground-target item retains its actor and item GUID. Binding the ground
+point re-resolves that same copy in the actor's current inventory. Cancellation,
+body changes and tactical lock entry clear the item intent together with the
+ground cursor; no item use or cooldown begins merely by opening that cursor.
+An armed live ground cursor owns world left/right clicks in both camera modes,
+before Command View selection or move orders. Left commits its retained actor's
+item at the picked point; right cancels. Tactical queued casts remain separate.
+Its range cursor and decal measure from that same actor's physical pose, never
+the camera or the parked main. Hover feedback does not suppress server validation.
+Bag item cooldown gates, timers and swipes use the driven body's action store,
+even while Command View inspects someone else's bars.
+
+The mailbox inbox, opened letter, compose attachment/money, confirmation and
+refresh throttle also reset on both control acknowledgements. Reopening the same
+mailbox as another body must request that body's list immediately.
 
 2.4 The world map arrow is the driven body; the yellow dots are everyone else.
 

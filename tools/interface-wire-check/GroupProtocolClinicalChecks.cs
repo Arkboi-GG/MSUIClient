@@ -402,17 +402,22 @@ internal static class GroupProtocolClinicalChecks
                      "ApplyPartyDecline(body);", "ApplyPartyUninvited(body);",
                      "ApplyPartyLeaderChanged(body);", "ApplyPartyDestroyed(body);",
                      "ApplyPartyCommandResult(body);", "ApplyPartyRaidTargetUpdate(body);",
-                     "PartyFramePacketLaw.ParseMinimapPing(body)",
-                     "PartyFramePacketLaw.ParseReadyCheck(body)",
+                     "ApplyMinimapPing(body);",
+                     "ApplyReadyCheck(body);",
                  })
             Check(net.Contains(route, StringComparison.Ordinal), $"missing runtime route: {route}");
+        string confirms = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.Confirms.cs"));
+        Check(confirms.Contains("PartyFramePacketLaw.ParseMinimapPing(body)", StringComparison.Ordinal) &&
+              confirms.Contains("PartyFramePacketLaw.ParseReadyCheck(body)", StringComparison.Ordinal),
+            "group confirmation handlers lost their wire parsers");
         Check(runtime.Contains("GroupUiLaw.RosterLines(_partyGroupType, previous, wire)",
                   StringComparison.Ordinal) &&
               runtime.Contains("_partyLootThreshold = wire.LootThreshold;",
                   StringComparison.Ordinal) &&
               runtime.Contains("GroupUiLaw.ApplyRaidTargetList(_partyRaidTargets, wire.Entries);",
                   StringComparison.Ordinal) &&
-              !runtime.Contains("partytest", StringComparison.OrdinalIgnoreCase),
+              runtime.Contains("if (_partyTestSandbox) ClearPartyTestNames();", StringComparison.Ordinal),
             "group state/composer integration or synthetic-preserve law drift");
         Check(raidMarks.Contains("IReadOnlyList<WorldBillboardDraw> RaidMarkerBillboards()",
                   StringComparison.Ordinal) &&

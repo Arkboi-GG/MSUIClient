@@ -61,7 +61,9 @@ internal static class ItemEnchantClinicalChecks
               inventory.Contains("ItemEnchantmentDuration(slot)", StringComparison.Ordinal) &&
               inventory.Contains("enchant.HidesTooltipName", StringComparison.Ordinal) &&
               inventory.Contains("ItemEnchantUiLaw.Color(slot, signedId)", StringComparison.Ordinal) &&
-              worldCursor.Contains("WorldCursorUiLaw.ItemTargeting(pointerOverUi).Stem",
+              worldCursor.Contains("CastTargetLaw.AcceptsItem(itemSpell)",
+                  StringComparison.Ordinal) &&
+              worldCursor.Contains("new WorldCursorState(WorldCursorKind.Cast, Unable: !valid).Stem",
                   StringComparison.Ordinal) &&
               !actionBars.Contains("\"Select item\"", StringComparison.Ordinal),
             "temporary enchant receive or item-tooltip renderer is unwired");

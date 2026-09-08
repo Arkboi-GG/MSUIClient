@@ -377,6 +377,11 @@ public sealed partial class GameLoop
             CaptureUiPanelOwnershipSample,
             incoming,
             [character, spellbook]);
+        // The original pair coordinator cannot seat a retained profession/bank or displace
+        // another registered left panel. Use the same law and native close callbacks there.
+        if (result.Outcome == UiPanelHostTransition.Outcome.UnsupportedShape)
+            result = UiPanelRegisteredHostTransition.Show(_uiPanelOwnershipObserver,
+                CaptureUiPanelOwnershipSample, incoming, TryCloseRegisteredUiPanel);
         _uiPanelOwnershipObservation = result.Observation;
         return result.Succeeded;
     }

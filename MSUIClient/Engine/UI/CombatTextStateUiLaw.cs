@@ -24,6 +24,20 @@ public static class CombatTextStateUiLaw
     public const float CenterRise = 225f;
     public const float CenterLifetime = 1.9f;
     public const float CenterShadowOffset = 2f;
+    public const float CenterMessageSpacing = 26f; // FrameXML: 16 + COMBAT_TEXT_SPACING(10).
+    public const float CenterMaxOffset = 130f;
+
+    public static float CenterMessageOffset(float startOffset, float age, bool critical) =>
+        startOffset - (critical ? 0f : age / CenterLifetime * CenterRise);
+
+    public static float NextCenterStartOffset(IEnumerable<float> currentOffsets)
+    {
+        float offset = 0f;
+        foreach (float current in currentOffsets)
+            offset = Math.Max(offset, current + CenterMessageSpacing);
+        // Blizzard_CombatText resets to its normal origin once the stack exceeds this limit.
+        return offset > CenterMaxOffset ? 0f : offset;
+    }
 
     public static Vector2 WorldTextPosition(Vector2 projectedPoint, float scaledWidth,
         float textSize, int lane, float normalizedAge)
@@ -44,12 +58,12 @@ public static class CombatTextStateUiLaw
         display * WorldShadowDisplayFraction;
 
     public static Vector2 CenterTextPosition(Vector2 display, float uiScale,
-        float measuredWidth, int lane, float age, bool critical)
+        float measuredWidth, int lane, float age, bool critical, float startOffset = 0f)
     {
         float laneX = (lane - 2) * CenterLanePitch * uiScale;
-        float rise = critical ? 0f : age / CenterLifetime * CenterRise * uiScale;
         return new(display.X * .5f + laneX - measuredWidth * .5f,
-            display.Y * .5f + CenterBottomOffset * uiScale - rise);
+            display.Y * .5f + (CenterBottomOffset +
+                CenterMessageOffset(startOffset, age, critical)) * uiScale);
     }
 
     public static Vector2 CenterShadow(float uiScale) =>
@@ -70,9 +84,10 @@ public static class CombatTextStateUiLaw
     }
 
     public static CombatTextStateCue? Aura(
-        string spellName, bool helpful, bool applied, bool showFades = ShowAuraFadesByDefault)
+        string spellName, bool helpful, bool applied, bool showFades = ShowAuraFadesByDefault,
+        bool hidden = false)
     {
-        if (spellName.Length == 0) return null;
+        if (hidden || spellName.Length == 0) return null;
         if (applied && ShowAuraGainsByDefault)
             return new(spellName, helpful ? CombatTextStateTone.Green : CombatTextStateTone.Red);
         if (!applied && showFades)

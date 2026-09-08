@@ -201,8 +201,7 @@ public sealed partial class GameLoop
                 _freecamSelection.Count, altPrimaryCast, acceptsFriendly);
             if (intent == RtsAbilityCastIntent.ChooseFriendlyTarget)
             {
-                _groundCastSpell = 0;
-                _groundCursorPoint = null;
+                CancelGroundTargeting();
                 CancelItemTargeting();
                 _pendingCastPrimary = 0;
                 _pendingCastSpellId = 0;
@@ -1060,9 +1059,7 @@ public sealed partial class GameLoop
         PlayerActions store = ActionsFor(unit);
         SpellInfo? spell = _spellCatalog?.TryGet(useSpell.SpellId, out SpellInfo resolved) == true
             ? resolved : null;
-        bool blocked = spell is { } info
-            ? store.IsOnCooldown(useSpell.SpellId, tpl.Entry, info, now)
-            : store.IsOnCooldown(useSpell.SpellId, tpl.Entry, useSpell.Category, now);
+        bool blocked = store.IsItemOnCooldown(tpl.Entry, useSpell, spell, now);
         // Same trace as SendItemUse's gate (GameLoop.Inventory.cs, path=useitem). This is the
         // one item-use gate that is genuinely separate: bag clicks, action-bar presses and
         // hotkeys all share SendItemUse, while the shelf has its own copy AND runs against a

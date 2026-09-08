@@ -18,6 +18,11 @@ public sealed class AreaTableCatalog
         uint Flags, uint FactionGroupMask, uint AmbienceId, uint ZoneMusicId,
         uint IntroSoundId)> _rows = new();
     public int Count => _rows.Count;
+    private readonly Dictionary<uint, uint> _singleZoneByMap = new();
+
+    /// <summary>Fallback for maps whose WMO rooms have no area ID. Ambiguous
+    /// maps (including continents) return zero; never pick an arbitrary zone.</summary>
+    public uint SingleZoneForMap(uint mapId) => _singleZoneByMap.GetValueOrDefault(mapId);
 
     public static AreaTableCatalog? Parse(byte[] data)
     {
@@ -37,6 +42,12 @@ public sealed class AreaTableCatalog
             uint factionGroupMask = dbc.FieldCount > 20 ? dbc.GetUInt(r, 20) : 0;
             t._rows[id] = (parent, name, exploreFlag, flags, factionGroupMask,
                 ambience, zoneMusic, introSound);
+            if (parent == 0)
+            {
+                uint mapId = dbc.GetUInt(r, 1);
+                if (!t._singleZoneByMap.TryAdd(mapId, id))
+                    t._singleZoneByMap[mapId] = 0;
+            }
         }
         Console.WriteLine($"[dbc] AreaTable: {t.Count} area(s)");
         return t;

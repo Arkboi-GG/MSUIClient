@@ -29,8 +29,7 @@ internal static class ItemTextFrameClinicalChecks
               ItemTextFrameUiLaw.TextColor("Marble") == new Vector4(0, 0, 0, 1) &&
               ItemTextFrameUiLaw.TextColor("Silver") == new Vector4(.12f, .12f, .12f, 1) &&
               ItemTextFrameUiLaw.TextColor("Bronze") == new Vector4(.18f, .12f, .06f, 1) &&
-              ItemTextFrameUiLaw.TitleColor("Parchment") == new Vector4(0, 0, 0, 1) &&
-              ItemTextFrameUiLaw.TitleColor("Bronze") == new Vector4(.93f, .82f, 0, 1),
+              ItemTextFrameUiLaw.TitleColor == new Vector4(1, .82f, 0, 1),
             "item-text exact material palette drift");
 
         Check(ItemTextFrameUiLaw.HasPaging(1, true) &&
@@ -63,6 +62,13 @@ internal static class ItemTextFrameClinicalChecks
             "item-text SimpleHTML block alignment drift");
 
         string root = ClientConfig.FindRepoRoot();
+        string memorandum = QuestTextMacroLaw.Expand(
+            "ATTENTION:$B$BRemain silent, $n.$b$B$gSir:Madam;, seek the $c trainer.",
+            new("Nbwlkgnome", "Gnome", "Warlock", 1));
+        Check(memorandum == "ATTENTION:\n\nRemain silent, Nbwlkgnome.\n\nMadam, seek the warlock trainer." &&
+              ItemTextFrameUiLaw.ComposeBlocks(memorandum, null).Any(block =>
+                  block.Text.Contains("Remain silent, Nbwlkgnome.", StringComparison.Ordinal)),
+            "item-text reader must expand paragraph, identity and gender macros before layout");
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.ItemText.cs"));
         string inventory = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
@@ -83,6 +89,7 @@ internal static class ItemTextFrameClinicalChecks
               runtime.Contains("ItemTextFrameUiLaw.MaterialArt", StringComparison.Ordinal) &&
               runtime.Contains("ItemTextFrameUiLaw.BodyLineMin", StringComparison.Ordinal) &&
               runtime.Contains("ItemTextFrameUiLaw.ComposeBlocks", StringComparison.Ordinal) &&
+              runtime.Contains("ComposeBlocks(ExpandQuestText(source), creator)", StringComparison.Ordinal) &&
               runtime.Contains("ItemTextFrameUiLaw.BodyLineX", StringComparison.Ordinal) &&
               !runtime.Contains("new Vector2", StringComparison.Ordinal) &&
               !runtime.Contains("BeginVanillaWindow(\"##item-text\", new Vector2",

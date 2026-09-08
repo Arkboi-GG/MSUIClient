@@ -290,6 +290,12 @@ public sealed class PlayerActions
         TryActiveCooldown(spell, itemEntry, info.Category, info.StartRecoveryCategory,
             info.CooldownQueryExcluded, nowSeconds, out _);
 
+    public bool IsItemOnCooldown(uint itemEntry, in ItemSpellTemplate useSpell,
+        SpellInfo? spell, double nowSeconds) =>
+        TryActiveCooldown(useSpell.SpellId, itemEntry, useSpell.Category,
+            spell?.StartRecoveryCategory ?? 0, spell?.CooldownQueryExcluded ?? false,
+            nowSeconds, out _);
+
     public double CooldownRemaining(uint spell, double nowSeconds, uint category = 0) =>
         TryActiveCooldown(spell, itemEntry: 0, category, startRecoveryCategory: 0,
             excluded: false, nowSeconds, out CooldownSample sample)

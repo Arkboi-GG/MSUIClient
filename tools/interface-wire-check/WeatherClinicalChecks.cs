@@ -104,7 +104,7 @@ internal static class WeatherClinicalChecks
         Check(glue.Contains("_weatherSoundKit = weather.SoundId;", StringComparison.Ordinal) &&
               glue.Contains("_soundscape.WeatherAmbienceKit = _weatherSoundKit;",
                   StringComparison.Ordinal) &&
-              glue.Contains("_soundscapeIndoors = true;", StringComparison.Ordinal),
+              glue.Contains("_soundscapeIndoors = indoorsNow;", StringComparison.Ordinal),
             "weather sound retention or WMO indoor verdict drift");
         Check(glue.Contains("_weatherVisual.Apply(weather.WeatherType, weather.Grade, " +
                            "weather.Instant, NowSeconds());", StringComparison.Ordinal) &&
@@ -158,9 +158,9 @@ internal static class WeatherClinicalChecks
         try
         {
             action();
-            throw new InvalidDataException("malformed weather body was accepted");
         }
-        catch (InvalidDataException) { }
+        catch (InvalidDataException) { return; }
+        throw new InvalidDataException("malformed weather body was accepted");
     }
 
     private static void Check(bool condition, string message)

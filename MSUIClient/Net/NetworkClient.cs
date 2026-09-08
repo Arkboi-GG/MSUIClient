@@ -697,8 +697,9 @@ public sealed partial class NetworkClient : IDisposable
     public bool SellItem(ulong vendor, ulong item, byte count) { if (State!=NetState.InWorld||_session is null) return false; try { _session.SellItem(vendor,item,count); return true; } catch { return false; } }
     public bool BuybackItem(ulong vendor, uint slot) { if (State!=NetState.InWorld||_session is null) return false; try { _session.BuybackItem(vendor,slot); return true; } catch { return false; } }
     public bool RepairItem(ulong vendor, ulong item) => InWorld(s => s.RepairItem(vendor, item));
-    public bool UseItem(byte bag, byte slot, byte spellSlot) =>
-        InWorld(s => s.UseItem(bag, slot, spellSlot));
+    public bool UseItem(byte bag, byte slot, byte spellSlot, ulong targetGuid = 0,
+        Vector3? destination = null) =>
+        InWorld(s => s.UseItem(bag, slot, spellSlot, targetGuid, destination));
     public bool AutoEquipItem(byte bag, byte slot) => InWorld(s => s.AutoEquipItem(bag, slot));
     public bool AutostoreBagItem(byte sourceBag, byte sourceSlot, byte destinationBag) =>
         InWorld(s => s.AutostoreBagItem(sourceBag, sourceSlot, destinationBag));
@@ -920,6 +921,7 @@ public sealed partial class NetworkClient : IDisposable
         }
         catch (Exception ex) when (_running)
         {
+            Console.WriteLine($"[net] worker exception: {ex}");
             Fail(ex.Message);
         }
         catch (Exception)

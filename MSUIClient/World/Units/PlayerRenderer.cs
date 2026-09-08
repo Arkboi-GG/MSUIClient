@@ -280,7 +280,7 @@ public sealed class PlayerRenderer : IDisposable
             _shader.Set("uHighlight", e.Guid == HoveredGuid || e.Guid == SelectedGuid ? 64f / 255f : 0f);
 
             bool wantAnimate = Animate && model.Animator is not null && model.BoneCount > 0 &&
-                (e.IsDead || (distanceSq <= AnimateDistance * AnimateDistance &&
+                (e.Fields.ReadsDead || (distanceSq <= AnimateDistance * AnimateDistance &&
                               animatedThisFrame < AnimatedCap));
 
             int boneCount = 0;
@@ -292,7 +292,7 @@ public sealed class PlayerRenderer : IDisposable
                     M2Animator.Pack(_skin, boneCount, _packed);
                     _shader.SetVec4Array("uBones", _packed, boneCount * 3);
                     AnimatedLastFrame++;
-                    if (!e.IsDead) animatedThisFrame++;
+                    if (!e.Fields.ReadsDead) animatedThisFrame++;
                 }
             }
             _shader.Set("uBoneCount", boneCount);
@@ -345,7 +345,7 @@ public sealed class PlayerRenderer : IDisposable
         if (!_animTime.TryGetValue(e.Guid, out float at)) at = InitialPhase(e.Guid);
         M2Animator.Clip? clip;
 
-        if (e.IsDead)
+        if (e.Fields.ReadsDead && !e.Fields.PlayerIsGhost)
         {
             clip = model.Animator!.Resolve(unit, ActionAnimationTrack, 1, true, 6, 0);
             float deathAt = _deathTime.GetValueOrDefault(e.Guid, float.PositiveInfinity);
@@ -426,6 +426,8 @@ public sealed class PlayerRenderer : IDisposable
                 rate = RateFor(back);
                 return back;
             }
+            if (e.Fields.UnitIsStealthed)
+                return animator.Resolve(unit, BaseAnimationTrack, 119, true, 4, 0);
             M2Animator.Clip? clip = !e.IsWalking && speed >= FastRunSpeed
                 ? animator.Resolve(unit, BaseAnimationTrack, 143, true, 5, 4, 0)
                 : !e.IsWalking && speed > 2f * walk
@@ -446,6 +448,8 @@ public sealed class PlayerRenderer : IDisposable
             return animator.Resolve(unit, BaseAnimationTrack, 12, true, 0);
         return e.Engaged
             ? animator.Resolve(unit, BaseAnimationTrack, 25, true, 26, 27, 28, 0)
+            : e.Fields.UnitIsStealthed
+            ? animator.Resolve(unit, BaseAnimationTrack, 120, true, 0)
             : animator.Resolve(unit, BaseAnimationTrack, 0, true);
     }
 
@@ -494,7 +498,7 @@ public sealed class PlayerRenderer : IDisposable
 
     private void TrackLifeState(WorldEntity entity)
     {
-        if (entity.IsDead)
+        if (entity.Fields.ReadsDead && !entity.Fields.PlayerIsGhost)
         {
             bool witnessedAlive = _knownAlive.Remove(entity.Guid);
             if (_observedDead.Add(entity.Guid))

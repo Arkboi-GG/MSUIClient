@@ -35,6 +35,10 @@ internal static class CombatTextStateClinicalChecks
               CombatTextStateUiLaw.Aura("Arcane Intellect", true, applied: false,
                   showFades: true)?.Text == "<Arcane Intellect> fades",
             "aura gain/default-off fade law drift");
+        Check(CombatTextStateUiLaw.Aura("Defensive State", true, true, hidden: true) is null &&
+              CombatTextStateUiLaw.Aura("Defensive State 2", true, false,
+                  showFades: true, hidden: true) is null,
+            "hidden reactive auras must not leak internal names through combat text");
 
         Check(Near(CombatTextStateUiLaw.WorldTextPosition(
                   new Vector2(500, 400), 100, 20, 0, .5f), new Vector2(444.9f, 380)) &&
@@ -50,6 +54,16 @@ internal static class CombatTextStateClinicalChecks
                   new Vector2(896, 760)) &&
               CombatTextStateUiLaw.CenterShadow(2) == new Vector2(4),
             "combat-text world/center placement law drift");
+
+        float first = CombatTextStateUiLaw.NextCenterStartOffset(Array.Empty<float>());
+        float second = CombatTextStateUiLaw.NextCenterStartOffset(new[] { first });
+        float third = CombatTextStateUiLaw.NextCenterStartOffset(new[] { first, second });
+        Check(first == 0 && second == 26 && third == 52 &&
+              CombatTextStateUiLaw.NextCenterStartOffset(new[] { -40f }) == 0 &&
+              CombatTextStateUiLaw.NextCenterStartOffset(new[] { 130f }) == 0 &&
+              Math.Abs(CombatTextStateUiLaw.CenterMessageOffset(third, .5f, false) -
+                  CombatTextStateUiLaw.CenterMessageOffset(second, .5f, false) - 26f) < .001f,
+            "simultaneous combat notices must retain vertical spacing while scrolling");
 
         string root = ClientConfig.FindRepoRoot();
         string legacySettingsPath = Path.Combine(Path.GetTempPath(),

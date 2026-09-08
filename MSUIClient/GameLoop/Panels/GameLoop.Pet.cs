@@ -295,15 +295,20 @@ public sealed partial class GameLoop
     /// </summary>
     private void ResetBodySessionUiOnControlChange()
     {
+        ClearEquipBinding();
+        CancelGroundTargeting();
         ResetPossessedClientControl();
         ResetTrade(); // Local offer/acceptance state belongs to the body just left.
+        ResetMail(); // Inbox, compose state and refresh throttle belong to that body too.
         ResetMirrorTimers();
         ResetWeatherOnControlChange();
         ResetReputationBodyUi();
         ResetBinderConfirmation();
         ResetHearthAttempt();
         _pendingQuestItemNotices?.Clear();
-        _vendorPickup = null;
+        ClearCarriedItem();
+        CancelStackSplit();
+        ClearActionBarCursorOnEscape();
         ResetGossip();
         ResetPetActionBar();
         ResetPetInfoRefresh();
@@ -334,7 +339,10 @@ public sealed partial class GameLoop
         if (_freeView) return;   // commander console: no body chrome
         float s = GameplayUiScale();
         if (TryGetControlledPet(out WorldEntity framePet))
+        {
             DrawPetFrame(framePet, s); // Existing MSUI portrait/frame is intentionally preserved.
+            DrawPetHappiness(framePet, s);
+        }
         if (!PetActionBarVisible) return;
         WorldEntity? actionPet = _entities.TryGet(_petGuid, out WorldEntity entity) && entity.IsUnit
             ? entity : null;
@@ -579,7 +587,9 @@ public sealed partial class GameLoop
             }
 
             bool hasNamedPayload = namedSlots[i];
-            string iconPath = iconPaths[i];
+            // Empty slots become drawable drop targets while carrying a pet
+            // action; their unresolved icon entry is intentionally still null.
+            string iconPath = iconPaths[i] ?? "";
             uint icon = hasNamedPayload && iconPath.Length > 0 ? _gameplayArt!.Handle(iconPath) : 0;
             uint iconTint = usable ? 0xffff_ffffu : 0xff80_8080u;
             if (icon != 0)
@@ -883,6 +893,7 @@ public sealed partial class GameLoop
             _petActions[slot] = blank;
             _net?.PetSetAction(petGuid, new[] { ((uint)slot, blank) });
         }
+        PlayUiSound(PetSpellBookUiLaw.PickupSound, "ui.actionbar");
     }
 
     private void PlacePetAction(int target, ulong petGuid, WorldEntity? pet)
@@ -910,6 +921,7 @@ public sealed partial class GameLoop
             entries.Add(((uint)assigned.RelocationSlot, _petActions[assigned.RelocationSlot]));
         entries.Add(((uint)target, _petActions[target]));
         _net?.PetSetAction(petGuid, entries);
+        PlayUiSound(PetSpellBookUiLaw.DropSound, "ui.actionbar");
         if (!assigned.Relocated && PetActionBarUiLaw.HasPayload(oldOccupant))
         {
             _draggingPetAction = oldOccupant;

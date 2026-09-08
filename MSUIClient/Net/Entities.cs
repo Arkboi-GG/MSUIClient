@@ -106,10 +106,26 @@ public sealed class WorldEntity
     internal bool FacingFromSpline = true;
 
     /// <summary>True while a spline is actively moving this unit (drives future walk/run animation choice).</summary>
-    public bool IsMoving => Spline is not null || AirborneMotion is not null;
+    public bool IsMoving => RenderMotionSpeed is > 0.01f || Spline is not null || AirborneMotion is not null;
     public bool IsAirborne => Spline?.Falling == true || (MoveFlags & (uint)MovementFlags.Falling) != 0;
     public bool IsHovering => (MoveFlags & (uint)MovementFlags.Hover) != 0;
     public bool IsWalking => (MoveFlags & (uint)MovementFlags.WalkMode) != 0;
+
+    // A renderer-only view shares the immutable-for-this-frame descriptor/aura
+    // but carries the predicted local pose without overwriting network state.
+    public float? RenderMotionSpeed { get; private set; }
+    public WorldEntity WithRenderPose(Vector3 position, float yaw, float speed, uint flags, bool flying)
+    {
+        var view = (WorldEntity)MemberwiseClone();
+        view.Position = position;
+        view.Orientation = yaw;
+        view.RenderMotionSpeed = speed;
+        view.MoveFlags = flags;
+        view.Flying = flying;
+        view.Spline = null;
+        view.AirborneMotion = null;
+        return view;
+    }
 }
 
 public sealed class EntityStore

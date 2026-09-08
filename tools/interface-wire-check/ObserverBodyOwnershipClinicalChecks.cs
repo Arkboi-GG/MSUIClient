@@ -159,7 +159,7 @@ internal static class ObserverBodyOwnershipClinicalChecks
             "forced/observer speed routing must keep detached body state off the camera controller");
 
         Check(transports.Contains(
-                  "rider.Guid == ControlledGuid && !ControlledBodyIsStreamed", Ordinal) &&
+                  "rider.Guid == ControlledGuid && !_freeView", Ordinal) &&
               !transports.Contains("if (rider.Guid == ControlledGuid ||", Ordinal) &&
               Slice(transports, "private void CarryControlledTransportRider()",
                   "private void ReconcileControlledTransportRider()").Contains(
@@ -226,7 +226,7 @@ internal static class ObserverBodyOwnershipClinicalChecks
               inventory.Contains(
                   "CanAuthorControlledGameplay && ControlledGuid == LocalPlayerGuid", Ordinal) &&
               inventory.Contains(
-                  "if (CanAuthorControlledOrSelf) _net.AutoEquipItem(wire.Bag, wire.Slot);",
+                  "if (CanAuthorControlledOrSelf) TryAutoEquipItem(wire.Bag, wire.Slot);",
                   Ordinal) &&
               inventory.Contains(
                   "if (!CanAuthorSessionInventory || _net is null || slot is < 0 or >= 19",

@@ -20,6 +20,7 @@ public sealed partial class GameLoop
 
     private void DrawStablePanel()
     {
+        UpdateStableLifecycle();
         if (!_stableOpen || _net is null || _gameplayArt is null || _stableList is null) return;
         float scale = GameplayUiScale();
 
@@ -46,7 +47,7 @@ public sealed partial class GameLoop
             new Vector2(wMax.X - edge, wMax.Y - edge), 0xc00b0e12);
 
         Vector2 c0 = new(wMin.X + edge + 8f * scale, plaqueBottom + 10f * scale);
-        float innerWidth = (wMax.X - edge - 8f * scale) - c0.X;
+        float innerWidth = ((wMax.X - edge - 8f * scale) - c0.X) / scale;
         float y = DrawStableContent(dl, c0, y: 0f, scale, innerWidth);
 
         DrawStableFooter(dl, wMin, wMax, edge, scale);
@@ -81,7 +82,7 @@ public sealed partial class GameLoop
         }
         y += 24f;
         dl.AddLine(c0 + new Vector2(0, y) * scale,
-            new Vector2(c0.X + innerWidth, c0.Y + y * scale), 0xff2a343d, MathF.Max(1f, scale));
+            new Vector2(c0.X + innerWidth * scale, c0.Y + y * scale), 0xff2a343d, MathF.Max(1f, scale));
         y += 6f;
 
         // --- stabled pets ---
@@ -140,10 +141,16 @@ public sealed partial class GameLoop
         GameText.Draw(dl, "GameFontNormalSmall", $"Stable slots: {used}/{list.StableSlots}",
             new Vector2(wMin.X + edge + 8f * scale, rowY + 3f * scale), scale, 0xff9aa4ab);
 
+        if (NextStableSlotPrice() is not { } price) return;
+        bool canBuy = CanBuyStableSlot(price);
+        Vector2 costOrigin = new(wMin.X + edge + 8f * scale, rowY - 22f * scale);
+        GameText.Draw(dl, "GameFontNormalSmall", "Next slot:", costOrigin, scale, VanillaGold);
+        DrawTrainerMoney(dl, price, costOrigin + new Vector2(76f * scale, 0), scale,
+            canBuy ? 0xffffffff : 0xff4040ff, rightAligned: false);
         var buyBtn = new Vector2(96f, 20f);
         if (VanillaButton(dl, "##stable-buy", "Buy Slot",
                 new Vector2(wMax.X - edge - 8f * scale - buyBtn.X * scale, rowY), buyBtn, scale,
-                _net is { IsInWorld: true }))
+                canBuy))
             BuyStableSlot();
     }
 }

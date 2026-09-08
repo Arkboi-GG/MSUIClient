@@ -20,6 +20,12 @@ touching the code:
 - `shared_docs/CRPG_FREEZE_SYSTEM.md` — the CRPG/RTS freeze system.
 - `shared_docs/MACRO_BOOK.md` — the Macro Book: stable macro ids and the legacy
   ranges, the v2 store, the embedded Core command export and how to regenerate it.
+- `shared_docs/GAMEPLAY_INTERACTION_CHECKLIST.md` — evidence and verification status
+  for subtle gameplay feedback; how to regenerate the archive-driven audit and triage it.
+- `shared_docs/FULL_GAME_COVERAGE.md` — full-game coverage inventory, quest/spell
+  acceptance rules, background execution batches and evidence gaps.
+- `shared_docs/Sept 8, 26 fixes.md` — complete September 7–8 audit recap, all GI entries,
+  evidence, open defects and the owner-requested pause handoff.
 - `shared_docs/INTERIOR_UNIT_LIGHT.md` — how units, mounts, items and server
   gameobjects are lit inside a WMO (the floor's MOCV under the feet, one law with
   the props); the `MSUI_INTERIORLIGHT_PROBE` offline proof.

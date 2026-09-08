@@ -19,13 +19,17 @@ internal static class GameplayImguiPolicyClinicalChecks
     /// </summary>
     private static readonly string[] EnrolledCleanFiles =
     [
+        "MSUIClient/GameLoop/Scene/GameLoop.GameObjects.cs",
         "MSUIClient/GameLoop/Panels/GameLoop.PartyQuestLog.cs",
         "MSUIClient/GameLoop/Panels/GameLoop.RaidInfoPanel.cs",
         "MSUIClient/GameLoop/Panels/GameLoop.StablePanel.cs",
+        "MSUIClient/GameLoop/Hud/GameLoop.PetHappiness.cs",
+        "MSUIClient/GameLoop/Panels/GameLoop.PetTraining.cs",
         "MSUIClient/GameLoop/Panels/GameLoop.Companions.cs",
         "MSUIClient/GameLoop/Hud/GameLoop.HudFrames.cs",
         "MSUIClient/GameLoop/Hud/GameLoop.HudLayoutEditor.cs",
         "MSUIClient/GameLoop/Panels/GameLoop.Macro.cs",
+        "MSUIClient/GameLoop/Panels/GameLoop.EquipBinding.cs",
     ];
 
     public static void Run()
@@ -68,6 +72,13 @@ internal static class GameplayImguiPolicyClinicalChecks
 
         // --- enrolled gameplay panels carry zero banned widgets ---
         string root = ClientConfig.FindRepoRoot();
+        string objectUi = SourceText.Read(Path.Combine(root, "MSUIClient/GameLoop/Scene/GameLoop.GameObjects.cs"));
+        string escapeUi = SourceText.Read(Path.Combine(root, "MSUIClient/GameLoop/Panels/GameLoop.Settings.cs"));
+        Check(!objectUi.Contains("World Object##gameobject", StringComparison.Ordinal) &&
+              objectUi.Contains("DrawItemTextFrame();", StringComparison.Ordinal) &&
+              !escapeUi.Contains("_gameObjectGuid != 0", StringComparison.Ordinal) &&
+              escapeUi.Contains("CloseItemText(playSound: true);", StringComparison.Ordinal),
+            "Object use must not open diagnostic UI or consume Escape as an invisible panel; real text still closes");
         foreach (string relative in EnrolledCleanFiles)
         {
             string full = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));

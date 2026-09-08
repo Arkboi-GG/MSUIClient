@@ -274,7 +274,9 @@ public sealed partial class GameLoop
         try
         {
             NetSettings netSettings = _config.ToNetSettings();
-            if (!string.IsNullOrWhiteSpace(_liveRunOptions?.Character))
+            if (_liveRunOptions?.CharacterSelect == true)
+                netSettings = netSettings with { CharacterName = null };
+            else if (!string.IsNullOrWhiteSpace(_liveRunOptions?.Character))
             {
                 netSettings = netSettings with { CharacterName = _liveRunOptions.Character };
                 Console.WriteLine($"[live-run] selecting requested character {_liveRunOptions.Character}");
@@ -1706,6 +1708,7 @@ public sealed partial class GameLoop
                         {
                             PetNameQueryResponse response = PetNamePackets.ParseResponse(body);
                             _queriedPetNames.Remove(response.PetNumber);
+                            _petNameTimestamps[response.PetNumber] = response.Timestamp;
                             if (response.Name.Length > 0)
                                 _petNames[response.PetNumber] = response.Name;
                             else
@@ -2523,8 +2526,8 @@ public sealed partial class GameLoop
             _creatures.NoteKnownNotDrawn(_entities);
             return;
         }
-        _creatures.SelfPlayerGuid = RenderSelfGuid;
-        _creatures.Render(_window.Camera, _visibleWorldUnits, _visibleWorldCorpses);
+        _creatures.SelfPlayerGuid = ControlledUsesDisplayModel ? 0UL : RenderSelfGuid;
+        _creatures.Render(_window.Camera, DisplayModelRenderUnits(), _visibleWorldCorpses);
     }
 
     /// <summary>
@@ -3320,8 +3323,11 @@ public sealed partial class GameLoop
         // Row geometry is needed BEFORE the panel is drawn, because the lit row's highlight card cuts a
         // hole in the panel fill (see below). These are the same numbers the row loop uses further down.
         float rowX = frameMin.X + 12f * s, rowW = frameW - 24f * s;
-        float rowH = 54f * s, pitch = 60f * s, rowsTop = frameMin.Y + 74f * s;
         int rows = Math.Min(chars.Count, 10);
+        float rowsTop = frameMin.Y + 74f * s;
+        float createTop = frameMax.Y - (GlueTune.CreateCharH + GlueTune.CreateCharBottom) * s;
+        float pitch = CharSelectUiLaw.RosterPitch(rows, createTop - rowsTop - 12f * s, s);
+        float rowScale = pitch / 60f, rowH = 54f * rowScale;
         int litSel = _selectedChar;
 
         // Which row the mouse is over, resolved HERE rather than from ImGui.IsItemHovered in the loop:
@@ -3431,8 +3437,8 @@ public sealed partial class GameLoop
             bool lit = selected || hovered;
             if (lit)
             {
-                var hiMin = new Vector2(frameMin.X + GlueTune.SelectHiInsetX * s, rMin.Y + GlueTune.SelectHiTop * s);
-                var hiMax = new Vector2(frameMin.X + frameW - GlueTune.SelectHiInsetX * s, hiMin.Y + GlueTune.SelectHiHeight * s);
+                var hiMin = new Vector2(frameMin.X + GlueTune.SelectHiInsetX * s, rMin.Y + GlueTune.SelectHiTop * rowScale);
+                var hiMax = new Vector2(frameMin.X + frameW - GlueTune.SelectHiInsetX * s, hiMin.Y + GlueTune.SelectHiHeight * rowScale);
                 if (_skin is not null && _skin.Has("glue.select.hi"))
                 {
                     // TRUE additive (alphaMode="ADD") - the blend benilla's AddUiMaterial uses for this
@@ -3455,23 +3461,23 @@ public sealed partial class GameLoop
 
             // Row text (benilla screen.rs row_button): NAME gold 15 (+5), INFO "Level X Class" white 12
             // (+24), LOCATION gray 12 (+38) - all carrying the glue black drop shadow via GlueText.
-            GlueText(dl, c.Name, rMin.X + 10f * s, rMin.Y + 5f * s, 15f * s, WowSkin.GlueGold, 0);
+            GlueText(dl, c.Name, rMin.X + 10f * s, rMin.Y + 5f * rowScale, 15f * rowScale, WowSkin.GlueGold, 0);
             GlueText(dl, $"Level {c.Level} {ClassName(c.Class)}" + (c.IsGhost ? "  (dead)" : ""),
-                     rMin.X + 10f * s, rMin.Y + 24f * s, 12f * s, WowSkin.Normal, 0);
+                     rMin.X + 10f * s, rMin.Y + 24f * rowScale, 12f * rowScale, WowSkin.Normal, 0);
             string zone = _areas?.ZoneName(c.Zone) ?? "";
             if (zone.Length > 0)
-                GlueText(dl, zone, rMin.X + 10f * s, rMin.Y + 38f * s, 12f * s, WowSkin.Muted, 0);
+                GlueText(dl, zone, rMin.X + 10f * s, rMin.Y + 38f * rowScale, 12f * rowScale, WowSkin.Muted, 0);
 
             // The on-top glow draws OVER this row text. Queue it as GL TEXT (same additive pass, after
             // the glow, using the ImGui font atlas) so it redraws crisp IN FRONT of the glow - no second
             // ImGui frame (that broke interaction). benilla: the row text sits over the ADD card.
             if (lit && GlueTune.SelectHiOnTop && _glueAdd is not null)
             {
-                _glueAdd.EnqueueText(c.Name, rMin.X + 10f * s, rMin.Y + 5f * s, 15f * s, WowSkin.GlueGold);
+                _glueAdd.EnqueueText(c.Name, rMin.X + 10f * s, rMin.Y + 5f * rowScale, 15f * rowScale, WowSkin.GlueGold);
                 _glueAdd.EnqueueText($"Level {c.Level} {ClassName(c.Class)}" + (c.IsGhost ? "  (dead)" : ""),
-                                     rMin.X + 10f * s, rMin.Y + 24f * s, 12f * s, WowSkin.Normal);
+                                     rMin.X + 10f * s, rMin.Y + 24f * rowScale, 12f * rowScale, WowSkin.Normal);
                 if (zone.Length > 0)
-                    _glueAdd.EnqueueText(zone, rMin.X + 10f * s, rMin.Y + 38f * s, 12f * s, WowSkin.Muted);
+                    _glueAdd.EnqueueText(zone, rMin.X + 10f * s, rMin.Y + 38f * rowScale, 12f * rowScale, WowSkin.Muted);
             }
         }
 
@@ -3480,7 +3486,7 @@ public sealed partial class GameLoop
         // with the width derived from the inset so it stays centred in the column at any panel width.
         float cnInset = GlueTune.CreateCharInset * s;
         ImGui.SetCursorScreenPos(new Vector2(frameMin.X + cnInset,
-                                             frameMax.Y - (GlueTune.CreateCharH + GlueTune.CreateCharBottom) * s));
+                                             createTop));
         if (_skin?.GlueButton("Create New Character", new Vector2(frameW - cnInset * 2f, GlueTune.CreateCharH * s),
                               enabled: true, captionPx: GlueTune.CreateCharTextPx * s) ?? false)
             OpenCharCreate();

@@ -28,6 +28,11 @@ internal static class ActionBarBindingTailClinicalChecks
             "Panels", "GameLoop.Bindings.cs"));
         string bars = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
             "GameLoop.ActionBars.cs"));
+        int inputStart = bars.IndexOf("ImGuiWindowFlags inputFlags =", StringComparison.Ordinal);
+        int inputEnd = inputStart < 0 ? -1 : bars.IndexOf(';', inputStart);
+        Check(inputEnd > inputStart && bars[inputStart..inputEnd].Contains(
+                "ImGuiWindowFlags.NoFocusOnAppearing", StringComparison.Ordinal),
+            "new empty action-bar hit hosts must preserve the inventory drag source's active ID");
         string stance = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
             "GameLoop.StanceBar.cs"));
         string pet = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",

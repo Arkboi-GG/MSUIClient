@@ -211,7 +211,7 @@ public sealed partial class GameLoop
     /// (cast, channel, one-shots, wound reactions) have to follow, or they play on a body
     /// nobody is looking at and the commanded toon casts without moving a muscle.
     /// </summary>
-    private bool ControlledBodyIsStreamed => _freeView;
+    private bool ControlledBodyIsStreamed => _freeView || ControlledUsesDisplayModel;
 
     private readonly record struct WorldBodyPose(Vector3 Position, float Orientation);
 
@@ -1141,7 +1141,8 @@ public sealed partial class GameLoop
         // UNIT_FIELD stats/resists/AP/damage are owner-only on the vanilla wire —
         // never streamed for another player — so a possessed bot's character
         // sheet rendered all zeros until the snapshot carried the raw values.
-        // Injected verbatim into the same fields the sheet already reads.
+        // Attack times are stored floats on Core; normalize their raw snapshot bits to
+        // the uint milliseconds used by ordinary object updates and field consumers.
         if (r.Remaining >= 19 * 4 + 6 * 4)
         {
             for (int i = 0; i < 5; i++)
@@ -1152,9 +1153,9 @@ public sealed partial class GameLoop
             bot.Fields.SetU32(ObjectFields.UNIT_ATTACK_POWER_MODS, r.ReadU32());
             bot.Fields.SetU32(ObjectFields.UNIT_RANGED_ATTACK_POWER, r.ReadU32());
             bot.Fields.SetU32(ObjectFields.UNIT_RANGED_ATTACK_POWER_MODS, r.ReadU32());
-            bot.Fields.SetU32(ObjectFields.UNIT_BASEATTACKTIME, r.ReadU32());
-            bot.Fields.SetU32((ushort)(ObjectFields.UNIT_BASEATTACKTIME + 1), r.ReadU32());
-            bot.Fields.SetU32(ObjectFields.UNIT_RANGEDATTACKTIME, r.ReadU32());
+            bot.Fields.SetU32(ObjectFields.UNIT_BASEATTACKTIME, ObjectFields.StoredAttackTimeMilliseconds(r.ReadU32()));
+            bot.Fields.SetU32((ushort)(ObjectFields.UNIT_BASEATTACKTIME + 1), ObjectFields.StoredAttackTimeMilliseconds(r.ReadU32()));
+            bot.Fields.SetU32(ObjectFields.UNIT_RANGEDATTACKTIME, ObjectFields.StoredAttackTimeMilliseconds(r.ReadU32()));
             bot.Fields.SetU32(ObjectFields.UNIT_MINDAMAGE, BitConverter.SingleToUInt32Bits(r.ReadF32()));
             bot.Fields.SetU32(ObjectFields.UNIT_MAXDAMAGE, BitConverter.SingleToUInt32Bits(r.ReadF32()));
             bot.Fields.SetU32(ObjectFields.UNIT_MINOFFHANDDAMAGE, BitConverter.SingleToUInt32Bits(r.ReadF32()));
@@ -2485,8 +2486,7 @@ public sealed partial class GameLoop
             case CommandViewInteractKind.Quests:
                 return NpcSessionUiLaw.InRange(distanceSquared) && CommandViewPartyAtSubject(subject);
             default:
-                float limit = IsStockPortalEntry(subject.Entry)
-                    ? MagePortalClickInteractDistance : GameObjectInteractDistance;
+                float limit = GameObjectUseDistance(subject);
                 return distanceSquared <= limit * limit;
         }
     }

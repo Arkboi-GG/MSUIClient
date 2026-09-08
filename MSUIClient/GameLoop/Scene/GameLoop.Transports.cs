@@ -216,7 +216,7 @@ public sealed partial class GameLoop
         foreach (WorldEntity rider in _entities.Units)
         {
             if (TacticalFreezePoseLaw.IsFrozen(rider.Guid) ||
-                (rider.Guid == ControlledGuid && !ControlledBodyIsStreamed) ||
+                (rider.Guid == ControlledGuid && !_freeView) ||
                 rider.Transport is not { } local ||
                 (!_elevatorTransports.ContainsKey(local.Guid) &&
                  !_moTransports.ContainsKey(local.Guid)) ||

@@ -49,7 +49,11 @@ public static class QuestFrameUiLaw
     public static readonly QuestLogicalRect ItemHitRect = new(0, 0, ItemWidth, ItemHeight);
     public static readonly QuestLogicalRect ItemIconRect = new(0, 0, ItemIcon, ItemIcon);
     public static readonly QuestLogicalRect ItemNameFrameRect = new(29, -12, 128, 64);
-    public static readonly Vector2 ItemNameTextOffset = new(44, 12);
+    public static readonly Vector2 ItemNameTextOffset = new(44, 1.5f);
+    public static readonly Vector2 ItemNameTextSize = new(90, 36);
+
+    public static QuestScreenRect VisibleItemHit(Vector2 min, Vector2 size, QuestScreenRect clip) =>
+        new(Vector2.Max(min, clip.Min), Vector2.Min(min + size, clip.Max));
     public static readonly Vector2 ItemCountAnchor = new(35, 25);
     public static readonly QuestLogicalRect ItemHighlightRect = new(-8, -7, 256, 64);
 
@@ -371,6 +375,10 @@ public static class QuestFrameUiLaw
         itemMin + ItemCountAnchor * scale - Vector2.UnitX * countSize.X;
     public static float ClampScroll(float value, float contentHeight) =>
         Math.Clamp(value, 0, Math.Max(0, contentHeight - ScrollHeight));
+    public static float ScrollFromThumb(float logicalY, QuestLogicalRect track, float maximum) =>
+        maximum <= 0 || track.Height <= ScrollThumbHeight ? 0 :
+            Math.Clamp((logicalY - track.Y - ScrollThumbHeight * .5f) /
+                (track.Height - ScrollThumbHeight), 0, 1) * maximum;
     public static QuestScreenRect NpcScrollClip(Vector2 origin, float scale)
     {
         Vector2 min = NpcScrollRect.ScaledMin(origin, scale);

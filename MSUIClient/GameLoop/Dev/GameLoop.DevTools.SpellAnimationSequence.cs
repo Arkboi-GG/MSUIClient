@@ -23,12 +23,13 @@ public sealed partial class GameLoop
         _animationSequenceStage = "SETTLE";
         _animationSequenceSamples.Clear();
         _animationVisualSamples.Clear();
+        BeginSpellFamilyEvidence(spellId);
         return true;
     }
 
-    private void MarkAnimationSequenceStage(uint spellId, string stage)
+    private void MarkAnimationSequenceStage(uint spellId, string stage, ulong caster)
     {
-        if (_animationSequenceSpell == spellId) _animationSequenceStage = stage;
+        if (_animationSequenceSpell == spellId && caster == ControlledGuid) _animationSequenceStage = stage;
     }
 
     private bool SampleAnimationSequence(string frame)
@@ -36,12 +37,16 @@ public sealed partial class GameLoop
         if (_animationSequenceSpell == 0 || _character is null || _spellCatalog is null ||
             !_spellCatalog.TryGet(_animationSequenceSpell, out SpellInfo spell)) return false;
 
-        int track = _animationSequenceStage is "PRECAST" or "CHANNEL" ? 2 : 1;
+        // The original sampler never entered CHANNEL and compared old cast choices
+        // during SETTLE. Only assess the animation layer while that layer is active.
+        string sampleStage = _castBarSpell == spell.Id && _castBarPhase == CastBarPhase.Channel
+            ? "CHANNEL" : _animationSequenceStage;
+        int track = sampleStage is "PRECAST" or "CHANNEL" ? 2 : 1;
         (int Requested, int Played, AnimChoiceKind Kind) state =
-            _lastAnimChoices.TryGetValue(("player", track), out var actual)
+            _lastAnimChoices.TryGetValue((ControlledBodyIsStreamed ? $"player:{ControlledGuid:X16}" : "player", track), out var actual)
                 ? actual : (-1, -1, AnimChoiceKind.Missing);
         (uint kitId, ushort? expected, IReadOnlyList<SpellVisualKitEffect> effects) =
-            ExpectedStage(spell, _animationSequenceStage);
+            ExpectedStage(spell, sampleStage);
         var sources = new List<string>();
         bool assetMissing = false;
         foreach (SpellVisualKitEffect effect in effects)
@@ -54,9 +59,10 @@ public sealed partial class GameLoop
         }
         sources = sources.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         LayerVisualSample visual = SampleSpellVisualLayer(spell);
+        SampleSpellFamilyEvidence(spell, frame);
         _animationVisualSamples.Add(visual);
         IReadOnlyList<string> active = _spellEffects?.ActiveModelPaths(_animationSequenceSpell) ?? [];
-        _entities.TryGet(_net?.PlayerGuid ?? 0, out var player);
+        _entities.TryGet(ControlledGuid, out var player);
         _entities.TryGet(_selectionGuid, out var selection);
         string AuraFingerprint(WorldEntity? unit) => string.Join('|', SnapshotAuras(unit).Values
             .OrderBy(aura => aura.Slot).Select(aura => $"{aura.Slot}:{aura.SpellId}:{aura.Stacks}"));
@@ -64,7 +70,10 @@ public sealed partial class GameLoop
             .Select(slot => player.Fields.PlayerInventorySlot(slot)).Concat(Enumerable.Range(0, 16)
                 .Select(slot => player.Fields.PlayerBackpackSlot(slot))).Where(guid => guid != 0)
             .Select(guid => $"{guid:X16}"));
-        string verdict = assetMissing ? "ANIM-ASSET-MISSING" :
+        bool layerActive = (track == 2 ? _character.CurrentSpellHoldAnimation : _character.CurrentActionAnimation) != "none";
+        string verdict = ControlledBodyIsStreamed ? "ANIM-STREAMED-LIFECYCLE-UNMEASURED" :
+            sampleStage == "SETTLE" || expected is null ? "ANIM-NOT-REQUIRED" :
+            !layerActive ? "ANIM-NOT-ACTIVE" : assetMissing ? "ANIM-ASSET-MISSING" :
             expected is { } expectedId && state.Played == expectedId &&
                 state.Kind is AnimChoiceKind.Exact or AnimChoiceKind.BakedOnDemand ? "ANIM-EXACT" :
             state.Kind is AnimChoiceKind.Fallback or AnimChoiceKind.Substituted ||
@@ -72,10 +81,12 @@ public sealed partial class GameLoop
             "ANIM-STATIC";
         var row = new SpellAnimationSequenceVerdict(NowSeconds(), _net?.PlayerName ?? "",
             spell.Id, _animationSequenceCell, "SAMPLE", "MEASURED", _animationSequenceSamples.Count,
-            frame, _animationSequenceStage, expected ?? -1, state.Requested, state.Played, state.Kind,
-            _character.CurrentPresentationAnimation, _character.CurrentBaseAnimation,
-            _character.PreviousBaseAnimation, _character.CurrentActionAnimation,
-            _character.CurrentSpellHoldAnimation, _character.CurrentBlendWeight,
+            frame, sampleStage, expected ?? -1, state.Requested, state.Played, state.Kind,
+            ControlledBodyIsStreamed ? "STREAMED" : _character.CurrentPresentationAnimation,
+            ControlledBodyIsStreamed ? "UNMEASURED" : _character.CurrentBaseAnimation,
+            ControlledBodyIsStreamed ? "UNMEASURED" : _character.PreviousBaseAnimation,
+            ControlledBodyIsStreamed ? "UNMEASURED" : _character.CurrentActionAnimation,
+            ControlledBodyIsStreamed ? "UNMEASURED" : _character.CurrentSpellHoldAnimation, _character.CurrentBlendWeight,
             _character.GroundSpeed > .3f, player?.Fields.Health ?? 0, player?.Fields.ActivePower ?? 0,
             selection?.Fields.Health ?? 0, _controller?.Position.X ?? 0, _controller?.Position.Y ?? 0, _controller?.Position.Z ?? 0,
             _entities.Units.Count(), AuraFingerprint(player), AuraFingerprint(selection), inventory,
@@ -87,8 +98,7 @@ public sealed partial class GameLoop
         _verdicts.Add(row);
         Console.WriteLine($"[verdict:spell-animation-sequence] {row.ToLine()}");
         string framePath = Path.Combine(ResolveLiveOutputDirectory(), $"frame-{frame}.png");
-        TrySaveAnimationSequenceFrame(framePath);
-        return true;
+        return TrySaveAnimationSequenceFrame(framePath);
     }
 
     private bool EndAnimationSequence()
@@ -180,7 +190,7 @@ public sealed partial class GameLoop
             if (expected.Any(path => _mpq?.ReadFileWithSupplier(path) is null)) return "ASSET-MISSING";
             foreach (var instance in instances.Where(instance => instance.Stage == stage))
             {
-                var particles = _particles?.VisualState($"spell:{instance.Path}#{instance.Id}") ?? default;
+                var particles = _spellParticles?.VisualState($"spell:{instance.Path}#{instance.Id}") ?? default;
                 bool drawn = particles.DrawnParticles > 0 || (_spellEffectMeshes?.WasDrawn(instance.Path) ?? false) ||
                     (_spellRibbons?.WasDrawn(instance.Path) ?? false);
                 if (drawn) return "PRESENT";
@@ -189,7 +199,7 @@ public sealed partial class GameLoop
         }
         string details = string.Join('|', instances.Select(instance =>
         {
-            var particles = _particles?.VisualState($"spell:{instance.Path}#{instance.Id}") ?? default;
+            var particles = _spellParticles?.VisualState($"spell:{instance.Path}#{instance.Id}") ?? default;
             bool mesh = _spellEffectMeshes?.WasDrawn(instance.Path) ?? false;
             bool ribbon = _spellRibbons?.WasDrawn(instance.Path) ?? false;
             return $"{instance.Stage}:{instance.Path}#{instance.Id}@{instance.Position.X:F2}/{instance.Position.Y:F2}/{instance.Position.Z:F2}" +
@@ -213,6 +223,7 @@ public sealed partial class GameLoop
     private (uint KitId, ushort? Animation, IReadOnlyList<SpellVisualKitEffect> Effects)
         ExpectedStage(in SpellInfo spell, string stage)
     {
+        if (stage == "SETTLE") return (0, null, []);
         if (_spellVisualCatalog?.TryGetStages(spell.VisualId, out SpellVisualStages stages) != true)
             return (0, null, []);
         uint kitId = stage switch { "PRECAST" => stages.Precast, "CHANNEL" => stages.Channel,
