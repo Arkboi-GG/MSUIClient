@@ -6,6 +6,7 @@ public enum CombatTextStateTone { Red, Green }
 
 public readonly record struct CombatTextStateCue(string Text, CombatTextStateTone Tone);
 public readonly record struct CombatTextResourceTransition(bool Latched, bool Warn);
+public readonly record struct CenterCombatTextRow(float Offset, bool Critical);
 
 /// <summary>Default build-5875 Blizzard_CombatText state/aura/resource message law.</summary>
 public static class CombatTextStateUiLaw
@@ -26,6 +27,7 @@ public static class CombatTextStateUiLaw
     public const float CenterShadowOffset = 2f;
     public const float CenterMessageSpacing = 26f; // FrameXML: 16 + COMBAT_TEXT_SPACING(10).
     public const float CenterMaxOffset = 130f;
+    public const float CenterCriticalSpacing = 61f; // Reserve the authored 60px peak height.
 
     public static float CenterMessageOffset(float startOffset, float age, bool critical) =>
         startOffset - (critical ? 0f : age / CenterLifetime * CenterRise);
@@ -37,6 +39,40 @@ public static class CombatTextStateUiLaw
             offset = Math.Max(offset, current + CenterMessageSpacing);
         // Blizzard_CombatText resets to its normal origin once the stack exceeds this limit.
         return offset > CenterMaxOffset ? 0f : offset;
+    }
+
+    public static bool CenterRowsOverlap(float firstOffset, float secondOffset) =>
+        MathF.Abs(firstOffset - secondOffset) + .001f < CenterMessageSpacing;
+
+    public static float NextCenterStartOffset(IReadOnlyList<CenterCombatTextRow> rows, bool critical)
+    {
+        if (!critical && rows.Any(row => row.Critical))
+        {
+            // Scrolling text must start above every stationary critical, otherwise
+            // it crosses the critical a few frames after an initially clear insertion.
+            float ceiling = rows.Where(row => row.Critical).Min(row => row.Offset);
+            float start = ceiling - CenterMessageSpacing;
+            while (rows.Any(row => CenterRowsOverlap(start, row.Offset)))
+            {
+                start -= CenterMessageSpacing;
+                if (start < ceiling - CenterMaxOffset) return ceiling - CenterMessageSpacing;
+            }
+            return start;
+        }
+        float next = 0;
+        foreach (CenterCombatTextRow row in rows)
+            next = Math.Max(next, row.Offset + (row.Critical ? CenterCriticalSpacing : CenterMessageSpacing));
+        return next > CenterMaxOffset ? 0 : next;
+    }
+
+    public static bool CenterInsertionConflicts(float start, bool critical, CenterCombatTextRow older)
+    {
+        // A critical overflow reset must also retire scrolling rows below it:
+        // those rows would pass through its reserved area during their lifetime.
+        if (critical && !older.Critical) return older.Offset + CenterMessageSpacing > start + .001f;
+        float height = critical ? CenterCriticalSpacing : CenterMessageSpacing;
+        float olderHeight = older.Critical ? CenterCriticalSpacing : CenterMessageSpacing;
+        return start + .001f < older.Offset + olderHeight && older.Offset + .001f < start + height;
     }
 
     public static Vector2 WorldTextPosition(Vector2 projectedPoint, float scaledWidth,

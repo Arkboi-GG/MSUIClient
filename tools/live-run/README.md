@@ -96,6 +96,12 @@ Additional regression commands:
 - `item-gesture use-entry ID` uses the production item-action route (dispatch only).
   Pickup/place accepts inventory, equipment and bank coordinates validated by ToWire.
 - `pet-gesture` exercises the real book/bar handlers; see the pet regression scenario.
+- `unit-state actor|selected|0xGUID` records the client's received position, health,
+  NPC flags, ownership and pet fields without requesting or changing any state.
+- `combat-text inspect` records the displayed center messages, ages and scroll offsets
+  without injecting messages or changing combat state.
+- `face selected` uses the selected entity's received position with the existing
+  `face RADIANS` yaw control; it refuses missing entities and coincident positions.
 - `action-gesture assert-main-wire BUTTON WIRE` and `page DELTA` check bonus pages.
 - `pvp-state desire true|false`, `assert-desired`, `assert-flag`, `inspect` distinguish
   the preference from the five-minute visible flag. Mutation fixtures require self.
@@ -161,3 +167,24 @@ This is distinct from `castground`, which supplies a world destination directly.
 `select-fight-target` reselects the existing entity last observed by
 `fight-until-dead`, including its corpse. Death clears the normal selection;
 reselect before `loot request` and check the server's loot reply separately.
+
+Cast-bar/animation/blocked-spell audit classification uses SpellInfo.CastClassification
+and the authored channel attributes. Channel-interrupt flags alone do not establish
+channel identity (e.g. trap placement9437). The interface-wire-check option
+`--spell-classification-only` checks this against mounted rows; packet events remain
+independent authoritative evidence.
+
+The next-ten diagnostics add `audit-mail inspect`, plus same-frame text send followed
+by `send-release`, `send-port`, or `send-freeze` (recipient argument). These call
+production send/control/GM handlers; the recipient and purse must be checked separately.
+`send-port` requires the session body and moves it50yd using an authorized GM command.
+`audit-control inspect` records authoritative chain/freeze state; `view`, `freeze`,
+and `link|unlink|follow NAME` call shipping handlers. Dispatch success is not an
+acceptance verdict. `combat-text capture-mixed` captures only when received critical
+and scrolling messages coexist; it injects no feedback. Unit-state also logs received
+coinage/mana fields; fields on an uncontrolled remote unit may be absent or masked.
+
+Audit movement diagnostics: `audit-mail send-walk RECIPIENT` queues a real text send
+and presses the shipping W binding in the same frame. Stop with `key release W`;
+legacy `release W` uses a different test-input collection. `audit-control portal ID`
+only reports the mounted trigger's authored center and volume; it does not teleport.

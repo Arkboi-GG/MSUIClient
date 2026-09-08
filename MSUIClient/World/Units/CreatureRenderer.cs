@@ -1491,7 +1491,13 @@ public sealed partial class CreatureRenderer : IDisposable
         // UNIT_FIELD_BYTES_1 byte3 CREEP drives pose independently of aura alpha.
         // StealthWalk119 is absent from vanilla's locomotion-rate whitelist.
         if (e.Fields.UnitIsStealthed)
-            return animator.Resolve(unit, BaseAnimationTrack, 119, true, 4, 0);
+        {
+            M2Animator.Clip? stealth = animator.Resolve(unit, BaseAnimationTrack, 119, true, 4, 0);
+            // DruidCat has no 119: its Walk fallback retains normal gait timing.
+            if (stealth?.AnimationId == 4 && stealth.MoveSpeed > 0.01f)
+                rate = Math.Clamp(speed / stealth.MoveSpeed, 0.25f, 3f);
+            return stealth;
+        }
 
         float walk = e.Speeds is { Length: > 0 } sp && sp[0] > 0f ? sp[0] : DefaultWalkSpeed;
         M2Animator.Clip? clip = !e.IsWalking && speed > 2f * walk

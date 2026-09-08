@@ -1460,6 +1460,13 @@ if (args.Contains("--use-item-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--spell-classification-only", StringComparer.Ordinal))
+{
+    SpellClassificationClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: SpellClassification PASS");
+    return;
+}
+
 if (args.Contains("--body-display-only", StringComparer.Ordinal))
 {
     BodyDisplayClinicalChecks.Run();
@@ -4828,6 +4835,7 @@ HudLayoutClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: HudLayout PASS");
 MacroBookClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: MacroBook PASS");
+SpellClassificationClinicalChecks.Run();
 SharedDocsClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: SharedDocs PASS");
 

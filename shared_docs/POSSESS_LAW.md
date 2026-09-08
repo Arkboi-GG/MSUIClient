@@ -43,6 +43,25 @@ call `SuiPossess::ResnapshotControlled(this)`.
 1.5 Pair-deploy: a new client opcode against an old Core kicks the session; a
 new Core is inert without the client bit. Capability bits gate new wires.
 
+1.6 Mail collections and mailed items come from the acting body's own session's
+MasterPlayer, just as inventory and money come from that body. Asynchronous mail
+sends retain both the real session character and the sender body; before committing,
+recheck sender identity, mailbox range and tactical freeze. Account restrictions
+and reply delivery remain attached to the real session.
+If a freeze wins before the send handler begins, return a mail failure response;
+silently dropping that already-sent request strands the client's pending state.
+Send-mail dispatch shares the ordered world queue with possession and freeze. Capturing
+the actor later in the map queue lets a subsequent control release change the sender.
+
+1.7 The active possessor may see owner-only fields and true health of units owned
+or charmed by the controlled body. Both sides of the possession pair must agree.
+Grant/release refresh already-visible pet fields and NPC stable flags; release
+zeros fields no longer visible. Stable eligibility uses the actor's class, and
+stable list/purchase/swap interactions range from that actor. Stabling, unstabling
+and swapping pass that same actor to pet save/unsummon and load calls; an actor
+lookup followed by a session-player ownership argument is still misrouting.
+Session-owned GM command authorization remains a session permission.
+
 ## 2. Client: every gate ranges from the driven body
 
 2.1 Distance/eligibility gates for anything the actor does use
@@ -130,14 +149,14 @@ catch-up range, on possession of that body, and RTS orders bypass it.
 4.2 A hold also ENDS an active follow leg (`SuiStopFollowForHold`) — returning
 early from `DoPartyFollow` leaves the old follow generator chasing.
 
-4.3 The boss position is recorded EVERY tick, flights included. A same-map gap
-beyond catch-up range is a PORT only when the SAME boss jumped in one tick. The
-CHAIN follows a port: every linked member, the unattended main included,
-catch-up teleports after the driven body (the tower portal — owner: "the
-non-main follow me through the portal... at least it worked"). The main's own
-near teleport must never break the possession (`OnPlayerTeleport` possessor
-near case; `HandleMoveTeleportAck` accepts the session player's ack while the
-mover is the bot). A flight or a hop is NOT a port: those hold (4.1).
+4.3 The boss position is recorded on every formation-follow observation, flights
+included. A distant same-body position jump sets world hold, as does a distant
+body switch. A different map or instance holds immediately and ends the active
+follow leg; it never becomes a delayed automatic summon. Ordinary same-map walking
+separation retains its existing catch-up path. The main's own near teleport must
+still preserve possession and accept its acknowledgment while the mover is the bot.
+This September 8 correction follows AGENTS.md standing rule 3 and supersedes the
+older policy that linked followers automatically followed through ports.
 
 4.4 Command View party flight: the whole commanded party takes the flight from
 the flight master; nobody flies unless everyone can board or the commander
@@ -192,9 +211,9 @@ relocate the main (no camera across maps).
 v2: chain state + anchor guid) and re-pushed on every edge. The client draws
 exactly that; the saved per-name link intent is only a fallback for an old core.
 
-7.2 Three states. Linked (green): follows its anchor, ports included. Unlinked by
+7.2 Three states. Linked (green): follows its anchor until a world hold. Unlinked by
 the human (red): holds until re-linked, regardless of range. World hold (amber):
-landed alone, human hopped far, boss flew off — clears by itself when the anchor
+landed alone, human hopped far, boss flew or ported away — clears by itself when the anchor
 is back in catch-up range. An explicit re-link also lifts a world hold.
 
 7.3 WHO: the anchor (`FindEscortBoss`, the body the formation keys on) is shown

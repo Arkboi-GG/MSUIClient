@@ -66,7 +66,7 @@ public sealed partial class CharacterRenderer : IDisposable
     private static readonly int[] BakedAnimations =
         [0, 4, 5, 9, 11, 12, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30,
          37, 38, 39, 40, 41, 42, 43, 44, 45, 85, 87, 88, 89, 90, 92, 93, 96, 97, 98, 99, 100, 101, 102, 103, 104,
-         114, 115, 116, 117, 187];
+         114, 115, 116, 117, 119, 120, 187];
 
     /// <summary>
     /// Geoset variant shown per category when nothing is equipped. Ported from
@@ -3707,10 +3707,14 @@ public sealed partial class CharacterRenderer : IDisposable
         float phi = MathF.Atan2(-_sideness, _forwardness);
 
         // CREEP is a descriptor pose flag, independent of translucent aura rendering.
-        // Backward retains precedence; the authored creep cycle always runs at1x.
+        // Backward retains precedence. The authored creep stays at 1x; a model
+        // without it uses its ordinary Walk cycle and that cycle's speed scaling.
         bool stealthBacking = state.HasIntent ? state.Forward < -0.01f : MathF.Abs(phi) > 1.92f;
         if (state.Stealthed && !stealthBacking)
-            return _animator.Resolve("player", BaseAnimationTrack, 119, false, 4, 0);
+        {
+            M2Animator.Clip? stealth = _animator.Resolve("player", BaseAnimationTrack, 119, false, 4, 0);
+            return stealth?.AnimationId == 4 ? LocomotionClip(stealth, state.Walking, out rate) : stealth;
+        }
 
         bool rotating = Strafe is StrafeStyle.Split or StrafeStyle.WholeBody
                      || (Strafe == StrafeStyle.LowerBody && _animator.TwistBone >= 0);

@@ -427,7 +427,11 @@ public sealed class PlayerRenderer : IDisposable
                 return back;
             }
             if (e.Fields.UnitIsStealthed)
-                return animator.Resolve(unit, BaseAnimationTrack, 119, true, 4, 0);
+            {
+                M2Animator.Clip? stealth = animator.Resolve(unit, BaseAnimationTrack, 119, true, 4, 0);
+                if (stealth?.AnimationId == 4) rate = RateFor(stealth);
+                return stealth;
+            }
             M2Animator.Clip? clip = !e.IsWalking && speed >= FastRunSpeed
                 ? animator.Resolve(unit, BaseAnimationTrack, 143, true, 5, 4, 0)
                 : !e.IsWalking && speed > 2f * walk

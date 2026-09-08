@@ -739,6 +739,10 @@ public sealed partial class GameLoop
                 case "pet-gesture": Log(RunLivePetGesture(line), line); break;
                 case "pvp-state": Log(RunLivePvpState(line), line); break;
                 case "pose": Log(RunLivePose(line), line); break;
+                case "unit-state": Log(InspectLiveUnitState(line), line); break;
+                case "combat-text": Log(InspectLiveCombatText(line), line); break;
+                case "audit-mail": Log(RunLiveMailAudit(line), line); break;
+                case "audit-control": Log(RunLiveControlAudit(line), line); break;
                 case "support-at": Log(InspectLiveSupport(line), line); break;
                 case "liquid-visible":
                     if (p.Length == 2 && bool.TryParse(p[1], out bool liquidVisible) && _liquid is not null)
@@ -1430,7 +1434,17 @@ public sealed partial class GameLoop
                     else Log(false, $"unknown {line}");
                     break;
                 case "face":
-                    float facing = float.Parse(p[1], CultureInfo.InvariantCulture);
+                    float facing;
+                    if (p[1].Equals("selected", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (_controller is null || !_entities.TryGet(_selectionGuid, out WorldEntity faceTarget))
+                        { Log(false, line + " selected entity unavailable"); break; }
+                        Vector3 direction = faceTarget.Position - _controller.Position;
+                        if (direction.X == 0f && direction.Y == 0f)
+                        { Log(false, line + " selected entity has no horizontal direction"); break; }
+                        facing = MathF.Atan2(direction.Y, direction.X);
+                    }
+                    else facing = float.Parse(p[1], CultureInfo.InvariantCulture);
                     if (_controller is null) Log(false, line);
                     else
                     {

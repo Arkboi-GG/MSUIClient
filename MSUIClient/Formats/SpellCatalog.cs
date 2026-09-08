@@ -57,7 +57,9 @@ public readonly record struct SpellInfo(
     // castable spells such as Blink send CMSG_CANCEL_CAST on the next move edge.
     public bool MovementInterrupts => (InterruptFlags & 0x01) != 0;
     public bool MovementInterruptsChannel => (ChannelInterruptFlags & 0x08) != 0;
-    public string CastClassification => ChannelInterruptFlags != 0 ? "CHANNEL" :
+    // Build-5875 AttributesEx declares a channel; its interrupt policy can also
+    // be populated on ordinary casts such as Placing Bear Trap (9437).
+    public string CastClassification => (AttributesEx & 0x44) != 0 ? "CHANNEL" :
         CastTimeMs > 0 ? "CAST_TIME" : "INSTANT";
 }
 

@@ -37,3 +37,10 @@ separate lifecycle review.
 
 `./tools/gameplay-coverage/Test-SummarizeLive.ps1` verifies that a failed second
 attempt cannot inherit a first attempt's success, another spell's GO, or a late GO.
+
+Spell cast classification follows build-5875 AttributesEx channel/self-channel bits,
+not the presence of channel-interrupt flags. `--spell-classification-only` in
+interface-wire-check covers mounted trap placement9437, ordinary casts/instant
+spells and true channels. Inventories generated before the September8 correction
+retain their historical classifications; regenerate into a fresh output directory
+and preserve their evidence rather than treating reclassified cohorts as new passes.

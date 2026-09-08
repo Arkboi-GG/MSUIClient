@@ -72,22 +72,37 @@ internal static class BodyDisplayClinicalChecks
     private static void CheckStealthModels()
     {
         using var mpq = new MpqMount(Path.Combine(Directory.GetCurrentDirectory(), "GameData", "Data"));
-        foreach (string path in new[] { @"Creature\DruidCat\DruidCat.m2",
-            @"Character\NightElf\Male\NightElfMale.m2" })
+        var productionAnimations = (int[])typeof(CharacterRenderer).GetField("BakedAnimations",
+            BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        Check(productionAnimations.Contains(119) && productionAnimations.Contains(120),
+            "local character load must bake stealth poses before its non-baking selector requests them");
+        var animationData = DbcFile.Parse(mpq.ReadFile(@"DBFilesClient\AnimationData.dbc")!)!;
+        foreach (var (id, name) in new[] { (119u, "StealthWalk"), (120u, "StealthStand") })
+            Check(Enumerable.Range(0, animationData.RecordCount).Any(row =>
+                animationData.GetUInt(row, 0) == id && animationData.GetString(row, 1) == name),
+                $"mounted animation {id} must be {name}");
+        // The mounted druid cat has neither stealth clip. Pin its Walk/Stand
+        // fallback separately from the character model's authored stealth poses.
+        foreach (var (path, stealthIdle, stealthWalk) in new[] {
+            (@"Creature\DruidCat\DruidCat.m2", 0, 4),
+            (@"Character\NightElf\Male\NightElfMale.m2", 120, 119) })
         {
             var model = M2Reader.Parse(mpq.ReadFile(path) ?? throw new InvalidDataException(path))!;
-            var animator = M2Animator.Build(model, [0, 4, 5, 13, 41, 119, 120], true)!;
-            Check(model.Sequences.Any(s => s.AnimationId == 119) &&
-                model.Sequences.Any(s => s.AnimationId == 120), "fixture must author both stealth poses");
+            var animator = M2Animator.Build(model, productionAnimations, true)!;
+            Check(model.Sequences.Any(s => s.AnimationId == 119) == (stealthWalk == 119) &&
+                model.Sequences.Any(s => s.AnimationId == 120) == (stealthIdle == 120),
+                $"{path}: mounted stealth animation coverage changed; re-audit fallbacks");
             foreach (Type renderer in new[] { typeof(CreatureRenderer), typeof(PlayerRenderer) })
             {
                 MethodInfo selector = renderer.GetMethod("SelectClip", BindingFlags.NonPublic | BindingFlags.Static)!;
                 foreach (var (flags, speed, stealth, expected) in new (MovementFlags, float, bool, int)[] {
-                    (MovementFlags.None, 0, true, 120), (MovementFlags.Forward, 7, true, 119),
-                    (MovementFlags.StrafeLeft, 7, true, 119), (MovementFlags.Backward, 2.5f, true, 13),
-                    (MovementFlags.Swimming, 0, true, 41), (MovementFlags.None, 0, false, 0) })
+                    (MovementFlags.None, 0, true, stealthIdle), (MovementFlags.Forward, 7, true, stealthWalk),
+                    (MovementFlags.StrafeLeft, 7, true, stealthWalk), (MovementFlags.Backward, 2.5f, true, 13),
+                    (MovementFlags.Backward | MovementFlags.StrafeLeft, 2.5f, true, 13),
+                    (MovementFlags.Swimming, 0, true, 41), (MovementFlags.None, 0, false, 0),
+                    (MovementFlags.Forward, 7, false, 5) })
                 {
-                    var entity = new WorldEntity { MoveFlags = (uint)flags };
+                    var entity = new WorldEntity().WithRenderPose(Vector3.Zero, 0, speed, (uint)flags, false);
                     entity.Fields.SetU32(ObjectFields.UNIT_FIELD_BYTES_1, stealth ? 0x02000000u : 0u);
                     if (speed > 0) entity.Spline = new CreatureSpline([Vector3.Zero, new Vector3(speed, 0, 0)], 1000, false, 0);
                     object?[] args = renderer == typeof(CreatureRenderer)
@@ -96,14 +111,23 @@ internal static class BodyDisplayClinicalChecks
                     var clip = (M2Animator.Clip?)selector.Invoke(null, args);
                     int resolved = model.Sequences.Any(s => s.AnimationId == expected) ? expected : expected == 13 ? 4 : 0;
                     Check(clip?.AnimationId == resolved, $"{renderer.Name}/{path}/{flags}: expected{resolved}, got{clip?.AnimationId}");
-                    if (expected is 119 or 120) Check((float)args[^1]! == 1f, "stealth pose must use authored rate");
+                    if (stealth && (expected == stealthIdle || expected == stealthWalk))
+                    {
+                        float expectedRate = expected == 4 && clip!.MoveSpeed > 0.01f
+                            ? Math.Clamp(speed / clip.MoveSpeed, 0.25f, 3f) : 1f;
+                        Check(MathF.Abs((float)args[^1]! - expectedRate) < 0.001f,
+                            "exact stealth poses retain 1x; Walk fallback must track ground speed");
+                    }
                 }
             }
             // Exercise the local selector without constructing a GL renderer.
+            // Transformed cats take CreatureRenderer, covered above, not this rig.
+            if (stealthWalk != 119) continue;
             var local = (CharacterRenderer)RuntimeHelpers.GetUninitializedObject(typeof(CharacterRenderer));
             typeof(CharacterRenderer).GetField("_animator", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(local, animator);
             MethodInfo choose = typeof(CharacterRenderer).GetMethod("ChooseClip", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            foreach (var (forward, stealth, expected) in new[] { (0f, true, 120), (1f, true, 119), (0f, false, 0) })
+            foreach (var (forward, stealth, expected) in new[] {
+                (0f, true, stealthIdle), (1f, true, stealthWalk), (0f, false, 0) })
             {
                 object?[] args = [new CharacterRenderer.UnitState { Grounded = true, HasIntent = true,
                     Forward = forward, Stealthed = stealth }, 0f];

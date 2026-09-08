@@ -894,3 +894,126 @@ remain failures. Both charms retained; no quest advancement claimed from that fi
 
 
 
+
+### 2026-09-08 — Core source follow-up, owner rebuild/install pending
+
+GI-39, GI-60, GI-78 and GI-80 now have owner-authorized C++ fixes applied directly
+in `~/vmangos`. Five translation units pass syntax-only compilation; expanded Core
+possession laws and new `tools/core-patches/check-actor-fixes.py` regressions pass.
+Full Core rebuild/link, installation and all post-change live tests remain pending.
+See the latest entry in `FULL_GAME_COVERAGE.md` for exact scope, files and evidence.
+Historical rows above retain their original audit outcomes; they are not live passes.
+
+### 2026-09-08 — GI-82 resumed production and live verification
+
+Fixed missing stealth 119/120 in CharacterRenderer's actual bake list and Walk
+fallback rate in all three renderers. Clinical tests now use the production list
+and actual mounted model clip availability; DruidCat intentionally falls back 0/4.
+Red regression reproduced missing preload; corrected test and both client builds
+pass. Direct human rogue idle/forward/back/strafe/cancel passed with server aura
+replies, pose assertions and reviewed frames in rogue-stealth-retest (11:50).
+Possessed/streamed humanoid and post-fix cat movement remain pending. See the latest
+FULL_GAME_COVERAGE entry for evidence, interrupted login and failed earlier clicks.
+
+### 2026-09-08 12:00 — GI-78/80 live follow-up
+
+Possessed hunter now displays Cat's true health and 4 training points and opens Erma's
+stable. Swap still failed (server 0x06): four pet save/load calls retained _player.
+Corrected them to pActor directly in Core NPCHandler.cpp; added red/green regression
+and law checks, syntax-only PASS. Owner rebuild/install and live mutation retest
+pending. Exact evidence and limits in the latest FULL_GAME_COVERAGE entry.
+
+### 2026-09-08 12:08 — GI-82 Cat and Shadowmeld follow-up
+
+Post-fix Cat Prowl live poses 0/4, backward13, strafe4; cancellation restores run5.
+Server aura apply/remove confirmed. Shadowmeld humanoid120 and movement cancellation0
+have reviewed before/after frames. Cat frames reviewed with visibility limits retained;
+see FULL_GAME_COVERAGE for details. Broader animation coverage remains open.
+
+### 2026-09-08 12:17 — GI-39 empirical actor mail operations
+
+Possessed warrior sends100c with correct actor purse deduction; delivery due around
+13:11:51 under configured one-hour delay. Druid instant text reaches warrior inbox;
+possessed read, permanent copy to warrior inventory and return all verified, followed
+by returned-letter deletion on druid. Historical mage letter is empty, no COD pass.
+Exact IDs, failed input/confirmation attempts and pending matrix: FULL_GAME_COVERAGE.
+
+### 2026-09-08 12:20 — GI-60 live port follow-up
+
+Same-map207.7yd and Goldshire->Darnassus ports left Nbmaghuman in place; returning
+re-observed exact pre-port coordinates in both cases. Ordinary main walking resumes
+normal nearby follow. Evidence and limitations: FULL_GAME_COVERAGE12:20 and
+checklist-20260908/cat-stealth-final. No flight/instance/distant-hop pass inferred.
+
+### 2026-09-08 12:35 — GI-69 overflow follow-up
+
+Real self-damage burst reproduces occupied-row reset with correct lifetimes. New
+queue retires only colliding older rows when adding newer feedback; optional loot
+uses the same stack. Production regression red at message7, green20-message burst.
+Both builds and scoped checks PASS; reviewed live12:34:06/07 now separates numbers
+and expires correctly. This is an intentional overflow improvement over mounted
+CombatText.lua; critical/mixed and loot-enabled live cases remain open. Full evidence
+and exact limitations in FULL_GAME_COVERAGE12:35, checklist-20260908/combat-burst-*.
+
+### 2026-09-08 12:43 — GI-60 flight and far-hop matrix
+
+Main hunter2->4 native taxi ride left mage at exact Stormwind coordinates. After
+landing, same-map distant possession moved control to mage; release re-observed
+hunter at exact Sentinel Hill landing coordinates. Fare110 paid by hunter. Mage
+dismissed/offline before clean exit. Full evidence/fixture failures in coverage12:43.
+
+### 2026-09-08 13:23 — GI39 delivery and GI78/GI80 stable retest
+
+One-hour warrior-to-druid100c mail arrived; native collection increases only druid's
+purse1088->1188, empty-letter deletion succeeds. New installed Core b41f985a...bc834d
+passes possessed hunter Cat/Bristle swaps, Stable and Unstable through all four
+corrected ownership calls, with health/training fields and native frames reviewed.
+Range exit closes; attempted return remains out of range and refuses. Hunter restored
+Cat active/Bristle stabled, dismissed/offline; normal exit. Exact cases and fixture
+failures in FULL_GAME_COVERAGE13:22/13:23. Remaining matrix stays open.
+
+### 2026-09-08 15:01 — quest script evidence and diagnostic classification
+
+Mist938 now has real successful mage escort/arrival credit and reward, with declared
+mana fixture and prior deaths/disconnect preserved. Plagued Lands2118 real supplied
+trap transforms/captures bear on open ground, credit1/1 and native reward succeed;
+obstructed placements/dead-character retry remain setup failures. Full exact cases in
+FULL_GAME_COVERAGE13:37/14:49. No broad quest/script pass inferred.
+
+Audit-only CastClassification incorrectly treated channel-interrupt flags as channel
+identity. Corrected to authored AttributesEx channel bits, with mounted red/green
+regression, both builds and live ordinary9437/true-channel12051 proof. Discovery74rows
+reclassified,4872->4867 candidate cohorts, no gameplay passes inferred. This is a
+harness/catalog diagnostic correction, not a newly claimed player-facing GI defect.
+
+### 2026-09-08 15:38 — next-ten audit progress
+
+GI39 same-frame send/release proves wrong sender/purse before handler entry: recipient
+gets mage223 sender for druid225 request. Send-mail MAP queue changed to WORLD alongside
+control/freeze. Send/freeze also reproducibly leaves pending after Resume+20s; frozen
+entry now returns mail failure. Both Core source fixes syntax/regression/law green;
+owner rebuild/install and live retest pending. Range callback race still inconclusive.
+GI60 actual Stockades map34 entry, two-follower world hold, and selective explicit
+follow relink pass the bounded cases; see FULL_GAME_COVERAGE15:38 for exact positions,
+authoritative chain states, GM placement limitations and cleanup. Item/COD deliveries
+and GI69 final results remain in progress; no full-game completion claim.
+
+### 2026-09-08 16:07 — next-ten retests
+
+New owner-installed Core live retest closes GI39 actor-switch and freeze cancellations:
+FAILED-6, pending=False, no recipient letter. Eight successful race letters reconciled
+and empty fixtures cleaned; warrior coin23 unchanged. Range cancellation remains
+inconclusive despite port/walking trials; do not infer callback ordering from dispatch.
+GI60 native chain unlink/relink and normal Stockades doorway entry also pass, supplementing
+the earlier GM setup tests. GI69 mixed critical/scrolling fix passes real critical retest
+and temporal production regression; loot-enabled real corpse item+damage text passes.
+Both client trays and full interface checker green. Item/COD receipt pending16:12.
+Exact evidence and limits in FULL_GAME_COVERAGE15:43,15:48,16:06.
+
+### 2026-09-08 16:11 — owner-requested pause
+
+Next-ten batch stopped:7 PASS,1 INCONCLUSIVE (range callback cancellation),2 UNFINISHED
+(item/COD receipt). The final idle receipt run disconnected16:09:16 before cleanup;
+cleanup-only reconnect follows. No attachments/payment collected. Fixture identities,
+verified purses/inventory and expected next steps are recorded in FULL_GAME_COVERAGE
+16:11. Seven passes are bounded cases, not closure of the full-game matrix.

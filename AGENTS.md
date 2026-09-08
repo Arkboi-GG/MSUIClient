@@ -70,6 +70,35 @@ history) and the server handoff `docs/current/POSSESSION_ROUTING_HANDOFF.md`.
 8. Probe first, don't theorize: `~/vmangos/run/bin/Server.log` (grep `[SUI]`,
    `released bot`, `catch-up teleport`) and the client `msui-console.log`.
 
+## Find code with the locator, not with grep (2026-09-08)
+
+All three repos (this client, the `MangosSuperUI` web app, the vmangos C++ core on the box)
+are indexed by one local service, the **superui-locator**, at `http://127.0.0.1:5077`: every
+type and member of both C# repos live from the working tree (a saved file is re-indexed within
+a second), the libclang graph of the core, string literals, leading comments, and the
+cross-repo seams (SUI opcodes <-> core handlers, bridge message names, twin files). Before any
+tree-wide grep, `Select-String`, `sed -n` walk or "where is X" reasoning, ask it; grep only
+when it returns nothing after two phrasings, and say so.
+
+- MCP tools (Claude Code, Codex with MCP): `locate(task)`, `search(q, repo?, kind?)`,
+  `outline(file|id)`, `neighbours(id, types?)`, `read(id | file,start,end)`, `grep(q)` (core
+  tree only), `stats`.
+- Any agent: the same as GET routes: `curl -s "http://127.0.0.1:5077/locate?task=..."`,
+  `/search?q=...&repo=cli`, `/outline?file=GameLoop.Net.cs`, `/neighbours?id=...&types=calls,seam`,
+  `/read?id=...`, `/stats`.
+- Ids: `cli:MSUIClient.GameLoop::ControlledGuid`, `core:WorldSession.SuiPossess/HandleOrder`; a
+  unique suffix (`GameLoop::ControlledGuid`) is accepted. Order: locate -> outline -> neighbours ->
+  read one span at a time (<= 400 lines). Never read whole files to find a method.
+**Enforcement (Claude Code):** a PreToolUse hook (`SourceMapper/Locator/hooks/locate-first.py`, registered in
+`.claude/settings.json`) denies tree-wide searches (Grep without a file path, recursive grep/rg/Select-String)
+until a locator tool has been called in the last 15 minutes; file-scoped searches always pass, and the hook
+stands down when the host is not running. Codex/Qwen have no hook: the rule above is the contract.
+
+- If `stats` does not answer, the host is down: start it (`dotnet run -c Release` in
+  `C:\Users\nico\source\repos\SourceMapper\Locator`, or the `locator` entry in
+  `.claude/launch.json`) or tell the owner. Markdown docs (`shared_docs/`, `docs/`, root),
+  JS functions and Razor views are indexed with sections/spans; JSON and binary assets are not.
+
 ## Box and machine facts
 
 Host names, ssh config, tree paths and the install/restart one-liner are

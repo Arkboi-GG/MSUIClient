@@ -108,6 +108,7 @@ project.assets.json
 /AGENTS.local.md
 /.agents/
 /.codex/
+/.codex-worktrees/
 
 # ImGui writes window positions and sizes here at runtime.
 /imgui.ini

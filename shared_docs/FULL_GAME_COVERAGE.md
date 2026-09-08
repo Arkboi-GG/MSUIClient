@@ -1900,3 +1900,590 @@ no new stealth test passed and no post-change live run took place. Paused
 without repairing it. Last live-verified binary is the earlier swim build;
 latest Debug/Release files contain the unverified stealth change.
 All28 broad areas remain open. No commit/push or Core deployment/restart.
+
+### 2026-09-08 — owner-authorized direct Core fixes, awaiting owner rebuild/install
+
+Owner explicitly approved the four proposed C++ changes and retained Core rebuilding
+and installation. Applied directly to `/home/wowvmangos/vmangos` on the configured
+Core host. No full Core build, binary installation, server restart/control, gameplay,
+or direct database/world-save mutation was performed in this round.
+
+- GI-39: all ten mail-store handlers now use the acting body's session MasterPlayer.
+  Sender/body and real session-character identities are retained independently.
+  Async send completion rechecks the actor identity, mailbox distance and tactical
+  freeze before spending money/items; online recipient state is resolved again.
+  Account permissions/rate limits and reply delivery remain on the real session.
+- GI-60: different maps or instances immediately set world hold and stop the current
+  follow leg; detected distant same-anchor ports join distant body switches in the
+  hold path. Ordinary same-map walking catch-up retains its path. The detailed law
+  and source checker now agree with standing rule 3. The original candidate patch
+  is historical and must not be reapplied.
+- GI-78: a bidirectionally validated active possessor sees owner-only pet/charm
+  fields and true health. Existing visible units refresh on grant/release, including
+  zero fields; the serializer zeros revoked owner-only data. No new wire messages.
+- GI-80: stable flags use the acting character's class. Stable list/gossip openings
+  and pet/purchase/swap follow-ups use actor eligibility and physical range. The
+  existing GM-command permission branch still checks the real session.
+
+Changed Core files: `Handlers/MailHandler.cpp`, `Handlers/NPCHandler.cpp`,
+`Objects/Object.cpp`, `SuperUiContent/SuiWorld/CRPG/SuiPossess.cpp`,
+`SuperUiContent/SuiWorld/CRPG/SuiPossess.h`,
+`SuperUiContent/SuiBots/AiBotAIMain.cpp` (all relative to `src/game/`).
+Every file was checked against a byte-exact before hash before writing; unrelated
+existing edits were preserved. All six final hashes match the reviewed versions.
+Local evidence: `docs/current/core-fixes-20260908/` contains before/after sources,
+`actor-fixes.patch`, `manifest.json`, and `applied-sha256.txt`.
+
+Validation: all five affected C++ translation units pass `/usr/bin/c++ -fsyntax-only`
+with the existing game's CMake compiler settings. No link/full Core build performed.
+New `tools/core-patches/check-actor-fixes.py` source regressions PASS against the
+updated remote source; expanded Core possess-law-check PASS; client PossessLaw,
+SharedDocs and GameplayImguiPolicy PASS. Client Debug and Release builds PASS
+(Release: 10 existing warnings, 0 errors; Debug incremental: 0 warnings/errors).
+The pre-existing BodyDisplay test compile error was repaired using the public
+`WithRenderPose` fixture API instead of the internal MoveFlags member. This only
+unblocked diagnostic compilation; no GI-82 renderer/live pass is asserted.
+
+Live verification remains pending AFTER owner rebuild/install: direct and both
+possession directions for inbox/send/take/COD/return/delete/copy; delayed-send body
+change/range/freeze cancellation; pet training points/health on grant, update,
+release and another body; stable access in both class directions plus purchase,
+swap and actor range; port/flight/hop/normal-walk/anchor-return/relink/explicit-order
+matrix including unattended main and same-map different-instance separation.
+GI-39/60/78/80 are source-fixed, not live-verified. All 28 coverage areas remain open.
+
+### 2026-09-08 — resumed live audit: GI-82 production preload and fallback rate
+
+Owner rebuilt/installed Core independently. Initial live executable identity matched
+build/run hash 76d1df9c85045473572aa0640a91aa2bcdddd766758580eacd146ff576edd239.
+A later owner/other-agent restart at 11:48:53 changed it to
+ce889428687663e3856fc7cdd3ca9d88cc34c3f7d3f90ac0b530080f2914ad8d. The interrupted
+rogue login is retained as infrastructure interruption, not a gameplay failure.
+The process now names itself mangosd-main; exact ps -C mangosd misses it.
+
+GI-82: mounted AnimationData identifies 119/120 as StealthWalk/StealthStand.
+Mounted DruidCat has neither; its correct fallbacks are Walk 4 and Stand 0.
+NightElfMale has both. The original clinical assertion incorrectly required both
+clips on the cat. More seriously, CharacterRenderer's production bake list omitted
+119/120 while the test supplied them independently, masking the real preload bug.
+Added both clips to the production bake list, made the test use that exact list,
+and corrected Walk fallback speed scaling in all three renderers. Authored 119
+remains 1x; fallback 4 uses resolved Walk movement scaling. External local Benilla
+reference selects rate from the resolved clip id, consistent with this distinction.
+
+Evidence under docs/current/checklist-20260908/: body-display-preload-red.log fails
+for the omitted production clips; body-display-final.log passes after repair.
+Debug and Release builds pass (Release 10 warnings, 0 errors); client PossessLaw,
+MountRendering, TacticalFreeze pass; remote Core possess-law-check passes.
+
+Live rogue-stealth-retest: Nbroghuman, GUID 0x220, real server god/GM OFF replies
+verified before gameplay. Server spell 1787 GO and aura apply precede poses 120 idle,
+119 forward, 13 backward, 119 strafe. Native stance-button cancellation receives
+aura removal and restores 0 idle / 5 run. Seven sept08-rogue-fixed-stealth frames
+(11:50:20-11:50:28) visually reviewed: translucent crouch, distinct forward creep
+phases, backward and strafe, then opaque normal idle/run. This is a direct-body
+humanoid pass; possessed/streamed paths and corrected cat fallback rate still need
+live verification. Earlier stealth-live-retry preserved the pre-fix 0/4 humanoid
+failure. Its attempted top-buff cancellation did NOT cancel Prowl; the subsequent
+Cat stance button did. Misnamed cancel-prowl dumps are not cancellation evidence.
+All 28 broad coverage areas remain open; the full audit is ongoing.
+
+### 2026-09-08 12:00 — GI-78 live data; GI-80 remaining pet-owner arguments
+
+Post-install rogue -> hunter possession (Nbroghuman 0x220 -> Nbhundwarf 0x21F)
+received Cat pet 94's raw training FFFFFFFB, loyalty 2, real health 152 and updating
+happiness. Reviewed Beast Training frame at 11:55:05 displays 4 training points;
+pet health is no longer the observer's percentage placeholder. Stable at Erma
+spawn 80340 opens with Cat level 8 active, Bristle level 5 stabled and two purchased
+slots. Source/result/frame evidence in checklist-20260908/rogue-stealth-retest.
+This covers grant and a subsequent happiness update, not all GI-78 transitions.
+
+Native Swap with active click fails with server result 0x06 at 11:57:00; Cat remains
+active and the reviewed frame shows an error. Protocol failures=0 is only dispatch
+success and does not override this gameplay failure. Source trace identifies four
+missed session-player arguments: HandleStablePet Unsummon, HandleUnstablePet
+LoadPetFromDB, and both calls in HandleStableSwapPet. Unsummon rejects a mismatching
+owner; LoadPetFromDB looks up that incorrect owner's cache. All four now pass pActor,
+applied directly under the existing owner C++ authorization. Exact before/after and
+four-line patch: docs/current/stable-owner-fix-20260908/. Final NPCHandler.cpp SHA256
+92270fbc74fd9a45e9436fb7da3828f769d414c191b53292e6dcbe9df6cb63b0.
+
+New source regression fails before correction and passes after. NPCHandler.cpp
+syntax-only passes with existing CMake flags. Expanded remote possess-law-check and
+client PossessLaw, SharedDocs, GameplayImguiPolicy pass. No Core binaries built,
+installed or restarted by this audit. Another owner rebuild/install is required
+before possessed stable/unstable/swap retests. Rogue release closes the stable;
+hunter dismissal and offline roster reply confirmed before normal client exit.
+Direct hunter baseline and reverse class direction are next. Full audit remains open.
+
+### 2026-09-08 12:05 — direct stable baseline and reverse class direction
+
+hunter-direct-stable (Nbhundwarf, real god/GM OFF replies) confirms direct Cat health
+152 and Beast Training TP=4, matching the possessed view. Native swaps Cat -> Bristle
+-> Cat each return 0x09 and refresh the list; reviewed Bristle frame and release
+frame show correct active/stabled identities. Cat was restored with original level8,
+training FFFFFFFB; Bristle remains level5/stabled. Possessing Nbroghuman closes the
+stable and /stable shows 'That creature is not a stablemaster.' Release back to hunter
+restores list access. Thus actor-class grant/revocation works both directions here;
+range and possessed mutation matrix remain open pending the additional Core rebuild.
+
+Possessed human rogue stealth selects 120 idle, 13 backward, 119 forward. Reviewed
+idle and forward frames show the correct translucent human, partly occluded by Cat
+and foliage; these do not replace clearer direct-body temporal evidence. Native
+stance cancellation receives removal and pose0. Rogue release/dismiss/offline verified
+before normal exit. Added read-only unit-state actor|selected|0xGUID diagnostic to
+record received ownership/flags/position for the remaining transition/hold evidence.
+Release and Debug builds pass with 10 warnings, 0 errors after that addition.
+
+### 2026-09-08 12:08 — Cat Prowl and Shadowmeld after renderer correction
+
+cat-stealth-final: Nbdrunelf, real server god/GM OFF replies checked. Cat 768 and
+Prowl 9913 server aura apply verified. Normal idle/run 0/5 become prowl fallback
+idle/walk 0/4; backward13 and strafe4 assertions pass. Cancelling 9913 through the
+production aura-cancel handler receives removal and restores run5 while Cat persists.
+Native Cat stance cancellation restores humanoid. Shadowmeld20580 receives apply,
+uses120, and movement receives removal with normal idle0. Reviewed Shadowmeld pair
+shows translucent crouch then opaque humanoid. Reviewed cat forward/back/side frames
+show animated translucent cat; rear angle, vegetation and initial smoke limit precise
+foot-contact assessment. The mounted-model rate regression provides exact fallback
+rate evidence; these screenshots alone do not measure timing. No universal animation
+pass is claimed. Druid is back in caster form; run continues into mail ownership.
+
+### 2026-09-08 12:17 — GI-39 actor-owned mail send/read/copy/return/delete
+
+cat-stealth-final continued at mailbox2978 (142075), GM placed session druid at the
+mailbox; this is UI/service evidence, not natural approach/collision approval.
+Possessed Nbwarhuman 0xA1 and druid0x225 initially had empty inboxes. Native compose
+sent GI39-sept08-warrior-to-druid with100c after accepting the money confirmation.
+Server send SUCCESS at12:11:51; warrior coin153->23 (100+30 postage), druid1118 unchanged.
+MailDeliveryDelay=3600 read from Core config: receipt/take-money pending around13:11:51.
+First attempt stopped at confirmation then body release; no packet/spend occurred.
+Misnamed warrior-sent capture shows that pending dialog, not successful sending.
+A multiword glue text command failed parsing; corrected to a single-token body.
+
+Druid sent instant GI39-sept08-druid-to-warrior; server SUCCESS, coin1118->1088.
+Possessed warrior inbox receives1869 with sender Nbdrunelf and correct body. Native
+letter attachment click makes permanent copy: letter appears in warrior backpack
+and mail loses copy attachment. Return1869 SUCCESS empties warrior inbox; release
+shows returned1870 in druid inbox, sender Nbwarhuman. Delete1870 SUCCESS empties it.
+Reviewed received/copy/returned frames. This proves the observed actor mail store,
+body read, copy inventory and return routing. Warrior dismissed/offline confirmed.
+
+Historical mage inbox1867 is now an empty letter (item0/money0/COD0); no current COD
+receipt/payment inferred from that fixture. Letter left in place. Other item/COD,
+reverse mutations, async callback range/body/freeze races remain open. Permanent
+copy retained in warrior backpack. Pending100c mail to druid must be collected later.
+
+GI-60 same-map test begins: mage0x223 at(-9453.102,45.8229,56.881645), main druid ports
+to(-9382,-150,60). Mage drops out of client visibility (unit-state fails, expected
+absence); .gps name queries fail, so they do not provide coordinate evidence. Core
+follow logs keep mage207.7yd away for over30s with no catch-up teleport. Returning
+main nearby re-observes mage at its exact original coordinates. Ordinary11yd walk
+then moves mage normally toward main. Cross-map boundary test underway.
+
+### 2026-09-08 12:20 — GI-60 same-map and cross-map hold evidence
+
+cat-stealth-final: returning from the 207.7yd same-map port re-observed mage0x223
+at exact original coordinates (-9453.102,45.8229,56.881645). Main's ordinary11yd
+walk then let mage walk to (-9447.114,47.008583,57.306858). Main .tele Darnassus
+changed map0->1; mage stayed away for over60s in Core follow logs. Returning main
+to Goldshire re-observed mage at that exact second position. These two port/return
+cases pass; flight, distant possession hop, instance and explicit relink remain open.
+Reviewed Darnassus frame121854. Hover121952 showed a basic portrait tooltip, not
+the hold-chain tooltip, and is not chain-state proof. Mage dismissed; roster confirms
+zero summoned and assert-offline PASS before normal PROTOCOL_DONE exit. Runner's
+two failures were malformed multiword text and expected missing out-of-range entity;
+failed .gps name server replies are retained separately, not position evidence.
+
+### 2026-09-08 12:35 — GI-69 overflow traced, corrected and live retested
+
+combat-burst-inspect, direct Nbhundwarf0x21F, god/GM OFF actual server replies.
+Mounted CombatText.lua confirms26px separation,130px reset,1.9s lifetime and225px
+scroll. Ordinary existing Snow Leopard4110 combat produced separated damage/Dodge
+at12:29:52/54 (reviewed); Defense naturally advanced through71, no setskill used.
+Initial captures preceded GM teleport completion and are setup failures. Returned
+safely to Erma; Cat remained active, no companions summoned.
+
+Authorized self-only GM .damage1..10 school3 fixture generated real server swing
+replies. Reviewed12:30:34/35 overlaps -2/-7 and adjacent later numbers. Read-only
+combat-text inspect confirms correct aging but reset starts0 for7,9,10 among still
+occupied rows. This is not a lifetime failure. Newest feedback now retires colliding
+older rows at insertion while retaining authored origin/reset/scroll/lifetime.
+This deliberately improves burst overflow on the mounted script: older colliding
+numbers may disappear early. Ordinary3-row stacks stay intact. Optional loot notices
+also now enter this shared stack instead of bypassing StartOffset.
+
+Production-queue regression fails on old code at message7, passes20-message variable
+cadence with correct expiry; separate loot seam red/green retained. Release build
+10warnings/0errors; Debug incremental0/0. CombatTextState/PossessLaw/ImGui PASS.
+combat-burst-fixed has separate Release build hashes and actual god/GM OFF replies.
+Same self-only burst: reviewed12:34:06/07 shows5 readable separated rows including
+newest -10; diagnostics confirm >=26px separation and empty stack after expiry.
+Critical growth/mixed motion/loot-enabled live variants remain unverified. No broad
+combat readability pass inferred. Original run exited normally with zero companions;
+fixed run continues into main-body taxi hold. Evidence under checklist-20260908/.
+
+### 2026-09-08 12:43 — main-body flight and distant same-map possession
+
+combat-burst-fixed continued with hunter0x21F and mage0x223. GM visits established
+hunter's real discovery of nodes4 and2; no taxi unlock or money grant. Native map
+hover170,507 showed Sentinel Hill fare110; click accepted at240.041,28-point73614ms
+spline started240.091. Hunter coin1270->1160. Reviewed12:37:17 takeoff and12:38:38
+landed frame; actor ended(-10628.9,1036.68,34.062313), standing and unlocked.
+
+Mage before takeoff(-8838.606,490.084,109.61133); filtered Core logs show separation
+growing during flight and staying1872.7yd after landing. Distant possession after
+landing succeeds in place: mage re-observed exact coordinates (Z roundoff .000006).
+After15s, release returns hunter at its exact Sentinel Hill landing position. Thus
+main-body flight hold and distant same-map hop/release pass for this pair. Sources:
+main-flight-mage-mid/landed.log; reviewed frame captures and unit-state diagnostics.
+Initial companion summon failed because roster was not requested; list then retry
+succeeded. Missing-unit check after that failed summon also failed. Retain both.
+
+Pet frame absent after landing is not filed as a client defect: Core taxi activation
+explicitly RemovePet(PET_SAVE_REAGENTS), not the temporary-unsummon helper. Actual
+Call Pet883 GO restores Cat health152, loyalty2, trainingFFFFFFFB and its bar/book;
+reviewed capture pending. Failed pre-call pet inspect confirms client pet GUID0.
+No automatic pet-return policy change made. Mage dismissed/offline and zero roster
+summons confirmed. Normal exit,3 runner failures (two setup, absent pet). Hunter
+safe at Sentinel Hill, Cat active, coin1160, Defense naturally advanced to71.
+
+Core installed binary at12:33 still ce889428...14ad8d (11:45 build); additional
+stable-owner C++ source correction remains pending owner rebuild/install.
+
+### 2026-09-08 12:52 — Mist938 timed follower first attempt
+
+mist-follow-quest uses burst-corrected Release on Nbdrunelf0x225, god/GM OFF actual
+replies. Export938 has540s timer, no previous quest/class/race gate. Mounted realm
+relation3568; script npc_mist StartFollow on acceptance, success within10yd of3519,
+FollowerAI::JustDied fails leader's quest. Survey GM ports BEFORE acceptance placed
+Arynia3519 at(10665.1,1863.57,1324.51) and Mist3568 at(10758.4,2208.9,1331.64).
+
+Normal Moonfire9835 killed one nearby harpy; native Accept73,609 adds938 at159.016.
+Keyboard W five seconds moved druid to(10748.198,2175.7666,1331.4573); Mist moved
+but entered combat with another harpy. Reviewed12:47:53 has timer8:52 and objective.
+Mist received-health snapshots95->12->2 percent, then despawn and server0x0197 failure
+at214.730 (about56s after acceptance, not540s expiry). Healing Touch5185 on liveMist
+at202.401 receivedBAD_TARGETS; no healing pass claimed. Later Moonfire picked a
+different harpy and did not save her. Reviewed12:49:28 shows 'Mist failed.' and no
+timer. Abandon removes938 at261.165. Remaining nearby attackers cleared with actual
+Moonfire casts while waiting for natural Mist respawn; retry not yet accepted.
+
+The unchanged tracker after failure matches mounted QuestLogFrame.lua QuestWatch_
+Update (no failed-title branch); no invented tracker defect filed. Initial run
+includes failed selections for despawned Mist and resulting unit-state fallback to
+actor, not proof that the NPC respawned. No NPC spawned/forced respawn or GM quest
+completion. Source/file/frame evidence under checklist-20260908/mist-follow-quest.
+
+Flight follow-up review:12:39:40 mage remains visually at Stormwind;12:40:10 hunter
+at Sentinel Hill. Call Pet12:42:09 frame now reviewed: Cat/frame/bar restored.
+
+### 2026-09-08 13:00 — Mist938 second failure and fixture correction
+
+Natural respawn observed at12:54 with full health/questgiver flags. Two intended
+exact-GUID select commands were invalid harness syntax; they did not select those
+attackers. Four subsequent Moonfires at a nearby Fury were UNIT_NOT_INFRONT, not
+kills. Corrected facing produced actual Moonfire GO and death (next cast has no
+valid unit); next Fury was42.5yd away. Second acceptance starts around780s; after
+3s W, correctly faced Moonfire kills that Fury, Mist initially100% at787s. But
+another Fury plus Wind Witch9532 attacks kill her; failure0x0197 at808.741. This
+remains a failed escort, not timeout/success. Abandoned again; no quest active.
+
+Preparing all-hostile clearance rather than Fury-only, with new face selected
+harness yaw based on received entity position (same existing face control). No NPC
+forced respawn, GM completion, heal or death injection. First-run claimed 'nearby
+attackers cleared' is superseded by the actual refusals above. Current run closing;
+third attempt will use fresh build identity and setup evidence. Native first Accept
+and actual failure chat/timer remain valid input/presentation evidence. Failed Mist
+watch title stays ordinary per mounted QuestWatch; no UI defect inferred.
+
+### 2026-09-08 13:22 — Mist interrupted retry and delayed mail receipt
+
+mist-protected-retry used the face-selected Release build, actual god/GM OFF. Five
+nearby harpies died to ordinary faced Moonfire before third acceptance at262.483.
+After first12s walking leg, Mist was full health within3yd; reviewed13:07:28 timer8:45.
+Later long legs left Mist fighting a Webwood spider2000/12023 at(10734.103,2105.3967,
+1317.0087), health76->60%, while the druid continued. No terminal quest success or
+failure was recorded before network EOF13:10:28. Subsequent queued cleanup did not
+run. Thus this attempt is interrupted/incomplete, not a successful escort or timeout.
+
+After about one minute, druid-mail-reconnect logged in successfully; actual god/GM
+OFF replies retained. Quest938 persisted and actual abandonment removed it at85.609.
+Core installed13:08:19 hash b41f985a16c8a763dcb85900651bb0db2f219bac7cabc15827167e7ec1bc834d
+was observed read-only in core-build-after-1310-drop.log. Owner explained temporary
+Core drops can occur during another agent's restart; retry after a minute. No Core
+process, installation or database control was performed in this audit.
+
+GI39 mail1868 from possessed warrior arrived with100c after the configured3600s delay.
+Reviewed13:14:50 shows correct sender, subject and money attachment. Native money
+icon click716,563 produced take-money SUCCESS at408.154; druid coin1088->1188, list
+money0. Empty-letter deletion SUCCESS409.489 and refreshed list count0. This closes
+this specific actor-sender money delivery/take case; item/COD and async races remain
+open. Evidence: checklist-20260908/druid-mail-reconnect.stdout.log and named dumps.
+
+### 2026-09-08 13:23 — GI78/GI80 possessed stable mutations retested
+
+On the newly installed b41f985a...bc834d Core, druid225 possessed hunter21F at Erma
+6749/spawn80340. Existing Cat was initially unsummoned: Call Pet883 actual GO restored
+health152/loyalty2/trainingFFFFFFFB. Native stable row/action clicks swapped Cat94
+into Bristle93 (484.817 code09, health106/training5), then back (488.452 code09,
+health152). Native Stable (491.088 code08) produced no active pet and two stabled;
+Unstable Cat (536.925 code09) restored Cat with its proper actor-owned fields.
+Reviewed13:21:04/08/10 and13:21:56 frames show those distinct states and pet bars.
+This verifies all four corrected Pet owner arguments through the possessed path.
+
+Walking the hunter out of Erma range closed the panel at540.409 source-out-of-range.
+The attempted walk-back overshot; reviewed13:22:05 instead proves too-far refusal,
+not a successful reopen. Release and dismissal completed; hunter offline asserted,
+zero companions and normal protocol exit. Five runner failures retained: two invalid
+sui-companions commands, unresolved sui-possess, and two absent-pet inspections;
+correct companion commands and real Call Pet repaired setup before mutation tests.
+Evidence: druid-mail-reconnect stdout/inbox/runner/build hashes and named dumps.
+Cat active, Bristle stabled at cleanup. Stable purchase/full-capacity variants remain
+open; no broad pet mechanics pass inferred.
+
+### 2026-09-08 13:37 — Mist938 successful mage escort and reward
+
+mist-mage-protection used Nbmaghuman223 with actual god/GM OFF; build hashes captured.
+Declared GM setup BEFORE acceptance: travel to Mist49625 and mana50000 (original
+2838/2838). Three nearby harpies killed by real Fireball25306 after correcting one
+out-of-range fight attempt. Native acceptance124.071. Repeated1s walking pulses and
+real Arcane Explosion10202 kept Mist close; actual hit GUIDs include harpyC141,
+spidersBA01/B9DC. Fullhealth at firstleg,95% during spider contact, then recovered.
+Tree collision changed route; one unnecessary28yd detour retained in protocol.
+Reviewed13:25:47,13:26:39,13:27:40,13:28:31 and13:30:16 frames. No teleport/GM quest
+completion during escort. This proves this protected fixture, not normal mana balance
+or every spell visual stage. After walking to Arynia3519, objective COMPLETE420.912,
+log01000000, arrival dialogue and Mist emote rendered. Mist normally despawned.
+
+Native hello/current-quest choice produced reward offer580.907 (three choices,
+reviewed13:32:55). Harness choose0 sends normal reward request; COMPLETED654.784,
+540c, coin29317->29857, quest removed. Reward choice input itself was harness dispatch,
+not a native click pass. Original mana2838 restored by actual server reply656.167.
+Extra failed postcompletion Mist inspection is expected despawn; assert-completable
+was wrongly used with panelNone (checks progress panel, not quest log), not a quest
+failure. Three runner failures so far: out-of-range fight, missingMist, wrong panel
+assertion. Exact logs/inbox/dumps under checklist-20260908/mist-mage-protection.
+No companions summoned. Continuing same session into item-supplied trap quest2118.
+
+### 2026-09-08 14:49 — Plagued Lands2118 item trap, capture and reward
+
+First normal acceptance on mage223 supplied7586. Harness UseItemAction sends normal
+item9437 cast; actual2s START/GO, consumed item, but no capture observed before network
+EOF13:41:43. Read-only Core identity13:46: installed13:37:37 d376dfcf...431fc048.
+Reconnect recovered incomplete2118, item absent. Mage left beside bear during analysis
+died; later accept/use attempts while dead/no item are setup failures. Normal abandon,
+GM revive (relocates to graveyard), return to giver and actual reaccept restored trap.
+No resurrection gameplay pass inferred from GM revive.
+
+Second placement14:12:56/14:13:01 shows trap beyond a fallen log and bear on the near
+side. Both ordinary forward/backward legs failed to capture; cannot establish a trap
+mechanics defect with this obstructed placement. Safe return completed. Core EOF
+14:23:17 interrupted idle session; later queued open-ground retry did not execute.
+
+Fresh bounded bear-trap-open-ground, build hashes recorded, actual god/GM OFF;
+installed Core14:22:18 0c255ac3e75600d656c8d0962e1ecd5fd394c0a2d184a563e1efaef55f99110a
+(core-build-trap-retry.log). Abandon/reaccept supplied7586, normal backward6s drew
+pre-existing bear2164 from the log onto open ground. Before item use: mage6009.725,
+439.119,19.040361; bear6011.735,439.12186,18.755438. Real9437 START/GO; objective credit
+at33.248 reports entry11836,1/1. Bear becomes friendly and follows normal9.3yd backward
+movement; reviewed14:43:30 shows green target and1/1 feedback/watch. Script-traced9439
+UpdateEntry+KilledMonsterCredit/StartFollow matches outcome; no creature spawned or
+GM quest complete. GM travel returned mage to giver; does NOT prove400yd bear return.
+Bounded run clean exit,0runner failures, no companions. Source: darkshore.cpp878-890.
+
+bear-trap-reward reconnect retained completion. Native current quest and Complete
+Quest clicks; offer600c plus max-level conversion displays1200c, reward128.726 gives
+1200c, coin29857->31057;2118 removed.2138 automatically offered, not accepted. No item
+reward claimed. Full health/mana2838 at cleanup;0companions,0runner failures, clean
+exit. All failed/interrupted attempts retained. Evidence: checklist-20260908/bear-trap-*
+and named dumps. This is one item-triggered transform/capture/reward case, not all
+trap mechanics, all ranks, or natural travel/progression. Spell-bar diagnostic calls
+9437 CHANNEL despite2s cast START/GO; classification is being inspected separately.
+
+### 2026-09-08 15:01 — cast classification diagnostic correction
+
+Live trap9437 emitted ordinary2s START/GO but CastClassification reported CHANNEL.
+Confirmed cause: SpellInfo inferred channel identity from ChannelInterruptFlags!=0;
+9437 has AttributesEx10000000/interrupt8. Core SpellEntry::IsChanneledSpell uses
+AttributesEx bits4|40 (SpellDefines.h834/838). Corrected the shared diagnostic property.
+Consumers include cast-bar/animation/blocked-spell verdicts and gameplay-coverage;
+casting, channel packets, animation selection and input behavior are unchanged.
+
+Mounted-row regression first failed on9437, then passes9437/133 CAST_TIME,1459 INSTANT,
+5143/10/1515 CHANNEL; synthetic checks cover both channel attributes without interrupt
+flags and an ordinary cast with channel-interrupt flags. New focused option
+--spell-classification-only is also included in the default checker. Release10warn0err;
+Debug incremental0warn0err; classification/PossessLaw/SharedDocs and diff whitespace
+checks pass. Evidence spell-classification-red/green.log, build-classification-*.
+
+Fresh spell-classification-live on mage223, actual god/GM OFF. Authorized one-item
+7586 provision is a diagnostic fixture after2118 completion, not a repeat quest pass.
+Item consumed1->0,9437 CAST_START17.012/CAST_COMPLETE18.813 now CAST_TIME; Evocation12051
+CHANNEL_START20.115/STOP28.121 remains CHANNEL with8000ms duration. Reviewed14:57:45
+ordinary bar and14:57:48 channel bar/effect frames. No temporal all-spell visual pass.
+Normal exit0runner failures, no companions, mage1700HP safely at Tharnariun,
+(6437.48,397.48,11.705063), no open quest from this batch. Arcane Intellect1459 applied.
+
+Fresh discovery directory coverage-classification-fixed preserves historical outputs.
+Same22357spells/4433quests/32957stage references/559assets/18unresolved references;
+cohorts4872->4867. Classification changes74rows:6 CAST_TIME->CHANNEL,8 CHANNEL->CAST_TIME,
+39 CHANNEL->INSTANT,21 INSTANT->CHANNEL. Per-ID before/after CSV retained there. These
+are corrected discovery labels, zero new live passes. All28 broad areas remain open.
+
+Next queue: GI39 item/COD and delayed-send actor/range/freeze races; GI60 instance and
+multiple-follower hold/relink; GI69 mixed critical/scrolling and loot-enabled feedback;
+then untouched per-ID spell/quest conditions and remaining full-game area subcases.
+Avoid repeating Mist/2118 capture mechanics as newly uncovered cases.
+
+### 2026-09-08 15:38 — next-ten audit: mail races and follower matrix
+
+The ten selected cases are GI39 item, COD, actor-switch send, range-cancel send,
+freeze-cancel send; GI60 instance hold, multiple followers, explicit follow relink;
+GI69 mixed critical/scroll text and loot-enabled feedback. Evidence is under ignored
+checklist-20260908/ten-*; this is a bounded matrix, not ten entire systems closed.
+
+GI39 actor-switch: ten-mail-races sent text as possessed druid225 to offline
+warriorA1 and requested release in the same client frame. Request subject records
+sender225, but recipient run receives1870 from223, subject
+GI39-send-release-152204117. Mage coin31057 minus two fixture postages60 minus two
+race postages60 =30937; druid remains1188, warrior23. This changes the initial
+inconclusive dispatch-only interpretation into a CONFIRMED wrong-sender/purse defect.
+CMSG_SEND_MAIL was MAP while SUI release was WORLD, so release overtook sender capture.
+Direct Core correction: register SEND_MAIL as WORLD with the control/freeze edges.
+Existing asynchronous callback identity/range/freeze checks remain in place.
+
+Range trial sends subjectGI39-send-port-152207631 followed by a50yd GM port in the
+same client frame; success, recipient1871 from223. Client mailbox auto-closes after
+movement. No callback-after-range-exit ordering proved, so cancellation is INCONCLUSIVE.
+The shared-world-queue correction also orders send against the WORLD chat/GM packet;
+this is not yet a live fixed-build result.
+
+Freeze: same-frame send then Freeze while already in Command View yields a real
+owned lock, no mail response, pending=True. Repeated in ten-mail-freeze-confirm:
+still pending after Resume plus20s (review evidence15:25:27). Recipient has only
+release/port letters, neither freeze letter. CONFIRMED silently dropped send.
+Core HandleSendMail frozen entry guard now sends MAIL_ERR_INTERNAL_ERROR before
+return. Existing client ApplyMailResult clears send-pending for that response.
+Both changes applied directly to Core source, with precise red/green regression,
+MailHandler.cpp and Opcodes.cpp compiler syntax checks, and Core possession law PASS.
+Artifacts mail-freeze-fix-20260908/; no Core build/install/restart performed here.
+Installed baseline14:44:11 SHA25681ad330d23024accd5a8508f183e83ec3375380962e8e12e1b16de9d384dc153;
+new source fixes still require the owner's rebuild/install and live retest.
+
+GI60 ten-follower-holds: actual god/GM OFF, druid225 and priest221 SuperUI companions.
+Before instance: druid(-9458.796,45.818893,56.60586), priest(-9454.07,43.77677,56.667675).
+Authorized GM trigger101 target puts main in actual Stockades map34, verified area717
+and reviewed15:33:22 frame. Both authoritative chain states2(world hold), remain for
+40s additional dwell. Return to Goldshire re-observes BOTH exact positions; states0.
+PASS for entry into a different instance map; not a same-map different-instance-ID test.
+
+Next200yd same-map main port: both states2 and Core distances202.1/197.5 remain stable
+through25s additional hold. Explicit ORDER_FOLLOW only for druid at15:34:44 changes its
+state0 and authorizes the existing202yd catch-up; priest remains state2, position
+unchanged after main returns. PASS multiple-follower hold and selective explicit relink.
+This explicit requested catch-up is distinct from an automatic port during world hold.
+GM placement used Z56.44 where terrain sample72.58 and emitted a setup-height warning;
+instance WMO placement emitted no-ADT-height warning. Neither is a new terrain verdict.
+Druid subsequently returned to verified Goldshire mailbox before next test. Both
+companions dismissed;0protocol failures, clean exit. Images and server log retained.
+
+### 2026-09-08 15:43 — live critical fix verified; Core restart
+
+Rebuilt ten-mixed-crit-fixed uses real60 self Healing Touch5185 attempts plus real
+self damage, with god/GM OFF. Reviewed15:37:06.441/.941 and15:37:07.592 frames show
+critical+72 held at offset0 and damage-10 starting at-26 then moving upward, separated.
+Further real+81/+72/+75 criticals with damage/Resist remain clear through1.27-1.33s.
+Temporal production regression covers peak60px reservations, critical survival under
+20 normal messages, overflow and exact expiry; full interface-wire-check passes.
+The fix preserves authored rise225,1.9s lifetime, and30->60->30 critical growth. It
+changes placement around stationary criticals and retires conflicting older overflow
+rows; this remains a deliberate readability improvement over mounted FrameXML.
+
+Core EOF at15:41:02 after completed mixed-text trials and loot-target discovery;
+queued loot actions never ran. No companions in this run; druid safe at Goldshire,
+2153HP, coin1188, mana1204/2704 at last inspected state. Failure retained. At15:42:35,
+installed Core15:38:36 SHA256e5f9a4808a40e45d4ca2065b4bbfaded5722359da8fb13a101bad9573f4bc2f2
+is newer than both source edits. Owner/other-agent restart, not this audit. More than
+one minute elapsed before reconnecting for new-build mail race retest.
+
+### 2026-09-08 15:48 — loot-enabled text
+
+Fresh ten-loot-enabled after the Core restart, god/GM OFF, separate ignored settings
+copy sets ShowLootAcquisitionText=true (normal test settings remain false; AutoLoot
+already true). Pre-existing hostile525 GUIDF13000020D0139D6 selected from actual world,
+authorized GM travel to its received position, ordinary Wrath9912 kills it. Real corpse
+loot response contains2770 Copper Ore and2672 Stringy Wolf Meat, one each; real take,
+item-push to actor225, bag updates, release. This is observed local-realm loot, not a
+claim about stock drop tables. Four actual self-damage packets mixed with the green
+loot rows. Reviewed15:46:58.236 and15:46:59.087: all adjacent current offsets26px apart,
+loot+damage clear, count0 after expiry. Druid returns Goldshire safely, coin1188,
+2153HP, mana2604/2704, no companions,0protocol failures, clean exit. GI69 loot-enabled
+feedback PASS for this case; no additional fix required after the shared queue change.
+
+### 2026-09-08 16:06 — fixed mail races, recipient reconciliation, native follow UI
+
+New installed Core (15:38:36 hash recorded above) retest ten-mail-races-fixed:
+send-release subject GI39-send-release-154355642 returns FAILED-6, pending=False;
+send-freeze subject GI39-send-freeze-154409266 returns FAILED-6 with owned lock1,
+pending=False, then normal Resume. Both cancellation cases PASS after the C++ fixes.
+Port subject GI39-send-port-154359158 succeeds; cancellation timing remains unproved.
+Recipient ten-mail-reconcile confirms exactly eight successful test letters1870-1877,
+including the original wrong-sender1870 from223; no fixed-release or freeze letter.
+All eight identified empty test letters deleted successfully; final inbox0, warrior
+coin23 unchanged, no companions, clean exit with0 protocol failures.
+
+Range case remains INCONCLUSIVE: one walking trial and four follow-up walking sends
+all succeed. Observed opening distances varied (.166,3.947,5.5025); asynchronous GM
+setup means these are not four established boundary interleavings. Mailbox auto-hide
+out of range works, but no send callback after actual range exit was captured. The
+initial test helper used the legacy held-key collection; its stop command used the
+shipping collection. Both were released immediately and the helper corrected to the
+shipping W binding. Character returned safely with speed0. This was a diagnostic
+setup error, not a demonstrated gameplay movement defect. Eight letters match the
+eight successful sends; delayed acknowledgments do not establish duplicate sends.
+
+GI60 ten-native-instance additionally proves ordinary portal entry: GM setup places
+main outside authored trigger101; normal W movement enters it and loads Stockades
+map34. Both companions report state2 world hold. Before entry and after return,
+druid stays exactly(-8763.305,845.499,87.17297), priest(-8764.707,847.9291,87.017334).
+Native chain badge click unlinks druid (state1) inside the instance. After main returns
+and walks normally, druid remains at its exact held position while linked priest
+walks to(-8772.825,841.44135,90.9266). Native badge click relinks druid (state0), which
+walks to(-8772.733,844.98566,90.06679). Reviewed15:58:47.176 and15:58:52.080 frames
+show red/green badge transitions, matching received positions and server replies.
+Both companions dismissed, main returned Goldshire,0 protocol failures, clean exit.
+This closes native unlink/relink and normal doorway-entry evidence for these cases;
+it does not cover every instance, transport, or disconnected-client transition.
+
+### 2026-09-08 16:11 — owner-requested end-of-day pause and commit preparation
+
+Owner stopped the audit before delayed receipt collection. Final next-ten status:
+seven PASS (actor-switch/freeze cancellations after Core fixes, instance hold,
+multiple-follower hold, explicit relink, mixed-critical text after client fix,
+loot-enabled text), one INCONCLUSIVE (range callback cancellation), two UNFINISHED
+(item and COD delivery/collection). Do not promote the unfinished receipts to passes.
+
+Receipt setup ten-mail-receipts verifies mage coin30757; possessed druid coin1188,
+water159 count2, bread117 count0, empty inbox before delivery. Core disconnect at
+16:09:16 ends the idle run with a preserved NETWORK_FAILED verdict before queued
+cleanup executes. No item or money was collected. A cleanup-only reconnect follows
+more than a minute later; no resumed gameplay tests. The six bread117 and four
+water159/COD123c fixtures remain addressed to druid225 and should now be deliverable
+under the one-hour policy. Resume by inspecting this character's actual mailbox,
+then test COD decline/accept and123c sender settlement. Preserve mage's older empty
+letter1867. Expected druid after acceptance: bread6, water6, coin1065; mage after
+settlement30880, assuming no intervening activity. These are expectations, not results.
+
+Both final client builds pass (10 existing warnings,0 errors), full interface check
+passes, Core source regression/law and changed C++ syntax checks pass. Git whitespace
+check clean. Local nested worktrees are now ignored, retained on disk; diagnostic
+logs, screenshots, configuration credentials and assets remain ignored. Source,
+regressions, shared evidence, locator configuration and agent import are prepared
+for owner review/commit. No commit, push, Core control or database mutation performed.
+
+Cleanup confirmed16:11:26: ten-day-cleanup receives summoned0 before and after;
+druid225 is already offline following the disconnect. The redundant dismiss step
+records one refusal because state0 is not summoned; retained as a cleanup harness
+failure, not a gameplay defect. Mage at Goldshire(-9455.99,45.8229,56.606068),
+1700/1700HP, coin30757, god/GM OFF. Normal client exit; owned audit PIDs gone.

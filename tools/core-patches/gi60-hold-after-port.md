@@ -1,5 +1,15 @@
 # GI-60: followers after an anchor port
 
+**September 8 follow-up:** the owner authorized direct Core source changes.
+The hold change is now applied in `~/vmangos`, including a map-object comparison
+that also catches different instances of the same map. C++ syntax-only checks
+passed; full rebuild, installation and live verification remain owner/pending
+steps. `shared_docs/POSSESS_LAW.md` and the Core law checker now enforce port holds.
+The patch and candidate account below are retained as the historical proposal;
+do not apply that patch a second time. The same round also applied GI-39 mail,
+GI-78 pet visibility and GI-80 stable eligibility/range fixes. See the latest dated
+entry in `shared_docs/FULL_GAME_COVERAGE.md` for the handoff.
+
 Candidate Core patch: `gi60-hold-after-port.patch`. It is not installed, compiled,
 or live-tested. It requires owner-controlled Core rollout and follow-up tests.
 
