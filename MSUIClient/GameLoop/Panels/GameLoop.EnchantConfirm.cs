@@ -61,6 +61,12 @@ public sealed partial class GameLoop
         uint spellId = _itemCastSpell;
         if (spellId == 0 || _spellCatalog?.TryGet(spellId, out SpellInfo spell) != true) return;
 
+        if (!CastTargetLaw.AcceptsItem(spell))
+        {
+            RefuseCast(spellId, "LOCAL_INVALID_ITEM_TARGET", "Invalid target");
+            return;
+        }
+
         // The reference is permissive when an item template has not settled: it binds and lets
         // the server judge. Bag rendering normally resolves the template before this is reached.
         if (template is null)

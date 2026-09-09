@@ -11,7 +11,7 @@ using Silk.NET.Input;
 
 namespace MSUIClient;
 
-public sealed record LiveRunOptions(string OutputDirectory, string? Protocol, double TimeoutSeconds, string? Character);
+public sealed record LiveRunOptions(string OutputDirectory, string? Protocol, double TimeoutSeconds, string? Character, bool Background = false, bool CharacterSelect = false, bool NativeSpawn = false);
 
 public static partial class Program
 {
@@ -20,10 +20,14 @@ public static partial class Program
     {
         options = null; configPath = null; error = null;
         string output = "live-runs"; string? protocol = null, character = null; double timeout = 120;
+        bool background = false, characterSelect = false, nativeSpawn = false;
         for (int i=0;i<args.Length;i++)
         {
             string arg=args[i];
             if (arg=="--live-bootstrap") continue;
+            if (arg=="--background") { background=true; continue; }
+            if (arg=="--character-select") { characterSelect=true; continue; }
+            if (arg=="--native-spawn") { nativeSpawn=true; continue; }
             if (arg is "--live-protocol" or "--out" or "--timeout" or "--character")
             {
                 if (++i>=args.Length) { error=$"missing value for {arg}"; return false; }
@@ -38,7 +42,7 @@ public static partial class Program
             if (configPath is not null) { error=$"unexpected argument {arg}"; return false; }
             configPath=arg;
         }
-        options=new(output,protocol,timeout,character); return true;
+        options=new(output,protocol,timeout,character,background,characterSelect,nativeSpawn); return true;
     }
 }
 
@@ -102,9 +106,21 @@ public sealed partial class GameLoop
         }
         if (_liveSteps is not null && _liveRunElapsed > _liveRunOptions.TimeoutSeconds)
         { FinishLiveBootstrap("TIMEOUT", "protocol exceeded its separate run timeout"); return; }
+        if (_liveRunOptions.CharacterSelect && _net?.State == NetState.CharacterSelect)
+        {
+            if (_liveRunOptions.Protocol is null) FinishLiveBootstrap("READY", "character select ready");
+            else AdvanceProtocol();
+            return;
+        }
         // _worldLoadedOnce: between InWorld and the first BeginWorldLoad the loading flag is
         // still false, and the arena teleport used to fire into that gap.
         if (_net is not { IsInWorld:true } || _worldLoading || !_worldLoadedOnce || _controller is null || _character is null) return;
+        if (_liveRunOptions.NativeSpawn)
+        {
+            if (_liveRunOptions.Protocol is null) FinishLiveBootstrap("READY", "native world spawn ready; no fixture teleport");
+            else AdvanceProtocol();
+            return;
+        }
         if (_liveTeleportSent)
         {
             // Once the protocol has started it owns position. Do not keep testing
@@ -188,13 +204,18 @@ public sealed partial class GameLoop
             { Log(false,$"waitfor {_liveWaitPattern} timeout"); _liveWaitPattern=null; _liveStep++; }
             else return;
         }
-        if (_liveStep>=_liveSteps!.Count) { FinishProtocol(); return; }
+        if (_liveStep>=_liveSteps!.Count)
+        {
+            if (!PollLiveInbox()) { FinishProtocol(); return; }
+            if (_liveStep>=_liveSteps.Count) return;
+        }
         string line=_liveSteps[_liveStep];
         try
         {
             string[] p=line.Split(' ',3,StringSplitOptions.RemoveEmptyEntries);
             switch(p[0].ToLowerInvariant())
             {
+                case "inbox": Log(OpenLiveInbox(line), line); break;
                 case "gm":
                     if(line[3..].StartsWith(".npc spawn add",StringComparison.OrdinalIgnoreCase))
                         _liveSpawnBefore=_entities.Units.Where(x=>x.IsCreature).Select(x=>x.Guid).ToHashSet();
@@ -289,13 +310,17 @@ public sealed partial class GameLoop
                         _liveSoundMarkSequence = _spellSounds?.JournalSnapshot().LastOrDefault()?.Sequence ?? 0;
                         Log(true, $"{line} sequence={_liveSoundMarkSequence}");
                     }
-                    else if (sound.Length is 4 or 5 && sound[1].Equals("assert", StringComparison.OrdinalIgnoreCase) &&
+                    else if (sound.Length is 4 or 5 &&
+                             (sound[1].Equals("assert", StringComparison.OrdinalIgnoreCase) ||
+                              sound[1].Equals("assert-category", StringComparison.OrdinalIgnoreCase)) &&
                              int.TryParse(sound[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int expectedSounds))
                     {
                         IReadOnlyList<World.Sound.AudioMixer.SoundPlayJournalEntry> events =
                             _spellSounds?.JournalSnapshot().Where(x => x.Sequence > _liveSoundMarkSequence).ToArray() ?? [];
                         string expectedCue = sound[3];
                         string expectedCategory = sound.Length == 5 ? sound[4] : "ui.inventory";
+                        if (sound[1].Equals("assert-category", StringComparison.OrdinalIgnoreCase))
+                            events = events.Where(x => x.Category.Equals(expectedCategory, StringComparison.Ordinal)).ToArray();
                         bool pass = events.Count == expectedSounds && events.All(x =>
                             x.Category.Equals(expectedCategory, StringComparison.Ordinal) &&
                             x.RequestedCue.Equals(expectedCue, StringComparison.OrdinalIgnoreCase));
@@ -443,8 +468,13 @@ public sealed partial class GameLoop
                     }
                     else { StopAttack("user-cancel"); Log(true,line); }
                     break;
+                case "select-fight-target":
+                    bool fightTargetPresent = _liveFightGuid != 0 && _entities.TryGet(_liveFightGuid, out _);
+                    if (fightTargetPresent) CommitSelection(_liveFightGuid, false);
+                    Log(fightTargetPresent, $"{line} guid=0x{_liveFightGuid:X16}");
+                    break;
                 case "interact":
-                    Log(p[1].Equals("gossip", StringComparison.OrdinalIgnoreCase) && RequestGossip(_selectionGuid),
+                    Log(p.Length == 2 && p[1].Equals("gossip", StringComparison.OrdinalIgnoreCase) && RequestGossip(_selectionGuid),
                         $"{line} guid=0x{_selectionGuid:X16}");
                     break;
                 case "gossip":
@@ -462,11 +492,12 @@ public sealed partial class GameLoop
                     }
                     break;
                 case "vendor":
+                    string[] vendor = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     if(p[1].Equals("open",StringComparison.OrdinalIgnoreCase))
                         Log(RequestVendor(_selectionGuid),$"{line} guid=0x{_selectionGuid:X16}");
-                    else if (p[1].Equals("buy-entry", StringComparison.OrdinalIgnoreCase))
-                        Log(BuyVendorEntry(uint.Parse(p[2], CultureInfo.InvariantCulture),
-                            byte.Parse(p[3], CultureInfo.InvariantCulture)), line);
+                    else if (vendor.Length == 4 && vendor[1].Equals("buy-entry", StringComparison.OrdinalIgnoreCase))
+                        Log(BuyVendorEntry(uint.Parse(vendor[2], CultureInfo.InvariantCulture),
+                            byte.Parse(vendor[3], CultureInfo.InvariantCulture)), line);
                     else Log(false,$"unknown {line}");
                     break;
                 case "trainer":
@@ -478,11 +509,27 @@ public sealed partial class GameLoop
                         Log(BuyTrainerSpell(uint.Parse(p[2], CultureInfo.InvariantCulture)), line);
                     else if (p[1].Equals("buy-first", StringComparison.OrdinalIgnoreCase))
                         Log(BuyFirstAvailableTrainerSpell(), line);
+                    else if (p[1].Equals("confirm", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bool pending = _trainerConfirmation is not null;
+                        if (pending) { AcceptTrainerConfirmation(); CancelTrainerConfirmation(); }
+                        Log(pending, $"{line} source=production-confirmation-handler;awaitServerReply=true");
+                    }
                     else Log(false, $"unknown {line}");
                     break;
                 case "quest":
                     string[] quest = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                    if (quest.Length == 2 && quest[1].Equals("mark-wire", StringComparison.OrdinalIgnoreCase))
+                    if (quest.Length == 3 && quest[1].Equals("assert-reward-money", StringComparison.OrdinalIgnoreCase) &&
+                        uint.TryParse(quest[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out uint expectedRewardMoney))
+                    {
+                        uint actualRewardMoney = _questOffer is { } offer
+                            ? QuestNpcRewardMoney(offer.QuestId, offer.Money, revealed: true)
+                            : _questDetails is { } details
+                                ? QuestNpcRewardMoney(details.QuestId, details.Money, revealed: false) : 0;
+                        Log((_questOffer is not null || _questDetails is not null) && actualRewardMoney == expectedRewardMoney,
+                            $"{line} actual={actualRewardMoney};actor=0x{ControlledGuid:X16}");
+                    }
+                    else if (quest.Length == 2 && quest[1].Equals("mark-wire", StringComparison.OrdinalIgnoreCase))
                     {
                         _liveQuestWireMarkCount = _wire.SnapshotDetailed().Count(x =>
                             x.Packet.Outgoing && IsQuestProtocolOpcode(x.Packet.Opcode));
@@ -642,6 +689,7 @@ public sealed partial class GameLoop
                     if (p[1].Equals("audit", StringComparison.OrdinalIgnoreCase)) { RunEnvironmentAudit(); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
+                case "glue": Log(RunLiveGlue(line), line); break;
                 case "character":
                     if (p[1].Equals("inspect", StringComparison.OrdinalIgnoreCase)) Log(InspectCharacterInventory(), line);
                     else if (p[1].Equals("open", StringComparison.OrdinalIgnoreCase))
@@ -683,6 +731,44 @@ public sealed partial class GameLoop
                 case "action-icon":
                     Log(p.Length > 1 && p[1].Equals("attack", StringComparison.OrdinalIgnoreCase) &&
                         EmitAttackIconEvidence(), line);
+                    break;
+                case "action-gesture":
+                    RunLiveActionGesture(line);
+                    break;
+                case "item-gesture": Log(RunLiveItemGesture(line), line); break;
+                case "pet-gesture": Log(RunLivePetGesture(line), line); break;
+                case "pvp-state": Log(RunLivePvpState(line), line); break;
+                case "pose": Log(RunLivePose(line), line); break;
+                case "unit-state": Log(InspectLiveUnitState(line), line); break;
+                case "combat-text": Log(InspectLiveCombatText(line), line); break;
+                case "audit-mail": Log(RunLiveMailAudit(line), line); break;
+                case "audit-control": Log(RunLiveControlAudit(line), line); break;
+                case "support-at": Log(InspectLiveSupport(line), line); break;
+                case "liquid-visible":
+                    if (p.Length == 2 && bool.TryParse(p[1], out bool liquidVisible) && _liquid is not null)
+                    { _liquid.Enabled = liquidVisible; Log(true, line + " diagnostic runtime visibility"); }
+                    else Log(false, line);
+                    break;
+                case "escort-until-complete":
+                    if (!AdvanceLiveEscort(line)) return;
+                    break;
+                case "fight-until-dead":
+                    if (!AdvanceLiveFight(line)) return;
+                    break;
+                case "companion":
+                    RunLiveCompanionStep(line);
+                    break;
+                case "fish-until-bite":
+                    if (!AdvanceLiveFishing(line)) return;
+                    break;
+                case "select-enemy":
+                    WorldEntity? enemy = _controller is null ? null : _entities.Units
+                        .Where(x => x.IsCreature && !x.IsDead && ReactionPlayerToward(x) == FactionReaction.Hostile)
+                        .OrderBy(x => Vector3.DistanceSquared(x.Position, _controller.Position))
+                        .ThenBy(x => x.Guid).FirstOrDefault();
+                    if (enemy is not null) CommitSelection(enemy.Guid, false);
+                    Log(enemy is not null, $"{line} guid=0x{enemy?.Guid ?? 0:X16};entry={enemy?.Entry ?? 0};" +
+                        $"flags=0x{enemy?.Fields.UnitFlags ?? 0:X8};health={enemy?.Fields.Health ?? 0}");
                     break;
                 case "action-stage":
                     string[] stagedAction = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -1226,6 +1312,11 @@ public sealed partial class GameLoop
                     break;
                 case "dump": _currentVantage=p[1]; ArmGameplayDump(); Log(true,line); break;
                 // A client slash command exactly as chat would submit it ("slash /editui").
+                case "chat-self":
+                    bool canWhisperSelf = _net is { IsInWorld: true } && !string.IsNullOrWhiteSpace(_net.PlayerName);
+                    if (canWhisperSelf) SubmitChatLine($"/w {_net!.PlayerName} {line[9..].Trim()}");
+                    Log(canWhisperSelf, line);
+                    break;
                 case "slash": Log(TrySubmitClientSlashCommand(line[5..].Trim()), line); break;
                 // HUD layout editor (PLAN_21): place a registered frame through the live edit
                 // session, the same path the selection card's anchor pick + nudge take -
@@ -1343,7 +1434,17 @@ public sealed partial class GameLoop
                     else Log(false, $"unknown {line}");
                     break;
                 case "face":
-                    float facing = float.Parse(p[1], CultureInfo.InvariantCulture);
+                    float facing;
+                    if (p[1].Equals("selected", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (_controller is null || !_entities.TryGet(_selectionGuid, out WorldEntity faceTarget))
+                        { Log(false, line + " selected entity unavailable"); break; }
+                        Vector3 direction = faceTarget.Position - _controller.Position;
+                        if (direction.X == 0f && direction.Y == 0f)
+                        { Log(false, line + " selected entity has no horizontal direction"); break; }
+                        facing = MathF.Atan2(direction.Y, direction.X);
+                    }
+                    else facing = float.Parse(p[1], CultureInfo.InvariantCulture);
                     if (_controller is null) Log(false, line);
                     else
                     {
@@ -2264,6 +2365,11 @@ public sealed partial class GameLoop
 
     private void FinishLiveBootstrap(string result, string detail)
     {
+        if (_liveSteps is not null && result != "READY")
+        {
+            Log(false, $"run interrupted: {result};{detail};nextStep={_liveStep}");
+            FinishProtocol(); // Preserve completed evidence even when the socket or timeout ends the run.
+        }
         string dir=Path.GetFullPath(Path.IsPathRooted(_liveRunOptions!.OutputDirectory)
             ? _liveRunOptions.OutputDirectory : Path.Combine(_config.RepoRoot,_liveRunOptions.OutputDirectory));
         Directory.CreateDirectory(dir);

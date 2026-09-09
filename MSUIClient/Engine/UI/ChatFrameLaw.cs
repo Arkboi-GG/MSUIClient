@@ -58,7 +58,7 @@ public static class ChatFrameLaw
         // Private values above the wire range so a raw wire byte never casts onto one.
         Loot = 0xF0, Skill = 0xF1, Money = 0xF2, CombatXpGain = 0xF3,
         ChannelJoin = 0xF4, ChannelLeave = 0xF5, ChannelList = 0xF6,
-        ChannelNotice = 0xF7, ChannelNoticeUser = 0xF8,
+        ChannelNotice = 0xF7, ChannelNoticeUser = 0xF8, CombatNotice = 0xF9,
     }
 
     /// <summary>
@@ -194,12 +194,12 @@ public static class ChatFrameLaw
     /// <summary>
     /// The two default 1.12 chat windows do not share a feed. General owns the
     /// ordinary system/social/loot/skill groups; Combat Log currently owns the
-    /// MONEY and COMBAT_XP_GAIN groups.
+    /// MONEY, COMBAT_XP_GAIN and decoded combat notice groups.
     /// </summary>
     public static bool VisibleInTab(MsgType type, int tab) => tab switch
     {
-        1 => type is MsgType.Money or MsgType.CombatXpGain,
-        _ => type is not MsgType.Money and not MsgType.CombatXpGain,
+        1 => type is MsgType.Money or MsgType.CombatXpGain or MsgType.CombatNotice,
+        _ => type is not MsgType.Money and not MsgType.CombatXpGain and not MsgType.CombatNotice,
     };
 
     /// <summary>GlobalStrings COMBATLOG_XPGAIN_FIRSTPERSON and its rested/unnamed forms.</summary>
@@ -215,7 +215,7 @@ public static class ChatFrameLaw
         ($"Total time played: {FormatDuration(total)}",
          $"Time played this level: {FormatDuration(level)}");
 
-    private static string FormatDuration(uint seconds)
+    public static string FormatDuration(uint seconds)
     {
         uint days = seconds / 86_400;
         uint rem = seconds % 86_400;

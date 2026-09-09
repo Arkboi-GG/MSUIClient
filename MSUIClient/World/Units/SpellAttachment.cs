@@ -17,7 +17,9 @@ public readonly record struct SpellUnitPose(
     IReadOnlyList<Matrix4x4>? Skin,
     IReadOnlySet<int>? VisibleGeosets = null,
     Vector3 PickBoundsCenter = default,
-    float PickBoundsRadius = 0f)
+    float PickBoundsRadius = 0f,
+    string ModelPath = "",
+    int AnimationId = -1)
 {
     public static SpellUnitPose Missing => default;
 

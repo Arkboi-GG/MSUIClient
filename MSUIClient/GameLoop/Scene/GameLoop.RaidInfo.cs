@@ -18,6 +18,7 @@ public sealed partial class GameLoop
     /// <summary>Every instance this character is currently bound to. Each row is
     /// stamped with its receive time so the panel counts down without another pull.</summary>
     private RaidLockout[] _raidLockouts = [];
+    private readonly InstanceOwnershipState _instanceOwnership = new();
 
     /// <summary>NowSeconds() of the last SMSG_RAID_INSTANCE_INFO; 0 = never told.</summary>
     private double _raidInfoReceivedAt;
@@ -55,6 +56,7 @@ public sealed partial class GameLoop
             return;
         }
         _raidLockouts = lockouts;
+        _instanceOwnership.ApplyDetails(LocalPlayerGuid, lockouts);
         _raidInfoReceivedAt = NowSeconds();
         Console.WriteLine($"[raid-info] {lockouts.Length} saved instance(s)");
         EmitInterface("raid-info", "info", "APPLIED", LocalPlayerGuid, $"count={lockouts.Length}");
@@ -129,10 +131,40 @@ public sealed partial class GameLoop
         };
     }
 
+    private void ApplyInstanceOwnership(byte[] body, ulong owner)
+    {
+        bool hasSaved = _instanceOwnership.ApplyOwnership(owner, body);
+        if (owner != LocalPlayerGuid) return;
+        _raidLockouts = [];
+        _raidInfoReceivedAt = hasSaved ? 0 : NowSeconds();
+        if (hasSaved) RequestRaidLockouts("instance ownership snapshot", force: true);
+    }
+
+    private void ApplyLastInstance(byte[] body, ulong owner) =>
+        _instanceOwnership.ApplyLastInstance(owner, body);
+
+    private string RaidInfoEmptyText()
+    {
+        if (_instanceOwnership.HasSavedInstances(LocalPlayerGuid) == true)
+        {
+            string[] names = _instanceOwnership.Maps(LocalPlayerGuid)
+                .Select(map => _maps?.Get(unchecked((int)map))?.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name)).Cast<string>().ToArray();
+            return names.Length == 0 ? "Requesting saved instance details…"
+                : $"Saved to {string.Join(", ", names)}. Requesting reset details…";
+        }
+        return RaidInfoEverReceived || _instanceOwnership.HasSavedInstances(LocalPlayerGuid) == false
+            ? "You are not saved to any instances." : "Requesting saved instances…";
+    }
+
     /// <summary>Drop all lockout state on world-leave / character swap, mirroring the
     /// other party-state resets so a new character never shows a stale list.</summary>
     private void ResetRaidInfo()
     {
+        _instanceBoot.Clear();
+        _instanceOwnership.Clear();
+        ExecuteStaticPopupPlan(MSUIClient.Engine.UI.StaticPopupCoordinatorLaw.HideByType(
+            _staticPopupSlots, MSUIClient.Engine.UI.InstanceBootUiLaw.PopupType));
         _raidLockouts = [];
         _raidInfoReceivedAt = 0;
         _raidInfoRequestedAt = 0;

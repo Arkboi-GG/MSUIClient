@@ -45,6 +45,10 @@ public static class InventoryUiLaw
         pushed ? KeyringPushedTexture : KeyringNormalTexture;
 
     public readonly record struct WirePosition(byte Bag, byte Slot);
+    public readonly record struct DragPress(ulong Actor, int Container, int Slot, ulong Item);
+
+    public static bool SameDragSource(DragPress? press, ulong actor, int container, int slot, ulong item) =>
+        actor != 0 && item != 0 && press == new DragPress(actor, container, slot, item);
     public readonly record struct BackgroundGeometry(
         int Rows, bool PlusTwo, float TopHeight, float MiddleHeight, float BottomHeight,
         Vector2 TopUvY, Vector2 MiddleUvY, Vector2 BottomUvY)
@@ -123,6 +127,15 @@ public static class InventoryUiLaw
         left ? SlotClickAction.PickupOrPlace :
         right && hasCarried ? SlotClickAction.ClearCarried :
         right && hasInstance ? SlotClickAction.ContextAction : SlotClickAction.None;
+
+    /// <summary>
+    /// A bag-bar button "click" is FrameXML OnClick: the press that ended on this button
+    /// (deactivated while still hovered) without the cursor travelling past the drag
+    /// threshold. Anything past the threshold was an OnDragStart pickup and must not
+    /// toggle the window (that toggle-on-press is what killed bag-slot drags, issue #28).
+    /// </summary>
+    public static bool BagBarClicked(bool deactivated, bool hovered, float dragDistance,
+        float dragThreshold) => deactivated && hovered && dragDistance < Math.Max(0f, dragThreshold);
 
     public static BagBarClickAction BagBarAction(int container, bool hasCarried, bool occupied) =>
         container == 0 ? BagBarClickAction.ToggleBackpack :

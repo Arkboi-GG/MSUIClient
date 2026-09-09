@@ -1348,8 +1348,10 @@ internal static class GameTooltipClinicalChecks
               // Bottom clearance is PREPARED into the immutable snapshot (free
               // view lifts the default anchor above the docked minimap); the
               // renderer must keep reading it from the snapshot alone.
-              spellbook.Contains("float BottomClearance = 0f);", StringComparison.Ordinal) &&
-              spellbook.Contains("SpellTooltipView view = SpellTooltipLaw.Build(",
+              spellbook.Contains("float BottomClearance = 0f,", StringComparison.Ordinal) &&
+              spellbook.Contains("IReadOnlyList<(string Text, uint Color)>? SupplementalRows = null);",
+                  StringComparison.Ordinal) &&
+              spellbook.Contains("SpellTooltipView view = BuildActorSpellTooltip(",
                   StringComparison.Ordinal) &&
               !adapters.Contains("_hoveredSpellId", StringComparison.Ordinal) &&
               !adapters.Contains("_hoveredSpellMin", StringComparison.Ordinal) &&

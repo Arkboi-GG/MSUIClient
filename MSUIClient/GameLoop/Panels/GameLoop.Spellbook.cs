@@ -38,7 +38,8 @@ public sealed partial class GameLoop
         SpellTooltipPlacement Placement,
         Vector2 OwnerMin,
         Vector2 OwnerMax,
-        float BottomClearance = 0f);   // device px kept clear of the display's bottom edge
+        float BottomClearance = 0f,   // device px kept clear of the display's bottom edge
+        IReadOnlyList<(string Text, uint Color)>? SupplementalRows = null);
     private readonly record struct PreparedSharedSpellTooltip(
         GameTooltipOwnerKey Owner,
         SpellTooltipRenderSnapshot Snapshot);
@@ -193,9 +194,10 @@ public sealed partial class GameLoop
         if (_config.DevTools && _devOverlayVisible && _spellbookFontCalibrationOpen)
             DrawSpellbookFontCalibration(p, s);
 
-        if (_pressedSpellId != 0 && ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
+        if (_pressedSpellId != 0 && _draggingSpellId != _pressedSpellId &&
+            ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
             Vector2.Distance(ImGui.GetIO().MousePos, _spellPressPosition) > 6f * s)
-            _draggingSpellId = _pressedSpellId;
+            PickupSpellToCursor(_pressedSpellId);
         if (_pressedPetBookWord != 0 && ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
             Vector2.Distance(ImGui.GetIO().MousePos, _spellPressPosition) > 6f * s &&
             _spellCatalog.TryGet(PetSpellBookUiLaw.SpellId(_pressedPetBookWord),
@@ -239,6 +241,7 @@ public sealed partial class GameLoop
         ClearPetActionCursor();
         _draggingSpellId = spellId;
         _pressedActionSlot = -1;
+        PlayUiSound("igSpellBookSpellIconPickup", "ui.actionbar");
     }
 
     private void PickupPetBookSpell(uint packed, in SpellInfo spell)
@@ -250,6 +253,7 @@ public sealed partial class GameLoop
         _draggingPetActionPassive = spell.Passive;
         _draggingPetActionIcon = spell.IconPath;
         _pressedActionSlot = -1;
+        PlayUiSound(PetSpellBookUiLaw.PickupSound, "ui.actionbar");
     }
 
     private void CastPetBookSpell(uint packed, in SpellInfo spell, WorldEntity? pet)
@@ -657,13 +661,14 @@ public sealed partial class GameLoop
         float scale,
         SpellTooltipPlacement placement,
         Vector2 ownerMin = default,
-        Vector2 ownerMax = default)
+        Vector2 ownerMax = default,
+        IReadOnlyList<(string Text, uint Color)>? supplementalRows = null)
     {
         if (_spellCatalog is null || _skin is not { } skin ||
             !_spellCatalog.TryGet(spellId, out SpellInfo spell)) return null;
         uint casterLevel = _net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player)
             ? player.Level : 0;
-        SpellTooltipView view = SpellTooltipLaw.Build(spell, _spellCatalog, casterLevel);
+        SpellTooltipView view = BuildActorSpellTooltip(spell, casterLevel, ControlledGuid);
         // The free view's bottom edge belongs to the commander console; the
         // prepared clearance lifts the vanilla default anchor above that line
         // (the minimap docks bottom-LEFT there, away from this corner).
@@ -673,7 +678,7 @@ public sealed partial class GameLoop
                 ? 134f * scale : 0f;
         return new PreparedSharedSpellTooltip(owner,
             new SpellTooltipRenderSnapshot(view, skin, scale, ImGui.GetIO().DisplaySize,
-                placement, ownerMin, ownerMax, bottomClearance));
+                placement, ownerMin, ownerMax, bottomClearance, supplementalRows));
     }
 
     private void DrawSpellTooltip(in SpellTooltipRenderSnapshot snapshot)
@@ -712,6 +717,11 @@ public sealed partial class GameLoop
                 first = false;
             }
         }
+
+        if (snapshot.SupplementalRows is { } supplemental)
+            foreach (var extra in supplemental)
+                foreach (string line in WrapTooltipText(extra.Text, "GameTooltipText", s, SpellTooltipLaw.WrapWidth * s))
+                    AddRow(line, null, "GameTooltipText", extra.Color);
 
         // Widths and the line stack are DEVICE pixels: text width is the summed glyph advances
         // (the client's own measure), row height is the em (lineStep = em + spacing(0)). Only

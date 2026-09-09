@@ -7,6 +7,18 @@ internal static class QuestLogClinicalChecks
 {
     public static void Run()
     {
+        Check(QuestRewardUiLaw.HasNpcRewards(0, 0, 0, 688) &&
+              QuestRewardUiLaw.HasNpcRewards(1, 0, 0, 688) &&
+              QuestRewardUiLaw.HasNpcRewards(0, 1, 7, 0) &&
+              !QuestRewardUiLaw.HasNpcRewards(0, 0, 0, 0) &&
+              QuestRewardUiLaw.SpellLearnTextKey(false) == "REWARD_SPELL" &&
+              QuestRewardUiLaw.SpellLearnTextKey(true) == "REWARD_TRADESKILL_SPELL",
+            "spell-only NPC rewards must retain the reward section and native learn label");
+        Check(QuestRewardUiLaw.VisibleRewardMoney(25, 90, 60) == 115 &&
+              QuestRewardUiLaw.VisibleRewardMoney(25, 90, 59) == 25 &&
+              QuestRewardUiLaw.VisibleRewardMoney(50, 90, 60, moneyRate: 2) == 230 &&
+              QuestRewardUiLaw.VisibleRewardMoney(25, 90, 60, maximumLevel: 70) == 25,
+            "NPC reward money must add the actor's max-level bonus without rescaling the wire base");
         Check((ushort)Op.CMSG_QUESTLOG_SWAP_QUEST == 0x0193 &&
               WorldSession.BuildQuestLogSwapBody(3, 7).SequenceEqual(new byte[] { 3, 7 }),
             "CMSG_QUESTLOG_SWAP_QUEST opcode or two-u8 body drift");
@@ -98,6 +110,16 @@ internal static class QuestLogClinicalChecks
             "quest shared log/NPC shell geometry drift");
         QuestScreenRect npcClip = QuestFrameUiLaw.NpcScrollClip(
             new Vector2(100, 200), 2);
+        QuestLogicalRect npcTrack = QuestFrameUiLaw.NpcScrollTrackRect;
+        QuestLogicalRect detailTrack = QuestFrameUiLaw.QuestLogDetailScrollTrackRect;
+        Check(QuestFrameUiLaw.ScrollFromThumb(105, npcTrack, 166) == 0 &&
+              QuestFrameUiLaw.ScrollFromThumb(248, npcTrack, 166) == 83 &&
+              QuestFrameUiLaw.ScrollFromThumb(999, npcTrack, 166) == 166 &&
+              QuestFrameUiLaw.ScrollFromThumb(-1, npcTrack, 166) == 0 &&
+              QuestFrameUiLaw.ScrollFromThumb(300, npcTrack, 0) == 0 &&
+              QuestFrameUiLaw.ScrollFromThumb(detailTrack.Y + detailTrack.Height - 8,
+                  detailTrack, 239) == 239,
+            "quest thumb drag must reach both ends, clamp outside and handle no overflow");
         Check(QuestFrameUiLaw.NpcScrollRect == new QuestLogicalRect(23, 81, 300, 334) &&
               QuestFrameUiLaw.NpcScrollBarRect == new QuestLogicalRect(329, 81, 16, 334) &&
               QuestFrameUiLaw.NpcScrollDownRect == new QuestLogicalRect(329, 399, 16, 16) &&
@@ -186,7 +208,8 @@ internal static class QuestLogClinicalChecks
               QuestFrameUiLaw.ItemNameFrameRect.ScaledMin(itemMin, 2) ==
                   new Vector2(448, 862) &&
               QuestFrameUiLaw.ItemNameFrameRect.ScaledSize(2) == new Vector2(256, 128) &&
-              QuestFrameUiLaw.ItemNameTextMin(itemMin, 2) == new Vector2(478, 910) &&
+              QuestFrameUiLaw.ItemNameTextMin(itemMin, 2) == new Vector2(478, 889) &&
+              QuestFrameUiLaw.ItemNameTextSize == new Vector2(90, 36) &&
               QuestFrameUiLaw.ItemCountMin(itemMin, new Vector2(40, 18), 2) ==
                   new Vector2(420, 936) &&
               QuestFrameUiLaw.ItemHighlightRect.ScaledMin(itemMin, 2) ==
@@ -195,6 +218,18 @@ internal static class QuestLogClinicalChecks
               QuestFrameUiLaw.ItemTooltipSeat(itemMin, new Vector2(294, 82)) ==
                   new QuestTooltipSeat(new Vector2(684, 886), Vector2.UnitY),
             "quest reward-item row geometry drift");
+        var itemClip = new QuestScreenRect(new Vector2(23, 81), new Vector2(323, 415));
+        Check(QuestFrameUiLaw.VisibleItemHit(new Vector2(20, 100), new Vector2(147, 41), itemClip) ==
+                  new QuestScreenRect(new Vector2(23, 100), new Vector2(167, 141)) &&
+              QuestFrameUiLaw.VisibleItemHit(new Vector2(20, 400), new Vector2(147, 41), itemClip) ==
+                  new QuestScreenRect(new Vector2(23, 400), new Vector2(167, 415)) &&
+              QuestFrameUiLaw.VisibleItemHit(new Vector2(20, 500), new Vector2(147, 41), itemClip).Min.Y > itemClip.Max.Y,
+            "reward hit clipping must keep the authored left inset clickable without stealing off-scroll controls");
+        Check(FontStringOverflowLaw.WrappedLines("Rabbit Handler Gloves", 8, s => s.Length)
+                  .SequenceEqual(new[] { "Rabbit", "Handler", "Gloves" }) &&
+              FontStringOverflowLaw.WrappedLines("ABCDEFGHI", 4, s => s.Length)
+                  .SequenceEqual(new[] { "ABCD", "EFGH", "I" }),
+            "reward labels must wrap both words and overlong names inside their authored box");
         IReadOnlyList<QuestLogHeaderGroup> groups = QuestFrameUiLaw.GroupQuestLogHeaders(
             ["Westfall", "Quests", "Westfall", "Alchemy"]);
         Check(groups.Count == 3 && groups[0].Header == "Alchemy" &&
@@ -268,6 +303,12 @@ internal static class QuestLogClinicalChecks
         Check(npcRendererStart >= 0 && npcRendererEnd > npcRendererStart,
             "quest NPC renderer source slice drift");
         string npcRenderer = runtime[npcRendererStart..npcRendererEnd];
+        Check(npcRenderer.Contains("_questDetails.RewardSpell", StringComparison.Ordinal) &&
+              npcRenderer.Contains("_questOffer.RewardSpell", StringComparison.Ordinal) &&
+              npcRenderer.Contains("QuestRewardUiLaw.HasNpcRewards", StringComparison.Ordinal) &&
+              npcRenderer.Contains("PrepareSharedSpellTooltip(tooltipOwner, rewardSpell", StringComparison.Ordinal) &&
+              npcRenderer.Contains("if (rewardSpell != 0) return;", StringComparison.Ordinal),
+            "NPC details and rewards must carry spell rewards through layout and tooltip without item-click actions");
         Check(session.Contains("Op.CMSG_QUESTLOG_SWAP_QUEST", StringComparison.Ordinal) &&
               client.Contains("QuestLogSwap(byte firstSlot, byte secondSlot)",
                   StringComparison.Ordinal) &&
@@ -284,6 +325,9 @@ internal static class QuestLogClinicalChecks
               runtime.Contains("QuestFrameUiLaw.NpcScrollContentOrigin", StringComparison.Ordinal) &&
               runtime.Contains("QuestFrameUiLaw.NpcScrollContentSize", StringComparison.Ordinal) &&
               runtime.Contains("QuestFrameUiLaw.NpcScrollThumbRect", StringComparison.Ordinal) &&
+              runtime.Contains("HandleQuestScrollTrack(\"##quest-detail-track\"", StringComparison.Ordinal) &&
+              runtime.Contains("HandleQuestScrollTrack(\"##quest-npc-track\"", StringComparison.Ordinal) &&
+              runtime.Contains("QuestFrameUiLaw.ScrollFromThumb", StringComparison.Ordinal) &&
               runtime.Contains("QuestFrameUiLaw.NpcGreetingGoodbyeRect", StringComparison.Ordinal) &&
               runtime.Contains("QuestFrameUiLaw.NpcDetailAcceptRect", StringComparison.Ordinal) &&
               runtime.Contains("QuestFrameUiLaw.NpcProgressPrimaryRect", StringComparison.Ordinal) &&
@@ -388,7 +432,7 @@ internal static class QuestLogClinicalChecks
                   StringComparison.Ordinal) &&
               runtime.Contains("_questWatchTitleHits.Add(hit);", StringComparison.Ordinal) &&
               !runtime.Contains("##quest-watch-title-", StringComparison.Ordinal) &&
-              runtime.Contains("_questWatchCollapsed.Remove(line.QuestId)",
+              runtime.Contains("_questWatchCollapsed.Remove(hit.QuestId)",
                   StringComparison.Ordinal) &&
               runtime.Contains("if (!collapsed && lines.Count < QuestFrameUiLaw.MaxQuestWatchLines)",
                   StringComparison.Ordinal) &&
@@ -398,6 +442,10 @@ internal static class QuestLogClinicalChecks
                   StringComparison.Ordinal) &&
               runtime.Contains("_questLogSnapshotKnown = false;", StringComparison.Ordinal),
             "quest-log modal/abandon/watch production wiring drift");
+        Check(runtime.Contains("out WorldEntity giver) && giver.IsUnit", StringComparison.Ordinal) &&
+              runtime.Contains("const string bookPortrait = @\"Interface\\QuestFrame\\UI-QuestLog-BookIcon\";", StringComparison.Ordinal) &&
+              runtime.Contains("DrawArt(dl, bookPortrait, portraitMin, QuestFrameUiLaw.NpcPortraitRect.Size, s);", StringComparison.Ordinal),
+            "Non-unit quest givers must use the authored book portrait, never a creature fallback");
         Check(runtime.Contains(".Where(o => o.ItemId != 0 && o.ItemCount > 0)",
                   StringComparison.Ordinal) &&
               runtime.Contains("_items.Require(itemId, 0, _net);",

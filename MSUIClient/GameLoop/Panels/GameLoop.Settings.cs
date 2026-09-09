@@ -194,7 +194,7 @@ public sealed partial class GameLoop
                 _net is { IsInWorld: true } && (_autoRepeatSpell != 0 ||
                     _pendingCastSpell != 0 ||
                     _castBarPhase == CastBarPhase.Casting && _castBarSpell != 0),
-                _groundCastSpell != 0 || _itemCastSpell != 0 || _rtsUnitCastSpellId != 0,
+                _giftWrap is not null || _groundCastSpell != 0 || _itemCastSpell != 0 || _rtsUnitCastSpellId != 0,
                 _loot.IsOpen || HasPlayerPanelForEscape(),
                 _selectionGuid != 0));
 
@@ -250,9 +250,9 @@ public sealed partial class GameLoop
 
     private bool HasPlayerPanelForEscape() =>
         _bindingCapture is not null || _keybindingsOpen || _tradeOpen || _inspectOpen || _dressUpOpen ||
-        _auctionOpen || _mailOpen || _gossipMenu is not null || _gossipGreeting is not null ||
+        _auctionOpen || _mailOpen || _battlefieldList is not null || _battlefieldQueueMenu || _battlefieldScoreOpen || _gossipMenu is not null || _gossipGreeting is not null ||
         QuestNpcPanelNow() != QuestNpcPanel.None ||
-        _vendor is not null || _trainer is not null || _gameObjectGuid != 0 || _worldMapOpen ||
+        _vendor is not null || _trainer is not null || _itemTextRead is not null || _worldMapOpen ||
         _commanderMapOpen || _rtsControlGroupCommandOpen || _companionsOpen ||
         _macroOpen || _helpOpen || _socialOpen || _guildOpen || _professionOpen || _bankOpen ||
         _tabardOpen || _taxiOpen && !_taxiLocked || _talentOpen || _questLogOpen ||
@@ -268,6 +268,7 @@ public sealed partial class GameLoop
 
     private bool TryClosePlayerPanelOnEscape()
     {
+        if (_battlefieldQueueMenu) { _battlefieldQueueMenu = false; return true; }
         if (CloseItemRefTooltip()) return true;
         if (_dressUpOpen) { CloseDressUp(); return true; }
         if (_rtsControlGroupCommandOpen) { _rtsControlGroupCommandOpen = false; return true; }
@@ -287,7 +288,7 @@ public sealed partial class GameLoop
         if (QuestNpcPanelNow() != QuestNpcPanel.None) { CloseQuestNpcFrame(playSound: true); return true; }
         if (_vendor is not null) { CloseVendorSession(); return true; }
         if (_trainer is not null) return CloseTrainerSession();
-        if (_gameObjectGuid != 0) { _gameObjectGuid = 0; return true; }
+        if (_itemTextRead is not null) { CloseItemText(playSound: true); return true; }
         if (_worldMapOpen) { _worldMapOpen = false; return true; }
         if (_commanderMapOpen) { _commanderMapOpen = false; return true; }
         if (_macroIconPickerOpen) { _macroIconPickerOpen = false; return true; }
@@ -317,6 +318,7 @@ public sealed partial class GameLoop
     /// </summary>
     private bool TryCloseUnregisteredSurfaceForCenterOpen()
     {
+        if (_itemTextRead is not null) { CloseItemText(playSound: true); return true; }
         if (_rtsControlGroupCommandOpen) { _rtsControlGroupCommandOpen = false; return true; }
         if (_bindingCapture is not null) { _bindingCapture = null; return true; }
         if (_keybindingsOpen)
@@ -326,7 +328,6 @@ public sealed partial class GameLoop
             _bindingSnapshot = null; _keybindingsOpen = false; return true;
         }
         if (_auctionOpen) { ResetAuction(); return true; }
-        if (_gameObjectGuid != 0) { _gameObjectGuid = 0; return true; }
         if (_commanderMapOpen) { _commanderMapOpen = false; return true; }
         if (_helpOpen) { _helpOpen = false; return true; }
         if (_tabardOpen) { _tabardOpen = false; return true; }
@@ -2096,6 +2097,12 @@ public sealed partial class GameLoop
                 Slider("msens", "Mouse sensitivity", () => s.Controls.MouseSensitivity,
                     v => { s.Controls.MouseSensitivity = v; _window.MouseSensitivity = v; },
                     0.1f, 10f, "x{0:F2}");
+                Slider("looksens", "Look around sensitivity", () => s.Controls.LookAroundSensitivity,
+                    v => { s.Controls.LookAroundSensitivity = v; _window.LookAroundSensitivity = v; },
+                    0.1f, 2f, "x{0:F2}",
+                    "How fast the camera pans while holding right-click to look around and\n" +
+                    "turn your character. Separate from Mouse sensitivity, which covers the\n" +
+                    "left-click orbit-only look.");
                 Check("Invert vertical look", () => s.Controls.InvertPitch,
                     v => { s.Controls.InvertPitch = v; _config.Camera.InvertPitch = v; });
                 Check("Raw cursor", () => s.Controls.RawCursor,
@@ -3195,6 +3202,7 @@ public sealed partial class GameLoop
             _atmosphere.TimeOfDayHours = s.Lighting.TimeOfDay;
 
         _window.MouseSensitivity = s.Controls.MouseSensitivity;
+        _window.LookAroundSensitivity = s.Controls.LookAroundSensitivity;
         _window.RawCursor = s.Controls.RawCursor;
         _config.Camera.InvertPitch = s.Controls.InvertPitch;
         _config.Camera.Collision = s.Controls.CameraCollision;
@@ -3458,6 +3466,7 @@ public sealed partial class GameLoop
         }
 
         s.Controls.MouseSensitivity = _window.MouseSensitivity;
+        s.Controls.LookAroundSensitivity = _window.LookAroundSensitivity;
         s.Controls.RawCursor = _window.RawCursor;
         s.Controls.InvertPitch = _config.Camera.InvertPitch;
         s.Controls.CameraCollision = _config.Camera.Collision;

@@ -6,6 +6,7 @@ public sealed class SpellFocusCatalog
     public const string MpqPath = @"DBFilesClient\SpellFocusObject.dbc";
     private readonly Dictionary<uint, string> _names = [];
 
+    public string? KnownName(uint id) => _names.GetValueOrDefault(id);
     public int Count => _names.Count;
     public string Name(uint id) => _names.TryGetValue(id, out string? name) && name.Length > 0
         ? name : $"Spell Focus {id}";

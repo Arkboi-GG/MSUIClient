@@ -60,8 +60,8 @@ internal static class UiErrorsFrameClinicalChecks
               network.Contains("case Op.SMSG_FISH_ESCAPED", StringComparison.Ordinal) &&
               spell.Contains("ShowUiError(text)", StringComparison.Ordinal) &&
               !spell.Contains("PushCenterText(text", StringComparison.Ordinal) &&
-              quest.Contains("ShowUiInfo(QuestKillProgressText(value))", StringComparison.Ordinal) &&
-              quest.Contains("ShowUiInfo($\"{label}: {current}/{objective.ItemCount}\")",
+              quest.Contains("ShowQuestNotice(owner, QuestKillProgressText(value))", StringComparison.Ordinal) &&
+              quest.Contains("ShowQuestNotice(owner, $\"{label}: {current}/{objective.ItemCount}\")",
                   StringComparison.Ordinal) &&
               quest.Contains("\"Objective Complete.\"", StringComparison.Ordinal),
             "live UI error/info producers bypass the MessageFrame state/law");

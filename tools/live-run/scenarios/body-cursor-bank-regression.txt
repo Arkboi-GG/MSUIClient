@@ -1,0 +1,71 @@
+wait 2
+companion open
+companion list
+wait 2
+companion summon Gondolfo
+wait 8
+companion list
+wait 1
+companion assert-summoned Gondolfo
+item-gesture pickup-entry 2589
+companion possess Gondolfo
+wait 4
+companion assert-controlled Gondolfo
+item-gesture assert-cursor 0
+item-gesture pickup-slot 4 12
+item-gesture assert-cursor 2592
+sui-release
+wait 4
+item-gesture assert-cursor 0
+bags open
+item-gesture split-entry 2589
+wait 1
+companion possess Gondolfo
+wait 4
+glue key-down Enter
+wait 0.2
+glue key-up Enter
+wait 1
+item-gesture assert-cursor 0
+sui-release
+wait 4
+action-gesture pickup-spell 133
+companion possess Gondolfo
+wait 4
+action-gesture assert-cursor 0
+item-gesture assert-cursor 0
+dump checklist-body-cursors-fixed
+sui-release
+wait 4
+companion dismiss Gondolfo
+wait 3
+companion list
+wait 1
+companion assert-offline Gondolfo
+gm .go creature 12675
+wait 6
+select npc-flag-nearest:banker
+bank open
+wait 2
+item-gesture assert-entry -1 0 0
+item-gesture pickup-entry 2589
+sound mark
+item-gesture place -1 0
+wait 2
+item-gesture assert-entry -1 0 2589
+item-gesture assert-entry 4 12 0
+sound assert-category 1 1202 sfx.item-putdown
+dump checklist-bank-material-deposit
+sound mark
+item-gesture pickup-slot -1 0
+wait 1
+sound assert-category 1 1185 sfx.item-pickup
+item-gesture place 4 12
+wait 2
+item-gesture assert-entry -1 0 0
+item-gesture assert-entry 4 12 2589
+dump checklist-bank-material-restored
+key press Escape
+wait 0.2
+key release Escape
+wait 1

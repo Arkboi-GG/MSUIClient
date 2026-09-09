@@ -162,6 +162,12 @@ public static class CombatFeedbackLaw
                         cues.Add(new(target.Target, MissWord(target.MissInfo), WorldCombatTextStyle.PlayerSpell));
                 break;
 
+            case CombatSpellOutcome outcome when IsPlayerOrOwned(outcome.Caster, playerGuid, isOwnedSource)
+                    && outcome.Target != playerGuid:
+                cues.Add(new(outcome.Target, outcome.Immune ? "Immune" : "Resist",
+                    WorldCombatTextStyle.PlayerSpell));
+                break;
+
             case CombatXpGain xp:
                 cues.Add(new(playerGuid, $"XP: {xp.Total}", WorldCombatTextStyle.Experience));
                 break;
@@ -234,6 +240,9 @@ public static class CombatFeedbackLaw
                 break;
             case CombatEnvironmentalDamage e when e.Victim == playerGuid:
                 cues.Add(new($"-{e.Damage}", CenterCombatTextStyle.Damage));
+                break;
+            case CombatSpellOutcome outcome when outcome.Target == playerGuid:
+                cues.Add(new(outcome.Immune ? "Immune" : "Resist", CenterCombatTextStyle.Info));
                 break;
             case CombatSpellMiss e:
                 foreach (CombatMiss miss in e.Misses)

@@ -123,13 +123,13 @@ public static class FriendsFrameUiLaw
     public const string AddIgnorePopupText = "Enter name of player to ignore:";
     public const int NameMaxLetters = 12;
     public static readonly StaticPopupCoordinatorLaw.Definition AddFriendPopupDefinition =
-        new(AddFriendPopupType, HideOnEscape: true, HasAccept: true,
+        new(AddFriendPopupType, WhileDead: true, HideOnEscape: true, HasAccept: true,
             HasOnShow: true, HasEditBox: true, MaxLetters: NameMaxLetters,
-            HasEditBoxEnter: true);
+            HasEditBoxEnter: true, Exclusive: true);
     public static readonly StaticPopupCoordinatorLaw.Definition AddIgnorePopupDefinition =
-        new(AddIgnorePopupType, HideOnEscape: true, HasAccept: true,
+        new(AddIgnorePopupType, WhileDead: true, HideOnEscape: true, HasAccept: true,
             HasOnShow: true, HasEditBox: true, MaxLetters: NameMaxLetters,
-            HasEditBoxEnter: true);
+            HasEditBoxEnter: true, Exclusive: true);
     public static readonly LogicalRect AddFriend = new(17, 384, 131, 21);
     public static readonly LogicalRect SendMessage = new(214, 384, 131, 21);
     public static readonly LogicalRect RemoveFriend = new(17, 410, 131, 21);

@@ -79,7 +79,7 @@ public sealed partial class GameLoop
                 Console.WriteLine($"[gdump] screenshot unavailable - {ex.Message}");
             }
             Console.WriteLine($"[gdump] wrote {relativeJson}{(png ? " (+ .png)" : "")}");
-            ImGui.SetClipboardText(relativeJson);
+            if (_liveRunOptions?.Background != true) ImGui.SetClipboardText(relativeJson);
         }
         catch (Exception ex)
         {
@@ -315,6 +315,11 @@ public sealed partial class GameLoop
     {
         if (_gl is null) return false;
         Vector2 size = _window.FramebufferSize;
+        if (size.X <= 1 || size.Y <= 1)
+        {
+            Console.WriteLine($"[capture] refused unavailable framebuffer {size.X}x{size.Y}: {path}");
+            return false;
+        }
         int width = Math.Max(1, (int)size.X);
         int height = Math.Max(1, (int)size.Y);
         byte[] bottomUp = new byte[checked(width * height * 4)];
@@ -335,11 +340,16 @@ public sealed partial class GameLoop
 
     /// <summary>Evidence-only framebuffer capture for high-volume spell sequences.
     /// The acting renderer is sampled unchanged; only the stored evidence image is
-    /// reduced to a bounded 640px width so a full class matrix remains reviewable.</summary>
+    /// reduced to a bounded 480px width so a full class matrix remains reviewable.</summary>
     private unsafe bool TrySaveAnimationSequenceFrame(string path)
     {
         if (_gl is null) return false;
         Vector2 size = _window.FramebufferSize;
+        if (size.X <= 1 || size.Y <= 1)
+        {
+            Console.WriteLine($"[animation-frame] refused unavailable framebuffer {size.X}x{size.Y}: {path}");
+            return false;
+        }
         int sourceWidth = Math.Max(1, (int)size.X);
         int sourceHeight = Math.Max(1, (int)size.Y);
         byte[] bottomUp = new byte[checked(sourceWidth * sourceHeight * 4)];

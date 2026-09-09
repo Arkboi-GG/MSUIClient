@@ -32,6 +32,8 @@ public sealed class ItemTemplate
     public uint RequiredSkill;
     public uint RequiredSkillRank;
     public uint RequiredSpell;
+    public uint RequiredHonorRank;
+    public uint RequiredCityRank;
     public uint RequiredReputationFaction;
     public uint RequiredReputationRank;
     public uint MaxCount;
@@ -61,6 +63,8 @@ public sealed class ItemTemplate
     public ItemSpellTemplate[] Spells = new ItemSpellTemplate[5];
     public uint RandomProperty;
     public uint ItemSet;
+    public uint RestrictedArea;
+    public uint RestrictedMap;
     public uint BagFamily;
 
     public static ItemTemplate? Parse(byte[] body)
@@ -89,7 +93,8 @@ public sealed class ItemTemplate
         item.RequiredSkill = r.ReadU32();
         item.RequiredSkillRank = r.ReadU32();
         item.RequiredSpell = r.ReadU32();
-        r.ReadU32(); r.ReadU32(); // honor rank / city rank
+        item.RequiredHonorRank = r.ReadU32();
+        item.RequiredCityRank = r.ReadU32();
         item.RequiredReputationFaction = r.ReadU32();
         item.RequiredReputationRank = r.ReadU32();
         item.MaxCount = r.ReadU32();
@@ -145,8 +150,8 @@ public sealed class ItemTemplate
         item.Block = r.ReadU32();
         item.ItemSet = r.ReadU32();
         item.MaxDurability = r.ReadU32();
-        r.ReadU32();                 // area
-        r.ReadU32();                 // map
+        item.RestrictedArea = r.ReadU32();
+        item.RestrictedMap = r.ReadU32();
         item.BagFamily = r.ReadU32();
         return item;
     }

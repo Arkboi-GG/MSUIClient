@@ -77,7 +77,7 @@ public sealed class LocalMovementSender
             float speed = horizontal.Length();
             float cos = speed > 1e-4f ? horizontal.X / speed : MathF.Cos(controller.Yaw);
             float sin = speed > 1e-4f ? horizontal.Y / speed : MathF.Sin(controller.Yaw);
-            info.Jump = new JumpInfo(-MathF.Abs(jumpLaunchSpeed), cos, sin, speed);
+            info.Jump = controller.ForcedJump ?? new JumpInfo(controller.FallResetArc ? 0 : -MathF.Abs(jumpLaunchSpeed), cos, sin, speed);
         }
         return info;
     }
@@ -96,6 +96,7 @@ public sealed class LocalMovementSender
         double nowSeconds)
     {
         _lastUpdateOpcodes.Clear();
+        bool fallReset = controller.ConsumeFallReset(out bool resetBeganJump);
         float facing = Normalize(controller.Yaw);
         if (!_initialized) Reset(facing);
 
@@ -134,12 +135,12 @@ public sealed class LocalMovementSender
         bool falling = (current & (uint)MovementFlags.Falling) != 0;
         bool sent = false;
 
-        MovementInfo Snapshot()
+        MovementInfo Snapshot(bool initialJump = false)
         {
             var info = MovementInfo.Create(controller.Position, facing, flags);
             if (controller.Swimming) info.Pitch = controller.SwimPitch;
             info.Transport = controller.Transport;
-            info.FallTime = fallTimeMs;
+            info.FallTime = fallReset ? 0 : fallTimeMs;
             if (falling)
             {
                 Vector2 horizontal = new(controller.HorizontalVelocity.X, controller.HorizontalVelocity.Y);
@@ -147,14 +148,15 @@ public sealed class LocalMovementSender
                 float cos = speed > 1e-4f ? horizontal.X / speed : MathF.Cos(facing);
                 float sin = speed > 1e-4f ? horizontal.Y / speed : MathF.Sin(facing);
                 // The 5875 movement wire stores jump z-speed down-positive.
-                info.Jump = new JumpInfo(-MathF.Abs(jumpLaunchSpeed), cos, sin, speed);
+                info.Jump = initialJump ? new JumpInfo(-MathF.Abs(jumpLaunchSpeed), cos, sin, speed)
+                    : controller.ForcedJump ?? new JumpInfo(controller.FallResetArc ? 0 : -MathF.Abs(jumpLaunchSpeed), cos, sin, speed);
             }
             return info;
         }
 
-        void Send(Op opcode)
+        void Send(Op opcode, bool initialJump = false)
         {
-            net.SendMovement(opcode, Snapshot());
+            net.SendMovement(opcode, Snapshot(initialJump));
             PacketsSent++;
             LastOpcode = opcode;
             _lastUpdateOpcodes.Add(opcode);
@@ -163,7 +165,14 @@ public sealed class LocalMovementSender
 
         // Arc lifecycle is independent of directional axes. A walk-off has no
         // jump edge, so an immediate heartbeat introduces the falling state.
-        if (jumped) Send(Op.MSG_MOVE_JUMP);
+        if (fallReset && falling)
+        {
+            // A very low ceiling can stop ascent during the first jump frame. The Core must
+            // observe that jump before the reset; both packets carry the actual contact pose.
+            if (resetBeganJump) Send(Op.MSG_MOVE_JUMP, initialJump: true);
+            Send(Op.CMSG_MOVE_FALL_RESET);
+        }
+        else if (jumped) Send(Op.MSG_MOVE_JUMP);
         else if (landed) Send(Op.MSG_MOVE_FALL_LAND);
         else if (startedFalling) Send(Op.MSG_MOVE_HEARTBEAT);
 

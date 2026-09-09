@@ -22,6 +22,9 @@ public static class PetSpellBookUiLaw
     public const string DemonTitle = "Demon";
     public const string OpenSound = "igAbilityOpen";
     public const string CloseSound = "igAbilityClose";
+    // SoundEntries 837/838: the ability icon pickup/drop pair, sharing the player spell WAVs.
+    public const string PickupSound = "igAbilityIconPickup";
+    public const string DropSound = "igAbilityIconDrop";
 
     public static readonly LogicalRect PlayerTab = new(15, 419, 128, 64);
     public static readonly LogicalRect PetTab = new(123, 419, 128, 64);

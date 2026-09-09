@@ -19,8 +19,9 @@ public readonly record struct SpellTargets(
 public readonly record struct SpellStartPacket(ulong ItemCaster, ulong Caster, uint SpellId,
     ushort CastFlags, uint CastTimeMs, SpellTargets Targets, uint? AmmoDisplayId,
     uint? AmmoInventoryType);
+public readonly record struct SpellGoMiss(ulong Guid, byte Reason, byte? ReflectionReason = null);
 public readonly record struct SpellGoPacket(ulong ItemCaster, ulong Caster, uint SpellId,
-    ushort CastFlags, ulong[] Hits, (ulong Guid, byte Reason)[] Misses, SpellTargets Targets,
+    ushort CastFlags, ulong[] Hits, SpellGoMiss[] Misses, SpellTargets Targets,
     uint? AmmoDisplayId, uint? AmmoInventoryType);
 public readonly record struct SpellDelayedPacket(ulong Caster, uint DelayMs);
 public readonly record struct SpellChannelStartPacket(uint SpellId, uint DurationMs);
@@ -60,11 +61,16 @@ public static class SpellLifecyclePacketParser
 
     public static SpellChannelStartPacket ParseChannelStart(byte[] body)
     {
+        if (body.Length != 8) throw new InvalidDataException("Channel start requires spell and duration");
         var r = new PacketReader(body);
         return new SpellChannelStartPacket(r.ReadU32(), r.ReadU32());
     }
 
-    public static uint ParseChannelUpdate(byte[] body) => new PacketReader(body).ReadU32();
+    public static uint ParseChannelUpdate(byte[] body)
+    {
+        if (body.Length != 4) throw new InvalidDataException("Channel update requires remaining duration");
+        return new PacketReader(body).ReadU32();
+    }
 }
 
 public static class SpellPacketParser
@@ -95,12 +101,12 @@ public static class SpellPacketParser
         ushort flags = r.ReadU16();
         var hits = new ulong[r.ReadU8()];
         for (int i = 0; i < hits.Length; i++) hits[i] = r.ReadU64();
-        var misses = new (ulong, byte)[r.ReadU8()];
+        var misses = new SpellGoMiss[r.ReadU8()];
         for (int i = 0; i < misses.Length; i++)
         {
             ulong guid = r.ReadU64(); byte reason = r.ReadU8();
-            if (reason == 11) r.ReadU8();
-            misses[i] = (guid, reason);
+            byte? reflectionReason = reason == 11 ? r.ReadU8() : null;
+            misses[i] = new(guid, reason, reflectionReason);
         }
         SpellTargets targets = ReadTargets(r);
         (uint Display, uint Inventory)? ammo = (flags & 0x20) != 0 ? ReadAmmo(r) : null;
@@ -108,12 +114,7 @@ public static class SpellPacketParser
             ammo?.Display, ammo?.Inventory);
     }
 
-    public static (uint SpellId, byte Status, byte Reason) ParseResult(byte[] body)
-    {
-        var r = new PacketReader(body);
-        uint spell = r.ReadU32(); byte status = r.ReadU8();
-        return (spell, status, status == 2 && r.HasMore ? r.ReadU8() : (byte)0);
-    }
+    public static SpellCastResultPacket ParseResult(byte[] body) => SpellCastResultPackets.Parse(body);
 
     private static (uint Display, uint Inventory) ReadAmmo(PacketReader r)
         => (r.ReadU32(), r.ReadU32());

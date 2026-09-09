@@ -58,6 +58,11 @@ public static class CharSelectUiLaw
     public static ScreenRect Host(Vector2 displaySize) =>
         new(Vector2.Zero, displaySize);
 
+    // Keep the complete roster above the independently sized create button.
+    // Scale the three-line row content with its hit box when nine or ten are present.
+    public static float RosterPitch(int count, float availableHeight, float scale) =>
+        MathF.Min(60f * scale, MathF.Max(0f, availableHeight) / Math.Max(1, Math.Clamp(count, 0, 10)));
+
     public static ScreenRect TuningWindow =>
         new(new Vector2(48f, 48f), new Vector2(360f, 0f));
 

@@ -37,9 +37,23 @@ public sealed partial class GameLoop
     private int _hoveredActionSlot = -1;
     private uint _pendingCastSpell;
     private uint _autoRepeatSpell;
+
+    private bool ControlledActorSpellResourceGate(in SpellInfo spell, out uint available, out uint cost)
+    {
+        available = 0; cost = spell.ManaCost;
+        return _net is not null && _entities.TryGet(ControlledGuid, out WorldEntity actor) &&
+            ActorCanPaySpell(spell, actor, out available, out cost);
+    }
+    private bool ActorCanPaySpell(in SpellInfo spell, WorldEntity actor, out uint available, out uint cost) =>
+        SpellResourceLaw.CanPay(spell, actor.Fields, out available, out cost,
+            SpellResourceLaw.Rank(spell, actor, _skillLines?.SpellRankLine(spell.Id) ?? 0),
+            ActorSpellModifiers(actor.Guid, spell, SpellModifierStore.Cost));
+
     private uint _queuedMeleeSpell;
     private double _globalCooldownUntil;
     private int _actionPage = 1;
+    private ulong _bonusBarActor;
+    private bool _bonusBarShown;
     private const int ActionPageCount = 6;
     private readonly ActionButtonVerdict?[] _lastActionButtonVerdicts =
         new ActionButtonVerdict?[120];
@@ -52,6 +66,7 @@ public sealed partial class GameLoop
         {
             _spellCatalog = SpellCatalog.Load(_mpq);
             _enchantCatalog = EnchantCatalog.Load(_mpq);
+            _itemRandomProperties = ItemRandomPropertyCatalog.Load(_mpq);
             _spellVisualCatalog = SpellVisualCatalog.Load(_mpq);
             _shapeshiftForms = ShapeshiftFormCatalog.Load(_mpq);
             _gameplayArt = new GameplayArt(gl, _mpq);
@@ -72,6 +87,7 @@ public sealed partial class GameLoop
 
     private void UpdateActionBarInput(bool typing)
     {
+        UpdateBonusBarFeedback();
         for (int i = 0; i < _actionKeyWasDown.Length; i++)
         {
             bool altPrimaryCast = RtsCastOnPrimaryBindingDown(ActionBinding(i));
@@ -198,6 +214,9 @@ public sealed partial class GameLoop
         switch (slot.Kind)
         {
             case ActionSlot.Spell when slot.ActionId == 6603:
+                // 1.12: pressing Attack with nothing selected picks the nearest valid enemy
+                // within a sensible range, rather than silently doing nothing.
+                if (_selectionGuid == 0) AutoAcquireAttackTarget();
                 if (_selectionGuid != 0) CommitSelection(_selectionGuid, beginAttack: true);
                 break;
             case ActionSlot.Spell:
@@ -216,8 +235,40 @@ public sealed partial class GameLoop
         }
     }
 
+    /// <summary>Nearest valid enemy within <see cref="TargetCycleLaw.AttackAcquireRange"/>, or 0
+    /// if none qualifies. Deliberately simpler than <see cref="CycleEnemyTarget"/>: this is a
+    /// one-shot pick, not a cycle, so it skips that method's screen-off-center weighting and
+    /// recent-history bookkeeping and just takes the closest eligible unit by distance. Shared by
+    /// the Attack button and by every other offensive spell's own auto-acquire in <see cref="TryCast"/>.</summary>
+    private ulong NearestAutoAcquirableEnemy()
+    {
+        if (!TryGetControlledBodyPose(out WorldBodyPose body)) return 0;
+        ulong nearest = 0;
+        float nearestDistance = float.PositiveInfinity;
+        foreach (WorldEntity unit in _entities.Units)
+        {
+            if (unit.Guid == ControlledGuid || unit.Fields.ReadsDead || !CanAttack(unit)) continue;
+            if (unit.IsCreature &&
+                _creatureQueryRecords.TryGetValue(unit.Entry, out CreatureQueryInfo? query) &&
+                query?.CreatureType == 8)
+                continue;
+            float distance = Vector3.Distance(unit.Position, body.Position);
+            if (distance > TargetCycleLaw.AttackAcquireRange || distance >= nearestDistance) continue;
+            nearestDistance = distance;
+            nearest = unit.Guid;
+        }
+        return nearest;
+    }
+
+    private void AutoAcquireAttackTarget()
+    {
+        ulong nearest = NearestAutoAcquirableEnemy();
+        if (nearest != 0) CommitSelection(nearest, beginAttack: false);
+    }
+
     private void TryCast(uint spellId, ulong explicitTarget = 0)
     {
+        CancelGiftWrapping();
         if (_net is null) return;
         if (_spellCatalog is null || !_spellCatalog.TryGet(spellId, out SpellInfo spell))
         {
@@ -292,26 +343,42 @@ public sealed partial class GameLoop
         {
             if (caster.Fields.MountDisplayId != 0 && (spell.Attributes & 0x0100_0000u) == 0)
             {
+                // Pressing the same mount spell that's already active dismounts, same as the
+                // Stance Bar toggling a shapeshift form off - everything else stays refused.
+                if (caster.Fields.Auras().Any(row => row.SpellId == spellId))
+                {
+                    _net.CancelAura(spellId);
+                    EmitCastVerdict(spellId, CastTargetReason.Mounted, 0, sent: true);
+                    return;
+                }
                 EmitCastVerdict(spellId, CastTargetReason.Mounted, 0, sent: false);
                 RefuseCast(spellId, "LOCAL_MOUNTED", "You are mounted");
                 return;
             }
         }
 
+        if (RefuseSpellForm(spell)) return;
+        if (RefuseSpellReactive(spell, 0, checkTarget: false)) return;
         SpellReagent? missingReagent = _spellCatalog.Reagents(spellId)
             .FirstOrDefault(reagent => CarriedCount(reagent.ItemId) < reagent.Count);
         if (missingReagent is { ItemId: not 0 } reagent)
         {
             EmitCastVerdict(spellId, CastTargetReason.MissingReagent, 0, sent: false);
+            _items?.Require(reagent.ItemId, 0, _net);
+            string reagentName = _items?.TryGet(reagent.ItemId, out ItemTemplate? reagentItem) == true &&
+                !string.IsNullOrWhiteSpace(reagentItem?.Name) ? reagentItem.Name : "the required reagent";
             RefuseCast(spellId, "LOCAL_MISSING_REAGENT",
-                $"Missing reagent {reagent.ItemId} ({CarriedCount(reagent.ItemId)}/{reagent.Count}).");
+                $"Missing {reagentName} ({CarriedCount(reagent.ItemId)}/{reagent.Count}).");
             return;
         }
         uint missingTool = _spellCatalog.Tools(spellId).FirstOrDefault(tool => CarriedCount(tool) == 0);
         if (missingTool != 0)
         {
             EmitCastVerdict(spellId, CastTargetReason.MissingTool, 0, sent: false);
-            RefuseCast(spellId, "LOCAL_MISSING_TOOL", $"Requires item {missingTool}.");
+            _items?.Require(missingTool, 0, _net);
+            string toolName = _items?.TryGet(missingTool, out ItemTemplate? toolItem) == true &&
+                !string.IsNullOrWhiteSpace(toolItem?.Name) ? toolItem.Name : "a required tool";
+            RefuseCast(spellId, "LOCAL_MISSING_TOOL", $"Requires {toolName}.");
             return;
         }
         if (!HasNearbySpellFocus(spell.RequiredFocus))
@@ -320,6 +387,15 @@ public sealed partial class GameLoop
             RefuseCast(spellId, "LOCAL_MISSING_FOCUS",
                 $"Requires {SpellFocusName(spell.RequiredFocus)}.");
             return;
+        }
+
+        // 1.12: pressing an offensive spell with nothing selected picks the nearest valid enemy
+        // and starts attacking it, same as the Attack button - this is the generic version of
+        // that fix, covering every spell whose target mask requires a hostile unit.
+        if (explicitTarget == 0 && _selectionGuid == 0 && CastTargetLaw.RequiresHostileUnit(spell))
+        {
+            ulong autoTarget = NearestAutoAcquirableEnemy();
+            if (autoTarget != 0) CommitSelection(autoTarget, beginAttack: true);
         }
 
         CastTargetVerdict targetVerdict = ResolveCastTarget(spell, explicitTarget);
@@ -331,13 +407,14 @@ public sealed partial class GameLoop
             // left-click binds a terrain point and commits (Program.Targeting.cs), a
             // right-click cancels. All the gates above have already passed.
             CancelItemTargeting();
+            CancelGroundTargeting();
             _groundCastSpell = spellId;
             EmitCastVerdict(spellId, CastTargetReason.GroundTargeting, 0, sent: false);
             return;
         }
-        if (targetVerdict.Kind == CastTargetKind.Item)
+        if (targetVerdict.Kind is CastTargetKind.Item or CastTargetKind.GameObject or CastTargetKind.ItemOrGameObject)
         {
-            _groundCastSpell = 0;
+            CancelGroundTargeting();
             ClearEnchantConfirmation();
             _itemCastSpell = spellId;
             EmitCastVerdict(spellId, CastTargetReason.ItemTargeting, 0, sent: false);
@@ -358,7 +435,7 @@ public sealed partial class GameLoop
             RefuseCast(spellId, $"LOCAL_{rangeFailure.Reason}", rangeFailure.Text);
             return;
         }
-        if (!SpellResourceGate(spell, out _, out _))
+        if (!ControlledActorSpellResourceGate(spell, out _, out _))
         {
             EmitCastVerdict(spellId, CastTargetReason.NotEnoughPower, target, sent: false);
             RefuseCast(spellId, "LOCAL_NO_POWER", $"Not enough {PowerName((byte)spell.PowerType).ToLowerInvariant()}");
@@ -388,6 +465,8 @@ public sealed partial class GameLoop
             EmitCastVerdict(spellId, CastTargetReason.UnavailableOrPassive, target, sent: false);
             return;
         }
+        if (RefuseSpellForm(spell)) return;
+        if (RefuseSpellReactive(spell, target)) return;
         bool sent = ground is { } dest
             ? _net.CastSpellAtLocation(spellId, dest)
             : _net.CastSpell(spellId, target);
@@ -399,15 +478,15 @@ public sealed partial class GameLoop
         if (spell.StartRecoveryMs > 0)
         {
             double now = NowSeconds();
-            _globalCooldownUntil = now + spell.StartRecoveryMs / 1000.0;
-            _actions.StartGlobalCooldown(spellId, spell, now);
+            StartActorGlobalCooldown(_actions, ControlledGuid, spell, now);
         }
     }
 
     /// <summary>Commit an armed ground-target cast at a bound world point.</summary>
     private void CommitGroundCast(uint spellId, Vector3 dest)
     {
-        _groundCastSpell = 0;
+        if (TryCommitGroundItemUse(spellId, dest)) return;
+        CancelGroundTargeting();
         if (_spellCatalog is null || !_spellCatalog.TryGet(spellId, out SpellInfo spell)) return;
         CommitCastSend(spell, spellId, 0, dest, CastTargetReason.GroundTargeting);
     }
@@ -415,13 +494,16 @@ public sealed partial class GameLoop
     /// <summary>Armed ground-target spell awaiting a terrain click; 0 = not targeting.</summary>
     private uint _groundCastSpell;
 
-    /// <summary>Armed item-target spell awaiting an occupied bag or paper-doll click.</summary>
+    /// <summary>Armed item/object spell awaiting a compatible bag, paper-doll or world click.</summary>
     private uint _itemCastSpell;
 
     private void CommitItemCast(uint spellId, ulong itemGuid)
     {
         if (!CanAuthorControlledGameplay || _net is null || _spellCatalog is null ||
             !_spellCatalog.TryGet(spellId, out SpellInfo spell)) return;
+        if (!CastTargetLaw.AcceptsItem(spell)) return;
+        if (RefuseSpellForm(spell)) return;
+        if (RefuseSpellReactive(spell, 0, checkTarget: false)) return;
         bool sent = _net.CastSpellOnItem(spellId, itemGuid);
         EmitCastVerdict(spellId, CastTargetReason.ItemTargeting, itemGuid, sent);
         if (!sent) return;
@@ -433,8 +515,7 @@ public sealed partial class GameLoop
         if (spell.StartRecoveryMs > 0)
         {
             double now = NowSeconds();
-            _globalCooldownUntil = now + spell.StartRecoveryMs / 1000.0;
-            _actions.StartGlobalCooldown(spellId, spell, now);
+            StartActorGlobalCooldown(_actions, ControlledGuid, spell, now);
         }
     }
 
@@ -446,6 +527,7 @@ public sealed partial class GameLoop
 
     private bool TryCancelSpellTargetingOnEscape()
     {
+        if (_giftWrap is not null) { CancelGiftWrapping(); return true; }
         if (CancelRtsUnitCastTargeting(silent: false)) return true;
         if (_tacticalGroundSpellId != 0)
         {
@@ -454,8 +536,7 @@ public sealed partial class GameLoop
         }
         if (_groundCastSpell != 0)
         {
-            _groundCastSpell = 0;
-            _groundCursorPoint = null;
+            CancelGroundTargeting();
             return true;
         }
         if (_itemCastSpell == 0) return false;
@@ -476,6 +557,7 @@ public sealed partial class GameLoop
         float selfReach = _entities.TryGet(ControlledGuid, out WorldEntity self)
             ? self.Fields.CombatReach : 1.5f;
         float targetReach = target.Fields.CombatReach;
+        row = ActorSpellRange(spell, ControlledGuid, row);
         float min = row.Min, max = row.Max;
         if (row.Melee) { min = 0f; max = MathF.Max(selfReach + targetReach + 1.3333f, 5f); }
         else
@@ -521,10 +603,30 @@ public sealed partial class GameLoop
             Console.WriteLine($"[verdict:cast] {verdict.ToLine()}");
     }
 
-    private CastTargetCandidate CastCandidate(WorldEntity candidate, bool isSelf) => new(
-        candidate.Guid, isSelf,
-        isSelf || ReactionPlayerToward(candidate) == FactionReaction.Friendly,
-        !isSelf && CanAttack(candidate), candidate.IsDead);
+    private CastTargetCandidate CastCandidate(WorldEntity candidate, bool isSelf, ulong? casterGuid = null)
+    {
+        ulong actor = casterGuid ?? ControlledGuid;
+        bool partyEligible = false;
+        if (_entities.TryGet(actor, out WorldEntity caster))
+        {
+            CastPartyUnit casterUnit = CastPartyUnit.From(caster);
+            CastPartyUnit targetUnit = CastPartyUnit.From(candidate);
+            bool sameGroup = InKnownGroup(casterUnit.GroupPlayer) && InKnownGroup(targetUnit.GroupPlayer);
+            partyEligible = CastPartyTargetLaw.Accepts(casterUnit, targetUnit, sameGroup);
+        }
+        return new(candidate.Guid, isSelf,
+            isSelf || (caster is not null && ReactionBetween(caster, candidate) == FactionReaction.Friendly),
+            !isSelf && CanActorAttack(candidate, actor), candidate.IsDead, partyEligible);
+    }
+
+    private bool InKnownGroup(ulong guid)
+    {
+        if (!_partyInGroup || guid == 0) return false;
+        if (guid == LocalPlayerGuid) return true;
+        foreach (PartyMember member in _partyMembers)
+            if (member.Guid == guid) return true;
+        return false;
+    }
 
     private void DrawActionBars()
     {
@@ -617,13 +719,6 @@ public sealed partial class GameLoop
         if (!ImGui.Begin("##main-action-bar", flags)) { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
         double now = MovementInfo.ClientUptimeMs() / 1000.0;
-        // Ground-targeting cursor hint. Drawn here (inside the ImGui frame) rather than in
-        // UpdateTargeting, which runs pre-NewFrame where draw-list access is an access
-        // violation in native ImGui.
-        if (_groundCastSpell != 0 && !_window.MouseCaptured)
-            ImGui.GetForegroundDrawList().AddText(
-                ImGui.GetIO().MousePos + new Vector2(18f, 14f) * scale, 0xFF00E060,
-                "Select target area");
         if (_pressedActionSlot >= 0 &&
             ActionBarLockLaw.DragGestureAllowed(Settings.Controls.LockActionBars) &&
             ImGui.IsMouseDown(_actionPressMouseButton) &&
@@ -816,6 +911,8 @@ public sealed partial class GameLoop
                     ? 0xff1a1affu : 0xff999999u;
                 DrawActionText(dl, buttonMin,
                     FriendlyHotkey(BoundKeys(ActionBinding(i)).Primary), scale, hotkeyColor);
+                if (action.Kind == ActionSlot.Macro)
+                    DrawActionMacroName(dl, buttonMin, MacroName(action.ActionId), scale);
 
                 if (verdict.IsItem && verdict.StackCount > 0)
                     DrawActionCount(dl, buttonMax, verdict.StackCount, scale);
@@ -904,10 +1001,12 @@ public sealed partial class GameLoop
         bool[] pushedSlots = new bool[MultiActionBarUiLaw.ButtonsPerBar];
         ImGuiWindowFlags inputFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav |
-            ImGuiWindowFlags.NoBringToFrontOnFocus;
+            ImGuiWindowFlags.NoBringToFrontOnFocus | ImGuiWindowFlags.NoFocusOnAppearing;
 
         // The authored 500x38 parent is not mouse-enabled. Give only live buttons a 36x36 input
         // host so hidden empty slots and the six-pixel gaps genuinely pass through to the world.
+        // Empty hosts appear when an item is picked up. They must not take focus and clear the
+        // source slot's active mouse ID: that would cancel its drag before a payload can start.
         // Zeroing the three window styles is what makes that host actually BE 36x36: the default
         // WindowPadding <8,8> insets a window's InnerClipRect (which clips the hover test) by 4px
         // per side, and WindowMinSize <32,32> floors the host below UI scale 0.89. The stance bar
@@ -1216,6 +1315,8 @@ public sealed partial class GameLoop
                 uint hotkeyColor = verdict.Range == ButtonRange.OutOfRange
                     ? 0xff1a1affu : 0xff999999u;
                 DrawActionText(dl, buttonMin, hotkey, scale, hotkeyColor);
+                if (action.Kind == ActionSlot.Macro)
+                    DrawActionMacroName(dl, buttonMin, MacroName(action.ActionId), scale);
                 if (proofBar && hotkey.Length > 0)
                 {
                     Vector2 extent = new(
@@ -1367,6 +1468,8 @@ public sealed partial class GameLoop
             SaveBotBarSlot(slot, 0);
         _actionCursor = action;
         _actionCursorChangedThisFrame = true;
+        if (action.Kind is ActionSlot.Spell or ActionSlot.Macro)
+            PlayUiSound("igSpellBookSpellIconPickup", "ui.actionbar");
         return true;
     }
 
@@ -1388,6 +1491,10 @@ public sealed partial class GameLoop
             SaveBotBarSlot(slot, held.Packed);   // layered bot bars, chosen layer
         _actionCursor = displaced;
         _actionCursorChangedThisFrame = true;
+        // SoundEntries 833 resolves to Sound\Interface\uSpellIconDrop.wav.
+        // Play only after placement succeeds, including drops onto occupied slots.
+        if (held.Kind is ActionSlot.Spell or ActionSlot.Macro)
+            PlayUiSound("igSpellBookSpellIconDrop", "ui.actionbar");
     }
 
     private void DrawActionCursorPayload(WorldEntity? player, float scale)
@@ -1418,8 +1525,13 @@ public sealed partial class GameLoop
     {
         if (!ImGui.IsMouseReleased(ImGuiMouseButton.Left) &&
             !ImGui.IsMouseReleased(ImGuiMouseButton.Right)) return;
+        FinishActionDragAt(_hoveredActionSlot);
+    }
+
+    private void FinishActionDragAt(int hoveredSlot)
+    {
         int receiveSlot = ActionBarLockLaw.ReceiveDragAllowed(Settings.Controls.LockActionBars)
-            ? _hoveredActionSlot : -1;
+            ? hoveredSlot : -1;
         if (_draggingMacroId != 0)
         {
             if (receiveSlot >= 0)
@@ -1427,6 +1539,8 @@ public sealed partial class GameLoop
                 var macroAction = new ActionSlot(ActionSlot.Macro, _draggingMacroId);
                 PlaceActionPayload(receiveSlot, macroAction);
             }
+            // Not a bar: the Macro Book's own list may be the drop (into a section, or a reorder).
+            else TryDropDraggedMacroInBook(_draggingMacroId);
 
             _draggingMacroId = 0;
             _pressedMacroId = 0;
@@ -1459,8 +1573,10 @@ public sealed partial class GameLoop
         {
             if (receiveSlot >= 0)
                 PlaceActionPayload(receiveSlot, held);
-
-            _actionCursor = null;
+            else
+                _actionCursor = null;
+            // PlaceActionPayload owns the resulting cursor: an occupied slot displaced its
+            // action onto it. Clearing here used to discard that action after every bar swap.
         }
         else if (HasCarriedItem)
         {
@@ -1554,7 +1670,7 @@ public sealed partial class GameLoop
                 GameTooltipOwnerKey tooltipOwner = new("micro-button", (ulong)button.Id + 1);
                 string tooltipLabel = MicroMenuUiLaw.TooltipTitle(button.Label,
                     MicroMenuBindingText(button.Id));
-                string newbieText = button.NewbieText;
+                string newbieText = MicroMenuUiLaw.Description(button, OwnQuestHeldCap);
                 OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
                 {
                     ImGui.BeginTooltip();
@@ -1641,7 +1757,7 @@ public sealed partial class GameLoop
         // Round copy: this is a crop of the bake laid over round button art, and
         // the crop's own corners fall OUTSIDE the inscribed circle - the square
         // bake shows booth black in them.
-        uint portrait = _freeView
+        uint portrait = ControlledBodyIsStreamed
             ? PartyPortraitHandle(ControlledGuid)
             : RoundAperturePortrait(_playerPortrait, PlayerPortraitCurrent);
         if (portrait == 0) return;
@@ -1831,7 +1947,26 @@ public sealed partial class GameLoop
         return clicked;
     }
 
-    private int ActionWireSlot(int button) => (_actionPage - 1) * 12 + button;
+    private uint ControlledBonusBarOffset =>
+        _entities.TryGet(ControlledGuid, out WorldEntity actor) &&
+        _shapeshiftForms?.TryGet(actor.Fields.ShapeshiftForm, out ShapeshiftFormInfo form) == true
+            ? form.BonusActionBar : 0;
+
+    private int ActionWireSlot(int button) =>
+        StanceBarUiLaw.MainActionWireSlot(button, _actionPage, ControlledBonusBarOffset);
+
+    private void UpdateBonusBarFeedback()
+    {
+        bool shown = !_freeView && _actionPage == 1 && ControlledBonusBarOffset is >= 1 and <= 4;
+        if (_bonusBarActor != ControlledGuid)
+        {
+            _bonusBarActor = ControlledGuid;
+            _bonusBarShown = shown;
+            return;
+        }
+        if (shown && !_bonusBarShown) PlayUiSound("igBonusBarOpen", "ui.actionbar");
+        _bonusBarShown = shown;
+    }
 
     private void ChangeActionPage(int delta)
     {
@@ -1890,6 +2025,24 @@ public sealed partial class GameLoop
             new Vector2(buttonMin.X + 34f * scale, textTop), scale, color);
     }
 
+    /// <summary>ActionButtonTemplate's $parentName: the macro's name in a 36x10
+    /// GameFontHighlightSmallOutline box at BOTTOM (0,2), clipped to what fits (the first
+    /// characters, no ellipsis - 1.12 clips too). Owner 2026-09-05.</summary>
+    private static void DrawActionMacroName(ImDrawListPtr dl, Vector2 buttonMin, string name,
+        float scale)
+    {
+        string label = MacroBookUiLaw.HotbarLabel(name, candidate =>
+            GameText.MeasureWidth(MacroBookUiLaw.HotbarNameFont, candidate, scale) / scale);
+        if (label.Length == 0) return;
+        float textTop = GameText.BoxCenteredTop(MacroBookUiLaw.HotbarNameFont,
+            MacroBookUiLaw.HotbarNameBoxTop(buttonMin.Y, scale), MacroBookUiLaw.HotbarNameHeight,
+            scale);
+        float width = GameText.MeasureWidth(MacroBookUiLaw.HotbarNameFont, label, scale);
+        GameText.Draw(dl, MacroBookUiLaw.HotbarNameFont, label,
+            new Vector2(buttonMin.X + (MacroBookUiLaw.HotbarNameWidth * scale - width) * .5f, textTop),
+            scale);
+    }
+
     /// <summary>Stack count for an ITEM action, bottom-right (reference offset (-2,2)).</summary>
     private static void DrawActionCount(ImDrawListPtr dl, Vector2 buttonMax, int count, float scale)
     {
@@ -1926,16 +2079,16 @@ public sealed partial class GameLoop
                 }
                 else
                 {
-                    byte powerType = (byte)sp.PowerType;
-                    uint baseAmount = sp.ManaCostPercent == 0 ? 0u
-                        : powerType == 0 ? p.Fields.BaseMana
-                        : p.Fields.MaxPower(powerType);
-                    uint cost = sp.ManaCost + baseAmount * sp.ManaCostPercent / 100;
-                    uint power = p.Fields.Power(powerType);
+                    bool canPay = ActorCanPaySpell(sp, p, out uint power, out uint cost);
                     powerCost = (int)Math.Min(cost, int.MaxValue);
                     currentPower = (int)Math.Min(power, int.MaxValue);
-                    if (cost > 0 && power < cost)
+                    if (!canPay)
                         usability = ButtonUsability.NotEnoughPower;
+                    if (SpellFormRestrictionFor(sp, p) != SpellFormRestriction.None)
+                        usability = ButtonUsability.Unusable;
+                    WorldEntity? reactiveTarget = _entities.TryGet(_selectionGuid, out WorldEntity selected) ? selected : null;
+                    if (SpellReactiveLaw.Refusal(sp, p, reactiveTarget) is not null)
+                        usability = ButtonUsability.Unusable;
                 }
             }
             else if (isItem)
@@ -1982,6 +2135,7 @@ public sealed partial class GameLoop
         float selfReach = _entities.TryGet(ControlledGuid, out WorldEntity self)
             ? self.Fields.CombatReach : 1.5f;
         float targetReach = target.Fields.CombatReach;
+        row = ActorSpellRange(spell, ControlledGuid, row);
         float min = row.Min, max = row.Max;
         if (row.Melee)
         {

@@ -59,6 +59,29 @@ for f in Handlers/LootHandler.cpp Handlers/ItemHandler.cpp Handlers/NPCHandler.c
   [ "${n:-0}" -ge 1 ] || fail "1.4 $f never re-snapshots after an edit"
 done
 
+# 1.6 mail storage and delayed sends stay with the acting body.
+for fn in HandleSendMail HandleSendMailCallback HandleMailMarkAsRead HandleMailDelete HandleMailReturnToSender HandleMailTakeItem HandleMailTakeMoney HandleGetMailList HandleMailCreateTextItem HandleQueryNextMailTime; do
+  run "awk '/void WorldSession::'$fn'\\(/{f=1} f&&/pActor->GetSession\\(\\)->GetMasterPlayer\\(\\)/{print \"yes\"; exit} f&&/^}/{exit}' $G/Handlers/MailHandler.cpp | grep -q yes" || fail "1.6 $fn reads the session mailbox instead of the acting body's store"
+done
+run "grep -q 'pActor->GetObjectGuid() != req->senderGuid' $G/Handlers/MailHandler.cpp && grep -q 'CheckMailBox(req->mailboxGuid)' $G/Handlers/MailHandler.cpp" || fail "1.6 delayed mail does not revalidate its sender and mailbox"
+
+run "awk '/void WorldSession::HandleSendMail\\(/{f=1} f&&/IsSessionGameplayFrozen\\(this\\)/{g=1;next} g&&/SendMailResult\\(0, MAIL_SEND, MAIL_ERR_INTERNAL_ERROR\\)/{print \"yes\";exit} g&&/return;/{exit}' $G/Handlers/MailHandler.cpp | grep -q yes" || fail "1.6 frozen send is silently dropped without resolving pending mail"
+for op in CMSG_SEND_MAIL CMSG_SUI_CONTROL_RELEASE CMSG_SUI_TACTICAL_FREEZE; do
+  run "grep 'DEFINE_HANDLER($op,' $G/Server/Protocol/Opcodes.cpp | grep -q PACKET_PROCESS_WORLD" || fail "1.6 $op does not share the ordered mail/control queue"
+done
+
+# 1.7 owner fields and stable services refresh on both control edges.
+run "grep -q 'GetPossessor(controlled) == observer' $G/SuperUiContent/SuiWorld/CRPG/SuiPossess.cpp && grep -c 'SuiPossess::IsControlledOwnerOf(ToUnit(), target)' $G/Objects/Object.cpp | grep -q '^2$'" || fail "1.7 possessed pet owner fields/health do not check the active pair"
+run "grep -q 'RefreshActorVisibility(session, possessor->GetObjectGuid())' $G/SuperUiContent/SuiWorld/CRPG/SuiPossess.cpp && grep -q 'RefreshActorVisibility(session, botGuid)' $G/SuperUiContent/SuiWorld/CRPG/SuiPossess.cpp" || fail "1.7 grant/release does not refresh actor-dependent visibility"
+run "grep -Fq '(fieldFlags[index] & UF_FLAG_OWNER_ONLY) && !(fieldFlags[index] & visibleFlags)' $G/Objects/Object.cpp" || fail "1.7 forced updates can disclose revoked pet owner fields"
+run "grep -q 'actor->GetClass() != CLASS_HUNTER' $G/Objects/Object.cpp && ! grep -q 'target->GetClass() != CLASS_HUNTER' $G/Objects/Object.cpp" || fail "1.7 stable visibility uses the session class"
+run "awk '/bool WorldSession::CheckStableMaster/{f=1} f&&/pActor->GetNPCIfCanInteractWith/{print \"yes\"; exit} f&&/^}/{exit}' $G/Handlers/NPCHandler.cpp | grep -q yes" || fail "1.7 stable mutations range from the session body"
+
+for fn in HandleStablePet HandleUnstablePet HandleStableSwapPet; do
+  run "awk '/void WorldSession::'$fn'\\(/{f=1} f&&/Unsummon|LoadPetFromDB/{print} f&&/^}/{exit}' $G/Handlers/NPCHandler.cpp | grep -q pActor" || fail "1.7 $fn does not pass the acting pet owner"
+  run "! awk '/void WorldSession::'$fn'\\(/{f=1} f&&/Unsummon|LoadPetFromDB/{print} f&&/^}/{exit}' $G/Handlers/NPCHandler.cpp | grep -q _player" || fail "1.7 $fn passes the session pet owner"
+done
+
 # 3.1 flights never release; the landing does not teleport a driven flyer
 run "grep -q 'lastPointReached && !SuiPossess::IsSuiPossessed(this)' $G/Objects/Player.cpp" || fail "3.1 TaxiStepFinished teleports a driven flyer (breaks possession)"
 run "grep -q 'IsTaxiFlying' $G/SuperUiContent/SuiBots/AiBotAIMain.cpp" || fail "3.1 the fleet AI has no in-flight guard"
@@ -78,7 +101,8 @@ run "grep -q 'HoldIfLeftBehind(bot, possessor)' $G/SuperUiContent/SuiWorld/CRPG/
 run "grep -q 'SuiStopFollowForHold' $G/SuperUiContent/SuiBots/AiBotAIMain.cpp" || fail "4.2 a hold does not end the active follow leg"
 run "grep -q 'driving) near-teleports: possession kept' $G/SuperUiContent/SuiWorld/CRPG/SuiPossess.cpp" || fail "4.3 the main's chain catch-up teleport breaks the possession"
 run "grep -q 'packet.guid == _player->GetObjectGuid() && _player->IsBeingTeleportedNear()' $G/Handlers/MovementHandler.cpp" || fail "4.3 the main's own near-teleport ack is refused while the mover is the bot"
-run "grep -q 'IsSuiPossessed(pBoss)' $G/SuperUiContent/SuiBots/AiBotAIMain.cpp" && fail "4.3 the chain must follow a port of the driven body (do not hold on IsSuiPossessed(pBoss))"
+run "grep -q '(bossChanged || bossPorted) && dist > AIBOT_PARTY_CATCHUP_TELEPORT' $G/SuperUiContent/SuiBots/AiBotAIMain.cpp" || fail "4.3 a distant anchor port must set world hold"
+run "awk '/if \\(pBoss->GetMap\\(\\) != me->GetMap\\(\\)\\)/{f=1} f&&/TeleportTo/{exit 1} f&&/SuiStopFollowForHold\\(\\)/{print \"yes\"; exit}' $G/SuperUiContent/SuiBots/AiBotAIMain.cpp | grep -q yes" || fail "4.3 crossing a map/instance must end follow, not summon the chain"
 run "grep -q 'm_suiBossFlewAway' $G/SuperUiContent/SuiBots/AiBotAIMain.cpp" || fail "4.3 a boss that flew away is not turned into a hold"
 
 # 4.4 party flight wire
@@ -92,7 +116,10 @@ TF=$G/SuperUiContent/SuiWorld/CRPG/SuiTacticalFreeze.cpp
 TH=$G/SuperUiContent/SuiWorld/CRPG/SuiTacticalFreeze.h
 run "grep -q 'CMSG_SUI_TACTICAL_FREEZE *= 870' $G/Server/Protocol/Opcodes_1_12_1.h" || fail "5.1 tactical-freeze opcode drifted from 870"
 run "grep -q 'SMSG_SUI_TACTICAL_QUEUE *= 873' $G/Server/Protocol/Opcodes_1_12_1.h" || fail "5.1 tactical-queue opcode drifted from 873"
-run "grep -q 'NUM_MSG_TYPES *= 874' $G/Server/Protocol/Opcodes_1_12_1.h" || fail "5.1 NUM_MSG_TYPES is not 874"
+# The existing commander-raid request/reply occupy 874/875 after the freeze family.
+run "grep -q 'CMSG_SUI_COMMANDER_RAID *= 874' $G/Server/Protocol/Opcodes_1_12_1.h" || fail "5.1 commander-raid request boundary drifted"
+run "grep -q 'SMSG_SUI_COMMANDER_RAID *= 875' $G/Server/Protocol/Opcodes_1_12_1.h" || fail "5.1 commander-raid reply boundary drifted"
+run "grep -q 'NUM_MSG_TYPES *= 876' $G/Server/Protocol/Opcodes_1_12_1.h" || fail "5.1 NUM_MSG_TYPES is not 876"
 run "! grep -q 'NUM_MSG_TYPES.*868' docs/SUI_WIRE_PROTOCOL.md" || fail "5.1 wire docs still advertise stale NUM_MSG_TYPES 868"
 run "grep -q 'CAPABILITY_TACTICAL_FREEZE_V1 = 1u << 12' $G/SuperUiContent/SuiWorld/Bridge/SuiPortal.h" || fail "5.1 tactical capability is not bit 12"
 run "grep -q 'constexpr uint8 WIRE_VERSION = 1' $TH" || fail "5.1 tactical bodies lost explicit version 1"
@@ -128,7 +155,7 @@ done
 for f in Handlers/MovementHandler.cpp Handlers/SpellHandler.cpp Handlers/CombatHandler.cpp Handlers/PetHandler.cpp; do
   run "grep -q 'IsSessionGameplayFrozen' $G/$f" || fail "5.5 $f lacks frozen-session ingress suppression"
 done
-run "awk '/void WorldSession::HandleStandStateChangeOpcode/{f=1} f&&/_player->IsSuiTacticallyFrozen\(\)/{print \"yes\"; exit} f&&/^}/{exit}' $G/Handlers/MiscHandler.cpp | grep -q yes" || fail "5.5 stand-state input can replace its frozen target pose"
+run "awk '/void WorldSession::HandleStandStateChangeOpcode/{f=1} f&&/Player.*actor.*=.*GetSuiActor\(\)/{a=1} f&&a&&/actor->IsSuiTacticallyFrozen\(\)/{print \"yes\"; exit} f&&/^}/{exit}' $G/Handlers/MiscHandler.cpp | grep -q yes" || fail "5.5 stand-state input can replace its frozen acting-body pose"
 run "awk '/void WorldSession::HandleEmoteOpcode/{f=1} f&&/GetPlayer\(\)->IsSuiTacticallyFrozen\(\)/{print \"yes\"; exit} f&&/^}/{exit}' $G/Handlers/ChatHandler.cpp | grep -q yes" || fail "5.5 emote input can replace its frozen target pose"
 run "awk '/void WorldSession::HandleTextEmoteOpcode/{f=1} f&&/if \(!GetPlayer\(\)->IsSuiTacticallyFrozen\(\)\)/{print \"yes\"; exit} f&&/EmoteChatBuilder/{exit}' $G/Handlers/ChatHandler.cpp | grep -q yes" || fail "5.5 text-emote animation can replace its frozen target pose"
 run "awk '/void WorldSession::HandleTextEmoteOpcode/{f=1} f&&/!GetPlayer\(\)->IsSuiTacticallyFrozen\(\).*unit/{g=1} g&&/ReceiveEmote/{print \"yes\"; exit} f&&/^}/{exit}' $G/Handlers/ChatHandler.cpp | grep -q yes" || fail "5.5 frozen text emote can still trigger CreatureAI gameplay"

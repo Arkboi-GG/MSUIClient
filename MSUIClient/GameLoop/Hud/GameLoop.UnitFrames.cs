@@ -8,6 +8,21 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
+    private ulong _pvpFeedbackOwner;
+    private string? _pvpFeedbackIcon;
+
+    private void UpdatePlayerPvpFeedback(ulong owner, string? icon)
+    {
+        if (_pvpFeedbackOwner != owner)
+        {
+            _pvpFeedbackOwner = owner;
+            _pvpFeedbackIcon = icon;
+            return;
+        }
+        if (icon != _pvpFeedbackIcon && icon is not null)
+            PlayUiSound("igPVPUpdate", "ui.pvp");
+        _pvpFeedbackIcon = icon;
+    }
     /// <summary>Resolved logical origin of the PlayerFrame (HUD layout registry, PLAN_21); the
     /// bot-bar hover test and the party chain rail measure from it.</summary>
     private Vector2 _playerFrameOrigin = new(-19, 4);
@@ -145,6 +160,7 @@ public sealed partial class GameLoop
 
         string? pvpPath = UnitFrameUiLaw.PvpIcon(unit.Fields.Bytes0.Race,
             unit.Fields.UnitFlags, unit.Fields.PlayerFlags);
+        if (playerFrame && !HudPreview) UpdatePlayerPvpFeedback(unit.Guid, pvpPath);
         if (pvpPath is not null)
         {
             Vector2 pvpMin = p + new Vector2(playerFrame ? 18f : 171f, 20f) * s;
@@ -211,7 +227,6 @@ public sealed partial class GameLoop
                     Math.Clamp(combatFlash / 0.35f, 0, 1))), 48, 2f * s);
         if (!playerFrame)
         {
-            DrawTargetAuras(dl, unit, p, s);
             DrawComboFrame(dl, p, s);
         }
         if (_uiParityArmed && _uiParityPanel == parityPanel)
@@ -235,6 +250,7 @@ public sealed partial class GameLoop
         }
         ImGui.End();
         DrawUnitFrameHitRect(unit, authoredOrigin, playerFrame, s);
+        if (!playerFrame) DrawTargetAuras(unit, p, s);
     }
 
     /// <summary>
@@ -394,33 +410,6 @@ public sealed partial class GameLoop
         WowSkin.OutlineText(dl, font, drawSize, pos, text);
         dl.AddText(font, drawSize, pos, color, text);
         return (pos, measured);
-    }
-
-    private void DrawTargetAuras(ImDrawListPtr dl, WorldEntity unit, Vector2 frameMin, float scale)
-    {
-        if (_gameplayArt is null) return;
-        int buffs = 0, debuffs = 0;
-        foreach (AuraSnapshot aura in OrderedAuras(unit))
-        {
-            if (!TryVisibleAuraSpell(aura.SpellId, out SpellInfo? spell)) continue;
-            uint icon = _gameplayArt.Handle(spell?.IconPath ?? "");
-            if (icon == 0) continue;
-            bool buff = aura.Slot < 32;
-            int index = buff ? buffs++ : debuffs++;
-            if (buff && index >= 5 || !buff && index >= 16) continue;
-            int col = buff ? index : index % 6;
-            int row = buff ? 0 : index / 6;
-            float step = buff ? 24f : 20f;
-            float size = buff ? 21f : 17f;
-            Vector2 start = frameMin + new Vector2(5f, buff ? 87f : 68f) * scale;
-            Vector2 min = start + new Vector2(col * step, row * 20f) * scale;
-            Vector2 max = min + new Vector2(size) * scale;
-            dl.AddImage((nint)icon, min, max);
-            uint border = buff ? 0xff40d0ffu : 0xff4040ffu;
-            dl.AddRect(min, max, border, 0, ImDrawFlags.None, MathF.Max(1, scale));
-            if (aura.Stacks > 1)
-                dl.AddText(max - new Vector2(7, 11) * scale, 0xffffffff, aura.Stacks.ToString());
-        }
     }
 
     private void DrawPlayerAuraBar()
@@ -733,7 +722,7 @@ public sealed partial class GameLoop
             texture = PetPortraitHandle(unit.Guid);
         // Free view: the streamed-body booth is the authority for EVERY player
         // face (owner 2026-08-28) — the rig bake only fills in while it bakes.
-        if (texture == 0 && unit.IsPlayer && _freeView)
+        if (texture == 0 && unit.IsPlayer && (_freeView || unit.Fields.HasDisplayTransform))
             texture = PartyPortraitHandle(unit.Guid);
         // Only when the bake is actually OF this unit (PlayerPortraitCurrent) —
         // a stale bake of the previously driven bot must fall through to the

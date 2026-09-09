@@ -89,11 +89,9 @@ public static class ItemTextFrameUiLaw
         _ => new(.18f, .12f, .06f, 1),
     };
 
-    public static Vector4 TitleColor(string? material) => Material(material) switch
-    {
-        "Stone" or "Marble" or "Silver" or "Bronze" => new(.93f, .82f, 0, 1),
-        _ => new(0, 0, 0, 1),
-    };
+    // ItemTextFrame.xml title/page labels inherit GameFontNormal; only the body
+    // receives the material palette in ItemTextFrame.lua.
+    public static readonly Vector4 TitleColor = new(1, .82f, 0, 1);
 
     public static string ComposeBody(string text, string? creator) =>
         string.IsNullOrWhiteSpace(creator)

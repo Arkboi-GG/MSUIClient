@@ -1,4 +1,4 @@
-﻿using MSUIClient;
+using MSUIClient;
 using MSUIClient.Engine;
 
 /// <summary>
@@ -159,7 +159,7 @@ internal static class ObserverBodyOwnershipClinicalChecks
             "forced/observer speed routing must keep detached body state off the camera controller");
 
         Check(transports.Contains(
-                  "rider.Guid == ControlledGuid && !ControlledBodyIsStreamed", Ordinal) &&
+                  "rider.Guid == ControlledGuid && !_freeView", Ordinal) &&
               !transports.Contains("if (rider.Guid == ControlledGuid ||", Ordinal) &&
               Slice(transports, "private void CarryControlledTransportRider()",
                   "private void ReconcileControlledTransportRider()").Contains(
@@ -171,8 +171,8 @@ internal static class ObserverBodyOwnershipClinicalChecks
 
         Check(targeting.Contains("bool canAuthor = CanAuthorControlledGameplay;", Ordinal) &&
               targeting.Contains(
-                  "if (changed && canAuthor) StopPetAttackForOldTargetChange", Ordinal) &&
-              targeting.Contains("if (canAuthor) _net?.SetSelection(guid);", Ordinal) &&
+                  "if (changed && canAuthorSelection) StopPetAttackForOldTargetChange", Ordinal) &&
+              targeting.Contains("if (canAuthorSelection) _net?.SetSelection(guid);", Ordinal) &&
               targeting.Contains("if (canAuthor && _net is not null && guid != 0", Ordinal) &&
               targeting.Contains("if (!CanAuthorControlledGameplay || _net is null", Ordinal),
             "plain Free View selection must remain local and wire-silent");
@@ -226,13 +226,13 @@ internal static class ObserverBodyOwnershipClinicalChecks
               inventory.Contains(
                   "CanAuthorControlledGameplay && ControlledGuid == LocalPlayerGuid", Ordinal) &&
               inventory.Contains(
-                  "if (CanAuthorControlledOrSelf) _net.AutoEquipItem(wire.Bag, wire.Slot);",
+                  "if (CanAuthorControlledOrSelf) TryAutoEquipItem(wire.Bag, wire.Slot);",
                   Ordinal) &&
               inventory.Contains(
                   "if (!CanAuthorSessionInventory || _net is null || slot is < 0 or >= 19",
                   Ordinal) &&
               characterPage.Contains("if (!CanAuthorSessionInventory) return false;", Ordinal) &&
-              characterPage.Contains("sent = _net.SetAmmo(carried.Entry);", Ordinal) &&
+              characterPage.Contains("sent = SelectAmmo(carried.Entry);", Ordinal) &&
               deleteItem.Contains("if (!CanAuthorControlledOrSelf ||", Ordinal) &&
               talents.Contains(
                   "if (!CanAuthorControlledGameplay || ControlledGuid != LocalPlayerGuid",

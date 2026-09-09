@@ -210,9 +210,11 @@ Check(SpellCastResultNames.Name(0x23) == "SPELL_FAILED_INTERRUPTED" &&
       SpellCastResultNames.Name(0x59) == "SPELL_FAILED_OUT_OF_RANGE" &&
       SpellCastResultNames.Name(0xFE) == "SPELL_FAILED_0xFE",
       "cast-result reasons are stable strings with an exact-byte fallback");
-Check(SpellCastResultNames.Name(0x2F) == "SPELL_FAILED_LINE_OF_SIGHT" &&
-      SpellCastResultNames.Text(0x2F) == "Target not in line of sight" &&
-      SpellCastResultNames.Text(0x4D, "RAGE") == "Not enough rage" &&
+Check(SpellCastResultNames.Name(0x2A) == "SPELL_FAILED_LINE_OF_SIGHT" &&
+      SpellCastResultNames.Text(0x2A) == "Target not in line of sight." &&
+      SpellCastResultNames.Name(0x2F) == "SPELL_FAILED_NEED_AMMO" &&
+      SpellCastResultNames.Text(0x2F) == "Ammo must be in the ammo slot before it can be fired." &&
+      SpellCastResultNames.Text(0x4D, "RAGE") == "Not enough rage." &&
       SpellCastResultNames.Text(0x59) == "Out of range." &&
       SpellCastResultNames.Text(0x17) == "" &&
       SpellCastResultNames.Text(0xFE) == "Spell failed.",

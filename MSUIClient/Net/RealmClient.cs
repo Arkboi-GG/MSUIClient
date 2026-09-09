@@ -14,7 +14,13 @@ namespace MSUIClient.Net;
 // digest, allowing the ordinary desktop client to authenticate with StrictVersionCheck enabled.
 
 /// <summary>A realm as advertised by the auth server's realm list.</summary>
-public sealed record RealmInfo(string Name, string Address, float Population, byte Characters, uint RealmType);
+public sealed record RealmInfo(string Name, string Address, float Population, byte Characters, uint RealmType,
+    byte Flags = 0, byte Category = 0, byte WireId = 0)
+{
+    // Core sets OFFLINE for inaccessible security levels and incompatible builds too.
+    public bool CanSelect => (Flags & 0x03) == 0 && !string.IsNullOrWhiteSpace(Name) &&
+        !string.IsNullOrWhiteSpace(Address);
+}
 
 /// <summary>Result of a successful logon: the SRP6 session key (carried into the world server) + the realm list.</summary>
 public sealed class LogonResult
@@ -239,23 +245,32 @@ public static class RealmClient
         byte opcode = ReadU8(s);
         if (opcode != CmdRealmList)
             throw new IOException($"expected CMD_REALM_LIST (0x10), got 0x{opcode:X2}");
-        ReadU16LE(s);           // size
+        int size = ReadU16LE(s);
+        return ParseRealmListPayload(ReadN(s, size));
+    }
+
+    public static List<RealmInfo> ParseRealmListPayload(byte[] body)
+    {
+        // The declared u16 frame length bounds strings and rows; malformed data cannot
+        // eat the next auth response or wait indefinitely for a string terminator.
+        using var s = new MemoryStream(body, writable: false);
         ReadU32LE(s);           // header padding
         int count = ReadU8(s);
         var realms = new List<RealmInfo>(count);
         for (int i = 0; i < count; i++)
         {
             uint type = ReadU32LE(s);
-            ReadU8(s);          // flag
+            byte flags = ReadU8(s);
             string name = ReadCStr(s);
             string address = ReadCStr(s);
             float population = ReadF32(s);
             byte characters = ReadU8(s);
-            ReadU8(s);          // category
-            ReadU8(s);          // realm id
-            realms.Add(new RealmInfo(name, address, population, characters, type));
+            byte category = ReadU8(s);
+            byte wireId = ReadU8(s); // This Core sends zero, so never use it as row identity.
+            realms.Add(new RealmInfo(name, address, population, characters, type, flags, category, wireId));
         }
         ReadU16LE(s);           // footer padding
+        if (s.Position != s.Length) throw new InvalidDataException("realm list has trailing data");
         return realms;
     }
 

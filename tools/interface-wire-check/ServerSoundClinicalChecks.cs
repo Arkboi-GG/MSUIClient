@@ -52,7 +52,7 @@ internal static class ServerSoundClinicalChecks
         Check(soundscape.Contains("_musicKit == kit && _musicVoice != 0 && _mixer.IsLive(_musicVoice)",
                   StringComparison.Ordinal) &&
               soundscape.Contains("_musicFadeStartedAt = now;", StringComparison.Ordinal) &&
-              soundscape.Contains("StartMusicKit(kit, \"server push\");", StringComparison.Ordinal),
+              soundscape.Contains("StartMusicKit(kit, \"server push\", now);", StringComparison.Ordinal),
             "server music repeat guard or shared-slot transition drift");
     }
 
@@ -61,9 +61,9 @@ internal static class ServerSoundClinicalChecks
         try
         {
             action();
-            throw new InvalidDataException("malformed server sound body was accepted");
         }
-        catch (InvalidDataException) { }
+        catch (InvalidDataException) { return; }
+        throw new InvalidDataException("malformed server sound body was accepted");
     }
 
     private static void Check(bool condition, string message)

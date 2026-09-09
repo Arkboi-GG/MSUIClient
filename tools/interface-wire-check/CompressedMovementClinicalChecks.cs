@@ -43,7 +43,9 @@ internal static class CompressedMovementClinicalChecks
               dispatch.Contains("relay.Guid == ControlledGuid && ControllerOwnsControlledBodyPose",
                   StringComparison.Ordinal) &&
               dispatch.Contains("ApplyServerAuthoredSelfMove(relay)", StringComparison.Ordinal) &&
-              dispatch.Contains("ApplyMonsterMovePacket(compressed.Body)", StringComparison.Ordinal) &&
+              dispatch.Contains("ApplyAdditionalBatchedMovement(compressed)", StringComparison.Ordinal) &&
+              dispatch.Contains("ApplyMonsterMovePacket(compressed.Body, compressed.Opcode == Op.SMSG_MONSTER_MOVE_TRANSPORT)",
+                  StringComparison.Ordinal) &&
               dispatch.Contains("ApplyObserverSpeedChange(net, compressed.Opcode, compressed.Body)",
                   StringComparison.Ordinal),
             "compressed movement dispatch, self/observer split, or batched-spline routing drift");

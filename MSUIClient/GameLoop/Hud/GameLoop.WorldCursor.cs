@@ -27,9 +27,17 @@ public sealed partial class GameLoop
             return;
         }
         bool pointerOverUi = ImGui.GetIO().WantCaptureMouse;
+        if (_giftWrap is not null)
+        {
+            DrawBagHoverCursor(new WorldCursorState(WorldCursorKind.Cast, Unable: !pointerOverUi).Stem);
+            return;
+        }
         if (_itemCastSpell != 0)
         {
-            DrawBagHoverCursor(WorldCursorUiLaw.ItemTargeting(pointerOverUi).Stem);
+            bool acceptsItem = _spellCatalog?.TryGet(_itemCastSpell, out SpellInfo itemSpell) == true &&
+                CastTargetLaw.AcceptsItem(itemSpell);
+            bool valid = pointerOverUi ? acceptsItem : ArmedSpellAcceptsGameObject(_hoveredGameObjectGuid);
+            DrawBagHoverCursor(new WorldCursorState(WorldCursorKind.Cast, Unable: !valid).Stem);
             return;
         }
         if (_rtsUnitCastSpellId != 0)
@@ -38,13 +46,20 @@ public sealed partial class GameLoop
                 _entities.TryGet(_hoveredGuid, out WorldEntity candidate) &&
                 _spellCatalog?.TryGet(_rtsUnitCastSpellId, out SpellInfo spell) == true &&
                 CastTargetLaw.Resolve(spell,
-                    CastCandidate(candidate, _hoveredGuid == _rtsUnitCastPrimary),
+                    CastCandidate(candidate, _hoveredGuid == _rtsUnitCastPrimary, _rtsUnitCastPrimary),
                     self: null, autoSelfCast: false).Kind == CastTargetKind.Unit;
             DrawBagHoverCursor(new WorldCursorState(WorldCursorKind.Cast,
                 Unable: !valid).Stem);
             return;
         }
-        if (pointerOverUi || _groundCastSpell != 0 || _tacticalGroundSpellId != 0) return;
+        if (_groundCastSpell != 0)
+        {
+            bool valid = !pointerOverUi && _groundCursorPoint is { } point &&
+                GroundPointAcceptable(_groundCastSpell, ControlledGuid, point);
+            DrawBagHoverCursor(new WorldCursorState(WorldCursorKind.Cast, Unable: !valid).Stem);
+            return;
+        }
+        if (pointerOverUi || _tacticalGroundSpellId != 0) return;
 
         // Point is the reference's base in-world cursor. A unit verdict replaces it; empty world,
         // non-interactive geometry and gameobjects without a data-driven cursor retain Point.

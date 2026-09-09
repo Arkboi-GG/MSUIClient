@@ -139,6 +139,18 @@ public sealed partial class CreatureRenderer : IDisposable
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
 
+    /// <summary>
+    /// Room light per unit (World/Wmo/InteriorUnitLight.For): (rgb MOCV/255 of
+    /// the floor under the feet, a = interior weight). Null / zero weight = sky.
+    /// Asked once per drawn unit; its mount and attached items share the answer.
+    /// </summary>
+    public Func<ulong, Vector3, Vector4>? InteriorLightFor { get; set; }
+
+    /// <summary>The walls' VertexColorScale, so a unit matches the room it stands in.</summary>
+    public float BakedLightScale { get; set; } = 2f;
+
+    private Vector4 _currentInteriorLight;
+
     private const float DefaultWalkSpeed = 2.5f;
     private const float MovingEpsilon = 0.1f;
 
@@ -166,6 +178,11 @@ public sealed partial class CreatureRenderer : IDisposable
     /// its comment (and CharacterRenderer.Update's matching one) for why this has
     /// to be a change, not a level check. Pruned in PruneAnimState.</summary>
     private readonly Dictionary<ulong, bool> _wasMovingByGuid = new();
+    // Benilla's route_oneshot verdict for each unit's CURRENT play, the per-guid mirror of
+    // CharacterRenderer's _combatActionMasked. Keyed on the play's StartedAt so a fresh trigger
+    // re-routes while a resend of the same play keeps the route it was armed with.
+    private readonly Dictionary<ulong, (float StartedAt, bool Masked, bool Seated)>
+        _combatActionRoute = new();
     private readonly Dictionary<ulong, int> _spellHolds = new();
     private readonly HashSet<ulong> _lootKneeling = new();
     private readonly HashSet<ulong> _knownAlive = new();
@@ -259,7 +276,15 @@ public sealed partial class CreatureRenderer : IDisposable
     public void BeginSpellVisual(ulong guid, ushort? animationId)
     {
         if (TacticalFreezePoseLaw.IsFrozen(guid)) return;
-        if (animationId is { } id && id != 0) _spellHolds[guid] = id;
+        if (animationId is { } id && id != 0)
+        {
+            _spellHolds[guid] = id;
+            if (_combatActions.TryGetValue(guid, out CombatAction release) && release.AnimationId == id)
+            {
+                _combatActions.Remove(guid);
+                _combatActionRoute.Remove(guid);
+            }
+        }
         else _spellHolds.Remove(guid);
         _animTime[guid] = 0f;
     }
@@ -428,7 +453,8 @@ public sealed partial class CreatureRenderer : IDisposable
         catch (Exception e) { Console.WriteLine($"[creature] init failed: {e.Message}"); Ok = false; }
     }
 
-    public void Render(Camera camera, IReadOnlyList<WorldEntity> visibleUnits)
+    public void Render(Camera camera, IReadOnlyList<WorldEntity> visibleUnits,
+        IReadOnlyList<WorldEntity>? visibleCorpses = null)
     {
         _attachedItems?.BeginGlowFrame();
         DrawnLastFrame = 0;
@@ -457,6 +483,7 @@ public sealed partial class CreatureRenderer : IDisposable
         foreach (WorldEntity entity in visibleUnits)
             if (entity.IsUnit && (!entity.IsPlayer || entity.Guid != SelfPlayerGuid))
                 _orderedUnits.Add(entity);
+        AppendCorpseRenderViews(visibleCorpses, _orderedUnits);
         _sortCameraPosition = camPos;
         _orderedUnits.Sort(CompareUnitDistance);
 
@@ -548,6 +575,12 @@ public sealed partial class CreatureRenderer : IDisposable
             // The steed draws FIRST, because the rider's instance transform is its saddle.
             // Until the mount model is resident this is false and the rider draws on the
             // ground as it always did — a mount pops in, it never blocks its rider.
+            // The room's light for this unit; the steed and the rider share it, and
+            // DrawUnitAttachments hands it to the items. Bound now so the mount draw
+            // below sees it too.
+            _currentInteriorLight = InteriorLightFor?.Invoke(e.Guid, e.Position) ?? Vector4.Zero;
+            _shader.Set("uInteriorLight", _currentInteriorLight);
+
             MountDraw mount = default;
             bool mounted = false;
             if (e.MountDisplayId > 0)
@@ -580,7 +613,7 @@ public sealed partial class CreatureRenderer : IDisposable
             int boneCount = 0;
             M2Animator.Clip? pickClip = null;
             if (Animate && model.Animator is not null && model.BoneCount > 0 &&
-                (e.IsDead || Vector3.Distance(e.Position, camPos) <= AnimateDistance))
+                (e.Fields.ReadsDead || Vector3.Distance(e.Position, camPos) <= AnimateDistance))
             {
                 string unit = e.IsPlayer ? $"player:{e.Guid:X16}" : $"creature:{e.DisplayId}";
                 if (!_animTime.TryGetValue(e.Guid, out float at)) at = InitialPhase(e.Guid);
@@ -597,36 +630,84 @@ public sealed partial class CreatureRenderer : IDisposable
                 // unlike an ordinary one-shot swing/emote, which the real client
                 // would mask to the upper body and keep playing regardless of when
                 // it started (tabled - see the "KNOWN WRONG" comments).
-                bool remoteMoving = (e.Spline?.AverageSpeed ?? 0f) > MovingEpsilon;
+                bool remoteMoving = (e.RenderMotionSpeed ?? e.Spline?.AverageSpeed ?? 0f) > MovingEpsilon;
                 bool remoteMovementChanged = remoteMoving != _wasMovingByGuid.GetValueOrDefault(e.Guid);
                 _wasMovingByGuid[e.Guid] = remoteMoving;
-                if (!animationFrozen && remoteMovementChanged) _combatActions.Remove(e.Guid);
 
-                // Seated remote unit + an active emote/swing one-shot (someone else
-                // eating/drinking): mask it to the SpineLow subtree over the held
-                // seated pose instead of hijacking the whole body - the per-guid
-                // mirror of CharacterRenderer's SeatedMaskState fix. Resolve and
-                // expire the action HERE so the seated-loop branch below is free to
-                // be the base clip; it renders as a torso overlay at Evaluate time.
+                // Route this unit's one-shot ONCE per play - the per-guid mirror of
+                // CharacterRenderer's arm-time capture, and for the same reason: re-deciding
+                // per frame would swap the base out from under a half-played clip.
+                bool remoteMasked = false;
+                bool remoteSeated = SeatedLoopAnimId(e.Fields.StandState) != 0;
+                if (_combatActions.TryGetValue(e.Guid, out CombatAction routedAction))
+                {
+                    if (!_combatActionRoute.TryGetValue(e.Guid, out var route) ||
+                        route.StartedAt != routedAction.StartedAt)
+                    {
+                        route = (routedAction.StartedAt, CharacterPoseLaw.CommittedLower(
+                            moving: remoteMoving,
+                            turning: false,
+                            swimming: (e.MoveFlags & (uint)MovementFlags.Swimming) != 0,
+                            seated: remoteSeated,
+                            mounted: mounted,
+                            combatAnimation: false,
+                            falling: false), remoteSeated);
+                        _combatActionRoute[e.Guid] = route;
+                    }
+                    // The stand-state clause is live, exactly as for the local player - the
+                    // server's seat can land after the emote it belongs to, and a latched
+                    // full-body route would leave a drinking unit standing until the play ended.
+                    // See CharacterRenderer.Update. The route only ever tightens.
+                    if (!route.Masked && remoteSeated)
+                    {
+                        route = (route.StartedAt, true, true);
+                        _combatActionRoute[e.Guid] = route;
+                    }
+                    // Leaving the seat ends a seated consume, the mirror of the local rule.
+                    if (!animationFrozen && route.Seated && !remoteSeated)
+                    {
+                        _combatActions.Remove(e.Guid);
+                        _combatActionRoute.Remove(e.Guid);
+                    }
+                    else remoteMasked = route.Masked;
+                }
+                else _combatActionRoute.Remove(e.Guid);
+
+                // A movement-flag change ends a FULL-BODY play only. A masked overlay runs beside
+                // the base machine and owns its own clock - see CharacterRenderer.Update.
+                if (!animationFrozen && remoteMovementChanged && !remoteMasked)
+                {
+                    _combatActions.Remove(e.Guid);
+                    _combatActionRoute.Remove(e.Guid);
+                }
+
+                // Masked remote one-shot (someone else eating/drinking seated, or casting while
+                // running): layer it onto the SpineLow subtree over the base pose instead of
+                // hijacking the whole body. Resolve and expire the action HERE so the locomotion
+                // and seated-loop branches below are free to be the base clip; it renders as a
+                // torso overlay at Evaluate time.
                 M2Animator.Clip? torsoOverlay = null;
                 float torsoOverlayTime = 0f;
-                bool seatedMask = !remoteMoving && SeatedLoopAnimId(e.Fields.StandState) != 0;
-                if (seatedMask &&
-                    _combatActions.TryGetValue(e.Guid, out CombatAction seatedAction) &&
-                    ResolveCombatClip(model.Animator, unit, seatedAction) is { } seatedActionClip)
+                if (remoteMasked &&
+                    _combatActions.TryGetValue(e.Guid, out CombatAction maskedAction) &&
+                    ResolveCombatClip(model.Animator, unit, maskedAction) is { } maskedActionClip)
                 {
-                    float seatedActionTime = frozen ? at : _globalTime - seatedAction.StartedAt;
-                    if (!frozen && !seatedActionClip.Looping &&
-                        seatedActionTime >= seatedActionClip.DurationSeconds)
-                        _combatActions.Remove(e.Guid);   // one-shot done: plain seated pose
+                    float maskedActionTime = frozen ? at : _globalTime - maskedAction.StartedAt;
+                    if (!frozen && !maskedActionClip.Looping &&
+                        maskedActionTime >= maskedActionClip.DurationSeconds)
+                    {
+                        _combatActions.Remove(e.Guid);   // one-shot done: plain base pose
+                        _combatActionRoute.Remove(e.Guid);
+                        remoteMasked = false;
+                    }
                     else
                     {
-                        torsoOverlay = seatedActionClip;
-                        torsoOverlayTime = seatedActionTime;
+                        torsoOverlay = maskedActionClip;
+                        torsoOverlayTime = maskedActionTime;
                     }
                 }
 
-                if (e.IsDead)
+                if (e.Fields.ReadsDead && !e.Fields.PlayerIsGhost)
                 {
                     clip = model.Animator.Resolve(unit, ActionAnimationTrack, 1, true, 6, 0);
                     rate = 1f;
@@ -636,14 +717,11 @@ public sealed partial class CreatureRenderer : IDisposable
                         : MathF.Min(deathAt + dt, clip?.DurationSeconds ?? deathAt + dt);
                     _deathTime[e.Guid] = at;
                 }
-                // The SEATED half of the Benilla committed_lower rule is now handled
-                // above (torsoOverlay) - !seatedMask keeps this full-body branch for
-                // the standing case. The MOVING half is still KNOWN WRONG (2026-08-16):
-                // full-body floats a moving remote unit's whole body instead of masking
-                // the one-shot to the SpineLow subtree with the legs still striding. See
-                // CharacterRenderer.ChooseClip's comment (Benilla driver.rs:631-644/
-                // 1137-1178) - that moving mask still needs building here too.
-                else if (!seatedMask &&
+                // Both halves of the Benilla committed_lower rule are handled above
+                // (torsoOverlay); !remoteMasked keeps this full-body branch for the case it is
+                // still correct for - a unit standing still, lower body free. See
+                // CharacterRenderer.ChooseClip (Benilla driver.rs:631-644/1137-1178).
+                else if (!remoteMasked &&
                     _combatActions.TryGetValue(e.Guid, out CombatAction action) &&
                     ResolveCombatClip(model.Animator, unit, action) is { } actionClip)
                 {
@@ -734,7 +812,8 @@ public sealed partial class CreatureRenderer : IDisposable
                     if (torsoOverlay is not null)
                         model.Animator.EvaluateWithArmOverlays(clip, at, null, 0f, 0f,
                             null, 0f, null, 0f, torsoOverlay, torsoOverlayTime,
-                            evaluationGlobalTime, _skin);
+                            evaluationGlobalTime, _skin,
+                            torsoOverlayWeight: CharacterPoseLaw.OneshotOverlayWeight);
                     else
                         model.Animator.Evaluate(clip, at, evaluationGlobalTime, _skin);
                     M2Animator.Pack(_skin, boneCount, _packed);
@@ -753,7 +832,7 @@ public sealed partial class CreatureRenderer : IDisposable
                 worldModel, model.Source, poseSkin,
                 GeosetFilter ? appearance.VisibleGeosets : null,
                 pickClip?.BoundsCenter ?? Vector3.Zero,
-                pickClip?.BoundsRadius ?? 0f);
+                pickClip?.BoundsRadius ?? 0f, modelKey, pickClip?.AnimationId ?? -1);
 
             bool filter = GeosetFilter && appearance.VisibleGeosets is not null;
             _gl.BindVertexArray(model.Vao);
@@ -811,6 +890,11 @@ public sealed partial class CreatureRenderer : IDisposable
         info = default;
         if (_resolver is null || !_resolver.TryResolve(entity.DisplayId, out CreatureModelInfo model))
             return false;
+        if (TryCorpseAppearance(entity, out var corpse))
+        {
+            info = corpse.ModelInfo(model);
+            return true;
+        }
         if (!entity.IsPlayer)
         {
             info = model;
@@ -829,6 +913,13 @@ public sealed partial class CreatureRenderer : IDisposable
     {
         info = default;
         if (!entity.IsPlayer) return false;
+        if (entity.Fields.HasDisplayTransform)
+        {
+            // A wolf, bear or polymorph uses its authored display appearance;
+            // player skin and equipment do not belong on that replacement model.
+            info = model;
+            return true;
+        }
         (byte race, _, byte sex, _) = entity.Fields.Bytes0;
         if (race is < 1 or > 8 || sex > 1) return false;
         (byte skin, byte face, byte hairStyle, byte hairColor) =
@@ -977,7 +1068,7 @@ public sealed partial class CreatureRenderer : IDisposable
 
     private static bool CastsGroundShadow(WorldEntity entity)
     {
-        if (entity.Flying || entity.Spline?.Flying == true) return false;
+        if (entity.Flying || entity.IsHovering || entity.Spline?.Flying == true) return false;
         const uint airborneOrSwimming =
             (uint)(MovementFlags.Falling | MovementFlags.Swimming);
         return (entity.MoveFlags & airborneOrSwimming) == 0;
@@ -991,6 +1082,7 @@ public sealed partial class CreatureRenderer : IDisposable
         _attachedItems.SunIntensity = SunIntensity;
         _attachedItems.AmbientColor = AmbientColor;
         _attachedItems.AmbientIntensity = AmbientIntensity;
+        _attachedItems.BakedLightScale = BakedLightScale;
         _attachedItems.FogColor = FogColor;
         _attachedItems.FogStart = FogStart;
         _attachedItems.FogEnd = FogEnd;
@@ -1000,7 +1092,8 @@ public sealed partial class CreatureRenderer : IDisposable
         in CreatureModelInfo info, Matrix4x4 transform, Matrix4x4[] skin,
         bool applyAuraVisual = false, float alphaMultiplier = 1f)
     {
-        if (model.Source.Attachments.Count == 0 || _attachedItems is null) return;
+        if (model.Source.Attachments.Count == 0 || _attachedItems is null ||
+            entity.IsPlayer && entity.Fields.HasDisplayTransform) return;
         uint head = info.HasExtended && info.ExtEquipment.Length > 0
             ? info.ExtEquipment[0] : 0;
         uint shoulders = info.HasExtended && info.ExtEquipment.Length > 1
@@ -1008,7 +1101,12 @@ public sealed partial class CreatureRenderer : IDisposable
         string suffix = RaceGenderCode(info.ExtRace, info.ExtSex);
         var equipment = new CharacterEquipment();
         string signature;
-        if (entity.IsPlayer)
+        if (TryCorpseAppearance(entity, out var corpse))
+        {
+            equipment = corpse.BuildEquipment();
+            signature = corpse.Signature();
+        }
+        else if (entity.IsPlayer)
         {
             var parts = new List<string>(19);
             for (int slot = 0; slot < 19; slot++)
@@ -1067,8 +1165,13 @@ public sealed partial class CreatureRenderer : IDisposable
             : 1f;
         _attachedItems.BodyTint = applyAuraVisual ? entity.AuraVisual.Tint : Vector3.One;
         _attachedItems.GlowOwnerKey = $"unit:{entity.Guid:X16}";
+        _attachedItems.InteriorLight = _currentInteriorLight;
+        byte heldSheath = FishingLineLaw.PresentationSheath(entity.Fields.SheathState,
+            _combatActions.TryGetValue(entity.Guid, out CombatAction fishingAction)
+                ? fishingAction.AnimationId : -1,
+            _spellHolds.GetValueOrDefault(entity.Guid, -1));
         _attachedItems.Render(camera, transform, model.Source, skin, state.Mounts,
-            entity.Fields.SheathState, entity.Guid, _globalTime);
+            heldSheath, entity.Guid, _globalTime);
     }
 
     public IReadOnlyList<ItemGlowPlacement> ItemGlowPlacements =>
@@ -1240,6 +1343,9 @@ public sealed partial class CreatureRenderer : IDisposable
         _shader.Set("uHighlight", 0f);
         _shader.Set("uBodyAlpha", 1f);
         _shader.Set("uBodyTint", Vector3.One);
+        _currentInteriorLight = Vector4.Zero;   // a portrait booth is not a room
+        _shader.Set("uInteriorLight", _currentInteriorLight);
+        _shader.Set("uBakedLightScale", BakedLightScale);
         ApplyAttachmentAtmosphere();
 
         int boneCount = 0;
@@ -1318,9 +1424,29 @@ public sealed partial class CreatureRenderer : IDisposable
         WorldEntity e, M2Animator animator, string unit, bool lootKneeling, out float rate)
     {
         rate = 1f;
-        float speed = e.Spline?.AverageSpeed ?? 0f;
-        bool flying = e.Flying || e.Spline?.Flying == true;
-        if (e.Spline is null || speed <= MovingEpsilon)
+        float speed = e.RenderMotionSpeed ?? e.Spline?.AverageSpeed ?? 0f;
+        bool flying = e.Flying || e.IsHovering || e.Spline?.Flying == true;
+        // Display transforms (including Aquatic Form) use this renderer too.
+        // Vanilla's swim selector: turn > strafe > backward > forward > idle.
+        // Select from movement flags so vertical-only movement still treads water.
+        uint flags = e.MoveFlags;
+        if ((flags & (uint)MovementFlags.Swimming) != 0)
+        {
+            int swimId = (flags & (uint)(MovementFlags.TurnLeft | MovementFlags.TurnRight)) != 0 ? 41
+                : (flags & (uint)MovementFlags.StrafeLeft) != 0 ? 43
+                : (flags & (uint)MovementFlags.StrafeRight) != 0 ? 44
+                : (flags & (uint)MovementFlags.Backward) != 0 ? 45
+                : (flags & (uint)MovementFlags.Forward) != 0 ? 42 : 41;
+            M2Animator.Clip? swim = swimId is 43 or 44
+                ? animator.Resolve(unit, BaseAnimationTrack, swimId, true, 42, 41, 0)
+                : animator.Resolve(unit, BaseAnimationTrack, swimId, true, 41, 0);
+            if (swim is not null && swim.AnimationId != 41 && swim.MoveSpeed > 0.01f)
+                rate = Math.Clamp(speed / swim.MoveSpeed, 0.25f, 3f);
+            return swim;
+        }
+        if (e.IsAirborne && !flying)
+            return animator.Resolve(unit, BaseAnimationTrack, 40, true, 39, 0);
+        if ((e.Spline is null && e.RenderMotionSpeed is null) || speed <= MovingEpsilon)
         {
             // Flying is durable actor state; the spline only says whether the body is travelling
             // right now. Prefer the model's authored Hover loop, then its generic Fly cycle. The
@@ -1337,6 +1463,8 @@ public sealed partial class CreatureRenderer : IDisposable
 
             return e.Engaged
                 ? animator.Resolve(unit, BaseAnimationTrack, 25, true, 26, 27, 28, 0)
+                : e.Fields.UnitIsStealthed
+                ? animator.Resolve(unit, BaseAnimationTrack, 120, true, 0)
                 : animator.Resolve(unit, BaseAnimationTrack, 0, true);
         }
 
@@ -1353,8 +1481,26 @@ public sealed partial class CreatureRenderer : IDisposable
             return flight;
         }
 
+        if ((flags & (uint)MovementFlags.Backward) != 0)
+        {
+            M2Animator.Clip? back = animator.Resolve(unit, BaseAnimationTrack, 13, true, 4, 0);
+            if (back is not null && back.MoveSpeed > 0.01f)
+                rate = Math.Clamp(speed / back.MoveSpeed, 0.25f, 3f);
+            return back;
+        }
+        // UNIT_FIELD_BYTES_1 byte3 CREEP drives pose independently of aura alpha.
+        // StealthWalk119 is absent from vanilla's locomotion-rate whitelist.
+        if (e.Fields.UnitIsStealthed)
+        {
+            M2Animator.Clip? stealth = animator.Resolve(unit, BaseAnimationTrack, 119, true, 4, 0);
+            // DruidCat has no 119: its Walk fallback retains normal gait timing.
+            if (stealth?.AnimationId == 4 && stealth.MoveSpeed > 0.01f)
+                rate = Math.Clamp(speed / stealth.MoveSpeed, 0.25f, 3f);
+            return stealth;
+        }
+
         float walk = e.Speeds is { Length: > 0 } sp && sp[0] > 0f ? sp[0] : DefaultWalkSpeed;
-        M2Animator.Clip? clip = speed > 2f * walk
+        M2Animator.Clip? clip = !e.IsWalking && speed > 2f * walk
             ? animator.Resolve(unit, BaseAnimationTrack, 5, true, 4, 0)
             : animator.Resolve(unit, BaseAnimationTrack, 4, true, 5, 0);
 
@@ -1392,26 +1538,27 @@ public sealed partial class CreatureRenderer : IDisposable
 
     private void TrackLifeState(WorldEntity entity)
     {
-        if (entity.IsDead)
+        if (entity.Fields.ReadsDead && !entity.Fields.PlayerIsGhost)
         {
             bool witnessedAlive = _knownAlive.Remove(entity.Guid);
             if (_observedDead.Add(entity.Guid))
                 _deathTime[entity.Guid] = witnessedAlive ? 0f : float.PositiveInfinity;
-            if (entity.IsCreature)
+            if (entity.IsCreature && entity.IsDead)
                 _deadCreatureSeenAt[entity.Guid] = _globalTime;
             _combatActions.Remove(entity.Guid);
             return;
         }
 
         bool resurrected = _observedDead.Remove(entity.Guid);
-        if (entity.IsCreature && _deadCreatureSeenAt.Remove(entity.Guid))
+        bool respawned = entity.IsCreature && _deadCreatureSeenAt.Remove(entity.Guid);
+        if (respawned)
             resurrected = true;
         _deathTime.Remove(entity.Guid);
         _knownAlive.Add(entity.Guid);
         if (resurrected)
         {
             _combatActions[entity.Guid] = new CombatAction(7, _globalTime, _globalTime + 3f);
-            if (entity.IsCreature)
+            if (respawned)
                 _respawnFadeStartedAt[entity.Guid] = _globalTime;
         }
     }
@@ -1507,6 +1654,7 @@ public sealed partial class CreatureRenderer : IDisposable
             _footstepTime.Remove(k);
             _animationEventOutOfViewSince.Remove(k);
             _wasMovingByGuid.Remove(k);
+            _combatActionRoute.Remove(k);
             _tacticalFreezeStartedAt.Remove(k);
             _tacticalFreezeVisuals.Remove(k);
         }
@@ -2587,10 +2735,14 @@ uniform float uBodyAlpha;
 uniform vec3 uBodyTint;
 uniform vec3 uAmbientColor;
 uniform float uAmbientIntensity;
+uniform vec4 uInteriorLight;     // room light under the feet: rgb MOCV/255, a interior weight (0 = daylight)
+uniform float uBakedLightScale;  // the walls' VertexColorScale - see character.frag
 uniform int uPointLightCount;
 uniform vec3 uPointLightPos[8];
 uniform vec3 uPointLightColor[8];
 out vec4 frag;
+const float InteriorFloorFill = 0.75;
+const float InteriorKey = 0.35;
 vec3 carriedPointLight(vec3 normal, vec3 worldPos){
     float d0=1e30,d1=1e30,d2=1e30; vec3 v0=vec3(0.0),v1=vec3(0.0),v2=vec3(0.0);
     vec3 c0=vec3(0.0),c1=vec3(0.0),c2=vec3(0.0);
@@ -2616,7 +2768,13 @@ void main(){
     if (!gl_FrontFacing) normal = -normal;
     float sunResponse = model2SunResponse(dot(normal, normalize(uSunDir)));
     vec3 light = uAmbientColor * uAmbientIntensity
-        + uSunColor * uSunIntensity * sunResponse + vec3(uHighlight);
+        + uSunColor * uSunIntensity * sunResponse;
+    if (uInteriorLight.a > 0.0) {
+        vec3 room = uInteriorLight.rgb * uBakedLightScale
+            * (InteriorFloorFill + InteriorKey * sunResponse);
+        light = mix(light, room, uInteriorLight.a);
+    }
+    light += vec3(uHighlight);
     light += vec3(WorldModelSelfFill);
     light += carriedPointLight(normal, vWorld);
     light = max(light, vec3(0.0));

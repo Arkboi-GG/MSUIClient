@@ -38,7 +38,10 @@ internal static class GossipClinicalChecks
         }
         NpcText parsed = GossipPackets.ParseText(writer.ToArray());
         Check(parsed.TextId == 77 && parsed.Blocks.Count == 8 &&
-              parsed.Blocks[3] == new NpcTextBlock(0.75f, "M3", "F3") &&
+              parsed.Blocks[3].Probability == 0.75f && parsed.Blocks[3].MaleText == "M3" &&
+              parsed.Blocks[3].FemaleText == "F3" && parsed.Blocks[3].Language == 30 &&
+              parsed.Blocks[3].Emotes?.SequenceEqual(new[] {
+                  new DialogueEmote(32, 31), new DialogueEmote(34, 33), new DialogueEmote(36, 35) }) == true &&
               parsed.Blocks[7].MaleText == "M7",
             "gossip eight-block packet retention drift");
 
@@ -107,7 +110,7 @@ internal static class GossipClinicalChecks
                   StringComparison.Ordinal) &&
               runtime.Contains("DrawGossipScrollBar(dl, p, s, contentHeight)",
                   StringComparison.Ordinal) &&
-              runtime.Contains("!option.Coded", StringComparison.Ordinal) &&
+              runtime.Contains("if (option.Coded) return ShowGossipCode(option);", StringComparison.Ordinal) &&
               runtime.Contains("GossipPackets.ParsePoi", StringComparison.Ordinal) &&
               net.Contains("case Op.SMSG_GOSSIP_POI:", StringComparison.Ordinal) &&
               control.Contains("case Op.SMSG_GOSSIP_POI:", StringComparison.Ordinal) &&

@@ -47,6 +47,7 @@ public sealed class MovementInfo
     public float Pitch;      // swim pitch, radians (+up); 0 when not swimming
     public uint FallTime;    // ms airborne (u32 on the wire)
     public JumpInfo? Jump;
+    public float SplineElevation;
 
     public void Write(PacketWriter w)
     {
@@ -75,7 +76,8 @@ public sealed class MovementInfo
             w.WriteF32(j.SinAngle);
             w.WriteF32(j.XySpeed);
         }
-        // benilla never sets SPLINE_ELEVATION outbound, so no trailing float is written.
+        if ((Flags & (uint)MovementFlags.SplineElevation) != 0)
+            w.WriteF32(SplineElevation);
     }
 
     public static MovementInfo Read(PacketReader r)
@@ -96,7 +98,7 @@ public sealed class MovementInfo
         if ((flags & (uint)MovementFlags.Falling) != 0)
             mi.Jump = new JumpInfo(r.ReadF32(), r.ReadF32(), r.ReadF32(), r.ReadF32());
         if ((flags & (uint)MovementFlags.SplineElevation) != 0)
-            r.ReadF32(); // parsed to stay aligned, discarded
+            mi.SplineElevation = r.ReadF32();
         return mi;
     }
 

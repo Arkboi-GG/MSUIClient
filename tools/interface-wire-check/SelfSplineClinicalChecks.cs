@@ -71,8 +71,8 @@ internal static class SelfSplineClinicalChecks
               taxi.Contains("_serverRideStoppedId = move.SplineId", StringComparison.Ordinal) &&
               taxi.Contains("uint completedId = ride.Id", StringComparison.Ordinal) &&
               taxi.Contains("_net?.MoveSplineDone(movement, splineId)", StringComparison.Ordinal) &&
-              loop.Contains("bool serverRideActive = UpdateServerRide()", StringComparison.Ordinal) &&
-              loop.Contains("if (!serverRideActive) _controller.Update(dt, input)",
+              loop.Contains("bool serverRideActive = serverRideHeldByTacticalFreeze ||", StringComparison.Ordinal) &&
+              loop.Contains("if (!serverRideActive && !controllerTacticalFrozen && !vanillaControlLocked)",
                   StringComparison.Ordinal) &&
               dispatch.Contains("AbortServerRideForTeleport();", StringComparison.Ordinal),
             "self ride ownership, newest-stop id, physics park, ack, or teleport-abort drift");

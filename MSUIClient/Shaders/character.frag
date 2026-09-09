@@ -44,6 +44,17 @@ uniform vec3  uFogColor;
 uniform float uBodyAlpha;
 uniform vec3  uBodyTint;
 uniform int   uUnlit;
+
+// Interior light of the room the model stands in (World/Wmo/InteriorUnitLight.cs):
+// rgb = MOCV / 255 of the floor under its feet, a = interior weight, 0 = daylight
+// (GL's default, so a booth or portrait that never sets it is untouched).
+// uBakedLightScale is the walls' VertexColorScale, so a unit matches the room.
+uniform vec4  uInteriorLight;
+uniform float uBakedLightScale;
+// A room lights a model from everywhere at once (the floor colour is the room's
+// baked radiance), with a little shape kept from the sun-direction response.
+const float InteriorFloorFill = 0.75;
+const float InteriorKey = 0.35;
 // 0 scene fog; 1 black (additive); 2 white (modulate); 3 neutral gray (2x);
 // 4 explicitly unfogged.
 uniform int   uFogPolicy;
@@ -129,6 +140,12 @@ void main()
     {
         light = uAmbientColor * uAmbientIntensity
             + uSunColor * sunResponse * uSunIntensity;
+        if (uInteriorLight.a > 0.0)
+        {
+            vec3 room = uInteriorLight.rgb * uBakedLightScale
+                * (InteriorFloorFill + InteriorKey * sunResponse);
+            light = mix(light, room, uInteriorLight.a);
+        }
         // The 1.12 model path carries a base contribution independent of the
         // room surface exposure. Keep that practical separation here so a
         // readable body does not require overexposing the surrounding WMO.

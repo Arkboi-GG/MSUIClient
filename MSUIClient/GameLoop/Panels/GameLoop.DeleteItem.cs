@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine.UI;
 using MSUIClient.Net;
@@ -22,12 +22,21 @@ public sealed partial class GameLoop
 
     private void TryOpenDeleteItemConfirmation()
     {
+        if (_vendorPickup is not null && ImGui.IsMouseReleased(ImGuiMouseButton.Left) && !ImGui.IsAnyItemHovered())
+        { _vendorPickup = null; return; }
         if (!CanAuthorControlledOrSelf || _deleteItemConfirmation is not null ||
             !HasCarriedItem ||
             !ImGui.IsMouseReleased(ImGuiMouseButton.Left) || ImGui.IsAnyItemHovered() ||
             ResolveCarriedItem() is not { } instance ||
             _items?.TryGet(instance.Entry, out ItemTemplate? item) != true || item is null)
             return;
+
+        if (!DeleteItemUiLaw.CanDestroy(item.Flags))
+        {
+            ShowUiError(InventoryGlobalString("ERR_DROP_BOUND_ITEM"));
+            ClearCarriedItem();
+            return;
+        }
 
         byte count = (byte)Math.Clamp(_carriedCount ?? 0, 0, byte.MaxValue);
         _deleteItemConfirmation =
@@ -67,6 +76,19 @@ public sealed partial class GameLoop
             return;
         }
 
+        if (ResolveInventoryItem(pending.Container, pending.Slot) is not { } instance ||
+            _items?.TryGet(instance.Entry, out ItemTemplate? item) != true || item is null)
+        {
+            CancelDeleteItem();
+            return;
+        }
+        if (!DeleteItemUiLaw.CanDestroy(item.Flags))
+        {
+            ShowUiError(InventoryGlobalString("ERR_DROP_BOUND_ITEM"));
+            CancelDeleteItem();
+            return;
+        }
+
         _net.DestroyItem(wire.Bag, wire.Slot, pending.Count);
         AddPendingBagLock(pending.Container, pending.Slot, ++_pendingBagOperation);
         EmitInterface("inventory", "destroy", "SENT", ResolveCarriedItem()?.Guid ?? 0,
@@ -90,16 +112,24 @@ public sealed partial class GameLoop
         {
             PartyInvitePopupType => $"{first.DataToken ?? ""} invites you to a group.",
             DeleteItemUiLaw.PopupType => DeleteItemUiLaw.Text(first.DataToken ?? ""),
+            EquipBindingUiLaw.EquipType or EquipBindingUiLaw.AutoEquipType => EquipBindingUiLaw.Text,
             DeleteItemUiLaw.ConfirmPopupType =>
                 DeleteItemUiLaw.ConfirmText(first.DataToken ?? ""),
             DuelFrameUiLaw.RequestedPopupType =>
                 DuelFrameUiLaw.RequestedText(first.DataToken ?? ""),
+            InstanceBootUiLaw.PopupType => InstanceBootText(ControlledGuid, first.TimeLeft),
+            _ when IsBattlefieldInvite(first.Definition.Type) => BattlefieldInviteText(first.Definition.Type),
+            AreaSpiritHealerUiLaw.PopupType => AreaSpiritHealerPromptText(),
+            PetUnlearnUiLaw.PopupType => PetUnlearnPromptText(),
+            TrainerServiceUiLaw.PopupType => TrainerConfirmationText(),
             DuelFrameUiLaw.OutOfBoundsPopupType =>
                 DuelFrameUiLaw.OutOfBoundsText(first.TimeLeft),
             ConfirmPopupUiLaw.SummonPopupType => SummonPromptText(),
             ConfirmPopupUiLaw.QuestAcceptPopupType => QuestConfirmPromptText(),
             ConfirmPopupUiLaw.ReadyCheckPopupType => ReadyCheckPromptText(),
             ConfirmPopupUiLaw.PartyFlightPopupType => PartyFlightPromptText(),
+            ConfirmPopupUiLaw.DeleteMacroPopupType =>
+                ConfirmPopupUiLaw.DeleteMacroText(first.DataToken ?? ""),
             FriendsFrameUiLaw.AddFriendPopupType => FriendsFrameUiLaw.AddFriendPopupText,
             FriendsFrameUiLaw.AddIgnorePopupType => FriendsFrameUiLaw.AddIgnorePopupText,
             CharacterBindingsUiLaw.PopupType => CharacterBindingsUiLaw.ConfirmText,
@@ -119,7 +149,8 @@ public sealed partial class GameLoop
         int lines = WrapTooltipText(text, "GameFontHighlight", scale,
             DeleteItemUiLaw.TextWidth * scale).Count();
         float textHeight = lines * GameText.LinePitch("GameFontHighlight", 1);
-        float buttonHeight = first.Definition.Type == DuelFrameUiLaw.OutOfBoundsPopupType
+        if (first.Definition.Type == PetUnlearnUiLaw.PopupType) textHeight += PetUnlearnUiLaw.MoneyExtraHeight;
+        float buttonHeight = first.Definition.Type is DuelFrameUiLaw.OutOfBoundsPopupType or InstanceBootUiLaw.PopupType
             ? 0 : DeleteItemUiLaw.ButtonHeight;
         return StaticPopupCoordinatorLaw.Height(textHeight, buttonHeight,
             StaticPopupCoordinatorLaw.NarrowEditBoxHeight, first.Definition.HasEditBox);

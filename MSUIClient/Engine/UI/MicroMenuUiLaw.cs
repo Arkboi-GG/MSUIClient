@@ -48,6 +48,11 @@ public static class MicroMenuUiLaw
 
     public static float ButtonX(int visibleOrdinal) => Math.Max(0, visibleOrdinal) * ButtonStride;
 
+    public static string Description(in MicroMenuButtonSpec button, int questCapacity) =>
+        button.Id == MicroMenuButtonId.QuestLog
+            ? $"A list of all the active quests you currently have. You can have up to {Math.Max(20, questCapacity)} active quests at one time."
+            : button.NewbieText;
+
     public static string TooltipTitle(string label, string? bindingText) =>
         string.IsNullOrWhiteSpace(bindingText) ? label : $"{label} ({bindingText})";
 }

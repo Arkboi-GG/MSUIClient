@@ -52,6 +52,10 @@ public sealed partial class ClientConfig
     /// <summary>MangosSuperUI base URL for live, read-only realm data such as Quest Helper.</summary>
     public string DataServiceUrl { get; set; } = "";
 
+    /// <summary>Realm values absent from the 1.12 quest wire. Defaults match stock 1.12 and the inspected local Core.</summary>
+    public uint RealmMaxPlayerLevel { get; set; } = 60;
+    public float RealmMoneyRate { get; set; } = 1f;
+
     [JsonIgnore]
     public string ResolvedDataServiceUrl => string.IsNullOrWhiteSpace(DataServiceUrl)
         ? $"http://{RealmdHost}:5000" : DataServiceUrl.TrimEnd('/');

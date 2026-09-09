@@ -473,7 +473,7 @@ internal static class PartyFrameClinicalChecks
               runtime.Contains("ImGuiWindowFlags.Tooltip", StringComparison.Ordinal) &&
               runtime.Contains("TooltipRightOffset(\n            multiBarLeftVisible",
                   StringComparison.Ordinal) &&
-              runtime.Contains("petOrStanceVisible: PetActionBarVisible", StringComparison.Ordinal) &&
+              runtime.Contains("petOrStanceVisible: PetOrStanceActionBarVisible", StringComparison.Ordinal) &&
               runtime.Contains("min=0;max={memberHealth.Maximum};value={memberHealth.Value}",
                   StringComparison.Ordinal) &&
               runtime.Contains("min=0;max={view.MaxPower};value={Math.Min(view.Power, view.MaxPower)}",
@@ -492,7 +492,7 @@ internal static class PartyFrameClinicalChecks
                   StringComparison.Ordinal) &&
               runtime.Contains("party-tooltip-slot-token-is-absent-during-fade",
                   StringComparison.Ordinal) &&
-              runtime.Contains("string fontObject = hovered ? \"GameFontHighlight\" : \"GameFontNormal\";",
+              runtime.Contains(": hovered ? \"GameFontHighlight\" : \"GameFontNormal\";",
                   StringComparison.Ordinal) &&
               !runtime.Contains("DialogButtonHighlightText", StringComparison.Ordinal) &&
               !runtime.Contains("DialogButtonNormalText", StringComparison.Ordinal) &&
@@ -648,7 +648,7 @@ internal static class PartyFrameClinicalChecks
               escapeDriver.Contains("StaticPopupCoordinatorLaw.Escape(_staticPopupSlots)",
                   StringComparison.Ordinal) &&
               escapeDriver.Contains("ExecuteStaticPopupPlan(plan);", StringComparison.Ordinal) &&
-              settings.Contains("PartyFrameUiLaw.IsPartyInviteVisible(_staticPopupSlots)",
+              settings.Contains("StaticPopupCoordinatorLaw.AnyVisible(_staticPopupSlots)",
                   StringComparison.Ordinal) &&
               settings.Contains("TryDismissStaticPopupOnEscape()", StringComparison.Ordinal),
             "PARTY_INVITE direct-hide/shared-Escape/settings precedence seam drift");
@@ -677,7 +677,7 @@ internal static class PartyFrameClinicalChecks
         Check(readClock >= 0 && commitClock > readClock && advance > commitClock &&
               lifecycle.Contains("StaticPopupCoordinatorLaw.SlotCount", StringComparison.Ordinal) &&
               lifecycle.Contains("now >= previous", StringComparison.Ordinal) &&
-              !lifecycle.Contains("HideByType", StringComparison.Ordinal),
+              lifecycle.Contains("DeleteItemUiLaw.Visible(_staticPopupSlots) is { } stale && !HasCarriedItem", StringComparison.Ordinal),
             "PARTY_INVITE always-pumped monotonic two-slot Advance drift");
 
         int inviteDrawStart = runtime.IndexOf("private void DrawPartyInvite()",
@@ -705,18 +705,14 @@ internal static class PartyFrameClinicalChecks
               !runtime.Contains("_partyInviter", StringComparison.Ordinal) &&
               !runtime.Contains("_partyInviteDeadline", StringComparison.Ordinal),
             "PARTY_INVITE pure definition/query or legacy parallel-state removal drift");
-        Check(Count(runtime, "StaticPopupCoordinatorLaw.Show(") == 1 &&
-              Count(runtime, "StaticPopupCoordinatorLaw.HideByType(") == 1 &&
-              Count(runtime, "StaticPopupCoordinatorLaw.Escape(") == 1 &&
-              Count(runtime, "StaticPopupCoordinatorLaw.Advance(") == 1 &&
-              Count(runtime, "StaticPopupCoordinatorLaw.Click(") == 2 &&
-              runtime.Contains("PARTY_INVITE is the only production entry integrated",
-                  StringComparison.Ordinal) &&
-              runtime.Contains("slot-two presentation remains an explicit later integration",
-                  StringComparison.Ordinal) &&
+        Check(Count(applyInvite, "StaticPopupCoordinatorLaw.Show(") == 1 &&
+              Count(directHide, "StaticPopupCoordinatorLaw.HideByType(") == 1 &&
+              Count(escapeDriver, "StaticPopupCoordinatorLaw.Escape(") == 1 &&
+              Count(lifecycle, "StaticPopupCoordinatorLaw.Advance(") == 1 &&
+              Count(inviteDraw, "StaticPopupCoordinatorLaw.Click(") == 2 &&
               runtime.Contains("callback-reentry branches remain an explicit later boundary",
                   StringComparison.Ordinal),
-            "bounded coordinator slice admitted another production type or deferred renderer");
+            "party invitation must use one shared coordinator operation per lifecycle transition");
         int parseRoster = runtime.IndexOf("PartyFramePacketLaw.ParseRoster(body)",
             StringComparison.Ordinal);
         int leaveDecision = runtime.IndexOf("PartyFrameUiLaw.IsLeaveRoster(wire)", parseRoster,
@@ -730,7 +726,7 @@ internal static class PartyFrameClinicalChecks
               net.Contains("ApplyPartyMemberStats(body, fullSnapshot: false)", StringComparison.Ordinal) &&
               net.Contains("ApplyPartyMemberStats(body, fullSnapshot: true)", StringComparison.Ordinal),
             "party atomic roster/FULL-vs-delta dispatch drift");
-        Check(runtime.Contains("_unitPopupInspectBinding = InspectBinding.Party(hoveredIndex)",
+        Check(runtime.Contains("InspectBinding.Party(hoveredIndex)",
                   StringComparison.Ordinal) &&
               runtime.Contains("action == PartyPointerAction.Target", StringComparison.Ordinal) &&
               // Through the painterly art path, which falls back to

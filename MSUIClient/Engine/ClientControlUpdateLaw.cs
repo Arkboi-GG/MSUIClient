@@ -32,4 +32,7 @@ public static class ClientControlUpdateLaw
         bool ordinaryOwnCharacterState, bool controllingSessionCharacter) =>
         selfControlLost && controllingSessionCharacter &&
         !SuiOwnsRouting(freeView, ordinaryOwnCharacterState);
+    public static bool LocksAddressedBody(ulong lostGuid, ulong controlledGuid, bool freeView, bool possessing) =>
+        lostGuid != 0 && lostGuid == controlledGuid && possessing && !freeView;
+
 }

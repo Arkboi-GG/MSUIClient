@@ -81,6 +81,17 @@ internal static class CooldownProtocolClinicalChecks
         items.StartItemUseCooldown(118, useSpell, potion, 50.0);
         Check(Math.Abs(items.CooldownRemaining(439, 118, potion, 65.0) - 45.0) < 0.001,
             "item-use wire triple did not retain its item/category recovery");
+        var explosives = new PlayerActions();
+        var dynamiteUse = new ItemSpellTemplate(4054, 0, 0, 0, 24, 60_000);
+        var bombUse = dynamiteUse with { SpellId = 4064 };
+        SpellInfo dynamite = default(SpellInfo) with { Id = 4054, Category = 0 };
+        explosives.StartItemUseCooldown(4358, dynamiteUse, dynamite, 10);
+        Check(explosives.IsItemOnCooldown(4358, dynamiteUse, dynamite, 12) &&
+              explosives.IsItemOnCooldown(4365, bombUse, dynamite with { Id = 4064 }, 12),
+            "item-authored explosive category must gate the original and another explosive despite DBC category zero");
+        Check(!explosives.IsItemOnCooldown(4358, dynamiteUse, dynamite, 70) &&
+              !explosives.IsItemOnCooldown(118, useSpell, potion, 12),
+            "item category recovery must expire and must not block unrelated consumables");
         items.StartItemPacketCooldown(439, itemEntry: 118, nowSeconds: 70.0);
         SpellInfo uncategorized = potion with { Category = 0 };
         Check(items.IsOnCooldown(439, 118, uncategorized, 71.0) &&

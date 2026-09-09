@@ -90,12 +90,17 @@ public sealed partial class GameLoop
     private bool VanillaButton(ImDrawListPtr draw, string id, string caption,
         Vector2 min, Vector2 logicalSize, float scale, bool enabled = true,
         string? normalFont = null, string? highlightFont = null,
-        string? disabledFont = null)
+        string? disabledFont = null, float extraHitTop = 0f)
     {
         Vector2 size = logicalSize * scale;
-        ImGui.SetCursorScreenPos(min);
+        // Purely a hit-test forgiveness margin - the drawn texture/label below still use the
+        // untouched min/size, so this never shifts what the button looks like, only how far
+        // above its visible top edge a click still counts.
+        Vector2 hitMin = min - new Vector2(0f, extraHitTop * scale);
+        Vector2 hitSize = size + new Vector2(0f, extraHitTop * scale);
+        ImGui.SetCursorScreenPos(hitMin);
         if (!enabled) ImGui.BeginDisabled();
-        bool releasedInside = ImGui.InvisibleButton(id, size);
+        bool releasedInside = ImGui.InvisibleButton(id, hitSize);
         bool held = enabled && ImGui.IsItemActive();
         bool hovered = enabled && ImGui.IsItemHovered();
         if (!enabled) ImGui.EndDisabled();
@@ -573,7 +578,8 @@ public sealed partial class GameLoop
 
     /// <summary>FrameXML EditBox with no authored backdrop and zero text insets.</summary>
     private static bool VanillaBareInputText(string id, byte[] buffer, Vector2 min,
-        Vector2 logicalSize, Vector2 logicalTextInset, float scale)
+        Vector2 logicalSize, Vector2 logicalTextInset, float scale,
+        ImGuiInputTextFlags flags = ImGuiInputTextFlags.None)
     {
         Vector2 inset = logicalTextInset * scale;
         Vector2 inputSize = (logicalSize - logicalTextInset * 2) * scale;
@@ -585,7 +591,7 @@ public sealed partial class GameLoop
         ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBgActive, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.Border, Vector4.Zero);
-        bool changed = ImGui.InputText(id, buffer, (uint)buffer.Length);
+        bool changed = ImGui.InputText(id, buffer, (uint)buffer.Length, flags);
         ImGui.PopStyleColor(4);
         ImGui.PopStyleVar();
         return changed;
@@ -657,17 +663,20 @@ public sealed partial class GameLoop
     }
 
     private bool VanillaInputInt(ImDrawListPtr draw, string id, ref int value,
-        Vector2 min, Vector2 logicalSize, float scale)
+        Vector2 min, Vector2 logicalSize, float scale, bool zeroTextInsets = false)
     {
         DrawVanillaInputBorder(draw, min, logicalSize, scale);
-        ImGui.SetCursorScreenPos(min + new Vector2(6, 2) * scale);
-        ImGui.SetNextItemWidth((logicalSize.X - 12) * scale);
+        float inset = zeroTextInsets ? 0f : 6f;
+        ImGui.SetCursorScreenPos(min + new Vector2(inset, 2) * scale);
+        ImGui.SetNextItemWidth((logicalSize.X - inset * 2) * scale);
+        if (zeroTextInsets) ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, Vector2.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBg, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.FrameBgActive, Vector4.Zero);
         ImGui.PushStyleColor(ImGuiCol.Border, Vector4.Zero);
         bool changed = ImGui.InputInt(id, ref value, 0, 0);
         ImGui.PopStyleColor(4);
+        if (zeroTextInsets) ImGui.PopStyleVar();
         return changed;
     }
 

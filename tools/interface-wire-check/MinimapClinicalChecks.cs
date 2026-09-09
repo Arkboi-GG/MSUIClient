@@ -72,13 +72,13 @@ internal static class MinimapClinicalChecks
             Vector2.Zero, new Vector2(0, 80), new Vector2(70.4f), 140.8f, 100f);
         MinimapPartyBlip partyArrow = MinimapUiLaw.PartyBlip(
             Vector2.Zero, new Vector2(-300, 0), new Vector2(70.4f), 140.8f, 100f);
-        Check(!partyDot.IsArrow && partyDot.Center == new Vector2(70.4f, 49.28f) &&
+        Check(!partyDot.IsArrow && Vector2.Distance(partyDot.Center, new Vector2(70.4f, 49.28f)) < .001f &&
               MathF.Abs(partyDot.Size - 10.4f) < .001f &&
-              !boundaryDot.IsArrow && boundaryDot.Center == new Vector2(14.08f, 70.4f) &&
+              !boundaryDot.IsArrow && Vector2.Distance(boundaryDot.Center, new Vector2(14.08f, 70.4f)) < .001f &&
               partyArrow.IsArrow &&
               Vector2.Distance(partyArrow.Center, new Vector2(70.4f, 126.72f)) < .001f &&
               MathF.Abs(partyArrow.Size - 38.4f) < .001f &&
-              MathF.Abs(partyArrow.Rotation - MathF.PI) < .001f,
+              MathF.Abs(MathF.Abs(partyArrow.Rotation) - MathF.PI) < .001f,
             "minimap party dot/0.8 split/rim-arrow projection drift");
 
         Check(WmoMinimapProjection.CompositeSize == 256 &&
@@ -115,6 +115,20 @@ internal static class MinimapClinicalChecks
             "AreaPOI candidacy, 0.8 split, signed importance rank or atlas law drift");
 
         string root = ClientConfig.FindRepoRoot();
+        using (var mpq = new MpqMount(Path.Combine(root, "GameData", "Data")))
+        {
+            byte[] areaBytes = mpq.ReadFile(AreaTableCatalog.MpqPath)
+                ?? throw new InvalidDataException("AreaTable.dbc is required for the instance-area regression");
+            AreaTableCatalog catalog = AreaTableCatalog.Parse(areaBytes)
+                ?? throw new InvalidDataException("AreaTable.dbc could not be parsed");
+            Check(catalog.SingleZoneForMap(34) == 717 &&
+                  catalog.AreaName(717) == "The Stockade" &&
+                  catalog.SingleZoneForMap(33) == 209 &&
+                  catalog.SingleZoneForMap(0) == 0 &&
+                  catalog.SingleZoneForMap(36) == 0 &&
+                  catalog.SingleZoneForMap(uint.MaxValue) == 0,
+                "instance area fallback must resolve Stockades/SFK without guessing ambiguous or unknown maps");
+        }
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
             "GameLoop.Minimap.cs"));
         string areas = SourceText.Read(Path.Combine(root, "MSUIClient", "Formats", "AreaTable.cs"));

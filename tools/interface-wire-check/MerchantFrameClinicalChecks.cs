@@ -567,8 +567,8 @@ internal static class MerchantFrameClinicalChecks
               character.Contains("bool rightClicked = !_vendorRepairMode &&",
                   StringComparison.Ordinal) &&
               Count(inventory + character,
-                  "if (!dressUpClick && !_vendorRepairMode && _itemCastSpell == 0 && " +
-                  "_enchantConfirmation is null)") == 2 &&
+                  "if (!giftWrapClick && _giftWrap is null && !dressUpClick && " +
+                  "!_vendorRepairMode && _itemCastSpell == 0 && _enchantConfirmation is null)") == 2 &&
               settings.Contains("CloseVendorSession();", StringComparison.Ordinal) &&
               quest.Contains("CloseVendorSession();", StringComparison.Ordinal) &&
               Count(net, "ResetVendor();") == 2 &&

@@ -201,8 +201,7 @@ public sealed partial class GameLoop
                 _freecamSelection.Count, altPrimaryCast, acceptsFriendly);
             if (intent == RtsAbilityCastIntent.ChooseFriendlyTarget)
             {
-                _groundCastSpell = 0;
-                _groundCursorPoint = null;
+                CancelGroundTargeting();
                 CancelItemTargeting();
                 _pendingCastPrimary = 0;
                 _pendingCastSpellId = 0;
@@ -270,7 +269,7 @@ public sealed partial class GameLoop
             return true;
         }
         CastTargetCandidate candidate = CastCandidate(target,
-            isSelf: targetGuid == _rtsUnitCastPrimary);
+            isSelf: targetGuid == _rtsUnitCastPrimary, casterGuid: _rtsUnitCastPrimary);
         CastTargetVerdict verdict = CastTargetLaw.Resolve(spell, candidate, self: null,
             autoSelfCast: false);
         if (verdict.Kind != CastTargetKind.Unit || verdict.Guid != targetGuid)
@@ -1060,9 +1059,18 @@ public sealed partial class GameLoop
         PlayerActions store = ActionsFor(unit);
         SpellInfo? spell = _spellCatalog?.TryGet(useSpell.SpellId, out SpellInfo resolved) == true
             ? resolved : null;
-        bool blocked = spell is { } info
-            ? store.IsOnCooldown(useSpell.SpellId, tpl.Entry, info, now)
-            : store.IsOnCooldown(useSpell.SpellId, tpl.Entry, useSpell.Category, now);
+        bool blocked = store.IsItemOnCooldown(tpl.Entry, useSpell, spell, now);
+        // Same trace as SendItemUse's gate (GameLoop.Inventory.cs, path=useitem). This is the
+        // one item-use gate that is genuinely separate: bag clicks, action-bar presses and
+        // hotkeys all share SendItemUse, while the shelf has its own copy AND runs against a
+        // per-unit store (ActionsFor) rather than the own-player one - so a block here and a
+        // block there are not necessarily the same records.
+        Console.WriteLine($"[verdict:item-cooldown] time={NowSeconds():F3} path=shelf " +
+            $"unit=0x{unit:X16} entry={tpl.Entry} spell={useSpell.SpellId} " +
+            $"name={spell?.Name ?? "?"} category={useSpell.Category} " +
+            $"itemCooldownMs={useSpell.CooldownMs} itemCategoryCooldownMs={useSpell.CategoryCooldownMs} " +
+            $"dbcRecoveryMs={spell?.RecoveryMs ?? 0} dbcCategoryRecoveryMs={spell?.CategoryRecoveryMs ?? 0} " +
+            $"blocked={blocked}");
         if (blocked)
         {
             ShowSpellError(useSpell.SpellId, "LOCAL_ITEM_COOLDOWN", "Item is not ready yet.", "LOCAL_GATE");
@@ -1070,8 +1078,9 @@ public sealed partial class GameLoop
         }
         if (!_net.UseItem(255, (byte)(23 + slot), tpl.UseSpellIndex)) return true;
         ScheduleControlledInventoryRefresh(unit);   // re-sync a possessed bot's consumed item
-        store.StartItemUseCooldown(instance.Entry, useSpell, spell, now);
-        if (spell is { } committed) store.StartGlobalCooldown(useSpell.SpellId, committed, now);
+        store.StartItemUseCooldown(instance.Entry, useSpell, spell, now,
+            spell is { } cooldownSpell ? ActorSpellModifiers(unit, cooldownSpell, SpellModifierStore.Cooldown) : default);
+        if (spell is { } committed) StartActorGlobalCooldown(store, unit, committed, now);
         return true;
     }
 

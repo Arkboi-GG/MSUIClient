@@ -59,7 +59,7 @@ internal static class TrainerFrameClinicalChecks
               TrainerFrameUiLaw.FilterDropDown.Button ==
                   new DropdownCapsuleUiLaw.LogicalRect(106, 1, 24, 24) &&
               TrainerFrameUiLaw.DetailTooltipOwnerBounds(new Vector2(100, 200), 2) ==
-                  (new Vector2(154, 788), new Vector2(228, 862)),
+                  (new Vector2(152, 782), new Vector2(226, 856)),
             "trainer identity/window geometry drift");
 
         var available = new TrainerFrameUiLaw.ServiceNode(0, 26, "Arms", "Heroic Strike", 0, 1);

@@ -7,6 +7,9 @@ internal static class CharCreateClinicalChecks
 {
     public static void Run()
     {
+        Check("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".All(CharCreateUiLaw.AcceptsNameCharacter) &&
+              !"0123456789@- é".Any(CharCreateUiLaw.AcceptsNameCharacter) && CharCreateUiLaw.MaxNameLength == 12,
+            "creation name input must accept ASCII letters only and retain the twelve-character cap");
         GlueStrings strings = GlueStrings.Parse(Encoding.UTF8.GetBytes(
             "CHAR_CUSTOMIZATION1_DESC = \"Skin Tone\";\n" +
             "CHAR_CUSTOMIZATION2_DESC = \"Visage\";\n" +

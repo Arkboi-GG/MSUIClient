@@ -20,6 +20,11 @@ internal static class MicroMenuClinicalChecks
             "micro-button live-key/newbie tooltip law drift");
 
         string root = ClientConfig.FindRepoRoot();
+        var questButton = MicroMenuUiLaw.Buttons.Single(x => x.Id == MicroMenuButtonId.QuestLog);
+        Check(MicroMenuUiLaw.Description(questButton, 100).Contains("100 active quests", StringComparison.Ordinal) &&
+              MicroMenuUiLaw.Description(questButton, 20).Contains("20 active quests", StringComparison.Ordinal) &&
+              MicroMenuUiLaw.Description(questButton, 0).Contains("20 active quests", StringComparison.Ordinal),
+            "quest tooltip must reflect the server capacity with the vanilla fallback");
         string actionBars = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
             "GameLoop.ActionBars.cs"));
         string bindings = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",

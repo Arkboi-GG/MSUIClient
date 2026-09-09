@@ -142,6 +142,8 @@ public sealed partial class GameLoop
         ResetSuiControl();
         ResetCommanderState();
         ResetPlayerIdentitySession();
+        ResetWeatherSession();
+        ResetReputationSession();
         ResetCombatFeedback();
         ResetPendingInventoryOps();
         ResetLoot();
@@ -153,6 +155,7 @@ public sealed partial class GameLoop
         ResetSkillRankWatch();
         ResetGossip();
         ResetQuestSession(clearStatusStore: true);
+        _tutorialFlags?.ResetSession();
         ResetMail();
         ResetAuction();
         ResetGuild();

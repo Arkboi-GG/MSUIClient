@@ -233,6 +233,8 @@ internal static class PartyQuestClinicalChecks
                   "        {\n" +
                   "            ApplyFactionControlGroupsCapability(capabilities, factionProbeReply);\n" +
                   "            ApplyPartyMemberFactsCapability(capabilities);\n" +
+                  "            ApplyPartyTaxiCapability(capabilities);\n" +
+                  "            ApplyTacticalFreezeCapability(capabilities);\n" +
                   "        }", StringComparison.Ordinal),
             "the capability applies must stay inside ONE braced guard — without the " +
             "braces a trailerless ACK silently clears capabilities already advertised");

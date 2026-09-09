@@ -406,19 +406,13 @@ public sealed partial class GameLoop
 
     private void PushCenterText(string text, CenterCombatTextStyle style)
     {
-        if (_centerCombatText.Count == 20) _centerCombatText.RemoveAt(0);
-        _centerCombatText.Add(new CenterText
-        {
-            Text = text,
-            Style = style,
-            Lane = _centerCombatText.Count % 5,
-        });
+        QueueCenterCombatText(text, style);
     }
 
     // ── the authored LootFrame ───────────────────────────────────────────────
 
     private readonly record struct LootRow(bool IsCoin, byte WireSlot, uint ItemId,
-        string Name, string IconPath, uint Count, Vector4 NameColor);
+        string Name, string IconPath, uint Count, Vector4 NameColor, uint RandomPropertyId = 0);
 
     private void DrawLootFrame()
     {
@@ -505,11 +499,11 @@ public sealed partial class GameLoop
                 ?? @"Interface\Icons\INV_Misc_QuestionMark.blp";
             if (_items?.TryGet(item.ItemId, out ItemTemplate? template) == true && template is not null)
             {
-                name = template.Name;
+                name = _itemRandomProperties?.ItemName(template.Name, unchecked((int)item.RandomPropertyId)) ?? template.Name;
                 color = ItemQualityLaw.Color(template.Quality);
                 if (template.IconPath.Length > 0) icon = template.IconPath;
             }
-            rows.Add(new LootRow(false, item.Slot, item.ItemId, name, icon, item.Count, color));
+            rows.Add(new LootRow(false, item.Slot, item.ItemId, name, icon, item.Count, color, item.RandomPropertyId));
         }
         return rows;
     }
@@ -565,7 +559,8 @@ public sealed partial class GameLoop
             if (rowTemplate is not null)
             {
                 ItemTooltipBodySnapshot tooltipBody =
-                    PrepareItemTooltipBodySnapshot(rowTemplate, row.Count);
+                    PrepareItemTooltipBodySnapshot(rowTemplate, row.Count, liveInstance: RemoteTooltipInstance(
+                        unchecked((int)row.RandomPropertyId)));
                 OfferPreparedItemTooltip(new("item:loot-row", (ulong)visual), tooltipBody,
                     tooltipSeat.Anchor, nextWindowPivot: tooltipSeat.Pivot);
             }

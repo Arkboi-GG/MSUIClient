@@ -11,8 +11,8 @@ namespace MSUIClient.World;
 /// <summary>
 /// Rain/snow presentation behind <see cref="WeatherVisualLaw"/>. Geometry is
 /// world-space and collision-aware; UI code never participates in its layout.
-/// Sand remains state/lighting-only because the current Benilla reference has
-/// not implemented its deferred sand particle slice either.
+/// Sand particles remain an open 1.12 audit finding (WORLD-01); the existing
+/// implementation's lack of a consumer does not establish original-client behavior.
 /// </summary>
 public sealed class WeatherPrecipitationRenderer : IDisposable
 {
@@ -73,6 +73,18 @@ public sealed class WeatherPrecipitationRenderer : IDisposable
     {
         _gl = gl;
         _config = config;
+    }
+
+    /// <summary>Session teardown retires old-world particles even while indoor simulation is frozen.</summary>
+    public void ResetSession()
+    {
+        _rain.Clear(); _snow.Clear(); _patters.Clear(); _settledSnow.Clear(); _mist.Clear();
+        _vertices.Clear(); _windWindow.Clear();
+        _lastPlayerPosition = null;
+        _wind = Vector3.Zero; _heading = Vector3.UnitX;
+        _slabTilt = Quaternion.Identity; _streakTilt = Quaternion.Identity;
+        _mistBudget = 0; _cutSequence = 0; _rng = 0x9E3779B9u;
+        FrozenIndoors = false;
     }
 
     public void LoadShaders(string shaderDir)

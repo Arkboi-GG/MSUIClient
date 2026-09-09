@@ -39,7 +39,8 @@ public sealed partial class GameLoop
     private readonly CharCreateState _cc = new();
     private CharCreateCatalog? _ccCatalog;
     private bool _ccCatalogLoaded;
-    private readonly byte[] _ccNameBuf = new byte[16];
+    private readonly byte[] _ccNameBuf = new byte[CharCreateUiLaw.MaxNameLength + 1];
+    private ImGuiInputTextCallback? _ccNameFilterCallback;
     private string _ccStatus = "";
     private string? _ccArmName;          // name of a just-created character to select on return to the roster
     private bool _ccNameSubmit;          // the name box's Enter this frame
@@ -630,7 +631,7 @@ public sealed partial class GameLoop
 
     /// <summary>The name edit box (12-char ASCII-alpha, benilla mod.rs) with a gold "Name" label and
     /// the status line beneath (empty until a create fails - the ref's minimal error stand-in).</summary>
-    private void DrawCreateNameBox(ImDrawListPtr dl, Vector2 disp, float s)
+    private unsafe void DrawCreateNameBox(ImDrawListPtr dl, Vector2 disp, float s)
     {
         float cx = disp.X * 0.5f;
         float boxW = CreateTune.NameBoxW * s, boxH = 38f * s;
@@ -660,20 +661,23 @@ public sealed partial class GameLoop
         ImGui.PushStyleColor(ImGuiCol.Text, WowSkin.Normal);
         ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0f);
         if (_ccFocusName) { ImGui.SetKeyboardFocusHere(); _ccFocusName = false; }
-        _ccNameSubmit = ImGui.InputText("##ccname", _ccNameBuf, (uint)_ccNameBuf.Length, ImGuiInputTextFlags.EnterReturnsTrue);
+        _ccNameFilterCallback ??= FilterCreateNameCharacter;
+        _ccNameSubmit = ImGui.InputText("##ccname", _ccNameBuf, (uint)_ccNameBuf.Length,
+            ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.CallbackCharFilter, _ccNameFilterCallback);
         ImGui.PopStyleVar();
         ImGui.PopStyleColor(4);
         ImGui.SetWindowFontScale(1f);
 
-        // Enforce benilla's name rule: ASCII letters only, at most 12.
-        string raw = BufToString(_ccNameBuf);
-        string clean = new string(raw.Where(c => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')).Take(12).ToArray());
-        if (!string.Equals(clean, raw, StringComparison.Ordinal)) WriteBuf(_ccNameBuf, clean);
-        _cc.Name = clean;
+        // Filter at insertion, including paste, so ImGui's active editor and the request
+        // share one value. The native buffer capacity enforces the twelve-letter limit.
+        _cc.Name = BufToString(_ccNameBuf);
 
         if (_ccStatus.Length > 0)
             GlueText(dl, _ccStatus, cx, boxBottom + 6f * s, 13f * s, WowSkin.Muted, 1);
     }
+
+    private static unsafe int FilterCreateNameCharacter(ImGuiInputTextCallbackData* data) =>
+        CharCreateUiLaw.AcceptsNameCharacter((char)data->EventChar) ? 0 : 1;
 
     // A small immediate-mode tower button: unique ImGui id, custom centered glyph/label, and a
     // selected/hover face. Used for the race/gender/class grids and the dial arrows (which repeat the

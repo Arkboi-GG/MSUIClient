@@ -42,7 +42,7 @@ internal static class DrunkMovementClinicalChecks
 
         string root = ClientConfig.FindRepoRoot();
         string program = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.cs"));
-        Check(program.Contains("_entities.TryGet(LocalPlayerGuid, out WorldEntity sessionPlayer)",
+        Check(program.Contains("_entities.TryGet(ControlledGuid, out WorldEntity movementPlayer) && movementPlayer.IsPlayer",
                   StringComparison.Ordinal) &&
               program.Contains("DrunkMovementLaw.FacingWobble", StringComparison.Ordinal) &&
               program.Contains("keyboardTurning: MathF.Abs(turn) > 0.01f", StringComparison.Ordinal) &&

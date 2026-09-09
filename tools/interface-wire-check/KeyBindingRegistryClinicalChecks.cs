@@ -14,7 +14,7 @@ internal static class KeyBindingRegistryClinicalChecks
             Category: match.Groups["category"].Value,
             Binding: match.Groups["binding"].Value)).ToArray();
         string[] categories = rows.Select(row => row.Category).Distinct().ToArray();
-        // Benilla's nine, IN ITS ORDER, and then MSUI's own two. The reference ladder is
+        // Benilla's nine, IN ITS ORDER, and then MSUI's own categories. The reference ladder is
         // asserted as a PREFIX so a drift inside it still fails; the extension is asserted
         // separately, and must stay last so the shipped list a player scrolls is unchanged
         // until they reach the commands only this client has.
@@ -23,8 +23,10 @@ internal static class KeyBindingRegistryClinicalChecks
                 "Miscellaneous", "Camera", "MultiActionBar", "Raid Targeting",
             ]),
             "Key Bindings visible category order drifted from current Benilla");
-        Check(categories.Skip(9).SequenceEqual(["RTS Controls", "CRPG Controls"]),
-            "the MSUI CRPG/RTS categories are missing, renamed, or no longer last");
+        Check(categories.Skip(9).SequenceEqual([
+                "RTS Controls", "CRPG Controls", "Developer", "Debug",
+            ]),
+            "the MSUI CRPG/RTS/developer categories are missing, renamed, or reordered");
         Check(rows.Select(row => row.Binding).Distinct().Count() == rows.Length,
             "Key Bindings registry exposes one command in more than one visible category");
         Check(rows.Contains(("Movement", "Sheath")) &&

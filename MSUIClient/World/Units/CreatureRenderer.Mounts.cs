@@ -202,6 +202,9 @@ public sealed partial class CreatureRenderer
         _shader.Set("uSunIntensity", SunIntensity);
         _shader.Set("uAmbientColor", AmbientColor);
         _shader.Set("uAmbientIntensity", AmbientIntensity);
+        _currentInteriorLight = Vector4.Zero;
+        _shader.Set("uInteriorLight", _currentInteriorLight);
+        _shader.Set("uBakedLightScale", BakedLightScale);
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);

@@ -137,7 +137,7 @@ public sealed partial class GameLoop
                 // Creature and item objectives are independent even when they share an index.
                 if (objective.ItemId != 0 && objective.ItemCount > 0)
                 {
-                    uint current = Math.Min(CarriedCount(objective.ItemId), objective.ItemCount);
+                    uint current = Math.Min(CarriedCount(objective.ItemId, LocalPlayerGuid), objective.ItemCount);
                     if (current < objective.ItemCount)
                     {
                         string label = QuestObjectiveItemLabel(objective.ItemId);

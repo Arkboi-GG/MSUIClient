@@ -200,6 +200,7 @@ public sealed partial class GameLoop
                 itemEstablished ? row.Price : 0, soldOut, usable);
 
             if (input.LeftReleased && ImGui.GetIO().KeyCtrl) TryOnDressUp(row.ItemId);
+            else if (input.LeftReleased && !ImGui.GetIO().KeyShift) PickupVendorEntry(row.ItemId);
             if (input.RightReleased) BuyVendorEntry(row.ItemId, 1);
             if (!input.Hovered) continue;
             _vendorHoveredRow = index;
@@ -258,7 +259,10 @@ public sealed partial class GameLoop
             GameTooltipOwnerKey allOwner = new("vendor-repair-all", 0);
             if (DrawVendorRepairButton(draw, "##vendor-repair-item", 510, itemMin,
                     new Vector2(0, 0), enabled: true, scale))
+            {
+                CancelGiftWrapping();
                 _vendorRepairMode = !_vendorRepairMode;
+            }
             if (DrawVendorRepairButton(draw, "##vendor-repair-all", 511, allMin,
                     new Vector2(.28125f, 0), repairCost > 0, scale))
             {
@@ -684,7 +688,7 @@ public sealed partial class GameLoop
         if (item.RequiredSkill != 0 &&
             (!GetSkillValue(item.RequiredSkill, out ushort value, out _) ||
              value < item.RequiredSkillRank)) return false;
-        if (!InventoryUiLaw.IsItemProficient(item.Class, item.Subclass, _itemProficiencies))
+        if (!InventoryUiLaw.IsItemProficient(item.Class, item.Subclass, ItemProficienciesFor(player.Guid)))
             return false;
         return true;
     }

@@ -27,10 +27,14 @@ public sealed class SkillLineCatalog
     public const string RaceClassPath = @"DBFilesClient\SkillRaceClassInfo.dbc";
     public const uint DisplaySortedFlag = 0x80;
     public const uint UnlearnableFlag = 0x20;
+    public const uint SilentSkillUpFlags = 0x402;
     private readonly record struct RaceClassRoute(uint RaceMask, uint ClassMask, uint Flags);
     private readonly Dictionary<uint, SkillLineInfo> _lines = new();
     private readonly Dictionary<uint, SkillCategoryInfo> _categories = new();
     private readonly Dictionary<uint, uint> _spellLines = new();
+    private readonly Dictionary<uint, uint> _spellRankLines = new();
+    private readonly Dictionary<uint, uint> _trainingPointCosts = new();
+    private readonly Dictionary<uint, uint> _abilityPredecessors = new();
     private readonly Dictionary<uint, SkillRecipeInfo> _recipes = new();
     private readonly Dictionary<uint, List<SkillRecipeInfo>> _recipesByLine = new();
     private readonly Dictionary<uint, List<RaceClassRoute>> _raceClassRoutes = new();
@@ -43,7 +47,17 @@ public sealed class SkillLineCatalog
     public bool TryGet(uint id, out SkillLineInfo line) => _lines.TryGetValue(id, out line);
     public IEnumerable<SkillLineInfo> Lines => _lines.Values;
     public bool TryGetCategory(uint id, out SkillCategoryInfo category) => _categories.TryGetValue(id, out category);
+    // Core builds its rank map in ascending SkillLineAbility row-ID order.
+    public uint SpellRankLine(uint spellId) => _spellRankLines.GetValueOrDefault(spellId);
     public uint SpellLine(uint spellId) => _spellLines.GetValueOrDefault(spellId);
+    public uint TrainingPointCost(uint spellId) => _trainingPointCosts.GetValueOrDefault(spellId);
+    public uint AbilityChainRoot(uint spellId)
+    {
+        var visited = new HashSet<uint>();
+        while (visited.Add(spellId) && _abilityPredecessors.TryGetValue(spellId, out uint previous))
+            spellId = previous;
+        return spellId;
+    }
     /// <summary>
     /// The 1.12 spellbook tab for a known spell. Generic/racial/proficiency lines whose matching
     /// SkillRaceClassInfo row carries DISPLAY_SORTED, missing lines, and lines with no admitting
@@ -82,6 +96,18 @@ public sealed class SkillLineCatalog
         return false;
     }
     public bool TryGetRecipe(uint spellId, out SkillRecipeInfo recipe) => _recipes.TryGetValue(spellId, out recipe);
+    /// <summary>Build-5875 skill messages use the admitting race/class row's 0x402 gate.</summary>
+    public bool AnnouncesSkillUps(uint lineId, byte race, byte @class)
+    {
+        if (!_lines.ContainsKey(lineId) || race is 0 or > 32 || @class is 0 or > 32 ||
+            !_raceClassRoutes.TryGetValue(lineId, out List<RaceClassRoute>? routes)) return false;
+        uint raceBit = 1u << (race - 1), classBit = 1u << (@class - 1);
+        foreach (RaceClassRoute route in routes)
+            if ((route.RaceMask == 0 || (route.RaceMask & raceBit) != 0) &&
+                (route.ClassMask == 0 || (route.ClassMask & classBit) != 0))
+                return (route.Flags & SilentSkillUpFlags) == 0;
+        return false;
+    }
     public IReadOnlyList<SkillRecipeInfo> Recipes(uint skillLineId) =>
         _recipesByLine.TryGetValue(skillLineId, out List<SkillRecipeInfo>? recipes) ? recipes : [];
 
@@ -110,6 +136,7 @@ public sealed class SkillLineCatalog
             result._lines[id] = new SkillLineInfo(id, category, lines.GetString(row, 3),
                 lines.GetString(row, 12), string.IsNullOrWhiteSpace(icon) ? "" : icon);
         }
+        var firstRankRowIds = new Dictionary<uint, uint>();
         if (abilities is { FieldCount: >= 15 })
             for (int row = 0; row < abilities.RecordCount; row++)
             {
@@ -117,6 +144,15 @@ public sealed class SkillLineCatalog
                 if (spell == 0) continue;
                 uint line = abilities.GetUInt(row, 1);
                 result._spellLines.TryAdd(spell, line);
+                uint rowId = abilities.GetUInt(row, 0);
+                if (!firstRankRowIds.TryGetValue(spell, out uint previousRow) || rowId < previousRow)
+                {
+                    firstRankRowIds[spell] = rowId;
+                    result._spellRankLines[spell] = line;
+                    result._trainingPointCosts[spell] = abilities.GetUInt(row, 14);
+                }
+                uint nextAbility = abilities.GetUInt(row, 8);
+                if (nextAbility != 0) result._abilityPredecessors.TryAdd(nextAbility, spell);
                 var recipe = new SkillRecipeInfo(spell, line, abilities.GetUInt(row, 7),
                     abilities.GetUInt(row, 11), abilities.GetUInt(row, 10));
                 result._classAbilities.Add(new ClassAbilityRow(spell, line,

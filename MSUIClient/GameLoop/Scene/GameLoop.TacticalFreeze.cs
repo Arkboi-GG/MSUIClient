@@ -410,8 +410,7 @@ public sealed partial class GameLoop
             CancelPendingPrimaryItemUse();
             CancelPendingPrimaryCast();
             CancelRtsUnitCastTargeting(silent: true);
-            _groundCastSpell = 0;
-            _groundCursorPoint = null;
+            CancelGroundTargeting();
             CancelItemTargeting();
             _controlSwitchQueued = 0;
             ClearRtsForceTakeControl();
@@ -607,9 +606,9 @@ public sealed partial class GameLoop
         CastTargetCandidate? selected = null;
         ulong selectedGuid = explicitTarget != 0 ? explicitTarget : _selectionGuid;
         if (selectedGuid != 0 && _entities.TryGet(selectedGuid, out WorldEntity selectedEntity))
-            selected = CastCandidate(selectedEntity, selectedGuid == actorGuid);
+            selected = CastCandidate(selectedEntity, selectedGuid == actorGuid, actorGuid);
         CastTargetCandidate? self = _entities.TryGet(actorGuid, out WorldEntity actorEntity)
-            ? CastCandidate(actorEntity, isSelf: true) : null;
+            ? CastCandidate(actorEntity, isSelf: true, casterGuid: actorGuid) : null;
         CastTargetVerdict verdict = CastTargetLaw.Resolve(
             spell, selected, self, autoSelfCast: explicitTarget == 0);
 
@@ -618,8 +617,7 @@ public sealed partial class GameLoop
             _tacticalGroundLockId = owned.LockId;
             _tacticalGroundActor = actorGuid;
             _tacticalGroundSpellId = spellId;
-            _groundCastSpell = 0;
-            _groundCursorPoint = null;
+            CancelGroundTargeting();
             SetRtsControlGroupStatus($"{spell.Name}: choose a ground point for the queue.");
             return true;
         }

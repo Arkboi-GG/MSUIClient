@@ -240,7 +240,7 @@ public sealed class SpellEffectSource
         ushort destinationAttachment, float speed, double now, bool missed, byte missReason,
         ushort? castAnimation, Func<ulong, SpellUnitPose> unitPose,
         Action<ulong, uint, bool, byte> arrived, string? customTexture = null,
-        Action? launched = null, Action? ended = null)
+        Action? launched = null, Action? ended = null, Vector3? destination = null)
     {
         SpellUnitPose source = unitPose(caster);
         Vector3 from = source.Position;
@@ -257,6 +257,7 @@ public sealed class SpellEffectSource
             Ends = double.PositiveInfinity,
             Missile = true,
             Target = target,
+            FixedDestination = destination,
             DestinationAttachment = destinationAttachment,
             Position = from,
             Speed = speed,
@@ -275,6 +276,21 @@ public sealed class SpellEffectSource
             Stage = "MISSILE",
             Playback = asset is null ? default : SpellEffectPlaybackLaw.Resolve(asset.Model, missile: true),
         });
+    }
+
+    /// <summary>A GO destination burst plays once at its wire point, independently of a DynamicObject.</summary>
+    public bool SpawnGroundBurst(ulong caster, uint spell, string path, Vector3 position, double now)
+    {
+        if (Load(path) is not { } asset || !SpellAttachment.HasVisibleContent(asset.Model)) return false;
+        _instances.Add(new Instance
+        {
+            Id = ++_nextId, Asset = asset, Unit = caster, Spell = spell,
+            Life = StageLife.SelfTerminating, Started = now,
+            Ends = now + SpellAttachment.SelfTerminatingSpan(asset.Model),
+            Stage = "GROUND_BURST", Area = true, Position = position,
+            Playback = SpellEffectPlaybackLaw.Resolve(asset.Model, missile: false),
+        });
+        return true;
     }
 
     /// <summary>

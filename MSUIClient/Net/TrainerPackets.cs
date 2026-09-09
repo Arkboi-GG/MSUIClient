@@ -1,8 +1,8 @@
 namespace MSUIClient.Net;
 
 public readonly record struct TrainerSpell(
-    uint ServiceSpellId, byte State, uint Cost, bool PrimaryProfessionDialog,
-    bool PrimaryProfessionLearnable, byte RequiredLevel, uint RequiredSkill,
+    uint ServiceSpellId, byte State, uint Cost, bool PrimaryProfessionLearnable,
+    bool PrimaryProfessionDialog, byte RequiredLevel, uint RequiredSkill,
     uint RequiredSkillValue, uint RequiredSpell1, uint RequiredSpell2, uint RequiredSpell3);
 
 public sealed record TrainerList(ulong TrainerGuid, uint TrainerType,

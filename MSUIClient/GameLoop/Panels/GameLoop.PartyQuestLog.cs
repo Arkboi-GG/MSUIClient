@@ -39,7 +39,10 @@ public sealed partial class GameLoop
     private readonly record struct PartyQuestCell(
         bool Held, bool Complete, bool Failed, bool Overflow, bool Rewarded,
         uint Timer, uint[] KillProgress, uint[] ItemProgress,
-        int ObjectivesDone, int ObjectivesTotal);
+        int ObjectivesDone, int ObjectivesTotal)
+    {
+        public ulong OwnerGuid { get; init; }
+    }
 
     private void OpenPartyQuestLog()
     {
@@ -419,15 +422,20 @@ public sealed partial class GameLoop
                 if (collect)
                 {
                     itemProgress[i] = own
-                        ? CarriedCount(objective.ItemId)
+                        ? CarriedCount(objective.ItemId, guid)
                         : (i < entry.ItemCounts.Length ? entry.ItemCounts[i] : 0u);
                     total++;
                     if (itemProgress[i] >= objective.ItemCount) done++;
                 }
             }
+            if (!string.IsNullOrWhiteSpace(template.EndText))
+            {
+                total++;
+                if (complete) done++;
+            }
         }
         return new PartyQuestCell(held, complete, failed, overflow, rewarded,
-            timer, killProgress, itemProgress, done, total);
+            timer, killProgress, itemProgress, done, total) { OwnerGuid = guid };
     }
 
     private IEnumerable<(string Text, bool Finished)> PartyQuestObjectiveLines(
@@ -466,6 +474,11 @@ public sealed partial class GameLoop
                 yield return ($"{label}: {current}/{objective.ItemCount}",
                     current >= objective.ItemCount);
             }
+        }
+        if (!string.IsNullOrWhiteSpace(template.EndText))
+        {
+            any = true;
+            yield return (ExpandQuestTextForOwner(template.EndText, cell.OwnerGuid), cell.Complete);
         }
         if (!any)
             yield return (cell.Complete ? "Ready to turn in." : "No counted objectives.",

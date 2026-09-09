@@ -8,7 +8,8 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    private sealed record TradeItem(uint Entry, uint Count, uint MaxDurability, uint Durability);
+    private sealed record TradeItem(uint Entry, uint Count, uint MaxDurability, uint Durability,
+        uint RandomPropertyId, uint PermanentEnchant, int? Charges, bool Wrapped, WorldEntity? LiveInstance = null);
     private bool _tradeOpen;
     private bool _tradeAccepted;
     private bool _tradePartnerAccepted;
@@ -71,7 +72,8 @@ public sealed partial class GameLoop
         {
             if (wire.Slots[i] is TradePackets.Item item)
             {
-                target[i] = new(item.Entry, item.Count, item.MaxDurability, item.Durability);
+                target[i] = new(item.Entry, item.Count, item.MaxDurability, item.Durability,
+                    item.RandomPropertyId, item.PermanentEnchant, item.Charges, item.Wrapped);
                 _items?.Require(item.Entry, 0, _net!);
             }
         }
@@ -170,7 +172,10 @@ public sealed partial class GameLoop
             // occupied-slot click (CMSG_CLEAR_TRADE_ITEM) unreachable. Reported 2026-09-01.
             if (instance is not null)
                 _tradeMine[_tradePlaceSlot] = new(instance.Entry, Math.Max(1, instance.Fields.ItemStackCount),
-                    instance.Fields.ItemMaxDurability, instance.Fields.ItemDurability);
+                    instance.Fields.ItemMaxDurability, instance.Fields.ItemDurability,
+                    unchecked((uint)instance.Fields.ItemRandomProperty), instance.Fields.ItemEnchantmentId(0),
+                    instance.Fields.ItemSpellCharges(0),
+                    (instance.Fields.ItemFlags & InventoryUiLaw.ItemDynamicWrapped) != 0, instance);
             _tradeAccepted = _tradePartnerAccepted = false;
             _tradePlaceSlot = -1;
         }
@@ -195,7 +200,8 @@ public sealed partial class GameLoop
             @"Interface\TradeFrame\UI-TradeFrame-TopLeft", @"Interface\TradeFrame\UI-TradeFrame-TopRight",
             @"Interface\TradeFrame\UI-TradeFrame-BotLeft", @"Interface\TradeFrame\UI-TradeFrame-BotRight");
         string partner = _playerNames.GetValueOrDefault(_tradePartnerGuid, "Trade Partner");
-        GameText.Draw(dl, "GameFontNormal", _net?.PlayerName ?? "Player",
+        GameText.Draw(dl, "GameFontNormal", _playerNames.GetValueOrDefault(ControlledGuid,
+                ControlledGuid == LocalPlayerGuid ? _net?.PlayerName ?? "Player" : "Player"),
             origin + TradeFrameUiLaw.PlayerName.Min * s, s);
         GameText.Draw(dl, "GameFontNormal", partner,
             origin + TradeFrameUiLaw.RecipientName.Min * s, s);
@@ -345,7 +351,8 @@ public sealed partial class GameLoop
                 _spellCatalog?.TryGet(enchantSpell, out SpellInfo proposed) == true
                 ? proposed.Name : null;
             TradeFrameUiLaw.SlotText slotText = TradeFrameUiLaw.ItemSlotText(
-                item.Name, enchantSlot, enchantName);
+                row.Wrapped ? item.Name : _itemRandomProperties?.ItemName(item.Name,
+                    unchecked((int)row.RandomPropertyId)) ?? item.Name, enchantSlot, enchantName);
             GameText.Draw(dl, "GameFontNormalSmall", slotText.Text,
                 origin + TradeFrameUiLaw.NameText(mine, slot) * s, s,
                 slotText.Color);
@@ -371,7 +378,8 @@ public sealed partial class GameLoop
             if (row is not null && item is not null)
                 OfferPreparedItemTooltip(new($"item:trade-{(mine ? "player" : "target")}",
                     (ulong)(slot + 1)), PrepareItemTooltipBodySnapshot(item, row.Count,
-                    row.Durability, row.MaxDurability));
+                    row.Durability, row.MaxDurability, liveInstance: row.LiveInstance ?? RemoteTooltipInstance(
+                        unchecked((int)row.RandomPropertyId), row.PermanentEnchant, row.Charges, row.Wrapped)));
         }
         if (mine && ImGui.IsItemClicked())
         {

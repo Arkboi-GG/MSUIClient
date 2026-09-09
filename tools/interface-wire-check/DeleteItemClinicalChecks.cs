@@ -6,6 +6,9 @@ internal static class DeleteItemClinicalChecks
 {
     public static void Run()
     {
+        Check(DeleteItemUiLaw.CanDestroy(0) && DeleteItemUiLaw.CanDestroy(0x10) &&
+              !DeleteItemUiLaw.CanDestroy(0x20) && !DeleteItemUiLaw.CanDestroy(0x21),
+            "indestructible flag must block destruction independently of other item flags");
         Check((ushort)Op.CMSG_DESTROYITEM == 0x0111 &&
               WorldSession.BuildDestroyItemBody(255, 23, 0)
                   .SequenceEqual(new byte[] { 255, 23, 0, 0, 0, 0 }) &&
@@ -57,6 +60,13 @@ internal static class DeleteItemClinicalChecks
             "GameLoop.DeleteItem.cs"));
         string inventory = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Inventory.cs"));
+        Check(flow.Split("DeleteItemUiLaw.CanDestroy(item.Flags)", StringSplitOptions.None).Length == 3 &&
+              flow.Contains("ShowUiError(InventoryGlobalString(\"ERR_DROP_BOUND_ITEM\"))", StringComparison.Ordinal) &&
+              flow.IndexOf("DeleteItemUiLaw.CanDestroy(item.Flags)", StringComparison.Ordinal) <
+                  flow.IndexOf("new(_carriedContainer", StringComparison.Ordinal) &&
+              flow.LastIndexOf("DeleteItemUiLaw.CanDestroy(item.Flags)", StringComparison.Ordinal) <
+                  flow.IndexOf("_net.DestroyItem(", StringComparison.Ordinal),
+            "indestructible items must be refused before both popup creation and destructive send");
         Check(flow.Contains("ImGui.IsMouseReleased(ImGuiMouseButton.Left)", StringComparison.Ordinal) &&
               flow.Contains("ImGui.IsAnyItemHovered()", StringComparison.Ordinal) &&
               flow.Contains("_net.DestroyItem(wire.Bag, wire.Slot, pending.Count)",

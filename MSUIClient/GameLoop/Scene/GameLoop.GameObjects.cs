@@ -1,5 +1,4 @@
 using System.Numerics;
-using ImGuiNET;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
@@ -10,6 +9,11 @@ public sealed partial class GameLoop
 {
     private const float GameObjectInteractDistance = 6f;
     private const float MagePortalClickInteractDistance = 10f;
+    // Core GameObjectInfo::GetInteractionDistance permits the fishing cast's
+    // distant bobber. Cursor/channel ownership and server ownership still apply.
+    private float GameObjectUseDistance(WorldEntity go) => go.GameObjectType == 17
+        ? 100f : IsStockPortalEntry(go.Entry)
+            ? MagePortalClickInteractDistance : GameObjectInteractDistance;
     private ulong _gameObjectGuid;
     private uint _gameObjectAnimation;
     private readonly List<(uint Id, string Text, uint Next)> _gameObjectPages = [];
@@ -17,6 +21,18 @@ public sealed partial class GameLoop
     private sealed record GameObjectTemplate(uint Entry, uint Type, uint DisplayId, string Name,
         string Icon, int[] Data)
     {
+        public uint PageHead => Type switch
+        {
+            9 => unchecked((uint)Math.Max(0, Data[0])),
+            10 => unchecked((uint)Math.Max(0, Data[7])),
+            _ => 0,
+        };
+        public uint PageMaterial => Type switch
+        {
+            9 => unchecked((uint)Math.Max(0, Data[2])),
+            10 => unchecked((uint)Math.Max(0, Data[9])),
+            _ => 0,
+        };
         public uint LockId => Type switch
         {
             0 or 1 => unchecked((uint)Math.Max(0, Data[1])),
@@ -62,6 +78,10 @@ public sealed partial class GameLoop
             !_factions.TryGet(goFaction, out FactionTemplateRow goTemplate) ||
             !_factions.TryGet(player.Fields.FactionTemplate, out FactionTemplateRow playerTemplate))
             return null;
+        if (_forcedReactions.TryGet(ReactionPlayerOwner(player), goTemplate.Faction, out FactionReaction forced))
+            return forced == FactionReaction.Hostile;
+        if (TryReputationReaction(go, goTemplate, player, playerTemplate, out FactionReaction standing))
+            return standing == FactionReaction.Hostile;
         return goTemplate.ReactionToward(playerTemplate) == FactionReaction.Hostile;
     }
 
@@ -194,9 +214,7 @@ public sealed partial class GameLoop
             else
             {
                 distance = Vector3.Distance(actorBody.Position, go.Position);
-                interactDistance = IsStockPortalEntry(go.Entry)
-                    ? MagePortalClickInteractDistance
-                    : GameObjectInteractDistance;
+                interactDistance = GameObjectUseDistance(go);
                 if (!sessionScoped && !CanAuthorControlledGameplay)
                     outcome = "REFUSED_OBSERVER";
                 else if (distance > interactDistance)
@@ -418,17 +436,9 @@ public sealed partial class GameLoop
 
     private void DrawGameObjectFrame()
     {
-        if (_itemTextRead is not null && _gameplayArt is not null) { DrawItemTextFrame(); return; }
-        if (_gameObjectGuid == 0) return;
-        ImGui.SetNextWindowSize(new Vector2(390, 240), ImGuiCond.FirstUseEver);
-        if (!ImGui.Begin("World Object##gameobject")) { ImGui.End(); return; }
-        if (_entities.TryGet(_gameObjectGuid, out WorldEntity go))
-            ImGui.TextUnformatted($"{GameObjectKind(go.GameObjectType)} · entry {go.Entry}");
-        else ImGui.TextUnformatted($"Object 0x{_gameObjectGuid:X16}");
-        ImGui.TextDisabled($"Last animation: {_gameObjectAnimation}");
-        if (ImGui.Button("Use again") && _gameObjectGuid != 0) UseGameObject(_gameObjectGuid);
-        ImGui.SameLine(); if (ImGui.Button("Close")) ResetGameObjects();
-        ImGui.End();
+        // Ordinary doors, chests and devices have world effects, not a diagnostic
+        // dialog. Books and plaques retain their authored item-text panel.
+        if (_itemTextRead is not null && _gameplayArt is not null) DrawItemTextFrame();
     }
 
 }

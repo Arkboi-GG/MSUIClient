@@ -6,12 +6,15 @@ public sealed record QuestList(ulong GiverGuid, string Greeting, uint EmoteDelay
     IReadOnlyList<GossipQuest> Quests);
 public sealed record QuestDetails(ulong GiverGuid, uint QuestId, string Title, string Details,
     string Objectives, bool AutoFinish, IReadOnlyList<QuestRewardItem> ChoiceRewards,
-    IReadOnlyList<QuestRewardItem> FixedRewards, int Money, uint RewardSpell);
+    IReadOnlyList<QuestRewardItem> FixedRewards, int Money, uint RewardSpell,
+    IReadOnlyList<DialogueEmote>? Emotes = null);
 public sealed record QuestOffer(ulong GiverGuid, uint QuestId, string Title, string Text,
     bool EnableNext, IReadOnlyList<QuestRewardItem> ChoiceRewards,
-    IReadOnlyList<QuestRewardItem> FixedRewards, int Money, uint RewardSpell);
+    IReadOnlyList<QuestRewardItem> FixedRewards, int Money, uint RewardSpell,
+    IReadOnlyList<DialogueEmote>? Emotes = null);
 public sealed record QuestRequestItems(ulong GiverGuid, uint QuestId, string Title, string Text,
-    uint RequiredMoney, IReadOnlyList<QuestRewardItem> RequiredItems, bool Completable);
+    uint RequiredMoney, IReadOnlyList<QuestRewardItem> RequiredItems, bool Completable,
+    DialogueEmote Emote = default, bool CloseOnCancel = false);
 public readonly record struct QuestComplete(uint QuestId, uint Experience, int Money,
     IReadOnlyList<(uint ItemId, uint Count)> Rewards);
 public readonly record struct QuestKillUpdate(uint QuestId, uint Entry, uint Current, uint Required, ulong Guid);
@@ -21,12 +24,14 @@ public readonly record struct QuestLogObjective(uint CreatureOrGo, uint Required
 public sealed record QuestTemplate(uint QuestId, uint Level, int ZoneOrSort, string Title,
     string ObjectivesText, string Details, int Money, uint RewardSpell,
     IReadOnlyList<QuestRewardItem> FixedRewards, IReadOnlyList<QuestRewardItem> ChoiceRewards,
-    IReadOnlyList<QuestLogObjective> Objectives, uint Flags = 0)
+    IReadOnlyList<QuestLogObjective> Objectives, uint Flags = 0, uint MoneyAtMaxLevel = 0, string EndText = "")
 {
     /// <summary>QUEST_FLAGS_SHARABLE. The server does NOT gate the push on this —
     /// it happily forwards an unsharable quest and then refuses every accept — so
     /// the client is what must keep the Share Quest button honest.</summary>
     public bool Sharable => (Flags & 0x08) != 0;
+    public bool HasTrackableObjectives => !string.IsNullOrWhiteSpace(EndText) || Objectives.Any(o =>
+        o.CreatureOrGo != 0 && o.RequiredCount > 0 || o.ItemId != 0 && o.ItemCount > 0);
 }
 
 public static class QuestPackets
@@ -51,8 +56,10 @@ public static class QuestPackets
         bool auto = r.ReadU32() != 0; var choice = ReadItems(r, 6, "choice reward");
         var fixedItems = ReadItems(r, 5, "fixed reward"); int money = r.ReadI32(); uint spell = r.ReadU32();
         uint emotes = r.ReadU32(); if (emotes > 4) throw new InvalidDataException($"detail emote count {emotes} exceeds 4");
-        r.Skip(checked((int)emotes * 8)); RequireEnd(r, "quest details");
-        return new(guid, id, title, details, objectives, auto, choice, fixedItems, money, spell);
+        var sequence = new DialogueEmote[emotes];
+        for (int i = 0; i < sequence.Length; i++) sequence[i] = new(r.ReadU32(), r.ReadU32());
+        RequireEnd(r, "quest details");
+        return new(guid, id, title, details, objectives, auto, choice, fixedItems, money, spell, sequence);
     }
 
     public static QuestOffer ParseOffer(byte[] body)
@@ -60,17 +67,25 @@ public static class QuestPackets
         var r = new PacketReader(body); ulong guid = r.ReadU64(); uint id = r.ReadU32();
         string title = r.ReadCString(), bodyText = r.ReadCString(); bool next = r.ReadU32() != 0;
         uint emotes = r.ReadU32(); if (emotes > 4) throw new InvalidDataException($"offer emote count {emotes} exceeds 4");
-        r.Skip(checked((int)emotes * 8)); var choice = ReadItems(r, 6, "choice reward");
+        var sequence = new DialogueEmote[emotes];
+        for (int i = 0; i < sequence.Length; i++)
+        {
+            uint delay = r.ReadU32(), emote = r.ReadU32();
+            sequence[i] = new(emote, delay);
+        }
+        var choice = ReadItems(r, 6, "choice reward");
         var fixedItems = ReadItems(r, 5, "fixed reward"); int money = r.ReadI32(); r.ReadU32(); uint spell = r.ReadU32();
-        RequireEnd(r, "quest offer"); return new(guid, id, title, bodyText, next, choice, fixedItems, money, spell);
+        RequireEnd(r, "quest offer"); return new(guid, id, title, bodyText, next, choice, fixedItems, money, spell, sequence);
     }
 
     public static QuestRequestItems ParseRequestItems(byte[] body)
     {
         var r = new PacketReader(body); ulong guid = r.ReadU64(); uint id = r.ReadU32();
-        string title = r.ReadCString(), bodyText = r.ReadCString(); r.Skip(12); uint money = r.ReadU32();
+        string title = r.ReadCString(), bodyText = r.ReadCString();
+        uint delay = r.ReadU32(), emote = r.ReadU32(); bool closeOnCancel = r.ReadU32() != 0;
+        uint money = r.ReadU32();
         var items = ReadItems(r, 4, "required item"); r.ReadU32(); uint flags = r.ReadU32(); r.Skip(8);
-        RequireEnd(r, "quest request items"); return new(guid, id, title, bodyText, money, items, flags != 0);
+        RequireEnd(r, "quest request items"); return new(guid, id, title, bodyText, money, items, flags != 0, new(emote, delay), closeOnCancel);
     }
 
     public static QuestComplete ParseComplete(byte[] body)
@@ -106,7 +121,7 @@ public static class QuestPackets
         int zoneOrSort = r.ReadI32();
         r.Skip(6 * 4); // quest type through next quest in chain
         int money = r.ReadI32();
-        r.ReadU32(); // reward money at max level
+        uint moneyAtMaxLevel = r.ReadU32(); // unscaled XP-to-gold amount
         uint rewardSpell = r.ReadU32();
         r.ReadU32(); // source item
         uint questFlags = r.ReadU32();
@@ -116,7 +131,7 @@ public static class QuestPackets
         string title = r.ReadCString();
         string objectivesText = r.ReadCString();
         string details = r.ReadCString();
-        r.ReadCString(); // end text
+        string endText = r.ReadCString(); // exploration/escort completion objective
 
         var raw = new (uint CreatureOrGo, uint Required, uint Item, uint ItemCount)[4];
         for (int i = 0; i < raw.Length; i++)
@@ -130,7 +145,7 @@ public static class QuestPackets
         }
         RequireEnd(r, "quest query response");
         return new(id, level, zoneOrSort, title, objectivesText, details, money, rewardSpell,
-            fixedRewards, choiceRewards, result, questFlags);
+            fixedRewards, choiceRewards, result, questFlags, moneyAtMaxLevel, endText);
     }
 
     private static QuestRewardItem[] ReadFixedTemplateItems(PacketReader r, int slots)

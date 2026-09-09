@@ -81,12 +81,13 @@ public sealed partial class GameLoop
         IReadOnlyList<RaidLockout> lockouts = RaidLockouts;
         if (lockouts.Count == 0)
         {
-            GameText.Draw(dl, "GameFontNormalSmall",
-                RaidInfoEverReceived
-                    ? "You are not saved to any instances."
-                    : "Requesting saved instances…",
-                c0 + new Vector2(0, y) * scale, scale, 0xff9aa4ab);
-            return y + RaidInfoRowHeight;
+            foreach (string line in WrapTooltipText(RaidInfoEmptyText(), "GameFontNormalSmall", scale, innerWidth * scale))
+            {
+                GameText.Draw(dl, "GameFontNormalSmall", line,
+                    c0 + new Vector2(0, y) * scale, scale, 0xff9aa4ab);
+                y += RaidInfoRowHeight;
+            }
+            return y;
         }
 
         GameText.Draw(dl, "GameFontNormal", "Saved instances",

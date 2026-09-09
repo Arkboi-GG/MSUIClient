@@ -89,7 +89,8 @@ public static class StaticPopupCoordinatorLaw
         string? EntrySound = null,
         bool ShowAlert = false,
         int MaxLetters = 0,
-        bool HasEditBoxEnter = false);
+        bool HasEditBoxEnter = false,
+        bool Exclusive = false);
 
     public readonly record struct Instance(
         Definition Definition,
@@ -189,6 +190,17 @@ public static class StaticPopupCoordinatorLaw
             AppendCancel(request, EffectKind.CancelWithoutReason, 0, effects);
             return new(slots, effects, Outcome.RefusedWhileDead);
         }
+
+        // StaticPopup_Show retires the first visible exclusive entry before finding a slot.
+        if (request.Exclusive)
+            for (int slot = 1; slot <= SlotCount; slot++)
+                if (Get(slots, slot) is { } old && old.Definition.Exclusive)
+                {
+                    AppendHide(old, slot, effects);
+                    AppendCancel(old.Definition, EffectKind.CancelOverride, slot, effects);
+                    slots = Set(slots, slot, null);
+                    break;
+                }
 
         if (!string.IsNullOrEmpty(request.Cancels) &&
             Find(slots, request.Cancels!) is int cancelledSlot)

@@ -236,8 +236,10 @@ public sealed partial class GameLoop
         ImGui.SetCursorScreenPos(iconMin);
         ImGui.InvisibleButton($"##group-loot-icon-{roll.Id}",
             GroupLootFrameUiLaw.IconLogicalSize * scale);
+        string itemName = item is null ? "" : _itemRandomProperties?.ItemName(item.Name,
+            unchecked((int)roll.RandomPropertyId)) ?? item.Name;
         string itemLink = item is null ? "" :
-            GroupLootFrameUiLaw.ItemLink(roll.ItemId, item.Name, item.Quality);
+            GroupLootFrameUiLaw.ItemLink(roll.ItemId, itemName, item.Quality);
         switch (GroupLootFrameUiLaw.IconAction(
                     ImGui.IsItemClicked(ImGuiMouseButton.Left), ImGui.GetIO().KeyCtrl,
                     ImGui.GetIO().KeyShift, _chatEditOpen, itemLink.Length > 0))
@@ -255,7 +257,8 @@ public sealed partial class GameLoop
                 GroupLootFrameUiLaw.RightTooltipSeat(iconMin,
                     GroupLootFrameUiLaw.IconLogicalSize * scale);
             OfferPreparedItemTooltip(new("item:group-loot", roll.Id),
-                PrepareItemTooltipBodySnapshot(item, 1), tooltipSeat.Anchor,
+                PrepareItemTooltipBodySnapshot(item, 1, liveInstance: RemoteTooltipInstance(
+                    unchecked((int)roll.RandomPropertyId))), tooltipSeat.Anchor,
                 nextWindowPivot: tooltipSeat.Pivot);
         }
 
@@ -265,7 +268,7 @@ public sealed partial class GameLoop
             Vector2 textMax = textMin + GroupLootFrameUiLaw.NameSize * scale;
             draw.PushClipRect(textMin, textMax, true);
             float namePitch = GameText.LinePitch(GroupLootFrameUiLaw.NameFont, scale);
-            IReadOnlyList<string> nameLines = GroupLootFrameUiLaw.WrapItemName(item.Name,
+            IReadOnlyList<string> nameLines = GroupLootFrameUiLaw.WrapItemName(itemName,
                 GroupLootFrameUiLaw.NameSize.X * scale,
                 Math.Max(1, (int)MathF.Floor(
                     GroupLootFrameUiLaw.NameSize.Y * scale / namePitch)),

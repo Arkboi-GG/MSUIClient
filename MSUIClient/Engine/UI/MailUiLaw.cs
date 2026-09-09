@@ -21,8 +21,7 @@ public static class MailUiLaw
     // The client-side MSG_QUERY_NEXT_MAIL_TIME sender stamps this before the reply arrives.
     // It is distinct from vmangos's -86400 "no unread mail" reply even though both read false.
     public const float NoMailQueryStamp = -1f;
-    public const float ConfirmationWidth = 360f;
-    public const float ConfirmationHeight = 96f;
+    public const float ConfirmationTextWidth = StaticPopupCoordinatorLaw.TextWidth;
     public const float ConfirmationTop = 128f;
     public const float OpenMailAnchorX = -10f;
     public static readonly Vector2 OpenMailOffset = new(374f, 0f);
@@ -202,27 +201,37 @@ public static class MailUiLaw
         hasAttachments ? OpenMailAttachmentCaption : OpenMailNoAttachmentCaption;
 
     // StaticPopup seats used by COD, destructive-mail, and send-money confirmation.
-    public static readonly LogicalRect ConfirmationFrame =
-        new(0, 0, ConfirmationWidth, ConfirmationHeight);
-    public static readonly LogicalRect ConfirmationAlert = new(12, 8, 64, 64);
-    public static readonly Vector2 ConfirmationMessageCenter = new(180, 30);
-    public static readonly Vector2 ConfirmationAlertMessageCenter = new(218, 30);
-    public static readonly LogicalRect ConfirmationAccept = new(48, 68, 128, 20);
-    public static readonly LogicalRect ConfirmationCancel = new(184, 68, 128, 20);
     public static readonly Vector2 ConfirmationButtonUvMax = new(1, .625f);
 
-    public static Vector2 ConfirmationMessagePosition(bool alert) =>
-        alert ? ConfirmationAlertMessageCenter : ConfirmationMessageCenter;
+    public readonly record struct ConfirmationLayout(Vector2 Size, LogicalRect Alert,
+        Vector2 Money, LogicalRect Accept, LogicalRect Cancel)
+    {
+        public Vector2 TextLineCenter(int line, float pitch) =>
+            new(Size.X * .5f, StaticPopupCoordinatorLaw.TextTop + (line + .5f) * pitch);
+    }
+
+    // StaticPopup.lua resizes from wrapped FontString height. The money branch
+    // reserves sixteen more pixels between the text and the button row.
+    public static ConfirmationLayout LayoutConfirmation(bool alert, bool hasMoney, float textHeight)
+    {
+        float width = alert ? StaticPopupCoordinatorLaw.WideDialogWidth : StaticPopupCoordinatorLaw.BaseWidth;
+        float safeHeight = Math.Max(0, textHeight);
+        float height = StaticPopupCoordinatorLaw.Height(safeHeight, StaticPopupCoordinatorLaw.ButtonHeight) +
+            (hasMoney ? 16 : 0);
+        float textBottom = StaticPopupCoordinatorLaw.TextTop + safeHeight;
+        float buttonTop = textBottom + (hasMoney ? 24 : 8);
+        return new(new(width, height), new(12, (height - 64) * .5f, 64, 64),
+            new(width * .5f, textBottom + 5),
+            new(width * .5f - 134, buttonTop, 128, 20),
+            new(width * .5f + 7, buttonTop, 128, 20));
+    }
 
     public static Vector2 OpenMailOrigin(Vector2 mailFrameOrigin, float scale) =>
         mailFrameOrigin + OpenMailOffset * scale;
 
-    public static Vector2 ConfirmationSize(float scale) =>
-        ConfirmationFrame.ScaledSize(scale);
-
-    public static Vector2 ConfirmationOrigin(Vector2 display, float scale)
+    public static Vector2 ConfirmationOrigin(Vector2 display, float scale, ConfirmationLayout layout)
     {
-        Vector2 size = ConfirmationSize(scale);
+        Vector2 size = layout.Size * scale;
         return new Vector2((display.X - size.X) * .5f, ConfirmationTop * scale);
     }
 

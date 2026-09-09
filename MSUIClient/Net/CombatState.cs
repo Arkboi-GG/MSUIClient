@@ -22,6 +22,23 @@ public sealed class CombatState
     public bool TryGetAttackTarget(ulong attacker, out ulong victim)
         => _attackTargets.TryGetValue(attacker, out victim);
 
+    /// <summary>Seed streamed engagement without inventing a new attack/log event.</summary>
+    public void ApplySnapshot(ulong attacker, ulong? victim, EntityStore entities)
+    {
+        if (victim is > 0)
+        {
+            _engaged.Add(attacker);
+            _attackTargets[attacker] = victim.Value;
+        }
+        else
+        {
+            _engaged.Remove(attacker);
+            _attackTargets.Remove(attacker);
+        }
+        AttackRevision++;
+        entities.SetEngaged(attacker, victim is > 0, victim);
+    }
+
     public CombatEvent Apply(CombatEvent combatEvent, EntityStore entities)
     {
         // Benilla's full-block synthesis: the trailing blocked amount is the

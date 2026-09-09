@@ -18,6 +18,9 @@ public readonly record struct WorldMouseClick(
     MouseButton Button, Vector2 Position, bool ShiftDown = false,
     bool CtrlDown = false, bool AltDown = false);
 
+/// <summary>An optional host-supplied pointer for embedded/offscreen input. It never moves the OS cursor.</summary>
+public readonly record struct PointerInputState(Vector2 Position, bool LeftDown, bool RightDown);
+
 /// <summary>
 /// Window, GL context, main loop, input and the debug HUD.
 ///
@@ -62,6 +65,7 @@ public sealed class ClientWindow : IDisposable
         new APIVersion(3, 3));
 
     private readonly ClientConfig _config;
+    private readonly bool _background;
 
     private IWindow _window = null!;
     private GL _gl = null!;
@@ -217,6 +221,9 @@ public sealed class ClientWindow : IDisposable
 
     /// <summary>Raised inside the ImGui frame — draw HUD windows here.</summary>
     public event Action? OnGui;
+
+    /// <summary>Optional isolated input source for explicit client protocol runs.</summary>
+    public Func<IInputContext, IInputContext>? GuiInputFactory { get; set; }
 
     /// <summary>Raised after the HUD is built but BEFORE the ImGui draw pass - a seam for extra GL
     /// passes (the additive glue overlay) that must composite UNDER the HUD.</summary>
@@ -399,7 +406,9 @@ public sealed class ClientWindow : IDisposable
     public float BindingWheelDelta { get; private set; }
 
     /// <summary>Cursor position in window pixels (top-left origin).</summary>
-    public Vector2 MousePosition => _mouse?.Position ?? default;
+    public Vector2 MousePosition => _suppliedPointer?.Position ?? _mouse?.Position ?? default;
+    public Func<PointerInputState?>? PointerInputSource { get; set; }
+    private PointerInputState? _suppliedPointer;
 
     private struct WorldPress
     {
@@ -560,6 +569,10 @@ public sealed class ClientWindow : IDisposable
     /// <summary>Multiplier on camera.mouseSensitivity, so a too-slow look is one drag away from fixed.</summary>
     public float MouseSensitivity { get; set; } = 1f;
 
+    /// <summary>Same role as <see cref="MouseSensitivity"/> but for the right-click-held drag
+    /// (which also turns the character) instead of the left-click-held orbit-only look.</summary>
+    public float LookAroundSensitivity { get; set; } = 1f;
+
     /// <summary>
     /// Path to a TTF for the whole UI, or null for ImGui's own bitmap font. Set
     /// by Program.Main BEFORE Run(): ImGui rasterises its glyph atlas when the
@@ -634,7 +647,12 @@ public sealed class ClientWindow : IDisposable
             _realUiFont ? f / FontSupersample : Math.Clamp(uiScale, 0.5f, 4f) * f;
     }
 
-    public ClientWindow(ClientConfig config) => _config = config;
+    public ClientWindow(ClientConfig config, bool background = false)
+    {
+        _config = config;
+        _background = background;
+        IsFocused = !background;
+    }
 
     public GpuUploadWorker CreateGpuUploadWorker()
         => new(_window, GraphicsApi);
@@ -667,6 +685,11 @@ public sealed class ClientWindow : IDisposable
             // the Encounter Lab toolbar (ClientWindow.BuildStamp), where the
             // "which binary is this" question actually gets asked.
             Title = _config.Window.Title,
+            // Internal live protocols keep rendering to the framebuffer without
+            // creating a visible desktop surface or consuming foreground input.
+            IsVisible = !_background,
+            FramesPerSecond = _background ? 30 : WindowOptions.Default.FramesPerSecond,
+            UpdatesPerSecond = _background ? 30 : WindowOptions.Default.UpdatesPerSecond,
             VSync = _config.Window.VSync,
             Samples = Math.Clamp(_config.Render.MsaaSamples, 0, 16),
             // ALWAYS created windowed: creating directly in fullscreen picks the
@@ -761,7 +784,7 @@ public sealed class ClientWindow : IDisposable
         if (GameplayTextScaleRule is not null)
             UI.GameTextLaw.Retarget(GameplayTextScaleRule(
                 _window.FramebufferSize.X, _window.FramebufferSize.Y));
-        _imgui = new ImGuiController(_gl, _window, _input, font,
+        _imgui = new ImGuiController(_gl, _window, GuiInputFactory?.Invoke(_input) ?? _input, font,
             () => UI.GameTextLaw.BakeInto(ImGui.GetIO()));
 
         // The atlas exists now; apply the client's floor(advance)+1 glyph-step law to the
@@ -835,6 +858,7 @@ public sealed class ClientWindow : IDisposable
             // whether look is engaged, so a missed event cannot strand it.
             mouse.MouseDown += (m, btn) =>
             {
+                if (PointerInputSource?.Invoke() is not null) return;
                 if (ImGui.GetIO().WantCaptureMouse) return;
                 if (btn is MouseButton.Right or MouseButton.Left)
                 {
@@ -848,6 +872,7 @@ public sealed class ClientWindow : IDisposable
 
             mouse.MouseUp += (m, btn) =>
             {
+                if (PointerInputSource?.Invoke() is not null) return;
                 if (btn is MouseButton.Right or MouseButton.Left)
                 {
                     EndWorldPress(btn, m.Position);
@@ -861,6 +886,7 @@ public sealed class ClientWindow : IDisposable
 
             mouse.MouseMove += (_, pos) =>
             {
+                if (PointerInputSource?.Invoke() is not null) return;
                 MouseMoveEvents++;
 
                 if (!_mouseCaptured) { _lastMouse = pos; return; }
@@ -883,10 +909,13 @@ public sealed class ClientWindow : IDisposable
                 LastMouseDelta = delta;
                 MouseLookEvents++;
 
-                float sensitivity = _config.Camera.MouseSensitivity * MouseSensitivity;
+                // Right-click-held look also turns the character and gets its own
+                // sensitivity; left-click-held orbit-only look keeps the general one.
+                // Pitch shares whichever is active - looking up and down is a camera
+                // thing either way, but it's still part of the same drag mode's feel.
+                float sensitivity = _config.Camera.MouseSensitivity *
+                    (_lookTurnsCharacter ? LookAroundSensitivity : MouseSensitivity);
 
-                // The one line that separates the two drag modes. Pitch is
-                // shared - looking up and down is a camera thing either way.
                 if (_lookTurnsCharacter) _pendingYaw -= delta.X * sensitivity;
                 else _pendingOrbitYaw -= delta.X * sensitivity;
 
@@ -901,6 +930,7 @@ public sealed class ClientWindow : IDisposable
 
             mouse.Scroll += (_, wheel) =>
             {
+                if (PointerInputSource?.Invoke() is not null) return;
                 if (ImGui.GetIO().WantCaptureMouse) return;
                 BindingWheelDelta += wheel.Y;
                 // Ordinary orbit zoom is a rebindable host command. The free-view rig remains a
@@ -941,12 +971,12 @@ public sealed class ClientWindow : IDisposable
         // Fullscreen is entered HERE, not at window creation - through the
         // property so the window sizes to the monitor's desktop mode first and
         // the viewport is synced (see the creation options note).
-        if (_config.Window.Fullscreen && _window.WindowState != WindowState.Fullscreen)
+        if (!_background && _config.Window.Fullscreen && _window.WindowState != WindowState.Fullscreen)
         {
             Fullscreen = true;
             Console.WriteLine($"[display] fullscreen at {_window.FramebufferSize.X}x{_window.FramebufferSize.Y}");
         }
-        else if (_config.Window.Maximized && _window.WindowState != WindowState.Maximized)
+        else if (!_background && _config.Window.Maximized && _window.WindowState != WindowState.Maximized)
         {
             Maximized = true;
             Console.WriteLine($"[display] maximized at {_window.FramebufferSize.X}x{_window.FramebufferSize.Y}");
@@ -1065,6 +1095,29 @@ public sealed class ClientWindow : IDisposable
 
     private void PollMouse()
     {
+        if (PointerInputSource?.Invoke() is { } supplied)
+        {
+            PointerInputState previous = _suppliedPointer ?? new(supplied.Position, false, false);
+            _suppliedPointer = supplied;
+            float travel = Vector2.Distance(previous.Position, supplied.Position);
+            if (_leftWorldPress.Active) _leftWorldPress.Travel += travel;
+            if (_rightWorldPress.Active) _rightWorldPress.Travel += travel;
+            MouseLeftDown = supplied.LeftDown;
+            MouseRightDown = supplied.RightDown;
+            MouseMiddleDown = MouseButton4Down = MouseButton5Down = false;
+            if (supplied.LeftDown && !previous.LeftDown && !ImGui.GetIO().WantCaptureMouse)
+                BeginWorldPress(MouseButton.Left, supplied.Position,
+                    FreeSelectMode || LeftButtonReservedForWorldClicks);
+            if (supplied.RightDown && !previous.RightDown && !ImGui.GetIO().WantCaptureMouse)
+                BeginWorldPress(MouseButton.Right, supplied.Position, false);
+            if (!supplied.LeftDown && previous.LeftDown)
+                EndWorldPress(MouseButton.Left, supplied.Position);
+            if (!supplied.RightDown && previous.RightDown)
+                EndWorldPress(MouseButton.Right, supplied.Position);
+            return; // Supplied pointer gestures do not engage native cursor capture/camera look.
+        }
+        if (_suppliedPointer is not null) ClearWorldClicks();
+        _suppliedPointer = null;
         if (_mouse is null) return;
 
         MouseLeftDown = _mouse.IsButtonPressed(MouseButton.Left);

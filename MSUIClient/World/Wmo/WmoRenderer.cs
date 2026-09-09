@@ -158,6 +158,12 @@ public sealed class WmoRenderer : IDisposable
         // door/stair cells select whichever box happens to be smallest.
         public Vector3[] CollisionTriangles = [];
 
+        // MOCV of every CollisionTriangles vertex (rgb bytes, index-parallel, 3 per
+        // vertex), kept ONLY for INTERIOR groups that are not EXTERIOR/EXTERIOR_LIT
+        // and ship vertex colours; empty otherwise. This is what lights a unit or a
+        // gameobject standing on the floor - see ResolveInteriorLight.
+        public byte[] CollisionColors = [];
+
         // DETAIL faces which stop the camera but not the walking body: MOPY
         // DETAIL (0x04) set and NOCAMCOLLIDE (0x02) clear. Kept disjoint from
         // CollisionTriangles for the archived camera-void fallback only; these
@@ -170,6 +176,12 @@ public sealed class WmoRenderer : IDisposable
         // have a render sheet over a coplanar collision sheet.
         public Vector3[] FootstepTriangles = [];
         public uint[] FootstepTerrainTypes = [];
+
+        // MOCV rgb per FootstepTriangles vertex, INTERIOR groups only (see
+        // CollisionColors). The render floor is what a unit visibly stands on and
+        // many authored floors have no coplanar walking face - the Ironforge
+        // Commons by the bank is one - so the interior-light probe reads it too.
+        public byte[] FootstepColors = [];
 
         private GL? _gl;
         public void Attach(GL gl) => _gl = gl;
@@ -902,6 +914,207 @@ public sealed class WmoRenderer : IDisposable
     /// interior cell reachable from it through portals WITHOUT crossing a non-interior group (so a
     /// Stormwind inn stops at its own door and never floods into the streets). Its world XY bounds,
     /// padded a yard, form the footprint; the cut sits <see cref="_cutPlaneHeight"/> above the feet.
+    /// <summary>
+    /// Bumped whenever a WMO model becomes resident or a placement appears, so a
+    /// consumer caching per-position answers (interior unit light, gameobject
+    /// light) knows the world under its feet changed.
+    /// </summary>
+    public int ResidentVersion { get; private set; }
+
+    /// <summary>Probe height over the feet for the interior-light floor ray; the
+    /// same 1.5 yd the roof cut uses, so both agree on the room.</summary>
+    private const float InteriorLightProbeHeight = 1.5f;
+
+    /// <summary>
+    /// The baked interior light a dynamic M2 - a unit, a mount, a gameobject -
+    /// receives standing at <paramref name="feet"/>, or null when it stands
+    /// outdoors or in a daylight cell.
+    ///
+    /// 1.12 never lit interiors at runtime: walls carry MOCV, props carry
+    /// MODD.color, and a model that walks in takes the light of the room it is
+    /// in. The room's light at a spot is the floor's baked colour under it -
+    /// checked offline 2026-09-04 against GoldshireInn: every floor-standing
+    /// prop's MODD.color is the MOCV interpolated on the walking face beneath it
+    /// (x1.2, the residual being the MOLT lamp pools). Feeding units the outdoor
+    /// sky instead is why a toon in Ironforge at night read as moonlit grey while
+    /// the props beside her were warm.
+    ///
+    /// Same cell verdict as the roof cut (FindCameraSeeds, CutPlaneMaxFeetDrop)
+    /// and the same group law as BuildDoodadLighting (INTERIOR, not EXTERIOR /
+    /// EXTERIOR_LIT), so a unit and the chair beside it cannot disagree about
+    /// which light they are in. The answer is MOCV / 255, UNSCALED: consumers
+    /// apply the walls' VertexColorScale exactly as the doodad path does.
+    /// </summary>
+    public Vector3? ResolveInteriorLight(Vector3 feet, float? terrainWorldZ)
+    {
+        Vector3 probe = feet + new Vector3(0f, 0f, InteriorLightProbeHeight);
+        Vector3? best = null;
+        float bestDrop = float.MaxValue;
+        foreach (var instance in _instances)
+        {
+            if (probe.X < instance.WorldMin.X - 1f || probe.X > instance.WorldMax.X + 1f ||
+                probe.Y < instance.WorldMin.Y - 1f || probe.Y > instance.WorldMax.Y + 1f ||
+                probe.Z < instance.WorldMin.Z - 1f || probe.Z > instance.WorldMax.Z + 1f)
+                continue;
+            if (!Matrix4x4.Invert(instance.Transform, out var inv)) continue;
+            var local = Vector3.Transform(probe, inv);
+            float? terrainLocalZ = terrainWorldZ is float tz
+                ? Vector3.Transform(new Vector3(probe.X, probe.Y, tz), inv).Z
+                : null;
+            var seeds = FindCameraSeeds(instance.Model, local, terrainLocalZ, out float drop, out _);
+            if (seeds.Length == 0)
+            {
+                // No walking face under the probe at all - an authored floor with
+                // no coplanar collision sheet (the Ironforge Commons by the bank).
+                // The render floor of an interior group still says which room it
+                // is, guarded by the terrain the same way the seed search is.
+                if (!TryFloorColorAnyInterior(instance.Model, local, out Vector3 renderColor,
+                        out float renderZ)) continue;
+                float renderDrop = local.Z - renderZ;
+                if (renderDrop > CutPlaneMaxFeetDrop || renderDrop >= bestDrop) continue;
+                if (terrainLocalZ is float t && t <= local.Z && t > renderZ) continue;
+                bestDrop = renderDrop;
+                best = renderColor;
+                continue;
+            }
+            if (drop >= bestDrop) continue;
+            // The unit must STAND in the cell: a floor far below the probe is a
+            // storey (or a cave) beneath it, not the room it is in.
+            if (drop > CutPlaneMaxFeetDrop) continue;
+            var group = instance.Model.Groups.FirstOrDefault(g => g.GroupIndex == seeds[0]);
+            if (group is null) continue;
+            // Daylight cells (BuildDoodadLighting's law): outdoors, or an
+            // interior-flagged street/shell that the data says to sun-light.
+            if (!group.IsInterior || (group.GroupFlags & 0x48u) != 0) continue;
+            if (!TryFloorColor(group, local, out Vector3 color) &&
+                !TryFloorColorAnyInterior(instance.Model, local, out color, out _))
+                continue;
+            bestDrop = drop;
+            best = color;
+        }
+        return best;
+    }
+
+    /// <summary>Dev-tool narration of <see cref="ResolveInteriorLight"/>: every instance the
+    /// probe fell inside, which cell it seeded, and why that cell did or did not light.</summary>
+    public string DescribeInteriorLight(Vector3 feet, float? terrainWorldZ)
+    {
+        Vector3 probe = feet + new Vector3(0f, 0f, InteriorLightProbeHeight);
+        var sb = new System.Text.StringBuilder();
+        foreach (var instance in _instances)
+        {
+            if (probe.X < instance.WorldMin.X - 1f || probe.X > instance.WorldMax.X + 1f ||
+                probe.Y < instance.WorldMin.Y - 1f || probe.Y > instance.WorldMax.Y + 1f ||
+                probe.Z < instance.WorldMin.Z - 1f || probe.Z > instance.WorldMax.Z + 1f)
+                continue;
+            if (!Matrix4x4.Invert(instance.Transform, out var inv)) continue;
+            var local = Vector3.Transform(probe, inv);
+            float? terrainLocalZ = terrainWorldZ is float tz
+                ? Vector3.Transform(new Vector3(probe.X, probe.Y, tz), inv).Z : null;
+            var seeds = FindCameraSeeds(instance.Model, local, terrainLocalZ, out float drop, out int cands);
+            sb.Append($" {System.IO.Path.GetFileName(instance.Path)}: cands={cands} seeds={seeds.Length} drop={drop:0.##}");
+            if (seeds.Length == 0)
+            {
+                sb.Append(TryFloorColorAnyInterior(instance.Model, local, out Vector3 rc, out float rz)
+                    ? $" render-floor=({rc.X * 255:0},{rc.Y * 255:0},{rc.Z * 255:0}) z={rz:0.#} probeZ={local.Z:0.#}"
+                    : " no-render-floor");
+                continue;
+            }
+            var group = instance.Model.Groups.FirstOrDefault(g => g.GroupIndex == seeds[0]);
+            if (group is null) { sb.Append(" (no group)"); continue; }
+            sb.Append($" '{group.GroupName}' flags=0x{group.GroupFlags:X} int={group.IsInterior} colors={group.CollisionColors.Length / 3}");
+            if (TryFloorColor(group, local, out Vector3 c, out float z))
+                sb.Append($" floor=({c.X * 255:0},{c.Y * 255:0},{c.Z * 255:0}) z={z:0.#} probeZ={local.Z:0.#}");
+            else if (TryFloorColorAnyInterior(instance.Model, local, out c, out z))
+                sb.Append($" any-floor=({c.X * 255:0},{c.Y * 255:0},{c.Z * 255:0}) z={z:0.#}");
+            else sb.Append(" no-floor");
+        }
+        return sb.Length == 0 ? " (no instance contains the probe)" : sb.ToString();
+    }
+
+    /// <summary>The highest coloured walking face of <paramref name="group"/> under
+    /// the local-space probe, MOCV interpolated at the probe's XY.</summary>
+    private static bool TryFloorColor(GroupMesh group, Vector3 probe, out Vector3 color)
+        => TryFloorColor(group, probe, out color, out _);
+
+    /// <summary>The walking face first (the cell verdict's own set), else the render
+    /// floor: whichever coloured face is highest under the probe.</summary>
+    private static bool TryFloorColor(GroupMesh group, Vector3 probe, out Vector3 color, out float floorZ)
+    {
+        bool walk = TryFloorColor(group.CollisionTriangles, group.CollisionColors, probe,
+            out Vector3 walkColor, out float walkZ);
+        bool render = TryFloorColor(group.FootstepTriangles, group.FootstepColors, probe,
+            out Vector3 renderColor, out float renderZ);
+        if (!walk && !render) { color = default; floorZ = float.NegativeInfinity; return false; }
+        if (walk && (!render || walkZ >= renderZ)) { color = walkColor; floorZ = walkZ; }
+        else { color = renderColor; floorZ = renderZ; }
+        return true;
+    }
+
+    private static bool TryFloorColor(Vector3[] tris, byte[] rgb, Vector3 probe,
+        out Vector3 color, out float floorZ)
+    {
+        color = default;
+        floorZ = float.NegativeInfinity;
+        if (tris.Length < 3 || rgb.Length < tris.Length * 3) return false;
+        int bestTri = -1;
+        float bestU = 0f, bestV = 0f;
+        for (int i = 0; i + 2 < tris.Length; i += 3)
+        {
+            if (!TriangleBaryAt(tris[i], tris[i + 1], tris[i + 2], probe.X, probe.Y,
+                    out float z, out float u, out float v)) continue;
+            if (z <= probe.Z && z > floorZ) { floorZ = z; bestTri = i; bestU = u; bestV = v; }
+        }
+        if (bestTri < 0) return false;
+        Vector3 a = ColorAt(rgb, bestTri), b = ColorAt(rgb, bestTri + 1), c = ColorAt(rgb, bestTri + 2);
+        color = a + bestU * (b - a) + bestV * (c - a);
+        return true;
+
+        static Vector3 ColorAt(byte[] rgb, int vertex) =>
+            new(rgb[vertex * 3] / 255f, rgb[vertex * 3 + 1] / 255f, rgb[vertex * 3 + 2] / 255f);
+    }
+
+    /// <summary>
+    /// Doorway fallback: the seed came through a portal plane rather than this
+    /// group's own floor, so take the highest coloured interior floor of ANY
+    /// group of the model under the probe. Keeps a unit in a doorway lit by the
+    /// room instead of flickering to daylight.
+    /// </summary>
+    private static bool TryFloorColorAnyInterior(Model model, Vector3 probe, out Vector3 color,
+        out float floorZ)
+    {
+        color = default;
+        floorZ = float.NegativeInfinity;
+        bool found = false;
+        foreach (var group in model.Groups)
+        {
+            if ((group.CollisionColors.Length == 0 && group.FootstepColors.Length == 0) ||
+                (group.GroupFlags & 0x48u) != 0 ||
+                probe.X < group.LocalMin.X || probe.X > group.LocalMax.X ||
+                probe.Y < group.LocalMin.Y || probe.Y > group.LocalMax.Y ||
+                group.LocalMin.Z > probe.Z) continue;
+            if (!TryFloorColor(group, probe, out Vector3 c, out float z)) continue;
+            if (found && z <= floorZ) continue;
+            floorZ = z; color = c; found = true;
+        }
+        return found;
+    }
+
+    private static bool TriangleBaryAt(Vector3 a, Vector3 b, Vector3 c, float x, float y,
+        out float z, out float u, out float v)
+    {
+        float v0x = b.X - a.X, v0y = b.Y - a.Y;
+        float v1x = c.X - a.X, v1y = c.Y - a.Y;
+        float v2x = x - a.X, v2y = y - a.Y;
+        float den = v0x * v1y - v1x * v0y;
+        if (MathF.Abs(den) < 1.0e-7f) { z = 0f; u = 0f; v = 0f; return false; }
+        u = (v2x * v1y - v1x * v2y) / den;
+        v = (v0x * v2y - v2x * v0y) / den;
+        if (u < -1.0e-5f || v < -1.0e-5f || u + v > 1.00001f) { z = 0f; return false; }
+        z = a.Z + u * (b.Z - a.Z) + v * (c.Z - a.Z);
+        return true;
+    }
+
     /// A subject standing outdoors, or in a shell/street cell, gets no cut at all.
     /// </summary>
     private void ResolveCutPlane()
@@ -2161,6 +2374,7 @@ public sealed class WmoRenderer : IDisposable
             ? GlobalPlacementToWorld
             : PlacementToWorld;
 
+        ResidentVersion++;
         _instances.Add(new Instance
         {
             Id = ++_nextInstanceId,
@@ -2222,6 +2436,7 @@ public sealed class WmoRenderer : IDisposable
                 AppearStart = 0f,
             };
             _instances.Add(instance);
+            ResidentVersion++;
             _dynamicByGuid[guid] = instance;
             TotalTriangles += resolved.TriangleCount;
             if (resolved.Liquids.Count > 0) BumpLiquidVersion();
@@ -3204,8 +3419,16 @@ public sealed class WmoRenderer : IDisposable
             }
 
             var groupCollision = new List<Vector3>();
-            CollectCollision(group, groupCollision, job.Collision, job.Blockers, ref job.Skipped);
+            // Floor colours ride the same face set as the walking collision so the
+            // interior-light probe lands on exactly the face the room verdict used.
+            List<byte>? groupColors =
+                mesh.IsInterior && (group.GroupFlags & 0x48u) == 0 &&
+                group.VertexColors.Length >= group.Vertices.Count * 4
+                    ? new List<byte>() : null;
+            CollectCollision(group, groupCollision, job.Collision, job.Blockers, ref job.Skipped,
+                groupColors);
             mesh.CollisionTriangles = [.. groupCollision];
+            mesh.CollisionColors = groupColors is null ? [] : [.. groupColors];
             var cameraOnlyCollision = new List<Vector3>();
             CollectCameraOnlyCollision(group, cameraOnlyCollision);
             mesh.CameraOnlyTriangles = [.. cameraOnlyCollision];
@@ -3289,6 +3512,7 @@ public sealed class WmoRenderer : IDisposable
         }
 
         _models[job.RootPath] = model;
+        ResidentVersion++;
         return true;
     }
 
@@ -3321,7 +3545,7 @@ public sealed class WmoRenderer : IDisposable
     /// keeps them as a separate source so party sight never opens a hole onto one.</param>
     private static void CollectCollision(WmoGroupData group, List<Vector3> into, List<Vector3> drawn,
         List<Vector3> blockers,
-        ref int skipped)
+        ref int skipped, List<byte>? colors = null)
     {
         int triangles = group.Indices.Count / 3;
 
@@ -3352,6 +3576,14 @@ public sealed class WmoRenderer : IDisposable
             into.Add(new Vector3(a.x, a.y, a.z));
             into.Add(new Vector3(b.x, b.y, b.z));
             into.Add(new Vector3(c.x, c.y, c.z));
+            if (colors is not null)
+            {
+                // VertexColors is RGBA per MOVT vertex (swizzled by the reader, then
+                // FixVertexColors - the same bytes the walls draw with).
+                AddColor(colors, group.VertexColors, i0);
+                AddColor(colors, group.VertexColors, i1);
+                AddColor(colors, group.VertexColors, i2);
+            }
             var side = blocker ? blockers : drawn;
             {
                 side.Add(new Vector3(a.x, a.y, a.z));
@@ -3359,6 +3591,13 @@ public sealed class WmoRenderer : IDisposable
                 side.Add(new Vector3(c.x, c.y, c.z));
             }
         }
+    }
+
+    private static void AddColor(List<byte> into, byte[] rgba, int vertex)
+    {
+        into.Add(rgba[vertex * 4 + 0]);
+        into.Add(rgba[vertex * 4 + 1]);
+        into.Add(rgba[vertex * 4 + 2]);
     }
 
     /// <summary>
@@ -3406,6 +3645,7 @@ public sealed class WmoRenderer : IDisposable
 
         var triangles = new List<Vector3>();
         var terrainTypes = new List<uint>();
+        List<byte>? colors = group.IsInterior ? new List<byte>() : null;
         int count = group.Indices.Count / 3;
         for (int face = 0; face < count; face++)
         {
@@ -3430,9 +3670,16 @@ public sealed class WmoRenderer : IDisposable
             terrainTypes.Add(materialId < root.Materials.Count
                 ? root.Materials[materialId].GroundType
                 : 0u);
+            if (colors is not null)
+            {
+                AddColor(colors, group.VertexColors, i0);
+                AddColor(colors, group.VertexColors, i1);
+                AddColor(colors, group.VertexColors, i2);
+            }
         }
         mesh.FootstepTriangles = [.. triangles];
         mesh.FootstepTerrainTypes = [.. terrainTypes];
+        mesh.FootstepColors = colors is null ? [] : [.. colors];
     }
 
     /// <summary>

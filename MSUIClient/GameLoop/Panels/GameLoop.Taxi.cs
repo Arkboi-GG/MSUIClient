@@ -18,6 +18,7 @@ public sealed partial class GameLoop
     private bool _taxiOpen, _taxiLocked;
     private CreatureSpline? _serverRideSpline;
     private uint? _serverRideStoppedId;
+    private MonsterMove? _serverRideStoppedMove;
     private Vector3 _serverRideStart;
     private long? _serverRideTacticalPauseStartedMs;
     private TaxiNodeCatalog? _taxiNodes;
@@ -53,6 +54,7 @@ public sealed partial class GameLoop
     {
         _serverRideSpline = null;
         _serverRideStoppedId = null;
+        _serverRideStoppedMove = null;
         _serverRideTacticalPauseStartedMs = null;
         _taxiLocked = false;
     }
@@ -62,7 +64,8 @@ public sealed partial class GameLoop
         _taxiMasterGuid = 0; _taxiCurrentNode = 0; _taxiKnownNodes.Clear();
         _taxiNodeKnown.Clear(); _taxiStatusAsked.Clear(); _taxiStatusLastHover = 0;
         _taxiOpen = false; _taxiLocked = false; _serverRideSpline = null;
-        _serverRideStoppedId = null; _serverRideTacticalPauseStartedMs = null;
+        _serverRideStoppedId = null;
+        _serverRideStoppedMove = null; _serverRideTacticalPauseStartedMs = null;
         _taxiRoutes = [];
         _partyTaxiPendingMaster = 0; _partyTaxiPendingChain = null;
         _partyTaxiConfirmRows = []; _partyTaxiConfirmDestination = "";
@@ -404,13 +407,16 @@ public sealed partial class GameLoop
         {
             _serverRideSpline = null;
             _serverRideStoppedId = move.SplineId;
+            _serverRideStoppedMove = move;
             return;
         }
 
         _serverRideStoppedId = null;
+        _serverRideStoppedMove = null;
         _serverRideSpline = new CreatureSpline(move.Points, move.DurationMs, move.Flying,
-            MovementInfo.ClientUptimeMs(), move.SplineId);
-        _serverRideStart = move.Points[0];
+            MovementInfo.ClientUptimeMs(), move.SplineId, move.Cyclic, move.Facing, move.Falling, move.TransportGuid);
+        _serverRideStart = _entities.TryComposeTransportPose(move.TransportGuid, move.Points[0], 0,
+            out var startPose) ? startPose.Position : _controller?.Position ?? Vector3.Zero;
         if (move.Flying) _taxiLocked = true;
         EmitInterface("taxi", "flight", "STARTED", move.Guid,
             $"points={move.Points.Length};durationMs={move.DurationMs};" +
@@ -450,6 +456,21 @@ public sealed partial class GameLoop
         if (attempted) EmitInterface("taxi", "input", "LOCKED_OUT", _net?.PlayerGuid ?? 0, "axes=0;jump=false");
     }
 
+    private bool TryApplyServerRidePose(ulong transportGuid, Vector3 localPosition, float? facing)
+    {
+        if (_controller is null ||
+            !_entities.TryComposeTransportPose(transportGuid, Vector3.Zero, 0, out var basis)) return false;
+        float localYaw = facing ?? (_controller.Transport is { } old && old.Guid == transportGuid
+            ? old.Orientation : _controller.Yaw - basis.Orientation);
+        if (!_entities.TryComposeTransportPose(transportGuid, localPosition, localYaw, out var world)) return false;
+        _controller.Teleport(world.Position.X, world.Position.Y, world.Position.Z);
+        _controller.Transport = transportGuid == 0 ? null : new(transportGuid, localPosition, localYaw);
+        _controller.Yaw = world.Orientation;
+        _window.Camera.Yaw = world.Orientation;
+        _window.Camera.Target = world.Position;
+        return true;
+    }
+
     private bool UpdateServerRide()
     {
         // A spline admitted while we still owned the character can outlive the transition to
@@ -463,7 +484,12 @@ public sealed partial class GameLoop
         if (_controller is null) return false;
         if (_serverRideStoppedId is { } stoppedId)
         {
+            if (_serverRideStoppedMove is { } stop &&
+                !TryApplyServerRidePose(stop.TransportGuid, stop.Start,
+                    _entities.ResolveSplineFacing(stop.Facing, stop.Start, stop.TransportGuid)))
+                return true;
             _serverRideStoppedId = null;
+            _serverRideStoppedMove = null;
             _taxiLocked = false;
             AcknowledgeServerRide(stoppedId, _controller.Position, _controller.Yaw);
             return false;
@@ -472,9 +498,10 @@ public sealed partial class GameLoop
 
         bool running = ride.Sample(MovementInfo.ClientUptimeMs(), out Vector3 position,
             out float? facing);
-        _controller.Teleport(position.X, position.Y, position.Z);
-        if (facing is { } yaw) { _controller.Yaw = yaw; _window.Camera.Yaw = yaw; }
-        _window.Camera.Target = position;
+        if (!running)
+            facing = _entities.ResolveSplineFacing(ride.FinalFacing, position, ride.TransportGuid) ?? facing;
+        if (!TryApplyServerRidePose(ride.TransportGuid, position, facing)) return true;
+        position = _controller.Position;
         if (running) return true;
 
         float distance = Vector3.Distance(_serverRideStart, position);
@@ -517,7 +544,8 @@ public sealed partial class GameLoop
     {
         var movement = new MovementInfo
         {
-            Flags = 0,
+            Flags = _controller?.Transport is null ? 0u : (uint)MovementFlags.OnTransport,
+            Transport = _controller?.Transport,
             Timestamp = MovementInfo.ClientUptimeMs(),
             Position = position,
             Orientation = orientation,

@@ -17,6 +17,7 @@ public sealed partial class GameLoop
     private bool _releaseTimerRunning;
     private double _diedAt;
     private ulong _corpseGuid;
+    private bool _corpseSkinned;
     private CorpseLocation? _corpseLocation;
     private uint _corpseReclaimDelayMs;
     private double _corpseReclaimReadyAt;
@@ -31,6 +32,7 @@ public sealed partial class GameLoop
 
     private void ResetDeathRez()
     {
+        _corpseSkinned = false;
         _deathWasDead = null;
         _deathWasGhost = null;
         _releaseTimerRunning = false;
@@ -74,6 +76,7 @@ public sealed partial class GameLoop
         }
         if (_deathWasGhost == true && !ghost && !dead)
         {
+            _corpseSkinned = false;
             _recoverDialog = DeathDialogKind.None;
             _spiritHealerGuid = 0;
             _xpLossStage = 0;
@@ -84,6 +87,7 @@ public sealed partial class GameLoop
         }
         else if (_deathWasDead == true && !dead && !ghost)
         {
+            _corpseSkinned = false;
             _releaseDialogOpen = false;
             EmitInterface("death-rez", "life-state", "PLAYER_ALIVE", player.Guid,
                 $"health={player.Fields.Health};playerFlags=0x{player.Fields.PlayerFlags:X8}");
@@ -120,6 +124,7 @@ public sealed partial class GameLoop
 
     private void ObserveCorpseStore()
     {
+        if (_corpseSkinned) { _corpseGuid = 0; return; }
         ulong owner = LocalPlayerGuid;
         WorldEntity? corpse = _entities.Entities.Values.FirstOrDefault(x =>
             x.Type == ObjectTypeId.Corpse && x.Fields.GetGuid(6) == owner);
@@ -133,9 +138,21 @@ public sealed partial class GameLoop
             $"position={corpse.Position.X:R}|{corpse.Position.Y:R}|{corpse.Position.Z:R}");
     }
 
+    private void ApplyPlayerSkinned(byte[] body)
+    {
+        byte flag = DeathPackets.ParsePlayerSkinned(body);
+        _corpseSkinned = true;
+        _corpseGuid = 0;
+        _corpseLocation = null;
+        _releaseDialogOpen = false;
+        _recoverDialog = DeathDialogKind.None;
+        EmitInterface("death-rez", "insignia-taken", "RECLAIM_DISABLED", LocalPlayerGuid, $"flag={flag}");
+    }
+
     private void ApplyCorpseQuery(byte[] body)
     {
         CorpseLocation location = DeathPackets.ParseCorpseQuery(body);
+        if (_corpseSkinned) return; // A delayed pre-conversion query cannot restore the reclaim target.
         _corpseLocation = location.Found ? location : null;
         if (!location.Found) _corpseGuid = 0;
         EmitInterface("death-rez", "corpse-query", location.Found ? "FOUND" : "NOT_FOUND",
@@ -251,6 +268,9 @@ public sealed partial class GameLoop
             return (kind, DeathFrameUiLaw.ResurrectText(kind, offer.Name, gate),
                 DeathFrameUiLaw.AcceptEnabled(kind, gate));
         }
+        if (_corpseSkinned)
+            return (DeathDialogKind.RecoverCorpse, InventoryGlobalString("DEATH_CORPSE_SKINNED",
+                "Insignia Taken - You can only resurrect at the graveyard"), false);
         if (_recoverDialog == DeathDialogKind.RecoverCorpse)
             return (_recoverDialog, DeathFrameUiLaw.RecoverText(recovery), recovery <= 0);
         if (_recoverDialog == DeathDialogKind.RecoverCorpseInInstance)
@@ -281,6 +301,7 @@ public sealed partial class GameLoop
 
     private bool ReclaimCorpse()
     {
+        if (_corpseSkinned) return false;
         if (RefuseTacticalFreezeLiveCommand("reclaiming your corpse")) return false;
         if (RefuseTacticalFrozenActor(_corpseGuid, "reclaim it")) return false;
         bool timerReady = NowSeconds() >= _corpseReclaimReadyAt;

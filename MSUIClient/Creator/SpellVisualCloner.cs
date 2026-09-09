@@ -1,63 +1,10 @@
 namespace MSUIClient.Creator;
 
 /// <summary>
-/// Clones an entire SpellVisual DBC chain with new IDs.
-/// 
-/// The visual chain for a spell is:
-///   Spell.dbc[spellVisual field] â†’ SpellVisual.dbc row
-///     â†’ SpellVisualKit.dbc rows (precastKit, castKit, impactKit, stateKit, channelKit)
-///       â†’ SpellVisualEffectName.dbc rows (headEffect, chestEffect, baseEffect, leftHandEffect, etc.)
-///         â†’ M2 file paths (the actual particle/effect models)
-///
-/// SpellVisual.dbc layout (16 fields, 64 bytes per record):
-///   EMPIRICALLY VERIFIED (April 2026, rows 67=Fireball, 64=ShadowBolt):
-///   [0]  ID
-///   [1]  PrecastKit          â†’ SpellVisualKit ID
-///   [2]  CastKit             â†’ SpellVisualKit ID
-///   [3]  ImpactKit           â†’ SpellVisualKit ID
-///   [4]  StateKit            â†’ SpellVisualKit ID (0 for bolt spells)
-///   [5]  StateDoneKit        â†’ SpellVisualKit ID (0 for bolt spells)
-///   [6]  ChannelKit          â†’ SpellVisualKit ID
-///   [7]  HasMissile          â†’ SpellVisualEffectName ID (NOT a boolean!)
-///                               Fireball=365 "Fireball Missile Low", ShadowBolt=151
-///   [8]  MissileModel        (always 0 for these spells â€” missile comes from HasMissile)
-///   [9]  MissilePathType     (1 = standard arc)
-///   [10] MissileDestX        (Fireball=3011, ShadowBolt=3015)
-///   [11] MissileDestY        (0)
-///   [12] MissileDestZ        (0)
-///   [13] MissileSound        (0)
-///   [14] AnimEventSoundID    (0)
-///   [15] Flags               (0)
-///
-/// SpellVisualKit.dbc layout (35 fields, 140 bytes per record):
-///   [0]  ID
-///   [1]  StartAnimID
-///   [2]  AnimID              (53 = directed cast for both Fire and Shadow)
-///   [3]  HeadEffect          â†’ SpellVisualEffectName ID (0xFFFFFFFF = none)
-///   [4]  ChestEffect         â†’ SpellVisualEffectName ID
-///   [5]  BaseEffect          â†’ SpellVisualEffectName ID
-///   [6]  LeftHandEffect      â†’ SpellVisualEffectName ID
-///   [7]  RightHandEffect     â†’ SpellVisualEffectName ID
-///   [8]  BreathEffect        â†’ SpellVisualEffectName ID
-///   [9]  LeftWeaponEffect    â†’ SpellVisualEffectName ID
-///   [10] RightWeaponEffect   â†’ SpellVisualEffectName ID
-///   [11] SoundID             â†’ SoundEntries ID (0xFFFFFFFF = none)
-///   [12] ShakeID
-///   [13] CharacterProcedure  SoundEntries ID (Fireball cast=1484, impact=1507)
-///   [14-34] Additional fields
-///
-/// SpellVisualEffectName.dbc layout â€” CORRECTED Session 8:
-///   [0]  ID
-///   [1]  Name        (stringref â†’ display/debug label, e.g. "Fire Cast Hand")
-///   [2]  FilePath    (stringref â†’ ACTUAL M2 path, e.g. "Spells\Fire_Cast_Hand.mdx")
-///   [3]  AreaEffectSize (uint32, usually 0 or 4)
-///   [4]  Scale       (float, 0.0 or 1.0)
-///
-///   âš ï¸ Field [2] is a STRINGREF (FilePath), NOT a float! Session 8 root cause.
-///   The client uses field [2] to locate the M2 file. Field [1] is display only.
-///   Vanilla DBC uses .mdx extension in FilePath; actual MPQ files are .m2.
-///   We write .m2 in the DBC since that matches MPQ contents. If the client
-///   can't find it, try switching to .mdx (the client may map internally).
+/// Clone the direct build-5875 visual/kit/effect-name references for offline authoring.
+/// Visual kits are columns 1..5 and 13; missile and area effects are 7 and 12.
+/// Kit effect slots are 3..11. Sound and character-procedure references remain shared.
+/// Model copying/recoloring and writing an archive belong to the caller.
 /// </summary>
 public class SpellVisualCloner
 {
@@ -82,18 +29,13 @@ public class SpellVisualCloner
         public string EffectRole { get; set; } = "";      // "cast_leftHand", "missile", "impact_chest", etc.
     }
 
-    // Kit field indices that point to SpellVisualEffectName IDs
-    // 0xFFFFFFFF means "none" (not 0)
-    private static readonly int[] KitEffectFields = { 3, 4, 5, 6, 7, 8, 9, 10 };
+    private static readonly int[] KitEffectFields = { 3, 4, 5, 6, 7, 8, 9, 10, 11 };
     private static readonly string[] KitEffectNames = {
-        "head", "chest", "base", "leftHand", "rightHand", "breath", "leftWeapon", "rightWeapon"
+        "head", "chest", "base", "leftHand", "rightHand", "breath", "special1", "special2", "special3"
     };
-
-    // SpellVisual field indices that point to SpellVisualKit IDs
-    private static readonly int[] VisualKitFields = { 1, 2, 3, 4, 5, 6 };
-    private static readonly string[] VisualKitNames = {
-        "precast", "cast", "impact", "state", "stateDone", "channel"
-    };
+    private static readonly int[] VisualKitFields = { 1, 2, 3, 4, 5, 13 };
+    private static readonly string[] VisualKitNames = { "precast", "cast", "impact", "state", "channel", "area" };
+    private static bool IsReference(uint id) => id is not 0 and not uint.MaxValue;
 
     /// <summary>
     /// Derive the M2 file path from a SpellVisualEffectName display name.
@@ -138,10 +80,7 @@ public class SpellVisualCloner
         return $"{spellName} {rolePart}";
     }
 
-    /// <summary>
-    /// Clone an entire SpellVisual chain, assigning new IDs and creating new
-    /// SpellVisualEffectName entries with custom names and FilePaths.
-    /// </summary>
+    /// <summary>Clone direct DBC references, preserving shared links and unrelated fields.</summary>
     public static CloneResult Clone(
         DbcWriterService spellVisualDbc,
         DbcWriterService spellVisualKitDbc,
@@ -152,121 +91,72 @@ public class SpellVisualCloner
         uint baseEffectId,
         string spellName)
     {
+        if (spellVisualDbc.FieldCount < 16 || spellVisualKitDbc.FieldCount < 35 || spellVisualEffectNameDbc.FieldCount < 5)
+            throw new InvalidDataException("Visual cloning requires the build-5875 visual, kit and effect schemas");
+        uint[] source = spellVisualDbc.GetRow(sourceVisualId)
+            ?? throw new KeyNotFoundException($"Source visual {sourceVisualId} not found");
+        var kitIds = VisualKitFields.Select(i => source[i]).Where(IsReference).Distinct().ToArray();
+        var effectIds = new HashSet<uint>();
+        // Preflight the complete direct graph and destination ranges before changing any table.
+        foreach (uint id in kitIds)
+        {
+            uint[] kit = spellVisualKitDbc.GetRow(id) ?? throw new KeyNotFoundException($"Source kit {id} not found");
+            foreach (int col in KitEffectFields) if (IsReference(kit[col])) effectIds.Add(kit[col]);
+        }
+        foreach (int col in new[] { 7, 12 }) if (IsReference(source[col])) effectIds.Add(source[col]);
+        foreach (uint id in effectIds)
+            if (spellVisualEffectNameDbc.GetRow(id) is null) throw new KeyNotFoundException($"Source effect {id} not found");
+        static void CheckDestination(DbcWriterService table, uint first, int count)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                uint id = checked(first + (uint)i);
+                if (!IsReference(id) || table.GetRow(id) is not null)
+                    throw new ArgumentException($"Destination row {id} is reserved or already exists");
+            }
+        }
+        CheckDestination(spellVisualDbc, newVisualId, 1);
+        CheckDestination(spellVisualKitDbc, baseKitId, kitIds.Length);
+        CheckDestination(spellVisualEffectNameDbc, baseEffectId, effectIds.Count);
         var result = new CloneResult { NewVisualId = newVisualId };
-        uint nextKitId = baseKitId;
-        uint nextEffectId = baseEffectId;
-
-        // â”€â”€ Step 1: Clone the SpellVisual row â”€â”€
-        var visualRow = spellVisualDbc.CloneRow(sourceVisualId, newVisualId);
-
-        // â”€â”€ Step 2: For each kit reference in the visual, clone the kit â”€â”€
+        uint nextKit = baseKitId, nextEffect = baseEffectId;
+        uint CloneEffect(uint oldId, string role)
+        {
+            if (!IsReference(oldId)) return oldId;
+            if (result.EffectNameIdMap.TryGetValue(oldId, out uint existing)) return existing;
+            uint id = nextEffect++;
+            uint[] row = spellVisualEffectNameDbc.CloneRow(oldId, id);
+            string originalName = spellVisualEffectNameDbc.ReadString(row[1]);
+            string originalPath = NormalizeM2Extension(spellVisualEffectNameDbc.ReadString(row[2]));
+            string name = BuildCustomEffectName(spellName, role), path = EffectNameToM2Path(name);
+            spellVisualEffectNameDbc.PatchRow(id, 1, spellVisualEffectNameDbc.AddString(name));
+            spellVisualEffectNameDbc.PatchRow(id, 2, spellVisualEffectNameDbc.AddString(path));
+            result.EffectNameIdMap.Add(oldId, id);
+            result.EffectFiles.Add(new EffectFileMapping { NewEffectId = id, OriginalName = originalName,
+                OriginalM2Path = originalPath, CustomName = name, CustomM2Path = path, EffectRole = role });
+            return id;
+        }
+        uint[] visual = spellVisualDbc.CloneRow(sourceVisualId, newVisualId);
         for (int i = 0; i < VisualKitFields.Length; i++)
         {
-            int fieldIdx = VisualKitFields[i];
-            uint oldKitId = visualRow[fieldIdx];
-            if (oldKitId == 0) continue;
-
-            uint newKitId = nextKitId++;
-            result.KitIdMap[oldKitId] = newKitId;
-
-            var kitRow = spellVisualKitDbc.CloneRow(oldKitId, newKitId);
-            spellVisualDbc.PatchRow(newVisualId, fieldIdx, newKitId);
-
-            // â”€â”€ Step 3: For each effect reference in the kit, clone the effect â”€â”€
-            for (int j = 0; j < KitEffectFields.Length; j++)
+            int col = VisualKitFields[i]; uint oldId = visual[col];
+            if (!IsReference(oldId)) continue;
+            if (!result.KitIdMap.TryGetValue(oldId, out uint newId))
             {
-                int effectFieldIdx = KitEffectFields[j];
-                uint oldEffectId = kitRow[effectFieldIdx];
-                if (oldEffectId == 0 || oldEffectId == 0xFFFFFFFF) continue;
-
-                if (!result.EffectNameIdMap.TryGetValue(oldEffectId, out uint newEffectId))
+                newId = nextKit++;
+                result.KitIdMap.Add(oldId, newId);
+                uint[] kit = spellVisualKitDbc.CloneRow(oldId, newId);
+                for (int j = 0; j < KitEffectFields.Length; j++)
                 {
-                    newEffectId = nextEffectId++;
-                    result.EffectNameIdMap[oldEffectId] = newEffectId;
-
-                    var effectRow = spellVisualEffectNameDbc.CloneRow(oldEffectId, newEffectId);
-                    string originalName = spellVisualEffectNameDbc.ReadString(effectRow[1]);
-
-                    // Read the ACTUAL original file path from field [2] (not derived from name!)
-                    // e.g. "Particles\FireShield_Cast_Base.mdl" or "Spells\Fire_Cast_Hand.mdx"
-                    string originalFilePath = spellVisualEffectNameDbc.ReadString(effectRow[2]);
-                    // For MPQ lookup, normalize extension to .m2 (client files are .m2)
-                    string originalM2Path = NormalizeM2Extension(originalFilePath);
-
-                    // Build custom name using the naming convention
-                    string role = $"{VisualKitNames[i]}_{KitEffectNames[j]}";
-                    string customName = BuildCustomEffectName(spellName, role);
-                    string customM2Path = EffectNameToM2Path(customName);
-
-                    // Update field [1] â€” display name
-                    uint newNameOffset = spellVisualEffectNameDbc.AddString(customName);
-                    spellVisualEffectNameDbc.PatchRow(newEffectId, 1, newNameOffset);
-
-                    // â•â•â• SESSION 9 FIX: Patch field [2] â€” FilePath (the ACTUAL M2 path) â•â•â•
-                    // Session 8 root cause: field [2] is a stringref to the M2 file path.
-                    // The client loads M2s from this field, NOT from field [1].
-                    // Without this patch, custom M2s in the MPQ are never loaded.
-                    uint newPathOffset = spellVisualEffectNameDbc.AddString(customM2Path);
-                    spellVisualEffectNameDbc.PatchRow(newEffectId, 2, newPathOffset);
-
-                    result.EffectFiles.Add(new EffectFileMapping
-                    {
-                        NewEffectId = newEffectId,
-                        OriginalName = originalName,
-                        OriginalM2Path = originalM2Path,
-                        CustomName = customName,
-                        CustomM2Path = customM2Path,
-                        EffectRole = role
-                    });
+                    int effectCol = KitEffectFields[j];
+                    kit[effectCol] = CloneEffect(kit[effectCol], $"{VisualKitNames[i]}_{KitEffectNames[j]}");
                 }
-
-                spellVisualKitDbc.PatchRow(newKitId, effectFieldIdx, newEffectId);
             }
+            visual[col] = newId;
         }
-
-        // â”€â”€ Step 4: Handle missile effect â”€â”€
-        // CRITICAL FIX: Missile is field 7 (HasMissile), NOT field 8 (MissileModel).
-        // Field 7 contains the SpellVisualEffectName ID for the missile M2.
-        // Field 8 is always 0 for these spells.
-        uint oldMissileEffectId = visualRow[7]; // HasMissile = EffectName ID
-        if (oldMissileEffectId != 0)
-        {
-            if (!result.EffectNameIdMap.TryGetValue(oldMissileEffectId, out uint newMissileEffectId))
-            {
-                newMissileEffectId = nextEffectId++;
-                result.EffectNameIdMap[oldMissileEffectId] = newMissileEffectId;
-
-                var missileRow = spellVisualEffectNameDbc.CloneRow(oldMissileEffectId, newMissileEffectId);
-                string originalName = spellVisualEffectNameDbc.ReadString(missileRow[1]);
-                string originalFilePath = spellVisualEffectNameDbc.ReadString(missileRow[2]);
-                string originalM2Path = NormalizeM2Extension(originalFilePath);
-
-                string customName = BuildCustomEffectName(spellName, "missile");
-                string customM2Path = EffectNameToM2Path(customName);
-
-                // Update field [1] â€” display name
-                uint newNameOffset = spellVisualEffectNameDbc.AddString(customName);
-                spellVisualEffectNameDbc.PatchRow(newMissileEffectId, 1, newNameOffset);
-
-                // â•â•â• SESSION 9 FIX: Patch field [2] â€” FilePath â•â•â•
-                uint newPathOffset = spellVisualEffectNameDbc.AddString(customM2Path);
-                spellVisualEffectNameDbc.PatchRow(newMissileEffectId, 2, newPathOffset);
-
-                result.EffectFiles.Add(new EffectFileMapping
-                {
-                    NewEffectId = newMissileEffectId,
-                    OriginalName = originalName,
-                    OriginalM2Path = originalM2Path,
-                    CustomName = customName,
-                    CustomM2Path = customM2Path,
-                    EffectRole = "missile"
-                });
-            }
-
-            result.MissileEffectId = newMissileEffectId;
-            spellVisualDbc.PatchRow(newVisualId, 7, newMissileEffectId); // Field 7, not 8
-        }
-
+        visual[7] = CloneEffect(visual[7], "missile");
+        if (IsReference(visual[7])) result.MissileEffectId = visual[7];
+        visual[12] = CloneEffect(visual[12], "area");
         return result;
     }
 }

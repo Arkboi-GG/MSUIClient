@@ -308,7 +308,7 @@ public static partial class Program
                 MSUIClient.Engine.UI.FontObjectLaw.DefaultBakePairs());
         }
 
-        using var window = new ClientWindow(config)
+        using var window = new ClientWindow(config, background: liveRun?.Background == true)
         {
             UiFontPath = uiFontPath,
             UiFontSize = MSUIClient.Engine.UI.UiFont.SizeFor(config.Window.UiScale),
@@ -416,6 +416,8 @@ public sealed partial class GameLoop : IDisposable
     private AssetWorkerPool? _assetWorkers;
     private WmoRenderer? _wmo;
     private DoodadRenderer? _doodads;
+    // Room light for the dynamic M2s (units, mounts, items) - one law with the props.
+    private readonly InteriorUnitLight _interiorUnitLight = new();
     private LiquidRenderer? _liquid;
 
     private FoliageRenderer? _foliage;
@@ -682,6 +684,10 @@ public sealed partial class GameLoop : IDisposable
         _variantBatchOptions = variantBatch;
         _movementSuiteOptions = movementSuite;
         _liveRunOptions = liveRun;
+        if (liveRun is not null)
+            window.GuiInputFactory = input => LiveGuiInputProxy.Wrap(input,
+                () => _liveGuiPointer ?? new Vector2(-1000, -1000), () => _liveGuiDown,
+                () => _liveGuiRightDown);
         _atmosphere.FogEnd = Math.Clamp(config.Render.WmoDistance, 100f, config.Render.FarPlane);
         _atmosphere.FogStart = MathF.Min(350f, _atmosphere.FogEnd - 1f);
     }
@@ -740,6 +746,8 @@ public sealed partial class GameLoop : IDisposable
         {
             _wmo = new WmoRenderer(gl, _config, _uploads, _assetWorkers);
             _wmo.LoadShaders(shaderDir);
+            _interiorUnitLight.Wmo = _wmo;
+            _interiorUnitLight.TerrainHeight = (x, y) => _terrain?.SampleHeight(x, y);
         }
         catch (Exception ex)
         {
@@ -1542,6 +1550,9 @@ public sealed partial class GameLoop : IDisposable
         // Scripted offline swimming-collision proof (MSUI_SWIM_PROBE).
         UpdateSwimProbe();
 
+        // Scripted offline interior unit-light proof (MSUI_INTERIORLIGHT_PROBE).
+        UpdateInteriorLightProbe();
+
         // Cart-kit charges, cooldowns and the slows they applied.
         UpdateMountKit(NowSeconds());
 
@@ -1566,6 +1577,11 @@ public sealed partial class GameLoop : IDisposable
         SnapshotLoadUnitsBeforePump();
         long loadNetStarted = Stopwatch.GetTimestamp();
         PumpNet(dt); // Phase 2 networking pump (no-op unless server.enabled)
+        UpdatePetInfoRefresh();
+        UpdateBattlefields();
+        UpdateBattlefieldScores();
+        UpdateBattlefieldPositions();
+        UpdateAreaSpiritHealer();
         UpdateMail(dt);
         _loadNetPumpMilliseconds = Stopwatch.GetElapsedTime(loadNetStarted).TotalMilliseconds;
         UpdateIceBlockFreezeState();
@@ -2012,12 +2028,11 @@ public sealed partial class GameLoop : IDisposable
         if (_freeView && CommandViewLaw.OrbitsFocus(commandViewScheme) && !CommandViewLocked)
             OrbitCommandViewRig(_commandViewYawDelta);
 
-        // Drunkenness belongs to the logged-in player even while another unit is possessed.
-        // Current Benilla adds this pulse to movement facing (unless a keyboard turn is held)
-        // and to active swim pitch; it deliberately has no normal-play FOV effect.
+        // The body being driven owns its movement intoxication. A non-player body
+        // has no PLAYER_BYTES_3 field; the session character must not lend it one.
         byte drunkByte = ControllerOwnsControlledBodyPose &&
-            _entities.TryGet(LocalPlayerGuid, out WorldEntity sessionPlayer)
-            ? sessionPlayer.Fields.PlayerDrunkByte
+            _entities.TryGet(ControlledGuid, out WorldEntity movementPlayer) && movementPlayer.IsPlayer
+            ? movementPlayer.Fields.PlayerDrunkByte
             : (byte)0;
         float drunkWobble = translating
             ? DrunkMovementLaw.Wobble(MovementInfo.ClientUptimeMs(),
@@ -2139,7 +2154,8 @@ public sealed partial class GameLoop : IDisposable
             UpdateServerRideTacticalFreeze(tacticalLiveAuthorshipBlocked);
         bool serverRideActive = serverRideHeldByTacticalFreeze ||
             (!tacticalLiveAuthorshipBlocked && UpdateServerRide());
-        if (!serverRideActive && !controllerTacticalFrozen) _controller.Update(dt, input);
+        if (!serverRideActive && !controllerTacticalFrozen && !vanillaControlLocked)
+            _controller.Update(dt, input);
         UpdatePredictedBreath();
         ReconcileControlledTransportRider();
         ResolveRealPortalMovement(movementPreviousPosition);
@@ -2306,6 +2322,9 @@ public sealed partial class GameLoop : IDisposable
         _wmo?.SetPartySightSubject(sightFeet,
             sightFeet is Vector3 sf ? _terrain?.SampleHeight(sf.X, sf.Y) : null);
         _wmo?.UpdateCameraCell(portalEye, _terrain?.SampleHeight(portalEye.X, portalEye.Y));
+        // Unit room light follows the same world state the cell update just saw.
+        _interiorUnitLight.Enabled = (_doodads?.InteriorLighting ?? true) && !_interiorUnitLightProbeOff;
+        _interiorUnitLight.BeginFrame(_worldTime);
         // The cut resolved by the cell update is one world-space rule shared by three renderers.
         WorldCut? activeCut = _wmo?.ActiveCut;
         if (_terrain is not null) _terrain.Cut = activeCut;
@@ -2565,8 +2584,12 @@ public sealed partial class GameLoop : IDisposable
         Walking = _walking,
         Flying = _controller?.Flying ?? false,
         Engaged = _net is not null && _combat.IsEngaged(ControlledGuid),
+        Stealthed = _entities.TryGet(ControlledGuid, out WorldEntity stealthUnit) &&
+            stealthUnit.Fields.UnitIsStealthed,
         StandState = _entities.TryGet(ControlledGuid, out WorldEntity poseUnit)
             ? poseUnit.Fields.UnitStandState : (byte)0,
+        ReadsDead = _entities.TryGet(ControlledGuid, out WorldEntity deathPoseUnit) &&
+            deathPoseUnit.Fields.ReadsDead && !deathPoseUnit.Fields.PlayerIsGhost,
         EmoteState = _entities.TryGet(ControlledGuid, out WorldEntity emoteUnit)
             ? emoteUnit.Fields.NpcEmoteState : 0,
         FreezePose = _iceBlockFrozen || aura?.Frozen == true ||
@@ -2830,9 +2853,12 @@ public sealed partial class GameLoop : IDisposable
         // whatever face was baked last.
         _character?.BeginItemGlowFrame();
         _creatures?.BeginItemGlowFrame();
-        if (WarmStage(3) && _character is not null && _controller is not null && !_freeView &&
+        if (WarmStage(3) && _character is not null && _controller is not null && !ControlledBodyIsStreamed &&
             _window.Camera.EffectiveDistance > FirstPersonBodyHide)
+        {
+            _character.InteriorLight = _interiorUnitLight.For(RenderSelfGuid, _controller.Position);
             _character.Render(_window.Camera, BuildUnitState(includeAuraVisual: true));
+        }
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Character);
         _characterRenderMilliseconds = Stopwatch.GetElapsedTime(characterStarted).TotalMilliseconds;
 
@@ -2894,13 +2920,7 @@ public sealed partial class GameLoop : IDisposable
             spellMeshes = spellMeshes.Concat(QuestMarkerMeshInstances(spellNow));
             _spellEffectMeshes.Render(_window.Camera, spellMeshes, SpellGroundHeight);
             _spellEffectMeshes.RenderWorldBillboards(_window.Camera, RaidMarkerBillboards());
-            // Armed location-target reticle: the rune circle follows the cursor and spans the
-            // largest populated Spell.dbc effect radius. The compatibility fallback is reached
-            // only by placement spells whose effect lanes author no radius at all.
-            if (_groundCastSpell != 0 && _groundCursorPoint is { } reticle &&
-                _spellCatalog?.TryGet(_groundCastSpell, out SpellInfo groundSpell) == true)
-                _spellEffectMeshes.RenderTargetingMarker(_window.Camera, reticle,
-                    _spellCatalog.TargetingRadius(groundSpell));
+            RenderGroundTargetingMarker();
         }
         // CRPG free-view ground FX: selection rings + move markers share the decal machinery
         // and depth-test against the units drawn above, so rings tuck behind the models.
@@ -3171,7 +3191,7 @@ public sealed partial class GameLoop : IDisposable
         if (_unitShadows is null) return;
 
         UnitShadowCaster? local = null;
-        if (_character is { Enabled: true } &&
+        if (!ControlledUsesDisplayModel && _character is { Enabled: true } &&
             _controller is { Grounded: true, Flying: false } controller)
         {
             float radius = MathF.Max(0.5f, _config.Movement.Radius * 1.45f);
@@ -3245,6 +3265,7 @@ public sealed partial class GameLoop : IDisposable
             renderer.SunIntensity = _atmosphere.SunIntensity;
             renderer.AmbientColor = _atmosphere.AmbientColor;
             renderer.AmbientIntensity = _atmosphere.AmbientIntensity;
+            renderer.BakedLightScale = _doodads?.VertexColorScale ?? 2f;
             renderer.FogColor = _atmosphere.FogColor;
             renderer.FogStart = _atmosphere.ShaderFogStart;
             renderer.FogEnd = _atmosphere.ShaderFogEnd;
@@ -3257,6 +3278,7 @@ public sealed partial class GameLoop : IDisposable
             renderer.SunIntensity = _atmosphere.SunIntensity;
             renderer.AmbientColor = _atmosphere.AmbientColor;
             renderer.AmbientIntensity = _atmosphere.AmbientIntensity;
+            renderer.BakedLightScale = _doodads?.VertexColorScale ?? 2f;
             renderer.FogColor = _atmosphere.FogColor;
             renderer.FogStart = _atmosphere.ShaderFogStart;
             renderer.FogEnd = _atmosphere.ShaderFogEnd;
@@ -3392,7 +3414,6 @@ public sealed partial class GameLoop : IDisposable
 
     private void BuildGui()
     {
-
         // Arm before any gameplay widgets draw; OverlayTop writes after the frame.
         BeginGameplayDumpFrame();
 
@@ -3900,6 +3921,10 @@ public sealed partial class GameLoop : IDisposable
                 ImGui.TextDisabled(
                     $"  distance {_doodads.DrawDistance:F0} yd  alpha {_doodads.AlphaCutoff:F2}  " +
                     $"MODD {(_doodads.InteriorLighting ? $"x{_doodads.VertexColorScale:F2}" : "off")}");
+                ImGui.TextDisabled(
+                    $"  unit room light: {_interiorUnitLight.InteriorCount}/{_interiorUnitLight.Tracked} " +
+                    $"indoors  {_interiorUnitLight.ResolvesThisFrame} floor ray(s)/frame  " +
+                    $"go lit {_doodads.InteriorLitCount}");
             }
             }
 

@@ -1,4 +1,4 @@
-﻿using System.Collections.Immutable;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Numerics;
 using ImGuiNET;
@@ -24,6 +24,7 @@ public sealed partial class GameLoop
     private bool _partyInventoryKeyWasDown;
     private int _carriedContainer = InventoryUiLaw.EmptyContainer;
     private int _carriedSlot = -1;
+    private InventoryUiLaw.DragPress? _inventoryDragPress;
     private int? _carriedCount;
     private readonly bool[] _equippedBagOpen = new bool[4];
     private readonly bool[] _bankBagOpen = new bool[InventoryUiLaw.BankBagCount];
@@ -62,6 +63,7 @@ public sealed partial class GameLoop
     private bool _inventoryGlobalStringsLoaded;
     private string? _inventoryGlobalStringsSource;
     private readonly ItemEnchantTimerState _itemEnchantTimers = new();
+    private readonly ItemDurationState _itemDurations = new();
     private readonly Dictionary<uint, uint> _itemProficiencies = [];
 
     /// <summary>
@@ -109,6 +111,7 @@ public sealed partial class GameLoop
 
     private void UpdateInventoryInput(bool typing)
     {
+        UpdateServerContainerOpens();
         bool down = BindingDown(GameBinding.OpenBackpack);
         if (down && !_backpackKeyWasDown && !typing && _net is { IsInWorld: true })
         {
@@ -171,6 +174,7 @@ public sealed partial class GameLoop
         }
         SyncLiveEquipmentModel();
         ObserveInventoryTransition();
+        ObserveOwnQuestItemProgress();
         ObserveBagLocks();
         ObserveBankTransition();
         ObserveSkillRankUps();
@@ -207,13 +211,26 @@ public sealed partial class GameLoop
     }
 
     private void PlayItemPickupSound(uint displayInfoId)
+        => PlayItemGestureSound(displayInfoId, ItemSoundGesture.Pickup);
+
+    private void PlayInventoryItemGesture(WorldEntity? item, ItemSoundGesture gesture)
     {
-        if (!World.Sound.AudioFeaturePolicy.ExpandedWorldAudioEnabled) return;
-        uint? kit = AcquisitionSoundLaw.PickupKit(displayInfoId, _itemDisplays, _itemGroupSounds);
+        // The cached template supplies the display, which supplies the material sound group.
+        // Do not delay a cursor cue until a later query response, or guess a generic material.
+        if (item is not null && _items?.TryGet(item.Entry, out ItemTemplate? template) == true &&
+            template is not null)
+            PlayItemGestureSound(template.DisplayInfoId, gesture);
+    }
+
+    private void PlayItemGestureSound(uint displayInfoId, ItemSoundGesture gesture)
+    {
+        if (SuppressUiAudioForDiagnostics || !World.Sound.AudioFeaturePolicy.ExpandedWorldAudioEnabled) return;
+        uint? kit = AcquisitionSoundLaw.GestureKit(displayInfoId, _itemDisplays, _itemGroupSounds, gesture);
         if (kit is null) return;
         Vector3 listener = _controller?.Position ?? Vector3.Zero;
-        _spellSounds?.Play(kit, LocalPlayerGuid, listener, listener,
-            forceLoop: false, trackHold: false, category: AcquisitionSoundLaw.ItemPickupCategory);
+        _spellSounds?.Play(kit, ControlledGuid, listener, listener,
+            forceLoop: false, trackHold: false, category: gesture == ItemSoundGesture.Pickup
+                ? AcquisitionSoundLaw.ItemPickupCategory : AcquisitionSoundLaw.ItemPutDownCategory);
     }
 
     private void ObserveInventoryTransition()
@@ -246,7 +263,7 @@ public sealed partial class GameLoop
         {
             ulong guid = player.Fields.PlayerBackpackSlot(slot);
             if (guid == 0 || !_entities.TryGet(guid, out WorldEntity item) || item.Entry != entry) continue;
-            bool sent = _net.AutoEquipItem(255, (byte)(23 + slot));
+            bool sent = TryAutoEquipItem(255, (byte)(23 + slot));
             EmitInterface("inventory", "equip-send", sent ? "SENT" : "SEND_FAILED", guid,
                 $"item={entry};bag=255;slot={23 + slot};body={Convert.ToHexString(WorldSession.BuildAutoEquipBody(255, (byte)(23 + slot)))}");
             if (sent) _pendingInventoryTransition = new("equip", guid, entry, 23 + slot, -1, NowSeconds());
@@ -581,7 +598,16 @@ public sealed partial class GameLoop
             ImGui.SetCursorScreenPos(min);
             ImGui.InvisibleButton($"##bag-button-{container}", new Vector2(buttonSize) * s);
             bool hovered = ImGui.IsItemHovered();
-            if (!_settingsOpen && ImGui.IsItemClicked())
+            // FrameXML's bag buttons act OnClick (mouse-up) and OnDragStart, never on
+            // mouse-down. Acting on press toggled a closed bag's window open the moment a
+            // drag began, and that freshly appearing window took focus and cleared the
+            // bar button's active id, so the drag never started: a bag could only be moved
+            // between slots once its window was already open (issue #28). A click is now
+            // press+release on the same button with no drag past the threshold.
+            bool clicked = InventoryUiLaw.BagBarClicked(ImGui.IsItemDeactivated(), hovered,
+                ImGui.GetMouseDragDelta(ImGuiMouseButton.Left, 0f).Length(),
+                ImGui.GetIO().MouseDragThreshold);
+            if (!_settingsOpen && clicked)
             {
                 switch (InventoryUiLaw.BagBarAction(container, HasCarriedItem, bagGuid != 0))
                 {
@@ -848,14 +874,17 @@ public sealed partial class GameLoop
         ImGui.End();
     }
 
-    private bool HasCarriedItem => _carriedContainer != InventoryUiLaw.EmptyContainer;
+    private bool HasCarriedItem => _vendorPickup is not null || _carriedContainer != InventoryUiLaw.EmptyContainer;
 
-    private void PickupOrPlaceItem(int container, int slot, ulong guid, bool ignoreModifiers = false)
+    private void PickupOrPlaceItem(int container, int slot, ulong guid, bool ignoreModifiers = false,
+        bool bindConfirmed = false)
     {
         // Swap/split are threaded through GetSuiActor server-side (v1.1), so a possessed bot's bags
         // are editable; CanAuthorControlledGameplay already allows possession (and blocks a detached
         // Free View cursor that drives no body).
         if (!CanAuthorControlledOrSelf || _net is null) return;
+        if (_giftWrap is not null) return;
+        if (_vendorPickup is not null) { PlaceVendorPurchase(container, slot); return; }
         if (!HasCarriedItem)
         {
             if (guid != 0 && !IsInventorySlotLocked(container, slot))
@@ -863,15 +892,25 @@ public sealed partial class GameLoop
                 _carriedContainer = container;
                 _carriedSlot = slot;
                 _carriedCount = null;
+                PlayInventoryItemGesture(ResolveCarriedItem(), ItemSoundGesture.Pickup);
             }
             return;
         }
         WorldEntity? carried = ResolveCarriedItem();
+        if (carried is null) { ClearCarriedItem(); return; }
         WorldEntity? target = ResolveInventoryItem(container, slot);
         InventoryUiLaw.MovePlan plan = InventoryUiLaw.PlanMove(_carriedContainer, _carriedSlot,
-            container, slot, _carriedCount, carried?.Entry ?? 0, target?.Entry ?? 0);
+            container, slot, _carriedCount, carried.Entry, target?.Entry ?? 0);
         if (plan.Kind == InventoryUiLaw.MoveKind.Cancel) { ClearCarriedItem(); return; }
         if (plan.Kind == InventoryUiLaw.MoveKind.Refuse) return;
+        if (!bindConfirmed && plan.Kind != InventoryUiLaw.MoveKind.Split &&
+            EquipBindingUiLaw.IsEquipPosition(plan.Source) != EquipBindingUiLaw.IsEquipPosition(plan.Destination) &&
+            EquipWouldBind(EquipBindingUiLaw.IsEquipPosition(plan.Destination) ? carried : target))
+        {
+            ShowEquipBinding(new(ControlledGuid, false, _carriedContainer, _carriedSlot,
+                carried.Guid, container, slot, target?.Guid ?? 0));
+            return;
+        }
         bool sent;
         if (plan.Kind == InventoryUiLaw.MoveKind.Split)
             sent = _net.SplitItem(plan.Source.Bag, plan.Source.Slot, plan.Destination.Bag,
@@ -882,6 +921,9 @@ public sealed partial class GameLoop
             sent = _net.SwapItems(plan.Destination.Bag, plan.Destination.Slot,
                 plan.Source.Bag, plan.Source.Slot);
         if (!sent) return;
+        // Cursor placement feedback follows accepted dispatch, not server inventory completion.
+        // A later server refusal keeps its own error feedback; cancel/refuse/failed send stay silent.
+        PlayInventoryItemGesture(carried, ItemSoundGesture.PutDown);
         long operation = ++_pendingBagOperation;
         AddPendingBagLock(_carriedContainer, _carriedSlot, operation);
         AddPendingBagLock(container, slot, operation);
@@ -890,6 +932,8 @@ public sealed partial class GameLoop
 
     private void ClearCarriedItem()
     {
+        _inventoryDragPress = null;
+        _vendorPickup = null;
         _carriedContainer = InventoryUiLaw.EmptyContainer;
         _carriedSlot = -1;
         _carriedCount = null;
@@ -979,14 +1023,15 @@ public sealed partial class GameLoop
             }
         }
         else if (route == MultiActionItemRoute.Equip && any is { } at)
-            _net.AutoEquipItem(at.Bag, at.Slot);
+            TryAutoEquipItem(at.Bag, at.Slot);
     }
 
     /// <summary>
     /// The shared CMSG_USE_ITEM commit tail: query the item/spell pair before sending, then arm
     /// the item-authored recovery and the selected spell's GCD as separate history nodes.
     /// </summary>
-    private bool SendItemUse(byte bag, byte slot, WorldEntity instance, ItemTemplate template)
+    private bool SendItemUse(byte bag, byte slot, WorldEntity instance, ItemTemplate template,
+        Vector3? destination = null)
     {
         // Possession-aware (server routes CMSG_USE_ITEM via GetSuiActor): a possessed bot uses its
         // own item, gated by ITS level. Strict session gate only guarded the pre-threading server.
@@ -995,20 +1040,57 @@ public sealed partial class GameLoop
         SpellInfo? spell = _spellCatalog?.TryGet(useSpell.SpellId, out SpellInfo resolved) == true
             ? resolved : null;
         double now = NowSeconds();
-        bool blocked = spell is { } info
-            ? _actions.IsOnCooldown(useSpell.SpellId, template.Entry, info, now)
-            : _actions.IsOnCooldown(useSpell.SpellId, template.Entry, useSpell.Category, now);
+        PlayerActions itemActions = ActionsFor(ControlledGuid);
+        bool blocked = itemActions.IsItemOnCooldown(template.Entry, useSpell, spell, now);
+        // Which side authored the recovery this gate is about to enforce. item* are the SERVER's
+        // item_template columns (spellcooldown / spellcategorycooldown, -1 meaning "use the
+        // spell's own"); dbc* are the Spell.dbc fallbacks the client substitutes for a -1. The
+        // gate below never reaches the wire, so without this line a local block is
+        // indistinguishable from the server refusing the use.
+        // path=useitem, NOT "bag": SendItemUse is the shared CMSG_USE_ITEM tail and serves a bag
+        // click AND an action-bar press or hotkey (UseItemAction routes here). Only the command
+        // shelf has a gate of its own, and it reports path=shelf.
+        Console.WriteLine($"[verdict:item-cooldown] time={NowSeconds():F3} path=useitem entry={template.Entry} " +
+            $"spell={useSpell.SpellId} name={spell?.Name ?? "?"} category={useSpell.Category} " +
+            $"itemCooldownMs={useSpell.CooldownMs} itemCategoryCooldownMs={useSpell.CategoryCooldownMs} " +
+            $"dbcRecoveryMs={spell?.RecoveryMs ?? 0} dbcCategoryRecoveryMs={spell?.CategoryRecoveryMs ?? 0} " +
+            $"blocked={blocked}");
         if (useSpell.SpellId != 0 && blocked)
         {
             ShowSpellError(useSpell.SpellId, "LOCAL_ITEM_COOLDOWN", "Item is not ready yet.",
                 "LOCAL_GATE");
             return false;
         }
-        if (!_net.UseItem(bag, slot, template.UseSpellIndex)) return false;
+        ulong itemTargetGuid = 0;
+        if (spell is { } targetedSpell)
+        {
+            CastTargetVerdict target = ResolveCastTarget(targetedSpell);
+            if (target.Kind == CastTargetKind.Ground && destination is null)
+            {
+                CancelGroundTargeting();
+                CancelItemTargeting();
+                _groundItemUse = new(ControlledGuid, instance.Guid, template.Entry, useSpell.SpellId);
+                _groundCastSpell = useSpell.SpellId;
+                EmitInterface("inventory", "use-target", "ARMED", instance.Guid,
+                    $"item={template.Entry};spell={useSpell.SpellId};actor=0x{ControlledGuid:X};waitingForGround=true");
+                return true;
+            }
+            if (target.Kind == CastTargetKind.Unit) itemTargetGuid = target.Guid;
+            else if (target.Kind == CastTargetKind.Refused)
+            {
+                ShowSpellError(useSpell.SpellId, "LOCAL_ITEM_TARGET", "Invalid target.", "LOCAL_GATE");
+                return false;
+            }
+        }
+        CancelGroundTargeting();
+        if (!_net.UseItem(bag, slot, template.UseSpellIndex, itemTargetGuid, destination)) return false;
+        EmitInterface("inventory", "use-target", "SENT", itemTargetGuid,
+            $"item={template.Entry};spell={useSpell.SpellId};bag={bag};slot={slot};destination={destination}");
         ScheduleControlledInventoryRefresh(ControlledGuid);   // re-sync a possessed bot's consumed item
         if (useSpell.SpellId == 0) return true;
-        _actions.StartItemUseCooldown(instance.Entry, useSpell, spell, now);
-        if (spell is { } committed) _actions.StartGlobalCooldown(useSpell.SpellId, committed, now);
+        itemActions.StartItemUseCooldown(instance.Entry, useSpell, spell, now,
+            spell is { } cooldownSpell ? ActorSpellModifiers(ControlledGuid, cooldownSpell, SpellModifierStore.Cooldown) : default);
+        if (spell is { } committed) StartActorGlobalCooldown(itemActions, ControlledGuid, committed, now);
         return true;
     }
 
@@ -1050,7 +1132,7 @@ public sealed partial class GameLoop
     {
         // Possession-aware use/equip (both opcodes threaded via GetSuiActor server-side).
         if (!CanAuthorControlledOrSelf || _net is null) return;
-        if (item.InventoryType != 0) _net.AutoEquipItem(255, (byte)(23 + slot));
+        if (item.InventoryType != 0) TryAutoEquipItem(255, (byte)(23 + slot));
         else if (ResolveInventoryItem(0, slot) is { } instance)
             SendItemUse(255, (byte)(23 + slot), instance, item);
     }
@@ -1058,14 +1140,18 @@ public sealed partial class GameLoop
     private void DrawCarriedItem(WorldEntity player, float scale)
     {
         if (!HasCarriedItem || _items is null || _gameplayArt is null) return;
-        if (ResolveCarriedItem() is not { } item ||
-            !_items.TryGet(item.Entry, out ItemTemplate? template) || template is null) return;
-        uint icon = _gameplayArt.Handle(template.IconPath);
+        uint entry = _vendorPickup?.Item ?? ResolveCarriedItem()?.Entry ?? 0;
+        if (entry == 0) return;
+        _items.TryGet(entry, out ItemTemplate? template);
+        string iconPath = _vendorPickup is { } merchandise
+            ? _items.IconForDisplay(merchandise.Display) ?? template?.IconPath ?? @"Interface\Icons\INV_Misc_QuestionMark.blp"
+            : template?.IconPath ?? @"Interface\Icons\INV_Misc_QuestionMark.blp";
+        uint icon = _gameplayArt.Handle(iconPath);
         if (icon == 0) return;
         Vector2 min = ImGui.GetIO().MousePos + new Vector2(12f) * scale;
         ImGui.GetForegroundDrawList().AddImage((nint)icon, min, min + new Vector2(32f) * scale,
             Vector2.Zero, Vector2.One, 0xccffffff);
-        if (_carriedCount is int count)
+        if ((_vendorPickup is { Stack: > 1 } picked ? (int?)picked.Stack : _carriedCount) is int count)
             GameText.DrawRightAligned(ImGui.GetForegroundDrawList(), "NumberFontNormal",
                 count.ToString(), min + new Vector2(32f, 18f) * scale, scale);
     }
@@ -1246,7 +1332,7 @@ public sealed partial class GameLoop
 
         // Resolve every mutable ItemTemplate field, Stats entry, and Damages entry into an
         // immutable paint operation before the terminal tooltip stratum can invoke a renderer.
-        operations.Add(PreparedItemTooltipColored(item.Name,
+        operations.Add(PreparedItemTooltipColored(ItemTooltipInstanceName(item, liveInstance),
             compact ? Vector4.One : ItemQualityLaw.Color(item.Quality)));
         Vector4 white = Vector4.One;
         Vector4 red = new(1f, 32f / 255f, 32f / 255f, 1f);
@@ -1257,13 +1343,16 @@ public sealed partial class GameLoop
             operations.Add(PreparedItemTooltipColored("<Right Click for Details>", green));
         if ((item.Flags & 0x0000_0002) != 0)
             operations.Add(PreparedItemTooltipPlain("Conjured Item"));
-        switch (item.Bonding)
+        if (ItemInstanceTooltipLaw.Binding(item.Bonding, actualInstanceFlags) is { } binding)
+            operations.Add(PreparedItemTooltipPlain(binding));
+        if ((actualInstanceFlags & ItemInstanceTooltipLaw.Bound) != 0 && item.Bonding is 4 or 5)
+            operations.Add(PreparedItemTooltipPlain("Quest Item"));
+        if (liveInstance is { Guid: not 0 } timedItem &&
+            _itemDurations?.RemainingSeconds(timedItem.Guid, NowSeconds()) is { } seconds)
         {
-            case 1: operations.Add(PreparedItemTooltipPlain("Binds when picked up")); break;
-            case 2: operations.Add(PreparedItemTooltipPlain("Binds when equipped")); break;
-            case 3: operations.Add(PreparedItemTooltipPlain("Binds when used")); break;
-            case 4:
-            case 5: operations.Add(PreparedItemTooltipPlain("Quest Item")); break;
+            var duration = ItemDurationState.Display(seconds);
+            operations.Add(PreparedItemTooltipPlain(InventoryGlobalString(duration.Key, duration.Fallback)
+                .Replace("%d", duration.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))));
         }
         if (item.MaxCount == 1)
             operations.Add(PreparedItemTooltipPlain("Unique"));
@@ -1289,22 +1378,8 @@ public sealed partial class GameLoop
             if (string.IsNullOrWhiteSpace(type)) type = null;
             if (slot is not null || type is not null)
             {
-                // Weapon/armor proficiency red is judged against WHOSE bags are shown, but we only
-                // have the LOGIN character's proficiencies client-side (streamed on the session
-                // wire; a possessed bot's are not). So for anyone else we do NOT paint the type as
-                // unusable — the server still enforces equip, and level/class/race above are already
-                // owner-correct. Fixes gear reading red on a bot you can actually equip it to.
-                bool ownerIsLocal = ownerGuid == 0 || ownerGuid == LocalPlayerGuid;
-                InventoryUiLaw.ProficiencyColors proficiency = default;
-                if (ownerIsLocal)
-                {
-                    bool canDualWield = _spellCatalog is not null && OwnActions.KnownSpells.Any(id =>
-                        _spellCatalog.TryGet(id, out SpellInfo spell) &&
-                        spell.EffectIds is { Length: > 0 } && spell.EffectIds[0] == 40);
-                    proficiency = InventoryUiLaw.ItemProficiencyColors(item.Class, item.Subclass,
-                        item.InventoryType, _itemProficiencies,
-                        subclassInfo.ProficiencyAlternative, canDualWield);
-                }
+                InventoryUiLaw.ProficiencyColors proficiency = ItemOwnerProficiencyColors(
+                    item, ownerGuid, subclassInfo.ProficiencyAlternative);
                 if (slot is not null && type is not null)
                     operations.Add(PreparedItemTooltipPair(slot,
                         proficiency.SlotRed ? red : Vector4.One, type,
@@ -1380,7 +1455,8 @@ public sealed partial class GameLoop
                         $"+{item.Resistances[i]} {resistanceNames[i]} Resistance"));
         }
         if ((item.Flags & 0x0000_2000) == 0 &&
-            liveInstance is not null && _enchantCatalog is not null)
+            liveInstance is not null && (actualInstanceFlags & InventoryUiLaw.ItemDynamicWrapped) == 0 &&
+            _enchantCatalog is not null)
         {
             for (int slot = 0; slot < 7; slot++)
             {
@@ -1389,7 +1465,7 @@ public sealed partial class GameLoop
                 uint id = (uint)Math.Abs((long)signedId);
                 if (!_enchantCatalog.TryGet(id, out EnchantInfo enchant) ||
                     enchant.HidesTooltipName || enchant.Name.Length == 0) continue;
-                ulong? remaining = _itemEnchantTimers.RemainingMilliseconds(
+                ulong? remaining = liveInstance.Guid == 0 ? null : _itemEnchantTimers.RemainingMilliseconds(
                     liveInstance.Guid, (uint)slot,
                     liveInstance.Fields.ItemEnchantmentDuration(slot), NowSeconds());
                 string text = ItemEnchantUiLaw.Text(enchant.Name, remaining,
@@ -1411,11 +1487,8 @@ public sealed partial class GameLoop
                 $"Durability {current} / {authoredMaximum}", current == 0 ? red : white));
         }
 
-        // Level / class / race requirements colour against WHOSE bags are shown — the possessed bot
-        // when you're driving one — not always the commander. ownerGuid 0 keeps the vanilla self
-        // perspective for every other surface (vendor, inspect, paperdoll comparisons). (Required
-        // SKILL still reads the session player's own skill lines — a bot's aren't streamed.)
-        ulong requirementOwner = ownerGuid != 0 ? ownerGuid : LocalPlayerGuid;
+        // Inventory surfaces may supply an explicit owner; previews use the driven body.
+        ulong requirementOwner = ownerGuid != 0 ? ownerGuid : ControlledGuid;
         WorldEntity? player = null;
         if (_entities is not null && requirementOwner != 0 &&
             _entities.TryGet(requirementOwner, out WorldEntity foundPlayer))
@@ -1431,7 +1504,7 @@ public sealed partial class GameLoop
             values.Aggregate(0, static (mask, value) => mask | 1 << (value.Id - 1));
         void AddMaskLine(string label, int mask, (int Id, string Name)[] values, byte ownId)
         {
-            if (mask <= 0 || mask == FullMask(values)) return;
+            if (mask <= 0 || (mask & FullMask(values)) == FullMask(values)) return;
             string[] names = values
                 .Where(value => (mask & 1 << (value.Id - 1)) != 0)
                 .Select(static value => value.Name)
@@ -1451,11 +1524,22 @@ public sealed partial class GameLoop
         if (item.RequiredLevel > 1)
             operations.Add(PreparedItemTooltipColored($"Requires Level {item.RequiredLevel}",
                 playerLevel >= item.RequiredLevel ? white : red));
+        if (item.RequiredHonorRank != 0)
+        {
+            string rank = ItemHonorRankName(item.RequiredHonorRank, player);
+            bool? eligible = player?.Fields.PlayerHighestHonorRank is { } highest
+                ? highest >= item.RequiredHonorRank : null;
+            operations.Add(PreparedItemTooltipColored(
+                InventoryGlobalString("ITEM_REQ_SKILL", "Requires %s").Replace("%s", rank),
+                eligible == false ? red : white));
+        }
+        foreach (string location in ItemLocationRequirements(item))
+            operations.Add(PreparedItemTooltipPlain(location));
         if (item.RequiredSkill != 0 &&
             _skillLines?.TryGet(item.RequiredSkill, out SkillLineInfo skill) == true)
         {
-            bool hasSkill = GetSkillValue(item.RequiredSkill, out ushort value, out _) &&
-                value >= Math.Max(1u, item.RequiredSkillRank);
+            bool hasSkill = player is not null &&
+                player.Fields.PlayerSkillValueWithBonuses(item.RequiredSkill) >= Math.Max(1u, item.RequiredSkillRank);
             string line = item.RequiredSkillRank > 0
                 ? $"Requires {skill.Name} ({item.RequiredSkillRank})"
                 : $"Requires {skill.Name}";
@@ -1465,14 +1549,14 @@ public sealed partial class GameLoop
             _spellCatalog?.TryGet(item.RequiredSpell, out SpellInfo requiredSpell) == true)
         {
             bool known = _actionsByGuid is not null &&
-                _actionsByGuid.TryGetValue(LocalPlayerGuid, out PlayerActions? ownActions) &&
+                _actionsByGuid.TryGetValue(requirementOwner, out PlayerActions? ownActions) &&
                 ownActions.KnownSpells.Contains(item.RequiredSpell);
             operations.Add(PreparedItemTooltipColored($"Requires {requiredSpell.Name}",
                 known ? white : red));
         }
 
         IReadOnlySet<uint> knownSpells = _actionsByGuid is not null &&
-            _actionsByGuid.TryGetValue(LocalPlayerGuid, out PlayerActions? actions)
+            _actionsByGuid.TryGetValue(requirementOwner, out PlayerActions? actions)
                 ? actions.KnownSpells
                 : new HashSet<uint>();
         if (item.RequiredReputationFaction != 0 && _factionCatalog is not null &&
@@ -1483,11 +1567,11 @@ public sealed partial class GameLoop
                 ["Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored",
                  "Revered", "Exalted"];
             uint requiredRank = Math.Min(item.RequiredReputationRank, 7u);
-            byte currentRank = CurrentReputationRank(item.RequiredReputationFaction,
-                playerRace, playerClass);
+            bool standingKnown = TryCurrentReputationRank(requirementOwner, item.RequiredReputationFaction,
+                playerRace, playerClass, out byte currentRank);
             operations.Add(PreparedItemTooltipColored(
                 $"Requires {factionName} - {standings[(int)requiredRank]}",
-                currentRank >= requiredRank ? white : red));
+                !standingKnown || currentRank >= requiredRank ? white : red));
         }
 
         if (item.Spells.Any(spell => spell.Trigger == 6 && spell.SpellId != 0 &&
@@ -1515,11 +1599,7 @@ public sealed partial class GameLoop
                         wrap: true));
             }
 
-        int charges = item.Spells
-            .Where(static spell => spell.SpellId != 0 && spell.Charges is not 0 and not -1)
-            .Select(static spell => (int)Math.Min(int.MaxValue, Math.Abs((long)spell.Charges)))
-            .FirstOrDefault();
-        if (charges > 0)
+        if (ItemInstanceTooltipLaw.Charges(item, liveInstance?.Fields) is int charges)
             operations.Add(PreparedItemTooltipPlain(
                 charges == 1 ? "1 Charge" : $"{charges} Charges"));
 
@@ -2073,6 +2153,13 @@ public sealed partial class GameLoop
         bool interactive = CanAuthorControlledOrSelf;
         bool leftClicked = interactive && !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Left);
         bool rightClicked = interactive && !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Right);
+        bool giftWrapClick = _giftWrap is not null && (leftClicked || rightClicked);
+        if (giftWrapClick)
+        {
+            if (rightClicked) CancelGiftWrapping();
+            else TryWrapGift(container, slot);
+            leftClicked = rightClicked = false;
+        }
         bool dressUpClick = leftClicked && ImGui.GetIO().KeyCtrl && instance is not null;
         if (dressUpClick)
         {
@@ -2096,7 +2183,7 @@ public sealed partial class GameLoop
             }
         }
         if (_enchantConfirmation is not null) leftClicked = rightClicked = false;
-        bool tradePlacement = _tradeOpen && _tradePlaceSlot >= 0 &&
+        bool tradePlacement = _vendorPickup is null && _tradeOpen && _tradePlaceSlot >= 0 &&
             InventoryUiLaw.ToWire(container, slot) is not null;
         InventoryUiLaw.SlotClickAction click = InventoryUiLaw.ClickAction(leftClicked, rightClicked,
             ImGui.GetIO().KeyShift, HasCarriedItem, instance is not null,
@@ -2143,11 +2230,13 @@ public sealed partial class GameLoop
                 else if (instance.Fields.ItemTextId != 0)
                     OpenItemTextLetter(instance, item);
                 else if (item.PageText != 0)
-                    OpenItemTextPages(instance.Guid, item.Name, item.PageText, item.PageMaterial);
+                    RequestItemPages(container, slot);
                 else if (InventoryUiLaw.UnwrapsGift(item.Flags, instance.Fields.ItemFlags))
                 {
                     if (CanAuthorSessionInventory) _net.OpenItem(wire.Bag, wire.Slot);
                 }
+                else if (GiftWrapLaw.IsPaper(item, instance.Fields.ItemFlags, instance.Fields.ItemGiftCreator))
+                    TryArmGiftWrapping(container, slot);
                 else if (item.StartQuest != 0)
                 {
                     if (CanAuthorSessionInventory)
@@ -2174,18 +2263,18 @@ public sealed partial class GameLoop
                     // Ammo loads the quiver slot with CMSG_SET_AMMO, never AUTOEQUIP (the
                     // reference's single auto-equip sender forks INVTYPE_AMMO out first; sending
                     // the equip opcode for arrows just earned a server refusal). 2026-09-01.
-                    if (CanAuthorControlledOrSelf) _net.SetAmmo(item.Entry);
+                    SelectAmmo(item.Entry);
                 }
                 else if (item.InventoryType != 0)
                 {
                     // Equip is threaded via GetSuiActor server-side, so a possessed bot equips its
                     // own gear — same gate as the drag-to-equip-slot path.
-                    if (CanAuthorControlledOrSelf) _net.AutoEquipItem(wire.Bag, wire.Slot);
+                    if (CanAuthorControlledOrSelf) TryAutoEquipItem(wire.Bag, wire.Slot);
                 }
                 else SendItemUse(wire.Bag, wire.Slot, instance, item);
             }
         }
-        if (!dressUpClick && !_vendorRepairMode && _itemCastSpell == 0 && _enchantConfirmation is null)
+        if (!giftWrapClick && _giftWrap is null && !dressUpClick && !_vendorRepairMode && _itemCastSpell == 0 && _enchantConfirmation is null)
             HandleInventoryDrag(container, slot, guid, item);
 
         uint ring = _gameplayArt.Handle(@"Interface\Buttons\UI-Quickslot2");
@@ -2213,7 +2302,7 @@ public sealed partial class GameLoop
                         "OVERLAY", "CENTER", parityButton, "CENTER", 0, 0));
         }
         if (item?.UseSpellId > 0 &&
-            _actions.TryCooldownDisplay(item.UseSpellId, item.Entry, item.UseSpellCategory,
+            ActionsFor(ControlledGuid).TryCooldownDisplay(item.UseSpellId, item.Entry, item.UseSpellCategory,
                 NowSeconds(), out CooldownDisplay cooldown))
         {
             Vector2 cdMin = min + new Vector2(.5f, .5f) * scale;
@@ -2274,19 +2363,31 @@ public sealed partial class GameLoop
         }
     }
 
+    private bool InventoryDragSourcePressed(int container, int slot, ulong guid)
+    {
+        // A retained ImGui active ID can survive possession or cursor cancellation. Only a
+        // fresh press may arm a source; continuing to hold must never pick up the new body's
+        // item in the old slot. ClearCarriedItem invalidates this press on every cancellation.
+        if (ImGui.IsItemActivated() && ImGui.IsMouseDown(ImGuiMouseButton.Left))
+            _inventoryDragPress = new(ControlledGuid, container, slot, guid);
+        return InventoryUiLaw.SameDragSource(_inventoryDragPress, ControlledGuid, container, slot, guid);
+    }
+
     private void HandleInventoryDrag(int container, int slot, ulong guid, ItemTemplate? item)
     {
-        if (ImGui.BeginDragDropSource(ImGuiDragDropFlags.SourceNoDisableHover))
+        ObserveLiveInventoryDrag(container, slot);
+        if (InventoryDragSourcePressed(container, slot, guid) &&
+            ImGui.BeginDragDropSource(ImGuiDragDropFlags.SourceNoDisableHover |
+            ImGuiDragDropFlags.SourceNoPreviewTooltip))
         {
             CancelStackSplit();
             if (!HasCarriedItem) PickupOrPlaceItem(container, slot, guid, ignoreModifiers: true);
             ImGui.SetDragDropPayload("MSUI_INVENTORY_ITEM", IntPtr.Zero, 0);
-            ImGui.TextUnformatted(item?.Name ?? "Item");
             ImGui.EndDragDropSource();
         }
         if (ImGui.BeginDragDropTarget())
         {
-            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM");
+            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM", ImGuiDragDropFlags.AcceptNoDrawDefaultRect);
             if (ImGui.IsMouseReleased(ImGuiMouseButton.Left) && HasCarriedItem)
                 PickupOrPlaceItem(container, slot, guid, ignoreModifiers: true);
             ImGui.EndDragDropTarget();
@@ -2296,17 +2397,18 @@ public sealed partial class GameLoop
     private void HandleBagBarDrag(int container, int equipmentSlot, ulong guid,
         ItemTemplate? item, Vector2 min, float size, float scale)
     {
-        if (ImGui.BeginDragDropSource(ImGuiDragDropFlags.SourceNoDisableHover))
+        if (InventoryDragSourcePressed(InventoryUiLaw.EquipmentContainer, equipmentSlot, guid) &&
+            ImGui.BeginDragDropSource(ImGuiDragDropFlags.SourceNoDisableHover |
+            ImGuiDragDropFlags.SourceNoPreviewTooltip))
         {
             if (!HasCarriedItem)
                 PickupOrPlaceItem(InventoryUiLaw.EquipmentContainer, equipmentSlot, guid, true);
             ImGui.SetDragDropPayload("MSUI_INVENTORY_ITEM", IntPtr.Zero, 0);
-            ImGui.TextUnformatted(item?.Name ?? "Equip Container");
             ImGui.EndDragDropSource();
         }
         if (ImGui.BeginDragDropTarget())
         {
-            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM");
+            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM", ImGuiDragDropFlags.AcceptNoDrawDefaultRect);
             if (ImGui.IsMouseReleased(ImGuiMouseButton.Left) && HasCarriedItem)
                 PickupOrPlaceItem(InventoryUiLaw.EquipmentContainer, equipmentSlot, guid, true);
             ImGui.EndDragDropTarget();
@@ -2316,7 +2418,7 @@ public sealed partial class GameLoop
     private void HandleKeyringDropTarget(WorldEntity player)
     {
         if (!ImGui.BeginDragDropTarget()) return;
-        ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM");
+        ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM", ImGuiDragDropFlags.AcceptNoDrawDefaultRect);
         if (ImGui.IsMouseReleased(ImGuiMouseButton.Left) && HasCarriedItem)
             PutCarriedItemInKeyring(player);
         ImGui.EndDragDropTarget();
@@ -2418,6 +2520,7 @@ public sealed partial class GameLoop
 
     private void ResetPendingInventoryOps()
     {
+        ClearEquipBinding();
         if (DeleteItemUiLaw.Visible(_staticPopupSlots) is { } openDestroy)
             ExecuteStaticPopupPlan(StaticPopupCoordinatorLaw.HideByType(
                 _staticPopupSlots, openDestroy.Instance.Definition.Type));
@@ -2426,6 +2529,14 @@ public sealed partial class GameLoop
         _pendingInventoryTransition = null;
         _pendingBankTransition = null;
         _itemEnchantTimers.Clear();
+        _itemDurations.Clear();
+        _serverContainerOpens.Clear();
+    }
+
+    private void ApplyItemTime(byte[] body)
+    {
+        ItemTimePacket packet = ItemTimePackets.Parse(body);
+        _itemDurations.Set(packet.ItemGuid, packet.Seconds, NowSeconds());
     }
 
     private void ApplyItemEnchantTime(byte[] body)
@@ -2642,6 +2753,7 @@ public sealed partial class GameLoop
             _carriedContainer = _splitContainer;
             _carriedSlot = _splitSlot;
             _carriedCount = _splitCount;
+            PlayInventoryItemGesture(ResolveCarriedItem(), ItemSoundGesture.Pickup);
             CancelStackSplit();
         }
         else if (cancel) CancelStackSplit();

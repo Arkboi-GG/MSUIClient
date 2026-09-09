@@ -49,7 +49,7 @@ internal static class ScreenshotStatusClinicalChecks
               update.IndexOf("UpdateGlueScreenshotInput();", StringComparison.Ordinal) <
               update.IndexOf("if (_config.Server.Enabled && !_worldLoadStarted) return;",
                   StringComparison.Ordinal) &&
-              Count(host, "DrawScreenshotStatus();") == 4 &&
+              Count(host, "DrawScreenshotStatus();") == 5 &&
               host.Contains("FinishScreenshotCapture();", StringComparison.Ordinal) &&
               window.IndexOf("_imgui.Render();", StringComparison.Ordinal) <
               window.IndexOf("OnOverlayTop?.Invoke();", StringComparison.Ordinal),
