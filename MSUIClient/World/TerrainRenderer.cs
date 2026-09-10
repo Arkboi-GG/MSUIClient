@@ -41,6 +41,11 @@ public sealed class TerrainRenderer : IDisposable
     /// the world beyond it. Set by GameLoop from the cut subject each frame.</summary>
     public float CutMaxDistance { get; set; } = float.MaxValue;
 
+    /// <summary>Creator void stage (shared_docs/SPELL_CREATOR_IDE.md §2.1): keep only ground
+    /// inside this disc around the acting body - centre, radius, and the half-height band.
+    /// World space; null = off. Set by GameLoop each frame while the stage is on.</summary>
+    public (Vector3 Centre, float Radius, float HalfHeight)? Stage { get; set; }
+
     private readonly GL _gl;
     private readonly ClientConfig _config;
     private readonly GpuUploadWorker _uploads;
@@ -927,6 +932,10 @@ public sealed class TerrainRenderer : IDisposable
         _shader.Set("uCutRect", Cut?.RelativeRect(camera.Position) ?? Vector4.Zero);
         _shader.Set("uCutZ", Cut?.RelativeZ(camera.Position) ?? 0f);
         _shader.Set("uCutMaxDist", CutMaxDistance);
+        _shader.Set("uStageActive", Stage is not null ? 1 : 0);
+        _shader.Set("uStageCentre", Stage is { } stage ? stage.Centre - camera.Position : Vector3.Zero);
+        _shader.Set("uStageRadius", Stage?.Radius ?? 0f);
+        _shader.Set("uStageHalfHeight", Stage?.HalfHeight ?? 0f);
         PartySight?.Apply(_shader, camera.Position);
         _shader.Set("uCameraPos", Vector3.Zero);
         // Normalised HERE, not per pixel. The shader used to call normalize() on

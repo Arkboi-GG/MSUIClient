@@ -29,6 +29,9 @@ touching the code:
 - `shared_docs/INTERIOR_UNIT_LIGHT.md` — how units, mounts, items and server
   gameobjects are lit inside a WMO (the floor's MOCV under the feet, one law with
   the props); the `MSUI_INTERIORLIGHT_PROBE` offline proof.
+- `shared_docs/SPELL_CREATOR_IDE.md` — the Spell Creator IDE: the void stage, the
+  effect clock (pause/step/scrub + deterministic replay) and the grid/emitter
+  gizmos in Creator Mode's spell workshop; the emitter frame chain and slice order.
 - `CODE_STRUCTURE_LAW.md` (repo root) — where a `.cs` file goes and how it is named.
 
 `interface-wire-check --shared-docs-only` fails when a file in `shared_docs/` is not

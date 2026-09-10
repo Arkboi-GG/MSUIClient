@@ -960,6 +960,17 @@ public sealed partial class GameLoop : IDisposable
             _xrayDebug = null;
             _xrayNavDebug = null;
         }
+        try
+        {
+            // Creator grid + emitter gizmos (shared_docs/SPELL_CREATOR_IDE.md §2.3).
+            _spellGizmos = new World.Spells.SpellGizmoRenderer(gl);
+            _spellGizmos.LoadShaders(shaderDir);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[creator] gizmo renderer FAILED - {ex.Message}");
+            _spellGizmos = null;
+        }
 
         // The settings modal's skin needs GL and the MPQ mount, so it is built
         // last; applying the saved settings needs every renderer to exist.
@@ -2375,6 +2386,7 @@ public sealed partial class GameLoop : IDisposable
         UpdateTargeting();
         UpdateCombatFeedback(dt);
         UpdateDuel();
+        AdvanceCreatorClock(dt);
         UpdateSpellPresentation();
         UpdateCreatorSpellLoop();
         UpdateCreatorLocationPersist();
@@ -2591,7 +2603,7 @@ public sealed partial class GameLoop : IDisposable
         EmoteState = _entities.TryGet(ControlledGuid, out WorldEntity emoteUnit)
             ? emoteUnit.Fields.NpcEmoteState : 0,
         FreezePose = _iceBlockFrozen || aura?.Frozen == true ||
-            TacticalFreezePoseLaw.IsFrozen(ControlledGuid),
+            TacticalFreezePoseLaw.IsFrozen(ControlledGuid) || CreatorSpellPaused,
         ApplyBodyVisual = aura is not null,
         BodyAlpha = aura?.Alpha ?? 1f,
         BodyTint = aura?.Tint ?? Vector3.One,
@@ -2753,6 +2765,8 @@ public sealed partial class GameLoop : IDisposable
         // the black background (overriding the SkyColor just set above), and
         // acceptance of a finished off-thread vmap build.
         if (_xrayActive) ApplyXrayLayers();
+        // Creator void stage: same contract as X-ray, ground disc only (Creator.Stage.cs).
+        ApplyCreatorStageLayers();
         // A prepared portal owns a fully isolated destination scene. Render it
         // before the source world so the pass can restore GL/atmosphere state,
         // then composite its completed texture later through the aperture.
@@ -2884,7 +2898,9 @@ public sealed partial class GameLoop : IDisposable
         // Spell particles need this frame's published unit/effect skeletons before they simulate.
         // Run them before the spell-mesh pass so geometry-model particles join the same opaque /
         // transparent M2 material ordering as ordinary kit and missile meshes.
-        double spellNow = MovementInfo.ClientUptimeMs() / 1000.0;
+        // The spell stack's clock: uptime in the client, the creator effect clock (pause /
+        // slow / step / scrub) in the creator world - GameLoop.Creator.Clock.cs.
+        double spellNow = SpellClockNow;
         if (_spellEffects is not null)
         {
             IEnumerable<ItemGlowPlacement> itemGlows =
@@ -2901,7 +2917,7 @@ public sealed partial class GameLoop : IDisposable
         if (WarmStage(5) && _spellParticles is not null && _spellEffects is not null)
         {
             var eye = _window.Camera.Position;
-            _spellParticles.Simulate(dt, eye, _spellEffects.EmitterInstances(
+            _spellParticles.Simulate(TakeSpellClockDelta(dt), eye, _spellEffects.EmitterInstances(
                 spellNow, SpellEffectUnitPose, _spellFxBillboardJointPoseB,
                 eye, _window.Camera.Forward), SpellParticleGroundHeight);
         }
@@ -3090,6 +3106,7 @@ public sealed partial class GameLoop : IDisposable
 
         HighlightPhysicsTriangles();
         RenderXray();
+        RenderCreatorGizmos();
         DrawPortalDebug();
 
         if (_showPlayerMarker && _collisionDebug is not null && _controller is not null)
@@ -4418,6 +4435,7 @@ public sealed partial class GameLoop : IDisposable
         _partySight?.Dispose();
         _xrayDebug?.Dispose();
         _xrayNavDebug?.Dispose();
+        _spellGizmos?.Dispose();
         DisposeRealPortals();
         _doodads?.Dispose();
         _liquid?.Dispose();

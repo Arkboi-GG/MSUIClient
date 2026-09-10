@@ -662,6 +662,10 @@ public sealed class WmoRenderer : IDisposable
     /// GameLoop hands it to the terrain and doodad renderers and floors the free-view rig on it.</summary>
     public WorldCut? ActiveCut { get; private set; }
 
+    /// <summary>Creator void stage (shared_docs/SPELL_CREATOR_IDE.md §2.1): keep only floors
+    /// inside this disc around the acting body. World space; null = off.</summary>
+    public (Vector3 Centre, float Radius, float HalfHeight)? Stage { get; set; }
+
     /// <summary>Command View party sight (World/PartySight.cs); null = never consulted.</summary>
     public PartySightPass? PartySight { get; set; }
 
@@ -4638,6 +4642,10 @@ public sealed class WmoRenderer : IDisposable
         _shader.Set("uCutActive", ActiveCut is not null ? 1 : 0);
         _shader.Set("uCutRect", ActiveCut?.RelativeRect(camera.Position) ?? Vector4.Zero);
         _shader.Set("uCutZ", ActiveCut?.RelativeZ(camera.Position) ?? 0f);
+        _shader.Set("uStageActive", Stage is not null ? 1 : 0);
+        _shader.Set("uStageCentre", Stage is { } stage ? stage.Centre - camera.Position : Vector3.Zero);
+        _shader.Set("uStageRadius", Stage?.Radius ?? 0f);
+        _shader.Set("uStageHalfHeight", Stage?.HalfHeight ?? 0f);
         SetSightUniforms(camera.Position);
         PartySight?.Apply(_shader, camera.Position);
         _shader.Set("uSunDirection", SunDirection);

@@ -18,7 +18,7 @@ namespace MSUIClient;
 // The Spell Workshop opts OUT of this shape into a third layout - two wide
 // master/detail panes and no deck at all, because it registers one section per
 // phase model and the deck's columns clip every one of them. See
-// GameLoop.Creator.SpellFocus.cs; DrawCreatorWorkspace hands off to it via a
+// GameLoop.Creator.SpellIde.cs; DrawCreatorWorkspace hands off to it via a
 // single early return.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -49,9 +49,9 @@ public sealed partial class GameLoop
 
     /// <summary>How far right-edge-anchored windows (the customizer, its slide-in
     /// launcher) must move left so the right rail does not cover them - or, in the
-    /// Spell Workshop's focus layout, the far wider right pane.</summary>
+    /// Spell Workshop's IDE layout, the inspector while it is docked right.</summary>
     private float WorkspaceRightInsetX => !CreatorWorkspaceActive ? 0f
-        : SpellFocusActive ? SpellFocusPaneWidth
+        : SpellFocusActive ? SpellIdeRightInset
         : WorkspaceRailWidth;
 
     private void DrawCreatorWorkspace()
@@ -64,9 +64,9 @@ public sealed partial class GameLoop
         if (_workspaceView == WorkspaceView.Encounter && !_encounterLabOpen)
             _workspaceView = WorkspaceView.Root;
 
-        // The Spell Workshop's focus layout REPLACES this whole layout: one early
-        // return both swaps the rails for the two wide panes and suppresses the
-        // deck (DrawWorkspaceDeck is simply never reached). Note it does NOT write
+        // The Spell Workshop's IDE layout REPLACES this whole layout: one early
+        // return both swaps the rails for the strip / tree / inspector and suppresses
+        // the deck (DrawWorkspaceDeck is simply never reached). Note it does NOT write
         // Settings.Creator.DeckFraction - a 0 there would clamp back to 0.16 below
         // and permanently shrink the user's deck.
         if (SpellFocusActive) { DrawCreatorSpellFocus(); return; }
@@ -361,19 +361,24 @@ public sealed partial class GameLoop
             Row("?", "This window.");
             ImGui.Spacing();
 
-            Head("FOCUS MODE (the Spell Workshop)");
-            Row("What", "The whole workshop moves into ONE right sidebar - the spell, its " +
-                        "phases, then the selected phase's dials and images - and the deck " +
-                        "stands down, so everything left of it stays clear to watch the " +
-                        "spell play.");
-            Row("Phases", "Click a phase row to edit it. There are no tear-off corners here: " +
-                          "the sidebar is the home for every section.");
-            Row("Leaving", "The Spell icon closes the workshop. 'deck' returns it to the " +
-                           "rails+deck for this session (a 'focus' button in the deck header " +
-                           "brings it back). The UI dials' 'Spell Workshop focus layout' " +
-                           "checkbox is the permanent switch. Escape does NOT leave focus " +
-                           "mode - it keeps its normal meaning.");
-            Row("Width", "Drag the sidebar's left edge.");
+            Head("IDE MODE (the Spell Workshop)");
+            Row("What", "The workshop becomes an IDE and the rest of the screen is the stage: " +
+                        "a top-left strip (Back, the spell, Loop / Pause / Step / Speed, the " +
+                        "Stage / Grid / Gizmo view toggles), a collapsible tree on the left " +
+                        "(spell, phases, emitters), ONE inspector on the right with the dials " +
+                        "for whatever is selected, and a timeline strip along the bottom only " +
+                        "while paused.");
+            Row("Select", "Click a phase or emitter in the tree - or click an emitter's gizmo " +
+                          "in the world - and the inspector swaps to it. 'pin' keeps a copy " +
+                          "open while you select something else; 'x' hides the inspector " +
+                          "until the next selection.");
+            Row("Space", "'Tree' and 'Inspector' fold each side away; 'Hide' clears every " +
+                         "window to a small Show pill; the TOGGLEUI chord (Alt+Z) clears " +
+                         "the pill too. The inspector drags and resizes freely.");
+            Row("Leaving", "'< Back' closes the workshop. 'deck' returns it to the rails+deck " +
+                           "for this session (an 'IDE' button in the deck header brings it " +
+                           "back). The UI dials' 'Spell Workshop IDE layout' checkbox is the " +
+                           "permanent switch. Escape keeps its normal meaning.");
             ImGui.Spacing();
 
             Head("BOTTOM DECK");
@@ -478,16 +483,16 @@ public sealed partial class GameLoop
                         ? $"{definition.Name} · {_encounterOutcome}" : "no encounter loaded"
                     : CreatorPanelStatus(panelId);
             if (status.Length > 0) { ImGui.SameLine(); ImGui.TextDisabled(status); }
-            // The Spell Workshop can be sent BACK to its focus layout from here -
+            // The Spell Workshop can be sent BACK to its IDE layout from here -
             // otherwise the deck's own "deck" button and Escape would be one-way.
             bool offerFocus = panelId == "Spells";
             float gearW = ImGui.CalcTextSize("dials").X + 16f * CreatorUiScale;
-            if (offerFocus) gearW += ImGui.CalcTextSize("focus").X + 24f * CreatorUiScale;
+            if (offerFocus) gearW += ImGui.CalcTextSize("IDE").X + 24f * CreatorUiScale;
             ImGui.SameLine(MathF.Max(ImGui.GetCursorPosX(),
                 ImGui.GetWindowContentRegionMax().X - gearW));
             if (offerFocus)
             {
-                if (ImGui.SmallButton("focus"))
+                if (ImGui.SmallButton("IDE"))
                 {
                     _spellFocusSuppressed = false;
                     if (!Settings.Creator.SpellFocus)
@@ -497,7 +502,7 @@ public sealed partial class GameLoop
                     }
                 }
                 if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip("Give the workshop both sidebars and clear the centre.");
+                    ImGui.SetTooltip("Back to the IDE layout: strip, tree, inspector, and the stage.");
                 ImGui.SameLine();
             }
             if (ImGui.SmallButton("dials"))
