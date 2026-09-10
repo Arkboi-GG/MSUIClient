@@ -61,7 +61,8 @@ public static class SpellTooltipLaw
         float scale) => new(origin.X + frameSize.X - Pad * scale, y);
 
     public static SpellTooltipView Build(in SpellInfo spell, SpellCatalog catalog, uint casterLevel = 0,
-        float castSpeedMultiplier = 1f, SpellRangeRow? rangeOverride = null, SpellTooltipModifierResolver? modifiers = null)
+        float castSpeedMultiplier = 1f, SpellRangeRow? rangeOverride = null, SpellTooltipModifierResolver? modifiers = null,
+        string? homeAreaName = null)
     {
         string? cost = Cost(spell);
         string? range = Range(spell, catalog, rangeOverride);
@@ -75,11 +76,11 @@ public static class SpellTooltipLaw
             ? $"{Trim(recovery / 60_000f)} min cooldown"
             : $"{Trim(recovery / 1000f)} sec cooldown";
         return new SpellTooltipView(spell.Name, spell.Rank, cost, range, cast, cooldown,
-            Substitute(spell.Description, spell, catalog, casterLevel, modifiers));
+            Substitute(spell.Description, spell, catalog, casterLevel, modifiers, homeAreaName));
     }
 
     public static string Substitute(string text, in SpellInfo spell, SpellCatalog catalog,
-        uint casterLevel = 0, SpellTooltipModifierResolver? modifiers = null)
+        uint casterLevel = 0, SpellTooltipModifierResolver? modifiers = null, string? homeAreaName = null)
     {
         if (string.IsNullOrEmpty(text) || !text.Contains('$')) return text;
         var output = new StringBuilder(text.Length + 24);
@@ -89,6 +90,15 @@ public static class SpellTooltipLaw
         {
             if (text[i] != '$') { output.Append(text[i++]); continue; }
             int start = i++;
+            // The home token names the actor's saved bind area, not a Spell.dbc value.
+            // An unavailable home (including an unreported companion bind) must not
+            // display a raw token or invent a destination from the current zone.
+            if (i < text.Length && text[i] == 'z')
+            {
+                output.Append(string.IsNullOrWhiteSpace(homeAreaName) ? "your home" : homeAreaName.Trim());
+                i++;
+                continue;
+            }
             double scale = ReadScale(text, ref i);
 
             int idStart = i;

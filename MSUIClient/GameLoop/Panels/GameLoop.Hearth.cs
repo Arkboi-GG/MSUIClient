@@ -19,11 +19,14 @@ public sealed partial class GameLoop
     private ulong _hearthOwnerGuid;
     private Vector3 _hearthFrom;
 
-    private void ResetHearth()
+    private void ResetHearth(bool clearBindPoint = true)
     {
         ResetBinderConfirmation();
-        _bindPoint = null;
-        _bindPointAreaId = 0;
+        if (clearBindPoint)
+        {
+            _bindPoint = null;
+            _bindPointAreaId = 0;
+        }
         _binderConfirmOpen = false;
         _binderAreaName = BinderConfirmUiLaw.FallbackAreaName;
         ResetHearthAttempt();
@@ -33,6 +36,15 @@ public sealed partial class GameLoop
     {
         _hearthPending = false;
         _hearthOwnerGuid = 0;
+    }
+
+    private string? HearthAreaName(ulong owner)
+    {
+        // Core sends BINDPOINTUPDATE only for the session character. Never label a
+        // companion's hearth with the main's home; its destination is not on this wire.
+        if (owner == 0 || owner != LocalPlayerGuid || _bindPointAreaId == 0) return null;
+        EnsureAreaTableForMinimap();
+        return _areas?.AreaName(_bindPointAreaId);
     }
 
     private void ResetBinderConfirmation()
@@ -145,7 +157,7 @@ public sealed partial class GameLoop
     private void SimulateHearthFlow()
     {
         var confirm = new PacketWriter(); confirm.WriteU64(0xF130000127000001); ApplyBinderConfirm(confirm.ToArray(), ControlledGuid);
-        var point = new PacketWriter(); point.WriteF32(-9464.5f); point.WriteF32(62.1f); point.WriteF32(56.0f); point.WriteU32(0); ApplyBindPoint(point.ToArray());
+        var point = new PacketWriter(); point.WriteF32(-9464.5f); point.WriteF32(62.1f); point.WriteF32(56.0f); point.WriteU32(0); point.WriteU32(87); ApplyBindPoint(point.ToArray());
         _actions.StartCooldown(HearthSpell, 0, 3_600_000, NowSeconds());
         EmitInterface("hearth", "cast", "COMPLETED", 1, $"spell={HearthSpell};castBar=server-go;cooldownSeconds=3600");
         EmitInterface("hearth", "teleport", "VERIFIED", 1, "from=-8950|-132|84;to=-9464.5|62.1|56;distance=550;bindMap=0;source=replay");

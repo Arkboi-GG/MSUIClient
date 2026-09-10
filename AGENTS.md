@@ -70,7 +70,7 @@ history) and the server handoff `docs/current/POSSESSION_ROUTING_HANDOFF.md`.
 8. Probe first, don't theorize: `~/vmangos/run/bin/Server.log` (grep `[SUI]`,
    `released bot`, `catch-up teleport`) and the client `msui-console.log`.
 
-## Find code with the locator, not with grep (2026-09-08)
+## Find code with the locator -- if not on Yafrovon's Computer, IGNORE THIS SECTION
 
 All three repos (this client, the `MangosSuperUI` web app, the vmangos C++ core on the box)
 are indexed by one local service, the **superui-locator**, at `http://127.0.0.1:5077`: every
@@ -95,7 +95,7 @@ until a locator tool has been called in the last 15 minutes; file-scoped searche
 stands down when the host is not running. Codex/Qwen have no hook: the rule above is the contract.
 
 - If `stats` does not answer, the host is down: start it (`dotnet run -c Release` in
-  `C:\Users\nico\source\repos\SourceMapper\Locator`, or the `locator` entry in
+  `C:\Users\user\source\repos\SourceMapper\Locator`, or the `locator` entry in
   `.claude/launch.json`) or tell the owner. Markdown docs (`shared_docs/`, `docs/`, root),
   JS functions and Razor views are indexed with sections/spans; JSON and binary assets are not.
 

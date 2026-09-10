@@ -474,7 +474,8 @@ public sealed partial class GameLoop
             ResetRestXp();
             ResetDeathRez();
             ResetMirrorTimers();
-            ResetHearth();
+            // Home belongs to the login session and survives both near and far worldports.
+            ResetHearth(clearBindPoint: false);
             ResetTaxi();
             ResetSkillRankWatch();
             ResetGossip();
