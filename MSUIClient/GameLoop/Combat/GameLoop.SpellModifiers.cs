@@ -37,7 +37,8 @@ public sealed partial class GameLoop
         SpellRangeRow? range = _spellCatalog!.TryGetRange(spell.RangeIndex, out var rawRange)
             ? ActorSpellRange(spell, actor, rawRange) : null;
         return SpellTooltipLaw.Build(shown, _spellCatalog, level, ActorCastSpeed(actor), range,
-            (referencedSpell, operation) => ActorSpellModifiers(actor, referencedSpell, operation));
+            (referencedSpell, operation) => ActorSpellModifiers(actor, referencedSpell, operation),
+            homeAreaName: HearthAreaName(actor));
     }
     private void StartActorSpellCooldown(PlayerActions store, ulong actor, in SpellInfo spell,
         uint rangedAttackTimeMs, double now) => store.StartSpellCooldown(spell.Id, spell, rangedAttackTimeMs, now,

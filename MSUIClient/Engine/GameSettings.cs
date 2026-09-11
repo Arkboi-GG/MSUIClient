@@ -155,6 +155,19 @@ public sealed class GameSettings
         /// </summary>
         public bool SpellAdvancedMode { get; set; }
 
+        // Spell Creator IDE (shared_docs/SPELL_CREATOR_IDE.md): the void stage's ground disc
+        // radius, and the grid / emitter-gizmo switches of the spatial view.
+        public float StageRadius { get; set; } = 6f;
+        public bool SpellGrid { get; set; } = true;
+        public bool GridMinorSixthYard { get; set; }
+        /// <summary>Full cube lattice (the owner's ask) vs three planes through the feet.</summary>
+        public bool GridLattice { get; set; } = true;
+        /// <summary>Half-width of the grid in yards (forward/left), and its height.</summary>
+        public float GridExtent { get; set; } = 3f;
+        public bool SpellGizmos { get; set; } = true;
+        public bool GizmoReach { get; set; } = true;
+        public bool GizmoThroughWalls { get; set; }
+
         // The top menu bar (Character/Gear/Teleport/Target/Spells/UI) sizes
         // independently of the modals - its own button and caption dials.
         public float BarScale { get; set; } = 1f;
@@ -169,17 +182,11 @@ public sealed class GameSettings
         /// deck's top edge to change it).</summary>
         public float DeckFraction { get; set; } = 0.30f;
 
-        /// <summary>The Spell Workshop's focus layout: opening it takes BOTH
-        /// sidebars - the spell and its phases on the left, the selected phase's
-        /// dials on the right - and stands the bottom deck down, so the centre
-        /// stays clear full-height for watching the spell play. Off = the Spell
+        /// <summary>The Spell Workshop's IDE layout (shared_docs/SPELL_CREATOR_IDE.md §2.4):
+        /// a top-left strip, a collapsible tree, one inspector for the selection and a
+        /// timeline while paused - the rest of the screen is the stage. Off = the Spell
         /// Workshop uses the ordinary rails and deck like every other panel.</summary>
         public bool SpellFocus { get; set; } = true;
-
-        /// <summary>Focus-layout sidebar width as a fraction of the display. The
-        /// SAME value drives both sides so the viewing stage stays centred on the
-        /// model; dragging either inner edge changes it.</summary>
-        public float SpellFocusFraction { get; set; } = 0.26f;
 
         /// <summary>Chrome fill opacity for the creator panels (0.3 - 1).</summary>
         public float PanelAlpha { get; set; } = 0.62f;

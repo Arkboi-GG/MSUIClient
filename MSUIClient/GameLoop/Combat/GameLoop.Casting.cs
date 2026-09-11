@@ -430,9 +430,10 @@ public sealed partial class GameLoop
 
     private void UpdateSpellPresentation()
     {
-        double now = NowSeconds();
+        double now = SpellClockNow;
         UpdateLootableCorpseVisuals(now);
-        _spellEffects?.Tick(now, SpellEffectUnitPose);
+        // Paused creator clock: no tick, so self-terminating kits are not reaped mid-hold.
+        if (!CreatorSpellPaused) _spellEffects?.Tick(now, SpellEffectUnitPose);
         UpdateAuraStateVisuals(now);
         UpdateObservedChannels(now);
         UpdateDynamicObjectVisuals(now);

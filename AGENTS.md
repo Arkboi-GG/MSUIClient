@@ -29,6 +29,9 @@ touching the code:
 - `shared_docs/INTERIOR_UNIT_LIGHT.md` — how units, mounts, items and server
   gameobjects are lit inside a WMO (the floor's MOCV under the feet, one law with
   the props); the `MSUI_INTERIORLIGHT_PROBE` offline proof.
+- `shared_docs/SPELL_CREATOR_IDE.md` — the Spell Creator IDE: the void stage, the
+  effect clock (pause/step/scrub + deterministic replay) and the grid/emitter
+  gizmos in Creator Mode's spell workshop; the emitter frame chain and slice order.
 - `CODE_STRUCTURE_LAW.md` (repo root) — where a `.cs` file goes and how it is named.
 
 `interface-wire-check --shared-docs-only` fails when a file in `shared_docs/` is not
@@ -70,7 +73,7 @@ history) and the server handoff `docs/current/POSSESSION_ROUTING_HANDOFF.md`.
 8. Probe first, don't theorize: `~/vmangos/run/bin/Server.log` (grep `[SUI]`,
    `released bot`, `catch-up teleport`) and the client `msui-console.log`.
 
-## Find code with the locator, not with grep (2026-09-08)
+## Find code with the locator -- if not on Yafrovon's Computer, IGNORE THIS SECTION
 
 All three repos (this client, the `MangosSuperUI` web app, the vmangos C++ core on the box)
 are indexed by one local service, the **superui-locator**, at `http://127.0.0.1:5077`: every
@@ -95,7 +98,7 @@ until a locator tool has been called in the last 15 minutes; file-scoped searche
 stands down when the host is not running. Codex/Qwen have no hook: the rule above is the contract.
 
 - If `stats` does not answer, the host is down: start it (`dotnet run -c Release` in
-  `C:\Users\nico\source\repos\SourceMapper\Locator`, or the `locator` entry in
+  `C:\Users\user\source\repos\SourceMapper\Locator`, or the `locator` entry in
   `.claude/launch.json`) or tell the owner. Markdown docs (`shared_docs/`, `docs/`, root),
   JS functions and Razor views are indexed with sections/spans; JSON and binary assets are not.
 

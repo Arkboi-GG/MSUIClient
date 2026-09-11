@@ -109,6 +109,19 @@ public sealed class SpellEffectSource
     }
     public int ActiveCount => _instances.Count;
 
+    /// <summary>Creator clock (shared_docs/SPELL_CREATOR_IDE.md §2.2): the live instances'
+    /// spans, for the scrubber and the replay floor. Read-only.</summary>
+    public readonly record struct LiveInstance(long Id, string Stage, string Path, double Started,
+        double Ends, bool Missile, bool Launched, double LaunchedAt);
+
+    public IEnumerable<LiveInstance> LiveInstances()
+    {
+        foreach (Instance instance in _instances)
+            yield return new LiveInstance(instance.Id, instance.Stage, instance.Asset?.Path ?? "",
+                instance.Started, instance.Ends, instance.Missile, instance.Launched,
+                instance.LaunchedAt);
+    }
+
     /// <summary>
     /// Replace the frame's held-item glow placements. Stable keys retain effect age and live
     /// particles across ordinary movement and sheath swaps; gear/enchant changes retire them.

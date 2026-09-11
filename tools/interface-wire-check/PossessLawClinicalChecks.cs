@@ -86,6 +86,12 @@ internal static class PossessLawClinicalChecks
         string root = ClientConfig.FindRepoRoot();
         string Read(string rel) => SourceText.Read(Path.Combine(root, "MSUIClient", rel.Replace('/', Path.DirectorySeparatorChar)));
 
+        string hearthSource = Read("GameLoop/Panels/GameLoop.Hearth.cs");
+        Check(hearthSource.Contains("owner == 0 || owner != LocalPlayerGuid || _bindPointAreaId == 0", StringComparison.Ordinal) &&
+              Read("GameLoop/Panels/GameLoop.Inventory.cs").Contains("homeAreaName: HearthAreaName(requirementOwner)", StringComparison.Ordinal) &&
+              Read("GameLoop/Combat/GameLoop.SpellModifiers.cs").Contains("homeAreaName: HearthAreaName(actor)", StringComparison.Ordinal),
+            "a companion's hearth tooltip must never borrow the session character's home");
+
         InventoryUiLaw.DragPress dragPress = new(0x221, -100, 7, 0x079C);
         Check(InventoryUiLaw.SameDragSource(dragPress, 0x221, -100, 7, 0x079C) &&
               !InventoryUiLaw.SameDragSource(dragPress, 0x223, -100, 7, 0x0686) &&

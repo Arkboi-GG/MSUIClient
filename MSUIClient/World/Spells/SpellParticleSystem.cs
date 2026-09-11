@@ -1328,6 +1328,34 @@ public sealed class SpellParticleSystem : IDisposable
             $"cloudAxis=({axis.X:0.##},{axis.Y:0.##},{axis.Z:0.##}) span={max - min:0.##}";
     }
 
+    // ── creator gizmos + replay (shared_docs/SPELL_CREATOR_IDE.md) ───────────
+
+    /// <summary>The live frame of every parent pool, exactly as the emission kernel sees it
+    /// this frame: origin B_i(t), the linear birth frame, the root anchor and the scalars.
+    /// The creator's gizmo law draws from THIS, so the picture cannot disagree with the
+    /// particles. Children (recursion pools) are private to their parent and not listed.</summary>
+    public IEnumerable<SpellEmitterFrame> EmitterFrames()
+    {
+        foreach (var (key, p) in _pools)
+        {
+            if (p.Emitter is null) continue;
+            yield return new SpellEmitterFrame(key.Path, p.EmitterIndex, p.EmitterWorld,
+                EmitterLinearFrame(p), p.RootCloudAnchorWorld, p.Emitter.Shape, p.Emitter.Flags,
+                p.ModelSpace, p.Scalars[0], p.Scalars[1], p.Scalars[2], p.Scalars[3], p.Scalars[4],
+                p.Scalars[5], p.Scalars[6], p.Scalars[7], p.Scalars[8], p.Scalars[9],
+                p.Particles.Count, p.TexturePath);
+        }
+    }
+
+    /// <summary>Drop every pool so the next Simulate rebuilds them from their key-derived seeds:
+    /// the creator's deterministic replay (pause, step, scrub, edit-while-paused).</summary>
+    public void ResetPools()
+    {
+        _pools.Clear();
+        LiveParticles = 0;
+        ActivePools = 0;
+    }
+
     public void Dispose()
     {
         foreach (Texture? t in _textures.Values) t?.Dispose();

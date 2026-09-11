@@ -1593,7 +1593,7 @@ public sealed partial class GameLoop
                     string.IsNullOrEmpty(spell.Description))
                     continue;
                 string description = SpellTooltipLaw.Substitute(spell.Description, spell,
-                    _spellCatalog, playerLevel);
+                    _spellCatalog, playerLevel, homeAreaName: HearthAreaName(requirementOwner));
                 if (description.Length != 0)
                     operations.Add(PreparedItemTooltipColored(prefix + description, green,
                         wrap: true));

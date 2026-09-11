@@ -145,6 +145,7 @@ public sealed partial class GameLoop
     private void DrawCreatorHud()
     {
         _creatorSectionDefs.Clear();
+        _creatorGizmoHover = null;
         RegisterCreatorCharacterSections();
         RegisterCreatorGearSections();
         RegisterCreatorTeleportSections();
@@ -171,6 +172,7 @@ public sealed partial class GameLoop
                 case CreatorPanel.XRay: DrawCreatorSectionPanel("XRay", "Collision X-Ray", 460f, 560f); break;
             }
         }
+        DrawCreatorGizmoLabels();
         DrawPoppedCreatorSections();
         DrawMountToolkit();
         DrawMountKitBar();
@@ -193,7 +195,7 @@ public sealed partial class GameLoop
             }
             else if (_creatorSearchOpen) _creatorSearchOpen = false;
             else if (_creatorUiOptionsOpen) _creatorUiOptionsOpen = false;
-            // NOTE: the Spell Workshop's focus layout deliberately has NO rung here.
+            // NOTE: the Spell Workshop's IDE layout deliberately has NO rung here.
             // This ladder does not consume the key, so the press falls through to the
             // vanilla game menu - one Escape would both open the menu and silently
             // rebuild the workshop behind it, and a second would not undo it. The
@@ -251,7 +253,7 @@ public sealed partial class GameLoop
     private float _creatorHeldDialValue;
 
     /// <summary>Set around a results list to override BeginCreatorResults' default
-    /// share of the region - the Spell Workshop's focus layout hosts the picker in
+    /// share of the region - the Spell Workshop's IDE layout hosts the picker in
     /// a FULL-HEIGHT pane, where 45% would crowd out every phase row below it.</summary>
     private float? _creatorResultsFractionOverride;
 
@@ -529,16 +531,16 @@ public sealed partial class GameLoop
             if (workspace)
             {
                 bool focus = creator.SpellFocus;
-                if (ImGui.Checkbox("Spell Workshop focus layout", ref focus))
+                if (ImGui.Checkbox("Spell Workshop IDE layout", ref focus))
                 {
                     creator.SpellFocus = focus;
                     if (focus) _spellFocusSuppressed = false;
                     save = true;
                 }
                 ImGui.TextDisabled(focus
-                    ? "The Spell Workshop takes both sidebars - spell and phases left, the " +
-                      "selected phase's dials right - and stands the deck down, leaving the " +
-                      "centre clear to watch the spell play."
+                    ? "The Spell Workshop becomes an IDE: a top-left strip, a collapsible " +
+                      "tree, one inspector for the selection and a timeline while paused - " +
+                      "the rest of the screen is the stage."
                     : "The Spell Workshop uses the bottom deck like every other panel.");
             }
 
@@ -864,7 +866,7 @@ public sealed partial class GameLoop
         foreach (var def in _creatorSectionDefs.ToList())
         {
             if (!IsSectionPopped(def.Panel, def.Id)) continue;
-            // The Spell Workshop's focus layout IS the home for every one of its
+            // The Spell Workshop's IDE layout IS the home for every one of its
             // sections and offers no tear-off corner, so a section popped in another
             // layout must not float over the model here - and must not draw twice,
             // which would run the model editor's rebuild against one doc in a single
@@ -874,8 +876,8 @@ public sealed partial class GameLoop
             _activePanelTune = def.Panel;   // popped windows follow their parent panel's dials
             var cond = _creatorLayoutResetFrames > 0 ? ImGuiCond.Always : ImGuiCond.FirstUseEver;
             // Cascade clear of whatever owns the left edge - the classic 340*s lands
-            // UNDER the focus layout's far wider master pane.
-            float popLeft = SpellFocusActive ? SpellFocusPaneWidth + 20f * cs : 340f * s;
+            // UNDER the IDE's outliner.
+            float popLeft = SpellFocusActive ? SpellIdeLeftInset + 20f * cs : 340f * s;
             ImGui.SetNextWindowPos(
                 new Vector2(popLeft + 30f * slot * s, (100f + 30f * slot) * s), cond);
             ImGui.SetNextWindowSize(new Vector2(400f * cs, 340f * cs), cond);
@@ -1177,6 +1179,7 @@ public sealed partial class GameLoop
             SetSectionOpen(id, open);
         }
         bool hovered = ImGui.IsItemHovered();
+        _creatorCategoryHovered = hovered;
 
         // A dimmer band than top-level sections: nested groups read as sub-rows.
         dl.AddRectFilled(pos, pos + new Vector2(avail, h),
