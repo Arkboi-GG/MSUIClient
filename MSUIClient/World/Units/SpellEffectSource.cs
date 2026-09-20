@@ -63,6 +63,8 @@ public sealed class SpellEffectSource
         public Action? LaunchEvent;
         public Action? EndEvent;
         public string? CustomTexture;
+        /// <summary>Effect scale (SpellVisualEffectName scale): premultiplied into the transform.</summary>
+        public float Scale = 1f;
     }
 
     private sealed class AreaEmitter
@@ -113,6 +115,38 @@ public sealed class SpellEffectSource
     /// spans, for the scrubber and the replay floor. Read-only.</summary>
     public readonly record struct LiveInstance(long Id, string Stage, string Path, double Started,
         double Ends, bool Missile, bool Launched, double LaunchedAt);
+
+    /// <summary>One posed bone of a live effect instance: the world position of its pivot, its
+    /// parent's index, its full world matrix (skin[b] x instance transform - a model-space point
+    /// on this bone lands in the world through it) and its parent's (the instance transform for
+    /// a root), for the creator's skeleton gizmo, ribbon markers and bone handles.</summary>
+    public readonly record struct BoneFrame(string Path, int Bone, int Parent, Vector3 World,
+        Matrix4x4 Frame, Matrix4x4 ParentFrame);
+
+    public IEnumerable<BoneFrame> BoneFrames(double now, Func<ulong, SpellUnitPose> unitPose)
+    {
+        foreach (Instance instance in _instances)
+        {
+            if (instance.Asset is not { } asset || asset.Animator is not { } animator ||
+                !instance.Launched && instance.Missile) continue;
+            if (!TryTransform(instance, unitPose, out Matrix4x4 transform)) continue;
+            double age = InstanceAge(instance, now);
+            Matrix4x4[] skin = asset.Skin;
+            animator.Evaluate(animator.FindSequenceOrBake(instance.Playback.SequenceIndex),
+                (float)age, (float)age, skin);
+            string key = $"spell:{asset.Path}#{instance.Id}";
+            int count = Math.Min(asset.Model.Bones.Count, skin.Length);
+            for (int b = 0; b < count; b++)
+            {
+                M2Bone bone = asset.Model.Bones[b];
+                Vector3 posed = Vector3.Transform(bone.Pivot, skin[b]);
+                Matrix4x4 parentFrame = bone.ParentBone >= 0 && bone.ParentBone < count
+                    ? skin[bone.ParentBone] * transform : transform;
+                yield return new BoneFrame(key, b, bone.ParentBone, Vector3.Transform(posed, transform),
+                    skin[b] * transform, parentFrame);
+            }
+        }
+    }
 
     public IEnumerable<LiveInstance> LiveInstances()
     {
@@ -217,6 +251,7 @@ public sealed class SpellEffectSource
                 Started = now,
                 Ends = life == StageLife.SelfTerminating ? now + span : double.PositiveInfinity,
                 Stage = stage,
+                Scale = effect.Scale,
                 Playback = SpellEffectPlaybackLaw.Resolve(asset.Model, missile: false),
             });
             spawned++;
@@ -226,7 +261,7 @@ public sealed class SpellEffectSource
 
     /// <summary>Legacy fixed-endpoint entry used by diagnostics.</summary>
     public void SpawnMissile(ulong caster, uint spell, string path, Vector3 from, Vector3 to,
-        double now, double duration)
+        double now, double duration, float scale = 1f)
     {
         Asset? asset = Load(path);
         _instances.Add(new Instance
@@ -238,7 +273,7 @@ public sealed class SpellEffectSource
             LaunchedAt = now,
             Remaining = Math.Max(.05, duration), TravelSeconds = Math.Max(.05, duration),
             LastMotionAt = now,
-            Stage = "MISSILE", DestinationAttachment = 0x22,
+            Stage = "MISSILE", DestinationAttachment = 0x22, Scale = scale,
             Playback = asset is null ? default : SpellEffectPlaybackLaw.Resolve(asset.Model, missile: true),
         });
     }
@@ -704,6 +739,15 @@ public sealed class SpellEffectSource
     }
 
     private static bool TryTransform(Instance instance, Func<ulong, SpellUnitPose> unitPose,
+        out Matrix4x4 transform)
+    {
+        if (!TryTransformUnscaled(instance, unitPose, out transform)) return false;
+        if (instance.Scale != 1f && instance.Scale > 0f)
+            transform = Matrix4x4.CreateScale(instance.Scale) * transform;
+        return true;
+    }
+
+    private static bool TryTransformUnscaled(Instance instance, Func<ulong, SpellUnitPose> unitPose,
         out Matrix4x4 transform)
     {
         if (instance.Area)

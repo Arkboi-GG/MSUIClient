@@ -52,6 +52,11 @@ public sealed class MpqMount : IDisposable
     private readonly ConcurrentDictionary<string, byte> _negative =
         new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>In-memory files that win over every archive: the creator's imported art
+    /// (SPELL_CREATOR_IDE §2.7). Keyed by internal path, case-insensitive.</summary>
+    private readonly ConcurrentDictionary<string, byte[]> _overrides =
+        new(StringComparer.OrdinalIgnoreCase);
+
     // Reads take the read lock (concurrent); Dispose takes the write lock.
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
 
@@ -97,6 +102,12 @@ public sealed class MpqMount : IDisposable
         {
             Interlocked.Increment(ref _reads);
 
+            if (_overrides.TryGetValue(internalPath, out byte[]? overridden))
+            {
+                Interlocked.Increment(ref _hits);
+                return overridden;
+            }
+
             if (_negative.ContainsKey(internalPath))
             {
                 Interlocked.Increment(ref _misses);
@@ -125,6 +136,17 @@ public sealed class MpqMount : IDisposable
             _lock.ExitReadLock();
         }
     }
+
+    /// <summary>Serve <paramref name="bytes"/> for <paramref name="internalPath"/> ahead of
+    /// every archive (a never-archived path works too). Null clears the override.</summary>
+    public void SetOverride(string internalPath, byte[]? bytes)
+    {
+        if (bytes is null) _overrides.TryRemove(internalPath, out _);
+        else _overrides[internalPath] = bytes;
+        _negative.TryRemove(internalPath, out _);
+    }
+
+    public void ClearOverride(string internalPath) => SetOverride(internalPath, null);
 
     /// <summary>
     /// Pure 1.12 archive-priority computation. Highest priority is returned
@@ -167,6 +189,12 @@ public sealed class MpqMount : IDisposable
         try
         {
             Interlocked.Increment(ref _reads);
+
+            if (_overrides.TryGetValue(internalPath, out byte[]? overridden))
+            {
+                Interlocked.Increment(ref _hits);
+                return (overridden, "override");
+            }
 
             if (_negative.ContainsKey(internalPath))
             {

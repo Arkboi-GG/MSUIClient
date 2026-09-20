@@ -102,6 +102,24 @@ public sealed partial class GameLoop
         public byte[] Working = [];
         public List<EmitterSnapshot> Emitters = [];
         public readonly Dictionary<int, EmitterPatch> Edits = [];
+        // Mesh layers (batches of the model's own geometry) and ribbon emitters, read from
+        // the working bytes like Emitters; edits and off-switches patch the bytes on rebuild
+        // (GameLoop.Creator.MeshRibbon.cs, SPELL_CREATOR_IDE §2.5).
+        public List<MeshSnapshot> Meshes = [];
+        public List<RibbonSnapshot> Ribbons = [];
+        public readonly HashSet<int> HiddenSubmeshes = [];
+        public readonly Dictionary<int, MeshPatch> MeshEdits = [];
+        public readonly HashSet<int> DisabledRibbons = [];
+        public readonly Dictionary<int, RibbonPatch> RibbonEdits = [];
+        // The skeleton (GameLoop.Creator.Bones.cs): pivots and poses patch in place.
+        public List<BoneSnapshot> Bones = [];
+        public readonly Dictionary<int, BonePatch> BoneEdits = [];
+        // Cloned ribbons / mesh layers (sources), like AddedEmitters: clone i of each kind
+        // lives at Original*Count + i, so edits and off-switches address clones by index.
+        public readonly List<int> AddedRibbons = [];
+        public readonly List<int> AddedLayers = [];
+        public int OriginalRibbonCount;
+        public int OriginalLayerCount;
         // The M2's texture table (the actual BLPs), with emitter back-references.
         public List<Creator.M2TextureEntry> Textures = [];
         public readonly Dictionary<int, CreatorTexHue> TextureHues = [];
@@ -146,11 +164,45 @@ public sealed partial class GameLoop
         /// OWN texture tables, invisible from the host's slots.</summary>
         public readonly Dictionary<string, string> GeometryHosts = new(StringComparer.OrdinalIgnoreCase);
         public readonly Dictionary<CreatorAudioCue, CreatorAudioTrack> Audio = [];
+        // The kit level (GameLoop.Creator.Composition.cs): per stage, which models sit in
+        // which attachment slot at what scale, and the caster animation; the missile.
+        public readonly Dictionary<SpellStage, CreatorStageComposition> Composition = [];
+        public string? MissileOverride;
+        public float MissileScale = 1f;
+        // Imported art (GameLoop.Creator.TextureImport.cs): custom MPQ path -> BLP bytes,
+        // served by the mount's override layer and shipped in the session.
+        public readonly Dictionary<string, byte[]> ImportedTextures = new(StringComparer.OrdinalIgnoreCase);
+        // Free-form geometry (GameLoop.Creator.Sketch.cs, shared_docs/SPELL_SKETCH.md): the
+        // authored pieces per stage. These are the SOURCE - the compiled M2 they produce is
+        // an ordinary phase model in Models above - so they are what has to be saved for a
+        // spell to reopen editable.
+        public readonly Dictionary<SpellStage, Creator.Sketch.SketchDoc> Sketches = [];
+        // What the AUTHOR says this spell is made of (GameLoop.Creator.Anatomy.cs). A spell's
+        // anatomy is not derivable from its art: an empty precast and a precast you decided
+        // not to have look identical in the data, and only one of them is a to-do.
+        public readonly HashSet<SpellStage> PlannedStages = [];
+        public bool PlannedMissile;
+        public bool PlanStarted;
     }
 
     private CreatorSpellDoc? _creatorSpell;
     private readonly byte[] _creatorSpellSearchBuf = new byte[64];
     private List<SpellInfo>? _creatorSpellResults;
+    private readonly byte[] _creatorNewSpellNameBuf = new byte[48];
+
+    /// <summary>Ids handed to spells that do not exist in Spell.dbc yet.
+    ///
+    /// NOT zero, for two reasons that both bite. ReapPresentedEffect treats
+    /// _presentedEffectSpell == 0 as "nothing is presented" and returns early, so a spell with
+    /// id 0 would spawn kits that are never reaped. And PresentSpellEffect's first guard is a
+    /// Spell.dbc lookup, so a new spell has to be recognisable as the creator's own before that
+    /// lookup gets a chance to fail. 1.12 tops out around 30,000 real ids; this is far clear of
+    /// them and of the 0xFFFFFFFF none-sentinel.</summary>
+    private const uint CreatorNewSpellIdBase = 9_000_000;
+    private uint _creatorNextNewSpellId = CreatorNewSpellIdBase;
+
+    /// <summary>Is this id one the creator invented, rather than one from the archives?</summary>
+    private static bool IsCreatorNewSpellId(uint id) => id >= CreatorNewSpellIdBase;
     private bool _creatorSpellSearchDirty = true;
 
     // Which phases the loop plays each cycle - the user picks EXACTLY what loops.
@@ -213,14 +265,14 @@ public sealed partial class GameLoop
         {
             _creatorLoopCastAt = double.MaxValue;
             StopCreatorAudio(CreatorAudioCue.Precast);
-            if (PresentSpellEffect(spell, "cast"))
+            if (!SketchSoloBlocks(SpellStage.Cast) && PresentSpellEffect(spell, "cast"))
                 StartCreatorAudio(CreatorAudioCue.Cast, LocalPlayerGuid,
                     _controller?.Position ?? Vector3.Zero);
         }
         if (now >= _creatorLoopMissileAt)
         {
             _creatorLoopMissileAt = double.MaxValue;
-            double flight = SpawnCreatorMissile();
+            double flight = SketchSoloBlocks(SpellStage.Impact) ? 0 : SpawnCreatorMissile();
             if (flight > 0)
             {
                 StartCreatorAudio(CreatorAudioCue.Missile, LocalPlayerGuid,
@@ -237,7 +289,8 @@ public sealed partial class GameLoop
             _creatorMissileSoundEndsAt = double.MaxValue;
             ulong target = CreatorMissileTargetGuid();
             ulong anchor = target != 0 ? target : LocalPlayerGuid;
-            if (PresentSpellEffect(spell, "impact", target != 0 ? target : null))
+            if (!SketchSoloBlocks(SpellStage.Impact) &&
+                PresentSpellEffect(spell, "impact", target != 0 ? target : null))
             {
                 var pose = SpellEffectUnitPose(anchor);
                 StartCreatorAudio(CreatorAudioCue.Impact, anchor,
@@ -251,7 +304,7 @@ public sealed partial class GameLoop
         bool any = false;
         if (_creatorLoopPrecast)
         {
-            if (PresentSpellEffect(spell, "precast"))
+            if (!SketchSoloBlocks(SpellStage.Precast) && PresentSpellEffect(spell, "precast"))
                 StartCreatorAudio(CreatorAudioCue.Precast, LocalPlayerGuid,
                     _controller?.Position ?? Vector3.Zero);
             any = true;
@@ -448,7 +501,7 @@ public sealed partial class GameLoop
     /// return its flight time in seconds, -1 when this spell has no missile.</summary>
     private double SpawnCreatorMissile()
     {
-        if (_creatorSpell?.MissilePath is not { Length: > 0 } path ||
+        if (_creatorSpell is not { } missileDoc || CreatorEffectiveMissile(missileDoc) is not { Length: > 0 } path ||
             _spellEffects is null || _controller is null) return -1;
 
         Vector3 from = _controller.Position with { Z = _controller.Position.Z + 1.5f };
@@ -464,7 +517,7 @@ public sealed partial class GameLoop
         float speed = _creatorSpell.Info.Speed > 1f ? _creatorSpell.Info.Speed : 20f;
         double duration = Vector3.Distance(from, to) / speed;
         _spellEffects.SpawnMissile(LocalPlayerGuid, _creatorSpell.Info.Id, path,
-            from, to, SpellClockNow, duration);
+            from, to, SpellClockNow, duration, missileDoc.MissileScale);
         return duration;
     }
 
@@ -561,6 +614,39 @@ public sealed partial class GameLoop
         }
     }
 
+    /// <summary>A brand-new spell: no source, no inherited visual, an empty anatomy.
+    ///
+    /// The id is a local, synthetic one (see CreatorNewSpellIdBase) until the Completer
+    /// assigns a real one on export. That is enough to author and preview with; turning it
+    /// into real DBC rows is the Completer's job, and its "no template to clone" gap is still
+    /// open (SPELL_SKETCH.md §5).</summary>
+    private void StartNewCreatorSpell(string name)
+    {
+        var blank = new SpellInfo(
+            Id: ++_creatorNextNewSpellId, Name: name, Rank: "", IconPath: "",
+            Attributes: 0, AttributesEx2: 0, AttributesEx3: 0,
+            InterruptFlags: 0, ChannelInterruptFlags: 0, Targets: 0, ImplicitTarget: 0,
+            RecoveryMs: 0, CategoryRecoveryMs: 0,
+            PowerType: 0, ManaCost: 0, ManaCostPercent: 0,
+            StartRecoveryCategory: 0, StartRecoveryMs: 0,
+            VisualId: 0,                       // no visual: nothing is inherited
+            Speed: 0f, Description: "", RangeIndex: 0);
+
+        SelectCreatorSpell(blank);
+        if (_creatorSpell is { } fresh)
+        {
+            // A derived spell arrives with its anatomy already decided by whoever made it; a
+            // new one has not been decided yet, so the Sketch window opens on the question.
+            fresh.PlanStarted = false;
+            fresh.PlannedStages.Clear();
+            fresh.PlannedMissile = false;
+        }
+        _sketchOpen = true;
+        _sketchStage = SpellStage.Cast;
+        _sketchSelected = 0;
+        _creatorExportStatus = $"New spell \"{name}\" - pick what it is made of, then draw it.";
+    }
+
     private void SelectCreatorSpell(in SpellInfo info)
     {
         // Clear any overrides, tints and color hues the previous document installed.
@@ -580,6 +666,9 @@ public sealed partial class GameLoop
                     SetCreatorTextureTint(model, texIndex, null);
             }
         }
+        // The previous spell's imported art leaves the override layer with it.
+        if (_creatorSpell is { } previousDoc)
+            foreach (string imported in previousDoc.ImportedTextures.Keys) _mpq?.ClearOverride(imported);
         StopAllCreatorAudio();
         _creatorAudioPickerCue = null;
         _creatorAudioPickerError = "";
@@ -590,8 +679,13 @@ public sealed partial class GameLoop
         var doc = new CreatorSpellDoc { Info = info };
         if (_spellVisualCatalog?.TryGetStages(info.VisualId, out doc.Stages) != true)
         {
-            _creatorSpell = doc;   // selectable, but the panel will say "no visual"
+            // No visual to inherit - either a spell that never had one, or a brand-new spell.
+            // Either way it still needs its (empty) per-stage composition, or there is nowhere
+            // for a Sketch to put the model it compiles.
+            InitCreatorComposition(doc);
+            _creatorSpell = doc;
             SpellIdeSelectionReset();   // every ws-{path} id just died with the old doc
+            _creatorLoopNextAt = 0;
             return;
         }
 
@@ -619,9 +713,27 @@ public sealed partial class GameLoop
             model.Emitters = M2EmitterParser.ReadEmitters(model.Working);
             model.OriginalEmitterCount = model.Emitters.Count;
             model.Textures = Creator.M2TextureParser.ParseTextures(model.Original);
+            model.Meshes = M2MeshParser.ReadMeshes(model.Working);
+            model.Ribbons = M2RibbonParser.ReadRibbons(model.Working);
+            model.Bones = M2BoneParser.ReadBones(model.Working);
+            model.OriginalLayerCount = model.Meshes.Count;
+            model.OriginalRibbonCount = model.Ribbons.Count;
             doc.Models[path] = model;
         }
 
+        AttachCreatorGeometryModels(doc);
+        InitCreatorComposition(doc);
+
+        _creatorSpell = doc;
+        SpellIdeSelectionReset();   // doc.Models was replaced wholesale; heal to phase one
+        _creatorLoopNextAt = 0;   // fire the loop immediately on next tick
+    }
+
+    /// <summary>Every geometry-particle model spawned by an emitter of any model in the doc
+    /// joins the workshop as an editable model (idempotent; also run when a composed model
+    /// is added).</summary>
+    private void AttachCreatorGeometryModels(CreatorSpellDoc doc)
+    {
         // GEOMETRY-PARTICLE models: an emitter can spawn a little M2 per particle
         // (Cone of Cold's cloud puffs) whose art lives in ITS OWN texture table -
         // completely invisible from the host model's slots, which is why editing
@@ -648,22 +760,23 @@ public sealed partial class GameLoop
                 geoModel.Emitters = M2EmitterParser.ReadEmitters(geoModel.Working);
                 geoModel.OriginalEmitterCount = geoModel.Emitters.Count;
                 geoModel.Textures = Creator.M2TextureParser.ParseTextures(geoModel.Original);
+                geoModel.Meshes = M2MeshParser.ReadMeshes(geoModel.Working);
+                geoModel.Ribbons = M2RibbonParser.ReadRibbons(geoModel.Working);
+                geoModel.Bones = M2BoneParser.ReadBones(geoModel.Working);
+                geoModel.OriginalLayerCount = geoModel.Meshes.Count;
+                geoModel.OriginalRibbonCount = geoModel.Ribbons.Count;
                 doc.Models[geoPath] = geoModel;
                 doc.GeometryHosts[geoPath] = Path.GetFileName(hostPath);
                 Console.WriteLine($"[creator] geometry model {Path.GetFileName(geoPath)} " +
                                   $"(spawned by {Path.GetFileName(hostPath)}) joined the workshop");
             }
         }
-
-        _creatorSpell = doc;
-        SpellIdeSelectionReset();   // doc.Models was replaced wholesale; heal to phase one
-        _creatorLoopNextAt = 0;   // fire the loop immediately on next tick
     }
 
     /// <summary>Original bytes -> whole-model dials -> per-BLP hue dials ->
     /// per-emitter absolute edits -> hot-swap into SpellEffectSource. Rebuilt from
     /// Original every time, so the multipliers never compound.</summary>
-    private void RebuildCreatorModel(CreatorModelDoc model)
+    private void RebuildCreatorModel(CreatorModelDoc model, bool replay = true)
     {
         bool globalsActive = model.HueShift || model.GravityAdd != 0f ||
             model.RateMul != 1f || model.ScaleMul != 1f || model.LifeMul != 1f || model.SpeedMul != 1f;
@@ -710,6 +823,15 @@ public sealed partial class GameLoop
                 Console.WriteLine($"[creator] {Path.GetFileName(model.Path)}: emitter clone " +
                     $"of {added.SourceIndex} failed - header rejected");
         }
+        // Cloned ribbons and mesh layers (SPELL_CREATOR_IDE §2.5), before the edits that
+        // address them by index below.
+        foreach (int source in model.AddedRibbons)
+            if (M2RibbonParser.CloneRibbon(working, source) is { } ribbonClone) working = ribbonClone.Data;
+            else Console.WriteLine($"[creator] {Path.GetFileName(model.Path)}: ribbon clone of r{source} failed");
+        foreach (int source in model.AddedLayers)
+            if (M2MeshParser.CloneLayer(working, source) is { } layerClone) working = layerClone.Data;
+            else Console.WriteLine($"[creator] {Path.GetFileName(model.Path)}: layer clone of m{source} failed");
+
         // The texture table's emitter back-references must see the clones (the
         // per-BLP hue dials and the UI's texture<->emitter grouping key on them).
         // Reparsed every rebuild so removing the last clone heals the refs too;
@@ -740,6 +862,12 @@ public sealed partial class GameLoop
         foreach (int disabled in model.DisabledEmitters)
             M2ParticlePatcher.DisableEmitter(working, disabled);
 
+        // Mesh layers and ribbons (SPELL_CREATOR_IDE §2.5): private materials and lookup
+        // entries append at EOF and repoint, first keys write in place, hidden submeshes
+        // zero their triangles, silenced ribbons zero their edges - all before the texture
+        // swaps' resize below, which never moves what was written.
+        working = ApplyCreatorMeshAndRibbonEdits(model, working);
+
         // Texture-slot swaps LAST: longer paths append at EOF (resize), which
         // never moves the fixed-offset structures the patchers above wrote.
         if (model.TextureSwaps.Count > 0)
@@ -766,9 +894,13 @@ public sealed partial class GameLoop
 
         model.Working = working;
         model.Emitters = M2EmitterParser.ReadEmitters(working);
+        model.Meshes = M2MeshParser.ReadMeshes(working);
+        model.Ribbons = M2RibbonParser.ReadRibbons(working);
+        model.Bones = M2BoneParser.ReadBones(working);
         bool bytesPatched = globalsActive || texHuesActive || model.Edits.Count > 0 ||
                             model.TextureSwaps.Count > 0 || model.DisabledEmitters.Count > 0 ||
-                            model.AddedEmitters.Count > 0;
+                            model.AddedEmitters.Count > 0 || CreatorMeshOrRibbonEditsActive(model) ||
+                            model.AddedRibbons.Count > 0 || model.AddedLayers.Count > 0;
         // Tints live in the renderers' texture layer, not the M2 bytes, but they
         // count as "modified" so the export includes the recolored BLPs.
         model.Modified = bytesPatched || model.TextureTints.Any(t => t.Value.On);
@@ -778,8 +910,9 @@ public sealed partial class GameLoop
         // paths nothing spawns as geometry).
         _spellParticles?.SetGeometryModelOverride(renderPath, bytesPatched ? working : null);
         // Editing while paused: re-lay the held picture deterministically with the new bytes
-        // (shared_docs/SPELL_CREATOR_IDE.md §2.2).
-        if (CreatorSpellPaused) ReplayCreatorEffects();
+        // (shared_docs/SPELL_CREATOR_IDE.md §2.2). A drag in flight skips it (§2.10) and
+        // replays once on release.
+        if (replay && CreatorSpellPaused) ReplayCreatorEffects();
     }
 
     /// <summary>The identity color of one texture slot: a stable golden-angle
@@ -889,6 +1022,8 @@ public sealed partial class GameLoop
             false, DrawCreatorStageBody);
         CreatorSection("Spells", "ws-clock", _creatorClockPaused ? "Clock  (paused)" : "Clock",
             false, DrawCreatorClockBody);
+        CreatorSection("Spells", "ws-composition", CreatorCompositionChanged(doc) ? "Composition *" : "Composition",
+            false, DrawCreatorCompositionBody);
 
         // Per-model editors, grouped under the phases that use them. The id is
         // the model path (stable); the label's * marker may change per frame.
@@ -918,7 +1053,7 @@ public sealed partial class GameLoop
                 .Where(p => string.Equals(p.Path, m.Path, StringComparison.OrdinalIgnoreCase))
                 .Select(p => p.Stage.ToString().ToLowerInvariant()).Distinct());
             if (phases.Length == 0 &&
-                string.Equals(doc.MissilePath, m.Path, StringComparison.OrdinalIgnoreCase))
+                string.Equals(CreatorEffectiveMissile(doc), m.Path, StringComparison.OrdinalIgnoreCase))
                 phases = "missile";
             label = $"{phases}: {Path.GetFileName(m.Path)}";
         }
@@ -934,6 +1069,36 @@ public sealed partial class GameLoop
             ImGui.TextWrapped("Spell catalogs are unavailable - check the console.");
             return;
         }
+
+        // ── start from nothing ───────────────────────────────────────────────
+        // The workshop was built to DERIVE: search a spell, inherit its visual, change it.
+        // That is a fine way to learn the format and a bad way to author, because it makes
+        // every new spell an edit of somebody else's and forces a choice before the author
+        // has made any. A new spell starts with no visual at all: no kits, no models, no
+        // inherited slots - an empty anatomy the author fills in part by part.
+        ImGui.TextDisabled("name");
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(180f * cs);
+        ImGui.InputText("##new-spell-name", _creatorNewSpellNameBuf,
+            (uint)_creatorNewSpellNameBuf.Length);
+        ImGui.SameLine();
+        string newName = BufToString(_creatorNewSpellNameBuf).Trim();
+        bool nameable = newName.Length >= 2;
+        if (!nameable) ImGui.BeginDisabled();
+        if (CreatorButton("New spell", 90f * cs))
+        {
+            StartNewCreatorSpell(newName);
+            Array.Clear(_creatorNewSpellNameBuf);
+        }
+        if (!nameable) ImGui.EndDisabled();
+        CreatorHelp("Start from nothing: no phases, no models, no inherited art. The Sketch " +
+                    "window then asks what kind of spell this is and you build it part by " +
+                    "part.\n\nDeriving from an existing spell (the search below) is the other " +
+                    "way in - use it when you want something that already works as a starting " +
+                    "point, or to take a real spell apart and see how it was made.");
+
+        ImGui.Separator();
+        ImGui.TextDisabled("or derive from an existing spell");
 
         ImGui.SetNextItemWidth(220f * cs);
         if (ImGui.InputText("##spell-search", _creatorSpellSearchBuf,
@@ -1032,12 +1197,12 @@ public sealed partial class GameLoop
 
         bool hasArea = _spellVisualCatalog?.TryGetAreaVisual(doc.Info.VisualId,
             out SpellAreaVisualInfo _) == true;
-        PhaseBox("Precast", ref _creatorLoopPrecast, doc.Stages.Precast != 0, false);
-        PhaseBox("Cast", ref _creatorLoopCast, doc.Stages.Cast != 0, true);
-        PhaseBox("Missile", ref _creatorLoopMissilePhase, doc.MissilePath is { Length: > 0 }, true);
-        PhaseBox("Impact", ref _creatorLoopImpactPhase, doc.Stages.Impact != 0, true);
-        PhaseBox("State", ref _creatorLoopStateHold, doc.Stages.State != 0, false);
-        PhaseBox("Channel", ref _creatorLoopChannelHold, doc.Stages.Channel != 0, true);
+        PhaseBox("Precast", ref _creatorLoopPrecast, CreatorStageAvailable(doc, SpellStage.Precast), false);
+        PhaseBox("Cast", ref _creatorLoopCast, CreatorStageAvailable(doc, SpellStage.Cast), true);
+        PhaseBox("Missile", ref _creatorLoopMissilePhase, CreatorEffectiveMissile(doc) is { Length: > 0 }, true);
+        PhaseBox("Impact", ref _creatorLoopImpactPhase, CreatorStageAvailable(doc, SpellStage.Impact), true);
+        PhaseBox("State", ref _creatorLoopStateHold, CreatorStageAvailable(doc, SpellStage.State), false);
+        PhaseBox("Channel", ref _creatorLoopChannelHold, CreatorStageAvailable(doc, SpellStage.Channel), true);
         PhaseBox("Area (rain)", ref _creatorLoopAreaHold, hasArea, true);
         if (hasArea && _creatorLoopAreaHold)
         {
@@ -1113,8 +1278,8 @@ public sealed partial class GameLoop
         var stages = doc.PhaseModels
             .Where(p => string.Equals(p.Path, path, StringComparison.OrdinalIgnoreCase))
             .Select(p => p.Stage).Distinct().ToList();
-        bool missile = doc.MissilePath is { Length: > 0 } &&
-                       string.Equals(doc.MissilePath, path, StringComparison.OrdinalIgnoreCase);
+        bool missile = CreatorEffectiveMissile(doc) is { Length: > 0 } effectiveMissile &&
+                       string.Equals(effectiveMissile, path, StringComparison.OrdinalIgnoreCase);
         // Nothing to solo: leave playback exactly as the user left it.
         if (stages.Count == 0 && !missile) return;
 
@@ -1532,6 +1697,8 @@ public sealed partial class GameLoop
 
         var (texByEmitter, slotByEmitter) = CreatorEmitterTextureMaps(model);
 
+        dirty |= DrawCreatorMeshRibbonCategories(model, cs);
+
         ImGui.Spacing();
         ImGui.TextDisabled("EMITTERS");
         CreatorHelp(advanced
@@ -1587,6 +1754,24 @@ public sealed partial class GameLoop
     private bool DrawCreatorModelLook(CreatorModelDoc model, float cs)
     {
         bool dirty = false;
+
+        // A GENERATED model is a special case worth interrupting for. The dials below all work
+        // on it, but the Sketch rebuilds this file from its cards on the next change, so an edit
+        // typed here is temporary and vanishes without a word. Say so before that happens rather
+        // than after - the owner had already edited a bone here and would have lost it.
+        if (_creatorSpell is { } sketchOwner && IsSketchModel(sketchOwner, model.Path))
+        {
+            ImGui.TextColored(new Vector4(0.95f, 0.72f, 0.35f, 1f), "GENERATED BY THE SKETCH WINDOW");
+            CreatorHelp("This model is built from the Sketch window's cards, and it is rebuilt " +
+                "from them every time one of those cards changes.\n\nThe dials below still work, " +
+                "but they are TEMPORARY: the next card change throws them away. Edit the piece in " +
+                "the Sketch window instead.\n\nThe one exception is dragging in the world - the " +
+                "translate arrows and rotate rings on a sketch piece are read straight back into " +
+                "its PLACE card, so those do stick.");
+            ImGui.SameLine();
+            if (ImGui.SmallButton("open Sketch")) _sketchOpen = true;
+            ImGui.Separator();
+        }
 
         // Whole-model dials, each with its own reset and explainer.
         ImGui.TextDisabled("MODEL DIALS (multipliers over the authored values)");
@@ -1744,6 +1929,13 @@ public sealed partial class GameLoop
                 if (ImGui.IsItemHovered())
                     ImGui.SetTooltip("Replace this image with any other BLP - from this " +
                                      "spell, any other spell, or a typed path.");
+                ImGui.SameLine();
+                if (ImGui.SmallButton("Import"))
+                    BeginCreatorTextureImport(model, tex.Index);
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("Bring in YOUR OWN art: a PNG (converted to BLP at the nearest " +
+                                     "power-of-two size) or a BLP. It previews at once and ships in " +
+                                     "the session.");
                 // Grow the effect from this image: clone an emitter onto this
                 // slot (its own emitter when it has one, else any authored one
                 // retargeted here) and tune the clone like any other emitter.
@@ -1869,8 +2061,8 @@ public sealed partial class GameLoop
             "particles are born, everything else keeps playing. Isolate emitters one " +
             "at a time to learn which does what. Re-enabling restores its authored " +
             "values and any Advanced-mode edits.");
-        if (emitterOff)   // no point editing a silenced emitter
-            return dirty ? CreatorEmitterEdit.Dirty : CreatorEmitterEdit.None;
+        if (emitterOff)   // the dials stay: an empty inspector reads as "nothing is editable"
+            ImGui.TextDisabled("Off. The dials below still edit this emitter; they show once it is on again.");
 
         EmitterPatch edit = model.Edits.TryGetValue(emitter.Index, out var found)
             ? found : new EmitterPatch { EmitterIndex = emitter.Index };
@@ -2087,6 +2279,110 @@ public sealed partial class GameLoop
             { edit.Flags = null; model.Edits[emitter.Index] = edit; dirty = true; }
             CreatorHelp($"Reset restores the complete authored flag word (0x{emitter.Flags:X}). " +
                 "Unlisted/unknown bits are preserved whenever one of these switches changes.");
+        }
+
+        // The three ARGB ramp colours and the ramp midpoint, straight from the inline block
+        // (SPELL_CREATOR_IDE §2.6): the Hue dials rotate these, here they are set.
+        ImGui.TextDisabled("COLOURS");
+        bool ColourKey(string label, uint authored, Func<uint?> get, Action<uint?> set, string id)
+        {
+            Vector4 rgba = CreatorArgbToVector(get() ?? authored);
+            ImGui.SetNextItemWidth(150f * cs);
+            bool moved = ImGui.ColorEdit4(label, ref rgba,
+                ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.AlphaBar | ImGuiColorEditFlags.AlphaPreviewHalf);
+            if (moved) { set(CreatorVectorToArgb(rgba)); model.Edits[emitter.Index] = edit; }
+            if (CreatorResetKnob(id) && get() is not null) { set(null); model.Edits[emitter.Index] = edit; moved = true; }
+            return moved;
+        }
+        dirty |= ColourKey("Start", emitter.ColorStart, () => edit.ColorStart, v => edit.ColorStart = v, "col0");
+        ImGui.SameLine();
+        dirty |= ColourKey("Mid", emitter.ColorMid, () => edit.ColorMid, v => edit.ColorMid = v, "col1");
+        ImGui.SameLine();
+        dirty |= ColourKey("End", emitter.ColorEnd, () => edit.ColorEnd, v => edit.ColorEnd = v, "col2");
+        CreatorHelp("Each particle's colour and alpha at birth, at the midpoint and at death. " +
+            "Alpha is the fade envelope (0 at death = dissolve). The Hue dials rotate these " +
+            "toward a target; here you set them outright.");
+        float midPoint = edit.MidPoint ?? emitter.MidPoint;
+        ImGui.SetNextItemWidth(CreatorControlWidth);
+        if (ImGui.SliderFloat("Midpoint", ref midPoint, 0f, 1f, "%.2f"))
+        { edit.MidPoint = midPoint; model.Edits[emitter.Index] = edit; dirty = true; }
+        if (CreatorResetKnob("midpoint") && edit.MidPoint is not null)
+        { edit.MidPoint = null; model.Edits[emitter.Index] = edit; dirty = true; }
+        CreatorHelp("Where in a particle's life the middle colour and size land (0 = birth, 1 = death). " +
+            $"Authored: {emitter.MidPoint:0.##}.");
+
+        if (advanced)
+        {
+            ImGui.TextDisabled("SPRITE, BONE, IMAGE");
+            int bone = edit.Bone ?? emitter.Bone;
+            ImGui.SetNextItemWidth(110f * cs);
+            if (ImGui.InputInt("Bone", ref bone))
+            {
+                edit.Bone = (ushort)Math.Clamp(bone, 0, Math.Max(0, model.Bones.Count - 1));
+                model.Edits[emitter.Index] = edit;
+                dirty = true;
+            }
+            if (CreatorResetKnob("embone") && edit.Bone is not null)
+            { edit.Bone = null; model.Edits[emitter.Index] = edit; dirty = true; }
+            CreatorHelp("Re-parent this emitter to another bone of the effect: its origin and birth " +
+                "frame follow that bone's pose and animation - the way to point it somewhere else. " +
+                "Turn on 'Show bones' (Void stage row) to see b<n> labels in the world; pose a bone " +
+                $"in the phase's BONES section. Authored: bone {emitter.Bone} of {model.Bones.Count}.");
+            int? emitterSlot = edit.TextureSlot;
+            if (CreatorTextureSlotCombo(model, "Image", emitter.TextureId, ref emitterSlot, "emtex"))
+            { edit.TextureSlot = emitterSlot; model.Edits[emitter.Index] = edit; dirty = true; }
+            int headTail = Math.Clamp((int)(edit.HeadOrTail ?? emitter.HeadOrTail), 0, 2);
+            ImGui.SetNextItemWidth(150f * cs);
+            if (ImGui.Combo("Head / tail", ref headTail, CreatorHeadTailModes, CreatorHeadTailModes.Length))
+            { edit.HeadOrTail = (byte)headTail; model.Edits[emitter.Index] = edit; dirty = true; }
+            if (CreatorResetKnob("headtail") && edit.HeadOrTail is not null)
+            { edit.HeadOrTail = null; model.Edits[emitter.Index] = edit; dirty = true; }
+            CreatorHelp("What each particle draws: a camera-facing head quad, a tail quad stretched " +
+                $"along its velocity, or both. Authored: {emitter.HeadOrTail}.");
+            float tailTime = edit.TailTime ?? emitter.TailTime;
+            ImGui.SetNextItemWidth(CreatorControlWidth);
+            if (ImGui.SliderFloat("Tail length", ref tailTime, 0f, 2f, "%.3f s"))
+            { edit.TailTime = tailTime; model.Edits[emitter.Index] = edit; dirty = true; }
+            if (CreatorResetKnob("tailtime") && edit.TailTime is not null)
+            { edit.TailTime = null; model.Edits[emitter.Index] = edit; dirty = true; }
+            CreatorHelp("How far behind the particle its tail quad stretches, in seconds of travel " +
+                $"(tail modes only). Authored: {emitter.TailTime:0.###}.");
+            int rows = edit.TextureRows ?? emitter.TextureRows, cols = edit.TextureCols ?? emitter.TextureCols;
+            ImGui.SetNextItemWidth(90f * cs);
+            if (ImGui.InputInt("Rows", ref rows)) { edit.TextureRows = (ushort)Math.Clamp(rows, 1, 64); model.Edits[emitter.Index] = edit; dirty = true; }
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(90f * cs);
+            if (ImGui.InputInt("Cols", ref cols)) { edit.TextureCols = (ushort)Math.Clamp(cols, 1, 64); model.Edits[emitter.Index] = edit; dirty = true; }
+            if (CreatorResetKnob("emcells") && (edit.TextureRows is not null || edit.TextureCols is not null))
+            { edit.TextureRows = edit.TextureCols = null; model.Edits[emitter.Index] = edit; dirty = true; }
+            CreatorHelp("Sprite-sheet cells of the image (rows x columns); the flipbook ramps step " +
+                $"through them. Authored: {emitter.TextureRows} x {emitter.TextureCols}.");
+            float inherit = edit.InheritScale ?? emitter.InheritScale;
+            ImGui.SetNextItemWidth(CreatorControlWidth);
+            if (ImGui.SliderFloat("Inherit scale", ref inherit, -2f, 2f, "%.2f"))
+            { edit.InheritScale = inherit; model.Edits[emitter.Index] = edit; dirty = true; }
+            if (CreatorResetKnob("inherit") && edit.InheritScale is not null)
+            { edit.InheritScale = null; model.Edits[emitter.Index] = edit; dirty = true; }
+            CreatorHelp("How much of the source's own motion a particle inherits at birth (with the " +
+                $"'Inherit source motion' flag). Authored: {emitter.InheritScale:0.##}.");
+            Vector3 tumbleMin = edit.AngularMin ?? emitter.AngularMin, tumbleMax = edit.AngularMax ?? emitter.AngularMax;
+            ImGui.SetNextItemWidth(CreatorControlWidth);
+            if (ImGui.DragFloat3("Tumble min", ref tumbleMin, 0.05f, -50f, 50f, "%.2f"))
+            { edit.AngularMin = tumbleMin; model.Edits[emitter.Index] = edit; dirty = true; }
+            ImGui.SetNextItemWidth(CreatorControlWidth);
+            if (ImGui.DragFloat3("Tumble max", ref tumbleMax, 0.05f, -50f, 50f, "%.2f"))
+            { edit.AngularMax = tumbleMax; model.Edits[emitter.Index] = edit; dirty = true; }
+            if (CreatorResetKnob("tumble") && (edit.AngularMin is not null || edit.AngularMax is not null))
+            { edit.AngularMin = edit.AngularMax = null; model.Edits[emitter.Index] = edit; dirty = true; }
+            CreatorHelp("Spawned-geometry particles tumble with a random angular velocity between " +
+                "these (rad/s per axis). Billboard images ignore it.");
+            bool flatten = edit.FlattenTracks;
+            if (ImGui.Checkbox("Sliders override animated tracks (write every key)", ref flatten))
+            { edit.FlattenTracks = flatten; model.Edits[emitter.Index] = edit; dirty = true; }
+            CreatorHelp("A * slider normally sets only the FIRST key of an animated track and the " +
+                "authored ramp continues from there. With this on, every key is written, so the " +
+                "slider is a constant that replaces the authored animation (Cleave's rate ramp, " +
+                "an impact's burst window).");
         }
 
         var scale = new Vector3(
@@ -2393,6 +2689,16 @@ public sealed partial class GameLoop
             sourceIndex = a.SourceIndex,
             textureSlot = a.TextureSlot,
         }),
+        // Mesh layers and ribbons: the bytes carry every patch; this is the record of
+        // what was changed (hidden geometry, per-layer material/colour edits, silenced
+        // and edited ribbons).
+        hiddenSubmeshes = m.HiddenSubmeshes.OrderBy(i => i),
+        meshLayers = m.MeshEdits.Values,
+        disabledRibbons = m.DisabledRibbons.OrderBy(i => i),
+        ribbons = m.RibbonEdits.Values,
+        bones = m.BoneEdits.Values,
+        addedRibbons = m.AddedRibbons.Select((src, i) => new { index = m.OriginalRibbonCount + i, sourceIndex = src }),
+        addedLayers = m.AddedLayers.Select((src, i) => new { index = m.OriginalLayerCount + i, sourceIndex = src }),
         // Ribbon/mesh color tracks are keyframed data the byte patcher
         // cannot reach - the consumer approximates the whole-model hue on
         // these by hue-mapping their BLPs (safe on a cloned spell's own

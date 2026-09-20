@@ -32,6 +32,10 @@ touching the code:
 - `shared_docs/SPELL_CREATOR_IDE.md` — the Spell Creator IDE: the void stage, the
   effect clock (pause/step/scrub + deterministic replay) and the grid/emitter
   gizmos in Creator Mode's spell workshop; the emitter frame chain and slice order.
+- `shared_docs/SPELL_SKETCH.md` — SPEC (unbuilt): free-form effect authoring in the
+  Spell Workshop — draw or pick a shape, place it, give it travel/path/spin/fade,
+  hang trails and sparks off it — compiled into real vanilla M2s + BLPs so every
+  existing dial, handle, clock, composition slot and Completer path applies.
 - `CODE_STRUCTURE_LAW.md` (repo root) — where a `.cs` file goes and how it is named.
 
 `interface-wire-check --shared-docs-only` fails when a file in `shared_docs/` is not

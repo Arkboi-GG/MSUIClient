@@ -2388,6 +2388,7 @@ public sealed partial class GameLoop : IDisposable
         UpdateDuel();
         AdvanceCreatorClock(dt);
         UpdateSpellPresentation();
+        UpdateCreatorSketch();
         UpdateCreatorSpellLoop();
         UpdateCreatorLocationPersist();
 

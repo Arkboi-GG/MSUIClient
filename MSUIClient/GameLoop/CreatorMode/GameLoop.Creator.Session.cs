@@ -1,4 +1,5 @@
 ﻿using System.Numerics;
+using MSUIClient.Formats;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ImGuiNET;
@@ -144,9 +145,10 @@ public sealed partial class GameLoop
     private JsonObject? BuildCreatorSpellEntry(CreatorSpellDoc doc, string tempName)
     {
         var modified = doc.Models.Values.Where(m => m.Modified).ToList();
-        if (modified.Count == 0 && doc.Audio.Count == 0)
+        bool composed = CreatorCompositionChanged(doc);
+        if (modified.Count == 0 && doc.Audio.Count == 0 && !composed)
         {
-            _creatorExportStatus = "Nothing modified - tune the look or audio before adding it.";
+            _creatorExportStatus = "Nothing modified - tune the look, the composition or the audio before adding it.";
             return null;
         }
 
@@ -250,6 +252,49 @@ public sealed partial class GameLoop
             }
         }
 
+        // Imported art: an extra file at its custom path, exactly how tinted BLPs travel;
+        // the M2 texture tables already name the path through the swap patch.
+        foreach ((string path, byte[] bytes) in doc.ImportedTextures)
+        {
+            if (!written.Add(path)) continue;
+            blps.Add(new JsonObject
+            {
+                ["path"] = path,
+                ["reason"] = "import",
+                ["blpBase64"] = Convert.ToBase64String(bytes),
+            });
+        }
+
+        // The kit level (SPELL_CREATOR_IDE §2.8): only stages the design changed, each with
+        // its animation and its complete slot list (an absent slot clears the kit field);
+        // the missile when its model or scale changed.
+        var composition = new JsonObject();
+        foreach (SpellStage stage in CreatorStages)
+        {
+            if (!doc.Composition.TryGetValue(stage, out CreatorStageComposition? stageComposition) ||
+                !stageComposition.Changed) continue;
+            var slots = new JsonArray();
+            for (int slot = 0; slot < 9; slot++)
+                if (stageComposition.Slots[slot] is { Length: > 0 } slotPath)
+                    slots.Add(new JsonObject
+                    {
+                        ["slot"] = slot,
+                        ["modelPath"] = slotPath,
+                        ["scale"] = stageComposition.Scales[slot],
+                    });
+            composition[CreatorStageName(stage)] = new JsonObject
+            {
+                ["animationId"] = stageComposition.AnimationId is { } anim ? anim : null,
+                ["slots"] = slots,
+            };
+        }
+        if (CreatorMissileChanged(doc))
+            composition["missile"] = new JsonObject
+            {
+                ["modelPath"] = CreatorEffectiveMissile(doc),
+                ["scale"] = doc.MissileScale,
+            };
+
         return new JsonObject
         {
             ["tempName"] = tempName,
@@ -260,6 +305,7 @@ public sealed partial class GameLoop
             ["models"] = models,
             ["tintedBlps"] = blps,
             ["audio"] = audio,
+            ["composition"] = composition.Count > 0 ? composition : null,
         };
     }
 
@@ -293,7 +339,7 @@ public sealed partial class GameLoop
             .Where(p => string.Equals(p.Path, model.Path, StringComparison.OrdinalIgnoreCase))
             .Select(p => p.Stage.ToString().ToLowerInvariant()).Distinct());
         if (phases.Length == 0 &&
-            string.Equals(doc.MissilePath, model.Path, StringComparison.OrdinalIgnoreCase))
+            string.Equals(CreatorEffectiveMissile(doc), model.Path, StringComparison.OrdinalIgnoreCase))
             phases = "missile";
         return phases;
     }

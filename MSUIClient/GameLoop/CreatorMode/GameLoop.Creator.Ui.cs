@@ -157,6 +157,7 @@ public sealed partial class GameLoop
     {
         _creatorSectionDefs.Clear();
         _creatorGizmoHover = null;
+        _creatorGizmoHoverLabel = null;
         RegisterCreatorCharacterSections();
         RegisterCreatorGearSections();
         RegisterCreatorTeleportSections();
@@ -190,6 +191,8 @@ public sealed partial class GameLoop
         if (_creatorSearchOpen) DrawCreatorItemSearch();
         DrawCreatorTextureSwapPicker();
         DrawCreatorAudioFilePicker();
+        DrawCreatorFilePicker();
+        DrawCreatorModelPicker();
         DrawCreatorPanelTunePopup();
         if (_creatorLayoutResetFrames > 0) _creatorLayoutResetFrames--;
 
@@ -198,7 +201,9 @@ public sealed partial class GameLoop
         // gone). Skipped while typing so a text field's own Escape still works.
         if (ImGui.IsKeyPressed(ImGuiKey.Escape) && !ImGui.GetIO().WantTextInput)
         {
-            if (_texSwapTarget is not null) _texSwapTarget = null;
+            if (_creatorFilePickerTitle is not null) CloseCreatorFilePicker();
+            else if (_modelPickerTarget is not null) _modelPickerTarget = null;
+            else if (_texSwapTarget is not null) _texSwapTarget = null;
             else if (_openPanelTuneId is not null)
             {
                 _openPanelTuneId = null;

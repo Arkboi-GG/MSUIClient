@@ -201,6 +201,15 @@ public sealed partial class GameLoop
             "vertical/horizontal spread to t = lifespan, a loop across their tips, and the " +
             "mean ray drawn as the arc gravity bends it into. Start and end of the effect, " +
             "drawn. Drag is ignored.");
+        bool bones = settings.GizmoBones;
+        if (ImGui.Checkbox("Show bones of the selected phase", ref bones))
+        {
+            settings.GizmoBones = bones;
+            SettingsFile?.Save();
+        }
+        CreatorHelp("The selected phase model's skeleton as thin lines with b<n> labels, posed live. " +
+            "This is how you choose a bone to re-parent an emitter or ribbon to, or to pose in the " +
+            "BONES section: read the label off the joint you want.");
         bool through = settings.GizmoThroughWalls;
         if (ImGui.Checkbox("Draw through the character and walls", ref through))
         {
@@ -210,8 +219,20 @@ public sealed partial class GameLoop
         CreatorHelp("Off: the grid and gizmos are depth-tested, so the model occludes them. " +
             "On: they draw over everything.");
 
+        ImGui.Spacing();
+        ImGui.TextDisabled("DRAG HANDLES");
+        CreatorHelp("The selected emitter or ribbon wears a manipulator in the world: the centre " +
+            "square moves it in the screen plane, the red/green/blue arrows move it forward/left/up " +
+            "along the grid, the small squares move it on a plane. The selected emitter also has " +
+            "shape marks: drag the white diamond at the end of the reach arc to set its SPEED, the " +
+            "pink marks on the birth rectangle (or sphere) to set its AREA. With 'Show bones' on, " +
+            "the picked bone wears three rings - drag one to rotate it about its own axis - and " +
+            "arrows when it has a translation track.\n\nShift snaps (grid cell / 5 degrees), " +
+            "Escape cancels, Ctrl+Z or the strip's Undo restores the last drag. Click a label to " +
+            "select (b<n> picks the bone), double-click one to frame it.");
         ImGui.TextDisabled($"{_spellGizmos?.LinesLastFrame ?? 0} lines, " +
-                           $"{_gizmoLabels.Count} emitter{(_gizmoLabels.Count == 1 ? "" : "s")} " +
+                           $"{CreatorEmitterLabelCount} emitter{(CreatorEmitterLabelCount == 1 ? "" : "s")}, " +
+                           $"{_gizmoHandles.Count} handle{(_gizmoHandles.Count == 1 ? "" : "s")} " +
                            "in view (gizmos draw while the Spell Workshop is open).");
         if (_spellGizmos is null)
             ImGui.TextDisabled("Gizmo renderer unavailable - check the console for the shader error.");

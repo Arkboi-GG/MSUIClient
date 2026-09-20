@@ -232,6 +232,71 @@ public static class SpellEmitterGizmoLaw
 
     /// <summary>Add the parts of segment a-b that lie OUTSIDE the vertical cylinder of
     /// <paramref name="radius"/> and <paramref name="height"/> standing on <paramref name="feet"/>.</summary>
+    /// <summary>
+    /// The lattice, but only over an index BOX of cells - the peelable version.
+    ///
+    /// A full cube of cells is lovely to look at and ambiguous to click in: every screen pixel
+    /// has a whole column of cells behind it and only the author knows which one they meant.
+    /// The answer the owner asked for is to take walls off until the ambiguity is gone - shave
+    /// the box down to a single slab and the pick becomes a plane pick, which has exactly one
+    /// answer.
+    ///
+    /// Ranges are INCLUSIVE cell indices, and cell i spans [i*minor, (i+1)*minor] along its
+    /// axis, so the drawn corner lines run one past the last cell. Everything else - the
+    /// forward/left/up frame, the major/minor colouring, the pocket around the body - is the
+    /// same as <see cref="Lattice"/>; a pocketRadius of 0 disables the pocket, which is what
+    /// placing wants because the cells nearest the body are exactly the interesting ones.
+    /// </summary>
+    public static void LatticeBox(List<GizmoLine> lines, Vector3 feet, float yaw, float minor,
+        float major, int minX, int maxX, int minY, int maxY, int minZ, int maxZ,
+        float pocketRadius, float pocketHeight)
+    {
+        if (minor <= 1e-3f || maxX < minX || maxY < minY || maxZ < minZ) return;
+        var forward = new Vector3(MathF.Cos(yaw), MathF.Sin(yaw), 0f);
+        var left = new Vector3(-MathF.Sin(yaw), MathF.Cos(yaw), 0f);
+        Vector3 up = Vector3.UnitZ;
+
+        float x0 = minX * minor, x1 = (maxX + 1) * minor;
+        float y0 = minY * minor, y1 = (maxY + 1) * minor;
+        float z0 = minZ * minor, z1 = (maxZ + 1) * minor;
+
+        void Line(Vector3 a, Vector3 b, Vector4 colour)
+        {
+            if (pocketRadius > 0f) AddOutsidePocket(lines, a, b, colour, feet, pocketRadius, pocketHeight);
+            else lines.Add(new GizmoLine(a, b, colour));
+        }
+
+        for (int iy = minY; iy <= maxY + 1; iy++)
+            for (int iz = minZ; iz <= maxZ + 1; iz++)
+            {
+                float y = iy * minor, z = iz * minor;
+                Vector3 o = feet + left * y + up * z;
+                Line(o + forward * x0, o + forward * x1,
+                    IsMajor(y, major) && IsMajor(z, major) ? LatticeMajor : LatticeMinor);
+            }
+        for (int ix = minX; ix <= maxX + 1; ix++)
+            for (int iz = minZ; iz <= maxZ + 1; iz++)
+            {
+                float x = ix * minor, z = iz * minor;
+                Vector3 o = feet + forward * x + up * z;
+                Line(o + left * y0, o + left * y1,
+                    IsMajor(x, major) && IsMajor(z, major) ? LatticeMajor : LatticeMinor);
+            }
+        for (int ix = minX; ix <= maxX + 1; ix++)
+            for (int iy = minY; iy <= maxY + 1; iy++)
+            {
+                float x = ix * minor, y = iy * minor;
+                Vector3 o = feet + forward * x + left * y;
+                Line(o + up * z0, o + up * z1,
+                    IsMajor(x, major) && IsMajor(y, major) ? LatticeMajor : LatticeMinor);
+            }
+
+        // The caster's own axes stay, so "forward" and "left" are never in doubt.
+        lines.Add(new GizmoLine(feet, feet + forward * MathF.Max(x1, minor), ForwardAxis));
+        lines.Add(new GizmoLine(feet, feet + left * MathF.Max(y1, minor), LeftAxis));
+        lines.Add(new GizmoLine(feet, feet + up * MathF.Max(z1, minor), UpAxis));
+    }
+
     public static void AddOutsidePocket(List<GizmoLine> lines, Vector3 a, Vector3 b, Vector4 color,
         Vector3 feet, float radius, float height)
     {
