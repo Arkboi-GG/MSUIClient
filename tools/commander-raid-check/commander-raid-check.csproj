@@ -19,7 +19,7 @@
     <Compile Include="../../MSUIClient/Engine/UI/CommanderEncounterSelectionLaw.cs" Link="CommanderEncounterSelectionLaw.cs" />
     <EmbeddedResource Include="../../MSUIClient/Data/encounter-boss-catalog.json" LogicalName="MSUIClient.Encounters.boss-catalog.json" />
 </ItemGroup>
-<ItemGroup><EmbeddedResource Include="../../core/commander-raid/tuning-fields.json" LogicalName="MSUIClient.Encounters.tuning-fields.json" /></ItemGroup>
+<ItemGroup><EmbeddedResource Include="../../MSUIClient/Data/tuning-fields.json" LogicalName="MSUIClient.Encounters.tuning-fields.json" /></ItemGroup>
 <ItemGroup><Compile Include="../../MSUIClient/Engine/UI/CommanderRaidTuningLaw.cs" Link="CommanderRaidTuningLaw.cs" /></ItemGroup>
 <ItemGroup><EmbeddedResource Include="fixtures/legacy-layout.json" LogicalName="CommanderTests.LegacyLayout.json" /></ItemGroup>
 </Project>

@@ -131,5 +131,5 @@
 
 <ItemGroup><EmbeddedResource Include="../encounter-definitions/onyxia.json" LogicalName="MSUIClient.Encounters.onyxia.json" /></ItemGroup>
 <ItemGroup><EmbeddedResource Include="Data/encounter-boss-catalog.json" LogicalName="MSUIClient.Encounters.boss-catalog.json" /></ItemGroup>
-<ItemGroup><EmbeddedResource Include="../core/commander-raid/tuning-fields.json" LogicalName="MSUIClient.Encounters.tuning-fields.json" /></ItemGroup>
+<ItemGroup><EmbeddedResource Include="Data/tuning-fields.json" LogicalName="MSUIClient.Encounters.tuning-fields.json" /></ItemGroup>
 </Project>
