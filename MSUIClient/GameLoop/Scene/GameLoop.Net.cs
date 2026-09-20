@@ -1168,6 +1168,9 @@ public sealed partial class GameLoop
                     case Op.SMSG_SUI_PARTY_TAXI_RESULT:
                         ApplyPartyTaxiResult(body);
                         break;
+                    case Op.SMSG_SUI_COMMANDER_RAID:
+                        ApplyCommanderRaidStatus(body);
+                        break;
                     case Op.SMSG_SUI_TACTICAL_FREEZE:
                         ApplyTacticalFreezeSnapshot(body);
                         break;
@@ -1495,6 +1498,9 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_SPELL_GO:
                         EnqueueSpellPresentation(new SpellGoEvent(SpellPacketParser.ParseGo(body)));
+                        break;
+                    case Op.SMSG_STANDSTATE_UPDATE:
+                        ApplyStandStateUpdate(body, net.PlayerGuid);
                         break;
                     case Op.SMSG_CAST_RESULT:
                         {

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../MSUIClient/Engine/UI/CommanderRaidGuidanceLaw.cs" Link="CommanderRaidGuidanceLaw.cs" />
+    <Compile Include="../../MSUIClient/Engine/UI/CommanderRaidAttemptLaw.cs" Link="CommanderRaidAttemptLaw.cs" />
+    <Compile Include="../../MSUIClient/Engine/UI/CommanderRaidCapabilityLaw.cs" Link="CommanderRaidCapabilityLaw.cs" />
+    <Compile Include="../../MSUIClient/World/Encounters/CommanderEncounterDefinition.cs" Link="CommanderEncounterDefinition.cs" />
+    <Compile Include="../../MSUIClient/Engine/UI/CommanderEncounterLaw.cs" Link="CommanderEncounterLaw.cs" />
+    <Compile Include="../../MSUIClient/Engine/UI/CommanderRaidPlanLaw.cs" Link="CommanderRaidPlanLaw.cs" />
+    <Compile Include="../../MSUIClient/World/Encounters/CommanderRaidPlan.cs" Link="CommanderRaidPlan.cs" />
+    <Compile Include="../../MSUIClient/Net/CommanderRaidWire.cs" Link="CommanderRaidWire.cs" />
+    <Compile Include="../../MSUIClient/Net/CommanderEncounterWire.cs" Link="CommanderEncounterWire.cs" />
+    <Compile Include="../../MSUIClient/Engine/UI/CommanderRaidReadinessLaw.cs" Link="CommanderRaidReadinessLaw.cs" />
+    <Compile Include="../../MSUIClient/Net/ByteBuffer.cs" Link="ByteBuffer.cs" />
+  </ItemGroup>
+<ItemGroup><EmbeddedResource Include="../../encounter-definitions/onyxia.json" LogicalName="MSUIClient.Encounters.onyxia.json" /></ItemGroup>
+<ItemGroup>
+    <Compile Include="../../MSUIClient/World/Encounters/CommanderBossCatalog.cs" Link="CommanderBossCatalog.cs" />
+    <Compile Include="../../MSUIClient/Engine/UI/CommanderEncounterSelectionLaw.cs" Link="CommanderEncounterSelectionLaw.cs" />
+    <EmbeddedResource Include="../../MSUIClient/Data/encounter-boss-catalog.json" LogicalName="MSUIClient.Encounters.boss-catalog.json" />
+</ItemGroup>
+<ItemGroup><EmbeddedResource Include="../../core/commander-raid/tuning-fields.json" LogicalName="MSUIClient.Encounters.tuning-fields.json" /></ItemGroup>
+<ItemGroup><Compile Include="../../MSUIClient/Engine/UI/CommanderRaidTuningLaw.cs" Link="CommanderRaidTuningLaw.cs" /></ItemGroup>
+<ItemGroup><EmbeddedResource Include="fixtures/legacy-layout.json" LogicalName="CommanderTests.LegacyLayout.json" /></ItemGroup>
+</Project>

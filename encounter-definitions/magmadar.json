@@ -1,0 +1,178 @@
+{
+  "id": "magmadar",
+  "name": "Magmadar",
+  "mapId": 409,
+  "bossEntry": 11982,
+  "bounds": {
+    "min": [
+      1000,
+      -1080,
+      -215
+    ],
+    "max": [
+      1200,
+      -940,
+      -160
+    ]
+  },
+  "tankAnchor": [
+    1104,
+    -1004,
+    -186.5
+  ],
+  "teams": [
+    {
+      "name": "West",
+      "anchor": [
+        1076,
+        -996,
+        -185.0
+      ]
+    },
+    {
+      "name": "East",
+      "anchor": [
+        1068,
+        -1004,
+        -186.0
+      ]
+    }
+  ],
+  "addTanksPerTeam": 0,
+  "healersPerTeam": 1,
+  "healerCount": 10,
+  "addEntries": [],
+  "immuneSchools": 0,
+  "objectives": [
+    11982
+  ],
+  "coverage": "authored",
+  "requiredAdds": [],
+  "addPolicy": "split",
+  "schema": 1,
+  "phases": [
+    {
+      "id": 1,
+      "name": "Combat",
+      "priority": 0,
+      "healthMin": 0,
+      "healthMax": 100,
+      "airborne": -1,
+      "aura": 0,
+      "alternate": false,
+      "melee": true,
+      "ranged": true,
+      "threatRatio": 0.8
+    }
+  ],
+  "rules": [
+    {
+      "id": "derived-cones-1",
+      "priority": 80,
+      "action": "avoidCones",
+      "trigger": "always",
+      "spells": [
+        19272
+      ],
+      "phase": 1,
+      "roles": 56,
+      "radius": 2,
+      "durationMs": 0,
+      "target": "boss",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 0
+    },
+    {
+      "id": "derived-immunity-5-6346-tank",
+      "priority": 30,
+      "action": "cast",
+      "trigger": "always",
+      "spells": [],
+      "phase": 0,
+      "roles": 62,
+      "radius": 19,
+      "durationMs": 12000,
+      "target": "tank",
+      "spell": 6346,
+      "missingAura": true,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 4,
+      "reserveCasters": 2
+    },
+    {
+      "id": "derived-immunity-5-6346-tankHealer",
+      "priority": 29,
+      "action": "cast",
+      "trigger": "always",
+      "spells": [],
+      "phase": 0,
+      "roles": 62,
+      "radius": 19,
+      "durationMs": 12000,
+      "target": "tankHealer",
+      "spell": 6346,
+      "missingAura": true,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 4
+    },
+    {
+      "id": "derived-immunity-5-6346-self",
+      "priority": 27,
+      "action": "cast",
+      "trigger": "always",
+      "spells": [],
+      "phase": 0,
+      "roles": 8,
+      "radius": 19,
+      "durationMs": 12000,
+      "target": "self",
+      "spell": 6346,
+      "missingAura": true,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 4
+    },
+    {
+      "id": "derived-tank-buff-10938",
+      "priority": 28,
+      "action": "cast",
+      "trigger": "always",
+      "spells": [],
+      "phase": 0,
+      "roles": 62,
+      "radius": 19,
+      "durationMs": 12000,
+      "target": "tank",
+      "spell": 10938,
+      "missingAura": true,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 4
+    }
+  ]
+}

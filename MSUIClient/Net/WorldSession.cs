@@ -325,6 +325,8 @@ public sealed class WorldSession : IDisposable
     /// RTS order. Empty subjects retains the legacy "whole real party" meaning;
     /// callers for temporary groups must always send a nonempty explicit list.
     /// </summary>
+    public void SuiCommanderRaid(byte[] body) => SendPacket((ushort)Op.CMSG_SUI_COMMANDER_RAID, body);
+
     public void SuiOrder(byte orderType, IReadOnlyList<ulong> subjects, ulong targetGuid, float x, float y, float z)
     {
         ArgumentNullException.ThrowIfNull(subjects);

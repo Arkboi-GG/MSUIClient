@@ -27,6 +27,13 @@ internal static class ControlledTransportClinicalChecks
 
         string root = ClientConfig.FindRepoRoot();
         string program = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.cs"));
+        string window = SourceText.Read(Path.Combine(root, "MSUIClient", "Engine", "ClientWindow.cs"));
+        string controller = SourceText.Read(Path.Combine(root, "MSUIClient", "Player", "CharacterController.cs"));
+        Check(window.Contains("MovementDeltaSeconds = float.IsFinite(dt) ? Math.Clamp(dt, 0f, 0.5f) : 0f", StringComparison.Ordinal) &&
+              program.Contains("_controller.Update(_window.MovementDeltaSeconds, input)", StringComparison.Ordinal) &&
+              controller.Contains("UpdateStep(step, input)", StringComparison.Ordinal) &&
+              controller.Contains("MathF.Min(remaining, 0.05f)", StringComparison.Ordinal),
+            "controlled movement lost bounded elapsed time or collision substeps");
         string transports = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop",
             "Scene", "GameLoop.Transports.cs"));
         string sender = SourceText.Read(Path.Combine(root, "MSUIClient", "Net",
@@ -38,7 +45,7 @@ internal static class ControlledTransportClinicalChecks
         string doodads = SourceText.Read(Path.Combine(root, "MSUIClient", "World", "Doodads",
             "DoodadRenderer.cs"));
         Check(program.IndexOf("UpdateGameObjectTransports();", StringComparison.Ordinal) <
-              program.IndexOf("_controller.Update(dt, input)", StringComparison.Ordinal) &&
+              program.IndexOf("_controller.Update(_window.MovementDeltaSeconds, input)", StringComparison.Ordinal) &&
               program.Contains("CarryControlledTransportRider();", StringComparison.Ordinal) &&
               program.Contains("ReconcileControlledTransportRider();", StringComparison.Ordinal) &&
               transports.Contains("ProbeMovingTransportGround", StringComparison.Ordinal) &&

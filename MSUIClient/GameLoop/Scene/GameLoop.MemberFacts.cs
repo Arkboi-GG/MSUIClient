@@ -217,6 +217,8 @@ public sealed partial class GameLoop
             Console.WriteLine($"[member-facts] spells DROPPED for 0x{guid:X} — not a party member");
             return;
         }
+        _commanderFactsSeen.Add(guid);
+        _commanderRaidRosterNext = 0;
         ActionsFor(guid).SeedSpells(spells);
         PopulateBotBar(guid);   // resolves the layered bars + persists the BotSpells cache
         Console.WriteLine($"[member-facts] {ResolveUnitName(guid)}: {spells.Length} known spells");

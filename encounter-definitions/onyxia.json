@@ -1,0 +1,958 @@
+{
+  "id": "onyxia",
+  "name": "Onyxia's Lair",
+  "mapId": 249,
+  "bossEntry": 10184,
+  "bounds": {
+    "min": [
+      -65,
+      -255,
+      -95
+    ],
+    "max": [
+      36,
+      -171,
+      -80
+    ]
+  },
+  "tankAnchor": [
+    34,
+    -215,
+    -84
+  ],
+  "teams": [
+    {
+      "name": "West",
+      "anchor": [
+        15,
+        -191,
+        -88
+      ]
+    },
+    {
+      "name": "East",
+      "anchor": [
+        15,
+        -239,
+        -88
+      ]
+    }
+  ],
+  "addTanksPerTeam": 1,
+  "healersPerTeam": 1,
+  "healerCount": 10,
+  "addEntries": [
+    11262
+  ],
+  "immuneSchools": 4,
+  "objectives": [
+    10184
+  ],
+  "coverage": "authored",
+  "requiredAdds": [],
+  "addPolicy": "split",
+  "schema": 1,
+  "phases": [
+    {
+      "id": 1,
+      "name": "Ground",
+      "priority": 0,
+      "healthMin": 0,
+      "healthMax": 100,
+      "airborne": -1,
+      "aura": 0,
+      "alternate": false,
+      "melee": true,
+      "ranged": true,
+      "threatRatio": 0.8
+    },
+    {
+      "id": 2,
+      "name": "Transition",
+      "priority": 10,
+      "healthMin": 40.0,
+      "healthMax": 65.0,
+      "airborne": -1,
+      "aura": 0,
+      "alternate": true,
+      "melee": false,
+      "ranged": true,
+      "threatRatio": 0
+    },
+    {
+      "id": 3,
+      "name": "Landed",
+      "priority": 20,
+      "healthMin": 0,
+      "healthMax": 40.0,
+      "airborne": -1,
+      "aura": 0,
+      "alternate": false,
+      "melee": true,
+      "ranged": true,
+      "threatRatio": 0.8
+    },
+    {
+      "id": 4,
+      "name": "Airborne",
+      "priority": 30,
+      "healthMin": 0,
+      "healthMax": 100,
+      "airborne": 1,
+      "aura": 0,
+      "alternate": true,
+      "melee": false,
+      "ranged": true,
+      "threatRatio": 0
+    }
+  ],
+  "rules": [
+    {
+      "id": "derived-cones-1",
+      "priority": 80,
+      "action": "avoidCones",
+      "trigger": "always",
+      "spells": [
+        15847,
+        18435,
+        18500,
+        23461
+      ],
+      "phase": 1,
+      "roles": 56,
+      "radius": 2,
+      "durationMs": 0,
+      "target": "boss",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 0
+    },
+    {
+      "id": "derived-cones-3",
+      "priority": 80,
+      "action": "avoidCones",
+      "trigger": "always",
+      "spells": [
+        15847,
+        18435,
+        18500,
+        23461
+      ],
+      "phase": 3,
+      "roles": 56,
+      "radius": 2,
+      "durationMs": 0,
+      "target": "boss",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 0
+    },
+    {
+      "id": "derived-breath-17086",
+      "priority": 100,
+      "action": "avoidPoints",
+      "trigger": "castGo",
+      "spells": [
+        17086
+      ],
+      "phase": 0,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 12000,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        17086,
+        17087,
+        17088,
+        17089,
+        17090,
+        17091,
+        17092,
+        17093,
+        17094,
+        17095,
+        17097,
+        21132,
+        21133,
+        21135,
+        21136,
+        21137,
+        21138,
+        21139,
+        22267,
+        22268
+      ],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 1
+    },
+    {
+      "id": "derived-breath-18351",
+      "priority": 100,
+      "action": "avoidPoints",
+      "trigger": "castGo",
+      "spells": [
+        18351
+      ],
+      "phase": 0,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 12000,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        18351,
+        18352,
+        18353,
+        18354,
+        18355,
+        18356,
+        18357,
+        18358,
+        18359,
+        18360,
+        18361
+      ],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 1
+    },
+    {
+      "id": "derived-breath-18564",
+      "priority": 100,
+      "action": "avoidPoints",
+      "trigger": "castGo",
+      "spells": [
+        18564
+      ],
+      "phase": 0,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 12000,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        18564,
+        18565,
+        18566,
+        18567,
+        18568,
+        18569,
+        18570,
+        18571,
+        18572,
+        18573,
+        18574,
+        18575
+      ],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 1
+    },
+    {
+      "id": "derived-breath-18576",
+      "priority": 100,
+      "action": "avoidPoints",
+      "trigger": "castGo",
+      "spells": [
+        18576
+      ],
+      "phase": 0,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 12000,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        18576,
+        18578,
+        18579,
+        18580,
+        18581,
+        18582,
+        18583
+      ],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 1
+    },
+    {
+      "id": "derived-breath-18584",
+      "priority": 100,
+      "action": "avoidPoints",
+      "trigger": "castGo",
+      "spells": [
+        18584
+      ],
+      "phase": 0,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 12000,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        18584,
+        18585,
+        18586,
+        18587,
+        18588,
+        18589,
+        18590,
+        18591,
+        18592,
+        18593,
+        18594,
+        18595
+      ],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 1
+    },
+    {
+      "id": "derived-breath-18596",
+      "priority": 100,
+      "action": "avoidPoints",
+      "trigger": "castGo",
+      "spells": [
+        18596
+      ],
+      "phase": 0,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 12000,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        18596,
+        18597,
+        18598,
+        18599,
+        18600,
+        18601,
+        18602,
+        18603,
+        18604,
+        18605,
+        18606,
+        18607
+      ],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 1
+    },
+    {
+      "id": "derived-breath-18609",
+      "priority": 100,
+      "action": "avoidPoints",
+      "trigger": "castGo",
+      "spells": [
+        18609
+      ],
+      "phase": 0,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 12000,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        18609,
+        18611,
+        18612,
+        18613,
+        18614,
+        18615,
+        18616
+      ],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 1
+    },
+    {
+      "id": "derived-breath-18617",
+      "priority": 100,
+      "action": "avoidPoints",
+      "trigger": "castGo",
+      "spells": [
+        18617
+      ],
+      "phase": 0,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 12000,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        18617,
+        18618,
+        18619,
+        18620,
+        18621,
+        18622,
+        18623,
+        18624,
+        18625,
+        18626,
+        18627,
+        18628
+      ],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 1
+    },
+    {
+      "id": "derived-breath-22191",
+      "priority": 100,
+      "action": "avoidPoints",
+      "trigger": "castGo",
+      "spells": [
+        22191
+      ],
+      "phase": 0,
+      "roles": 62,
+      "radius": 14.0,
+      "durationMs": 6000,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        22191,
+        22192,
+        22193,
+        22194,
+        22195,
+        22196
+      ],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 1
+    },
+    {
+      "id": "derived-breath-22197",
+      "priority": 100,
+      "action": "avoidPoints",
+      "trigger": "castGo",
+      "spells": [
+        22197
+      ],
+      "phase": 0,
+      "roles": 62,
+      "radius": 14.0,
+      "durationMs": 6000,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        22197,
+        22198,
+        22199,
+        22200,
+        22201,
+        22202
+      ],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 1
+    },
+    {
+      "id": "derived-flight-0",
+      "priority": 95,
+      "action": "avoidPoints",
+      "trigger": "bossNear",
+      "spells": [],
+      "phase": 4,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 0,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        18617,
+        18618,
+        18619,
+        18620,
+        18621,
+        18622,
+        18623,
+        18624,
+        18625,
+        18626,
+        18627,
+        18628
+      ],
+      "station": [
+        10.2191,
+        -247.912,
+        -65.896
+      ],
+      "toggle": 1,
+      "triggerRadius": 6
+    },
+    {
+      "id": "derived-flight-1",
+      "priority": 95,
+      "action": "avoidPoints",
+      "trigger": "bossNear",
+      "spells": [],
+      "phase": 4,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 0,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        18576,
+        18578,
+        18579,
+        18580,
+        18581,
+        18582,
+        18583
+      ],
+      "station": [
+        -31.4963,
+        -250.123,
+        -65.1278
+      ],
+      "toggle": 1,
+      "triggerRadius": 6
+    },
+    {
+      "id": "derived-flight-2",
+      "priority": 95,
+      "action": "avoidPoints",
+      "trigger": "bossNear",
+      "spells": [],
+      "phase": 4,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 0,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        18564,
+        18565,
+        18566,
+        18567,
+        18568,
+        18569,
+        18570,
+        18571,
+        18572,
+        18573,
+        18574,
+        18575
+      ],
+      "station": [
+        -63.5156,
+        -240.096,
+        -65.477
+      ],
+      "toggle": 1,
+      "triggerRadius": 6
+    },
+    {
+      "id": "derived-flight-3",
+      "priority": 95,
+      "action": "avoidPoints",
+      "trigger": "bossNear",
+      "spells": [],
+      "phase": 4,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 0,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        18351,
+        18352,
+        18353,
+        18354,
+        18355,
+        18356,
+        18357,
+        18358,
+        18359,
+        18360,
+        18361
+      ],
+      "station": [
+        -65.8444,
+        -213.809,
+        -65.2985
+      ],
+      "toggle": 1,
+      "triggerRadius": 6
+    },
+    {
+      "id": "derived-flight-4",
+      "priority": 95,
+      "action": "avoidPoints",
+      "trigger": "bossNear",
+      "spells": [],
+      "phase": 4,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 0,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        18596,
+        18597,
+        18598,
+        18599,
+        18600,
+        18601,
+        18602,
+        18603,
+        18604,
+        18605,
+        18606,
+        18607
+      ],
+      "station": [
+        -58.2509,
+        -189.02,
+        -65.79
+      ],
+      "toggle": 1,
+      "triggerRadius": 6
+    },
+    {
+      "id": "derived-flight-5",
+      "priority": 95,
+      "action": "avoidPoints",
+      "trigger": "bossNear",
+      "spells": [],
+      "phase": 4,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 0,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        18609,
+        18611,
+        18612,
+        18613,
+        18614,
+        18615,
+        18616
+      ],
+      "station": [
+        -33.5561,
+        -182.682,
+        -65.9457
+      ],
+      "toggle": 1,
+      "triggerRadius": 6
+    },
+    {
+      "id": "derived-flight-6",
+      "priority": 95,
+      "action": "avoidPoints",
+      "trigger": "bossNear",
+      "spells": [],
+      "phase": 4,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 0,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        18584,
+        18585,
+        18586,
+        18587,
+        18588,
+        18589,
+        18590,
+        18591,
+        18592,
+        18593,
+        18594,
+        18595
+      ],
+      "station": [
+        6.8951,
+        -180.246,
+        -65.896
+      ],
+      "toggle": 1,
+      "triggerRadius": 6
+    },
+    {
+      "id": "derived-flight-7",
+      "priority": 95,
+      "action": "avoidPoints",
+      "trigger": "bossNear",
+      "spells": [],
+      "phase": 4,
+      "roles": 62,
+      "radius": 31.0,
+      "durationMs": 0,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [
+        17086,
+        17087,
+        17088,
+        17089,
+        17090,
+        17091,
+        17092,
+        17093,
+        17094,
+        17095,
+        17097,
+        21132,
+        21133,
+        21135,
+        21136,
+        21137,
+        21138,
+        21139,
+        22267,
+        22268
+      ],
+      "station": [
+        22.8763,
+        -217.152,
+        -65.0548
+      ],
+      "toggle": 1,
+      "triggerRadius": 6
+    },
+    {
+      "id": "derived-landing-intercept",
+      "priority": 10,
+      "action": "move",
+      "trigger": "always",
+      "spells": [],
+      "phase": 4,
+      "roles": 2,
+      "radius": 0,
+      "durationMs": 0,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [],
+      "station": [
+        -4.865,
+        -212.962,
+        -88.542
+      ],
+      "toggle": 0
+    },
+    {
+      "id": "derived-airborne-spread",
+      "priority": 20,
+      "action": "spread",
+      "trigger": "always",
+      "spells": [],
+      "phase": 4,
+      "roles": 62,
+      "radius": 7,
+      "durationMs": 0,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 2
+    },
+    {
+      "id": "derived-isolate-18392",
+      "priority": 90,
+      "action": "isolate",
+      "trigger": "castStart",
+      "spells": [
+        18392
+      ],
+      "phase": 0,
+      "roles": 62,
+      "radius": 9.0,
+      "durationMs": 12000,
+      "target": "marked",
+      "spell": 20019,
+      "missingAura": true,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 2
+    },
+    {
+      "id": "derived-member-aura-20019",
+      "priority": 91,
+      "action": "isolate",
+      "trigger": "memberAura",
+      "spells": [
+        20019
+      ],
+      "phase": 0,
+      "roles": 62,
+      "radius": 6.0,
+      "durationMs": 0,
+      "target": "marked",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 2
+    },
+    {
+      "id": "derived-immunity-5-6346-tank",
+      "priority": 30,
+      "action": "cast",
+      "trigger": "always",
+      "spells": [],
+      "phase": 0,
+      "roles": 62,
+      "radius": 19,
+      "durationMs": 12000,
+      "target": "tank",
+      "spell": 6346,
+      "missingAura": true,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 4,
+      "reserveCasters": 2
+    },
+    {
+      "id": "derived-immunity-5-6346-tankHealer",
+      "priority": 29,
+      "action": "cast",
+      "trigger": "always",
+      "spells": [],
+      "phase": 0,
+      "roles": 62,
+      "radius": 19,
+      "durationMs": 12000,
+      "target": "tankHealer",
+      "spell": 6346,
+      "missingAura": true,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 4
+    },
+    {
+      "id": "derived-immunity-5-6346-self",
+      "priority": 27,
+      "action": "cast",
+      "trigger": "always",
+      "spells": [],
+      "phase": 0,
+      "roles": 8,
+      "radius": 19,
+      "durationMs": 12000,
+      "target": "self",
+      "spell": 6346,
+      "missingAura": true,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 4
+    },
+    {
+      "id": "derived-tank-buff-10938",
+      "priority": 28,
+      "action": "cast",
+      "trigger": "always",
+      "spells": [],
+      "phase": 0,
+      "roles": 62,
+      "radius": 19,
+      "durationMs": 12000,
+      "target": "tank",
+      "spell": 10938,
+      "missingAura": true,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 4
+    }
+  ]
+}

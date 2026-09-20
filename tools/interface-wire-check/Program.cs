@@ -1816,6 +1816,12 @@ if (args.Contains("--tactical-freeze-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--character-model-reset-only", StringComparer.Ordinal))
+{
+    CharacterModelResetClinicalChecks.Run();
+    return;
+}
+
 if (args.Contains("--possess-law-only", StringComparer.Ordinal))
 {
     PossessLawClinicalChecks.Run();
