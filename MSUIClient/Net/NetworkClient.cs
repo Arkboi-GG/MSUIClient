@@ -328,6 +328,7 @@ public sealed partial class NetworkClient : IDisposable
     public bool SuiTacticalQueue(ulong lockId, uint requestId, byte operation,
         IReadOnlyList<TacticalQueueRequestRecord> records) =>
         InWorld(s => s.SuiTacticalQueue(lockId, requestId, operation, records));
+    public bool SuiCommanderRaid(byte[] body) => InWorld(s => s.SuiCommanderRaid(body));
     public bool SuiOrder(byte orderType, IReadOnlyList<ulong> subjects, ulong targetGuid, float x, float y, float z) =>
         InWorld(s => s.SuiOrder(orderType, subjects, targetGuid, x, y, z));
     public bool SuiCam(float x, float y, float z, bool active = true) =>

@@ -86,9 +86,11 @@ public sealed class ParticleRenderer : IDisposable
     /// past the ring toward the archway edge).</summary>
     public float PortalSurfaceSize { get; set; } = 1.2f;
 
-    /// <summary>Hue of the surface film (0..1 around the wheel). ~0.583 is the authored
-    /// blue; lower toward ~0.40-0.45 pushes it green.</summary>
-    public float PortalSurfaceHue { get; set; } = 0.424f;
+    private const float DefaultPortalSurfaceHue = 0.424f;
+
+    /// <summary>Hue of the dungeon surface film (0..1 around the wheel). Raid films
+    /// use a green base and follow this control's offset from its default.</summary>
+    public float PortalSurfaceHue { get; set; } = DefaultPortalSurfaceHue;
 
     /// <summary>Surface film colour saturation and brightness (with the hue above).</summary>
     public float PortalSurfaceSat { get; set; } = 1.0f;
@@ -1204,8 +1206,9 @@ public sealed class ParticleRenderer : IDisposable
     /// evenly). The InstancePortal model has no render mesh, so the real client
     /// draws this surface itself; this recreates it.
     ///
-    /// One film per InstancePortal model placement. Its two MODEL-SPACE SPHERE
-    /// emitters share the disc plane, so dedupe by rounded world origin. The
+    /// One film per InstancePortal / InstancePortal_Green model placement. Their
+    /// two MODEL-SPACE SPHERE emitters share the disc plane, so dedupe by rounded
+    /// world origin. The
     /// model filename is part of the identity because ordinary props use the
     /// same emitter flags and shape. The disc lies in the emitter's local Y-Z
     /// plane (normal = local X), so the in-plane basis is the placement's
@@ -1277,7 +1280,6 @@ public sealed class ParticleRenderer : IDisposable
             _surfaceShader.Set("uViewProjection", camera.RelativeViewProjection);
             _surfaceShader.Set("uCameraOrigin", camera.Position);
             _surfaceShader.Set("uTime", (float)_time);
-            _surfaceShader.Set("uTint", HsvToRgb(PortalSurfaceHue, PortalSurfaceSat, PortalSurfaceVal));
             _surfaceShader.Set("uPortalView", 0);
             _surfaceShader.Set("uFramebufferOrigin", framebufferOrigin);
             _surfaceShader.Set("uMainFramebufferSize", framebufferSize);
@@ -1309,6 +1311,13 @@ public sealed class ParticleRenderer : IDisposable
                 _surfaceShader.Set("uCenter", pool.Origin);
                 _surfaceShader.Set("uRight", u * half);
                 _surfaceShader.Set("uUp", v * half);
+                // The raid asset has the same disc/emitter geometry as the dungeon
+                // asset, but authors green particle ramps. Give its film a matching
+                // green base hue; the existing film slider shifts both palettes.
+                float hue = PortalSurfaceHue;
+                if (PortalModelName(pool.Path).Equals("InstancePortal_Green", StringComparison.OrdinalIgnoreCase))
+                    hue += 1f / 3f - DefaultPortalSurfaceHue;
+                _surfaceShader.Set("uTint", HsvToRgb(hue, PortalSurfaceSat, PortalSurfaceVal));
                 _surfaceShader.Set("uAlpha", PortalSurfaceAlpha);
                 _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
             }
@@ -1573,15 +1582,24 @@ void main()
         return found;
     }
 
-    private static bool IsInstancePortalPath(string path)
+    private static string PortalModelName(string path)
     {
-        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (string.IsNullOrWhiteSpace(path)) return "";
         string normalized = path.Replace('/', '\\');
         int slash = normalized.LastIndexOf('\\');
         string file = slash >= 0 ? normalized[(slash + 1)..] : normalized;
         int dot = file.LastIndexOf('.');
         if (dot >= 0) file = file[..dot];
-        return file.Equals("InstancePortal", StringComparison.OrdinalIgnoreCase);
+        return file;
+    }
+
+    private static bool IsInstancePortalPath(string path)
+    {
+        string file = PortalModelName(path);
+        // Exact asset names only: collision meshes and unrelated model-space
+        // sphere emitters must never acquire a portal film or fill light.
+        return file.Equals("InstancePortal", StringComparison.OrdinalIgnoreCase) ||
+               file.Equals("InstancePortal_Green", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -1589,18 +1607,13 @@ void main()
     /// HOUSESMOKE and BLACKSMITH_SMOKE use that authored storage mode too; applying the portal's
     /// 4.33-yard hollow centre to them hides the newly born plume and leaves only a detached,
     /// apparently frozen wisp. MagePortal_* models are portals as well, but only the exact
-    /// InstancePortal model participates in the legacy static entrance-surface inference above.
+    /// InstancePortal and InstancePortal_Green models participate in the legacy static
+    /// entrance-surface inference above. Both retain their authored particle colours.
     /// </summary>
     private static bool UsesPortalParticleTuning(string path)
     {
-        if (string.IsNullOrWhiteSpace(path)) return false;
-        string normalized = path.Replace('/', '\\');
-        int slash = normalized.LastIndexOf('\\');
-        string file = slash >= 0 ? normalized[(slash + 1)..] : normalized;
-        int dot = file.LastIndexOf('.');
-        if (dot >= 0) file = file[..dot];
-        return file.Equals("InstancePortal", StringComparison.OrdinalIgnoreCase) ||
-               file.StartsWith("MagePortal_", StringComparison.OrdinalIgnoreCase);
+        return IsInstancePortalPath(path) ||
+               PortalModelName(path).StartsWith("MagePortal_", StringComparison.OrdinalIgnoreCase);
     }
 
     private void SetBlend(byte blend)

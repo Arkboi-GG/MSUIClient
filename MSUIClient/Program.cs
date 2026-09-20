@@ -1534,6 +1534,7 @@ public sealed partial class GameLoop : IDisposable
 
         // Scripted Encounter Lab raid proof (MSUI_ENCLAB_PROBE).
         UpdateEncounterLabProbe();
+        UpdateCommanderRaidProbe();
 
         // Scripted Command View party-sight proof (MSUI_PARTYSIGHT_PROBE).
         UpdatePartySightProbe();
@@ -2149,7 +2150,7 @@ public sealed partial class GameLoop : IDisposable
         bool serverRideActive = serverRideHeldByTacticalFreeze ||
             (!tacticalLiveAuthorshipBlocked && UpdateServerRide());
         if (!serverRideActive && !controllerTacticalFrozen && !vanillaControlLocked)
-            _controller.Update(dt, input);
+            _controller.Update(_window.MovementDeltaSeconds, input);
         UpdatePredictedBreath();
         ReconcileControlledTransportRider();
         ResolveRealPortalMovement(movementPreviousPosition);
@@ -3453,6 +3454,7 @@ public sealed partial class GameLoop : IDisposable
             // mode-neutral, and it is MORE useful in creator mode than live, because
             // the simulator needs no server at all.
             DrawEncounterLab();
+        DrawCommanderRaidProbe();
             DrawEncounterActionPanel();
             // One mode-neutral host for every dev/encounter window's gear popup.
             // Keeping it outside the individual windows lets a pop-out remain tunable

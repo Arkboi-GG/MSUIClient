@@ -544,11 +544,20 @@ public sealed class CharacterController
 
     public void Update(float dt, in MovementInput input)
     {
-        // Clamp so an alt-tab or a breakpoint doesn't teleport the character
-        // through a wall. Same clamp the window applies, kept here so the
-        // controller is correct even if it is ever driven from elsewhere.
-        dt = MathF.Min(dt, 0.05f);
+        if (!float.IsFinite(dt) || dt < 0f) return;
+        // Retain ordinary elapsed movement during slow frames without enlarging
+        // any collision sweep. Bound pauses/breakpoints to at most ten steps.
+        float remaining = MathF.Min(dt, 0.5f);
+        do
+        {
+            float step = MathF.Min(remaining, 0.05f);
+            UpdateStep(step, input);
+            remaining -= step;
+        } while (remaining > 0.000001f);
+    }
 
+    private void UpdateStep(float dt, in MovementInput input)
+    {
         Yaw = Normalize(input.Yaw);
         bool breachedThisUpdate = false;
 
@@ -644,7 +653,8 @@ public sealed class CharacterController
         float terminalVelocity = FeatherFalling ? 7f : _opts.TerminalVelocity;
         if (Velocity.Z < -terminalVelocity) Velocity.Z = -terminalVelocity;
         float verticalStartZ = Position.Z;
-        Position.Z += Velocity.Z * dt;
+        if (!Grounded && Velocity.Z < 0f) MoveFallingGeometry(-Velocity.Z * dt);
+        else Position.Z += Velocity.Z * dt;
         bool hitCeiling = ResolveRisingCeiling(verticalStartZ);
         if (hitCeiling) _fallResetBeganJump = jumped || breachedThisUpdate;
 
@@ -662,6 +672,49 @@ public sealed class CharacterController
             FallResetArc = _fallResetPending = _fallResetBeganJump = false;
         }
         FallTimeMs = Grounded || hitCeiling ? 0f : FallTimeMs + dt * 1000f;
+    }
+
+    /// <summary>
+    /// Sweep falling feet before the support query. Steep faces are not standing
+    /// ground, but remain solid: gravity slides down them instead of crossing
+    /// their underside after the horizontal wall sweep has finished.
+    /// </summary>
+    private void MoveFallingGeometry(float drop)
+    {
+        if (!HasGeometryCollision) { Position.Z -= drop; return; }
+        Vector3 remaining = new(0f, 0f, -drop);
+        for (int slide = 0; slide < 3; slide++)
+        {
+            float distance = remaining.Length();
+            if (distance < 1e-5f) return;
+            Vector3 direction = remaining / distance;
+            RayHit? nearest = null;
+            foreach (Vector2 footprint in SupportProbeDirections)
+            {
+                Vector3 origin = Position + new Vector3(
+                    footprint.X * _opts.Radius, footprint.Y * _opts.Radius,
+                    GroundContactEpsilon);
+                if (RaycastGeometry(origin, direction, distance + GroundContactEpsilon) is not { } hit)
+                    continue;
+                if (nearest is null || hit.Distance < nearest.Value.Distance) nearest = hit;
+            }
+            if (nearest is not { } contact) { Position += remaining; return; }
+            float advance = Math.Clamp(contact.Distance - GroundContactEpsilon, 0f, distance);
+            Position += direction * advance;
+            remaining -= direction * advance;
+            // Contact removes the blocked velocity as well as displacement.
+            // Otherwise a body resting against a steep seam banks falling speed
+            // until a small lateral change sends it through the adjoining face.
+            float velocityInto = Velocity.Z * contact.Normal.Z;
+            if (velocityInto < 0f) Velocity.Z -= contact.Normal.Z * velocityInto;
+            // Walkable contact is settled by ResolveGround, which also chooses
+            // between terrain, transports and geometry and owns landing state.
+            if (contact.Normal.Z > _minGroundZ) return;
+            float into = Vector3.Dot(remaining, contact.Normal);
+            if (into >= -1e-6f) return;
+            remaining -= contact.Normal * into;
+            remaining.Z = MathF.Min(0f, remaining.Z);
+        }
     }
 
     private bool ResolveRisingCeiling(float startZ)
@@ -1266,18 +1319,11 @@ public sealed class CharacterController
                 var origin = Position + new Vector3(0, 0, height);
                 if (RaycastGeometry(origin, dir, reach) is not { } candidate) continue;
 
-                // Only a genuinely STEEP face stops horizontal motion. A floor,
-                // a ramp, or the underside of a deck is the ground resolver's
-                // business, and the test is absolute because the raycast turns
-                // normals to face the ray - so a ceiling arrives with the same
-                // sign as a floor and neither should act as a wall.
-                //
-                // Skipping such a hit rather than returning on it is the second
-                // half of this fix. The old code took one walkable reading as
-                // proof the whole path was clear and applied the full move with
-                // no clamp, which made any ramp - or any deck seen from below -
-                // a licence to walk into solid geometry.
-                if (MathF.Abs(candidate.Normal.Z) > _minGroundZ) continue;
+                // Grounded feet may climb a walkable ramp through the ground
+                // resolver. In flight every intersected face stays solid: an
+                // ignored slope/ceiling lets horizontal movement cross it before
+                // the separate vertical sweep can see the original contact.
+                if (Grounded && candidate.Normal.Z > _minGroundZ) continue;
 
                 if (nearestWall is null || candidate.Distance < nearestWall.Value.Distance)
                     nearestWall = candidate;

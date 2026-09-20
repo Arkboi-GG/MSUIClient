@@ -1613,12 +1613,18 @@ public sealed partial class GameLoop
 
     private bool TrySetLocalStandState(byte standState)
     {
-        if (!CanAuthorControlledGameplay || ControlledGuid != LocalPlayerGuid ||
+        if (!CanAuthorControlledGameplay ||
             !StandStateUiLaw.IsClientState(standState) ||
             _net?.StandStateChange(standState) != true ||
-            !_entities.TryGet(LocalPlayerGuid, out WorldEntity self)) return false;
+            !_entities.TryGet(ControlledGuid, out WorldEntity self)) return false;
         self.Fields.SetUnitStandState(standState);
         return true;
+    }
+
+    private void ApplyStandStateUpdate(byte[] body, ulong actorGuid)
+    {
+        if (body.Length != 1) throw new InvalidDataException("Stand state update requires one byte");
+        if (_entities.TryGet(actorGuid, out WorldEntity actor)) actor.Fields.SetUnitStandState(body[0]);
     }
 
     private string ResolveChannelSelector(string selector)
@@ -1726,10 +1732,10 @@ public sealed partial class GameLoop
     /// </summary>
     private void SubmitStandStateChange(UnitStandState requested)
     {
-        UnitStandState current = _entities.TryGet(LocalPlayerGuid, out WorldEntity self)
+        UnitStandState current = _entities.TryGet(ControlledGuid, out WorldEntity self)
             ? (UnitStandState)self.Fields.StandState : UnitStandState.Stand;
         bool togglesOff = requested is UnitStandState.Sit or UnitStandState.Kneel && current == requested;
-        _net?.SendStandStateChange(togglesOff ? UnitStandState.Stand : requested);
+        TrySetLocalStandState((byte)(togglesOff ? UnitStandState.Stand : requested));
     }
 
     /// <summary>

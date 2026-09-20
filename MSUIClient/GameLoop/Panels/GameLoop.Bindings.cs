@@ -1122,7 +1122,7 @@ public sealed partial class GameLoop
     {
         bool down = BindingDown(GameBinding.SitOrStand);
         if (down && !_sitOrStandWasDown && !typing &&
-            _entities.TryGet(LocalPlayerGuid, out WorldEntity self))
+            _entities.TryGet(ControlledGuid, out WorldEntity self))
             TrySetLocalStandState(self.Fields.UnitStandState == StandStateUiLaw.Stand
                 ? StandStateUiLaw.Sit : StandStateUiLaw.Stand);
         _sitOrStandWasDown = down;

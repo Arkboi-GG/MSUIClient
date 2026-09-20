@@ -92,7 +92,9 @@ TF=$G/SuperUiContent/SuiWorld/CRPG/SuiTacticalFreeze.cpp
 TH=$G/SuperUiContent/SuiWorld/CRPG/SuiTacticalFreeze.h
 run "grep -q 'CMSG_SUI_TACTICAL_FREEZE *= 870' $G/Server/Protocol/Opcodes_1_12_1.h" || fail "5.1 tactical-freeze opcode drifted from 870"
 run "grep -q 'SMSG_SUI_TACTICAL_QUEUE *= 873' $G/Server/Protocol/Opcodes_1_12_1.h" || fail "5.1 tactical-queue opcode drifted from 873"
-run "grep -q 'NUM_MSG_TYPES *= 874' $G/Server/Protocol/Opcodes_1_12_1.h" || fail "5.1 NUM_MSG_TYPES is not 874"
+# Commander raid appended its paired 874/875 opcodes after the tactical range.
+run "grep -q 'CMSG_SUI_COMMANDER_RAID *= 874' $G/Server/Protocol/Opcodes_1_12_1.h && grep -q 'SMSG_SUI_COMMANDER_RAID *= 875' $G/Server/Protocol/Opcodes_1_12_1.h" || fail "5.1 commander raid pair drifted from 874/875"
+run "grep -q 'NUM_MSG_TYPES *= 876' $G/Server/Protocol/Opcodes_1_12_1.h" || fail "5.1 NUM_MSG_TYPES is not 876"
 run "! grep -q 'NUM_MSG_TYPES.*868' docs/SUI_WIRE_PROTOCOL.md" || fail "5.1 wire docs still advertise stale NUM_MSG_TYPES 868"
 run "grep -q 'CAPABILITY_TACTICAL_FREEZE_V1 = 1u << 12' $G/SuperUiContent/SuiWorld/Bridge/SuiPortal.h" || fail "5.1 tactical capability is not bit 12"
 run "grep -q 'constexpr uint8 WIRE_VERSION = 1' $TH" || fail "5.1 tactical bodies lost explicit version 1"
@@ -128,7 +130,7 @@ done
 for f in Handlers/MovementHandler.cpp Handlers/SpellHandler.cpp Handlers/CombatHandler.cpp Handlers/PetHandler.cpp; do
   run "grep -q 'IsSessionGameplayFrozen' $G/$f" || fail "5.5 $f lacks frozen-session ingress suppression"
 done
-run "awk '/void WorldSession::HandleStandStateChangeOpcode/{f=1} f&&/_player->IsSuiTacticallyFrozen\(\)/{print \"yes\"; exit} f&&/^}/{exit}' $G/Handlers/MiscHandler.cpp | grep -q yes" || fail "5.5 stand-state input can replace its frozen target pose"
+run "awk '/void WorldSession::HandleStandStateChangeOpcode/{f=1} f&&/GetSuiActor\(\)/{a=1} f&&a&&/actor->IsSuiTacticallyFrozen\(\)/{print \"yes\"; exit} f&&/^}/{exit}' $G/Handlers/MiscHandler.cpp | grep -q yes" || fail "5.5 stand-state input can replace its frozen target pose"
 run "awk '/void WorldSession::HandleEmoteOpcode/{f=1} f&&/GetPlayer\(\)->IsSuiTacticallyFrozen\(\)/{print \"yes\"; exit} f&&/^}/{exit}' $G/Handlers/ChatHandler.cpp | grep -q yes" || fail "5.5 emote input can replace its frozen target pose"
 run "awk '/void WorldSession::HandleTextEmoteOpcode/{f=1} f&&/if \(!GetPlayer\(\)->IsSuiTacticallyFrozen\(\)\)/{print \"yes\"; exit} f&&/EmoteChatBuilder/{exit}' $G/Handlers/ChatHandler.cpp | grep -q yes" || fail "5.5 text-emote animation can replace its frozen target pose"
 run "awk '/void WorldSession::HandleTextEmoteOpcode/{f=1} f&&/!GetPlayer\(\)->IsSuiTacticallyFrozen\(\).*unit/{g=1} g&&/ReceiveEmote/{print \"yes\"; exit} f&&/^}/{exit}' $G/Handlers/ChatHandler.cpp | grep -q yes" || fail "5.5 frozen text emote can still trigger CreatureAI gameplay"

@@ -212,6 +212,9 @@ public sealed class ClientWindow : IDisposable
     /// <summary>Raised every frame before rendering. Argument is delta seconds.</summary>
     public event Action<float>? OnUpdate;
 
+    /// <summary>Bounded wall-clock time for the collision-substepped controlled body.</summary>
+    public float MovementDeltaSeconds { get; private set; }
+
     /// <summary>Raised every frame to draw the world.</summary>
     public event Action<float>? OnRender;
 
@@ -1105,7 +1108,8 @@ public sealed class ClientWindow : IDisposable
 
         long inputStarted = Stopwatch.GetTimestamp();
 
-        // Clamp so an alt-tab or a breakpoint doesn't teleport anything.
+        MovementDeltaSeconds = float.IsFinite(dt) ? Math.Clamp(dt, 0f, 0.5f) : 0f;
+        // Visual/camera updates keep their existing clamp; body collision is substepped.
         dt = MathF.Min(dt, 0.05f);
 
         PollMouse();

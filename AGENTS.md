@@ -1,5 +1,9 @@
 # MSUIClient — agent instructions (any agent: Claude, Codex, Cursor, a human)
 
+## Raid mission state
+
+Read [COMMANDER_RAID_STATE.md](shared_docs/COMMANDER_RAID_STATE.md) first for current authorization status, acceptance gates, evidence and next steps. Its current user pause supersedes historical continuation banners.
+
 This file is the standing brief for whoever works this repo. It exists because
 rules that only live in chat get re-broken (owner, 2026-09-03: "I don't need to
 repeat myself over and over"). Tracked at the repo root (2026-09-03) so it travels with the code; the content is
@@ -23,6 +27,11 @@ touching the code:
 - `shared_docs/INTERIOR_UNIT_LIGHT.md` — how units, mounts, items and server
   gameobjects are lit inside a WMO (the floor's MOCV under the feet, one law with
   the props); the `MSUI_INTERIORLIGHT_PROBE` offline proof.
+- `shared_docs/COMMANDER_RAID_STATE.md` — the one page that is overwritten every session: current status, streaks, hashes, acceptance rule and the next step. Read this first for raid work.
+- `shared_docs/COMMANDER_RAID_ARCHITECTURE.md` — stable design of the Commander raid system: what is code, what is data, the definition schema, the compiler and its global policy, the checkpoint/QA tools, the regression runner and the acceptance rule.
+- `shared_docs/COMMANDER_RAID_PLAN.md` — original design record and research basis for the raid planner and executor (historical detail; ARCHITECTURE is the current summary).
+- `shared_docs/COMMANDER_MOLTEN_CORE.md` — generated Core/DB review of the ten Molten Core bosses with the executor primitives each still needs.
+- The day-by-day raid log (2026-09-06 to 09-09) is frozen at `docs/archive/commander-raid/COMMANDER_RAID_HANDOFF_2026-09-06_to_09-09.md` (git-ignored, local only). Do not append to it; update STATE instead.
 - `CODE_STRUCTURE_LAW.md` (repo root) — where a `.cs` file goes and how it is named.
 
 `interface-wire-check --shared-docs-only` fails when a file in `shared_docs/` is not
@@ -49,17 +58,14 @@ history) and the server handoff `docs/current/POSSESSION_ROUTING_HANDOFF.md`.
    distinct offers (mind the stale innkeeper bit on bowyers).
 5. No ImGui widgets in gameplay UI (vanilla primitives only); the
    `--imgui-policy-only` check stays green.
-6. Never commit, push, create branches or worktrees, or install/restart the
-   Core on your own. Build both trays (`dotnet build -c Debug` and `-c Release`).
-   By default, the owner launches Release. When Nico gives explicit permission
-   in the current conversation, an agent may launch, control, and close the
-   local MSUIClient application and local diagnostic, test, or benchmark
-   processes, including automating client login and gameplay against Nico's
-   configured local development server. This explicit-permission exception
-   never authorizes installing or deploying server artifacts, controlling a
-   server process/service or `screen`/`tmux` session, or mutating a server
-   database/worldstate save. The owner runs all Core installation, deployment,
-   restart, and live-server control steps (see `AGENTS.local.md`).
+6. Never commit, push, create branches or worktrees without separate consent.
+   Build the client in both Debug and Release when changing code. The persistent
+   Testwar +39 gameplay grant below permits character operations and their normal
+   persistence. The 2026-09-07 full raid/boss scripting mission exception also
+   explicitly permits Core builds, installation/deployment and scoped server
+   restarts/control across conversations. Database/worldstate restore/swap and
+   unrelated servers remain owner-only. Read the mission scope below; do not
+   revive the superseded Core build/install/restart approval requirement.
 7. Pair-deploy: new opcodes/capability bits change both sides in one round.
 8. Probe first, don't theorize: `~/vmangos/run/bin/Server.log` (grep `[SUI]`,
    `released bot`, `catch-up teleport`) and the client `msui-console.log`.
@@ -69,3 +75,72 @@ history) and the server handoff `docs/current/POSSESSION_ROUTING_HANDOFF.md`.
 Host names, ssh config, tree paths and the install/restart one-liner are
 machine-specific and live in `AGENTS.local.md` (git-ignored). Copy the block
 from another machine or ask the owner.
+
+
+## Persistent owner authorization: Testwar +39 live raid QA
+
+Nico explicitly authorized this exception on 2026-09-06 and requested these docs
+be corrected so work can continue in a new conversation. It overrides conflicting
+general "owner-only live runtime" language for the following precise scope and
+persists until revoked. Do not ask again for actions already covered here.
+
+- Actor scope: Testwar, player GUID 787, and the existing 39 prepared bots (GUIDs
+  115-142 and 150-160; names in `scratch/onyxia-live/Reconnect-OnyxiaRaid.ps1`,
+  roster facts in `shared_docs/COMMANDER_RAID_STATE.md`). Do not duplicate the raid or touch
+  unrelated player characters.
+- Allowed: launch/login/control/close the local MSUIClient and agent-owned QA
+  processes; use actual client gameplay and the configured web/RA/GM interfaces
+  for bot login/logout (`.bot add NAME` included), grouping and leadership,
+  levels/specs/gear/inventory/ammunition, repairs, teleports/summons, Hold/movement,
+  planner assignment and Apply/Arm/Pause/Clear, combat, killing/reviving these test
+  characters, health/mana replenishment, and their QA GM/cheat settings.
+- Normal database writes caused by these approved gameplay operations are
+  allowed. They are distinct from direct SQL edits or backup/worldstate restores.
+  Direct SQL remains read-only absent separate specific approval.
+- Allowed: source patches in client/Core, client Debug/Release builds, meaningful
+  tests and live observation. Keep ordinary battle results distinct from setup
+  commands or deliberately altered diagnostics; do not manufacture a raid clear.
+- The 2026-09-07 mission exception below additionally permits scoped Core
+  builds, installation/deployment and server restarts/control. Database/worldstate
+  backup/restore/swap and unrelated servers remain outside that grant. No
+  commits/pushes/branches/worktrees without separate consent.
+
+This matches the corresponding exception in `C:/Users/nico/.codex/AGENTS.md`.
+A tool may still enforce its own approval policy; do not bypass an actual tool
+rejection. Report the exact rejected action and reason if one remains.
+
+## Mission authorization: full raid/boss scripting — Nico, 2026-09-07
+
+Nico explicitly authorized changing the former owner-only rule so agents may
+rebuild, install and reboot/restart Core during this full raid/boss scripting
+mission. This is direct owner authorization, persists across conversations for
+this mission until completion or revocation, and overrides conflicting older
+Core administration prohibitions and historical handoff notes. Do not ask him to
+repeat permission for these covered steps.
+
+- Scope: the configured VMaNGOS development checkout `/home/wowvmangos/vmangos`
+  and its runtime `/home/wowvmangos/vmangos/run` on `192.168.0.2`, for reusable
+  raid/boss scripting and real-game validation, including Onyxia followed by all
+  Molten Core with Testwar GUID 787 and the same 39 prepared bots.
+- Agents may patch and build Core, install/deploy the resulting server artifacts,
+  and stop/start/restart/reload that development game server as needed to apply
+  and test mission changes. This includes its normal build/install workflow and
+  the specific process/service, RA/console or dedicated screen/tmux operations
+  needed for that server's restart. Inspect the actual launch setup first and
+  target only that VMaNGOS runtime; preserve normal persistent game state.
+- Server reboot/restart in this grant means the scoped development game server;
+  it does not grant a host-wide reboot affecting unrelated workloads. The
+  unrelated CMaNGOS server and all unrelated projects/processes remain outside
+  scope. Perform planned deployment between attempts after safe recovery or
+  explicitly invalidate an interrupted attempt; preserve logs and completion
+  evidence and verify the installed binary and running process afterward.
+- Existing full Testwar +39 gameplay and local-client/QA grants continue. Normal
+  gameplay persistence is allowed. Database/worldstate backup/restore/swap and
+  direct SQL writes remain outside this grant; SQL stays read-only. No commits,
+  pushes, branches or worktrees without separate consent.
+- Count clears only from real normal-rules combat and encounter progression.
+  Continue using shared encounter data and reusable execution logic, and build
+  tools to shorten safe preparation, observation and recovery cycles.
+- This is an authorization for this mission, not unrestricted infrastructure
+  administration. External tool approval enforcement still applies; do not
+  bypass a rejection, and report any actual rejected action and stated reason.

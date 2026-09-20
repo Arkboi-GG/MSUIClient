@@ -6,6 +6,10 @@ using MSUIClient.Player;
 using MSUIClient.World;
 using MSUIClient.World.Collision;
 
+if (args.Contains("--onyxia-knockback")) return ProbeOnyxiaKnockback();
+if (args.Contains("--onyxia-wall-replay")) return ProbeOnyxiaKnockback(true);
+if (args.Contains("--onyxia-impulse-replay")) return ProbeOnyxiaKnockback(false,true);
+
 TerrainRenderer terrain = CreateTerrain(height: 100f);
 CollisionWorld collision = CreateFloor(height: 10f);
 
@@ -48,6 +52,10 @@ VerifySwimHeadCannotCrossSlantedUnderside();
 VerifySwimSteepFaceIsNeverAFloorLift();
 VerifySwimmerUnderOpenGroundIsLifted();
 VerifySwimmerKeepsRoofedInteriorBelowTerrain();
+
+VerifySlowFrameMovement();
+VerifySlowFrameWall();
+VerifyKnockbackSlidesDownSteepGeometry();
 
 Console.WriteLine("character-controller clinical checks passed");
 return 0;
@@ -1141,4 +1149,152 @@ static void Land(CharacterController controller)
 static void Require(bool condition, string message)
 {
     if (!condition) throw new InvalidOperationException(message);
+}
+
+static void VerifySlowFrameMovement()
+{
+    CharacterController Make() { var c = CreateController(CreateEmptyTerrain(), CreateFloor(10f)); c.TerrainAbsentByDesign = true; c.Teleport(-4f, 0f, 10f); c.Update(.05f, default); return c; }
+    foreach (bool jump in new[] { false, true })
+    {
+        var slow = Make(); var regular = Make();
+        var input = new MovementInput { Forward = 1f, Jump = jump };
+        slow.Update(.3f, input);
+        for (int i = 0; i < 6; i++) regular.Update(.05f, input);
+        Require(Vector3.Distance(slow.Position, regular.Position) < .001f &&
+            Vector3.Distance(slow.Velocity, regular.Velocity) < .001f,
+            $"slow-frame {(jump ? "jump" : "run")} discarded elapsed time: {slow.Position} vs {regular.Position}");
+        Require(slow.Position.X > -2f, "slow-frame run did not advance at ordinary speed");
+    }
+    var paused = Make(); var bounded = Make();
+    paused.Update(10f, new MovementInput { Forward = 1f });
+    bounded.Update(.5f, new MovementInput { Forward = 1f });
+    Require(Vector3.Distance(paused.Position, bounded.Position) < .001f, "long pause exceeded the ten-step movement bound");
+    Vector3 before = paused.Position;
+    paused.Update(float.NaN, new MovementInput { Forward = 1f });
+    paused.Update(-1f, new MovementInput { Forward = 1f });
+    Require(paused.Position == before, "invalid frame time moved the character");
+    var swimmer = Make(); var smoothSwimmer = Make();
+    swimmer.LiquidSurfaceZ = smoothSwimmer.LiquidSurfaceZ = 20f;
+    var stroke = new MovementInput { Forward = 1f, Up = 1f, Jump = true };
+    swimmer.Update(.3f, stroke);
+    for (int i = 0; i < 6; i++) smoothSwimmer.Update(.05f, stroke);
+    Require(Vector3.Distance(swimmer.Position, smoothSwimmer.Position) < .001f, "slow-frame swim differs from ordinary substeps");
+}
+
+static void VerifySlowFrameWall()
+{
+    var world = new CollisionWorld();
+    AddFloor(world, -10f, 10f, -4f, 4f, 10f);
+    AddWallAtX(world, 0f, -4f, 4f, 10f, 14f); world.Build();
+    var body = CreateController(CreateEmptyTerrain(), world);
+    body.TerrainAbsentByDesign = true; body.Teleport(-1f, 0f, 10f); body.Update(.05f, default);
+    body.Update(.5f, new MovementInput { Forward = 1f });
+    Require(body.Position.X < 0f && MathF.Abs(body.Position.Z - 10f) < .01f,
+        $"slow frame crossed a collision wall: {body.Position}");
+}
+
+static int ProbeOnyxiaKnockback(bool wallReplay = false, bool impulseReplay = false)
+{
+    using var mpq = new MSUIClient.Formats.MpqMount("GameData/Data");
+    MSUIClient.Formats.AdtTerrainReader.StormLibExtractor = mpq.ReadFile;
+    var wdt = MSUIClient.Formats.WdtFile.Read("GameData/Data", "OnyxiaLairInstance")!;
+    var placement = wdt.GlobalWmo!;
+    var transform = (Matrix4x4)typeof(MSUIClient.World.Wmo.WmoRenderer).GetMethod("BuildGlobalPlacement", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [placement])!;
+    var root = MSUIClient.Formats.WmoReader.ParseRoot(mpq.ReadFile(placement.ModelPath)!)!;
+    var world = new CollisionWorld();
+    for (int gi = 0; gi < root.NGroups; gi++)
+    {
+        var bytes = mpq.ReadFile($"{placement.ModelPath[..^4]}_{gi:D3}.wmo");
+        if (bytes is null) continue;
+        var group = MSUIClient.Formats.WmoReader.ParseGroup(bytes, root.Flags);
+        if (group is null) continue;
+        var triangles = new List<Vector3>();
+        object?[] call = [group, triangles, new List<Vector3>(), new List<Vector3>(), 0, null];
+        typeof(MSUIClient.World.Wmo.WmoRenderer).GetMethod("CollectCollision", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, call);
+        for (int i = 0; i < triangles.Count; i += 3)
+            world.AddTriangle(Vector3.Transform(triangles[i], transform), Vector3.Transform(triangles[i+1], transform), Vector3.Transform(triangles[i+2], transform));
+    }
+    world.Build();
+    Console.WriteLine($"Onyxia geometry {world.TriangleCount} bounds {world.BoundsMin}..{world.BoundsMax}");
+    if (impulseReplay)
+    {
+        int impulseFailures=0;
+        foreach(float dt in new[]{1f/120,1f/60,.025f,.05f,.1f,.25f,.5f})
+        {
+            var body=CreateController(CreateEmptyTerrain(),world);body.TerrainAbsentByDesign=true;
+            body.Teleport(17.225657f,-244.19337f,-85.5775f);body.Update(.05f,default);
+            body.ApplyKnockback(new MSUIClient.Net.JumpInfo(-15f,.993302f,.115554f,25f));
+            float minZ=body.Position.Z;
+            for(int i=0;i<(int)(8/dt);i++){body.Update(dt,default);minZ=Math.Min(minZ,body.Position.Z);if(body.Grounded)break;}
+            bool failed=!body.Grounded||minZ<-95;
+            if(failed)impulseFailures++;
+            Console.WriteLine($"IMPULSE dt={dt} end={body.Position} grounded={body.Grounded} minZ={minZ} {(failed?"FAIL":"PASS")}");
+        }
+        return impulseFailures==0?0:1;
+    }
+    if (wallReplay)
+    {
+        int failed = 0;
+        foreach (var start in new[] { new Vector3(34.19002f,-232.32033f,-82.763435f), new Vector3(34.644863f,-228.26108f,-82.0984f), new Vector3(35.798035f,-223.24376f,-82.577126f) })
+        foreach (float dt in new[] { 1f/60, .05f, .25f, .5f })
+        foreach (float yaw in new[] { 0f, .25f, 1f, 1.4f, 1.57f, 3f, 4.7f, 6f })
+        {
+            var body = CreateController(CreateEmptyTerrain(),world);body.TerrainAbsentByDesign=true;
+            body.Teleport(start.X,start.Y,start.Z);body.Update(.05f,default);
+            for(int i=0;i<(int)(8/dt);++i)
+            {
+                body.Update(dt,new MovementInput{Forward=1,Yaw=yaw});
+            }
+            if(body.Position.Z < -100 || !float.IsFinite(body.Position.Z))
+            { ++failed;Console.WriteLine($"WALL REPLAY FAIL start={start} dt={dt} yaw={yaw} end={body.Position}"); }
+        }
+        Console.WriteLine($"Real wall movement replay: {failed}/96 fell below the floor");return failed==0?0:1;
+    }
+    int failures = 0;
+    foreach (float dt in new[] { 1f/60f, .05f, .1f, .25f, .5f })
+    foreach (float zSpeed in new[] { -7.5f, -10f, -15f, -20f, 0f })
+    {
+        var body = CreateController(CreateEmptyTerrain(), world);
+        body.TerrainAbsentByDesign = true;
+        body.Teleport(30.907f, -217.251f, -83.959f);
+        body.Update(.05f, default);
+        body.ApplyKnockback(new MSUIClient.Net.JumpInfo(zSpeed, .93886f, .34430f, 25f));
+        float minZ = body.Position.Z;
+        for (int step = 0; step < (int)(8 / dt); step++)
+        {
+            body.Update(dt, default);
+            minZ = MathF.Min(minZ, body.Position.Z);
+            if (body.Grounded) break;
+        }
+        bool failed = !body.Grounded || minZ < -100f;
+        if (failed) failures++;
+        Console.WriteLine($"knockback dt={dt} zSpeed={zSpeed} end={body.Position} grounded={body.Grounded} minZ={minZ} {(failed ? "FAIL" : "PASS")}");
+    }
+    return failures > 0 ? 1 : 0;
+}
+
+static void VerifyKnockbackSlidesDownSteepGeometry()
+{
+    var world = new CollisionWorld();
+    AddFloor(world, -10f, 0f, -10f, 10f, 0f);
+    AddSlopeAtX(world, 0f, 2f, -10f, 10f, 0f, 5f);
+    AddFloor(world, 2f, 10f, -10f, 10f, 5f);
+    world.Build();
+    foreach (float dt in new[] { 1f/60f, .05f, .25f })
+    {
+        var body = CreateController(CreateEmptyTerrain(), world);
+        body.TerrainAbsentByDesign = true;
+        body.Teleport(-2f, 0f, 0f);
+        body.Update(.05f, default);
+        body.ApplyKnockback(new MSUIClient.Net.JumpInfo(-8f, 1f, 0f, 10f));
+        for (int step = 0; step < (int)(5 / dt); step++)
+        {
+            body.Update(dt, default);
+            Require(body.Position.Z >= -0.01f, $"knockback crossed steep geometry at dt={dt}: {body.Position}");
+            if (body.Grounded) break;
+        }
+        Require(body.Grounded && body.ForcedJump is null, $"knockback failed to land at dt={dt}: {body.Position}");
+        Require(MathF.Abs(body.Position.Z) < .01f || MathF.Abs(body.Position.Z - 5f) < .01f,
+            $"steep face incorrectly became standing ground: {body.Position}");
+    }
 }

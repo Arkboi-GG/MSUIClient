@@ -319,6 +319,7 @@ public sealed partial class GameLoop
         ResetRtsControlGroups();
         ResetCompanionVoiceState();
         ResetPartyMemberFacts();
+        ResetCommanderRaid();
         ResetPartyQuestFacts();
         ResetRaidInfo();
         ResetStable();
@@ -778,6 +779,9 @@ public sealed partial class GameLoop
                 break;
             case Op.SMSG_COOLDOWN_CHEAT:
                 ApplyCooldownCheat(inner);
+                break;
+            case Op.SMSG_STANDSTATE_UPDATE:
+                ApplyStandStateUpdate(inner, source);
                 break;
             case Op.SMSG_CAST_RESULT:
                 {
@@ -3986,11 +3990,11 @@ public sealed partial class GameLoop
         if (hovered)
         {
             HoverTip(tacticsBot != 0
-                ? "Party Tactics — roles and quick-slot AI policy"
-                : "Party Tactics needs a companion bot in the party");
+                ? "Rotations & Raid Plan - choose your role, then Auto-assign"
+                : "Rotations & Raid Plan - prepare your encounter");
         }
 
-        if (tacticsBot != 0 && ImGui.IsItemClicked())
+        if (ImGui.IsItemClicked())
         {
             if (_partyTacticsOpen)
                 _partyTacticsOpen = false;

@@ -64,6 +64,16 @@ public sealed partial class GameLoop
                 $"attacker=0x{x.Attacker:X16} victimDied={x.VictimDied}"),
             CombatMeleeSwing x => (x.Attacker == _net?.PlayerGuid ? "SwingReceive" : "ForeignSwingReceive", x.Victim, "server-swing",
                 $"attacker=0x{x.Attacker:X16} damage={x.Damage} hitInfo=0x{x.HitInfo:X8}"),
+            CombatSpellDamage x => ("SpellDamageReceive", x.Target, "server-damage",
+                $"attacker=0x{x.Attacker:X16};spell={x.SpellId};damage={x.Damage};school={x.School};absorb={x.Absorb};resist={x.Resist};blocked={x.Blocked};periodic={x.Periodic}"),
+            CombatPeriodicAura x => ("PeriodicReceive", x.Target, "server-periodic",
+                $"caster=0x{x.Caster:X16};spell={x.SpellId};ticks={string.Join('|', x.Ticks.Select(t => $"{t.Kind},{t.Amount},{t.SchoolOrPower},{t.Absorb},{t.Resist}"))}"),
+            CombatHeal x => ("HealReceive", x.Target, "server-heal",
+                $"caster=0x{x.Healer:X16};spell={x.SpellId};amount={x.Amount};critical={x.Critical}"),
+            CombatDamageShield x => ("DamageShieldReceive", x.Attacker, "server-damage",
+                $"attacker=0x{x.Victim:X16};damage={x.Damage};school={x.School}"),
+            CombatEnvironmentalDamage x => ("EnvironmentalDamageReceive", x.Victim, "server-damage",
+                $"type={x.DamageType};damage={x.Damage};absorb={x.Absorb};resist={x.Resist}"),
             _ => ("CombatReceive", 0UL, "server", value.GetType().Name),
         };
         if (value is CombatAttackStopped stopped)

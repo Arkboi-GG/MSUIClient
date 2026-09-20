@@ -130,7 +130,7 @@ public sealed partial class CharacterRenderer : IDisposable
         public float BodyAlpha;
         public Vector3 BodyTint;
 
-        // ── intent ───────────────────────────────────────────────────────────
+        // â”€â”€ intent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         //
         // WHY THE RENDERER IS TOLD WHAT WAS PRESSED. It used to work the
         // direction and speed out by differencing Position and low-passing the
@@ -185,7 +185,7 @@ public sealed partial class CharacterRenderer : IDisposable
         /// the gait, and the body slid across the ground bolt upright at full speed. Reported
         /// 2026-09-01 for Charge; every server-driven translation had it.
         ///
-        /// The mount renderer already got this right — Program.cs takes
+        /// The mount renderer already got this right â€” Program.cs takes
         /// `_serverRideSpline?.AverageSpeed ?? controller.PlanarSpeed` for the mount's gait, so
         /// the mount ran while its rider stood. CarriedSpeed feeds the character the same number.
         /// </summary>
@@ -390,7 +390,7 @@ public sealed partial class CharacterRenderer : IDisposable
     private long _clipTransitionSequence;
     public ClipTransition LastClipTransition { get; private set; }
 
-    // ── cross-fade ───────────────────────────────────────────────────────────
+    // â”€â”€ cross-fade â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     //
     // The clip we are fading OUT of, its own clock, and how much of the fade is
     // left. Two slots only: a change during a fade drops the older pose rather
@@ -435,7 +435,7 @@ public sealed partial class CharacterRenderer : IDisposable
     /// see the comment there for why this has to be a change, not a level check.</summary>
     private bool _wasMovingLastFrame;
 
-    // ── landing ──────────────────────────────────────────────────────────────
+    // â”€â”€ landing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     private M2Animator.Clip? _landClip;
     private float _landForward, _landStrafe;
     private bool _landWalking;
@@ -444,7 +444,7 @@ public sealed partial class CharacterRenderer : IDisposable
     private bool _jumpHangShown;
     private M2Animator.Clip? _jumpStartClip;
 
-    // ── seated / kneeling / sleeping (UnitStandState) ──────────────────────────
+    // â”€â”€ seated / kneeling / sleeping (UnitStandState) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Same bracket idea as landing above: Down/Up are one-shot transitions either
     // side of a held Loop, not something ChooseClip re-derives from scratch every
     // frame. _seatedLoopAnimId is 0 whenever StandState isn't one of the three
@@ -529,7 +529,7 @@ public sealed partial class CharacterRenderer : IDisposable
     /// </summary>
     public int SoloGeoset { get; set; } = -1;
 
-    // ── knobs ────────────────────────────────────────────────────────────────
+    // â”€â”€ knobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public bool Enabled { get; set; } = true;
 
@@ -615,7 +615,7 @@ public sealed partial class CharacterRenderer : IDisposable
     /// supplied each frame by <see cref="CreatureRenderer.TryDrawSelfMount"/>. Null means on
     /// foot and the ordinary ground transform applies.
     ///
-    /// When it is set the seat owns placement outright — position, facing, ZOffset and the
+    /// When it is set the seat owns placement outright â€” position, facing, ZOffset and the
     /// strafe body yaw all come from the mount, because the rider is parented to it. See
     /// CreatureRenderer.Mounts.cs for why 1.12 mounts are the whole "vehicle" story.
     /// </summary>
@@ -755,7 +755,7 @@ public sealed partial class CharacterRenderer : IDisposable
     public string Race { get; private set; } = "Human";
     public string Gender { get; private set; } = "Male";
 
-    // ── diagnostics ──────────────────────────────────────────────────────────
+    // â”€â”€ diagnostics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public bool Loaded => _m2 is not null;
     public string ModelPath { get; private set; } = "";
@@ -864,7 +864,7 @@ public sealed partial class CharacterRenderer : IDisposable
         _attached.LoadShaders(shaderDir);
     }
 
-    // ── loading ──────────────────────────────────────────────────────────────
+    // â”€â”€ loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public bool Load(string race, string gender)
     {
@@ -2569,7 +2569,7 @@ public sealed partial class CharacterRenderer : IDisposable
         return path;
     }
 
-    // ── animation ────────────────────────────────────────────────────────────
+    // â”€â”€ animation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// <summary>
     /// Start the manual draw/stow motion as independent right/left-arm overlays. Returns false
@@ -3129,7 +3129,7 @@ public sealed partial class CharacterRenderer : IDisposable
         if (length < 1e-6f)
         {
             // Moving with no input of your own: a server ride owns the body (Charge, Intercept,
-            // a knockback, a taxi hop). Run straight ahead at the ride's speed — the ride drives
+            // a knockback, a taxi hop). Run straight ahead at the ride's speed â€” the ride drives
             // the yaw too, so forward IS the direction of travel and there is nothing to strafe.
             // state.Speed is the controller's own planar speed and reads 0 under a ride, which
             // is why the gait rate has to come off CarriedSpeed here.
@@ -3514,7 +3514,7 @@ public sealed partial class CharacterRenderer : IDisposable
             return _animator.Resolve("player", BaseAnimationTrack, 40, false, 38, 0);
         }
 
-        // ── landing ──────────────────────────────────────────────────────────
+        // â”€â”€ landing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         //
         // The landing clip is NOT a bracket you have to sit through. Land and
         // immediately press a direction and the run starts on that frame; land
@@ -3688,7 +3688,7 @@ public sealed partial class CharacterRenderer : IDisposable
         return clip;
     }
 
-    // ── drawing ──────────────────────────────────────────────────────────────
+    // â”€â”€ drawing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public Matrix4x4 BuildTransform(in UnitState state)
     {
@@ -3703,7 +3703,7 @@ public sealed partial class CharacterRenderer : IDisposable
         // Split turns the whole model too - the torso is then pulled back part
         // of the way by its own yaw, which is where the 90-against-60 comes from.
         // Riding: the steed already carries scale, facing and ground placement, and the
-        // seat matrix is expressed in ITS model space — so the rider adds nothing but its
+        // seat matrix is expressed in ITS model space â€” so the rider adds nothing but its
         // own size. Applying the basis or the heading again here would rotate the body off
         // the saddle it is parented to.
         if (MountSeat is { } seat) return Matrix4x4.CreateScale(ModelScale) * seat;
@@ -4042,6 +4042,20 @@ public sealed partial class CharacterRenderer : IDisposable
         // wrong pose at worst.
         _clip = null;
         _previousClip = null;
+        _combatAction = null;
+        _combatReaction = null;
+        _spellHold = null;
+        _actionOverlayArmedRef = null;
+        _torsoOverlayForRender = null;
+        _seatedDownClip = null;
+        _seatedUpClip = null;
+        _combatReactionTime = 0f;
+        _combatReactionMasked = false;
+        _actionOverlayTime = 0f;
+        _seatedLoopAnimId = 0;
+        _seatedUpAnimId = 0;
+        _forceNextBlendSeconds = null;
+        _wasMovingLastFrame = false;
         _landClip = null;
         _jumpStartClip = null;
         _jumpArcActive = false;

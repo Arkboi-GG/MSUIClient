@@ -431,6 +431,7 @@ public sealed partial class GameLoop
             ApplyPartyMemberFactsCapability(capabilities);
             ApplyPartyTaxiCapability(capabilities);
             ApplyTacticalFreezeCapability(capabilities);
+            _commanderRaidAvailable = (capabilities & CommanderRaidWire.Capability) != 0;
         }
         if (trailerValid || capabilities != 0)
         {

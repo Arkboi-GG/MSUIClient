@@ -41,8 +41,9 @@ public sealed partial class GameLoop
     private bool SendGmCommand(string text, string cause)
     {
         string command = text.Trim();
-        if (command.Length == 0) return false;
+        if (command.Length == 0 || !GuardCommanderRaidQaCommand(command)) return false;
         bool sent = _net?.SendChatSay(command) == true;
+        ObserveCommanderRaidQaCommand(command, cause, sent);
         if (_gmCommandHistory.Count == 32) _gmCommandHistory.RemoveAt(0);
         _gmCommandHistory.Add(command); _gmHistoryIndex = _gmCommandHistory.Count;
         var verdict = new CombatVerdict(NowSeconds(), "GmCommand", cause, 0,

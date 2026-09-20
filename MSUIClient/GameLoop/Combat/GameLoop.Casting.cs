@@ -165,7 +165,7 @@ public sealed partial class GameLoop
         else _creatures?.ReleaseSpellVisual(packet.Caster, anim);
 
         EmitCombat("SpellGoTargets", "server-packet", packet.Targets.Unit ?? 0,
-            $"spell={packet.SpellId};mask=0x{packet.Targets.Mask:X4};hits={packet.Hits.Length};" +
+            $"spell={packet.SpellId};caster=0x{packet.Caster:X16};mask=0x{packet.Targets.Mask:X4};hits={packet.Hits.Length};" +
             $"hitGuids={string.Join('|', packet.Hits.Select(guid => $"0x{guid:X16}"))};" +
             $"misses={packet.Misses.Length};missInfo={string.Join('|', packet.Misses.Select(miss => $"0x{miss.Guid:X16}:{miss.Reason}:reflect={miss.ReflectionReason?.ToString() ?? "none"}"))};explicitUnit=" +
             (packet.Targets.Unit is { } explicitUnit ? $"0x{explicitUnit:X16}" : "none"));
