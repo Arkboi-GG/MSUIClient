@@ -1,0 +1,119 @@
+{
+  "id": "pack-409-56856",
+  "name": "Ancient Core Hound pack (1) at (708,-604)",
+  "mapId": 409,
+  "bossEntry": 11673,
+  "bounds": {
+    "min": [
+      648,
+      -664,
+      -257
+    ],
+    "max": [
+      778,
+      -518,
+      -165
+    ]
+  },
+  "tankAnchor": [
+    708.1,
+    -588,
+    -211.38
+  ],
+  "teams": [
+    {
+      "name": "Left",
+      "anchor": [
+        708.1,
+        -578,
+        -212.34
+      ]
+    },
+    {
+      "name": "Right",
+      "anchor": [
+        718.1,
+        -586.7,
+        -211.78
+      ]
+    }
+  ],
+  "addTanksPerTeam": 1,
+  "healersPerTeam": 1,
+  "healerCount": 10,
+  "addEntries": [
+    11673
+  ],
+  "immuneSchools": 0,
+  "objectives": [
+    11673
+  ],
+  "coverage": "basic",
+  "requiredAdds": [
+    {
+      "entry": 11673,
+      "count": 1
+    }
+  ],
+  "addPolicy": "focus",
+  "schema": 1,
+  "phases": [
+    {
+      "id": 1,
+      "name": "Combat",
+      "priority": 0,
+      "healthMin": 0,
+      "healthMax": 100,
+      "airborne": -1,
+      "aura": 0,
+      "alternate": false,
+      "melee": true,
+      "ranged": true,
+      "threatRatio": 0.8
+    }
+  ],
+  "rules": [
+    {
+      "id": "derived-tank-buff-10938",
+      "priority": 28,
+      "action": "cast",
+      "trigger": "always",
+      "spells": [],
+      "phase": 0,
+      "roles": 62,
+      "radius": 19,
+      "durationMs": 12000,
+      "target": "tank",
+      "spell": 10938,
+      "missingAura": true,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 4
+    },
+    {
+      "id": "derived-spread-ranged",
+      "priority": 20,
+      "action": "spread",
+      "trigger": "always",
+      "spells": [],
+      "phase": 1,
+      "roles": 40,
+      "radius": 3.0,
+      "durationMs": 0,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 0
+    }
+  ]
+}

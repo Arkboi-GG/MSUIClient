@@ -1,0 +1,5255 @@
+{
+  "schema": 1,
+  "clientBuild": 5875,
+  "patchCeiling": 10,
+  "coreBaseline": "fb207e67b6f4f34b4e27f9ecc48e0806bc7c057c",
+  "sourceSha256": "6e69b32a4309dc710c999d000090f5406e1075392a40550b7a5048e37cbf4087",
+  "counts": {
+    "bossScripts": 113,
+    "bosses": 217,
+    "spawns": 154,
+    "spells": 22413,
+    "spell_points": 307,
+    "creature_spells": 2596,
+    "ai_scripts": 7381
+  },
+  "bosses": [
+    {
+      "entry": 646,
+      "name": "Mr. Smite",
+      "immuneSchools": 0,
+      "mechanicImmunity": 608908883,
+      "script": "boss_mr_smite",
+      "source": "src/scripts/eastern_kingdoms/westfall/deadmines/boss_mr_smite.cpp",
+      "spellIds": [
+        3391,
+        3417,
+        6264,
+        6432,
+        6433,
+        6435,
+        6436
+      ],
+      "features": [
+        "health-phases",
+        "objects"
+      ],
+      "spawns": [
+        {
+          "mapId": 36,
+          "x": -22.8471,
+          "y": -797.283,
+          "z": 20.3745
+        }
+      ]
+    },
+    {
+      "entry": 929,
+      "name": "Dreadlord Malganis",
+      "immuneSchools": 0,
+      "mechanicImmunity": 0,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 1284,
+      "name": "Archbishop Benedictus",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        20694,
+        20695,
+        20697
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 0,
+          "x": -8522.61,
+          "y": 848.783,
+          "z": 106.702
+        }
+      ]
+    },
+    {
+      "entry": 1748,
+      "name": "Highlord Bolvar Fordragon",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        18819,
+        20683,
+        20684
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 0,
+          "x": -8439.98,
+          "y": 329.392,
+          "z": 122.579
+        }
+      ]
+    },
+    {
+      "entry": 2425,
+      "name": "Varimathras",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        20740,
+        20741,
+        20743
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 0,
+          "x": 1287.77,
+          "y": 333.508,
+          "z": -59.9998
+        }
+      ]
+    },
+    {
+      "entry": 2748,
+      "name": "Archaedas",
+      "immuneSchools": 0,
+      "mechanicImmunity": 8407056,
+      "script": "boss_archaedas",
+      "source": "src/scripts/eastern_kingdoms/uldaman/boss_archaedas.cpp",
+      "spellIds": [],
+      "features": [
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 70,
+          "x": 104.338,
+          "y": 272.31,
+          "z": -51.6959
+        }
+      ]
+    },
+    {
+      "entry": 2784,
+      "name": "King Magni Bronzebeard",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        19135,
+        20685,
+        20686
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 0,
+          "x": -4865.73,
+          "y": -1022.67,
+          "z": 505.798
+        }
+      ]
+    },
+    {
+      "entry": 3057,
+      "name": "Cairne Bloodhoof",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        15284,
+        16727,
+        16856,
+        22911,
+        22916
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": -1209.64,
+          "y": -112.698,
+          "z": 163.882
+        }
+      ]
+    },
+    {
+      "entry": 3516,
+      "name": "Arch Druid Fandral Staghelm",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        20698,
+        20699,
+        20701,
+        20702,
+        27530
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": 10173.0,
+          "y": 2569.92,
+          "z": 1366.96
+        }
+      ]
+    },
+    {
+      "entry": 3974,
+      "name": "Houndmaster Loksey",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617296859,
+      "script": "boss_houndmaster_loksey",
+      "source": "src/scripts/eastern_kingdoms/tirisfal_glades/scarlet_monastery/boss_houndmaster_loksey.cpp",
+      "spellIds": [
+        6192,
+        6742,
+        17164
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 189,
+          "x": 119.938,
+          "y": -260.869,
+          "z": 18.6299
+        }
+      ]
+    },
+    {
+      "entry": 3975,
+      "name": "Herod",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299931,
+      "script": "boss_herod",
+      "source": "src/scripts/eastern_kingdoms/tirisfal_glades/scarlet_monastery/boss_herod.cpp",
+      "spellIds": [
+        6268,
+        8260,
+        8269,
+        8599,
+        8989,
+        15496,
+        15579
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "objects"
+      ],
+      "spawns": [
+        {
+          "mapId": 189,
+          "x": 1965.09,
+          "y": -431.607,
+          "z": 6.26076
+        }
+      ]
+    },
+    {
+      "entry": 3983,
+      "name": "Interrogator Vishas",
+      "immuneSchools": 0,
+      "mechanicImmunity": 8388608,
+      "script": "boss_interrogator_vishas",
+      "source": "src/scripts/eastern_kingdoms/tirisfal_glades/scarlet_monastery/boss_interrogator_vishas.cpp",
+      "spellIds": [
+        2767
+      ],
+      "features": [
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 189,
+          "x": 1786.55,
+          "y": 1124.44,
+          "z": 7.57362
+        }
+      ]
+    },
+    {
+      "entry": 4542,
+      "name": "High Inquisitor Fairbanks",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617296859,
+      "script": "boss_high_inquisitor_fairbanks",
+      "source": "src/scripts/eastern_kingdoms/tirisfal_glades/scarlet_monastery/boss_high_inquisitor_fairbanks.cpp",
+      "spellIds": [
+        8282,
+        8399,
+        11647,
+        12039,
+        12096,
+        15090,
+        28443
+      ],
+      "features": [
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 189,
+          "x": 1158.86,
+          "y": 1354.27,
+          "z": 30.389
+        }
+      ]
+    },
+    {
+      "entry": 4949,
+      "name": "Thrall",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        16033,
+        16034
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": 1920.07,
+          "y": -4125.69,
+          "z": 42.9976
+        }
+      ]
+    },
+    {
+      "entry": 4968,
+      "name": "Lady Jaina Proudmoore",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "npc_lady_jaina_proudmoore",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": -3749.69,
+          "y": -4454.15,
+          "z": 64.9879
+        }
+      ]
+    },
+    {
+      "entry": 6109,
+      "name": "Azuregos",
+      "immuneSchools": 64,
+      "mechanicImmunity": 651116543,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        19983,
+        21097,
+        21098,
+        21099,
+        21147,
+        21150,
+        22067,
+        23185,
+        23187
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": 2680.74,
+          "y": -6159.52,
+          "z": 98.1557
+        }
+      ]
+    },
+    {
+      "entry": 6487,
+      "name": "Arcanist Doan",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299931,
+      "script": "boss_arcanist_doan",
+      "source": "src/scripts/eastern_kingdoms/tirisfal_glades/scarlet_monastery/boss_arcanist_doan.cpp",
+      "spellIds": [
+        8988,
+        9433,
+        9435,
+        9438,
+        13323
+      ],
+      "features": [
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 189,
+          "x": 148.32,
+          "y": -428.692,
+          "z": 18.4864
+        }
+      ]
+    },
+    {
+      "entry": 7228,
+      "name": "Ironaya",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617314139,
+      "script": "boss_ironaya",
+      "source": "src/scripts/eastern_kingdoms/uldaman/boss_ironaya.cpp",
+      "spellIds": [],
+      "features": [
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 70,
+          "x": -234.731,
+          "y": 312.007,
+          "z": -47.5142
+        }
+      ]
+    },
+    {
+      "entry": 7800,
+      "name": "Mekgineer Thermaplugg",
+      "immuneSchools": 0,
+      "mechanicImmunity": 608925267,
+      "script": "boss_thermaplugg",
+      "source": "src/scripts/eastern_kingdoms/dun_morogh/gnomeregan/boss_thermaplugg.cpp",
+      "spellIds": [
+        10101,
+        11130,
+        11504,
+        11511,
+        11795
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "objects"
+      ],
+      "spawns": [
+        {
+          "mapId": 90,
+          "x": -531.324,
+          "y": 670.159,
+          "z": -325.185
+        }
+      ]
+    },
+    {
+      "entry": 7846,
+      "name": "Teremus the Devourer",
+      "immuneSchools": 20,
+      "mechanicImmunity": 617316187,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        9573,
+        11427,
+        12667
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 0,
+          "x": -11452.2,
+          "y": -3021.12,
+          "z": 2.69085
+        }
+      ]
+    },
+    {
+      "entry": 7937,
+      "name": "High Tinker Mekkatorque",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        9143,
+        22739,
+        22742
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 0,
+          "x": -4827.63,
+          "y": -1257.16,
+          "z": 506.119
+        }
+      ]
+    },
+    {
+      "entry": 7999,
+      "name": "Tyrande Whisperwind",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        20688,
+        20690,
+        20691,
+        26540
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": 9662.52,
+          "y": 2524.57,
+          "z": 1360.08
+        }
+      ]
+    },
+    {
+      "entry": 8680,
+      "name": "Massive Infernal",
+      "immuneSchools": 4,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 8929,
+      "name": "Princess Moira Bronzebeard",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613103579,
+      "script": "boss_moira_bronzebeard",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_depths/boss_emperor_dagran_thaurissan.cpp",
+      "spellIds": [
+        8362,
+        10901,
+        10929,
+        10934,
+        15537,
+        15586,
+        15587,
+        15636,
+        15642,
+        15654,
+        17492
+      ],
+      "features": [
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 230,
+          "x": 1384.64,
+          "y": -831.486,
+          "z": -87.5893
+        }
+      ]
+    },
+    {
+      "entry": 9018,
+      "name": "High Interrogator Gerstahn",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613103323,
+      "script": "boss_high_interrogator_gerstahn",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_depths/boss_high_interrogator_gerstahn.cpp",
+      "spellIds": [
+        12040,
+        13704,
+        14032,
+        14033
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 230,
+          "x": 310.558,
+          "y": -146.251,
+          "z": -70.3029
+        }
+      ]
+    },
+    {
+      "entry": 9019,
+      "name": "Emperor Dagran Thaurissan",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_emperor_dagran_thaurissan",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_depths/boss_emperor_dagran_thaurissan.cpp",
+      "spellIds": [
+        10901,
+        10929,
+        10934,
+        15537,
+        15586,
+        15587,
+        15636,
+        15642,
+        15654,
+        17492
+      ],
+      "features": [
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 230,
+          "x": 1380.18,
+          "y": -831.645,
+          "z": -87.59
+        }
+      ]
+    },
+    {
+      "entry": 9027,
+      "name": "Gorosh the Dervish",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_gorosh_the_dervish",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_depths/boss_gorosh_the_dervish.cpp",
+      "spellIds": [
+        15589,
+        15708,
+        21049
+      ],
+      "features": [
+        "health-phases"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 9028,
+      "name": "Grizzle",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_grizzle",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_depths/boss_grizzle.cpp",
+      "spellIds": [
+        6524,
+        8269
+      ],
+      "features": [
+        "health-phases"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 9031,
+      "name": "Anub'shiah",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_anubshiah",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_depths/boss_anubshiah.cpp",
+      "spellIds": [
+        12493,
+        13787,
+        15470,
+        15471,
+        15472
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 9033,
+      "name": "General Angerforge",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_general_angerforge",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_depths/boss_general_angerforge.cpp",
+      "spellIds": [
+        15572
+      ],
+      "features": [
+        "summons",
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 230,
+          "x": 652.39,
+          "y": 21.3737,
+          "z": -59.976
+        }
+      ]
+    },
+    {
+      "entry": 9039,
+      "name": "Doom'rel",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613118939,
+      "script": "boss_doomrel",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_depths/boss_tomb_of_seven.cpp",
+      "spellIds": [
+        12493,
+        12742,
+        13787,
+        15092,
+        15245
+      ],
+      "features": [
+        "health-phases",
+        "objects",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 230,
+          "x": 1281.14,
+          "y": -282.151,
+          "z": -78.1359
+        }
+      ]
+    },
+    {
+      "entry": 9196,
+      "name": "Highlord Omokk",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613103571,
+      "script": "boss_highlord_omokk",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_spire/boss_highlord_omokk.cpp",
+      "spellIds": [
+        8269,
+        10101,
+        18106,
+        18368,
+        20686,
+        22356,
+        24317,
+        24375
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 229,
+          "x": -22.6518,
+          "y": -299.75,
+          "z": 31.7016
+        }
+      ]
+    },
+    {
+      "entry": 9236,
+      "name": "Shadow Hunter Vosh'gajin",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613103571,
+      "script": "boss_shadow_hunter_voshgajin",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_spire/boss_shadow_hunter_voshgajin.cpp",
+      "spellIds": [
+        16097,
+        16098,
+        16708,
+        20691,
+        24673
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 229,
+          "x": -121.19,
+          "y": -482.18,
+          "z": 24.71
+        }
+      ]
+    },
+    {
+      "entry": 9237,
+      "name": "War Master Voone",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_warmaster_voone",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_spire/boss_warmaster_voone.cpp",
+      "spellIds": [
+        3417,
+        10966,
+        15284,
+        15615,
+        15618,
+        15708,
+        16075,
+        16076
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 229,
+          "x": -16.9764,
+          "y": -459.149,
+          "z": -18.6442
+        }
+      ]
+    },
+    {
+      "entry": 9499,
+      "name": "Plugger Spazzring",
+      "immuneSchools": 0,
+      "mechanicImmunity": 646660059,
+      "script": "boss_plugger_spazzring",
+      "source": "",
+      "spellIds": [
+        12739,
+        12742,
+        13338,
+        13787
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 230,
+          "x": 888.472,
+          "y": -177.929,
+          "z": -42.9623
+        }
+      ]
+    },
+    {
+      "entry": 9568,
+      "name": "Overlord Wyrmthalak",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613103571,
+      "script": "boss_overlord_wyrmthalak",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_spire/boss_overlord_wyrmthalak.cpp",
+      "spellIds": [
+        11130,
+        20686,
+        20691,
+        23511
+      ],
+      "features": [
+        "summons",
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 229,
+          "x": -22.6325,
+          "y": -486.186,
+          "z": 90.7531
+        }
+      ]
+    },
+    {
+      "entry": 9816,
+      "name": "Pyroguard Emberseer",
+      "immuneSchools": 4,
+      "mechanicImmunity": 613122011,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        16079,
+        16536
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 229,
+          "x": 144.438,
+          "y": -258.034,
+          "z": 96.4066
+        }
+      ]
+    },
+    {
+      "entry": 9938,
+      "name": "Magmus",
+      "immuneSchools": 4,
+      "mechanicImmunity": 613122011,
+      "script": "boss_magmus",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_depths/boss_magmus.cpp",
+      "spellIds": [
+        13900,
+        15593,
+        15668,
+        24375
+      ],
+      "features": [
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 230,
+          "x": 1380.72,
+          "y": -659.314,
+          "z": -91.9711
+        }
+      ]
+    },
+    {
+      "entry": 10076,
+      "name": "High Priestess of Thaurissan",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613103579,
+      "script": "boss_moira_bronzebeard",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_depths/boss_emperor_dagran_thaurissan.cpp",
+      "spellIds": [
+        8362,
+        10901,
+        10929,
+        10934,
+        15537,
+        15586,
+        15587,
+        15636,
+        15642,
+        15654,
+        17492
+      ],
+      "features": [
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 10156,
+      "name": "Scott's Test Dummy",
+      "immuneSchools": 0,
+      "mechanicImmunity": 0,
+      "script": "custom_npc_training_dummy",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 10162,
+      "name": "Lord Victor Nefarius",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_victor_nefarius",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackwing_lair/boss_victor_nefarius.cpp",
+      "spellIds": [
+        17131,
+        17507,
+        22663,
+        22665,
+        22666,
+        22667,
+        22677,
+        22678,
+        24180
+      ],
+      "features": [
+        "summons",
+        "objects",
+        "relocation",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 469,
+          "x": -7588.27,
+          "y": -1261.92,
+          "z": 482.03
+        },
+        {
+          "mapId": 229,
+          "x": 163.168,
+          "y": -444.165,
+          "z": 122.059
+        }
+      ]
+    },
+    {
+      "entry": 10181,
+      "name": "Lady Sylvanas Windrunner",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "npc_lady_sylvanas_windrunner",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 0,
+          "x": 1290.41,
+          "y": 316.247,
+          "z": -57.2376
+        }
+      ]
+    },
+    {
+      "entry": 10184,
+      "name": "Onyxia",
+      "immuneSchools": 4,
+      "mechanicImmunity": 646659931,
+      "script": "boss_onyxia",
+      "source": "src/scripts/kalimdor/dustwallow_marsh/onyxias_lair/boss_onyxia.cpp",
+      "spellIds": [
+        15847,
+        17086,
+        17131,
+        18351,
+        18392,
+        18431,
+        18435,
+        18500,
+        18564,
+        18576,
+        18584,
+        18596,
+        18609,
+        18617,
+        19633,
+        19983,
+        22191,
+        22197,
+        23461
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "objects",
+        "relocation"
+      ],
+      "spawns": [
+        {
+          "mapId": 249,
+          "x": -4.8689,
+          "y": -217.171,
+          "z": -86.7104
+        }
+      ]
+    },
+    {
+      "entry": 10220,
+      "name": "Halycon",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613103579,
+      "script": "boss_halycon",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_spire/boss_halycon.cpp",
+      "spellIds": [
+        3417,
+        10887,
+        13738,
+        14099
+      ],
+      "features": [
+        "summons"
+      ],
+      "spawns": [
+        {
+          "mapId": 229,
+          "x": -193.914,
+          "y": -338.148,
+          "z": 64.4879
+        }
+      ]
+    },
+    {
+      "entry": 10363,
+      "name": "General Drakkisath",
+      "immuneSchools": 0,
+      "mechanicImmunity": 646660063,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        12097,
+        15588,
+        15754,
+        16419,
+        16789,
+        16805,
+        20691,
+        23023,
+        23462,
+        23931
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 229,
+          "x": 36.4509,
+          "y": -285.994,
+          "z": 111.036
+        }
+      ]
+    },
+    {
+      "entry": 10429,
+      "name": "Warchief Rend Blackhand",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        13736,
+        15589,
+        15708,
+        15754,
+        23931
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 229,
+          "x": 159.276,
+          "y": -443.619,
+          "z": 122.059
+        }
+      ]
+    },
+    {
+      "entry": 10430,
+      "name": "The Beast",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_the_beast",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackrock_spire/boss_the_beast.cpp",
+      "spellIds": [
+        14100,
+        14144,
+        15506,
+        16144,
+        16636,
+        16710,
+        16785,
+        16788
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 229,
+          "x": 124.21,
+          "y": -563.799,
+          "z": 107.425
+        }
+      ]
+    },
+    {
+      "entry": 10432,
+      "name": "Vectus",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617297883,
+      "script": "boss_vectus",
+      "source": "src/scripts/eastern_kingdoms/western_plaguelands/scholomance/boss_vectus.cpp",
+      "spellIds": [
+        16046,
+        18115,
+        18399
+      ],
+      "features": [
+        "health-phases",
+        "objects",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 289,
+          "x": 143.481,
+          "y": 99.0964,
+          "z": 104.659
+        }
+      ]
+    },
+    {
+      "entry": 10435,
+      "name": "Magistrate Barthilas",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617297875,
+      "script": "boss_magistrate_barthilas",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/stratholme/boss_magistrate_barthilas.cpp",
+      "spellIds": [
+        10887,
+        14099,
+        16791,
+        16793
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 329,
+          "x": 3663.23,
+          "y": -3619.14,
+          "z": 137.984
+        }
+      ]
+    },
+    {
+      "entry": 10436,
+      "name": "Baroness Anastari",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617316315,
+      "script": "boss_baroness_anastari",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/stratholme/boss_baroness_anastari.cpp",
+      "spellIds": [
+        16565,
+        16867,
+        17244,
+        18327,
+        24699
+      ],
+      "features": [
+        "health-phases",
+        "relocation"
+      ],
+      "spawns": [
+        {
+          "mapId": 329,
+          "x": 3855.34,
+          "y": -3715.75,
+          "z": 148.175
+        }
+      ]
+    },
+    {
+      "entry": 10437,
+      "name": "Nerub'enkan",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299931,
+      "script": "boss_nerubenkan",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/stratholme/boss_nerubenkan.cpp",
+      "spellIds": [
+        4962,
+        6016,
+        17235
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 329,
+          "x": 3854.98,
+          "y": -3528.84,
+          "z": 144.293
+        }
+      ]
+    },
+    {
+      "entry": 10438,
+      "name": "Maleki the Pallid",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299931,
+      "script": "boss_maleki_the_pallid",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/stratholme/boss_maleki_the_pallid.cpp",
+      "spellIds": [
+        16869,
+        17238,
+        17243,
+        17503
+      ],
+      "features": [
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 329,
+          "x": 4035.81,
+          "y": -3647.78,
+          "z": 135.738
+        }
+      ]
+    },
+    {
+      "entry": 10439,
+      "name": "Ramstein the Gorger",
+      "immuneSchools": 0,
+      "mechanicImmunity": 608908883,
+      "script": "boss_ramstein_the_gorger",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/stratholme/boss_ramstein_the_gorger.cpp",
+      "spellIds": [
+        5568,
+        6788,
+        17307
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 10502,
+      "name": "Lady Illucia Barov",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854363,
+      "script": "boss_illucia_barov",
+      "source": "src/scripts/eastern_kingdoms/western_plaguelands/scholomance/boss_illucia_barov.cpp",
+      "spellIds": [
+        6215,
+        15487,
+        18116,
+        18671,
+        19460,
+        20603
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 289,
+          "x": 265.956,
+          "y": 0.903429,
+          "z": 75.3334
+        }
+      ]
+    },
+    {
+      "entry": 10503,
+      "name": "Jandice Barov",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613103579,
+      "script": "boss_jandice_barov",
+      "source": "src/scripts/eastern_kingdoms/western_plaguelands/scholomance/boss_jandice_barov.cpp",
+      "spellIds": [
+        8994,
+        15584,
+        16098,
+        16122,
+        17773,
+        18116,
+        18270,
+        24673,
+        26096
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 289,
+          "x": 268.223,
+          "y": 73.633,
+          "z": 95.9245
+        }
+      ]
+    },
+    {
+      "entry": 10504,
+      "name": "Lord Alexei Barov",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617297883,
+      "script": "boss_lord_alexei_barov",
+      "source": "src/scripts/eastern_kingdoms/western_plaguelands/scholomance/boss_lord_alexei_barov.cpp",
+      "spellIds": [
+        11668,
+        11700,
+        15570,
+        17820,
+        18116
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 289,
+          "x": 178.724,
+          "y": -91.0232,
+          "z": 70.8568
+        }
+      ]
+    },
+    {
+      "entry": 10505,
+      "name": "Instructor Malicia",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617297875,
+      "script": "boss_instructor_malicia",
+      "source": "src/scripts/eastern_kingdoms/western_plaguelands/scholomance/boss_instructor_malicia.cpp",
+      "spellIds": [
+        9889,
+        10917,
+        10929,
+        11672,
+        12020,
+        17831,
+        18116
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 289,
+          "x": 86.6634,
+          "y": -1.96039,
+          "z": 85.3117
+        }
+      ]
+    },
+    {
+      "entry": 10507,
+      "name": "The Ravenian",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617297883,
+      "script": "boss_the_ravenian",
+      "source": "src/scripts/eastern_kingdoms/western_plaguelands/scholomance/boss_the_ravenian.cpp",
+      "spellIds": [
+        10101,
+        15550,
+        17963,
+        18670,
+        20691,
+        25174
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 289,
+          "x": 103.305,
+          "y": -1.67752,
+          "z": 75.2183
+        }
+      ]
+    },
+    {
+      "entry": 10508,
+      "name": "Ras Frostwhisper",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617297883,
+      "script": "boss_boss_ras_frostwhisper",
+      "source": "src/scripts/eastern_kingdoms/western_plaguelands/scholomance/boss_ras_frostwhisper.cpp",
+      "spellIds": [
+        8398,
+        12096,
+        18099,
+        18100,
+        18763,
+        21369,
+        26070
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 289,
+          "x": -25.1079,
+          "y": 141.284,
+          "z": 83.9083
+        }
+      ]
+    },
+    {
+      "entry": 10540,
+      "name": "Vol'jin",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        16097,
+        17146,
+        17289,
+        17820,
+        20463
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": 1934.06,
+          "y": -4162.26,
+          "z": 40.995
+        }
+      ]
+    },
+    {
+      "entry": 10808,
+      "name": "Timmy the Cruel",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617297875,
+      "script": "boss_timmy_the_cruel",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/stratholme/boss_timmy_the_cruel.cpp",
+      "spellIds": [
+        6713,
+        8599,
+        11972,
+        15749,
+        17470
+      ],
+      "features": [
+        "summons",
+        "health-phases"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 10812,
+      "name": "Grand Crusader Dathrohan",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_dathrohan_balnazzar",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/stratholme/boss_dathrohan_balnazzar.cpp",
+      "spellIds": [
+        12098,
+        13704,
+        17281,
+        17284,
+        17286,
+        17287,
+        17288,
+        17399,
+        17405,
+        20830
+      ],
+      "features": [
+        "summons",
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 329,
+          "x": 3415.84,
+          "y": -3044.54,
+          "z": 136.814
+        }
+      ]
+    },
+    {
+      "entry": 10901,
+      "name": "Lorekeeper Polkelt",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617297883,
+      "script": "boss_lorekeeper_polkelt",
+      "source": "src/scripts/eastern_kingdoms/western_plaguelands/scholomance/boss_lorekeeper_polkelt.cpp",
+      "spellIds": [
+        3584,
+        8245,
+        12038,
+        16359,
+        18116,
+        18151,
+        24928
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 289,
+          "x": 274.877,
+          "y": 1.33366,
+          "z": 85.3117
+        }
+      ]
+    },
+    {
+      "entry": 10942,
+      "name": "Nessy",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 369,
+          "x": -79.3722,
+          "y": 1171.28,
+          "z": -122.208
+        }
+      ]
+    },
+    {
+      "entry": 10997,
+      "name": "Cannon Master Willey",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617296859,
+      "script": "boss_cannon_master_willey",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/stratholme/boss_cannon_master_willey.cpp",
+      "spellIds": [
+        10101,
+        11729,
+        15615,
+        16615,
+        17278,
+        20463
+      ],
+      "features": [
+        "summons",
+        "objects"
+      ],
+      "spawns": [
+        {
+          "mapId": 329,
+          "x": 3573.57,
+          "y": -2937.31,
+          "z": 125.085
+        }
+      ]
+    },
+    {
+      "entry": 11143,
+      "name": "Postmaster Malown",
+      "immuneSchools": 0,
+      "mechanicImmunity": 0,
+      "script": "boss_postmaster_malown",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/stratholme/boss_postmaster_malown.cpp",
+      "spellIds": [
+        6253,
+        7713,
+        8552,
+        12889,
+        17831
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 11261,
+      "name": "Doctor Theolen Krastinov",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299931,
+      "script": "boss_doctor_theolen_krastinov",
+      "source": "src/scripts/eastern_kingdoms/western_plaguelands/scholomance/boss_doctor_theolen_krastinov.cpp",
+      "spellIds": [
+        8269,
+        16509,
+        18103
+      ],
+      "features": [
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 289,
+          "x": 182.246,
+          "y": -95.4371,
+          "z": 85.3117
+        }
+      ]
+    },
+    {
+      "entry": 11380,
+      "name": "Jin'do the Hexxer",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854235,
+      "script": "boss_jindo",
+      "source": "src/scripts/eastern_kingdoms/stranglethorn_vale/zulgurub/boss_jindo.cpp",
+      "spellIds": [
+        17172,
+        23198,
+        24261,
+        24262,
+        24306,
+        24307,
+        24308,
+        24309,
+        24311,
+        24458,
+        24466
+      ],
+      "features": [
+        "summons",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 309,
+          "x": -11515.8,
+          "y": -1275.48,
+          "z": 79.6621
+        }
+      ]
+    },
+    {
+      "entry": 11382,
+      "name": "Bloodlord Mandokir",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299807,
+      "script": "boss_mandokir",
+      "source": "src/scripts/eastern_kingdoms/stranglethorn_vale/zulgurub/boss_mandokir.cpp",
+      "spellIds": [
+        3391,
+        7160,
+        13736,
+        16856,
+        19134,
+        23243,
+        24312,
+        24314,
+        24315,
+        24317,
+        24318,
+        24341,
+        24407,
+        24408,
+        25104
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 309,
+          "x": -12167.8,
+          "y": -1927.25,
+          "z": 153.73
+        }
+      ]
+    },
+    {
+      "entry": 11447,
+      "name": "Mushgog",
+      "immuneSchools": 0,
+      "mechanicImmunity": 8412241,
+      "script": "boss_mushgog",
+      "source": "",
+      "spellIds": [
+        12747,
+        21748
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": -3758.47,
+          "y": 1096.15,
+          "z": 131.97
+        }
+      ]
+    },
+    {
+      "entry": 11486,
+      "name": "Prince Tortheldrin",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_prince_tortheldrin",
+      "source": "",
+      "spellIds": [
+        20537,
+        20691,
+        22920
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 429,
+          "x": 132.626,
+          "y": 625.913,
+          "z": -48.3836
+        }
+      ]
+    },
+    {
+      "entry": 11487,
+      "name": "Magister Kalendris",
+      "immuneSchools": 0,
+      "mechanicImmunity": 646660059,
+      "script": "boss_magister_kalendris",
+      "source": "",
+      "spellIds": [
+        7645,
+        17146,
+        17287,
+        22919
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 429,
+          "x": 41.4784,
+          "y": 577.871,
+          "z": -3.56218
+        }
+      ]
+    },
+    {
+      "entry": 11489,
+      "name": "Tendris Warpwood",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_tendris_warpwood",
+      "source": "src/scripts/kalimdor/feralas/dire_maul/boss_tendris_warpwood.cpp",
+      "spellIds": [
+        5568,
+        8269,
+        22916,
+        22924,
+        22994
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "relocation"
+      ],
+      "spawns": [
+        {
+          "mapId": 429,
+          "x": 13.526,
+          "y": 478.282,
+          "z": -23.2991
+        }
+      ]
+    },
+    {
+      "entry": 11490,
+      "name": "Zevrim Thornhoof",
+      "immuneSchools": 0,
+      "mechanicImmunity": 646660059,
+      "script": "boss_zevrim",
+      "source": "src/scripts/kalimdor/feralas/dire_maul/boss_zevrim.cpp",
+      "spellIds": [
+        22478,
+        22651
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 429,
+          "x": -34.983,
+          "y": -448.0,
+          "z": -37.8785
+        }
+      ]
+    },
+    {
+      "entry": 11492,
+      "name": "Alzzin the Wildshaper",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105619,
+      "script": "boss_alzzin_the_wildshaper",
+      "source": "",
+      "spellIds": [
+        19319,
+        22662,
+        22689
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 429,
+          "x": 260.929,
+          "y": -436.773,
+          "z": -119.962
+        }
+      ]
+    },
+    {
+      "entry": 11496,
+      "name": "Immol'thar",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_immol_thar",
+      "source": "src/scripts/kalimdor/feralas/dire_maul/boss_immol_thar.cpp",
+      "spellIds": [
+        5568,
+        8269,
+        15550,
+        16128,
+        22899,
+        22950
+      ],
+      "features": [
+        "summons",
+        "relocation"
+      ],
+      "spawns": [
+        {
+          "mapId": 429,
+          "x": -38.0807,
+          "y": 812.44,
+          "z": -29.4525
+        }
+      ]
+    },
+    {
+      "entry": 11497,
+      "name": "The Razza",
+      "immuneSchools": 0,
+      "mechanicImmunity": 8395857,
+      "script": "boss_therazza",
+      "source": "",
+      "spellIds": [
+        16033,
+        22937
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": -3753.2,
+          "y": 1097.89,
+          "z": 131.97
+        }
+      ]
+    },
+    {
+      "entry": 11498,
+      "name": "Skarr the Unbreakable",
+      "immuneSchools": 0,
+      "mechanicImmunity": 8395857,
+      "script": "boss_skarrtheunbreakable",
+      "source": "",
+      "spellIds": [
+        11428,
+        13737,
+        15496
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": -3758.51,
+          "y": 1093.64,
+          "z": 132.094
+        }
+      ]
+    },
+    {
+      "entry": 11501,
+      "name": "King Gordok",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_king_gordok",
+      "source": "src/scripts/kalimdor/feralas/dire_maul/boss_gordok_king.cpp",
+      "spellIds": [
+        4,
+        8376,
+        13745,
+        15234,
+        15305,
+        15331,
+        15572,
+        15708,
+        15982,
+        16170,
+        16727,
+        17139,
+        17194,
+        17290,
+        22883,
+        22884,
+        22886
+      ],
+      "features": [
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 429,
+          "x": 829.697,
+          "y": 481.328,
+          "z": 37.4015
+        }
+      ]
+    },
+    {
+      "entry": 11502,
+      "name": "Ragnaros",
+      "immuneSchools": 4,
+      "mechanicImmunity": 646151967,
+      "script": "boss_ragnaros",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/molten_core/boss_ragnaros.cpp",
+      "spellIds": [
+        19773,
+        20563,
+        20565,
+        20566,
+        20567,
+        20568,
+        21154,
+        21155,
+        21387,
+        21857,
+        21859
+      ],
+      "features": [
+        "summons",
+        "objects"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 11583,
+      "name": "Nefarian",
+      "immuneSchools": 4,
+      "mechanicImmunity": 650854239,
+      "script": "boss_nefarian",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackwing_lair/boss_nefarian.cpp",
+      "spellIds": [
+        10405,
+        10461,
+        10610,
+        10612,
+        11311,
+        17131,
+        17507,
+        20691,
+        22539,
+        22686,
+        22687,
+        22986,
+        22992,
+        23198,
+        23362,
+        23363,
+        23364,
+        23397,
+        23398,
+        23401,
+        23410,
+        23414,
+        23418,
+        23424,
+        23425,
+        23426,
+        23427,
+        23436,
+        23603
+      ],
+      "features": [
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 11978,
+      "name": "[NOT USED] Neltharion",
+      "immuneSchools": 0,
+      "mechanicImmunity": 0,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 11980,
+      "name": "[NOT USED] Zuluhed the Whacked",
+      "immuneSchools": 0,
+      "mechanicImmunity": 0,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 11981,
+      "name": "Flamegor",
+      "immuneSchools": 4,
+      "mechanicImmunity": 613105503,
+      "script": "boss_flamegor",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackwing_lair/boss_flamegor.cpp",
+      "spellIds": [
+        3391,
+        3417,
+        22539,
+        23339,
+        23342
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 469,
+          "x": -7410.04,
+          "y": -1022.99,
+          "z": 477.316
+        }
+      ]
+    },
+    {
+      "entry": 11982,
+      "name": "Magmadar",
+      "immuneSchools": 0,
+      "mechanicImmunity": 646135647,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        19272,
+        19408,
+        19411,
+        19451,
+        20474
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 409,
+          "x": 1144.63,
+          "y": -1020.48,
+          "z": -185.663
+        }
+      ]
+    },
+    {
+      "entry": 11983,
+      "name": "Firemaw",
+      "immuneSchools": 4,
+      "mechanicImmunity": 646659935,
+      "script": "boss_firemaw",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackwing_lair/boss_firemaw.cpp",
+      "spellIds": [
+        3391,
+        3417,
+        22539,
+        23339,
+        23341
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 469,
+          "x": -7418.69,
+          "y": -947.728,
+          "z": 465.116
+        }
+      ]
+    },
+    {
+      "entry": 11988,
+      "name": "Golemagg the Incinerator",
+      "immuneSchools": 0,
+      "mechanicImmunity": 646135647,
+      "script": "boss_golemagg",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/molten_core/boss_golemagg.cpp",
+      "spellIds": [
+        17683,
+        19798,
+        19820,
+        20228,
+        20544,
+        20553
+      ],
+      "features": [
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 409,
+          "x": 793.248,
+          "y": -998.265,
+          "z": -206.762
+        }
+      ]
+    },
+    {
+      "entry": 12017,
+      "name": "Broodlord Lashlayer",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299807,
+      "script": "boss_broodlord",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackwing_lair/boss_broodlord_lashlayer.cpp",
+      "spellIds": [
+        15284,
+        18670,
+        23331,
+        23847,
+        24573
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 469,
+          "x": -7573.89,
+          "y": -1035.25,
+          "z": 449.248
+        }
+      ]
+    },
+    {
+      "entry": 12018,
+      "name": "Majordomo Executus",
+      "immuneSchools": 0,
+      "mechanicImmunity": 646659935,
+      "script": "boss_majordomo",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/molten_core/boss_majordomo_executus.cpp",
+      "spellIds": [
+        19484,
+        19527,
+        19773,
+        19774,
+        20534,
+        20618,
+        20619,
+        20620,
+        21075,
+        21086,
+        21087,
+        21090,
+        21094
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "objects",
+        "shared-instance-state"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 12056,
+      "name": "Baron Geddon",
+      "immuneSchools": 4,
+      "mechanicImmunity": 646152031,
+      "script": "boss_baron_geddon",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/molten_core/boss_baron_geddon.cpp",
+      "spellIds": [
+        19659,
+        19695,
+        19698,
+        20475,
+        20478
+      ],
+      "features": [
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 409,
+          "x": 614.043,
+          "y": -806.284,
+          "z": -207.001
+        }
+      ]
+    },
+    {
+      "entry": 12057,
+      "name": "Garr",
+      "immuneSchools": 0,
+      "mechanicImmunity": 646135647,
+      "script": "boss_garr",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/molten_core/boss_garr.cpp",
+      "spellIds": [
+        3391,
+        15732,
+        19492,
+        19496,
+        19497,
+        19515,
+        19516,
+        20482,
+        20483,
+        23487
+      ],
+      "features": [
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 409,
+          "x": 691.018,
+          "y": -498.387,
+          "z": -214.266
+        }
+      ]
+    },
+    {
+      "entry": 12098,
+      "name": "Sulfuron Harbinger",
+      "immuneSchools": 0,
+      "mechanicImmunity": 646135647,
+      "script": "boss_sulfuron",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/molten_core/boss_sulfuron_harbinger.cpp",
+      "spellIds": [
+        19777,
+        19778,
+        19779,
+        19780,
+        19781
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 409,
+          "x": 601.087,
+          "y": -1179.11,
+          "z": -195.882
+        }
+      ]
+    },
+    {
+      "entry": 12118,
+      "name": "Lucifron",
+      "immuneSchools": 0,
+      "mechanicImmunity": 646135647,
+      "script": "boss_lucifron",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/molten_core/boss_lucifron.cpp",
+      "spellIds": [
+        19460,
+        19702,
+        19703
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 409,
+          "x": 1024.41,
+          "y": -973.309,
+          "z": -181.505
+        }
+      ]
+    },
+    {
+      "entry": 12203,
+      "name": "Landslide",
+      "immuneSchools": 0,
+      "mechanicImmunity": 608910931,
+      "script": "boss_landslide",
+      "source": "src/scripts/kalimdor/desolace/maraudon/boss_landslide.cpp",
+      "spellIds": [
+        5568,
+        18670,
+        21808
+      ],
+      "features": [
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 349,
+          "x": 356.681,
+          "y": -185.455,
+          "z": -59.8156
+        }
+      ]
+    },
+    {
+      "entry": 12259,
+      "name": "Gehennas",
+      "immuneSchools": 0,
+      "mechanicImmunity": 646135639,
+      "script": "boss_gehennas",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/molten_core/boss_gehennas.cpp",
+      "spellIds": [
+        19716,
+        19717,
+        19728,
+        19729
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 409,
+          "x": 898.074,
+          "y": -545.87,
+          "z": -203.405
+        }
+      ]
+    },
+    {
+      "entry": 12264,
+      "name": "Shazzrah",
+      "immuneSchools": 0,
+      "mechanicImmunity": 646135639,
+      "script": "boss_shazzrah",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/molten_core/boss_shazzrah.cpp",
+      "spellIds": [
+        19712,
+        19713,
+        19714,
+        19715,
+        23138
+      ],
+      "features": [
+        "relocation"
+      ],
+      "spawns": [
+        {
+          "mapId": 409,
+          "x": 583.49,
+          "y": -799.755,
+          "z": -205.356
+        }
+      ]
+    },
+    {
+      "entry": 12397,
+      "name": "Lord Kazzak",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854235,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        8078,
+        16044,
+        21056,
+        21063,
+        21066,
+        21341
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 0,
+          "x": -12226.8,
+          "y": -2433.57,
+          "z": 1.76505
+        }
+      ]
+    },
+    {
+      "entry": 12435,
+      "name": "Razorgore the Untamed",
+      "immuneSchools": 0,
+      "mechanicImmunity": 50315263,
+      "script": "boss_razorgore",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackwing_lair/boss_razorgore.cpp",
+      "spellIds": [
+        19632,
+        19872,
+        19873,
+        20038,
+        22425,
+        23023,
+        24375,
+        25104
+      ],
+      "features": [
+        "summons",
+        "objects",
+        "relocation",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 469,
+          "x": -7571.69,
+          "y": -1088.25,
+          "z": 413.465
+        }
+      ]
+    },
+    {
+      "entry": 12756,
+      "name": "Lady Onyxia",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 12804,
+      "name": "[PH] TEST Fire God",
+      "immuneSchools": 0,
+      "mechanicImmunity": 0,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 13020,
+      "name": "Vaelastrasz the Corrupt",
+      "immuneSchools": 4,
+      "mechanicImmunity": 617299807,
+      "script": "boss_vaelastrasz",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackwing_lair/boss_vaelastrasz.cpp",
+      "spellIds": [
+        15496,
+        15847,
+        16404,
+        18173,
+        19983,
+        22428,
+        22433,
+        22436,
+        22438,
+        22440,
+        23461,
+        23462,
+        23478,
+        23513,
+        23620,
+        23642,
+        23644,
+        24701,
+        25050
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 469,
+          "x": -7483.79,
+          "y": -1015.99,
+          "z": 408.652
+        }
+      ]
+    },
+    {
+      "entry": 13256,
+      "name": "Lokholar the Ice Lord",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617316187,
+      "script": "npc_worldboss_h_av",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 13282,
+      "name": "Noxxion",
+      "immuneSchools": 16,
+      "mechanicImmunity": 608910931,
+      "script": "boss_noxxion",
+      "source": "src/scripts/kalimdor/desolace/maraudon/boss_noxxion.cpp",
+      "spellIds": [
+        21547,
+        21687,
+        21707,
+        22916
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 349,
+          "x": 1130.4,
+          "y": -191.342,
+          "z": -80.0014
+        }
+      ]
+    },
+    {
+      "entry": 13419,
+      "name": "Ivus the Forest Lord",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "npc_worldboss_a_av",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 14020,
+      "name": "Chromaggus",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854239,
+      "script": "boss_chromaggus",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackwing_lair/boss_chromaggus.cpp",
+      "spellIds": [
+        22277,
+        22278,
+        22279,
+        22280,
+        22281,
+        23128,
+        23153,
+        23154,
+        23155,
+        23168,
+        23169,
+        23170,
+        23174,
+        23175,
+        23177,
+        23187,
+        23308,
+        23310,
+        23313,
+        23315,
+        28747
+      ],
+      "features": [
+        "health-phases",
+        "objects",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 469,
+          "x": -7517.41,
+          "y": -1028.36,
+          "z": 476.638
+        }
+      ]
+    },
+    {
+      "entry": 14308,
+      "name": "Ferra",
+      "immuneSchools": 0,
+      "mechanicImmunity": 8388608,
+      "script": "boss_ferra",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 429,
+          "x": -11.6649,
+          "y": 544.295,
+          "z": 28.6046
+        }
+      ]
+    },
+    {
+      "entry": 14321,
+      "name": "Guard Fengus",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613103579,
+      "script": "boss_guards",
+      "source": "",
+      "spellIds": [
+        11972,
+        15580,
+        15655,
+        20691,
+        22572
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 429,
+          "x": 384.67,
+          "y": 341.272,
+          "z": 2.86428
+        }
+      ]
+    },
+    {
+      "entry": 14323,
+      "name": "Guard Slip'kik",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613103579,
+      "script": "boss_guards",
+      "source": "",
+      "spellIds": [
+        11972,
+        15580,
+        17307,
+        20691
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 429,
+          "x": 559.22,
+          "y": 549.432,
+          "z": -25.4017
+        }
+      ]
+    },
+    {
+      "entry": 14324,
+      "name": "Cho'Rush the Observer",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613103579,
+      "script": "boss_chorush",
+      "source": "src/scripts/kalimdor/feralas/dire_maul/boss_gordok_king.cpp",
+      "spellIds": [
+        4,
+        8376,
+        10151,
+        10947,
+        13745,
+        15234,
+        15305,
+        15331,
+        15572,
+        15708,
+        15982,
+        16170,
+        16727,
+        17139,
+        17194,
+        17290,
+        22883,
+        22884,
+        22886
+      ],
+      "features": [
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 429,
+          "x": 833.995,
+          "y": 489.543,
+          "z": 37.4015
+        }
+      ]
+    },
+    {
+      "entry": 14325,
+      "name": "Captain Kromcrush",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_kromcrush",
+      "source": "",
+      "spellIds": [
+        5246,
+        22857,
+        22859
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 429,
+          "x": 627.59,
+          "y": 481.721,
+          "z": 29.4627
+        }
+      ]
+    },
+    {
+      "entry": 14326,
+      "name": "Guard Mol'dar",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613103579,
+      "script": "boss_guards",
+      "source": "",
+      "spellIds": [
+        11972,
+        15580,
+        15655,
+        20691
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 429,
+          "x": 396.463,
+          "y": -8.59885,
+          "z": -24.9317
+        }
+      ]
+    },
+    {
+      "entry": 14352,
+      "name": "Duke Landressar",
+      "immuneSchools": 0,
+      "mechanicImmunity": 0,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 14435,
+      "name": "Prince Thunderaan",
+      "immuneSchools": 8,
+      "mechanicImmunity": 617316187,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        23009,
+        23011
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 14502,
+      "name": "Xorothian Dreadsteed",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_xorothian_dreadsteed",
+      "source": "",
+      "spellIds": [
+        22713
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 14506,
+      "name": "Lord Hel'nurath",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "boss_lord_hel_nurath",
+      "source": "",
+      "spellIds": [
+        17146,
+        18670,
+        20989,
+        23224
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 14507,
+      "name": "High Priest Venoxis",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854235,
+      "script": "boss_venoxis",
+      "source": "src/scripts/eastern_kingdoms/stranglethorn_vale/zulgurub/boss_venoxis.cpp",
+      "spellIds": [
+        3391,
+        8269,
+        23849,
+        23858,
+        23859,
+        23860,
+        23861,
+        23862,
+        23865,
+        23895,
+        23979
+      ],
+      "features": [
+        "summons",
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 309,
+          "x": -12029.8,
+          "y": -1707.93,
+          "z": 39.413
+        }
+      ]
+    },
+    {
+      "entry": 14509,
+      "name": "High Priest Thekal",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        22666,
+        22859,
+        24185,
+        24189
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 309,
+          "x": -11700.8,
+          "y": -1998.94,
+          "z": 62.4163
+        }
+      ]
+    },
+    {
+      "entry": 14510,
+      "name": "High Priestess Mar'li",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_marli",
+      "source": "src/scripts/eastern_kingdoms/stranglethorn_vale/zulgurub/boss_marli.cpp",
+      "spellIds": [
+        3391,
+        22911,
+        24083,
+        24084,
+        24085,
+        24099,
+        24109,
+        24110,
+        24111,
+        24300
+      ],
+      "features": [
+        "summons",
+        "objects",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 309,
+          "x": -12326.5,
+          "y": -1577.11,
+          "z": 133.588
+        }
+      ]
+    },
+    {
+      "entry": 14515,
+      "name": "High Priestess Arlokk",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_arlokk",
+      "source": "src/scripts/eastern_kingdoms/stranglethorn_vale/zulgurub/boss_arlokk.cpp",
+      "spellIds": [
+        3391,
+        12540,
+        15582,
+        15587,
+        15589,
+        22766,
+        24190,
+        24210,
+        24212,
+        24213,
+        26350
+      ],
+      "features": [
+        "summons",
+        "objects",
+        "shared-instance-state"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 14517,
+      "name": "High Priestess Jeklik",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_jeklik",
+      "source": "src/scripts/eastern_kingdoms/stranglethorn_vale/zulgurub/boss_jeklik.cpp",
+      "spellIds": [
+        3391,
+        5115,
+        6605,
+        12097,
+        13540,
+        16098,
+        16128,
+        19629,
+        22644,
+        23511,
+        23918,
+        23919,
+        23952,
+        23953,
+        23954,
+        23966,
+        23970,
+        24024,
+        24085,
+        24408
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "relocation",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 309,
+          "x": -12291.9,
+          "y": -1380.08,
+          "z": 144.902
+        }
+      ]
+    },
+    {
+      "entry": 14601,
+      "name": "Ebonroc",
+      "immuneSchools": 4,
+      "mechanicImmunity": 646659935,
+      "script": "boss_ebonroc",
+      "source": "src/scripts/eastern_kingdoms/burning_steppes/blackwing_lair/boss_ebonroc.cpp",
+      "spellIds": [
+        3391,
+        3417,
+        22539,
+        23339,
+        23340
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 469,
+          "x": -7379.94,
+          "y": -986.879,
+          "z": 477.27
+        }
+      ]
+    },
+    {
+      "entry": 14831,
+      "name": "Unkillable Test Dummy 63 Warrior",
+      "immuneSchools": 0,
+      "mechanicImmunity": 0,
+      "script": "custom_npc_training_dummy",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 14834,
+      "name": "Hakkar",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_hakkar",
+      "source": "src/scripts/eastern_kingdoms/stranglethorn_vale/zulgurub/boss_hakkar.cpp",
+      "spellIds": [
+        24178,
+        24321,
+        24322,
+        24323,
+        24324,
+        24327,
+        24328,
+        24686,
+        24687,
+        24688,
+        24689,
+        24690,
+        27680
+      ],
+      "features": [
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 309,
+          "x": -11787.4,
+          "y": -1649.34,
+          "z": 54.1017
+        }
+      ]
+    },
+    {
+      "entry": 14862,
+      "name": "Emissary Roman'khan",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650870751,
+      "script": "npc_Emissary_Romankhan",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 14887,
+      "name": "Ysondre",
+      "immuneSchools": 8,
+      "mechanicImmunity": 650199039,
+      "script": "boss_dragon_of_nightmare",
+      "source": "src/scripts/world/dragons_of_nightmare/boss_dragon_of_nightmare.cpp",
+      "spellIds": [],
+      "features": [
+        "health-phases",
+        "objects"
+      ],
+      "spawns": [
+        {
+          "mapId": 0,
+          "x": 852.873,
+          "y": -3978.85,
+          "z": 145.916
+        }
+      ]
+    },
+    {
+      "entry": 14888,
+      "name": "Lethon",
+      "immuneSchools": 8,
+      "mechanicImmunity": 650199039,
+      "script": "boss_dragon_of_nightmare",
+      "source": "src/scripts/world/dragons_of_nightmare/boss_dragon_of_nightmare.cpp",
+      "spellIds": [],
+      "features": [
+        "health-phases",
+        "objects"
+      ],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": -2872.66,
+          "y": 1884.25,
+          "z": 52.7336
+        }
+      ]
+    },
+    {
+      "entry": 14889,
+      "name": "Emeriss",
+      "immuneSchools": 8,
+      "mechanicImmunity": 650199031,
+      "script": "boss_dragon_of_nightmare",
+      "source": "src/scripts/world/dragons_of_nightmare/boss_dragon_of_nightmare.cpp",
+      "spellIds": [],
+      "features": [
+        "health-phases",
+        "objects"
+      ],
+      "spawns": [
+        {
+          "mapId": 0,
+          "x": -10428.8,
+          "y": -392.176,
+          "z": 43.7411
+        }
+      ]
+    },
+    {
+      "entry": 14890,
+      "name": "Taerar",
+      "immuneSchools": 8,
+      "mechanicImmunity": 650215423,
+      "script": "boss_dragon_of_nightmare",
+      "source": "src/scripts/world/dragons_of_nightmare/boss_dragon_of_nightmare.cpp",
+      "spellIds": [],
+      "features": [
+        "health-phases",
+        "objects"
+      ],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": 3301.05,
+          "y": -3732.57,
+          "z": 173.544
+        }
+      ]
+    },
+    {
+      "entry": 14988,
+      "name": "Ohgan",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "mob_ohgan",
+      "source": "src/scripts/eastern_kingdoms/stranglethorn_vale/zulgurub/boss_mandokir.cpp",
+      "spellIds": [
+        3391,
+        7160,
+        13736,
+        16856,
+        19134,
+        23243,
+        24312,
+        24314,
+        24315,
+        24317,
+        24318,
+        24341,
+        24407,
+        24408,
+        25104
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 15082,
+      "name": "Gri'lek",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        6524,
+        24648
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15083,
+      "name": "Hazza'rah",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        24664,
+        24684,
+        24685
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15084,
+      "name": "Renataki",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_renataki",
+      "source": "src/scripts/eastern_kingdoms/stranglethorn_vale/zulgurub/boss_renataki.cpp",
+      "spellIds": [
+        3391,
+        8269,
+        24240,
+        24337,
+        24649,
+        24698
+      ],
+      "features": [
+        "health-phases"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 15085,
+      "name": "Wushoolay",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854235,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        24680,
+        24682,
+        24683
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15114,
+      "name": "Gahz'ranka",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_gahzranka",
+      "source": "src/scripts/eastern_kingdoms/stranglethorn_vale/zulgurub/boss_gahzranka.cpp",
+      "spellIds": [
+        16099,
+        22421,
+        24326
+      ],
+      "features": [
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 309,
+          "x": -11675.7,
+          "y": -1728.91,
+          "z": -7.08374
+        }
+      ]
+    },
+    {
+      "entry": 15192,
+      "name": "Anachronos",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": -8175.67,
+          "y": -4718.28,
+          "z": 26.3489
+        }
+      ]
+    },
+    {
+      "entry": 15193,
+      "name": "The Banshee Queen",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617316187,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15203,
+      "name": "Prince Skaldrenox",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854235,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        15754,
+        25049,
+        25050
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15204,
+      "name": "High Marshal Whirlaxis",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854235,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        20543,
+        20545,
+        23103,
+        25060
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15205,
+      "name": "Baron Kazum",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854235,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        17547,
+        19129,
+        25056
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15224,
+      "name": "Dream Fog",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1073741823,
+      "script": "npc_dream_fog",
+      "source": "src/scripts/world/dragons_of_nightmare/boss_dragon_of_nightmare.cpp",
+      "spellIds": [],
+      "features": [
+        "health-phases",
+        "objects"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 15263,
+      "name": "The Prophet Skeram",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299807,
+      "script": "boss_skeram",
+      "source": "src/scripts/kalimdor/silithus/temple_of_ahnqiraj/boss_skeram.cpp",
+      "spellIds": [
+        747,
+        785,
+        2313,
+        4801,
+        8195,
+        20449,
+        26192,
+        26194,
+        26525,
+        26526,
+        26589
+      ],
+      "features": [
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -8346.05,
+          "y": 2080.98,
+          "z": 125.732
+        }
+      ]
+    },
+    {
+      "entry": 15275,
+      "name": "Emperor Vek'nilash",
+      "immuneSchools": 108,
+      "mechanicImmunity": 617299807,
+      "script": "boss_veknilash",
+      "source": "src/scripts/kalimdor/silithus/temple_of_ahnqiraj/boss_twinemperors.cpp",
+      "spellIds": [
+        568,
+        799,
+        800,
+        802,
+        804,
+        6016,
+        7393,
+        18943,
+        26006,
+        26007,
+        26050,
+        26607,
+        26613,
+        26638,
+        26662,
+        27680
+      ],
+      "features": [
+        "objects",
+        "relocation",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -9019.14,
+          "y": 1180.07,
+          "z": -104.17
+        }
+      ]
+    },
+    {
+      "entry": 15276,
+      "name": "Emperor Vek'lor",
+      "immuneSchools": 1,
+      "mechanicImmunity": 617299807,
+      "script": "boss_veklor",
+      "source": "src/scripts/kalimdor/silithus/temple_of_ahnqiraj/boss_twinemperors.cpp",
+      "spellIds": [
+        568,
+        799,
+        800,
+        802,
+        804,
+        6016,
+        7393,
+        18943,
+        26006,
+        26007,
+        26050,
+        26607,
+        26613,
+        26638,
+        26662
+      ],
+      "features": [
+        "objects",
+        "relocation",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -8868.31,
+          "y": 1205.97,
+          "z": -104.231
+        }
+      ]
+    },
+    {
+      "entry": 15299,
+      "name": "Viscidus",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_viscidus",
+      "source": "src/scripts/kalimdor/silithus/temple_of_ahnqiraj/boss_viscidus.cpp",
+      "spellIds": [
+        5019,
+        25893,
+        25896,
+        25897,
+        25904,
+        25926,
+        25937,
+        25938,
+        25989,
+        25991,
+        25993,
+        25994,
+        26003,
+        26034,
+        26036,
+        26575,
+        26601,
+        26608,
+        26633,
+        27934
+      ],
+      "features": [
+        "summons",
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -8000.18,
+          "y": 928.603,
+          "z": -51.9009
+        }
+      ]
+    },
+    {
+      "entry": 15302,
+      "name": "Shade of Taerar",
+      "immuneSchools": 8,
+      "mechanicImmunity": 617316187,
+      "script": "npc_shade_of_taerar",
+      "source": "src/scripts/world/dragons_of_nightmare/boss_dragon_of_nightmare.cpp",
+      "spellIds": [],
+      "features": [
+        "health-phases",
+        "objects"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 15305,
+      "name": "Lord Skwol",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854235,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        3417,
+        25051,
+        25053
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15339,
+      "name": "Ossirian the Unscarred",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019952987,
+      "script": "boss_ossirian",
+      "source": "src/scripts/kalimdor/silithus/ruins_of_ahnqiraj/boss_ossirian.cpp",
+      "spellIds": [
+        20477,
+        25160,
+        25176,
+        25188,
+        25189,
+        25195
+      ],
+      "features": [
+        "summons",
+        "objects",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 509,
+          "x": -9502.8,
+          "y": 2042.65,
+          "z": 105.31
+        }
+      ]
+    },
+    {
+      "entry": 15340,
+      "name": "Moam",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1053523803,
+      "script": "boss_moam",
+      "source": "src/scripts/kalimdor/silithus/ruins_of_ahnqiraj/boss_moam.cpp",
+      "spellIds": [
+        15550,
+        25672,
+        25676,
+        25681,
+        25685
+      ],
+      "features": [
+        "summons",
+        "objects"
+      ],
+      "spawns": [
+        {
+          "mapId": 509,
+          "x": -8851.26,
+          "y": 2263.29,
+          "z": 21.3093
+        }
+      ]
+    },
+    {
+      "entry": 15341,
+      "name": "General Rajaxx",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019952987,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        6713,
+        25599
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 509,
+          "x": -9132.92,
+          "y": 1599.21,
+          "z": 26.8425
+        },
+        {
+          "mapId": 1,
+          "x": -8132.34,
+          "y": 1525.15,
+          "z": 37.9748
+        }
+      ]
+    },
+    {
+      "entry": 15348,
+      "name": "Kurinnaxx",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854235,
+      "script": "boss_kurinnaxx",
+      "source": "src/scripts/kalimdor/silithus/ruins_of_ahnqiraj/boss_kurinnaxx.cpp",
+      "spellIds": [
+        3391,
+        25646,
+        25814,
+        26524,
+        26527
+      ],
+      "features": [
+        "health-phases",
+        "objects"
+      ],
+      "spawns": [
+        {
+          "mapId": 509,
+          "x": -8842.99,
+          "y": 1624.0,
+          "z": 19.6903
+        }
+      ]
+    },
+    {
+      "entry": 15362,
+      "name": "Malfurion Stormrage",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "npc_malfurion_stormrage",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15369,
+      "name": "Ayamiss the Hunter",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_ayamiss",
+      "source": "src/scripts/kalimdor/silithus/ruins_of_ahnqiraj/boss_ayamiss.cpp",
+      "spellIds": [
+        3391,
+        8269,
+        25721,
+        25725,
+        25748,
+        25749,
+        25852
+      ],
+      "features": [
+        "summons",
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 509,
+          "x": -9698.38,
+          "y": 1535.55,
+          "z": 21.444
+        }
+      ]
+    },
+    {
+      "entry": 15370,
+      "name": "Buru the Gorger",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_buru",
+      "source": "src/scripts/kalimdor/silithus/ruins_of_ahnqiraj/boss_buru.cpp",
+      "spellIds": [
+        96,
+        1557,
+        1834,
+        1881,
+        19593,
+        20512,
+        24721,
+        25640,
+        29826
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 509,
+          "x": -9240.79,
+          "y": 1230.42,
+          "z": -63.7576
+        }
+      ]
+    },
+    {
+      "entry": 15378,
+      "name": "Merithra of the Dream",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -8652.2,
+          "y": 2020.92,
+          "z": 108.58
+        }
+      ]
+    },
+    {
+      "entry": 15379,
+      "name": "Caelestrasz",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -8660.63,
+          "y": 2022.4,
+          "z": 108.58
+        }
+      ]
+    },
+    {
+      "entry": 15380,
+      "name": "Arygos",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -8663.34,
+          "y": 2029.9,
+          "z": 108.58
+        }
+      ]
+    },
+    {
+      "entry": 15381,
+      "name": "Anachronos the Ancient",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "npc_anachronos_the_ancient",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15382,
+      "name": "Fandral Staghelm",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15392,
+      "name": "Captain Tuubid",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019952987,
+      "script": "boss_tuubid",
+      "source": "",
+      "spellIds": [
+        25471
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 509,
+          "x": -9041.36,
+          "y": 1512.58,
+          "z": 21.4748
+        }
+      ]
+    },
+    {
+      "entry": 15410,
+      "name": "Anachronos Dragon Form",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15411,
+      "name": "Arygos Dragon Form",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15412,
+      "name": "Caelestrasz Dragon Form",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15413,
+      "name": "Merithra Dragon Form",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15427,
+      "name": "Merithra's Wake",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15467,
+      "name": "Omen",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854399,
+      "script": "boss_omen",
+      "source": "src/scripts/kalimdor/moonglade/boss_omen.cpp",
+      "spellIds": [
+        20677,
+        26540
+      ],
+      "features": [
+        "summons"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 15481,
+      "name": "Spirit of Azuregos",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": 2530.98,
+          "y": -6259.5,
+          "z": 104.012
+        }
+      ]
+    },
+    {
+      "entry": 15491,
+      "name": "Eranikus, Tyrant of the Dream",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_eranikus",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15509,
+      "name": "Princess Huhuran",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_huhuran",
+      "source": "src/scripts/kalimdor/silithus/temple_of_ahnqiraj/boss_huhuran.cpp",
+      "spellIds": [
+        26050,
+        26051,
+        26053,
+        26068,
+        26180
+      ],
+      "features": [
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -8532.09,
+          "y": 1696.53,
+          "z": -90.26
+        }
+      ]
+    },
+    {
+      "entry": 15510,
+      "name": "Fankriss the Unyielding",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_fankriss",
+      "source": "src/scripts/kalimdor/silithus/temple_of_ahnqiraj/boss_fankriss.cpp",
+      "spellIds": [
+        720,
+        731,
+        1121,
+        22994,
+        25646,
+        25831,
+        26662
+      ],
+      "features": [
+        "summons"
+      ],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -8085.39,
+          "y": 1196.72,
+          "z": -91.97
+        }
+      ]
+    },
+    {
+      "entry": 15511,
+      "name": "Lord Kri",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854235,
+      "script": "boss_kri",
+      "source": "src/scripts/kalimdor/silithus/temple_of_ahnqiraj/boss_bug_trio.cpp",
+      "spellIds": [
+        3391,
+        18813,
+        19128,
+        19408,
+        19983,
+        24213,
+        25786,
+        25790,
+        25807,
+        25812,
+        26561
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -8566.88,
+          "y": 2177.17,
+          "z": -3.97898
+        }
+      ]
+    },
+    {
+      "entry": 15516,
+      "name": "Battleguard Sartura",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650852183,
+      "script": "boss_sartura",
+      "source": "src/scripts/kalimdor/silithus/temple_of_ahnqiraj/boss_sartura.cpp",
+      "spellIds": [
+        8269,
+        8599,
+        19813,
+        25174,
+        26025,
+        26038,
+        26083,
+        26084,
+        26527,
+        27680
+      ],
+      "features": [
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -8335.63,
+          "y": 1649.1,
+          "z": -28.86
+        }
+      ]
+    },
+    {
+      "entry": 15517,
+      "name": "Ouro",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_ouro",
+      "source": "src/scripts/kalimdor/silithus/temple_of_ahnqiraj/boss_ouro.cpp",
+      "spellIds": [
+        26058,
+        26060,
+        26061,
+        26063,
+        26092,
+        26100,
+        26102,
+        26103,
+        26133,
+        26262,
+        26284,
+        26594,
+        26615,
+        26616,
+        26617
+      ],
+      "features": [
+        "health-phases",
+        "objects",
+        "relocation"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 15543,
+      "name": "Princess Yauj",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_yauj",
+      "source": "src/scripts/kalimdor/silithus/temple_of_ahnqiraj/boss_bug_trio.cpp",
+      "spellIds": [
+        3242,
+        3391,
+        18813,
+        19128,
+        19408,
+        19983,
+        24213,
+        25786,
+        25790,
+        25807,
+        25808,
+        25812,
+        26561,
+        26580
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -8587.96,
+          "y": 2174.21,
+          "z": -4.14782
+        }
+      ]
+    },
+    {
+      "entry": 15544,
+      "name": "Vem",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_vem",
+      "source": "src/scripts/kalimdor/silithus/temple_of_ahnqiraj/boss_bug_trio.cpp",
+      "spellIds": [
+        3391,
+        18670,
+        18813,
+        19128,
+        19408,
+        19983,
+        24213,
+        25786,
+        25790,
+        25807,
+        25812,
+        26561,
+        26662
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -8534.08,
+          "y": 2169.4,
+          "z": -3.2188
+        }
+      ]
+    },
+    {
+      "entry": 15571,
+      "name": "Maws",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "mob_maws",
+      "source": "",
+      "spellIds": [
+        19812,
+        25743,
+        25744
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15589,
+      "name": "Eye of C'Thun",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854235,
+      "script": "boss_eye_of_cthun",
+      "source": "src/scripts/kalimdor/silithus/temple_of_ahnqiraj/boss_cthun.cpp",
+      "spellIds": [
+        3391,
+        6524,
+        16245,
+        21859,
+        26009,
+        26134,
+        26136,
+        26137,
+        26139,
+        26141,
+        26143,
+        26156,
+        26232,
+        26234,
+        26235,
+        26262,
+        26332,
+        26478
+      ],
+      "features": [
+        "summons",
+        "relocation"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 15608,
+      "name": "Medivh",
+      "immuneSchools": 0,
+      "mechanicImmunity": 0,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15625,
+      "name": "Twilight Corrupter",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854235,
+      "script": "npc_twilight_corrupter",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15628,
+      "name": "Eranikus the Redeemed",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15633,
+      "name": "Tyrande",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15727,
+      "name": "C'Thun",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854235,
+      "script": "boss_cthun",
+      "source": "src/scripts/kalimdor/silithus/temple_of_ahnqiraj/boss_cthun.cpp",
+      "spellIds": [
+        3391,
+        6524,
+        16245,
+        21859,
+        26009,
+        26134,
+        26136,
+        26137,
+        26139,
+        26141,
+        26143,
+        26156,
+        26232,
+        26234,
+        26235,
+        26262,
+        26332,
+        26478
+      ],
+      "features": [
+        "summons",
+        "relocation"
+      ],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -8578.65,
+          "y": 1985.85,
+          "z": 100.304
+        }
+      ]
+    },
+    {
+      "entry": 15740,
+      "name": "Colossus of Zora",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854239,
+      "script": "npc_colossus",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": -7340.2,
+          "y": 1643.75,
+          "z": -34.0787
+        }
+      ]
+    },
+    {
+      "entry": 15741,
+      "name": "Colossus of Regal",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854239,
+      "script": "npc_colossus",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": -7824.52,
+          "y": 663.901,
+          "z": -34.1379
+        }
+      ]
+    },
+    {
+      "entry": 15742,
+      "name": "Colossus of Ashi",
+      "immuneSchools": 0,
+      "mechanicImmunity": 650854239,
+      "script": "npc_colossus",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": -6545.32,
+          "y": 967.875,
+          "z": 0.374282
+        }
+      ]
+    },
+    {
+      "entry": 15757,
+      "name": "Qiraji Lieutenant General",
+      "immuneSchools": 0,
+      "mechanicImmunity": 646658015,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        13730,
+        19643,
+        24023
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": -8441.04,
+          "y": -2527.39,
+          "z": 50.3478
+        },
+        {
+          "mapId": 1,
+          "x": -7310.71,
+          "y": 619.718,
+          "z": 5.18511
+        }
+      ]
+    },
+    {
+      "entry": 15776,
+      "name": "Christmas Warchief Rend Blackhand",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 15818,
+      "name": "Lieutenant General Nokhor",
+      "immuneSchools": 0,
+      "mechanicImmunity": 646660063,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        23511,
+        24573
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 1,
+          "x": -8441.04,
+          "y": -2527.39,
+          "z": 50.3478
+        },
+        {
+          "mapId": 1,
+          "x": -7310.71,
+          "y": 619.718,
+          "z": 5.18511
+        }
+      ]
+    },
+    {
+      "entry": 15928,
+      "name": "Thaddius",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1053507451,
+      "script": "boss_thaddius",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_thaddius.cpp",
+      "spellIds": [
+        27680,
+        28059,
+        28062,
+        28084,
+        28085,
+        28089,
+        28096,
+        28097,
+        28099,
+        28109,
+        28111,
+        28125,
+        28127,
+        28134,
+        28135,
+        28136,
+        28159,
+        28160,
+        28167,
+        28299,
+        28337,
+        29659,
+        29660
+      ],
+      "features": [
+        "summons",
+        "objects",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 3513.84,
+          "y": -2926.55,
+          "z": 302.914
+        }
+      ]
+    },
+    {
+      "entry": 15929,
+      "name": "Stalagg",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1053507451,
+      "script": "boss_stalagg",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_thaddius.cpp",
+      "spellIds": [
+        27680,
+        28059,
+        28062,
+        28084,
+        28085,
+        28089,
+        28096,
+        28097,
+        28099,
+        28109,
+        28111,
+        28125,
+        28127,
+        28134,
+        28135,
+        28136,
+        28159,
+        28160,
+        28167,
+        28299,
+        28337,
+        29659,
+        29660
+      ],
+      "features": [
+        "summons",
+        "objects",
+        "shared-instance-state"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 15930,
+      "name": "Feugen",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019953019,
+      "script": "boss_feugen",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_thaddius.cpp",
+      "spellIds": [
+        27680,
+        28059,
+        28062,
+        28084,
+        28085,
+        28089,
+        28096,
+        28097,
+        28099,
+        28109,
+        28111,
+        28125,
+        28127,
+        28134,
+        28135,
+        28136,
+        28159,
+        28160,
+        28167,
+        28299,
+        28337,
+        29659,
+        29660
+      ],
+      "features": [
+        "summons",
+        "objects",
+        "shared-instance-state"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 15931,
+      "name": "Grobbulus",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1053507443,
+      "script": "boss_grobbulus",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_grobbulus.cpp",
+      "spellIds": [
+        26662,
+        28137,
+        28157,
+        28169,
+        28206,
+        28240,
+        28280
+      ],
+      "features": [
+        "summons",
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 3205.45,
+          "y": -3341.86,
+          "z": 320.177
+        }
+      ]
+    },
+    {
+      "entry": 15932,
+      "name": "Gluth",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019953019,
+      "script": "boss_gluth",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_gluth.cpp",
+      "spellIds": [
+        19818,
+        25646,
+        26662,
+        28371,
+        28374,
+        28375,
+        29307,
+        29685
+      ],
+      "features": [
+        "summons"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 3283.09,
+          "y": -3156.96,
+          "z": 297.788
+        }
+      ]
+    },
+    {
+      "entry": 15936,
+      "name": "Heigan the Unclean",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019953023,
+      "script": "boss_heigan",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_heigan.cpp",
+      "spellIds": [
+        29310,
+        29350,
+        29371,
+        29998,
+        30211,
+        30243
+      ],
+      "features": [
+        "summons",
+        "objects",
+        "relocation"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 2793.86,
+          "y": -3707.38,
+          "z": 276.627
+        }
+      ]
+    },
+    {
+      "entry": 15952,
+      "name": "Maexxna",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1053507451,
+      "script": "boss_maexxna",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_maexxna.cpp",
+      "spellIds": [
+        17624,
+        19818,
+        28622,
+        28627,
+        28673,
+        28741,
+        28747,
+        28776,
+        29434,
+        29484
+      ],
+      "features": [
+        "summons",
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 3511.38,
+          "y": -3921.58,
+          "z": 299.513
+        }
+      ]
+    },
+    {
+      "entry": 15953,
+      "name": "Grand Widow Faerlina",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019953023,
+      "script": "boss_faerlina",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_faerlina.cpp",
+      "spellIds": [
+        28732,
+        28794,
+        28796,
+        28798
+      ],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 3353.25,
+          "y": -3620.1,
+          "z": 261.08
+        }
+      ]
+    },
+    {
+      "entry": 15954,
+      "name": "Noth the Plaguebringer",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019953019,
+      "script": "boss_noth",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_noth.cpp",
+      "spellIds": [
+        29208,
+        29209,
+        29210,
+        29211,
+        29212,
+        29213,
+        29216,
+        29217,
+        29224,
+        29225,
+        29226,
+        29227,
+        29230,
+        29231,
+        29238,
+        29239,
+        29247,
+        29248,
+        29249,
+        29255,
+        29256,
+        29257,
+        29258,
+        29262,
+        29267,
+        29268
+      ],
+      "features": [
+        "summons"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 2675.49,
+          "y": -3491.24,
+          "z": 261.53
+        }
+      ]
+    },
+    {
+      "entry": 15956,
+      "name": "Anub'Rekhan",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019953019,
+      "script": "boss_anubrekhan",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_anubrekhan.cpp",
+      "spellIds": [
+        26350,
+        28747,
+        28783,
+        28785,
+        28864,
+        28969,
+        28991,
+        29105
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "objects",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 3308.59,
+          "y": -3476.29,
+          "z": 287.161
+        }
+      ]
+    },
+    {
+      "entry": 15963,
+      "name": "The Master's Eye",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 531,
+          "x": -8953.3,
+          "y": 1233.64,
+          "z": -99.718
+        }
+      ]
+    },
+    {
+      "entry": 15989,
+      "name": "Sapphiron",
+      "immuneSchools": 16,
+      "mechanicImmunity": 1019953019,
+      "script": "boss_sapphiron",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_sapphiron.cpp",
+      "spellIds": [
+        15847,
+        17131,
+        19983,
+        26662,
+        28522,
+        28524,
+        28529,
+        28534,
+        28542,
+        28547,
+        28560,
+        28561,
+        28782,
+        29327,
+        29328,
+        29357,
+        30101
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "objects",
+        "shared-instance-state"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 15990,
+      "name": "Kel'Thuzad",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019953019,
+      "script": "boss_kelthuzad",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_kelthuzad.cpp",
+      "spellIds": [
+        9484,
+        9485,
+        10955,
+        27808,
+        27810,
+        27812,
+        27819,
+        28408,
+        28409,
+        28410,
+        28467,
+        28470,
+        28471,
+        28478,
+        28479,
+        28498,
+        29423
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "objects",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 3746.41,
+          "y": -5113.35,
+          "z": 142.031
+        }
+      ]
+    },
+    {
+      "entry": 16011,
+      "name": "Loatheb",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019953019,
+      "script": "boss_loatheb",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_loatheb.cpp",
+      "spellIds": [
+        26234,
+        29194,
+        29196,
+        29198,
+        29201,
+        29204,
+        29232,
+        29407,
+        29865,
+        30079,
+        30281
+      ],
+      "features": [
+        "summons"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 2909.0,
+          "y": -3997.41,
+          "z": 274.188
+        }
+      ]
+    },
+    {
+      "entry": 16028,
+      "name": "Patchwerk",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019952979,
+      "script": "boss_patchwerk",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_patchwerk.cpp",
+      "spellIds": [
+        20477,
+        26662,
+        27680,
+        28131,
+        28308,
+        32309
+      ],
+      "features": [
+        "health-phases"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 3308.46,
+          "y": -3232.08,
+          "z": 294.24
+        }
+      ]
+    },
+    {
+      "entry": 16042,
+      "name": "Lord Valthalak",
+      "immuneSchools": 0,
+      "mechanicImmunity": 613105627,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": [
+        {
+          "mapId": 229,
+          "x": 52.6614,
+          "y": -535.253,
+          "z": 110.937
+        }
+      ]
+    },
+    {
+      "entry": 16060,
+      "name": "Gothik the Harvester",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019953019,
+      "script": "boss_gothik",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_gothik.cpp",
+      "spellIds": [
+        27892,
+        27893,
+        27915,
+        27928,
+        27929,
+        27931,
+        27935,
+        27936,
+        27937,
+        28025,
+        28026,
+        28679,
+        29230,
+        29317
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "objects",
+        "relocation"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 2642.14,
+          "y": -3386.96,
+          "z": 285.492
+        }
+      ]
+    },
+    {
+      "entry": 16061,
+      "name": "Instructor Razuvious",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019953023,
+      "script": "boss_razuvious",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_razuvious.cpp",
+      "spellIds": [
+        26613,
+        29107,
+        29125
+      ],
+      "features": [
+        "summons",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 2755.56,
+          "y": -3098.04,
+          "z": 267.86
+        }
+      ]
+    },
+    {
+      "entry": 16062,
+      "name": "Highlord Mograine",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019953019,
+      "script": "boss_highlord_mograine",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_four_horsemen.cpp",
+      "spellIds": [
+        25104,
+        26446,
+        26662,
+        28832,
+        28833,
+        28834,
+        28835,
+        28836,
+        28863,
+        28881,
+        28883,
+        28884,
+        28928,
+        28931,
+        28932,
+        28934,
+        29061
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 2524.32,
+          "y": -2951.28,
+          "z": 245.633
+        }
+      ]
+    },
+    {
+      "entry": 16063,
+      "name": "Sir Zeliek",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019953019,
+      "script": "boss_sir_zeliek",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_four_horsemen.cpp",
+      "spellIds": [
+        25104,
+        26662,
+        28832,
+        28833,
+        28834,
+        28835,
+        28836,
+        28863,
+        28881,
+        28883,
+        28884,
+        28928,
+        28931,
+        28932,
+        28934,
+        29061
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 2528.79,
+          "y": -2948.58,
+          "z": 245.633
+        }
+      ]
+    },
+    {
+      "entry": 16064,
+      "name": "Thane Korth'azz",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019953019,
+      "script": "boss_thane_korthazz",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_four_horsemen.cpp",
+      "spellIds": [
+        25104,
+        26662,
+        28832,
+        28833,
+        28834,
+        28835,
+        28836,
+        28863,
+        28881,
+        28883,
+        28884,
+        28928,
+        28931,
+        28932,
+        28934,
+        29061
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 2517.33,
+          "y": -2959.21,
+          "z": 245.635
+        }
+      ]
+    },
+    {
+      "entry": 16065,
+      "name": "Lady Blaumeux",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1019953019,
+      "script": "boss_lady_blaumeux",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_four_horsemen.cpp",
+      "spellIds": [
+        25104,
+        26662,
+        28832,
+        28833,
+        28834,
+        28835,
+        28836,
+        28863,
+        28881,
+        28883,
+        28884,
+        28928,
+        28931,
+        28932,
+        28934,
+        29061
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": [
+        {
+          "mapId": 533,
+          "x": 2520.66,
+          "y": -2955.36,
+          "z": 245.634
+        }
+      ]
+    },
+    {
+      "entry": 16077,
+      "name": "[PH] Alex's Test DPS Mob",
+      "immuneSchools": 0,
+      "mechanicImmunity": 0,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 16128,
+      "name": "Rhonin",
+      "immuneSchools": 0,
+      "mechanicImmunity": 0,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 16387,
+      "name": "Atiesh",
+      "immuneSchools": 0,
+      "mechanicImmunity": 1073741819,
+      "script": "",
+      "source": "",
+      "spellIds": [
+        19729,
+        28352
+      ],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 16440,
+      "name": "Highlord Mograine Transform",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "",
+      "source": "",
+      "spellIds": [],
+      "features": [],
+      "spawns": []
+    },
+    {
+      "entry": 16775,
+      "name": "Spirit of Mograine",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_highlord_mograine",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_four_horsemen.cpp",
+      "spellIds": [
+        25104,
+        26662,
+        28832,
+        28833,
+        28834,
+        28835,
+        28836,
+        28863,
+        28881,
+        28883,
+        28884,
+        28928,
+        28931,
+        28932,
+        28934,
+        29061
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 16776,
+      "name": "Spirit of Blaumeux",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_lady_blaumeux",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_four_horsemen.cpp",
+      "spellIds": [
+        25104,
+        26662,
+        28832,
+        28833,
+        28834,
+        28835,
+        28836,
+        28863,
+        28881,
+        28883,
+        28884,
+        28928,
+        28931,
+        28932,
+        28934,
+        29061
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 16777,
+      "name": "Spirit of Zeliek",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_sir_zeliek",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_four_horsemen.cpp",
+      "spellIds": [
+        25104,
+        26662,
+        28832,
+        28833,
+        28834,
+        28835,
+        28836,
+        28863,
+        28881,
+        28883,
+        28884,
+        28928,
+        28931,
+        28932,
+        28934,
+        29061
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": []
+    },
+    {
+      "entry": 16778,
+      "name": "Spirit of Korth'azz",
+      "immuneSchools": 0,
+      "mechanicImmunity": 617299803,
+      "script": "boss_thane_korthazz",
+      "source": "src/scripts/eastern_kingdoms/eastern_plaguelands/naxxramas/boss_four_horsemen.cpp",
+      "spellIds": [
+        25104,
+        26662,
+        28832,
+        28833,
+        28834,
+        28835,
+        28836,
+        28863,
+        28881,
+        28883,
+        28884,
+        28928,
+        28931,
+        28932,
+        28934,
+        29061
+      ],
+      "features": [
+        "summons",
+        "health-phases",
+        "shared-instance-state"
+      ],
+      "spawns": []
+    }
+  ]
+}

@@ -641,6 +641,7 @@ public enum Op : ushort
     // own long-confirmed 0x0102-0x0105 values, so the adjacent 0x0101 here
     // carries that same cross-checked confidence, not a fresh guess.
     CMSG_STANDSTATECHANGE        = 0x0101,
+    SMSG_STANDSTATE_UPDATE       = 0x029D,
     SMSG_EMOTE                   = 0x0103,
     // Not directly confirmed by the wiki's C++ index (Misc.h's TextEmote gave the
     // struct fields but not the enum value) - standard across every 1.12 server
@@ -719,6 +720,8 @@ public enum Op : ushort
     // TACTICAL_FREEZE v1 (capability bit 12): an explicit Command View button owns a
     // localized server lock; Command View itself remains live. Queue packets carry the
     // KOTOR-style per-actor plans authored while the lock is active.
+    CMSG_SUI_COMMANDER_RAID      = 0x036A, // capability 13
+    SMSG_SUI_COMMANDER_RAID      = 0x036B,
     CMSG_SUI_TACTICAL_FREEZE      = 0x0366, // decimal 870
     SMSG_SUI_TACTICAL_FREEZE      = 0x0367, // decimal 871
     CMSG_SUI_TACTICAL_QUEUE       = 0x0368, // decimal 872

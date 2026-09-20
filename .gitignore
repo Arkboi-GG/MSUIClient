@@ -68,6 +68,7 @@ settings.creator.json
 # encounters, but are not authored encounter content.
 /combat-plans.json
 /positioning-scripts.json
+/commander-plans/
 
 # Archives produced by setup-vmaps.ps1
 *.tar.gz
@@ -241,3 +242,18 @@ live-runs/N2-0-2-1-unit-frames-20260801-155000/
 !/MSUIClient/Assets/ThirdParty/*.txt
 /camera/Barrens_Chat-Testwar.txt
 /camera/Barrens_Chat-Yaf.txt
+
+# Commander raid compiler evidence (89 MB content snapshot + derivation report) and parser test scratch.
+/core/commander-raid/evidence/
+/core/commander-raid/tests/parser-stub/
+
+# Check/build result logs written by the raid QA tools.
+/core/commander-raid/tests/*.log
+
+# Raid QA harness (Python regression runner, compiler, scorers) and its generated outputs stay on this PC, unversioned
+# (owner decision 2026-09-19). The product keeps encounter-definitions/ (loaded at runtime) and core-patches/.
+/tools/encounter-content-audit/
+/core/commander-raid/
+
+# Core source copies once kept for the QA harness; the Core git is the source of truth (patch log moved to the Core tree).
+/core-patches/

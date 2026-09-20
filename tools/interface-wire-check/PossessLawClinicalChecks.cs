@@ -16,6 +16,7 @@ internal static class PossessLawClinicalChecks
     private static readonly string[] DrivenBodyGateFiles =
     [
         "GameLoop/Panels/GameLoop.Loot.cs",
+        "GameLoop/Dev/GameLoop.LiveRaidLoot.cs",
         "GameLoop/Panels/GameLoop.EquipBinding.cs",
         "GameLoop/Panels/GameLoop.Bank.cs",
         "GameLoop/Panels/GameLoop.Taxi.cs",
@@ -34,6 +35,7 @@ internal static class PossessLawClinicalChecks
     private static readonly string[] DrivenPurseFiles =
     [
         "GameLoop/Panels/GameLoop.Loot.cs",
+        "GameLoop/Dev/GameLoop.LiveRaidLoot.cs",
         "GameLoop/Panels/GameLoop.Bank.cs",
         "GameLoop/Panels/GameLoop.Trainer.cs",
         "GameLoop/Panels/GameLoop.Mail.cs",
@@ -49,7 +51,7 @@ internal static class PossessLawClinicalChecks
     [
         "SMSG_ACTION_BUTTONS", "SMSG_INITIAL_SPELLS", "SMSG_LEARNED_SPELL", "SMSG_SUPERCEDED_SPELL",
         "SMSG_REMOVED_SPELL", "SMSG_SPELL_COOLDOWN", "SMSG_COOLDOWN_EVENT", "SMSG_CLEAR_COOLDOWN",
-        "SMSG_CAST_RESULT",
+        "SMSG_CAST_RESULT", "SMSG_STANDSTATE_UPDATE",
         "SMSG_GOSSIP_MESSAGE", "SMSG_GOSSIP_COMPLETE", "SMSG_QUESTGIVER_STATUS",
         "SMSG_QUESTGIVER_QUEST_LIST", "SMSG_QUESTGIVER_QUEST_DETAILS", "SMSG_QUESTGIVER_REQUEST_ITEMS",
         "SMSG_QUESTGIVER_OFFER_REWARD", "SMSG_QUESTGIVER_QUEST_INVALID", "SMSG_QUESTGIVER_QUEST_COMPLETE",
@@ -86,6 +88,9 @@ internal static class PossessLawClinicalChecks
         string root = ClientConfig.FindRepoRoot();
         string Read(string rel) => SourceText.Read(Path.Combine(root, "MSUIClient", rel.Replace('/', Path.DirectorySeparatorChar)));
 
+        string stand = Read("GameLoop/Panels/GameLoop.Chat.cs").Split("private bool TrySetLocalStandState", StringSplitOptions.None)[1].Split("private string ResolveChannelSelector", StringSplitOptions.None)[0];
+        Check(stand.Contains("_entities.TryGet(ControlledGuid", StringComparison.Ordinal) && !stand.Contains("ControlledGuid != LocalPlayerGuid", StringComparison.Ordinal), "POSSESS_LAW: stand commands act on the controlled body");
+        Check(Read("GameLoop/Scene/GameLoop.Control.cs").Contains("ApplyStandStateUpdate(inner, source)", StringComparison.Ordinal), "POSSESS_LAW: stand reply applies to the mirrored actor");
         string hearthSource = Read("GameLoop/Panels/GameLoop.Hearth.cs");
         Check(hearthSource.Contains("owner == 0 || owner != LocalPlayerGuid || _bindPointAreaId == 0", StringComparison.Ordinal) &&
               Read("GameLoop/Panels/GameLoop.Inventory.cs").Contains("homeAreaName: HearthAreaName(requirementOwner)", StringComparison.Ordinal) &&
@@ -119,6 +124,13 @@ internal static class PossessLawClinicalChecks
                 $"POSSESS_LAW 2.2: {rel} reads the SESSION player's purse/bags; use ControlledGuid");
 
         // ── 1.2 every mirrored frame is unwrapped ────────────────────────────
+        string raidLoot = Read("GameLoop/Dev/GameLoop.LiveRaidLoot.cs");
+        Check(raidLoot.Contains("_partyMasterLooterGuid != ControlledGuid", StringComparison.Ordinal) &&
+              raidLoot.Contains("TryGetInteractionBodyPose(out var body)", StringComparison.Ordinal) &&
+              raidLoot.Contains("EnumerateActionItemCopies(actor, entry)", StringComparison.Ordinal) &&
+              raidLoot.Contains("!CanAuthorControlledOrSelf", StringComparison.Ordinal),
+            "POSSESS_LAW 2.1/2.2: raid loot authority, range and equipment must use the actual driven body");
+
         string control = Read("GameLoop/Scene/GameLoop.Control.cs");
         string objectUse = Read("GameLoop/Scene/GameLoop.GameObjects.cs");
         Check(objectUse.Contains("go.GameObjectType == 17\n        ? 100f", StringComparison.Ordinal) &&

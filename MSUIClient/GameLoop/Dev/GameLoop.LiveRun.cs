@@ -11,7 +11,7 @@ using Silk.NET.Input;
 
 namespace MSUIClient;
 
-public sealed record LiveRunOptions(string OutputDirectory, string? Protocol, double TimeoutSeconds, string? Character, bool Background = false, bool CharacterSelect = false, bool NativeSpawn = false);
+public sealed record LiveRunOptions(string OutputDirectory, string? Protocol, double TimeoutSeconds, string? Character, bool Background = false, bool CharacterSelect = false, bool NativeSpawn = false, bool StartInPlace = false);
 
 public static partial class Program
 {
@@ -20,7 +20,7 @@ public static partial class Program
     {
         options = null; configPath = null; error = null;
         string output = "live-runs"; string? protocol = null, character = null; double timeout = 120;
-        bool background = false, characterSelect = false, nativeSpawn = false;
+        bool background = false, characterSelect = false, nativeSpawn = false, startInPlace = false;
         for (int i=0;i<args.Length;i++)
         {
             string arg=args[i];
@@ -28,6 +28,7 @@ public static partial class Program
             if (arg=="--background") { background=true; continue; }
             if (arg=="--character-select") { characterSelect=true; continue; }
             if (arg=="--native-spawn") { nativeSpawn=true; continue; }
+            if (arg=="--live-in-place") { startInPlace = true; continue; }
             if (arg is "--live-protocol" or "--out" or "--timeout" or "--character")
             {
                 if (++i>=args.Length) { error=$"missing value for {arg}"; return false; }
@@ -42,7 +43,7 @@ public static partial class Program
             if (configPath is not null) { error=$"unexpected argument {arg}"; return false; }
             configPath=arg;
         }
-        options=new(output,protocol,timeout,character,background,characterSelect,nativeSpawn); return true;
+        options=new(output,protocol,timeout,character,background,characterSelect,nativeSpawn,startInPlace); return true;
     }
 }
 
@@ -115,9 +116,12 @@ public sealed partial class GameLoop
         // _worldLoadedOnce: between InWorld and the first BeginWorldLoad the loading flag is
         // still false, and the arena teleport used to fire into that gap.
         if (_net is not { IsInWorld:true } || _worldLoading || !_worldLoadedOnce || _controller is null || _character is null) return;
-        if (_liveRunOptions.NativeSpawn)
+        // Raid/checkpoint runs (--live-in-place) and native spawns (--native-spawn) start where the
+        // character actually is; the generic movement fixture's arena teleport is skipped.
+        if (_liveRunOptions.NativeSpawn || _liveRunOptions.StartInPlace)
         {
-            if (_liveRunOptions.Protocol is null) FinishLiveBootstrap("READY", "native world spawn ready; no fixture teleport");
+            if (_liveRunOptions.Protocol is null) FinishLiveBootstrap("READY", _liveRunOptions.NativeSpawn
+                ? "native world spawn ready; no fixture teleport" : "world ready at saved location");
             else AdvanceProtocol();
             return;
         }
@@ -215,17 +219,24 @@ public sealed partial class GameLoop
             string[] p=line.Split(' ',3,StringSplitOptions.RemoveEmptyEntries);
             switch(p[0].ToLowerInvariant())
             {
+                case "raidqa":
+                    if (!AdvanceCommanderRaidLiveQa(line)) return;
+                    break;
                 case "inbox": Log(OpenLiveInbox(line), line); break;
                 case "gm":
                     if(line[3..].StartsWith(".npc spawn add",StringComparison.OrdinalIgnoreCase))
                         _liveSpawnBefore=_entities.Units.Where(x=>x.IsCreature).Select(x=>x.Guid).ToHashSet();
-                    Log(SendGmCommand(line[3..],"protocol-runner"),line); break;
+                    bool gmSent = SendGmCommand(line[3..],"protocol-runner");
+                    if ((_raidQaAttemptDirectory is not null || _raidQaPersistent) && _raidQaStage == MSUIClient.Engine.UI.CommanderRaidAttemptStage.Failed) return;
+                    Log(gmSent,line); break;
                 case "gm-to-selection":
                     if (_entities.TryGet(_selectionGuid, out WorldEntity selectedForTeleport))
                     {
                         string go = string.Create(CultureInfo.InvariantCulture,
                             $".go xyz {selectedForTeleport.Position.X:R} {selectedForTeleport.Position.Y:R} {selectedForTeleport.Position.Z:R} {_config.Start.Map}");
-                        Log(SendGmCommand(go, "protocol-runner-selection-placement"), $"{line} command={go}");
+                        bool placementSent = SendGmCommand(go, "protocol-runner-selection-placement");
+                        if ((_raidQaAttemptDirectory is not null || _raidQaPersistent) && _raidQaStage == MSUIClient.Engine.UI.CommanderRaidAttemptStage.Failed) return;
+                        Log(placementSent, $"{line} command={go}");
                     }
                     else Log(false, $"{line} selected descriptor missing");
                     break;
@@ -339,6 +350,11 @@ public sealed partial class GameLoop
                     _liveWaitPattern=string.Join(' ',w[..^1]); _liveWaitTimeout=now+timeout; return;
                 case "assert": Log(VerdictLines().Any(x=>x.Contains(line[7..],StringComparison.OrdinalIgnoreCase)),line); break;
                 case "select":
+                    if (p.Length == 2 && p[1].StartsWith("guid:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bool selected = ulong.TryParse(p[1][5..], NumberStyles.None, CultureInfo.InvariantCulture, out ulong observedGuid) && SelectLiveObservedGuid(observedGuid);
+                        Log(selected, line); break;
+                    }
                     RefreshLiveSpawnIdentities();
                     bool self=p[1].Equals("self",StringComparison.OrdinalIgnoreCase);
                     bool anchor=p[1].Equals("anchor",StringComparison.OrdinalIgnoreCase);
@@ -634,7 +650,14 @@ public sealed partial class GameLoop
                     else Log(false, $"unknown {line}");
                     break;
                 case "loot":
-                    if (p[1].Equals("request", StringComparison.OrdinalIgnoreCase)) Log(RequestLoot(_selectionGuid), line);
+                    if (p[1].Equals("master-setup", StringComparison.OrdinalIgnoreCase)) Log(TryLiveRaidMasterLootSetup(), line);
+                    else if (p.Length == 4 && p[1].Equals("master-give", StringComparison.OrdinalIgnoreCase))
+                        Log(TryLiveMasterLoot(byte.Parse(p[2], CultureInfo.InvariantCulture), ulong.Parse(p[3], CultureInfo.InvariantCulture)), line);
+                    else if (p.Length == 4 && p[1].Equals("equip-reward", StringComparison.OrdinalIgnoreCase))
+                        Log(TryLiveEquipRaidLoot(uint.Parse(p[2], CultureInfo.InvariantCulture), ulong.Parse(p[3], CultureInfo.InvariantCulture)), line);
+                    else if (p.Length == 3 && p[1].Equals("inventory-report", StringComparison.OrdinalIgnoreCase)) Log(WriteLiveRaidInventoryReport(p[2]), line);
+                    else if (p.Length == 3 && p[1].Equals("report", StringComparison.OrdinalIgnoreCase)) Log(WriteLiveLootReport(p[2]), line);
+                    else if (p[1].Equals("request", StringComparison.OrdinalIgnoreCase)) Log(RequestLoot(_selectionGuid), line);
                     else if (p[1].Equals("money", StringComparison.OrdinalIgnoreCase)) Log(TakeLootMoney(), line);
                     else if (p[1].Equals("item-first", StringComparison.OrdinalIgnoreCase)) Log(TakeFirstLootItem(), line);
                     else if (p[1].Equals("take-all", StringComparison.OrdinalIgnoreCase)) Log(TakeAllLoot(), line);
@@ -713,6 +736,10 @@ public sealed partial class GameLoop
                         Log(LiveRequireBag(int.Parse(inventory[2], CultureInfo.InvariantCulture),
                             uint.Parse(inventory[3], CultureInfo.InvariantCulture),
                             int.Parse(inventory[4], CultureInfo.InvariantCulture)), line);
+                    else if (inventory.Length == 3 && inventory[1].Equals("ammo", StringComparison.OrdinalIgnoreCase))
+                        Log(uint.TryParse(inventory[2], NumberStyles.None, CultureInfo.InvariantCulture, out uint selectedAmmo) &&
+                            _entities.TryGet(ControlledGuid, out var ammoOwner) && CarriedAmmoCount(ammoOwner, selectedAmmo) > 0 &&
+                            SelectAmmo(selectedAmmo), line);
                     else if (inventory.Length == 2 && inventory[1].Equals("inspect-bags", StringComparison.OrdinalIgnoreCase))
                         Log(LiveInspectBags(), line);
                     else if (inventory.Length == 5 && inventory[1].Equals("simulate-push", StringComparison.OrdinalIgnoreCase))
@@ -1469,7 +1496,15 @@ public sealed partial class GameLoop
                 default: Log(false,$"unknown {line}"); break;
             }
         }
-        catch(Exception ex) { Log(false,$"{line} error={ex.GetType().Name}:{ex.Message}"); }
+        catch(Exception ex)
+        {
+            Log(false,$"{line} error={ex.GetType().Name}:{ex.Message}");
+            if (line.StartsWith("raidqa ", StringComparison.OrdinalIgnoreCase))
+            {
+                RaidQaFail($"{line}: {ex.GetType().Name}: {ex.Message}");
+                return;
+            }
+        }
         _liveStep++;
     }
 
@@ -1708,6 +1743,13 @@ public sealed partial class GameLoop
             $"class={flagName.ToLowerInvariant()};entry={selected.Entry};npcFlags=0x{selected.NpcFlags:X8};distance={distance:R}");
         return selected.Guid;
     }
+    private bool SelectLiveObservedGuid(ulong guid)
+    {
+        if (guid == 0 || !_entities.TryGet(guid, out _)) return false;
+        CommitSelection(guid, false);
+        return true;
+    }
+
     private ulong LiveEntryNearestGuid(int entry)
     {
         if (_controller is null || entry <= 0) return 0;
@@ -2365,6 +2407,11 @@ public sealed partial class GameLoop
 
     private void FinishLiveBootstrap(string result, string detail)
     {
+        if (_raidQaStage is CommanderRaidAttemptStage.Fighting or CommanderRaidAttemptStage.PullPending)
+        {
+            _raidQaStage = CommanderRaidAttemptStage.Failed;
+            WriteRaidQaEvent("failed", new { reason = "Live observation ended", result, detail });
+        }
         if (_liveSteps is not null && result != "READY")
         {
             Log(false, $"run interrupted: {result};{detail};nextStep={_liveStep}");

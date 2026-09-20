@@ -57,6 +57,15 @@ internal static class CooldownProtocolClinicalChecks
         Check(!actions.IsOnCooldown(6603, 0, attack, 20.2),
             "Attack bypassed the cooldown getter head exclusion");
 
+        SpellInfo bloodrage = fireball with { Id = 2687, RecoveryMs = 60_000, EffectIds = [47, 0, 0] };
+        var excludedRecovery = new PlayerActions();
+        excludedRecovery.StartSpellCooldown(2687, bloodrage, rangedAttackTimeMs: 0, nowSeconds: 10.0);
+        Check(!excludedRecovery.IsOnCooldown(2687, 0, bloodrage, 11.0) &&
+              Math.Abs(excludedRecovery.CooldownRemaining(2687, 11.0, bloodrage.Category) - 59.0) < .001,
+            "Effect-47 UI exclusion must not erase the actual recovery used by an ability scheduler");
+        Check(excludedRecovery.CooldownRemaining(2687, 70.0, bloodrage.Category) == 0,
+            "Excluded-query spell recovery did not expire");
+
         var wildcard = new PlayerActions();
         wildcard.StartCooldown(5019, 351, 0, 1_500, 30.0, onHold: false,
             categoryWildcard: true);

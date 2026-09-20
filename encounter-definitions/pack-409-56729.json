@@ -1,0 +1,129 @@
+{
+  "id": "pack-409-56729",
+  "name": "Firewalker / Flameguard / Lava Elemental pack (4) at (670,-1091)",
+  "mapId": 409,
+  "bossEntry": 11666,
+  "bounds": {
+    "min": [
+      540,
+      -1230,
+      -240
+    ],
+    "max": [
+      790,
+      -950,
+      -150
+    ]
+  },
+  "tankAnchor": [
+    700,
+    -1060,
+    -181.0
+  ],
+  "teams": [
+    {
+      "name": "West",
+      "anchor": [
+        705,
+        -1030,
+        -180.8
+      ]
+    },
+    {
+      "name": "East",
+      "anchor": [
+        725,
+        -1045,
+        -176.5
+      ]
+    }
+  ],
+  "addTanksPerTeam": 1,
+  "healersPerTeam": 1,
+  "healerCount": 10,
+  "addEntries": [
+    11666,
+    11667,
+    12076
+  ],
+  "immuneSchools": 4,
+  "objectives": [
+    11666
+  ],
+  "coverage": "basic",
+  "requiredAdds": [
+    {
+      "entry": 11666,
+      "count": 1
+    },
+    {
+      "entry": 11667,
+      "count": 1
+    },
+    {
+      "entry": 12076,
+      "count": 2
+    }
+  ],
+  "addPolicy": "focus",
+  "schema": 1,
+  "phases": [
+    {
+      "id": 1,
+      "name": "Combat",
+      "priority": 0,
+      "healthMin": 0,
+      "healthMax": 100,
+      "airborne": -1,
+      "aura": 0,
+      "alternate": false,
+      "melee": true,
+      "ranged": true,
+      "threatRatio": 0.8
+    }
+  ],
+  "rules": [
+    {
+      "id": "derived-tank-buff-10938",
+      "priority": 28,
+      "action": "cast",
+      "trigger": "always",
+      "spells": [],
+      "phase": 0,
+      "roles": 62,
+      "radius": 19,
+      "durationMs": 12000,
+      "target": "tank",
+      "spell": 10938,
+      "missingAura": true,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 4
+    },
+    {
+      "id": "derived-spread-ranged",
+      "priority": 20,
+      "action": "spread",
+      "trigger": "always",
+      "spells": [],
+      "phase": 1,
+      "roles": 40,
+      "radius": 3.0,
+      "durationMs": 0,
+      "target": "self",
+      "spell": 0,
+      "missingAura": false,
+      "pointSpells": [],
+      "station": [
+        0,
+        0,
+        0
+      ],
+      "toggle": 0
+    }
+  ]
+}

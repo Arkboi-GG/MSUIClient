@@ -287,3 +287,10 @@ bank, auction, loot, trade, taxi, trainer/talent-wipe, binder, tabard, stable,
 quest, resurrection, party/raid, and follow/duel paths. The check belongs before
 any optimistic state or deferred send is armed; cancellation, decline, release,
 and other retractions remain legal.
+
+### Stand-state routing (2026-09-07)
+
+Sit, stand, sleep and kneel address the driven body through GetSuiActor and
+ControlledGuid. The stand update reply is mirrored as SMSG_STANDSTATE_UPDATE and
+applied to the proxy source. Keep the acting body freeze/animation guards and
+normal aura interruption. Preparation must stand a seated hunter before Feed Pet.
