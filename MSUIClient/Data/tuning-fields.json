@@ -1,0 +1,376 @@
+{
+  "schema": 1,
+  "fields": [
+    {
+      "name": "slowOperationMs",
+      "type": "int",
+      "default": 25,
+      "min": 1,
+      "max": 10000
+    },
+    {
+      "name": "objectiveSearchRadius",
+      "type": "float",
+      "default": 400,
+      "min": 1,
+      "max": 400
+    },
+    {
+      "name": "feignRecoveryMs",
+      "type": "unsigned",
+      "default": 1500,
+      "min": 1,
+      "max": 10000
+    },
+    {
+      "name": "supportLeaseMs",
+      "type": "unsigned",
+      "default": 750,
+      "min": 1,
+      "max": 10000
+    },
+    {
+      "name": "directDamageHorizonMs",
+      "type": "unsigned",
+      "default": 3000,
+      "min": 1,
+      "max": 10000
+    },
+    {
+      "name": "burstHealthFraction",
+      "type": "float",
+      "default": 0.35,
+      "min": 0.01,
+      "max": 1
+    },
+    {
+      "name": "healingSearchRadius",
+      "type": "float",
+      "default": 40,
+      "min": 1,
+      "max": 100
+    },
+    {
+      "name": "urgentHealthPercent",
+      "type": "float",
+      "default": 50,
+      "min": 1,
+      "max": 100
+    },
+    {
+      "name": "fastHealHorizonMs",
+      "type": "unsigned",
+      "default": 1750,
+      "min": 1,
+      "max": 10000
+    },
+    {
+      "name": "urgentHealTargetPercent",
+      "type": "float",
+      "default": 99,
+      "min": 1,
+      "max": 100
+    },
+    {
+      "name": "healTargetPercent",
+      "type": "float",
+      "default": 92,
+      "min": 1,
+      "max": 100
+    },
+    {
+      "name": "primaryHealPriority",
+      "type": "float",
+      "default": 22,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "name": "tankHealPriority",
+      "type": "float",
+      "default": 12,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "name": "teamHealPriority",
+      "type": "float",
+      "default": 6,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "name": "criticalHealthPercent",
+      "type": "float",
+      "default": 30,
+      "min": 1,
+      "max": 100
+    },
+    {
+      "name": "criticalHealPriority",
+      "type": "float",
+      "default": 50,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "name": "defensiveHealthPercent",
+      "type": "float",
+      "default": 35,
+      "min": 1,
+      "max": 100
+    },
+    {
+      "name": "tickMs",
+      "type": "unsigned",
+      "default": 250,
+      "min": 1,
+      "max": 2000
+    },
+    {
+      "name": "bridgeTickMs",
+      "type": "unsigned",
+      "default": 1000,
+      "min": 1,
+      "max": 10000
+    },
+    {
+      "name": "hazardObservationAgeMs",
+      "type": "unsigned",
+      "default": 2500,
+      "min": 1,
+      "max": 10000
+    },
+    {
+      "name": "addSearchRadius",
+      "type": "float",
+      "default": 100,
+      "min": 1,
+      "max": 400
+    },
+    {
+      "name": "tankLeaseMs",
+      "type": "unsigned",
+      "default": 3000,
+      "min": 1,
+      "max": 10000
+    },
+    {
+      "name": "rangedActorsPerAdd",
+      "type": "unsigned",
+      "default": 2,
+      "min": 1,
+      "max": 40
+    },
+    {
+      "name": "foreignTeamPenalty",
+      "type": "float",
+      "default": 40,
+      "min": 0,
+      "max": 200
+    },
+    {
+      "name": "looseAddPriority",
+      "type": "float",
+      "default": 60,
+      "min": 0,
+      "max": 200
+    },
+    {
+      "name": "retainedTargetPriority",
+      "type": "float",
+      "default": 10,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "name": "tankStationToleranceSquared",
+      "type": "float",
+      "default": 4,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "name": "tankStepYards",
+      "type": "float",
+      "default": 2,
+      "min": 0.1,
+      "max": 10
+    },
+    {
+      "name": "minimumTankSeparation",
+      "type": "float",
+      "default": 1.5,
+      "min": 0.1,
+      "max": 10
+    },
+    {
+      "name": "tankFacingCosine",
+      "type": "float",
+      "default": 0.98480775,
+      "min": -1,
+      "max": 1
+    },
+    {
+      "name": "tankTurnRadians",
+      "type": "float",
+      "default": 0.34906585,
+      "min": 0.01,
+      "max": 1.57
+    },
+    {
+      "name": "meleeContactMargin",
+      "type": "float",
+      "default": 0.75,
+      "min": 0,
+      "max": 5
+    },
+    {
+      "name": "coneAngleMarginRadians",
+      "type": "float",
+      "default": 0.08726646,
+      "min": 0,
+      "max": 1.57
+    },
+    {
+      "name": "adviceAgeSeconds",
+      "type": "float",
+      "default": 2.5,
+      "min": 0,
+      "max": 5
+    },
+    {
+      "name": "positionArrivalSquared",
+      "type": "float",
+      "default": 2.25,
+      "min": 0.01,
+      "max": 25
+    },
+    {
+      "name": "routeGridDivisions",
+      "type": "int",
+      "default": 20,
+      "min": 4,
+      "max": 40
+    },
+    {
+      "name": "routeSegmentSampleLimit",
+      "type": "int",
+      "default": 1000,
+      "min": 1,
+      "max": 2000
+    },
+    {
+      "name": "routeCollinearityEpsilon",
+      "type": "float",
+      "default": 0.001,
+      "min": 1e-05,
+      "max": 0.1
+    },
+    {
+      "name": "routeLengthEpsilon",
+      "type": "float",
+      "default": 0.01,
+      "min": 1e-05,
+      "max": 0.1
+    },
+    {
+      "name": "minimumRouteSpeed",
+      "type": "float",
+      "default": 0.1,
+      "min": 0.01,
+      "max": 1
+    },
+    {
+      "name": "escapeExecutionMarginSeconds",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 10
+    },
+    {
+      "name": "forecastExitLimit",
+      "type": "unsigned",
+      "default": 12,
+      "min": 1,
+      "max": 64
+    },
+    {
+      "name": "forecastQueryLimit",
+      "type": "unsigned",
+      "default": 64,
+      "min": 1,
+      "max": 256
+    },
+    {
+      "name": "escapeRetainPenalty",
+      "type": "float",
+      "default": 20,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "name": "escapeRetainToleranceSquared",
+      "type": "float",
+      "default": 1,
+      "min": 0.01,
+      "max": 25
+    },
+    {
+      "name": "lowerPriorityExposureCost",
+      "type": "float",
+      "default": 300,
+      "min": 0,
+      "max": 1000
+    },
+    {
+      "name": "formationTriggerCost",
+      "type": "float",
+      "default": 24,
+      "min": 0,
+      "max": 200
+    },
+    {
+      "name": "formationImprovementCost",
+      "type": "float",
+      "default": 2,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "name": "flankMoveToleranceSquared",
+      "type": "float",
+      "default": 0.5625,
+      "min": 0.01,
+      "max": 25
+    },
+    {
+      "name": "flankFacingCosine",
+      "type": "float",
+      "default": 0.9961947,
+      "min": -1,
+      "max": 1
+    },
+    {
+      "name": "minimumFlankRadius",
+      "type": "float",
+      "default": 3,
+      "min": 0.1,
+      "max": 10
+    },
+    {
+      "name": "flankCandidateCount",
+      "type": "int",
+      "default": 7,
+      "min": 2,
+      "max": 20
+    },
+    {
+      "name": "flankContactMargin",
+      "type": "float",
+      "default": 1,
+      "min": 0,
+      "max": 5
+    }
+  ]
+}
