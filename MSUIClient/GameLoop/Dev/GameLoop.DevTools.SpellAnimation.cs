@@ -45,7 +45,7 @@ public sealed partial class GameLoop
         _presentedEffectSpell = spellId;
         _presentedEffectGuid = anchor;
         _spellEffects.SpawnKit(anchor, spellId, kit,
-            persistent: stage is "precast" or "state" or "channel", NowSeconds(), stage.ToUpperInvariant());
+            persistent: stage is "precast" or "state" or "channel", SpellClockNow, stage.ToUpperInvariant());
         if (anchor != LocalPlayerGuid)
         {
             // Anchored on another unit (creator-loop impact on the spawned

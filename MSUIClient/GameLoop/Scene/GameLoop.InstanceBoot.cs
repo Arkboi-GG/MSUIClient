@@ -42,7 +42,7 @@ public sealed partial class GameLoop
 
     private string InstanceBootText(ulong owner, double seconds)
     {
-        string home = owner == LocalPlayerGuid ? _areas?.AreaName(_bindPointAreaId) ?? "" : "";
+        string home = HearthAreaName(owner) ?? "";
         if (home.Length == 0) home = "your home";
         var time = InstanceBootUiLaw.TimeUnit(seconds);
         string key = (time.Minutes ? "MINUTES" : "SECONDS") + (time.Count == 1 ? "" : "_P1");

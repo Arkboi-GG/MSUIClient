@@ -24,6 +24,12 @@ touching the code:
 - `shared_docs/CRPG_FREEZE_SYSTEM.md` — the CRPG/RTS freeze system.
 - `shared_docs/MACRO_BOOK.md` — the Macro Book: stable macro ids and the legacy
   ranges, the v2 store, the embedded Core command export and how to regenerate it.
+- `shared_docs/GAMEPLAY_INTERACTION_CHECKLIST.md` — evidence and verification status
+  for subtle gameplay feedback; how to regenerate the archive-driven audit and triage it.
+- `shared_docs/FULL_GAME_COVERAGE.md` — full-game coverage inventory, quest/spell
+  acceptance rules, background execution batches and evidence gaps.
+- `shared_docs/Sept 8, 26 fixes.md` — complete September 7–8 audit recap, all GI entries,
+  evidence, open defects and the owner-requested pause handoff.
 - `shared_docs/INTERIOR_UNIT_LIGHT.md` — how units, mounts, items and server
   gameobjects are lit inside a WMO (the floor's MOCV under the feet, one law with
   the props); the `MSUI_INTERIORLIGHT_PROBE` offline proof.
@@ -32,6 +38,9 @@ touching the code:
 - `shared_docs/COMMANDER_RAID_PLAN.md` — original design record and research basis for the raid planner and executor (historical detail; ARCHITECTURE is the current summary).
 - `shared_docs/COMMANDER_MOLTEN_CORE.md` — generated Core/DB review of the ten Molten Core bosses with the executor primitives each still needs.
 - The day-by-day raid log (2026-09-06 to 09-09) is frozen at `docs/archive/commander-raid/COMMANDER_RAID_HANDOFF_2026-09-06_to_09-09.md` (git-ignored, local only). Do not append to it; update STATE instead.
+- `shared_docs/SPELL_CREATOR_IDE.md` — the Spell Creator IDE: the void stage, the
+  effect clock (pause/step/scrub + deterministic replay) and the grid/emitter
+  gizmos in Creator Mode's spell workshop; the emitter frame chain and slice order.
 - `CODE_STRUCTURE_LAW.md` (repo root) — where a `.cs` file goes and how it is named.
 
 `interface-wire-check --shared-docs-only` fails when a file in `shared_docs/` is not
@@ -69,6 +78,35 @@ history) and the server handoff `docs/current/POSSESSION_ROUTING_HANDOFF.md`.
 7. Pair-deploy: new opcodes/capability bits change both sides in one round.
 8. Probe first, don't theorize: `~/vmangos/run/bin/Server.log` (grep `[SUI]`,
    `released bot`, `catch-up teleport`) and the client `msui-console.log`.
+
+## Find code with the locator -- if not on Yafrovon's Computer, IGNORE THIS SECTION
+
+All three repos (this client, the `MangosSuperUI` web app, the vmangos C++ core on the box)
+are indexed by one local service, the **superui-locator**, at `http://127.0.0.1:5077`: every
+type and member of both C# repos live from the working tree (a saved file is re-indexed within
+a second), the libclang graph of the core, string literals, leading comments, and the
+cross-repo seams (SUI opcodes <-> core handlers, bridge message names, twin files). Before any
+tree-wide grep, `Select-String`, `sed -n` walk or "where is X" reasoning, ask it; grep only
+when it returns nothing after two phrasings, and say so.
+
+- MCP tools (Claude Code, Codex with MCP): `locate(task)`, `search(q, repo?, kind?)`,
+  `outline(file|id)`, `neighbours(id, types?)`, `read(id | file,start,end)`, `grep(q)` (core
+  tree only), `stats`.
+- Any agent: the same as GET routes: `curl -s "http://127.0.0.1:5077/locate?task=..."`,
+  `/search?q=...&repo=cli`, `/outline?file=GameLoop.Net.cs`, `/neighbours?id=...&types=calls,seam`,
+  `/read?id=...`, `/stats`.
+- Ids: `cli:MSUIClient.GameLoop::ControlledGuid`, `core:WorldSession.SuiPossess/HandleOrder`; a
+  unique suffix (`GameLoop::ControlledGuid`) is accepted. Order: locate -> outline -> neighbours ->
+  read one span at a time (<= 400 lines). Never read whole files to find a method.
+**Enforcement (Claude Code):** a PreToolUse hook (`SourceMapper/Locator/hooks/locate-first.py`, registered in
+`.claude/settings.json`) denies tree-wide searches (Grep without a file path, recursive grep/rg/Select-String)
+until a locator tool has been called in the last 15 minutes; file-scoped searches always pass, and the hook
+stands down when the host is not running. Codex/Qwen have no hook: the rule above is the contract.
+
+- If `stats` does not answer, the host is down: start it (`dotnet run -c Release` in
+  `C:\Users\user\source\repos\SourceMapper\Locator`, or the `locator` entry in
+  `.claude/launch.json`) or tell the owner. Markdown docs (`shared_docs/`, `docs/`, root),
+  JS functions and Razor views are indexed with sections/spans; JSON and binary assets are not.
 
 ## Box and machine facts
 

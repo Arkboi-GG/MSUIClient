@@ -1,0 +1,29 @@
+wait 2
+select self
+wait 35
+pose assert-dead false
+animation-sequence start 5384 FEIGN-DEATH-POSE
+cast 5384
+wait 0.2
+animation-sequence sample feign-t0_2
+wait 0.5
+animation-sequence sample feign-t0_7
+wait 1
+animation-sequence sample feign-t1_7
+wait 2
+animation-sequence sample feign-t3_7
+aura present 5384
+pose assert-dead true
+pose assert-animation 1
+dump checklist-feign-fallen
+wait 5
+pose assert-animation 1
+animation-sequence sample feign-held
+animation-sequence stop
+aura-cancel 5384
+wait 0.5
+dump checklist-feign-rise
+wait 4
+pose assert-dead false
+pose assert-animation 0
+dump checklist-feign-standing

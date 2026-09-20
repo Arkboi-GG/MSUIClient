@@ -24,6 +24,19 @@ internal static class CharSelectCurrentClinicalChecks
               tuning.Min == new Vector2(48f, 48f) && tuning.Size == new Vector2(360f, 0f),
             "character-select host/tuning window geometry law drift");
 
+        foreach (float scale in new[] { .5f, 1f, 1369f / 768f, 2f })
+        foreach (int count in Enumerable.Range(1, 10))
+        {
+            float top = 89f * scale, createTop = (657f - 48.6f - 12f) * scale;
+            float pitch = CharSelectUiLaw.RosterPitch(count, createTop - top - 12f * scale, scale);
+            float rowScale = pitch / 60f;
+            float lastTop = top + (count - 1) * pitch;
+            Check(lastTop + 54f * rowScale < createTop &&
+                  lastTop + (76.9f - 9.3f) * rowScale < createTop,
+                $"roster {count} hit box or highlight overlaps Create at scale {scale}");
+            Check(50f * rowScale < pitch, "roster location text spills into next row");
+        }
+
         CharSelectUiLaw.DeleteDialogLayout dialog =
             CharSelectUiLaw.DeleteDialog(new Vector2(1024f, 768f), 1f);
         Check(dialog.Frame.Min == new Vector2(256f, 256f) &&

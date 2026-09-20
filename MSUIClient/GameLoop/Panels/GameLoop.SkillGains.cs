@@ -35,9 +35,11 @@ public sealed partial class GameLoop
 
     private void ObserveSkillRankUps()
     {
-        if (_net is not { IsInWorld: true } net || net.PlayerGuid == 0 ||
+        if (_mpq is null || _net is not { IsInWorld: true } net || net.PlayerGuid == 0 ||
             !_entities.TryGet(net.PlayerGuid, out WorldEntity player))
             return;
+        _skillLines ??= SkillLineCatalog.Load(_mpq);
+        var identity = player.Fields.Bytes0;
 
         foreach ((_, ushort skillId, ushort rank) in player.Fields.PlayerSkills())
         {
@@ -51,7 +53,8 @@ public sealed partial class GameLoop
             if (rank <= previous) { _skillRanks[skillId] = rank; continue; }
 
             _skillRanks[skillId] = rank;
-            if (!_skillRanksSeeded) continue;   // still filling the login baseline
+            if (!_skillRanksSeeded || _worldLoading ||
+                _skillLines?.AnnouncesSkillUps(skillId, identity.Race, identity.Class) != true) continue;
 
             AddChatMessage(SkillRankUpText(skillId, rank), ChatFrameLaw.MsgType.Skill);
             EmitInterface("skill", "rank-up", "ANNOUNCED", net.PlayerGuid,
@@ -68,7 +71,6 @@ public sealed partial class GameLoop
     /// </summary>
     private string SkillRankUpText(ushort skillId, ushort rank)
     {
-        _skillLines ??= SkillLineCatalog.Load(_mpq);
         string name = _skillLines?.TryGet(skillId, out SkillLineInfo line) == true
             ? line.Name
             : $"skill {skillId}";

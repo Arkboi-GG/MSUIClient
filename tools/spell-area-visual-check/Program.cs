@@ -111,6 +111,22 @@ bool gatedResolved = catalog.TryGetAreaVisual(1, out SpellAreaVisualInfo gated);
 Check(!gatedResolved || gated.LoopingModelPath is null,
     "SpellVisual area gate 0 did not suppress its field-12 model");
 
+Check(catalog.TryGetDestinationBurst(33, out string flamestrikeBurst),
+    "Flamestrike lost the GO destination burst");
+Check(!catalog.TryGetDestinationBurst(148, out _) &&
+    !catalog.TryGetDestinationBurst(uint.MaxValue, out _),
+    "missile-owned or missing visual incorrectly spawned an immediate ground burst");
+var burstSource = new SpellEffectSource(mpq);
+Vector3 burstPoint = new(25, -10, 7);
+Check(burstSource.SpawnGroundBurst(10, 2120, flamestrikeBurst, burstPoint, 0),
+    "Flamestrike burst asset did not spawn");
+Check(burstSource.Snapshot(2120, 0, _ => SpellUnitPose.Missing) is [{ Stage: "GROUND_BURST" } burst] &&
+    burst.Position == burstPoint, "GO burst required a unit or changed the wire destination");
+burstSource.ReapArea(10);
+Check(burstSource.ActiveCount == 1, "area teardown cut a free GO burst tail");
+burstSource.Tick(60, _ => SpellUnitPose.Missing);
+Check(burstSource.ActiveCount == 0, "GO burst did not expire after its authored lifetime");
+
 Check(catalog.TryGetAreaVisual(259, out SpellAreaVisualInfo blizzard),
     "Blizzard area visual unavailable for lifecycle check");
 var source = new SpellEffectSource(mpq);

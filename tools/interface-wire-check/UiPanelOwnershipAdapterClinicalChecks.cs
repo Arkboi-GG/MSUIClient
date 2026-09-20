@@ -36,6 +36,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
 
     public static void Run()
     {
+        RegisteredUiPanelClinicalChecks.Run();
         CheckExactRegistry();
         CheckSingleEdgeAndIdempotence();
         CheckAuthoredSeatOrigins();
@@ -187,7 +188,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
                   StringComparison.Ordinal) &&
               mail.Contains("MailUiLaw.OpenMailOrigin(_mailFrameOrigin, s)",
                   StringComparison.Ordinal) &&
-              mail.Contains("MailUiLaw.ConfirmationOrigin(display, s)",
+              mail.Contains("MailUiLaw.ConfirmationOrigin(display, s, layout)",
                   StringComparison.Ordinal) &&
               dressUp.Contains(
                   "UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[18])",

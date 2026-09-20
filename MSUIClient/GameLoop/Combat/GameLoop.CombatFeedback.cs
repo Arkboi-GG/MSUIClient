@@ -29,6 +29,7 @@ public sealed partial class GameLoop
         public bool Critical;
         public float Age;
         public int Lane;
+        public float StartOffset;
     }
     private readonly List<CenterText> _centerCombatText = new();
     private float _playerCombatFlash;
@@ -65,12 +66,21 @@ public sealed partial class GameLoop
         bool critical = false)
     {
         if (_centerCombatText.Count == 20) _centerCombatText.RemoveAt(0);
+        CenterCombatTextRow Row(CenterText item) => new(
+            CombatTextStateUiLaw.CenterMessageOffset(item.StartOffset, item.Age, item.Critical), item.Critical);
+        float startOffset = CombatTextStateUiLaw.NextCenterStartOffset(
+            _centerCombatText.Select(Row).ToArray(), critical);
+        // Keep authored motion and lifetime; reserve critical growth and prevent
+        // scrolling paths from crossing it. Overflow retires only conflicting rows.
+        _centerCombatText.RemoveAll(item => CombatTextStateUiLaw.CenterInsertionConflicts(startOffset,
+            critical, Row(item)));
         _centerCombatText.Add(new CenterText
         {
             Text = text,
             Style = style,
             Critical = critical,
             Lane = _centerCombatText.Count % 5,
+            StartOffset = startOffset,
         });
     }
 
@@ -285,6 +295,7 @@ public sealed partial class GameLoop
             DrawInstanceBootWarning();
             DrawConfirmPopups();
             DrawDeleteItemConfirmation();
+            DrawEquipBinding();
             DrawCharacterBindingsConfirmation();
             DrawSocialNamePopup();
             DrawGuildAddMemberPopup();
@@ -424,7 +435,7 @@ public sealed partial class GameLoop
                     out ImFontPtr font, out float drawSize)) continue;
             float width = GameText.MeasurePlain(item.Text, size, 1f);
             Vector2 pos = CombatTextStateUiLaw.CenterTextPosition(
-                display, uiScale, width, item.Lane, item.Age, item.Critical);
+                display, uiScale, width, item.Lane, item.Age, item.Critical, item.StartOffset);
             Vector4 baseColor = item.Style switch
             {
                 CenterCombatTextStyle.Heal => new Vector4(0.10f, 1f, 0.10f, alpha),

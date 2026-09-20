@@ -89,7 +89,7 @@ public sealed partial class GameLoop
         foreach (WorldEntity unit in _entities.Units)
         {
             if (!unit.IsUnit || unit.DisplayId <= 0) continue;
-            Vector3 position = unit.Guid == ControlledGuid && !ControlledBodyIsStreamed &&
+            Vector3 position = unit.Guid == ControlledGuid && !_freeView &&
                 _controller is not null ? _controller.Position : unit.Position;
             bool armed = _waterSplashStates.TryGetValue(unit.Guid, out WaterSplashState previous);
             if (armed &&

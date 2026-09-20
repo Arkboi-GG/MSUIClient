@@ -13,7 +13,7 @@ namespace MSUIClient.Formats;
 ///   SpellVisual.dbc          2165 rec x 16 fields x 64 B, all u32
 ///     f0  id
 ///     f1  precastKit   f2 castKit   f3 impactKit   f4 stateKit   f5 channelKit
-///     f6  hasMissile   -- NEVER READ. The spawn gate is Spell.dbc Speed > 0.
+///     f6  hasMissile   -- gates the GO destination burst. Missile spawn uses Spell.dbc Speed > 0.
 ///     f7  missile SpellVisualEffectName id
 ///     f9  missile destination-attachment ORDINAL (index into MissileAttachTable)
 ///     f10 missile in-flight LOOP sound (SoundEntries id)
@@ -238,6 +238,17 @@ public sealed class SpellVisualCatalog
 
     public bool TryGetStages(uint id, out SpellVisualStages stages)
         => _visuals.TryGetValue(id, out stages);
+
+    // The GO one-shot uses field 6 == 0, independently of DynamicObject field 11.
+    public bool TryGetDestinationBurst(uint visualId, out string path)
+    {
+        path = "";
+        if (!_visuals.TryGetValue(visualId, out var stages) || stages.MissileGate != 0 ||
+            Fk(stages.AreaEffect) is not uint effect || !_effects.TryGetValue(effect, out var raw))
+            return false;
+        path = ModelPath(raw);
+        return path.Length != 0;
+    }
 
     /// <summary>
     /// Resolve one of the client-owned SpellVisualEffectName rows (loot sparkle,

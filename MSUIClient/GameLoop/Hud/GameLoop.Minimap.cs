@@ -1485,6 +1485,8 @@ public sealed partial class GameLoop
         if (areaId == 0 &&
             _adts?.TryPeek(projection.TileColumn, projection.TileRow, out var adt) == true)
             areaId = projection.AreaId(adt);
+        if (areaId == 0)
+            areaId = _areas?.SingleZoneForMap((uint)_config.Start.Map) ?? 0;
         if (areaId == 0) return;
         _minimapAreaId = areaId;
 
@@ -1509,7 +1511,9 @@ public sealed partial class GameLoop
                     subZoneText = "";
                 }
             }
-            if (groupRow?.Name is { Length: > 0 } groupName) subZoneText = groupName;
+            if (groupRow?.Name is { Length: > 0 } groupName &&
+                !string.Equals(groupName, zoneText, StringComparison.Ordinal))
+                subZoneText = groupName;
         }
         if (_entities.TryGet(ControlledGuid, out WorldEntity zonePlayer))
         {
@@ -1569,6 +1573,8 @@ public sealed partial class GameLoop
                 areaId = projection.AreaId(adt);
         }
 
+        if (areaId == 0)
+            areaId = _areas?.SingleZoneForMap((uint)_config.Start.Map) ?? 0;
         if (areaId == 0) return 0;
         uint zoneId = _areas?.ParentZoneId(areaId) ?? 0;
         return zoneId != 0 ? zoneId : areaId;

@@ -62,10 +62,13 @@ internal static class ProficiencyClinicalChecks
             "GameLoop.Vendor.Render.cs"));
         string reset = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Combat",
             "GameLoop.Targeting.cs"));
+        string proficiency = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+            "GameLoop.ItemProficiencies.cs"));
         Check(dispatch.Contains("case Op.SMSG_SET_PROFICIENCY", StringComparison.Ordinal) &&
-              dispatch.Contains("ProficiencyPackets.Parse(body)", StringComparison.Ordinal) &&
+              dispatch.Contains("ApplyItemProficiency(body, LocalPlayerGuid)", StringComparison.Ordinal) &&
+              proficiency.Contains("ProficiencyPackets.Parse(body)", StringComparison.Ordinal) &&
               runtime.Contains("PreparedItemTooltipPair(slot", StringComparison.Ordinal) &&
-              runtime.Contains("spell.EffectIds[0] == 40", StringComparison.Ordinal) &&
+              proficiency.Contains("spell.EffectIds?.FirstOrDefault() == 40", StringComparison.Ordinal) &&
               subclass.Contains("int prerequisite = dbc.GetInt(row, 2)", StringComparison.Ordinal) &&
               subclass.Contains("dbc.GetUInt(row, 5) & 1", StringComparison.Ordinal) &&
               vendor.Contains("InventoryUiLaw.IsItemProficient", StringComparison.Ordinal) &&

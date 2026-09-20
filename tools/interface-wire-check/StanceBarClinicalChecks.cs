@@ -7,6 +7,14 @@ internal static class StanceBarClinicalChecks
 {
     public static void Run()
     {
+        Check(StanceBarUiLaw.MainActionWireSlot(0, 1, 0) == 0 &&
+              StanceBarUiLaw.MainActionWireSlot(0, 1, 1) == 72 &&
+              StanceBarUiLaw.MainActionWireSlot(11, 1, 2) == 95 &&
+              StanceBarUiLaw.MainActionWireSlot(0, 1, 3) == 96 &&
+              StanceBarUiLaw.MainActionWireSlot(11, 1, 4) == 119 &&
+              StanceBarUiLaw.MainActionWireSlot(0, 2, 3) == 12 &&
+              StanceBarUiLaw.MainActionWireSlot(0, 1, 99) == 0,
+            "bonus form pages, explicit page override or bounded slot mapping drift");
         SpellInfo ghostWolf = Spell(2645, attributesEx2: 0x2,
             auraIds: [36u], miscValues: [16]);
         SpellInfo devotionAura = Spell(465, attributesEx2: 0x10,

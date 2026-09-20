@@ -44,8 +44,13 @@ internal static class MonsterMoveClinicalChecks
         entities.AddSynthetic(mover);
         entities.AddSynthetic(target);
         entities.ApplyMonsterMove(targetMove, nowMs: 1);
-        Check(Near(mover.Orientation, MathF.PI / 2f),
-            "EntityStore did not apply the dictated target-facing receipt snap");
+        // Core MoveSpline::ComputePosition uses path direction until splineflags.done.
+        entities.TickSplines(251);
+        Check(Near(mover.Orientation, 0), "moving spline must face its travel direction");
+        target.Position = new Vector3(12, 18, 0);
+        entities.TickSplines(501);
+        Check(mover.Position == endpoint && Near(mover.Orientation, MathF.PI / 2f),
+            "arrival must resolve final facing against the target's current position");
 
         CheckCreateTimeSplineResume();
         CheckUpdateObjectTransportSurfaces();
@@ -130,7 +135,7 @@ internal static class MonsterMoveClinicalChecks
         writer.WriteF32(0);
         writer.WriteF32(0);                         // fall time
         for (int i = 0; i < 6; i++) writer.WriteF32(i + 1);
-        writer.WriteU32(0x10_0000);                 // cyclic metadata, linear ground path
+        writer.WriteU32(0);                         // non-cyclic linear ground path
         writer.WriteU32(250);                       // already ridden
         writer.WriteU32(1_000);                     // whole duration
         writer.WriteU32(77);                        // spline id
@@ -149,13 +154,13 @@ internal static class MonsterMoveClinicalChecks
               {
                   new Vector3(0, 0, 0), new Vector3(10, 0, 0), new Vector3(20, 0, 0)
               }) && parsed.Id == 77 && parsed.TimePassedMs == 250 &&
-              parsed.DurationMs == 1_000 && !parsed.Flying && parsed.Cyclic,
+              parsed.DurationMs == 1_000 && !parsed.Flying && !parsed.Cyclic,
             "create spline parse did not trim phantom controls or retain timing/flags");
 
         var store = new EntityStore();
         store.Apply(updates[0], nowMs: 5_000);
         Check(store.TryGet(guid, out WorldEntity entity) && entity.Spline is { } resumed &&
-              resumed.Id == 77 && !resumed.Flying && resumed.Cyclic,
+              resumed.Id == 77 && !resumed.Flying && !resumed.Cyclic,
             "create-time live spline did not reach the entity layer");
         store.TickSplines(5_000);
         Check(MathF.Abs(entity.Position.X - 5f) < .001f,
@@ -175,6 +180,13 @@ internal static class MonsterMoveClinicalChecks
             nowMs: 5_000);
         Check(finished is null && flying is { Flying: true, Id: 10 },
             "a create pose at or beyond spline duration must remain authoritative and stationary");
+        CreatureSpline? cyclic = CreatureSpline.Resume(
+            new CreateSpline([Vector3.Zero, new Vector3(10, 0, 0), new Vector3(20, 0, 0)],
+                11, 250, 1_000, false, true), nowMs: 5_000);
+        Check(cyclic is not null && cyclic.Sample(5_750, out Vector3 lapStart, out _) &&
+              lapStart == Vector3.Zero && cyclic.Sample(6_250, out Vector3 nextLap, out _) &&
+              nextLap == new Vector3(20, 0, 0),
+            "cyclic create spline must close its path and continue across duration boundaries");
     }
 
     private static PacketWriter Head(ulong guid, Vector3 start, byte moveType)

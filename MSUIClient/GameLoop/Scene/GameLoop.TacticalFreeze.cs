@@ -410,8 +410,7 @@ public sealed partial class GameLoop
             CancelPendingPrimaryItemUse();
             CancelPendingPrimaryCast();
             CancelRtsUnitCastTargeting(silent: true);
-            _groundCastSpell = 0;
-            _groundCursorPoint = null;
+            CancelGroundTargeting();
             CancelItemTargeting();
             _controlSwitchQueued = 0;
             ClearRtsForceTakeControl();
@@ -618,8 +617,7 @@ public sealed partial class GameLoop
             _tacticalGroundLockId = owned.LockId;
             _tacticalGroundActor = actorGuid;
             _tacticalGroundSpellId = spellId;
-            _groundCastSpell = 0;
-            _groundCursorPoint = null;
+            CancelGroundTargeting();
             SetRtsControlGroupStatus($"{spell.Name}: choose a ground point for the queue.");
             return true;
         }

@@ -85,7 +85,7 @@ internal static class LootFrameClinicalChecks
               LootLatchLaw.ShouldKneel(0x10, LootLatchLaw.TargetKind.GameObject, 3, 0) &&
               LootLatchLaw.ShouldKneel(0x10, LootLatchLaw.TargetKind.GameObject, 17, 0) &&
               LootLatchLaw.ShouldKneel(0x10, LootLatchLaw.TargetKind.Unit, 0, 1) &&
-              LootLatchLaw.ShouldKneel(0x10, LootLatchLaw.TargetKind.Item, 0, 0) &&
+              !LootLatchLaw.ShouldKneel(0x10, LootLatchLaw.TargetKind.Item, 0, 0) &&
               !LootLatchLaw.ShouldKneel(0, LootLatchLaw.TargetKind.Unit, 0, 0) &&
               LootLatchLaw.ClearFor(0x10, 0x10) == 0 &&
               LootLatchLaw.ClearFor(0x10, 0x20) == 0x10,
@@ -103,7 +103,7 @@ internal static class LootFrameClinicalChecks
               runtime.Contains("LootLatchLaw.AdmitResponse(", StringComparison.Ordinal) &&
               runtime.Contains("LootLatchLaw.ClearFor(_lootPendingGuid, source)",
                   StringComparison.Ordinal) &&
-              runtime.Contains("_character.LootKneel = LootLatchLaw.ShouldKneel(",
+              runtime.Contains("bool kneeling = LootLatchLaw.ShouldKneel(",
                   StringComparison.Ordinal) &&
               !runtime.Contains("TriggerOneShot(50)", StringComparison.Ordinal) &&
               casting.Contains("_lootPendingGuid = lootTarget", StringComparison.Ordinal) &&

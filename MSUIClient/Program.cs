@@ -306,7 +306,7 @@ public static partial class Program
                 MSUIClient.Engine.UI.FontObjectLaw.DefaultBakePairs());
         }
 
-        using var window = new ClientWindow(config)
+        using var window = new ClientWindow(config, background: liveRun?.Background == true)
         {
             UiFontPath = uiFontPath,
             UiFontSize = MSUIClient.Engine.UI.UiFont.SizeFor(config.Window.UiScale),
@@ -682,6 +682,10 @@ public sealed partial class GameLoop : IDisposable
         _variantBatchOptions = variantBatch;
         _movementSuiteOptions = movementSuite;
         _liveRunOptions = liveRun;
+        if (liveRun is not null)
+            window.GuiInputFactory = input => LiveGuiInputProxy.Wrap(input,
+                () => _liveGuiPointer ?? new Vector2(-1000, -1000), () => _liveGuiDown,
+                () => _liveGuiRightDown);
         _atmosphere.FogEnd = Math.Clamp(config.Render.WmoDistance, 100f, config.Render.FarPlane);
         _atmosphere.FogStart = MathF.Min(350f, _atmosphere.FogEnd - 1f);
     }
@@ -955,6 +959,17 @@ public sealed partial class GameLoop : IDisposable
             _collisionDebug = null;
             _xrayDebug = null;
             _xrayNavDebug = null;
+        }
+        try
+        {
+            // Creator grid + emitter gizmos (shared_docs/SPELL_CREATOR_IDE.md §2.3).
+            _spellGizmos = new World.Spells.SpellGizmoRenderer(gl);
+            _spellGizmos.LoadShaders(shaderDir);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[creator] gizmo renderer FAILED - {ex.Message}");
+            _spellGizmos = null;
         }
 
         // The settings modal's skin needs GL and the MPQ mount, so it is built
@@ -2372,6 +2387,7 @@ public sealed partial class GameLoop : IDisposable
         UpdateTargeting();
         UpdateCombatFeedback(dt);
         UpdateDuel();
+        AdvanceCreatorClock(dt);
         UpdateSpellPresentation();
         UpdateCreatorSpellLoop();
         UpdateCreatorLocationPersist();
@@ -2579,12 +2595,16 @@ public sealed partial class GameLoop : IDisposable
         Walking = _walking,
         Flying = _controller?.Flying ?? false,
         Engaged = _net is not null && _combat.IsEngaged(ControlledGuid),
+        Stealthed = _entities.TryGet(ControlledGuid, out WorldEntity stealthUnit) &&
+            stealthUnit.Fields.UnitIsStealthed,
         StandState = _entities.TryGet(ControlledGuid, out WorldEntity poseUnit)
             ? poseUnit.Fields.UnitStandState : (byte)0,
+        ReadsDead = _entities.TryGet(ControlledGuid, out WorldEntity deathPoseUnit) &&
+            deathPoseUnit.Fields.ReadsDead && !deathPoseUnit.Fields.PlayerIsGhost,
         EmoteState = _entities.TryGet(ControlledGuid, out WorldEntity emoteUnit)
             ? emoteUnit.Fields.NpcEmoteState : 0,
         FreezePose = _iceBlockFrozen || aura?.Frozen == true ||
-            TacticalFreezePoseLaw.IsFrozen(ControlledGuid),
+            TacticalFreezePoseLaw.IsFrozen(ControlledGuid) || CreatorSpellPaused,
         ApplyBodyVisual = aura is not null,
         BodyAlpha = aura?.Alpha ?? 1f,
         BodyTint = aura?.Tint ?? Vector3.One,
@@ -2746,6 +2766,8 @@ public sealed partial class GameLoop : IDisposable
         // the black background (overriding the SkyColor just set above), and
         // acceptance of a finished off-thread vmap build.
         if (_xrayActive) ApplyXrayLayers();
+        // Creator void stage: same contract as X-ray, ground disc only (Creator.Stage.cs).
+        ApplyCreatorStageLayers();
         // A prepared portal owns a fully isolated destination scene. Render it
         // before the source world so the pass can restore GL/atmosphere state,
         // then composite its completed texture later through the aperture.
@@ -2844,7 +2866,7 @@ public sealed partial class GameLoop : IDisposable
         // whatever face was baked last.
         _character?.BeginItemGlowFrame();
         _creatures?.BeginItemGlowFrame();
-        if (WarmStage(3) && _character is not null && _controller is not null && !_freeView &&
+        if (WarmStage(3) && _character is not null && _controller is not null && !ControlledBodyIsStreamed &&
             _window.Camera.EffectiveDistance > FirstPersonBodyHide)
         {
             _character.InteriorLight = _interiorUnitLight.For(RenderSelfGuid, _controller.Position);
@@ -2877,7 +2899,9 @@ public sealed partial class GameLoop : IDisposable
         // Spell particles need this frame's published unit/effect skeletons before they simulate.
         // Run them before the spell-mesh pass so geometry-model particles join the same opaque /
         // transparent M2 material ordering as ordinary kit and missile meshes.
-        double spellNow = MovementInfo.ClientUptimeMs() / 1000.0;
+        // The spell stack's clock: uptime in the client, the creator effect clock (pause /
+        // slow / step / scrub) in the creator world - GameLoop.Creator.Clock.cs.
+        double spellNow = SpellClockNow;
         if (_spellEffects is not null)
         {
             IEnumerable<ItemGlowPlacement> itemGlows =
@@ -2894,7 +2918,7 @@ public sealed partial class GameLoop : IDisposable
         if (WarmStage(5) && _spellParticles is not null && _spellEffects is not null)
         {
             var eye = _window.Camera.Position;
-            _spellParticles.Simulate(dt, eye, _spellEffects.EmitterInstances(
+            _spellParticles.Simulate(TakeSpellClockDelta(dt), eye, _spellEffects.EmitterInstances(
                 spellNow, SpellEffectUnitPose, _spellFxBillboardJointPoseB,
                 eye, _window.Camera.Forward), SpellParticleGroundHeight);
         }
@@ -2911,13 +2935,7 @@ public sealed partial class GameLoop : IDisposable
             spellMeshes = spellMeshes.Concat(QuestMarkerMeshInstances(spellNow));
             _spellEffectMeshes.Render(_window.Camera, spellMeshes, SpellGroundHeight);
             _spellEffectMeshes.RenderWorldBillboards(_window.Camera, RaidMarkerBillboards());
-            // Armed location-target reticle: the rune circle follows the cursor and spans the
-            // largest populated Spell.dbc effect radius. The compatibility fallback is reached
-            // only by placement spells whose effect lanes author no radius at all.
-            if (_groundCastSpell != 0 && _groundCursorPoint is { } reticle &&
-                _spellCatalog?.TryGet(_groundCastSpell, out SpellInfo groundSpell) == true)
-                _spellEffectMeshes.RenderTargetingMarker(_window.Camera, reticle,
-                    ActorSpellTargetingRadius(groundSpell, ControlledGuid));
+            RenderGroundTargetingMarker();
         }
         // CRPG free-view ground FX: selection rings + move markers share the decal machinery
         // and depth-test against the units drawn above, so rings tuck behind the models.
@@ -3089,6 +3107,7 @@ public sealed partial class GameLoop : IDisposable
 
         HighlightPhysicsTriangles();
         RenderXray();
+        RenderCreatorGizmos();
         DrawPortalDebug();
 
         if (_showPlayerMarker && _collisionDebug is not null && _controller is not null)
@@ -3188,7 +3207,7 @@ public sealed partial class GameLoop : IDisposable
         if (_unitShadows is null) return;
 
         UnitShadowCaster? local = null;
-        if (_character is { Enabled: true } &&
+        if (!ControlledUsesDisplayModel && _character is { Enabled: true } &&
             _controller is { Grounded: true, Flying: false } controller)
         {
             float radius = MathF.Max(0.5f, _config.Movement.Radius * 1.45f);
@@ -3411,7 +3430,6 @@ public sealed partial class GameLoop : IDisposable
 
     private void BuildGui()
     {
-
         // Arm before any gameplay widgets draw; OverlayTop writes after the frame.
         BeginGameplayDumpFrame();
 
@@ -4419,6 +4437,7 @@ public sealed partial class GameLoop : IDisposable
         _partySight?.Dispose();
         _xrayDebug?.Dispose();
         _xrayNavDebug?.Dispose();
+        _spellGizmos?.Dispose();
         DisposeRealPortals();
         _doodads?.Dispose();
         _liquid?.Dispose();

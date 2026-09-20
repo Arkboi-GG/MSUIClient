@@ -48,7 +48,10 @@ internal static class PetPaperDollClinicalChecks
                   new PetPaperDollUiLaw.LogicalRect(160, 0, 159, 13) &&
               PetPaperDollUiLaw.ExperienceFraction(4200, 8000) == .525f &&
               PetPaperDollUiLaw.ExperienceFraction(1, 0) == 0 &&
-              PetPaperDollUiLaw.TrainingPoints((170u << 16) | 130) == (170, 130) &&
+              PetPaperDollUiLaw.AvailableTrainingPoints(0xffffffff) == 0 &&
+              PetPaperDollUiLaw.AvailableTrainingPoints(0xfffffff7) == 8 &&
+              PetPaperDollUiLaw.AvailableTrainingPoints(3) == -3 &&
+              PetPaperDollUiLaw.TotalTrainingPoints(10, 3) == 20 &&
               PetPaperDollUiLaw.LiveAnimationStep(10.01, 10.0) > .009f &&
               PetPaperDollUiLaw.LiveAnimationStep(11.0, 10.0) ==
                   PetPaperDollUiLaw.LiveAnimationMaxStep &&

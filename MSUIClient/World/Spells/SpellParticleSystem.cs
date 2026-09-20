@@ -1259,6 +1259,28 @@ public sealed class SpellParticleSystem : IDisposable
             p.GeneratedHeadsLastFrame, p.GeneratedTailsLastFrame,
             p.TextureReadyLastFrame, p.DrawnLastFrame)).ToArray();
 
+    /// <summary>Observe one exact spell instance, including its child emitters.
+    /// Submitted quads are diagnostic evidence, not proof of visible screen pixels.</summary>
+    public (int Pools, int LiveParticles, int DrawnParticles) VisualState(string instancePath)
+    {
+        int pools = 0, live = 0, submitted = 0;
+        foreach (var pair in _pools)
+        {
+            // A prefix match would let instance #1 count the particles of #10.
+            if (!pair.Key.Path.Equals(instancePath, StringComparison.OrdinalIgnoreCase)) continue;
+            Observe(pair.Value);
+            foreach (Pool child in pair.Value.Children) Observe(child);
+        }
+        return (pools, live, submitted);
+
+        void Observe(Pool pool)
+        {
+            pools++;
+            live += pool.Particles.Count;
+            submitted += pool.DrawnLastFrame;
+        }
+    }
+
     private static string CloudTrace(Pool pool)
     {
         if (pool.Particles.Count == 0) return "cloud=empty";
@@ -1304,6 +1326,34 @@ public sealed class SpellParticleSystem : IDisposable
         Vector3 boneOffset = pool.EmitterWorld - pool.RootCloudAnchorWorld;
         return $"boneOffset=({boneOffset.X:0.##},{boneOffset.Y:0.##},{boneOffset.Z:0.##}) " +
             $"cloudAxis=({axis.X:0.##},{axis.Y:0.##},{axis.Z:0.##}) span={max - min:0.##}";
+    }
+
+    // ── creator gizmos + replay (shared_docs/SPELL_CREATOR_IDE.md) ───────────
+
+    /// <summary>The live frame of every parent pool, exactly as the emission kernel sees it
+    /// this frame: origin B_i(t), the linear birth frame, the root anchor and the scalars.
+    /// The creator's gizmo law draws from THIS, so the picture cannot disagree with the
+    /// particles. Children (recursion pools) are private to their parent and not listed.</summary>
+    public IEnumerable<SpellEmitterFrame> EmitterFrames()
+    {
+        foreach (var (key, p) in _pools)
+        {
+            if (p.Emitter is null) continue;
+            yield return new SpellEmitterFrame(key.Path, p.EmitterIndex, p.EmitterWorld,
+                EmitterLinearFrame(p), p.RootCloudAnchorWorld, p.Emitter.Shape, p.Emitter.Flags,
+                p.ModelSpace, p.Scalars[0], p.Scalars[1], p.Scalars[2], p.Scalars[3], p.Scalars[4],
+                p.Scalars[5], p.Scalars[6], p.Scalars[7], p.Scalars[8], p.Scalars[9],
+                p.Particles.Count, p.TexturePath);
+        }
+    }
+
+    /// <summary>Drop every pool so the next Simulate rebuilds them from their key-derived seeds:
+    /// the creator's deterministic replay (pause, step, scrub, edit-while-paused).</summary>
+    public void ResetPools()
+    {
+        _pools.Clear();
+        LiveParticles = 0;
+        ActivePools = 0;
     }
 
     public void Dispose()

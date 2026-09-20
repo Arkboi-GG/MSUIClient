@@ -31,6 +31,7 @@ public sealed partial class GameLoop
     /// <summary>Last verdict text for the window's status line ("" = nothing yet).</summary>
     private string _companionsStatus = "";
     private bool _companionsStatusIsError;
+    private ulong _companionsSummoningStatusGuid;
 
     /// <summary>
     /// The character with an in-flight summon/dismiss; its button stays disabled until
@@ -155,6 +156,8 @@ public sealed partial class GameLoop
         {
             _companionsStatus = text;
             _companionsStatusIsError = !ok;
+            _companionsSummoningStatusGuid = ok && result.Action == CompanionWire.ActionSummon
+                ? result.Guid : 0;
             if (ok) ShowUiInfo(text);
             else ShowUiError(text);
         }
@@ -180,6 +183,15 @@ public sealed partial class GameLoop
         });
         _companionRows = rows;
         _companionsEverListed = true;
+        // An accepted summon starts loading; only the authoritative roster says
+        // it has arrived. Do not leave "Summoning..." under an already summoned row.
+        if (_companionsSummoningStatusGuid != 0 &&
+            rows.FirstOrDefault(r => r.Guid == _companionsSummoningStatusGuid) is { IsCompanion: true } arrived)
+        {
+            _companionsStatus = $"{arrived.Name} summoned.";
+            _companionsStatusIsError = false;
+            _companionsSummoningStatusGuid = 0;
+        }
         // A pending act whose subject is no longer in flux is settled by this list.
         if (_companionsPendingGuid != 0)
         {
@@ -210,6 +222,7 @@ public sealed partial class GameLoop
         _companionsEverListed = false;
         _companionsStatus = "";
         _companionsStatusIsError = false;
+        _companionsSummoningStatusGuid = 0;
         _companionsPendingGuid = 0;
         _companionsScroll = 0;
     }

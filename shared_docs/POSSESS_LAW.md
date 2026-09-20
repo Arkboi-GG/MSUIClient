@@ -43,6 +43,25 @@ call `SuiPossess::ResnapshotControlled(this)`.
 1.5 Pair-deploy: a new client opcode against an old Core kicks the session; a
 new Core is inert without the client bit. Capability bits gate new wires.
 
+1.6 Mail collections and mailed items come from the acting body's own session's
+MasterPlayer, just as inventory and money come from that body. Asynchronous mail
+sends retain both the real session character and the sender body; before committing,
+recheck sender identity, mailbox range and tactical freeze. Account restrictions
+and reply delivery remain attached to the real session.
+If a freeze wins before the send handler begins, return a mail failure response;
+silently dropping that already-sent request strands the client's pending state.
+Send-mail dispatch shares the ordered world queue with possession and freeze. Capturing
+the actor later in the map queue lets a subsequent control release change the sender.
+
+1.7 The active possessor may see owner-only fields and true health of units owned
+or charmed by the controlled body. Both sides of the possession pair must agree.
+Grant/release refresh already-visible pet fields and NPC stable flags; release
+zeros fields no longer visible. Stable eligibility uses the actor's class, and
+stable list/purchase/swap interactions range from that actor. Stabling, unstabling
+and swapping pass that same actor to pet save/unsummon and load calls; an actor
+lookup followed by a session-player ownership argument is still misrouting.
+Session-owned GM command authorization remains a session permission.
+
 ## 2. Client: every gate ranges from the driven body
 
 2.1 Distance/eligibility gates for anything the actor does use
@@ -53,6 +72,15 @@ Command View walker. `TryGetSessionBodyPose` is legal only for things that are
 genuinely the main's: its own corpse/rez, the dev live-run tool, the tabard/help
 frames until they are routed.
 
+Quest-giver game objects (type 2, including wanted posters) use that same driven
+body for every quest request and the open panel's range leash, at the game-object
+interaction distance. They must not fall through the NPC-only descriptor gate.
+
+Fishing bobbers use Core's 100-yard interaction range, measured from the acting
+body. Direct use and Command View arrival use the same object-distance helper;
+the ordinary six-yard device limit must not make a cast's own bobber unreachable.
+Fishing channel/cursor ownership and server ownership checks still apply.
+
 2.2 Purse and bag displays read `ControlledGuid`'s entity, never
 `_net.PlayerGuid`. The coin the panel shows is the coin that pays.
 
@@ -60,6 +88,30 @@ frames until they are routed.
 pet bar, loot window, bank session, taxi map, server ride
 (`ResetBodySessionUiOnControlChange`). The server pushes the new body's pet bar
 after the ack.
+
+Pet context menus resolve ownership against the driven body and admit its charmed
+creatures as well as its summons. A temporary charm offers Dismiss; it must not
+lose its menu merely because SUMMONEDBY is empty.
+
+Carried items, stack-split dialogs and spell/macro/action cursors also clear on
+both control acknowledgements. Container/slot coordinates from the old body must
+never be reinterpreted against the new body's inventory.
+
+An armed ground-target item retains its actor and item GUID. Binding the ground
+point re-resolves that same copy in the actor's current inventory. Cancellation,
+body changes and tactical lock entry clear the item intent together with the
+ground cursor; no item use or cooldown begins merely by opening that cursor.
+An armed live ground cursor owns world left/right clicks in both camera modes,
+before Command View selection or move orders. Left commits its retained actor's
+item at the picked point; right cancels. Tactical queued casts remain separate.
+Its range cursor and decal measure from that same actor's physical pose, never
+the camera or the parked main. Hover feedback does not suppress server validation.
+Bag item cooldown gates, timers and swipes use the driven body's action store,
+even while Command View inspects someone else's bars.
+
+The mailbox inbox, opened letter, compose attachment/money, confirmation and
+refresh throttle also reset on both control acknowledgements. Reopening the same
+mailbox as another body must request that body's list immediately.
 
 2.4 The world map arrow is the driven body; the yellow dots are everyone else.
 
@@ -97,14 +149,14 @@ catch-up range, on possession of that body, and RTS orders bypass it.
 4.2 A hold also ENDS an active follow leg (`SuiStopFollowForHold`) — returning
 early from `DoPartyFollow` leaves the old follow generator chasing.
 
-4.3 The boss position is recorded EVERY tick, flights included. A same-map gap
-beyond catch-up range is a PORT only when the SAME boss jumped in one tick. The
-CHAIN follows a port: every linked member, the unattended main included,
-catch-up teleports after the driven body (the tower portal — owner: "the
-non-main follow me through the portal... at least it worked"). The main's own
-near teleport must never break the possession (`OnPlayerTeleport` possessor
-near case; `HandleMoveTeleportAck` accepts the session player's ack while the
-mover is the bot). A flight or a hop is NOT a port: those hold (4.1).
+4.3 The boss position is recorded on every formation-follow observation, flights
+included. A distant same-body position jump sets world hold, as does a distant
+body switch. A different map or instance holds immediately and ends the active
+follow leg; it never becomes a delayed automatic summon. Ordinary same-map walking
+separation retains its existing catch-up path. The main's own near teleport must
+still preserve possession and accept its acknowledgment while the mover is the bot.
+This September 8 correction follows AGENTS.md standing rule 3 and supersedes the
+older policy that linked followers automatically followed through ports.
 
 4.4 Command View party flight: the whole commanded party takes the flight from
 the flight master; nobody flies unless everyone can board or the commander
@@ -159,9 +211,9 @@ relocate the main (no camera across maps).
 v2: chain state + anchor guid) and re-pushed on every edge. The client draws
 exactly that; the saved per-name link intent is only a fallback for an old core.
 
-7.2 Three states. Linked (green): follows its anchor, ports included. Unlinked by
+7.2 Three states. Linked (green): follows its anchor until a world hold. Unlinked by
 the human (red): holds until re-linked, regardless of range. World hold (amber):
-landed alone, human hopped far, boss flew off — clears by itself when the anchor
+landed alone, human hopped far, boss flew or ported away — clears by itself when the anchor
 is back in catch-up range. An explicit re-link also lifts a world hold.
 
 7.3 WHO: the anchor (`FindEscortBoss`, the body the formation keys on) is shown

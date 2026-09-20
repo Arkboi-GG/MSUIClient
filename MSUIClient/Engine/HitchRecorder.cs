@@ -821,7 +821,7 @@ public sealed class HitchRecorder
             // be a deadlock waiting for a worker thread to print.
             if (complete is not null && complete.Length > 0 && complete[0] == '[')
             {
-                _recorder.NoteEvent(complete);
+                if (_recorder.Enabled) _recorder.NoteEvent(complete);
                 if (_file is not null)
                 {
                     try

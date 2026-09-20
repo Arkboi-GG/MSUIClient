@@ -36,6 +36,8 @@ public static class ProfessionFrameUiLaw
     public const string RequiresLabel = "Requires:";
     public const string TitleFont = "GameFontNormal";
     public const uint CraftTypeBeastTraining = 1;
+    public static bool IsCraftSkillLine(uint line) => line is
+        40 or 129 or 164 or 165 or 171 or 185 or 186 or 197 or 202 or 261 or 333;
     public const uint SpellAttributeTradeSkill = 0x20;
     public const uint EffectCreateItem = 24;
     public const uint EffectLearnSpell = 36;

@@ -406,13 +406,7 @@ public sealed partial class GameLoop
 
     private void PushCenterText(string text, CenterCombatTextStyle style)
     {
-        if (_centerCombatText.Count == 20) _centerCombatText.RemoveAt(0);
-        _centerCombatText.Add(new CenterText
-        {
-            Text = text,
-            Style = style,
-            Lane = _centerCombatText.Count % 5,
-        });
+        QueueCenterCombatText(text, style);
     }
 
     // ── the authored LootFrame ───────────────────────────────────────────────

@@ -44,10 +44,11 @@ public sealed partial class GameLoop
     private void ObservePlayerAuraCombatText(AuraSnapshot aura, bool applied)
     {
         if (!_combatTextAuraBaselineReady) return;
-        string name = _spellCatalog?.TryGet(aura.SpellId, out SpellInfo spell) == true
-            ? spell.Name : $"Spell {aura.SpellId}";
+        SpellInfo? spell = _spellCatalog?.TryGet(aura.SpellId, out SpellInfo found) == true
+            ? found : null;
+        string name = spell?.Name ?? $"Spell {aura.SpellId}";
         CombatTextStateCue? cue = CombatTextStateUiLaw.Aura(
-            name, aura.Helpful, applied);
+            name, aura.Helpful, applied, hidden: spell?.HiddenClientSide == true);
         if (cue is { } visible) QueueCombatTextState(visible);
     }
 

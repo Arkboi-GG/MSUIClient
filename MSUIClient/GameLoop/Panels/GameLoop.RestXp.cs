@@ -1,6 +1,7 @@
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Net;
+using MSUIClient.Engine.UI;
 
 namespace MSUIClient;
 
@@ -63,7 +64,8 @@ public sealed partial class GameLoop
         uint[] powers = Enumerable.Range(0, 5).Select(_ => r.ReadU32()).ToArray();
         uint[] stats = Enumerable.Range(0, 5).Select(_ => r.ReadU32()).ToArray();
         _lastLevelUp = (level, health, powers, stats);
-        PushCenterText($"You have reached level {level}!", CenterCombatTextStyle.Heal);
+        foreach (string message in LevelUpChatLaw.Lines(level, health, powers[0], stats, InventoryGlobalString))
+            AddChatMessage(message, ChatFrameLaw.MsgType.System);
         EmitInterface("rest-xp", "level-up-info", "DECODED", _net?.PlayerGuid ?? 0,
             $"level={level};healthGain={health};powerGains={string.Join('|', powers)};statGains={string.Join('|', stats)};bytes={body.Length}");
     }

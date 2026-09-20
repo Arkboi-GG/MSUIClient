@@ -13,6 +13,40 @@ public static class FontStringOverflowLaw
     public const float WidthEpsilon = .25f;
     public const float MinimumBoxExtent = 1f;
 
+    /// <summary>The actual rows for a fixed-width FontString, including overlong-word breaks.</summary>
+    public static IReadOnlyList<string> WrappedLines(string text, float boxWidth, Func<string, float> measure)
+    {
+        var result = new List<string>();
+        float width = boxWidth + WidthEpsilon;
+        foreach (string line in NormalizeLineBreaks(text).Split('\n'))
+        {
+            string current = "";
+            List<Word> words = Tokenize(line);
+            if (words.Count == 0) { result.Add(""); continue; }
+            foreach (Word source in words)
+            {
+                string word = source.Text;
+                if (current.Length > 0)
+                {
+                    string candidate = current + source.Lead + word;
+                    if (measure(candidate) <= width) { current = candidate; continue; }
+                    result.Add(current);
+                    current = "";
+                }
+                while (measure(word) > width)
+                {
+                    int split = LastFittingScalarBoundary(word, width, measure);
+                    if (split == 0) break;
+                    result.Add(word[..split]);
+                    word = word[split..];
+                }
+                current = word;
+            }
+            if (current.Length > 0) result.Add(current);
+        }
+        return result;
+    }
+
     public static int LinesAllowed(float boxHeight, float pitch) =>
         pitch > 0 ? Math.Max(1, (int)MathF.Ceiling((boxHeight - HeightEpsilon) / pitch)) : 1;
 

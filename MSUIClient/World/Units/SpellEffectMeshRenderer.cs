@@ -782,17 +782,19 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     }
 
     /// <summary>
-    /// The 1.12 area-targeting reticle: Blizzard's Spell-Shadow-Acceptable circle projected onto
-    /// the real terrain triangles at the cursor's ground point, sized to the spell radius,
+    /// The 1.12 area-targeting reticle: the acceptable/unacceptable texture projected onto
+    /// ground triangles in a fixed two-yard slab, sized by the caller's range verdict.
     /// preserving the texture's authored green and alpha. No ground under the cursor â†’ no marker
     /// (the 1.12 mid-air gate).
     /// </summary>
-    public void RenderTargetingMarker(Camera camera, Vector3 centre, float radius)
+    public void RenderTargetingMarker(Camera camera, Vector3 centre, float radius, bool acceptable)
     {
         if (_groundShader is null) return;
-        Texture? rune = ResolveTexture(@"Interface\SpellShadow\Spell-Shadow-Acceptable.blp");
+        Texture? rune = ResolveTexture(acceptable
+            ? @"Interface\SpellShadow\Spell-Shadow-Acceptable.blp"
+            : @"Interface\SpellShadow\Spell-Shadow-Unacceptable.blp");
         if (rune is null) return;
-        var frame = new DecalFrame(centre, 0f, 1f, radius, radius, 2f * radius);
+        var frame = new DecalFrame(centre, 0f, 1f, radius, radius, GroundTargetingLaw.ProjectionHalfHeight);
         Span<Vector2> uv = [new(0, 0), new(1, 0), new(0, 1), new(1, 1)];
         float[]? vertices = ProjectDecal(frame, uv, camera.Position);
         if (vertices is null) return;

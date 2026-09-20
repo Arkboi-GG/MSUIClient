@@ -121,7 +121,7 @@ internal static class NameplateClinicalChecks
         Check(names.Split("foreach (WorldEntity unit in _visibleWorldUnits)",
                   StringSplitOptions.None).Length - 1 == 2 &&
               scene.Contains("private void BuildVisibleWorldUnits()", StringComparison.Ordinal) &&
-              scene.Contains("_creatures.Render(_window.Camera, _visibleWorldUnits);",
+              scene.Contains("_creatures.Render(_window.Camera, _visibleWorldUnits, _visibleWorldCorpses);",
                   StringComparison.Ordinal) &&
               creatures.Contains("IReadOnlyList<WorldEntity> visibleUnits",
                   StringComparison.Ordinal) &&

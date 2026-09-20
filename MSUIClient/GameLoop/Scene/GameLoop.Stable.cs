@@ -1,4 +1,6 @@
+using System.Numerics;
 using MSUIClient.Engine.UI;
+using MSUIClient.Formats;
 using MSUIClient.Net;
 
 namespace MSUIClient;
@@ -18,6 +20,23 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private bool _stableOpen;
+    private StableSlotPriceTable? _stableSlotPrices;
+    private bool _stableSlotPricesLoaded;
+
+    private uint? NextStableSlotPrice()
+    {
+        if (!_stableSlotPricesLoaded && _mpq is not null)
+        {
+            _stableSlotPricesLoaded = true;
+            if (_mpq.ReadFile(StableSlotPriceTable.MpqPath) is { } bytes)
+                _stableSlotPrices = StableSlotPriceTable.Parse(bytes);
+        }
+        return _stableList is { } list ? _stableSlotPrices?.NextPrice(list.StableSlots) : null;
+    }
+
+    private bool CanBuyStableSlot(uint price) =>
+        _net is { IsInWorld: true } && _entities.TryGet(ControlledGuid, out WorldEntity actor) &&
+        actor.Fields.Coinage >= price;
 
     /// <summary>The last stablemaster view, or null when never opened / closed.</summary>
     private StableList? _stableList;
@@ -26,6 +45,20 @@ public sealed partial class GameLoop
     private uint _stableSelected;
 
     private ulong StableNpcGuid => _stableList?.NpcGuid ?? 0;
+
+    private bool StableSourceInRange(ulong guid) =>
+        TryGetInteractionBodyPose(out WorldBodyPose actor) &&
+        _entities.TryGet(guid, out WorldEntity npc) && npc.IsCreature && !npc.IsDead &&
+        (npc.NpcFlags & WorldCursorUiLaw.StableMaster) != 0 &&
+        NpcSessionUiLaw.InRange(Vector3.DistanceSquared(actor.Position, npc.Position));
+
+    private void UpdateStableLifecycle()
+    {
+        if (!_stableOpen || StableSourceInRange(StableNpcGuid)) return;
+        ulong source = StableNpcGuid;
+        ResetStable();
+        EmitInterface("stable", "lifecycle-close", "CLOSED", source, "source-out-of-range");
+    }
 
     /// <summary>
     /// Open the stablemaster for the current target (used by /stable). The target must
@@ -46,6 +79,11 @@ public sealed partial class GameLoop
             ShowUiError("That creature is not a stablemaster.");
             return;
         }
+        if (!StableSourceInRange(guid))
+        {
+            ShowUiError("You are too far away.");
+            return;
+        }
         _net?.RequestStabledPets(guid);
         EmitInterface("stable", "list", "REQUESTED", guid, "");
     }
@@ -58,6 +96,7 @@ public sealed partial class GameLoop
             EmitInterface("stable", "list", "MALFORMED", 0, $"bytes={body.Length}");
             return;
         }
+        if (!StableSourceInRange(list.NpcGuid)) return;
         _stableList = list;
         _stableOpen = true;
         // Drop a selection that no longer exists after a refresh.
@@ -84,7 +123,7 @@ public sealed partial class GameLoop
 
         // The server does not re-push the list after an action, so ask again to keep
         // the window truthful (the active pet and slots just changed).
-        if (ok && StableNpcGuid != 0 && !TacticalFreezeBlocksLiveCommands &&
+        if (ok && StableSourceInRange(StableNpcGuid) && !TacticalFreezeBlocksLiveCommands &&
             !IsTacticalActorFrozen(StableNpcGuid))
             _net?.RequestStabledPets(StableNpcGuid);
     }
@@ -96,14 +135,14 @@ public sealed partial class GameLoop
         if (RefuseTacticalFreezeLiveCommand("stabling a pet")) return;
         if (RefuseTacticalFrozenActor(StableNpcGuid, "stable a pet through it")) return;
         if (RefuseTacticalFrozenActor(_petGuid, "stable it")) return;
-        if (StableNpcGuid != 0) _net?.StablePet(StableNpcGuid);
+        if (StableSourceInRange(StableNpcGuid)) _net?.StablePet(StableNpcGuid);
     }
 
     private void UnstableSelectedPet(uint petNumber)
     {
         if (RefuseTacticalFreezeLiveCommand("unstabling a pet")) return;
         if (RefuseTacticalFrozenActor(StableNpcGuid, "unstable a pet through it")) return;
-        if (StableNpcGuid != 0 && petNumber != 0) _net?.UnstablePet(StableNpcGuid, petNumber);
+        if (StableSourceInRange(StableNpcGuid) && petNumber != 0) _net?.UnstablePet(StableNpcGuid, petNumber);
     }
 
     private void SwapSelectedPet(uint petNumber)
@@ -111,14 +150,15 @@ public sealed partial class GameLoop
         if (RefuseTacticalFreezeLiveCommand("swapping stable pets")) return;
         if (RefuseTacticalFrozenActor(StableNpcGuid, "swap pets through it")) return;
         if (RefuseTacticalFrozenActor(_petGuid, "swap it out of the stable")) return;
-        if (StableNpcGuid != 0 && petNumber != 0) _net?.SwapStablePet(StableNpcGuid, petNumber);
+        if (StableSourceInRange(StableNpcGuid) && petNumber != 0) _net?.SwapStablePet(StableNpcGuid, petNumber);
     }
 
     private void BuyStableSlot()
     {
         if (RefuseTacticalFreezeLiveCommand("buying a stable slot")) return;
         if (RefuseTacticalFrozenActor(StableNpcGuid, "buy a stable slot from it")) return;
-        if (StableNpcGuid != 0) _net?.BuyStableSlot(StableNpcGuid);
+        if (StableSourceInRange(StableNpcGuid) && NextStableSlotPrice() is { } price &&
+            CanBuyStableSlot(price)) _net?.BuyStableSlot(StableNpcGuid);
     }
 
     /// <summary>Clear stable state on world-leave / character swap.</summary>

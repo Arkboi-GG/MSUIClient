@@ -410,6 +410,15 @@ public sealed partial class GameLoop
                     StaticPopupCoordinatorLaw.EffectKind.CancelTimeout) _trainerConfirmation = null;
                 continue;
             }
+            if (EquipBindingUiLaw.IsType(effect.Type))
+            {
+                if (effect.Kind == StaticPopupCoordinatorLaw.EffectKind.Accept) AcceptEquipBinding();
+                else if (effect.Kind is StaticPopupCoordinatorLaw.EffectKind.CancelWithoutReason or
+                    StaticPopupCoordinatorLaw.EffectKind.CancelOverride or StaticPopupCoordinatorLaw.EffectKind.CancelClicked or
+                    StaticPopupCoordinatorLaw.EffectKind.CancelTimeout or StaticPopupCoordinatorLaw.EffectKind.OnHide)
+                    _pendingEquipBinding = null;
+                continue;
+            }
             if (DeleteItemUiLaw.IsDeletePopupType(effect.Type))
             {
                 switch (effect.Kind)

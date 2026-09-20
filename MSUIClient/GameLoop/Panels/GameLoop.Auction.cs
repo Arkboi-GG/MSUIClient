@@ -1120,7 +1120,7 @@ public sealed partial class GameLoop
         }
         if(ImGui.BeginDragDropTarget())
         {
-            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM");
+            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM", ImGuiDragDropFlags.AcceptNoDrawDefaultRect);
             if(ImGui.IsMouseReleased(ImGuiMouseButton.Left)&&
                 ResolveCarriedItem() is { } carried) AttachAuctionSellItem(carried);
             ImGui.EndDragDropTarget();

@@ -14,6 +14,12 @@ public static class FishingLineLaw
     public const int VertexCount = Segments + 1;
     public const float Sag = .5f;
 
+    // AnimationData 133/134 are FishingCast/FishingLoop. A fishing pose holds
+    // the pole even when the persistent sheath preference is stowed. This is a
+    // presentation override, so ending the pose restores that preference.
+    public static byte PresentationSheath(byte sheath, int action, int hold) =>
+        action == 133 || hold == 134 ? (byte)1 : sheath;
+
     public static bool Eligible(uint channelSpell, ulong? channelObject,
         bool targetIsGameObject, uint gameObjectType)
         => channelSpell != 0 && channelObject is > 0 && targetIsGameObject &&

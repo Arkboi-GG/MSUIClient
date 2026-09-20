@@ -335,11 +335,20 @@ public sealed partial class GameLoop
             _net.NameQuery(unit.Guid);
         else if (GuidInfo.PetNumber(unit.Guid) is uint petNumber)
         {
-            if (!_petNames.ContainsKey(petNumber) && _queriedPetNames.Add(petNumber))
-                _net.PetNameQuery(petNumber, unit.Guid);
+            EnsurePetNameRequested(unit, petNumber);
         }
         else if (unit.IsCreature && TryBeginCreatureQuery(unit.Entry))
             _net.CreatureQuery(unit.Entry, unit.Guid);
+    }
+
+    private void EnsurePetNameRequested(WorldEntity unit, uint petNumber)
+    {
+        if (_net is null) return;
+        bool stale = !_petNames.ContainsKey(petNumber) ||
+            !_petNameTimestamps.TryGetValue(petNumber, out uint timestamp) ||
+            timestamp != unit.Fields.PetNameTimestamp;
+        if (stale && _queriedPetNames.Add(petNumber))
+            _net.PetNameQuery(petNumber, unit.Guid);
     }
 
     private static void DrawPlateText(ImDrawListPtr draw, Vector2 anchor, string text,

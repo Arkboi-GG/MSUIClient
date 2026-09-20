@@ -440,7 +440,7 @@ internal static class TacticalFreezeClinicalChecks
                   StringComparison.Ordinal) &&
               tactical.Contains("_controlSwitchQueued = 0;", StringComparison.Ordinal) &&
               tactical.Contains("ClearRtsForceTakeControl();", StringComparison.Ordinal) &&
-              tactical.Contains("_groundCastSpell = 0;", StringComparison.Ordinal) &&
+              tactical.Contains("CancelGroundTargeting();", StringComparison.Ordinal) &&
               tactical.Contains("CancelItemTargeting();", StringComparison.Ordinal),
             "target-local frozen actors or pre-lock delayed buffers can escape the lock boundary");
         Check(tactical.Contains("owned.OwnerGuid != LocalPlayerGuid", StringComparison.Ordinal) &&
@@ -572,7 +572,7 @@ internal static class TacticalFreezeClinicalChecks
                   StringComparison.Ordinal) &&
               renderer.Contains("float freezeStartedAt = EnsureTacticalFreezeStartedAt(e.Guid);",
                   StringComparison.Ordinal) &&
-              renderer.Contains("if (!animationFrozen && remoteMovementChanged)",
+              renderer.Contains("if (!animationFrozen && remoteMovementChanged && !remoteMasked)",
                   StringComparison.Ordinal) &&
               renderer.Contains("ReconcileTacticalFreezeThaws", StringComparison.Ordinal),
             "current-pose latch, freeze-start global evaluation, or thaw-time rebasing is missing");

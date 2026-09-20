@@ -458,6 +458,12 @@ public sealed partial class GameLoop
 
     // ── drag and drop inside the book ────────────────────────────────────────────────────
 
+    private void BeginMacroDrag(uint id)
+    {
+        _draggingMacroId = id;
+        PlayUiSound("igSpellBookSpellIconPickup", "ui.actionbar");
+    }
+
     /// <summary>Called by the hotbar's FinishActionDrag when a macro is released anywhere but a
     /// bar slot: the book's last computed drop target decides whether it was a move.</summary>
     private void TryDropDraggedMacroInBook(uint id)
@@ -837,8 +843,11 @@ public sealed partial class GameLoop
                 _macroPressPosition = ImGui.GetIO().MousePos;
             }
             if (ImGui.IsItemActive() && _pressedMacroId == row.MacroId &&
+                _draggingMacroId != _pressedMacroId &&
                 MacroBookUiLaw.DragStarted(_macroPressPosition, ImGui.GetIO().MousePos, s))
-                _draggingMacroId = _pressedMacroId;
+            {
+                BeginMacroDrag(_pressedMacroId);
+            }
             if (clicked) SelectMacro(row.MacroId);
             if (hovered && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
                 ExecuteMacro(row.MacroId);

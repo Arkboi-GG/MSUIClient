@@ -30,6 +30,14 @@ uniform float uCutZ;
 // (owner, 2026-09-02: "see the primary's world EXCEPT the thing between the camera and it").
 uniform float uCutMaxDist;
 
+// Creator void stage (shared_docs/SPELL_CREATOR_IDE.md): keep only ground inside a disc of
+// uStageRadius around uStageCentre (camera-relative, like vWorldPos) and within
+// +-uStageHalfHeight of it; the outer quarter of the disc fades to black.
+uniform int   uStageActive;
+uniform vec3  uStageCentre;
+uniform float uStageRadius;
+uniform float uStageHalfHeight;
+
 // Party sight (World/PartySight.cs): the picture is the camera's own view plus the primary's,
 // nothing else. uPartySightCube: distance from the primary's eye to the nearest solid in every
 // direction. uPartySeenDepth: distance to the nearest surface the primary sees under this pixel
@@ -138,6 +146,13 @@ void main()
     if (uCutActive == 1 && vWorldPos.z > uCutZ && length(vWorldPos) < uCutMaxDist &&
         vWorldPos.x > uCutRect.x && vWorldPos.x < uCutRect.z &&
         vWorldPos.y > uCutRect.y && vWorldPos.y < uCutRect.w) discard;
+    float stageFade = 1.0;
+    if (uStageActive == 1)
+    {
+        float stageDist = length(vWorldPos.xy - uStageCentre.xy);
+        if (stageDist > uStageRadius || abs(vWorldPos.z - uStageCentre.z) > uStageHalfHeight) discard;
+        stageFade = 1.0 - smoothstep(uStageRadius * 0.75, uStageRadius, stageDist);
+    }
     vec3 n = normalize(vNormal);
 
     if (uDebugMode == 1) { FragColor = vec4(n * 0.5 + 0.5, 1.0); return; }
@@ -251,5 +266,6 @@ void main()
     // default framebuffer never composites terrain by alpha, so this does not
     // change ordinary rendering; the post pass uses it to keep ground texture
     // quieter than characters and architecture.
+    color *= stageFade;
     FragColor = vec4(mix(color, vec3(0.04, 0.035, 0.05), partyFog), 0.22);
 }

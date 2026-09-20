@@ -20,6 +20,14 @@ uniform int   uCutActive;
 uniform vec4  uCutRect;
 uniform float uCutZ;
 
+// Creator void stage (shared_docs/SPELL_CREATOR_IDE.md): keep only ground inside a disc of
+// uStageRadius around uStageCentre (camera-relative, like vWorldPos) and within
+// +-uStageHalfHeight of it; the outer quarter of the disc fades to black.
+uniform int   uStageActive;
+uniform vec3  uStageCentre;
+uniform float uStageRadius;
+uniform float uStageHalfHeight;
+
 // Command View line-of-sight cut (Engine/WorldCut.cs): camera-relative segments from the eye
 // (origin) to each party member's chest. A fragment inside a tunnel around a segment, nearer
 // than the unit, is discarded; the tunnel tapers from uSightRadius.x at the eye to .y at the unit.
@@ -177,6 +185,13 @@ void main()
             if (dot(sliceFlat, sliceFlat) < uSliceRadius * uSliceRadius) discard;
         }
     }
+    float stageFade = 1.0;
+    if (uStageActive == 1)
+    {
+        float stageDist = length(vWorldPos.xy - uStageCentre.xy);
+        if (stageDist > uStageRadius || abs(vWorldPos.z - uStageCentre.z) > uStageHalfHeight) discard;
+        stageFade = 1.0 - smoothstep(uStageRadius * 0.75, uStageRadius, stageDist);
+    }
     for (int i = 0; i < uSightCount; i++)
     {
         vec3 b = uSightTo[i];
@@ -244,6 +259,8 @@ void main()
     if (uUnlit == 1) lighting = vec3(1.0);
 
     vec3 lit = albedo.rgb * lighting;
+
+    lit *= stageFade;
 
     float dist = distance(uCameraPos, vWorldPos);
     float fog = clamp((dist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);

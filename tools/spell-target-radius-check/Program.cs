@@ -1,6 +1,8 @@
 using MSUIClient;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.Engine.UI;
+using System.Numerics;
 
 if (args.Length != 1)
 {
@@ -16,6 +18,23 @@ void Check(bool condition, string message)
 }
 
 ClientConfig config = ClientConfig.Load(args[0]);
+var origin = new Vector3(100, 200, 30);
+var band = new SpellRangeRow(5, 30, false);
+Check(GroundTargetingLaw.InRange(band, origin, origin + new Vector3(30, 0, 0)),
+    "ground range maximum boundary must be accepted");
+Check(!GroundTargetingLaw.InRange(band, origin, origin + new Vector3(30.1f, 0, 0)) &&
+      !GroundTargetingLaw.InRange(band, origin, origin + new Vector3(4.9f, 0, 0)),
+    "ground feedback must reject both sides of an authored range band");
+Check(GroundTargetingLaw.InRange(band, origin, origin + new Vector3(0, 0, 5)) &&
+      !GroundTargetingLaw.InRange(band, origin, origin + new Vector3(25, 0, 25)),
+    "ground feedback must include vertical distance from the actor");
+Check(GroundTargetingLaw.InRange(null, origin, origin + new Vector3(500, 0, 0)) &&
+      !GroundTargetingLaw.InRange(null, origin, new Vector3(float.NaN, 0, 0)),
+    "missing range is permissive only for finite points");
+Check(GroundTargetingLaw.Radius(false, 8) == GroundTargetingLaw.DefaultRadius &&
+      GroundTargetingLaw.Radius(true, 0) == GroundTargetingLaw.DefaultRadius &&
+      GroundTargetingLaw.Radius(true, 8) == 8 && GroundTargetingLaw.Radius(true, 100) == 20,
+    "reticle state must select the default, authored or capped footprint");
 using var mpq = new MpqMount(config.ClientDataPath);
 SpellCatalog catalog = SpellCatalog.Load(mpq)
     ?? throw new InvalidOperationException("Spell catalog unavailable");

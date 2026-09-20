@@ -466,9 +466,7 @@ public sealed partial class GameLoop
         bool hunterPet = player.Fields.Bytes0.Class == 3 && pet.Fields.PetNumber != 0;
         if (hunterPet)
         {
-            (ushort total, ushort spent) =
-                PetPaperDollUiLaw.TrainingPoints(pet.Fields.PetTrainingPoints);
-            string trainingValue = ((int)total - spent).ToString();
+            string trainingValue = PetPaperDollUiLaw.AvailableTrainingPoints(pet.Fields.PetTrainingPoints).ToString();
             float trainingValueWidth = GameText.MeasureWidth(
                 PetPaperDollUiLaw.TrainingValueFont, trainingValue, s);
             GameText.DrawRightAligned(dl, PetPaperDollUiLaw.TrainingLabelFont,
@@ -647,7 +645,7 @@ public sealed partial class GameLoop
             AutoEquipCarriedPaperDollItem();
         if (ImGui.BeginDragDropTarget())
         {
-            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM");
+            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM", ImGuiDragDropFlags.AcceptNoDrawDefaultRect);
             if (ImGui.IsMouseReleased(ImGuiMouseButton.Left) && HasCarriedItem)
                 AutoEquipCarriedPaperDollItem();
             ImGui.EndDragDropTarget();
@@ -960,7 +958,7 @@ public sealed partial class GameLoop
             sent = SelectAmmo(carried.Entry);
         else if (item.InventoryType != 0 &&
                  InventoryUiLaw.ToWire(_carriedContainer, _carriedSlot) is { } wire)
-            sent = _net.AutoEquipItem(wire.Bag, wire.Slot);
+            sent = TryAutoEquipItem(wire.Bag, wire.Slot);
         else return false;
         if (!sent) return false;
         // SET_AMMO selects the carried stack's entry; it does not move that stack.
@@ -1026,7 +1024,7 @@ public sealed partial class GameLoop
         if (ImGui.IsItemClicked(ImGuiMouseButton.Left)) AutoEquipCarriedPaperDollItem(ammoOnly: true);
         if (ImGui.BeginDragDropTarget())
         {
-            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM");
+            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM", ImGuiDragDropFlags.AcceptNoDrawDefaultRect);
             if (ImGui.IsMouseReleased(ImGuiMouseButton.Left)) AutoEquipCarriedPaperDollItem(ammoOnly: true);
             ImGui.EndDragDropTarget();
         }

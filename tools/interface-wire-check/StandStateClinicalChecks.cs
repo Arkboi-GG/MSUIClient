@@ -33,6 +33,16 @@ internal static class StandStateClinicalChecks
             "local stand-state commit clobbered sibling descriptor bytes or pose mapping drifted");
 
         string root = ClientConfig.FindRepoRoot();
+        var feigning = new ObjectFields();
+        feigning.SetU32(ObjectFields.UNIT_HEALTH, 100);
+        feigning.SetU32(ObjectFields.UNIT_MAXHEALTH, 100);
+        feigning.SetU32(ObjectFields.UNIT_DYNAMIC_FLAGS, 0x20);
+        Check(feigning.ReadsDead && !feigning.IsDead,
+            "Feign Death must present a dead pose without changing health death");
+        feigning.SetU32(ObjectFields.UNIT_DYNAMIC_FLAGS, 0);
+        Check(!feigning.ReadsDead, "Feign Death cancellation must release the dead pose");
+        feigning.SetUnitStandState(7);
+        Check(feigning.ReadsDead && !feigning.IsDead, "scripted dead stand state lost its pose");
         string chat = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Chat.cs"));
         string local = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.cs"));

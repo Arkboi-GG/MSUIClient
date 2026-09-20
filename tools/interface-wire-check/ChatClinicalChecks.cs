@@ -7,6 +7,17 @@ internal static class ChatClinicalChecks
 {
     public static void Run()
     {
+        Check(ChatFeedbackLaw.WhisperAlertDue(1, 0) &&
+              !ChatFeedbackLaw.WhisperAlertDue(299, 300) &&
+              !ChatFeedbackLaw.WhisperAlertDue(300, 300) &&
+              ChatFeedbackLaw.WhisperAlertDue(301, 300) &&
+              ChatFeedbackLaw.WhisperQuietSeconds == 300,
+            "whisper alert must resume only after the reference quiet period");
+        Check(ChatFeedbackLaw.ScrollCue("ScrollUp") == "igChatScrollUp" &&
+              ChatFeedbackLaw.ScrollCue("ScrollDown") == "igChatScrollDown" &&
+              ChatFeedbackLaw.ScrollCue("ScrollEnd") == "igChatBottom" &&
+              ChatFeedbackLaw.ScrollCue("redraw") == "",
+            "chat scroll cues must map only actual scroll controls");
         Check(ChatFrameLaw.FrameOrigin(new Vector2(1024, 768)) == new Vector2(32, 563) &&
               ChatFrameLaw.FrameRect == new ChatFrameLaw.LogicalRect(0, 0, 430, 120) &&
               ChatFrameLaw.BackgroundRect ==

@@ -26,6 +26,11 @@ internal static class FishingLineClinicalChecks
               !FishingLineLaw.Eligible(7620, 0x1234, false, 17) &&
               !FishingLineLaw.Eligible(7620, 0x1234, true, 19),
             "fishing line channel/FISHINGNODE eligibility drift");
+        Check(FishingLineLaw.PresentationSheath(0, 133, -1) == 1 &&
+              FishingLineLaw.PresentationSheath(0, -1, 134) == 1 &&
+              FishingLineLaw.PresentationSheath(0, -1, -1) == 0 &&
+              FishingLineLaw.PresentationSheath(2, 51, 69) == 2,
+            "fishing cast/channel must hold the pole and restore the ordinary sheath afterward");
 
         string root = ClientConfig.FindRepoRoot();
         string attachments = SourceText.Read(Path.Combine(root, "MSUIClient", "World",

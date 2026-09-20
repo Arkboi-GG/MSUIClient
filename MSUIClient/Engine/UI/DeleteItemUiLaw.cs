@@ -13,6 +13,10 @@ public static class DeleteItemUiLaw
 
     public const string PopupType = "DELETE_ITEM";
 
+    // ItemPrototype::ITEM_FLAG_INDESTRUCTIBLE (e.g. the shaman's Earth Totem).
+    // This is unrelated to item quality, binding, or maximum durability.
+    public static bool CanDestroy(uint itemFlags) => (itemFlags & 0x20u) == 0;
+
     // ── typed confirmation for high-quality items ───────────────────────────
     //
     // NOT PARITY, AND DELIBERATELY SO. Build 5875 ships exactly one item-destroy

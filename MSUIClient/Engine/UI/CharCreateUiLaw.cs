@@ -6,6 +6,9 @@ namespace MSUIClient.Engine.UI;
 /// <summary>Data-derived CharacterCreate captions; rendering remains owned by the glue screen.</summary>
 public static class CharCreateUiLaw
 {
+    public const int MaxNameLength = 12;
+    public static bool AcceptsNameCharacter(char value) => value is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
+
     public readonly record struct ScreenRect(Vector2 Min, Vector2 Size);
 
     public readonly record struct ActionButtons(ScreenRect Accept, ScreenRect Back);

@@ -6,6 +6,22 @@ internal static class ProfessionFrameClinicalChecks
 {
     public static void Run()
     {
+        Check(PetTrainingUiLaw.CanTrain(true, 10, 10, 3, 3, false) &&
+              PetTrainingUiLaw.CanTrain(true, 7, 1, -2, 0, false) &&
+              !PetTrainingUiLaw.CanTrain(true, 7, 10, 100, 0, false) &&
+              !PetTrainingUiLaw.CanTrain(true, 10, 10, 2, 3, false) &&
+              !PetTrainingUiLaw.CanTrain(true, 10, 1, 100, 0, true) &&
+              !PetTrainingUiLaw.CanTrain(false, 10, 1, 100, 0, false),
+            "pet training must enforce level, points, known ability and a living owned pet; free skills remain free");
+        Check(PetTrainingUiLaw.RowCostPosition(new(20, 30), 293, 31, 2, 40) == new Vector2(536, 31) &&
+              PetTrainingUiLaw.PointsPosition(new(0, 104), 1, 10, 12) == new Vector2(160, 518),
+            "pet training cost and total anchors drift from mounted CraftFrame.xml");
+        Check(ProfessionFrameUiLaw.IsCraftSkillLine(261) &&
+              ProfessionFrameUiLaw.IsCraftSkillLine(333) &&
+              ProfessionFrameUiLaw.IsCraftSkillLine(40) &&
+              !ProfessionFrameUiLaw.IsCraftSkillLine(237) &&
+              !ProfessionFrameUiLaw.IsCraftSkillLine(0),
+            "Beast Training, Enchanting and Poisons must open their craft books without admitting Arcane");
         Check(ProfessionFrameUiLaw.FrameOrigin(1.5f) == new Vector2(0, 156) &&
               ProfessionFrameUiLaw.FrameSize(1.5f) == new Vector2(576, 768) &&
               ProfessionFrameUiLaw.Rank == new ProfessionFrameUiLaw.LogicalRect(73, 37, 268, 15) &&
@@ -191,6 +207,12 @@ internal static class ProfessionFrameClinicalChecks
         string root = ClientConfig.FindRepoRoot();
         string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
             "GameLoop.Professions.cs"));
+        Check(!runtime.Contains("ImGui.InvisibleButton(\"##profession-list\"", StringComparison.Ordinal) &&
+              runtime.Contains("ImGui.IsMouseHoveringRect(listMin,", StringComparison.Ordinal),
+            "profession wheel region can capture clicks before recipe rows");
+        Check(runtime.Contains("if (_itemCastSpell == recipe.SpellId)", StringComparison.Ordinal) &&
+              runtime.Contains("\"craft-target\", \"ARMED\"", StringComparison.Ordinal),
+            "profession item targeting is reported as a refused or already-sent cast");
         Check(runtime.Contains(
                   "UiPanelFrameLogicalOrigin(UiPanelOwnershipRegistry[panelIndex])",
                   StringComparison.Ordinal) &&
@@ -293,7 +315,7 @@ internal static class ProfessionFrameClinicalChecks
               runtime.Contains("CraftReagentLabelAt(0, false)",
                   StringComparison.Ordinal) &&
               runtime.Contains("selectedRecipeReady", StringComparison.Ordinal) &&
-              runtime.Contains("uint count = BackpackCount(entry);",
+              runtime.Contains("uint count = BackpackCount(entry, ownerGuid);",
                   StringComparison.Ordinal) &&
               runtime.Contains("counts deliberately use BackpackCount",
                   StringComparison.Ordinal) &&

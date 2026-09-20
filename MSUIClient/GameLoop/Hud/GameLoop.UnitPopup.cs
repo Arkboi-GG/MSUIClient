@@ -83,12 +83,13 @@ public sealed partial class GameLoop
         if (which == UnitPopupWhich.Pet)
         {
             bool tracked = _entities.TryGet(guid, out WorldEntity pet) && pet.IsUnit;
-            bool ownedSummon = tracked && pet.Fields.SummonedBy == LocalPlayerGuid;
-            (bool canAbandon, bool canRename) = tracked
-                ? PetMenuUiLaw.Predicates(pet.Fields.SummonedBy, LocalPlayerGuid,
+            bool controlledPet = tracked && PetMenuUiLaw.ControlledBy(
+                pet.Fields.SummonedBy, pet.Fields.CharmedBy, ControlledGuid);
+            (bool canAbandon, bool canRename) = controlledPet
+                ? PetMenuUiLaw.Predicates(pet.Fields.SummonedBy, ControlledGuid,
                     pet.Fields.UnitFlags)
                 : (false, false);
-            return UnitPopupUiLaw.VisiblePetRows(ownedSummon, canAbandon, canRename);
+            return UnitPopupUiLaw.VisiblePetRows(controlledPet, canAbandon, canRename);
         }
         if (which == UnitPopupWhich.Guild)
         {

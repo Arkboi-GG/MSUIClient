@@ -205,11 +205,10 @@ public sealed partial class GameLoop
         return true;
     }
 
-    // SkillLine.dbc primary professions plus the three player craft books that
+    // SkillLine.dbc professions and player craft books, including Beast Training261,
     // build 5875 exposes through TradeSkill/Craft UI.  This deliberately excludes
     // class lines such as Arcane (237): conjured food is a spell, not a profession.
-    private static bool IsCraftProfessionLine(uint line) => line is
-        40 or 129 or 164 or 165 or 171 or 185 or 186 or 197 or 202 or 333;
+    private static bool IsCraftProfessionLine(uint line) => ProfessionFrameUiLaw.IsCraftSkillLine(line);
 
     private void EmitProfessionRecipeSnapshot()
     {
@@ -219,7 +218,8 @@ public sealed partial class GameLoop
         {
             string reagents = string.Join('|', recipe.Reagents.Select(r => $"{r.ItemId}:{BackpackCount(r.ItemId)}/{r.Count}"));
             bool ready = recipe.Reagents.All(r => BackpackCount(r.ItemId) >= r.Count) &&
-                recipe.Tools.All(t => CarriedCount(t) > 0) && HasNearbySpellFocus(recipe.RequiredFocus);
+                recipe.Tools.All(t => CarriedCount(t) > 0) && HasNearbySpellFocus(recipe.RequiredFocus) &&
+                (!IsBeastTraining || PetTraining(recipe).Ready);
             if (ready) craftable++;
             EmitInterface("profession", "recipe", "DECODED", recipe.SpellId,
                 $"line={_professionLine};name={SanitizeEvidence(recipe.Name)};product={recipe.Product};reagents={reagents};" +
@@ -236,14 +236,22 @@ public sealed partial class GameLoop
         if (!_professionOpen || index < 0 || index >= _professionRecipes.Count) return false;
         ProfessionRecipe recipe = _professionRecipes[index];
         bool ready = recipe.Reagents.All(r => BackpackCount(r.ItemId) >= r.Count) &&
-            recipe.Tools.All(t => CarriedCount(t) > 0) && HasNearbySpellFocus(recipe.RequiredFocus);
+            recipe.Tools.All(t => CarriedCount(t) > 0) && HasNearbySpellFocus(recipe.RequiredFocus) &&
+            (!IsBeastTraining || PetTraining(recipe).Ready);
         if (!ready)
         {
-            EmitInterface("profession", "craft-send", "REFUSED", recipe.SpellId, "reason=missing-reagents");
+            EmitInterface("profession", "craft-send", "REFUSED", recipe.SpellId,
+                IsBeastTraining ? "reason=pet-training-requirements" : "reason=missing-reagents");
             return false;
         }
         GetSkillValue(_professionLine, out _professionSkillBefore, out _);
         TryCast(recipe.SpellId);
+        if (_itemCastSpell == recipe.SpellId)
+        {
+            EmitInterface("profession", "craft-target", "ARMED", recipe.SpellId,
+                $"line={_professionLine};waitingForItem=true");
+            return true;
+        }
         if (_pendingCastSpell != recipe.SpellId)
         {
             EmitInterface("profession", "craft-send", "REFUSED", recipe.SpellId,
@@ -540,9 +548,10 @@ public sealed partial class GameLoop
         GetSkillValue(_professionLine, out ushort value, out ushort max);
         GameText.DrawCentered(dl, ProfessionFrameUiLaw.TitleFont, lineName,
             origin + ProfessionFrameUiLaw.TitleCenter * s, s);
-        DrawProfessionRankBar(dl, origin, s, lineName, value, max);
+        if (!IsBeastTraining) DrawProfessionRankBar(dl, origin, s, lineName, value, max);
+        else DrawPetTrainingPoints(dl, origin, s);
         uint skillBorder = _gameplayArt.Handle(ProfessionFrameUiLaw.SkillBorderPath);
-        if (skillBorder != 0)
+        if (skillBorder != 0 && !IsBeastTraining)
         {
             Vector2 leftMin = origin + ProfessionFrameUiLaw.SkillBorderLeft.Min * s;
             dl.AddImage((nint)skillBorder, leftMin,
@@ -564,9 +573,11 @@ public sealed partial class GameLoop
         int maximumScroll = ProfessionFrameUiLaw.MaximumScroll(displayRows.Count);
         _professionScroll = ProfessionFrameUiLaw.ClampScroll(_professionScroll, displayRows.Count);
         Vector2 listMin = origin + ProfessionFrameUiLaw.List.Min * s;
-        ImGui.SetCursorScreenPos(listMin);
-        ImGui.InvisibleButton("##profession-list", ProfessionFrameUiLaw.List.Size * s);
-        if (ImGui.IsItemHovered() && ImGui.GetIO().MouseWheel != 0)
+        // A button covering the list captures clicks before its recipe rows can receive them.
+        // Wheel hit testing must observe the region without owning an active/hovered item.
+        if (ImGui.IsWindowHovered() &&
+            ImGui.IsMouseHoveringRect(listMin, listMin + ProfessionFrameUiLaw.List.Size * s) &&
+            ImGui.GetIO().MouseWheel != 0)
             _professionScroll = Math.Clamp(_professionScroll - Math.Sign(ImGui.GetIO().MouseWheel), 0, maximumScroll);
         for (int visible = 0; visible < ProfessionFrameUiLaw.VisibleRows &&
              visible + _professionScroll < displayRows.Count; visible++)
@@ -597,6 +608,7 @@ public sealed partial class GameLoop
                 recipe.Skill.TrivialLow, recipe.Skill.TrivialHigh);
             Vector4 c = ProfessionFrameUiLaw.DifficultyColor(difficultyTier);
             uint color = ImGui.ColorConvertFloat4ToU32(c);
+            if (IsBeastTraining) color = PetTraining(recipe).Known ? 0xff808080 : 0xff40bf40;
             int craftable = ProfessionCraftableCount(recipe);
             if (VanillaListRow(dl, $"##recipe-{recipe.SpellId}",
                     rowMin, logicalRow.Size, s,
@@ -612,6 +624,14 @@ public sealed partial class GameLoop
             rowText.Y = GameText.BoxCenteredTop("GameFontNormal", rowMin.Y,
                 ProfessionFrameUiLaw.RowHeight, s);
             GameText.Draw(dl, "GameFontNormal", rowLabel, rowText, s, color);
+            if (IsBeastTraining && PetTraining(recipe).Cost is > 0 and var trainingCost)
+            {
+                string costText = InventoryGlobalString("TRAINER_LIST_TP", "%d TP")
+                    .Replace("%d", trainingCost.ToString());
+                float costWidth = GameText.MeasureWidth("GameFontNormal", costText, s);
+                GameText.Draw(dl, "GameFontNormal", costText,
+                    PetTrainingUiLaw.RowCostPosition(rowMin, logicalRow.Width, rowText.Y, s, costWidth), s, color);
+            }
             if (!tradeSkill && recipe.Rank.Length > 0)
             {
                 Vector2 subText = rowMin + ProfessionFrameUiLaw.CraftSubTextOffset * s;
@@ -675,6 +695,10 @@ public sealed partial class GameLoop
                 productIcon = product.IconPath;
             SpellInfo detailSpell = default;
             bool hasDetailSpell = _spellCatalog?.TryGet(recipe.SpellId, out detailSpell) == true;
+            if (IsBeastTraining && hasDetailSpell && string.IsNullOrWhiteSpace(detailSpell.Description) &&
+                _spellCatalog!.TryGet(PetTrainingUiLaw.TaughtAbility(detailSpell.EffectIds,
+                    detailSpell.EffectTriggerSpells), out SpellInfo taughtDetail))
+                detailSpell = taughtDetail;
             if (!tradeSkill && hasDetailSpell)
                 productIcon = string.IsNullOrWhiteSpace(detailSpell.IconPath)
                     ? ProfessionFrameUiLaw.FallbackIconPath : detailSpell.IconPath;
@@ -728,7 +752,8 @@ public sealed partial class GameLoop
                 origin + ProfessionFrameUiLaw.ProductName * s, s, VanillaGold);
 
             float descriptionHeight = 0;
-            bool hasDescription = !tradeSkill && !string.IsNullOrWhiteSpace(recipe.Description);
+            string detailDescription = IsBeastTraining && hasDetailSpell ? detailSpell.Description : recipe.Description;
+            bool hasDescription = !tradeSkill && !string.IsNullOrWhiteSpace(detailDescription);
             if (!tradeSkill)
             {
                 var requirements = new List<(string Name, bool Met)>();
@@ -745,6 +770,25 @@ public sealed partial class GameLoop
                 }
                 string requirementMarkup =
                     ProfessionFrameUiLaw.CraftRequirementsText(requirements);
+                if (IsBeastTraining)
+                {
+                    PetTrainingOffer offer = PetTraining(recipe);
+                    if (offer.RequiredLevel > 0)
+                        requirementMarkup = ProfessionFrameUiLaw.CraftRequirementsText(new[]
+                        {
+                            ($"Pet Level {offer.RequiredLevel}", (TrainingPet?.Fields.Level ?? 0) >= offer.RequiredLevel),
+                        });
+                    if (offer.Cost > 0)
+                    {
+                        int points = PetPaperDollUiLaw.AvailableTrainingPoints(TrainingPet?.Fields.PetTrainingPoints ?? 0);
+                        string cost = $"{InventoryGlobalString("COSTS_LABEL", "Cost:")} {offer.Cost} " +
+                            InventoryGlobalString("TRAINING_POINTS_LABEL", "Training Points");
+                        GameText.Draw(dl, "GameFontHighlightSmall", cost,
+                            PetTrainingUiLaw.CostPosition(origin + ProfessionFrameUiLaw.CraftRequirements * s,
+                                GameText.LinePitch("GameFontHighlightSmall", s)), s,
+                            points >= offer.Cost ? 0xffffffff : 0xff4040ff);
+                    }
+                }
                 if (requirementMarkup.Length > 0)
                     DrawProfessionMarkupLine(dl, "GameFontHighlightSmall", requirementMarkup,
                         origin + ProfessionFrameUiLaw.CraftRequirements * s, s);
@@ -780,8 +824,8 @@ public sealed partial class GameLoop
                 }
             }
             string description = hasDescription && hasDetailSpell && _spellCatalog is not null
-                ? SpellTooltipLaw.Substitute(recipe.Description, detailSpell, _spellCatalog)
-                : recipe.Description;
+                ? SpellTooltipLaw.Substitute(detailDescription, detailSpell, _spellCatalog)
+                : detailDescription;
             if (hasDescription)
             {
                 IReadOnlyList<string> descriptionLines = ProfessionFrameUiLaw.WrapDescription(
@@ -801,7 +845,7 @@ public sealed partial class GameLoop
             }
             Vector2 reagentLabel = tradeSkill ? ProfessionFrameUiLaw.TradeSkillReagentLabel :
                 ProfessionFrameUiLaw.CraftReagentLabelAt(descriptionHeight, hasDescription);
-            GameText.Draw(dl, "GameFontNormalSmall", "Reagents:",
+            if (!IsBeastTraining || recipe.Reagents.Count > 0) GameText.Draw(dl, "GameFontNormalSmall", "Reagents:",
                 origin + reagentLabel * s,
                 s, VanillaGold);
             bool resolvedCraftReagentsReady = true;
@@ -849,7 +893,7 @@ public sealed partial class GameLoop
             bool ready = tradeSkill
                 ? recipe.Reagents.All(r => BackpackCount(r.ItemId) >= r.Count)
                 : resolvedCraftReagentsReady;
-            selectedRecipeReady = ready;
+            selectedRecipeReady = ready && (!IsBeastTraining || PetTraining(recipe).Ready);
             if (tradeSkill)
             {
                 if (VanillaButton(dl, "##profession-create-all", "Create All",
@@ -865,7 +909,7 @@ public sealed partial class GameLoop
                 CraftProfessionRecipeCount(_professionSelected, _professionCreateCount);
             }
         }
-        else if (!tradeSkill)
+        else if (!tradeSkill && !IsBeastTraining)
         {
             // CraftReagentLabel is a static layer region in current Benilla. HideDetails clears
             // recipe-owned content but intentionally leaves this caption painted.
@@ -875,7 +919,8 @@ public sealed partial class GameLoop
         }
         // CraftCreateButton also remains present in an empty book; HideDetails disables it. Keep
         // that stable action-row geometry instead of making the button appear with the first row.
-        if (!tradeSkill && VanillaButton(dl, "##profession-create", "Create",
+        if (!tradeSkill && VanillaButton(dl, "##profession-create",
+                IsBeastTraining ? InventoryGlobalString("TRAIN", "Train") : "Create",
                 origin + ProfessionFrameUiLaw.Create.Min * s,
                 ProfessionFrameUiLaw.Create.Size, s, selectedRecipeReady))
             CraftProfessionRecipe(_professionSelected);

@@ -49,7 +49,7 @@ public sealed partial class GameLoop
     /// 2026-08-27: every portrait wore the previous bot until re-embodying).
     /// </summary>
     private bool PlayerPortraitCurrent =>
-        _playerPortraitUsable && _playerPortraitGuid == ControlledGuid;
+        !ControlledUsesDisplayModel && _playerPortraitUsable && _playerPortraitGuid == ControlledGuid;
     private bool _targetPortraitUsable;
     private bool _petPortraitUsable;
     private ulong _petPortraitGuid;
@@ -180,7 +180,7 @@ public sealed partial class GameLoop
         // streamed body, the same pipeline as every party member. The rig booth
         // serves only embodied play, where the body on screen IS the driven
         // body and the bake cannot lie.
-        bool rigOwnsDriven = !_freeView && _character is { Loaded: true, Enabled: true };
+        bool rigOwnsDriven = !ControlledBodyIsStreamed && _character is { Loaded: true, Enabled: true };
 
         var subjects = new List<ulong>(framed.Length + 1);
         foreach (PartyMember member in framed)
@@ -225,7 +225,8 @@ public sealed partial class GameLoop
                 continue;
             }
 
-            (PortraitTuning tuning, bool storeHit) = ResolveTuningWithHit(PlayerPortraitKey(unit));
+            (PortraitTuning tuning, bool storeHit) = ResolveTuningWithHit(unit.Fields.HasDisplayTransform
+                ? CreaturePortraitKey(unit.DisplayId) : PlayerPortraitKey(unit));
             if (!TryBakeCreaturePortrait(entry.Target, unit, tuning, storeHit,
                     out CreaturePortraitBake bake))
                 continue;
@@ -857,7 +858,7 @@ public sealed partial class GameLoop
         bool changed = requestChanged || appearanceChanged || !_targetPortraitUsable;
         if (!changed || NowSeconds() < _targetPortraitRetryAt) return;
 
-        string targetTuningKey = target.IsPlayer
+        string targetTuningKey = target.IsPlayer && !target.Fields.HasDisplayTransform
             ? PlayerPortraitKey(target)
             : CreaturePortraitKey(target.DisplayId);
         (PortraitTuning targetTuning, bool targetStoreHit) =

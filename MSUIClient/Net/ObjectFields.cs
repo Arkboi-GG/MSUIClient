@@ -76,6 +76,7 @@ public sealed class ObjectFields
     public const ushort UNIT_BOUNDINGRADIUS = 129;   // f32, horizontal bounding radius (yd)
     public const ushort UNIT_COMBATREACH = 130;      // f32, melee-reach term (default 1.5)
     public const ushort UNIT_DISPLAYID = 131;        // the rendered CreatureDisplayInfo id
+    public const ushort UNIT_NATIVEDISPLAYID = 132;
     public const ushort UNIT_MOUNTDISPLAYID = 133;
     public const ushort UNIT_MINDAMAGE = 134;
     public const ushort UNIT_MAXDAMAGE = 135;
@@ -91,6 +92,7 @@ public sealed class ObjectFields
     // confidence rather than being a fresh guess.
     public const ushort UNIT_FIELD_BYTES_1 = 138;
     public const ushort UNIT_FIELD_PETNUMBER = 139; // nonzero for a permanent pet/charm
+    public const ushort UNIT_FIELD_PET_NAME_TIMESTAMP = 140;
     public const ushort UNIT_FIELD_PETEXPERIENCE = 141;
     public const ushort UNIT_FIELD_PETNEXTLEVELEXP = 142;
     public const ushort UNIT_DYNAMIC_FLAGS = 143;
@@ -360,6 +362,7 @@ public sealed class ObjectFields
     public ulong? CreatedBy => GetGuid(UNIT_FIELD_CREATEDBY) is { } g && g != 0 ? g : null;
     public uint CreatedBySpell => GetU32(UNIT_CREATED_BY_SPELL) ?? 0;
     public uint PetNumber => GetU32(UNIT_FIELD_PETNUMBER) ?? 0;
+    public uint PetNameTimestamp => GetU32(UNIT_FIELD_PET_NAME_TIMESTAMP) ?? 0;
     public bool IsPetOrCharm => PetNumber != 0;
     public uint PetExperience => GetU32(UNIT_FIELD_PETEXPERIENCE) ?? 0;
     public uint PetNextLevelExperience => GetU32(UNIT_FIELD_PETNEXTLEVELEXP) ?? 0;
@@ -399,6 +402,8 @@ public sealed class ObjectFields
     /// server-health death and drives death presentation/audio.
     /// </summary>
     public bool ReadsDead => IsDead || (DynamicFlags & 0x20u) != 0 || UnitStandState == 7;
+    public bool HasDisplayTransform => DisplayId > 0 &&
+        GetU32(UNIT_NATIVEDISPLAYID) is > 0 and var native && (uint)DisplayId != native;
     /// <summary>Melee reach term for the edge-to-edge range gate. Vanilla default 1.5 when absent.</summary>
     public float CombatReach => GetF32(UNIT_COMBATREACH) ?? 1.5f;
     public float BoundingRadius => GetF32(UNIT_BOUNDINGRADIUS) ?? 0f;
@@ -620,6 +625,18 @@ public sealed class ObjectFields
     public uint MainAttackTime => GetU32(UNIT_BASEATTACKTIME) ?? 0;
     public uint OffhandAttackTime => GetU32((ushort)(UNIT_BASEATTACKTIME + 1)) ?? 0;
     public uint RangedAttackTime => GetU32(UNIT_RANGEDATTACKTIME) ?? 0;
+
+    /// <summary>
+    /// Core stores attack times as floats. Ordinary object updates convert them to uint
+    /// milliseconds; the SuperUI v2 snapshot instead transmits the raw stored field bits.
+    /// Normalize that snapshot at its boundary, retaining the ordinary field representation.
+    /// </summary>
+    public static uint StoredAttackTimeMilliseconds(uint raw)
+    {
+        float milliseconds = BitConverter.UInt32BitsToSingle(raw);
+        if (!float.IsFinite(milliseconds) || milliseconds <= 0) return 0;
+        return milliseconds >= uint.MaxValue ? uint.MaxValue : (uint)milliseconds;
+    }
     public int AttackPower => (int)(Math.Max(0, AttackPowerBase + AttackPowerPositive + AttackPowerNegative)
         * (1f + (GetF32(UNIT_ATTACK_POWER_MULTIPLIER) ?? 0)));
     public int RangedAttackPower => (int)(Math.Max(0, RangedAttackPowerBase + RangedAttackPowerPositive + RangedAttackPowerNegative)

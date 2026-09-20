@@ -43,7 +43,7 @@ public sealed partial class GameLoop
             _creatureVoices is null || _spellSounds is null ||
             displayId <= 0 || !_entities.TryGet(rootGuid, out WorldEntity root)) return;
 
-        uint moveFlags = rootGuid == ControlledGuid && !ControlledBodyIsStreamed
+        uint moveFlags = rootGuid == ControlledGuid && !_freeView
             ? _movementSender.LastFlags : root.MoveFlags;
         if ((moveFlags & (uint)MovementFlags.Hover) != 0 ||
             root.Fields.UnitIsStealthed ||

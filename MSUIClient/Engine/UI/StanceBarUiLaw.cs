@@ -61,6 +61,13 @@ public static class StanceBarUiLaw
     public static bool CancelActive(uint formId, bool active, bool formCancelable) =>
         active && (formId == 0 || formCancelable);
 
+    // ActionButton_GetPagedID: bonus pages follow the six ordinary pages.
+    // Only page one is replaced; manually selected pages keep their own actions.
+    public static int MainActionWireSlot(int button, int page, uint bonusOffset) =>
+        page == 1 && bonusOffset is >= 1 and <= 4
+            ? (6 + (int)bonusOffset - 1) * 12 + button
+            : (Math.Clamp(page, 1, 6) - 1) * 12 + button;
+
     public static float ButtonX(int index) =>
         FirstButtonX + Math.Clamp(index, 0, SlotCount - 1) * ButtonStep;
     public static float ButtonTop => FrameHeight - ButtonBottom - ButtonSize;

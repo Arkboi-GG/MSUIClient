@@ -58,9 +58,12 @@ internal static class QuestMarkerClinicalChecks
 
         string adapter = SourceText.Read(Path.Combine("MSUIClient", "GameLoop", "Hud",
             "GameLoop.QuestMarkers.cs"));
-        Check(!adapter.Contains("ImGui", StringComparison.Ordinal) &&
-              !adapter.Contains("DrawPlateText", StringComparison.Ordinal) &&
-              adapter.Contains("QuestMarkerMeshInstances", StringComparison.Ordinal),
+        int meshStart = adapter.IndexOf("private IReadOnlyList<SpellMeshDraw> QuestMarkerMeshInstances(", StringComparison.Ordinal);
+        int labelsStart = adapter.IndexOf("private void DrawQuestMarkerNumerals(", StringComparison.Ordinal);
+        Check(meshStart >= 0 && labelsStart > meshStart, "quest marker mesh/companion label seams missing");
+        string meshAdapter = adapter[meshStart..labelsStart];
+        Check(!meshAdapter.Contains("ImGui", StringComparison.Ordinal) &&
+              !meshAdapter.Contains("DrawPlateText", StringComparison.Ordinal),
             "quest marker adapter regressed to projected HUD glyph rendering");
 
         CheckRefreshLaw();

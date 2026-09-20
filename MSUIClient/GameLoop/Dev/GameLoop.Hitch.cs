@@ -108,19 +108,17 @@ public sealed partial class GameLoop
     /// </summary>
     private void InitHitchRecorder()
     {
-        if (!_config.DevTools)
-        {
-            // Tooling, not a feature: a release build must not write files or
-            // pay for the ring.
-            _hitch.Enabled = false;
-            return;
-        }
-
+        // Basic session logging is also needed in shipped clients: otherwise
+        // community disconnect reports point at a stale log from a dev session.
+        // The frame/event recorder remains opt-in developer instrumentation.
+        _hitch.Enabled = _config.DevTools;
         if (!_hitchTeeInstalled)
         {
             HitchRecorder.InstallConsoleTee(_hitch);
             _hitchTeeInstalled = true;
         }
+        Console.WriteLine($"[session] developer tools={_config.DevTools}; console log={Path.Combine(AppContext.BaseDirectory, "msui-console.log")}");
+        if (!_config.DevTools) return;
 
         _hitch.SuppressFor(5.0);
         Console.WriteLine(

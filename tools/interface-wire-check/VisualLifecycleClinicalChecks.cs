@@ -82,7 +82,7 @@ internal static class VisualLifecycleClinicalChecks
             "production water path lost its reference-composited following records, exposed " +
             "the broad alpha wedge as colour, or returned to the stretched/repeated V approximation");
         Check(program.Contains("_liquid.BeginWakeFrame();", StringComparison.Ordinal) &&
-              program.Contains("foreach (WorldEntity foamUnit in _entities.Units)",
+              program.Contains("foreach (WorldEntity foamUnit in _visibleWorldUnits)",
                   StringComparison.Ordinal) &&
               program.Contains("foamUnit.Guid == ControlledGuid", StringComparison.Ordinal) &&
               program.Contains("_liquid.UpdateOtherWake(foamUnit.Guid", StringComparison.Ordinal) &&

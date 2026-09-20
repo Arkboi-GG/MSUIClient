@@ -49,6 +49,15 @@ public static class PetFrameUiLaw
     public const float NameLeft = 50f;
     public const float NameBottom = Height - 33f;
 
+    public const string HappinessTexture = @"Interface\PetPaperDollFrame\UI-PetHappiness";
+    public static Vector2 HappinessOffset => new(121f, 19f);
+    public static Vector2 HappinessSize => new(24f, 23f);
+    public static (Vector2 Min, Vector2 Max) HappinessUv(int bucket)
+    {
+        float left = bucket switch { 1 => .375f, 2 => .1875f, _ => 0f };
+        return (new(left, 0f), new(left + .1875f, .359375f));
+    }
+
     /// <summary>
     /// PetFrame's HitRectInsets (left 7, right 66, top 6, bottom 7): in vanilla only the
     /// PORTRAIT half of the frame is clickable and a click over the status bars falls

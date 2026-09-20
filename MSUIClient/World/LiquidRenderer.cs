@@ -42,6 +42,8 @@ namespace MSUIClient.World;
 /// </summary>
 public sealed class LiquidRenderer : IDisposable
 {
+    private readonly bool _diagnosticTrace = Environment.GetEnvironmentVariable("MSUI_LIQUID_PROBE") == "1";
+    private float _nextDiagnosticTrace;
     private const int FloatsPerVertex = 5;   // ADT path: position(3) + type(1) + depth(1)
 
     /// <summary>
@@ -1245,6 +1247,14 @@ public sealed class LiquidRenderer : IDisposable
     /// </summary>
     public unsafe void Render(Camera camera, WorldClipPlane? worldClipPlane)
     {
+        bool trace = _diagnosticTrace && Time >= _nextDiagnosticTrace;
+        if (trace)
+        {
+            _nextDiagnosticTrace = Time + 5;
+            Console.WriteLine($"[liquid-probe] before={_gl.GetError()};camera={camera.Position};" +
+                $"stencil={_gl.IsEnabled(EnableCap.StencilTest)};scissor={_gl.IsEnabled(EnableCap.ScissorTest)};" +
+                $"rasterDiscard={_gl.IsEnabled(EnableCap.RasterizerDiscard)}");
+        }
         TrianglesLastFrame = 0;
         WmoSurfacesDrawnLastFrame = 0;
         // On global-WMO maps (Blackrock Depths/Spire, ...) there is no terrain,
@@ -1361,6 +1371,8 @@ public sealed class LiquidRenderer : IDisposable
             _gl.BindVertexArray(mesh.Vao);
             _gl.DrawElements(PrimitiveType.Triangles, (uint)mesh.IndexCount,
                 DrawElementsType.UnsignedInt, (void*)0);
+            if (trace) Console.WriteLine($"[liquid-probe] draw={_gl.GetError()};" +
+                $"bounds={mesh.BoundsMin}|{mesh.BoundsMax};indices={mesh.IndexCount}");
             TrianglesLastFrame += mesh.IndexCount / 3;
             TilesDrawnLastFrame++;
         }

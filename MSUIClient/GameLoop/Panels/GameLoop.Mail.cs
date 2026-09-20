@@ -1516,7 +1516,7 @@ public sealed partial class GameLoop
         }
         if (ImGui.BeginDragDropTarget())
         {
-            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM");
+            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM", ImGuiDragDropFlags.AcceptNoDrawDefaultRect);
             if (ImGui.IsMouseReleased(ImGuiMouseButton.Left) &&
                 ResolveCarriedItem() is { } carried)
             { AttachMailItem(carried.Guid, carried.Entry); ClearCarriedItem(); }
@@ -1534,7 +1534,8 @@ public sealed partial class GameLoop
     private void DrawMailMoneyInputs(ImDrawListPtr dl, Vector2 min, float s)
     {
         VanillaInputInt(dl, "##mail-gold", ref _mailGoldInput,
-            MailUiLaw.MoneyGoldInput.ScaledMin(min, s), MailUiLaw.MoneyGoldInput.Size, s);
+            MailUiLaw.MoneyGoldInput.ScaledMin(min, s), MailUiLaw.MoneyGoldInput.Size, s,
+            zeroTextInsets: true);
         bool goldActive = ImGui.IsItemActive();
         if (goldActive && (ImGui.IsKeyPressed(ImGuiKey.Enter) ||
                 ImGui.IsKeyPressed(ImGuiKey.Tab)))
@@ -1542,7 +1543,8 @@ public sealed partial class GameLoop
         DrawMailCoin(dl, 0, MailUiLaw.At(min, MailUiLaw.MoneyGoldCoin, s), s);
         if (_mailFocusSilver) { ImGui.SetKeyboardFocusHere(); _mailFocusSilver = false; }
         VanillaInputInt(dl, "##mail-silver", ref _mailSilverInput,
-            MailUiLaw.MoneySilverInput.ScaledMin(min, s), MailUiLaw.MoneySilverInput.Size, s);
+            MailUiLaw.MoneySilverInput.ScaledMin(min, s), MailUiLaw.MoneySilverInput.Size, s,
+            zeroTextInsets: true);
         bool silverActive = ImGui.IsItemActive();
         if (silverActive && (ImGui.IsKeyPressed(ImGuiKey.Enter) ||
                 ImGui.IsKeyPressed(ImGuiKey.Tab)))
@@ -1550,7 +1552,8 @@ public sealed partial class GameLoop
         DrawMailCoin(dl, 1, MailUiLaw.At(min, MailUiLaw.MoneySilverCoin, s), s);
         if (_mailFocusCopper) { ImGui.SetKeyboardFocusHere(); _mailFocusCopper = false; }
         VanillaInputInt(dl, "##mail-copper", ref _mailCopperInput,
-            MailUiLaw.MoneyCopperInput.ScaledMin(min, s), MailUiLaw.MoneyCopperInput.Size, s);
+            MailUiLaw.MoneyCopperInput.ScaledMin(min, s), MailUiLaw.MoneyCopperInput.Size, s,
+            zeroTextInsets: true);
         DrawMailCoin(dl, 2, MailUiLaw.At(min, MailUiLaw.MoneyCopperCoin, s), s);
     }
 
@@ -1606,14 +1609,14 @@ public sealed partial class GameLoop
     }
 
     private void DrawMailMoneyDisplay(ImDrawListPtr dl, uint copper, Vector2 rightTop, float s,
-        uint color, string parityElement, Vector4 clip)
+        uint color, string parityElement, Vector4 clip, bool centered = false)
     {
         IReadOnlyList<MailUiLaw.MoneyDenomination> denominations = MailUiLaw.Money(copper);
         float width = denominations.Sum(d =>
             GameText.MeasureWidth("NumberFontNormal", d.Value.ToString(CultureInfo.InvariantCulture), s) +
             MailUiLaw.CoinSize.X * s) +
             Math.Max(0, denominations.Count - 1) * MailUiLaw.MoneyCoinGap * s;
-        float x = rightTop.X - width;
+        float x = rightTop.X - width * (centered ? .5f : 1f);
         for (int index = 0; index < denominations.Count; index++)
         {
             MailUiLaw.MoneyDenomination denomination = denominations[index];
@@ -1960,8 +1963,28 @@ public sealed partial class GameLoop
         { _mailConfirmation = null; return; }
         float s = GameplayUiScale();
         Vector2 display = ImGui.GetIO().DisplaySize;
-        Vector2 size = MailUiLaw.ConfirmationSize(s);
-        Vector2 origin = MailUiLaw.ConfirmationOrigin(display, s);
+        bool alert = confirmation.Kind is MailConfirmationKind.DeleteItem or MailConfirmationKind.DeleteMoney;
+        string message = confirmation.Kind switch
+        {
+            MailConfirmationKind.Cod => "Accepting this item will cost:",
+            MailConfirmationKind.DeleteItem => $"Deleting this mail will also destroy {MailItem(row!)?.Name ?? $"item {row!.ItemEntry}"}",
+            MailConfirmationKind.DeleteMoney => "Deleting this mail will also destroy the enclosed money.",
+            _ => $"Really send {ReadBuffer(_mailRecipient)} the following amount?"
+        };
+        uint? amount = confirmation.Kind switch
+        {
+            MailConfirmationKind.Cod => row!.Cod,
+            MailConfirmationKind.DeleteMoney => row!.Money,
+            MailConfirmationKind.SendMoney => MailAmountCopper(),
+            _ => null
+        };
+        string[] lines = WrapTooltipText(message, "GameFontHighlight", s,
+            MailUiLaw.ConfirmationTextWidth * s).ToArray();
+        float pitch = GameText.LinePitch("GameFontHighlight", 1);
+        MailUiLaw.ConfirmationLayout layout = MailUiLaw.LayoutConfirmation(alert,
+            amount.HasValue, lines.Length * pitch);
+        Vector2 size = layout.Size * s;
+        Vector2 origin = MailUiLaw.ConfirmationOrigin(display, s, layout);
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
@@ -1981,26 +2004,22 @@ public sealed partial class GameLoop
                     Enabled: true, InteractionState: confirmation.Kind.ToString(), HitMin: origin,
                     HitMax: origin + size, Strata: "DIALOG"));
         _skin.DrawBackdrop(dl, origin, origin + size, WowSkin.Dialog);
-        bool alert = confirmation.Kind is MailConfirmationKind.DeleteItem or MailConfirmationKind.DeleteMoney;
         if (alert) _skin.GlueImage(dl, "dialog.alert",
-            MailUiLaw.ConfirmationAlert.ScaledMin(origin, s),
-            MailUiLaw.ConfirmationAlert.ScaledMin(origin, s) +
-                MailUiLaw.ConfirmationAlert.ScaledSize(s));
-        string message = confirmation.Kind switch
-        {
-            MailConfirmationKind.Cod => "Accepting this item will cost:",
-            MailConfirmationKind.DeleteItem => $"Deleting this mail will also destroy {MailItem(row!)?.Name ?? $"item {row!.ItemEntry}"}",
-            MailConfirmationKind.DeleteMoney => "Deleting this mail will also destroy the enclosed money.",
-            _ => $"Really send {ReadBuffer(_mailRecipient)} the following amount?"
-        };
-        GameText.DrawCentered(dl, "GameFontNormal", message,
-            origin + MailUiLaw.ConfirmationMessagePosition(alert) * s, s);
-        // Frozen MailFrame names the shared StaticPopup money frames as intentionally inert;
-        // confirmation content is text-only here as well.
+            layout.Alert.ScaledMin(origin, s),
+            layout.Alert.ScaledMin(origin, s) + layout.Alert.ScaledSize(s));
+        for (int line = 0; line < lines.Length; line++)
+            GameText.DrawCentered(dl, "GameFontHighlight", lines[line],
+                origin + layout.TextLineCenter(line, pitch) * s, s);
+        // StaticPopup.lua supplies the amount for COD, money deletion and sending money.
+        // A text-only snapshot does not stand in for that live MoneyFrame update.
+        if (amount is { } copper)
+            DrawMailMoneyDisplay(dl, copper,
+                origin + layout.Money * s, s,
+                0xffffffff, "MailConfirmationMoneyFrame", clip, centered: true);
         bool accept = DrawMailPopupButton(dl, "Accept", origin,
-            MailUiLaw.ConfirmationAccept, s, "accept");
+            layout.Accept, s, "accept", size);
         bool cancel = DrawMailPopupButton(dl, "Cancel", origin,
-            MailUiLaw.ConfirmationCancel, s, "cancel");
+            layout.Cancel, s, "cancel", size);
         ImGui.End();
         if (cancel)
         { _mailConfirmation = null; _mailSendPending = false; }
@@ -2032,7 +2051,7 @@ public sealed partial class GameLoop
     }
 
     private bool DrawMailPopupButton(ImDrawListPtr dl, string caption, Vector2 dialogOrigin,
-        MailUiLaw.LogicalRect seat, float s, string id)
+        MailUiLaw.LogicalRect seat, float s, string id, Vector2 dialogSize)
     {
         Vector2 min = seat.ScaledMin(dialogOrigin, s);
         Vector2 size = seat.ScaledSize(s);
@@ -2053,7 +2072,6 @@ public sealed partial class GameLoop
             caption, min + size * .5f, s);
         if (_uiParityArmed && _uiParityPanel == "mail")
         {
-            Vector2 dialogSize = MailUiLaw.ConfirmationFrame.ScaledSize(s);
             Vector4 clip = MailUiLaw.Clip(dialogOrigin, dialogSize);
             CollectUiParityDraw("MailConfirmation" + caption + "Button", "Button", min, size,
                 "MailConfirmation", new("", 0, "IMGUI_HIT_TARGET", "TOPLEFT",
