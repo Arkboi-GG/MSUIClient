@@ -97,8 +97,12 @@ public sealed partial class GameLoop
             draw.AddRect(origin, origin + canvas, frame);
 
             // ── the pen ─────────────────────────────────────────────────────
+            // While the button is HELD the stroke follows the hand even past the paper's
+            // edge (clamped to it): `held` already means the press began on the paper, and
+            // gating on `hovered` as well stopped sampling the moment the cursor crossed the
+            // frame, so a wide curve came back as one straight chord across the gap.
             Vector2 local = (io.MousePos - origin) / side;
-            if (held && hovered)
+            if (held)
             {
                 Vector2 clamped = Vector2.Clamp(local, Vector2.Zero, Vector2.One);
                 if (_sketchDrawStroke is null)
@@ -117,14 +121,24 @@ public sealed partial class GameLoop
             }
 
             // ── the ink ─────────────────────────────────────────────────────
+            // The preview must draw what the rasterizer will make. SketchTextures strokes the
+            // path with ROUND caps and ROUND joins (Skia), so a dot is a disc and a curve is
+            // one continuous band. ImGui's thick AddLine is a bare rectangle per segment - no
+            // cap, no join - and a drag came out as a fringe of loose rectangles ("line
+            // things") while a tap drew a clean disc. A disc at every vertex, under the
+            // segments, IS a round join; the two together are exactly the Skia stroke.
             float penPixels = MathF.Max(_sketchDrawPen * side / 256f, 1.5f);
+            float capRadius = penPixels * 0.5f;
+            int capSegments = capRadius < 4f ? 6 : capRadius < 12f ? 10 : 16;
             foreach (List<Vector2> stroke in _sketchDrawStrokes)
             {
                 if (stroke.Count == 1)
                 {
-                    draw.AddCircleFilled(origin + stroke[0] * side, penPixels * 0.5f, ink);
+                    draw.AddCircleFilled(origin + stroke[0] * side, capRadius, ink, capSegments);
                     continue;
                 }
+                for (int i = 0; i < stroke.Count; i++)
+                    draw.AddCircleFilled(origin + stroke[i] * side, capRadius, ink, capSegments);
                 for (int i = 1; i < stroke.Count; i++)
                     draw.AddLine(origin + stroke[i - 1] * side, origin + stroke[i] * side,
                                  ink, penPixels);

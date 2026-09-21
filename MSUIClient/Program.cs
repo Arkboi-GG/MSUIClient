@@ -2910,6 +2910,9 @@ public sealed partial class GameLoop : IDisposable
             if (_creatures is not null)
                 itemGlows = itemGlows.Concat(_creatures.ItemGlowPlacements);
             _spellEffects.SyncItemGlows(itemGlows, spellNow);
+            // Creature bodies that author their own emitters (elementals' fire and glow).
+            _spellEffects.SyncUnitModelEffects(
+                _creatures?.UnitModelEffectPlacements ?? Array.Empty<UnitModelEffectPlacement>(), spellNow);
         }
         IEnumerable<CarriedLightPlacement> carriedLights =
             _character?.CarriedLightPlacements ?? Array.Empty<CarriedLightPlacement>();

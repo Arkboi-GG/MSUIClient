@@ -37,6 +37,7 @@ touching the code:
 - `shared_docs/COMMANDER_RAID_ARCHITECTURE.md` — stable design of the Commander raid system: what is code, what is data, the definition schema, the compiler and its global policy, the checkpoint/QA tools, the regression runner and the acceptance rule.
 - `shared_docs/COMMANDER_RAID_PLAN.md` — original design record and research basis for the raid planner and executor (historical detail; ARCHITECTURE is the current summary).
 - `shared_docs/COMMANDER_MOLTEN_CORE.md` — generated Core/DB review of the ten Molten Core bosses with the executor primitives each still needs.
+- `shared_docs/COMMANDER_RAID_DOCTRINE.md` — Commander raid doctrine (global, archetype-level raiding practice) and per-raid roadmaps (boss order, entrance, skips — never tactics): the fourth kind of data beside derived data, global policy and surveys (added 2026-09-13; line added 2026-09-19 so `--shared-docs-only` is green again).
 - The day-by-day raid log (2026-09-06 to 09-09) is frozen at `docs/archive/commander-raid/COMMANDER_RAID_HANDOFF_2026-09-06_to_09-09.md` (git-ignored, local only). Do not append to it; update STATE instead.
 - `shared_docs/SPELL_CREATOR_IDE.md` — the Spell Creator IDE: the void stage, the
   effect clock (pause/step/scrub + deterministic replay) and the grid/emitter
@@ -45,6 +46,11 @@ touching the code:
   Spell Workshop — draw or pick a shape, place it, give it travel/path/spin/fade,
   hang trails and sparks off it — compiled into real vanilla M2s + BLPs so every
   existing dial, handle, clock, composition slot and Completer path applies.
+- `shared_docs/SPELL_IDE_MAP.md` — the Spell IDE's map: how the missing things are
+  ENUMERATED (schema walk, census, task walk, round trip), the organizing spine
+  (the spell's timeline of parts), the field-level inventory with real-use counts
+  (`tools/spellvis/spell_visual_census.py`), the task walk and the ordered slice
+  list. Read this before adding to or reordering Spell IDE work.
 - `CODE_STRUCTURE_LAW.md` (repo root) — where a `.cs` file goes and how it is named.
 
 `interface-wire-check --shared-docs-only` fails when a file in `shared_docs/` is not

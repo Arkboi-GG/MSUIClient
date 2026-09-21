@@ -1431,6 +1431,37 @@ csv.AddRange(rows.Select(r => string.Join(',', Q(r.Model), Q(r.Uses), r.Emitter,
     F(r.MidPoint), r.EnableKeys, r.AnimatedScalarTracks)));
 File.WriteAllLines(output, csv, new UTF8Encoding(false));
 
+// ── The tint law (Formats/BlpRecolor.cs; shared_docs/SPELL_IDE_MAP.md §6.2) ────────────
+// A pure-white pixel could not take a tint at all (HSL lightness 1 has no hue), which is
+// why "Tint" on a sketch's white image, or on any white glow, did nothing. Greys and whites
+// now multiply by the target; coloured pixels still hue-map with their lightness kept.
+{
+    const uint red = 0xFF0000, amber = 0xFF8C00;
+    byte[] pixels =
+    {
+        255, 255, 255, 255,   // BGRA white
+        128, 128, 128, 200,   // mid grey, alpha 200
+        0, 0, 0, 255,         // black
+        255, 0, 0, 255,       // pure blue (B=255): coloured, hue-mapped
+    };
+    BlpRecolor.HueMapBgra(pixels, amber);
+    Check(pixels[2] == 255 && pixels[1] == 140 && pixels[0] == 0 && pixels[3] == 255,
+        $"tint law: white must become the target itself, got B{pixels[0]} G{pixels[1]} R{pixels[2]} A{pixels[3]}");
+    Check(pixels[6] == 128 && pixels[5] == 70 && pixels[4] == 0 && pixels[7] == 200,
+        $"tint law: mid grey must become a half-bright target with alpha kept, got B{pixels[4]} G{pixels[5]} R{pixels[6]} A{pixels[7]}");
+    Check(pixels[8] == 0 && pixels[9] == 0 && pixels[10] == 0, "tint law: black stays black");
+    Check(pixels[14] > pixels[12] && pixels[14] > pixels[13],
+        "tint law: a saturated blue pixel hue-maps to the target's hue (red-dominant)");
+    Vector3 white = BlpRecolor.HueMapColor(Vector3.One, red);
+    Check(MathF.Abs(white.X - 1f) < 1e-3f && white.Y < 1e-3f && white.Z < 1e-3f,
+        $"tint law (colour track): white -> red, got {white}");
+    Vector3 grey = BlpRecolor.HueMapColor(new Vector3(0.5f), red);
+    Check(MathF.Abs(grey.X - 0.5f) < 1e-3f && grey.Y < 1e-3f && grey.Z < 1e-3f,
+        $"tint law (colour track): grey -> half red, got {grey}");
+    Vector3 greyTarget = BlpRecolor.HueMapColor(Vector3.One, 0x808080);
+    Check((greyTarget - Vector3.One).Length() < 1e-3f, "tint law: a grey target leaves a white pixel alone");
+}
+
 Console.WriteLine($"[emitter-lab] spell-models={uses.Count} resolved={uses.Count - unresolved.Count} " +
                   $"unresolved={unresolved.Count} emitters={rows.Count} checks={checks}");
 Console.WriteLine($"[emitter-lab] mesh-layers={meshLayers} (with a colour record {meshLayersWithColour}) " +

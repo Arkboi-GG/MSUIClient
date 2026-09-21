@@ -203,18 +203,12 @@ public sealed partial class GameLoop
                 ImGui.SameLine();
                 if (ImGui.SmallButton("reset")) { composition.Reset(); RefreshCreatorPhaseModels(doc); ReapPresentedEffect(); _creatorLoopNextAt = 0; }
             }
-            int animation = composition.AnimationId ?? 0;
-            ImGui.SetNextItemWidth(110f * cs);
-            if (ImGui.InputInt("Caster animation", ref animation))
-            {
-                composition.AnimationId = animation <= 0 ? null : (ushort)Math.Clamp(animation, 0, 65535);
-                ReapPresentedEffect();
-                _creatorLoopNextAt = 0;
-            }
-            CreatorHelp("AnimationData id the caster plays for this phase (0 = none). Common ones: 52 " +
-                "SpellCast (omni), 53 SpellCastDirected, 56 ReadySpellDirected, 57 ReadySpellOmni, " +
-                "58 SpellPrecast, 59 SpellCastTest, 16 AttackUnarmed, 17 Attack1H, 18 Attack2H, 26 " +
-                $"AttackOff, 35 ShieldBlock. Authored: {composition.AuthoredAnimation?.ToString() ?? "none"}.");
+            // The caster's animation, BY NAME (GameLoop.Creator.AnimationPicker.cs). This used
+            // to be an InputInt over the raw AnimationData id with the common ids listed in a
+            // tooltip - and the log showed it was never once changed.
+            ImGui.TextDisabled("Caster does");
+            ImGui.SameLine(130f * cs);
+            DrawCreatorAnimationButton(stage, composition, 200f * cs);
 
             for (int slot = 0; slot < 9; slot++)
             {

@@ -209,6 +209,9 @@ public sealed partial class CreatureRenderer
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uTex", 0);
+        _shader.Set("uUnlit", 0);
+        _shader.Set("uFogMode", 0);
+        _shader.Set("uUvOffset", Vector2.Zero);
         CarriedLightFrame.Upload(_shader, camera.Position);
         ApplyAttachmentAtmosphere();
     }
@@ -367,12 +370,9 @@ public sealed partial class CreatureRenderer
             if (filter && !appearance.VisibleGeosets!.Contains(b.GeosetId)) continue;
 
             ApplyBatchCulling(b, ref cullingOn);
-            bool additive = b.Blend is 3 or 4;
-            bool alphaKey = b.Blend == 1;
-            if (additive) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); _gl.DepthMask(false); }
-            else if (bodyTranslucent || b.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
-            else { _gl.BlendFunc(BlendingFactor.One, BlendingFactor.Zero); _gl.DepthMask(true); }
-            _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0f);
+            if (!BindBatchMaterial(b, model.Source, pickClip?.SequenceIndex ?? -1,
+                    _mountAnimTime.GetValueOrDefault(guid), bodyTranslucent, bodyAlpha, bodyTint))
+                continue;
             appearance.Textures[batchIndex]?.Bind(0);
             DrawElements(b.Start, b.Count);
         }

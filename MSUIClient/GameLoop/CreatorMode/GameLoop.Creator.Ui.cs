@@ -193,6 +193,7 @@ public sealed partial class GameLoop
         DrawCreatorAudioFilePicker();
         DrawCreatorFilePicker();
         DrawCreatorModelPicker();
+        DrawCreatorAnimationPicker();
         DrawCreatorPanelTunePopup();
         if (_creatorLayoutResetFrames > 0) _creatorLayoutResetFrames--;
 

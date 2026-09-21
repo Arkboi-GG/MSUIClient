@@ -93,6 +93,19 @@ public sealed class SpellEffectSource
         public bool Seen;
     }
 
+    /// <summary>
+    /// A unit's own body emitters (UnitModelEffectPlacement). Unlike an item glow this has
+    /// no transform or skin of its own: every frame it reads the unit's live pose, so the
+    /// flames sit on the animating bones and the emission gate follows the unit's clip.
+    /// </summary>
+    private sealed class UnitModelEffectInstance
+    {
+        public long Id;
+        public Asset Asset = null!;
+        public double Started;
+        public bool Seen;
+    }
+
     private readonly MpqMount _mpq;
     private readonly ItemDisplayTable? _itemDisplays;
     private readonly Dictionary<string, Asset> _assets = new(StringComparer.OrdinalIgnoreCase);
@@ -101,6 +114,7 @@ public sealed class SpellEffectSource
     private readonly List<AreaEmitter> _areaEmitters = [];
     private readonly Dictionary<string, ItemGlowInstance> _itemGlows =
         new(StringComparer.Ordinal);
+    private readonly Dictionary<ulong, UnitModelEffectInstance> _unitModelEffects = [];
     private long _nextId;
 
     public SpellEffectSource(MpqMount mpq)
@@ -186,6 +200,31 @@ public sealed class SpellEffectSource
         foreach (string key in _itemGlows.Where(pair => !pair.Value.Seen)
                      .Select(pair => pair.Key).ToArray())
             _itemGlows.Remove(key);
+    }
+
+    /// <summary>
+    /// Replace the frame's unit-body effect placements (creature M2s that author their own
+    /// particle/ribbon emitters). Keyed by unit GUID so a unit keeps its live particles
+    /// across frames; a unit that leaves the drawn set retires its cloud.
+    /// </summary>
+    public void SyncUnitModelEffects(IEnumerable<UnitModelEffectPlacement> placements, double now)
+    {
+        foreach (UnitModelEffectInstance effect in _unitModelEffects.Values) effect.Seen = false;
+        foreach (UnitModelEffectPlacement placement in placements)
+        {
+            Asset? asset = Load(placement.ModelPath);
+            if (asset is null || asset.Emitters.Length == 0 && asset.Model.RibbonEmitters.Count == 0) continue;
+            if (!_unitModelEffects.TryGetValue(placement.Guid, out UnitModelEffectInstance? effect) ||
+                !string.Equals(effect.Asset.Path, asset.Path, StringComparison.OrdinalIgnoreCase))
+            {
+                effect = new UnitModelEffectInstance { Id = ++_nextId, Asset = asset, Started = now };
+                _unitModelEffects[placement.Guid] = effect;
+            }
+            effect.Seen = true;
+        }
+        foreach (ulong guid in _unitModelEffects.Where(pair => !pair.Value.Seen)
+                     .Select(pair => pair.Key).ToArray())
+            _unitModelEffects.Remove(guid);
     }
 
     /// <summary>Effect-model $SND/$DSL/$DSO markers crossed by live playback.</summary>
@@ -688,6 +727,45 @@ public sealed class SpellEffectSource
                     true, true);
             }
         }
+
+        foreach ((ulong guid, UnitModelEffectInstance effect) in _unitModelEffects)
+        {
+            SpellUnitPose pose = unitPose(guid);
+            if (!pose.Found || pose.Skin is null || pose.Model is null) continue;
+            Asset asset = effect.Asset;
+            double age = Math.Max(0, now - effect.Started);
+            // The unit's live clip gates emission (a dying elemental's flames go out on the
+            // Death sequence's own enable track); the monotonic age keeps looping and
+            // global-sequence tracks continuous across clip changes.
+            int sequence = pose.SequenceIndex >= 0 && pose.SequenceIndex < asset.Model.Sequences.Count
+                ? pose.SequenceIndex : (asset.Model.Sequences.Count > 0 ? 0 : -1);
+            for (int i = 0; i < asset.Emitters.Length; i++)
+            {
+                M2ParticleEmitter emitter = asset.Emitters[i];
+                Vector3? origin = null;
+                Matrix4x4? frame = null;
+                if (emitter.Bone < pose.Skin.Count && emitter.Bone < pose.Model.Bones.Count)
+                {
+                    Vector3 emitterPosition = new(emitter.PosX, emitter.PosY, emitter.PosZ);
+                    Vector3 pivot = pose.Model.Bones[emitter.Bone].Pivot;
+                    Matrix4x4 global = Matrix4x4.CreateTranslation(pivot) * pose.Skin[emitter.Bone];
+                    if (Matrix4x4.Decompose(global, out Vector3 scale, out Quaternion rotation,
+                        out Vector3 translation))
+                    {
+                        frame = Matrix4x4.CreateScale(scale) *
+                            Matrix4x4.CreateFromQuaternion(Quaternion.Normalize(rotation));
+                        origin = SpellParticleFrameLaw.RebasedEmitterOrigin(emitterPosition, pivot,
+                            translation, frame.Value);
+                    }
+                    else origin = Vector3.Transform(emitterPosition, pose.Skin[emitter.Bone]);
+                }
+                // World-space clouds stay where they were born (a walking elemental trails
+                // its fire); model-space emitters (flag 0x10) ride the body by their own flag.
+                yield return ($"unit-model:{asset.Path}#{guid}", pose.UnitTransform,
+                    emitter, i, asset.EmitterTextures[i], age, sequence, origin, frame,
+                    false, false);
+            }
+        }
     }
 
     /// <summary>
@@ -736,6 +814,16 @@ public sealed class SpellEffectSource
             if (glow.Asset.Model.RibbonEmitters.Count > 0)
                 yield return (glow.Id, glow.Asset.Path, glow.Asset.Model, glow.Transform,
                     (float)Math.Max(0, now - glow.Started), glow.Playback.SequenceIndex);
+        foreach ((ulong guid, UnitModelEffectInstance effect) in _unitModelEffects)
+        {
+            if (effect.Asset.Model.RibbonEmitters.Count == 0) continue;
+            SpellUnitPose pose = unitPose(guid);
+            if (!pose.Found) continue;
+            int sequence = pose.SequenceIndex >= 0 && pose.SequenceIndex < effect.Asset.Model.Sequences.Count
+                ? pose.SequenceIndex : 0;
+            yield return (effect.Id, effect.Asset.Path, effect.Asset.Model, pose.UnitTransform,
+                (float)Math.Max(0, now - effect.Started), sequence);
+        }
     }
 
     private static bool TryTransform(Instance instance, Func<ulong, SpellUnitPose> unitPose,

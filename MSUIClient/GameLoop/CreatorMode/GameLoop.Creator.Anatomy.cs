@@ -210,6 +210,20 @@ public sealed partial class GameLoop
             ImGui.TextDisabled(state);
             CreatorHelp($"Plays {row.When}.\n\n{row.Life}");
 
+            // What the BODY does during this part - the caster animation, by name. It is a
+            // property of the stage's kit (SpellVisualKit field 2), so it belongs on the
+            // stage's row, not three panels away under Composition. Shown for the parts in
+            // the plan: an animation on a part the spell does not have is noise.
+            if (!row.Missile && planned &&
+                doc.Composition.TryGetValue(row.Stage!.Value, out CreatorStageComposition? stageComposition))
+            {
+                ImGui.Indent(28f * cs);
+                ImGui.TextDisabled("body does");
+                ImGui.SameLine(112f * cs);
+                DrawCreatorAnimationButton(row.Stage.Value, stageComposition, 210f * cs);
+                ImGui.Unindent(28f * cs);
+            }
+
             ImGui.PopID();
         }
 

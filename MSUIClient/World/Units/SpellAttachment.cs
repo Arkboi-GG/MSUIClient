@@ -19,7 +19,8 @@ public readonly record struct SpellUnitPose(
     Vector3 PickBoundsCenter = default,
     float PickBoundsRadius = 0f,
     string ModelPath = "",
-    int AnimationId = -1)
+    int AnimationId = -1,
+    int SequenceIndex = -1)
 {
     public static SpellUnitPose Missing => default;
 

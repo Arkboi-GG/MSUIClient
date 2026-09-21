@@ -15,6 +15,8 @@ public sealed partial class GameLoop
     private SpellCatalog? _spellCatalog;
     private EnchantCatalog? _enchantCatalog;
     private SpellVisualCatalog? _spellVisualCatalog;
+    /// <summary>AnimationData.dbc names: the workshop's caster-animation picker and log lines.</summary>
+    private AnimationDataCatalog? _animationData;
     private ShapeshiftFormCatalog? _shapeshiftForms;
     private GameplayArt? _gameplayArt;
     private readonly bool[] _actionKeyWasDown = new bool[12];
@@ -68,6 +70,7 @@ public sealed partial class GameLoop
             _enchantCatalog = EnchantCatalog.Load(_mpq);
             _itemRandomProperties = ItemRandomPropertyCatalog.Load(_mpq);
             _spellVisualCatalog = SpellVisualCatalog.Load(_mpq);
+            _animationData = AnimationDataCatalog.Load(_mpq);
             _shapeshiftForms = ShapeshiftFormCatalog.Load(_mpq);
             _gameplayArt = new GameplayArt(gl, _mpq);
             // These immutable catalogs are needed by the first WMO-interior
