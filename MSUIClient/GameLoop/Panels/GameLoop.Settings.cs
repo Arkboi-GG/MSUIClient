@@ -163,6 +163,12 @@ public sealed partial class GameLoop
             _escapeKeyDown = escape;
             return;
         }
+        // A creator drag handle in hand cancels on Escape (SPELL_CREATOR_IDE §2.10) - same rung.
+        if (escape && !_escapeKeyDown && ConsumeCreatorHandleEscape())
+        {
+            _escapeKeyDown = escape;
+            return;
+        }
         // An armed Patrol route draft unwinds before every menu layer — the
         // documented Escape order puts an unfinished route draft second, right
         // after targeting (CRPG_RTS_MMO_PARTY_COMMAND_UI.md "Escape behavior").

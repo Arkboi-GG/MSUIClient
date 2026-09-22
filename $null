@@ -1,0 +1,8 @@
+﻿python : <string>:6: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 
+(2027-10-15). Use get_flattened_data instead.
+At line:11 char:1
++ python -c "
++ ~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (<string>:6: Dep...d_data instead.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

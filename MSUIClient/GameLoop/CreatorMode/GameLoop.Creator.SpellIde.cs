@@ -31,7 +31,7 @@ namespace MSUIClient;
 // ─────────────────────────────────────────────────────────────────────────────
 public sealed partial class GameLoop
 {
-    private enum SpellIdeKind { Spell, Loop, Clock, Stage, Audio, Session, Phase, Emitter }
+    private enum SpellIdeKind { Spell, Loop, Clock, Stage, Audio, Session, Composition, Phase, Emitter, Mesh, Ribbon }
 
     /// <summary>What the inspector shows: a fixed section, a phase model, or one emitter of it.</summary>
     private readonly record struct SpellIdeSelection(SpellIdeKind Kind, string Path = "", int Emitter = -1)
@@ -41,7 +41,7 @@ public sealed partial class GameLoop
             string.Equals(Path, path, StringComparison.OrdinalIgnoreCase);
 
         public bool IsPhaseOf(string path) =>
-            Kind is SpellIdeKind.Phase or SpellIdeKind.Emitter &&
+            Kind is SpellIdeKind.Phase or SpellIdeKind.Emitter or SpellIdeKind.Mesh or SpellIdeKind.Ribbon &&
             string.Equals(Path, path, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -123,6 +123,10 @@ public sealed partial class GameLoop
         SpellIdeKind.Phase => TryGetSpellIdeModel(s.Path, out _),
         SpellIdeKind.Emitter => TryGetSpellIdeModel(s.Path, out CreatorModelDoc m) &&
                                 m.Emitters.Any(e => e.Index == s.Emitter),
+        SpellIdeKind.Mesh => TryGetSpellIdeModel(s.Path, out CreatorModelDoc mm) &&
+                             mm.Meshes.Any(m => m.BatchIndex == s.Emitter),
+        SpellIdeKind.Ribbon => TryGetSpellIdeModel(s.Path, out CreatorModelDoc rm) &&
+                               rm.Ribbons.Any(r => r.Index == s.Emitter),
         _ => true,
     };
 
@@ -162,6 +166,8 @@ public sealed partial class GameLoop
         else if (_spellIdeHidden)
         {
             DrawSpellIdeShowPill();
+            SpellIdeDragHandles();
+            SpellIdePickGizmo();
         }
         else
         {
@@ -169,11 +175,13 @@ public sealed partial class GameLoop
             if (CreatorSpellPaused) DrawSpellIdeTimeline();
             else _spellIdeTimelineHeight = 0f;
             if (!_spellIdeOutlinerHidden) DrawSpellIdeOutliner();
+            DrawSketchWindow();
             if (!_spellIdeInspectorHidden) DrawSpellIdeInspector(_spellIdeSelection, pinIndex: -1);
             for (int i = 0; i < _spellIdePins.Count; i++) DrawSpellIdeInspector(_spellIdePins[i], i);
             if (_spellIdeUnpinRequest >= 0 && _spellIdeUnpinRequest < _spellIdePins.Count)
                 _spellIdePins.RemoveAt(_spellIdeUnpinRequest);
             _spellIdeUnpinRequest = -1;
+            SpellIdeDragHandles();   // handles first: a grabbed handle is never a label click
             SpellIdePickGizmo();
         }
 
@@ -313,7 +321,28 @@ public sealed partial class GameLoop
                 "Reference grid through your feet (floor, side, front).");
             SpellIdeToggle("Gizmos", settings.SpellGizmos,
                 () => { settings.SpellGizmos = !settings.SpellGizmos; SettingsFile?.Save(); },
-                "Emitter gizmos: origin, frame, birth shape, reach. Click one to select it.");
+                "Emitter gizmos and drag handles: origin, frame, birth shape, reach. Click a label " +
+                "to select it, drag the handles on the selection to move / size / rotate it.");
+            SpellIdeToggle("Sketch", _sketchOpen,
+                () => _sketchOpen = !_sketchOpen,
+                "Draw your own geometry: pick a shape, place it, give it travel and a fade. " +
+                "It compiles to a real model, so every other dial here works on the result.");
+            SpellIdeToggle("Bones", settings.GizmoBones,
+                () => { settings.GizmoBones = !settings.GizmoBones; SettingsFile?.Save(); },
+                "The selected phase's skeleton (b<n>). Click a bone to pick it; the picked bone " +
+                "wears rotate rings.");
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Frame")) FrameCreatorSelection();
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Centre the view on the selection (double-clicking a label in the world does the same).");
+            ImGui.SameLine();
+            if (_creatorUndo.Count == 0) ImGui.BeginDisabled();
+            if (ImGui.SmallButton("Undo")) CreatorUndoLast();
+            if (_creatorUndo.Count == 0) ImGui.EndDisabled();
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(CreatorUndoLabel is { } undoLabel
+                    ? $"Undo the last drag: {undoLabel} (Ctrl+Z)"
+                    : "Nothing to undo - only drag handles are on the undo stack.");
             ImGui.SameLine();
             ImGui.TextDisabled("|");
             SpellIdeToggle("Tree", !_spellIdeOutlinerHidden,
@@ -381,6 +410,7 @@ public sealed partial class GameLoop
                 SpellIdeRow(new SpellIdeSelection(SpellIdeKind.Clock), _creatorClockPaused ? "Clock  (paused)" : "Clock");
                 SpellIdeRow(new SpellIdeSelection(SpellIdeKind.Stage), _creatorStageActive ? "Void stage  (on)" : "Void stage & gizmos");
                 SpellIdeRow(new SpellIdeSelection(SpellIdeKind.Audio), doc.Audio.Count == 0 ? "Audio" : "Audio *");
+                SpellIdeRow(new SpellIdeSelection(SpellIdeKind.Composition), CreatorCompositionChanged(doc) ? "Composition *" : "Composition");
                 SpellIdeRow(new SpellIdeSelection(SpellIdeKind.Session), "Session");
                 ImGui.Separator();
                 ImGui.TextDisabled("PHASES");
@@ -400,6 +430,8 @@ public sealed partial class GameLoop
                         SpellIdeSelect(new SpellIdeSelection(SpellIdeKind.Phase, model.Path));
                     if (open)
                     {
+                        // Everything the model draws: mesh layers (m), ribbons (r), emitters (e).
+                        DrawSpellIdeMeshRibbonRows(model, cs);
                         var (texByEmitter, slotByEmitter) = CreatorEmitterTextureMaps(model);
                         foreach (EmitterSnapshot emitter in model.Emitters)
                         {
@@ -414,9 +446,9 @@ public sealed partial class GameLoop
                                     new Vector2(10f * cs, 10f * cs));
                                 ImGui.SameLine();
                             }
-                            string text = $"e{emitter.Index}  " +
-                                          texByEmitter.GetValueOrDefault(emitter.Index, "no tex") +
-                                          (added ? "  [added]" : "") + (off ? "  [OFF]" : "");
+                            // State FIRST: the tree is narrow and clips the tail of a row.
+                            string text = $"e{emitter.Index}  " + (off ? "[OFF] " : "") + (added ? "[added] " : "") +
+                                          texByEmitter.GetValueOrDefault(emitter.Index, "no tex");
                             if (ImGui.Selectable(text, selected))
                                 SpellIdeSelect(new SpellIdeSelection(SpellIdeKind.Emitter, model.Path, emitter.Index));
                             if (ImGui.IsItemHovered()) _creatorGizmoHover = (model.Path, emitter.Index);
@@ -449,11 +481,18 @@ public sealed partial class GameLoop
             case SpellIdeKind.Stage: return "Void stage & gizmos";
             case SpellIdeKind.Audio: return "Audio";
             case SpellIdeKind.Session: return "Session";
+            case SpellIdeKind.Composition: return "Composition (phases, attachments, animation, scale)";
         }
         if (_creatorSpell is not { } doc || !TryGetSpellIdeModel(selection.Path, out CreatorModelDoc model))
             return "(gone)";
         string label = CreatorModelLabel(doc, model);
-        return selection.Kind == SpellIdeKind.Emitter ? $"{label}  /  e{selection.Emitter}" : label;
+        return selection.Kind switch
+        {
+            SpellIdeKind.Emitter => $"{label}  /  e{selection.Emitter}",
+            SpellIdeKind.Mesh => $"{label}  /  m{selection.Emitter}",
+            SpellIdeKind.Ribbon => $"{label}  /  r{selection.Emitter}",
+            _ => label,
+        };
     }
 
     private void DrawSpellIdeInspector(SpellIdeSelection selection, int pinIndex)
@@ -534,6 +573,7 @@ public sealed partial class GameLoop
             case SpellIdeKind.Stage: DrawCreatorStageBody(); return;
             case SpellIdeKind.Audio: DrawCreatorAudioBody(); return;
             case SpellIdeKind.Session: DrawCreatorSessionSection(); return;
+            case SpellIdeKind.Composition: DrawCreatorCompositionBody(); return;
         }
 
         if (!TryGetSpellIdeModel(selection.Path, out CreatorModelDoc model))
@@ -542,14 +582,31 @@ public sealed partial class GameLoop
             return;
         }
 
+        if (selection.Kind is SpellIdeKind.Mesh or SpellIdeKind.Ribbon)
+        {
+            DrawSpellIdeMeshRibbonBody(model, selection);
+            return;
+        }
+
         if (selection.Kind == SpellIdeKind.Phase)
         {
             bool dirty = DrawCreatorModelLook(model, cs);
+            dirty |= DrawCreatorMeshRibbonLists(model);
+            if (model.Bones.Count > 0)
+            {
+                ImGui.Spacing();
+                ImGui.TextDisabled($"BONES ({model.Bones.Count})" + (model.BoneEdits.Count > 0 ? " *" : ""));
+                CreatorHelp("The skeleton every emitter, ribbon and mesh vertex rides. Pose a bone " +
+                    "here; re-parent emitters and ribbons in their own editors.");
+                dirty |= DrawCreatorBonesBody(model);
+            }
             ImGui.Spacing();
             ImGui.TextDisabled($"EMITTERS ({model.Emitters.Count()})");
             CreatorHelp("Each emitter is one particle source inside this model. Pick one in the " +
                 "tree (or click its gizmo in the world) to edit it; here you can only switch " +
-                "them on and off. A bold gizmo is the selected emitter.");
+                "them on and off. A bold gizmo is the selected emitter. Mesh layers and " +
+                "ribbons above are the model's OTHER two kinds of drawing - a crescent that " +
+                "survives every emitter being off lives there.");
             var (texByEmitter, slotByEmitter) = CreatorEmitterTextureMaps(model);
             foreach (EmitterSnapshot emitter in model.Emitters)
             {
@@ -651,31 +708,53 @@ public sealed partial class GameLoop
 
     // ── click a gizmo to select it ───────────────────────────────────────────
 
-    /// <summary>The world-to-tree link: the emitter origin nearest the mouse (within a
-    /// few pixels) is hover-highlighted, and a left click selects it. The gizmo
-    /// origins were projected by the label pass; one frame of lag is invisible.</summary>
+    /// <summary>The world-to-tree link: the label nearest the mouse (within a few pixels)
+    /// is hover-highlighted; a left click selects it (an emitter or ribbon in the tree, a
+    /// bone as the BONES section's pick) and a double click frames it. A handle under the
+    /// mouse or in hand wins over every label. The label anchors were projected by the
+    /// label pass; one frame of lag is invisible.</summary>
     private void SpellIdePickGizmo()
     {
         var io = ImGui.GetIO();
-        if (io.WantCaptureMouse || _window.MouseCaptured || _gizmoLabels.Count == 0) return;
+        _creatorGizmoHoverLabel = null;
+        if (io.WantCaptureMouse || _window.MouseCaptured || _gizmoLabels.Count == 0 || CreatorHandlesActive) return;
         Vector2 mouse = io.MousePos;
         Vector2 display = io.DisplaySize;
         const float pickPixels = 18f;
         float best = pickPixels * pickPixels;
-        (string Path, int Index)? hit = null;
-        foreach (var label in _gizmoLabels)
+        GizmoLabel? hit = null;
+        foreach (GizmoLabel label in _gizmoLabels)
         {
             if (!_window.Camera.TryWorldToScreen(label.World, display, out Vector2 pixel)) continue;
             float d = Vector2.DistanceSquared(pixel, mouse);
+            // Bones sit under emitters more often than not: an emitter label wins a tie.
+            if (label.Kind == GizmoLabelKind.Bone) d += 9f;
             if (d < best)
             {
                 best = d;
-                hit = (label.ModelPath, label.Emitter);
+                hit = label;
             }
         }
         if (hit is not { } picked) return;
-        _creatorGizmoHover = picked;
-        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
-            SpellIdeSelect(new SpellIdeSelection(SpellIdeKind.Emitter, picked.Path, picked.Index));
+        if (picked.Kind == GizmoLabelKind.Emitter) _creatorGizmoHover = (picked.ModelPath, picked.Index);
+        else _creatorGizmoHoverLabel = (picked.ModelPath, picked.Kind, picked.Index);
+
+        bool doubleClick = ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left);
+        if (!doubleClick && !ImGui.IsMouseClicked(ImGuiMouseButton.Left)) return;
+        switch (picked.Kind)
+        {
+            case GizmoLabelKind.Emitter:
+                SpellIdeSelect(new SpellIdeSelection(SpellIdeKind.Emitter, picked.ModelPath, picked.Index));
+                break;
+            case GizmoLabelKind.Ribbon:
+                SpellIdeSelect(new SpellIdeSelection(SpellIdeKind.Ribbon, picked.ModelPath, picked.Index));
+                break;
+            case GizmoLabelKind.Bone:
+                _creatorBonePick[picked.ModelPath] = picked.Index;
+                if (!_spellIdeSelection.IsPhaseOf(picked.ModelPath) || _spellIdeSelection.Kind != SpellIdeKind.Phase)
+                    SpellIdeSelect(new SpellIdeSelection(SpellIdeKind.Phase, picked.ModelPath));
+                break;
+        }
+        if (doubleClick) FrameCreatorPoint(picked.World);
     }
 }

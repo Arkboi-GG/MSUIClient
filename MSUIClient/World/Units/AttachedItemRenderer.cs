@@ -11,6 +11,13 @@ public readonly record struct ItemGlowPlacement(string Key, string Path, Matrix4
     bool RenderMesh = true);
 
 /// <summary>
+/// A drawn unit whose OWN body M2 authors particle/ribbon emitters (an elemental's flames,
+/// a wisp's trail). The effect pipeline plays those emitters on the unit's live pose - the
+/// body mesh itself is the unit renderer's, so there is nothing to render here but effects.
+/// </summary>
+public readonly record struct UnitModelEffectPlacement(ulong Guid, string ModelPath);
+
+/// <summary>
 /// Draws the equipment that has geometry of its own - helms, shoulders,
 /// weapons and shields. Cape cloth is part of the character M2 and is handled
 /// by CharacterRenderer's type-2 replaceable texture slot.

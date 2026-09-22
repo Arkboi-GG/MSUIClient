@@ -8,4 +8,26 @@
   <ItemGroup>
     <ProjectReference Include="../../MSUIClient/MSUIClient.csproj" />
   </ItemGroup>
+
+  <!--
+    The SECOND M2 reader (shared_docs/SPELL_SKETCH.md §4.6, §8): the Completer parses
+    what it stores, so bytes the Sketch writer emits must satisfy the MangosSuperUI
+    reader as well as this client's. That reader is a single self-contained file, so it
+    is LINKED rather than copied - a copy would drift, and the whole point is that the
+    web reader is the independent opinion. A ProjectReference is not usable: the web
+    project is Microsoft.NET.Sdk.Web and drags ASP.NET, EF and an EmbeddedResource from
+    outside its own directory.
+
+    Exists() keeps the lab building on a machine with no web repo checked out; the
+    Sketch section then skips the web assertions and says so out loud.
+  -->
+  <PropertyGroup>
+    <WebM2Reader Condition="'$(WebM2Reader)' == ''">$(MSBuildThisFileDirectory)..\..\..\MangosSuperUI\MangosSuperUI\Services\M2Handlers\M2Reader.cs</WebM2Reader>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('$(WebM2Reader)')">
+    <Compile Include="$(WebM2Reader)" Link="Web\M2Reader.cs" />
+  </ItemGroup>
+  <PropertyGroup Condition="Exists('$(WebM2Reader)')">
+    <DefineConstants>$(DefineConstants);WEB_M2READER</DefineConstants>
+  </PropertyGroup>
 </Project>

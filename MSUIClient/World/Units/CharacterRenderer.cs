@@ -384,6 +384,21 @@ public sealed partial class CharacterRenderer : IDisposable
         _spellHold?.Name ?? _combatAction?.Name ?? _clip?.Name ?? "none";
     public string CurrentBaseAnimation => _clip?.Name ?? "none";
     public int CurrentBaseAnimationId => _clip?.AnimationId ?? -1;
+
+    /// <summary>Every AnimationData id this body's model carries a sequence for, in id order
+    /// (variations collapse to one id). The workshop's caster-animation picker lists these
+    /// as "on this model", because a kit that names an animation the model lacks plays
+    /// nothing at all - and a picker that offers it anyway is a dial that does nothing.</summary>
+    public IReadOnlyList<int> AvailableAnimationIds
+    {
+        get
+        {
+            if (_m2 is null) return Array.Empty<int>();
+            var ids = new SortedSet<int>();
+            foreach (M2Sequence sequence in _m2.Sequences) ids.Add(sequence.AnimationId);
+            return ids.ToArray();
+        }
+    }
     public string PreviousBaseAnimation => _previousClip?.Name ?? "none";
     public float CurrentBlendWeight => _blendDuration <= 0f
         ? 1f : 1f - Math.Clamp(_blendRemaining / _blendDuration, 0f, 1f);

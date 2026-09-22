@@ -1,3 +1,5 @@
+using System.Numerics;
+using System.Linq;
 using System.Text;
 
 namespace MSUIClient.Creator;
@@ -105,6 +107,15 @@ public static class M2EmitterParser
     private const int INLINE_COLOR_START = 0x150;       // 3 Ã— uint32 ARGB (start, mid, end)
     private const int INLINE_SCALE_START = 0x15C;       // 3 Ã— float (start, mid, end)
     private const int INLINE_DRAG = 0x194;               // float
+    // The rest of the verified inline block (M2Reader.ParseParticleEmitters).
+    private const int INLINE_HEAD_TAIL = 0x02C;          // uint8: 0 head, 1 tail, 2 both
+    private const int INLINE_TEXTURE_ROWS = 0x030;       // uint16 sprite-sheet rows
+    private const int INLINE_TEXTURE_COLS = 0x032;       // uint16 sprite-sheet columns
+    private const int INLINE_MIDPOINT = 0x14C;           // float, life fraction of the middle key
+    private const int INLINE_TAIL_TIME = 0x17C;          // float, tail length in seconds of age
+    private const int INLINE_INHERIT_SCALE = 0x190;      // float
+    private const int INLINE_ANGULAR_MIN = 0x19C;        // 3 x float
+    private const int INLINE_ANGULAR_MAX = 0x1A8;        // 3 x float
     private const int INLINE_SPRITE_SPIN = 0x198;        // float, radians/sec over particle age
 
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -153,6 +164,21 @@ public static class M2EmitterParser
                 Drag = BitConverter.ToSingle(m2Data, emitterBase + INLINE_DRAG),
                 SpriteSpin = BitConverter.ToSingle(m2Data, emitterBase + INLINE_SPRITE_SPIN),
             };
+
+            snapshot.HeadOrTail = m2Data[emitterBase + INLINE_HEAD_TAIL];
+            snapshot.TextureRows = BitConverter.ToUInt16(m2Data, emitterBase + INLINE_TEXTURE_ROWS);
+            snapshot.TextureCols = BitConverter.ToUInt16(m2Data, emitterBase + INLINE_TEXTURE_COLS);
+            snapshot.MidPoint = BitConverter.ToSingle(m2Data, emitterBase + INLINE_MIDPOINT);
+            snapshot.TailTime = BitConverter.ToSingle(m2Data, emitterBase + INLINE_TAIL_TIME);
+            snapshot.InheritScale = BitConverter.ToSingle(m2Data, emitterBase + INLINE_INHERIT_SCALE);
+            snapshot.AngularMin = new Vector3(
+                BitConverter.ToSingle(m2Data, emitterBase + INLINE_ANGULAR_MIN),
+                BitConverter.ToSingle(m2Data, emitterBase + INLINE_ANGULAR_MIN + 4),
+                BitConverter.ToSingle(m2Data, emitterBase + INLINE_ANGULAR_MIN + 8));
+            snapshot.AngularMax = new Vector3(
+                BitConverter.ToSingle(m2Data, emitterBase + INLINE_ANGULAR_MAX),
+                BitConverter.ToSingle(m2Data, emitterBase + INLINE_ANGULAR_MAX + 4),
+                BitConverter.ToSingle(m2Data, emitterBase + INLINE_ANGULAR_MAX + 8));
 
             // Read inline color values (3 Ã— ARGB uint32)
             snapshot.ColorStart = BitConverter.ToUInt32(m2Data, emitterBase + INLINE_COLOR_START);
@@ -343,6 +369,36 @@ public static class M2EmitterParser
         return true;
     }
 
+    private static int? EmitterBaseOf(byte[] m2Data, int emitterIndex)
+    {
+        if (m2Data == null || m2Data.Length < MIN_HEADER_SIZE || emitterIndex < 0) return null;
+        uint emitCount = BitConverter.ToUInt32(m2Data, HEADER_PRIMARY_EMITTERS);
+        uint emitOffset = BitConverter.ToUInt32(m2Data, HEADER_PRIMARY_EMITTERS + 4);
+        if (emitterIndex >= (int)emitCount) return null;
+        long b = emitOffset + (long)emitterIndex * PRIMARY_EMITTER_SIZE;
+        return b + PRIMARY_EMITTER_SIZE <= m2Data.Length ? (int)b : null;
+    }
+
+    private static void WriteU16(byte[] d, int o, ushort v) => Array.Copy(BitConverter.GetBytes(v), 0, d, o, 2);
+    private static void WriteU32(byte[] d, int o, uint v) => Array.Copy(BitConverter.GetBytes(v), 0, d, o, 4);
+    private static void WriteF32(byte[] d, int o, float v) => Array.Copy(BitConverter.GetBytes(v), 0, d, o, 4);
+
+    /// <summary>Write EVERY key of a scalar track (flatten an animated track to a constant).</summary>
+    public static bool PatchTrackValueAll(byte[] m2Data, int emitterIndex, string property, float value)
+    {
+        if (EmitterBaseOf(m2Data, emitterIndex) is not int emitterBase) return false;
+        EmitterPropertyDef? def = Properties.FirstOrDefault(p =>
+            string.Equals(p.Name, property, StringComparison.OrdinalIgnoreCase));
+        if (def is null) return false;
+        int at = emitterBase + def.ValArrOffset;
+        if (at + 8 > m2Data.Length) return false;
+        uint count = BitConverter.ToUInt32(m2Data, at);
+        uint offset = BitConverter.ToUInt32(m2Data, at + 4);
+        if (count == 0 || offset == 0 || offset + (long)count * 4 > m2Data.Length) return false;
+        for (uint k = 0; k < count; k++) WriteF32(m2Data, (int)(offset + k * 4), value);
+        return true;
+    }
+
     /// <summary>
     /// Apply a complete EmitterPatch to an M2 byte array.
     /// Patches all specified properties on the target emitter.
@@ -351,6 +407,34 @@ public static class M2EmitterParser
     public static int ApplyEmitterPatch(byte[] m2Data, EmitterPatch patch)
     {
         int patched = 0;
+        bool Track(string name, float value) => patch.FlattenTracks
+            ? PatchTrackValueAll(m2Data, patch.EmitterIndex, name, value)
+            : PatchTrackValue(m2Data, patch.EmitterIndex, name, value);
+
+        if (EmitterBaseOf(m2Data, patch.EmitterIndex) is int b)
+        {
+            if (patch.Bone is { } bone) { WriteU16(m2Data, b + INLINE_BONE, bone); patched++; }
+            if (patch.TextureSlot is { } slot && slot >= 0) { WriteU16(m2Data, b + INLINE_TEXTURE_ID, (ushort)slot); patched++; }
+            if (patch.ColorStart is { } c0) { WriteU32(m2Data, b + INLINE_COLOR_START, c0); patched++; }
+            if (patch.ColorMid is { } c1) { WriteU32(m2Data, b + INLINE_COLOR_START + 4, c1); patched++; }
+            if (patch.ColorEnd is { } c2) { WriteU32(m2Data, b + INLINE_COLOR_START + 8, c2); patched++; }
+            if (patch.MidPoint is { } mid) { WriteF32(m2Data, b + INLINE_MIDPOINT, Math.Clamp(mid, 0f, 1f)); patched++; }
+            if (patch.HeadOrTail is { } ht) { m2Data[b + INLINE_HEAD_TAIL] = (byte)Math.Clamp((int)ht, 0, 2); patched++; }
+            if (patch.TextureRows is { } rows) { WriteU16(m2Data, b + INLINE_TEXTURE_ROWS, Math.Max((ushort)1, rows)); patched++; }
+            if (patch.TextureCols is { } cols) { WriteU16(m2Data, b + INLINE_TEXTURE_COLS, Math.Max((ushort)1, cols)); patched++; }
+            if (patch.TailTime is { } tail) { WriteF32(m2Data, b + INLINE_TAIL_TIME, MathF.Max(0f, tail)); patched++; }
+            if (patch.InheritScale is { } inherit) { WriteF32(m2Data, b + INLINE_INHERIT_SCALE, inherit); patched++; }
+            if (patch.AngularMin is { } amin)
+            {
+                WriteF32(m2Data, b + INLINE_ANGULAR_MIN, amin.X); WriteF32(m2Data, b + INLINE_ANGULAR_MIN + 4, amin.Y);
+                WriteF32(m2Data, b + INLINE_ANGULAR_MIN + 8, amin.Z); patched++;
+            }
+            if (patch.AngularMax is { } amax)
+            {
+                WriteF32(m2Data, b + INLINE_ANGULAR_MAX, amax.X); WriteF32(m2Data, b + INLINE_ANGULAR_MAX + 4, amax.Y);
+                WriteF32(m2Data, b + INLINE_ANGULAR_MAX + 8, amax.Z); patched++;
+            }
+        }
 
         if (patch.BlendMode.HasValue)
             if (PatchInlineProperty(m2Data, patch.EmitterIndex, "blendmode", patch.BlendMode.Value)) patched++;
@@ -372,34 +456,34 @@ public static class M2EmitterParser
             if (PatchPlainFloat(m2Data, patch.EmitterIndex, "spritespin", patch.SpriteSpin.Value)) patched++;
 
         if (patch.EmissionSpeed.HasValue)
-            if (PatchTrackValue(m2Data, patch.EmitterIndex, "emissionSpeed", patch.EmissionSpeed.Value)) patched++;
+            if (Track("emissionSpeed", patch.EmissionSpeed.Value)) patched++;
 
         if (patch.SpeedVariation.HasValue)
-            if (PatchTrackValue(m2Data, patch.EmitterIndex, "speedVariation", patch.SpeedVariation.Value)) patched++;
+            if (Track("speedVariation", patch.SpeedVariation.Value)) patched++;
 
         if (patch.Lifespan.HasValue)
-            if (PatchTrackValue(m2Data, patch.EmitterIndex, "lifespan", patch.Lifespan.Value)) patched++;
+            if (Track("lifespan", patch.Lifespan.Value)) patched++;
 
         if (patch.EmissionRate.HasValue)
-            if (PatchTrackValue(m2Data, patch.EmitterIndex, "emissionRate", patch.EmissionRate.Value)) patched++;
+            if (Track("emissionRate", patch.EmissionRate.Value)) patched++;
 
         if (patch.Gravity.HasValue)
-            if (PatchTrackValue(m2Data, patch.EmitterIndex, "gravity", patch.Gravity.Value)) patched++;
+            if (Track("gravity", patch.Gravity.Value)) patched++;
 
         if (patch.EmissionAreaLength.HasValue)
-            if (PatchTrackValue(m2Data, patch.EmitterIndex, "emissionAreaLength", patch.EmissionAreaLength.Value)) patched++;
+            if (Track("emissionAreaLength", patch.EmissionAreaLength.Value)) patched++;
 
         if (patch.EmissionAreaWidth.HasValue)
-            if (PatchTrackValue(m2Data, patch.EmitterIndex, "emissionAreaWidth", patch.EmissionAreaWidth.Value)) patched++;
+            if (Track("emissionAreaWidth", patch.EmissionAreaWidth.Value)) patched++;
 
         if (patch.VerticalRange.HasValue)
-            if (PatchTrackValue(m2Data, patch.EmitterIndex, "verticalRange", patch.VerticalRange.Value)) patched++;
+            if (Track("verticalRange", patch.VerticalRange.Value)) patched++;
 
         if (patch.HorizontalRange.HasValue)
-            if (PatchTrackValue(m2Data, patch.EmitterIndex, "horizontalRange", patch.HorizontalRange.Value)) patched++;
+            if (Track("horizontalRange", patch.HorizontalRange.Value)) patched++;
 
         if (patch.ZSource.HasValue)
-            if (PatchTrackValue(m2Data, patch.EmitterIndex, "zSource", patch.ZSource.Value)) patched++;
+            if (Track("zSource", patch.ZSource.Value)) patched++;
 
         if (patch.ScaleStart.HasValue && patch.ScaleMid.HasValue && patch.ScaleEnd.HasValue)
             if (PatchScaleValues(m2Data, patch.EmitterIndex,
@@ -503,6 +587,14 @@ public class EmitterSnapshot
     public ushort Bone { get; set; }
     public float Drag { get; set; }
     public float SpriteSpin { get; set; }
+    public byte HeadOrTail { get; set; }
+    public ushort TextureRows { get; set; }
+    public ushort TextureCols { get; set; }
+    public float MidPoint { get; set; }
+    public float TailTime { get; set; }
+    public float InheritScale { get; set; }
+    public Vector3 AngularMin { get; set; }
+    public Vector3 AngularMax { get; set; }
     public uint ColorStart { get; set; }
     public uint ColorMid { get; set; }
     public uint ColorEnd { get; set; }
@@ -548,6 +640,27 @@ public class EmitterPatch
     public float? ScaleStart { get; set; }
     public float? ScaleMid { get; set; }
     public float? ScaleEnd { get; set; }
+
+    // The rest of the inline block (SPELL_CREATOR_IDE §2.6): re-parenting, the image slot,
+    // the three ARGB colours, the ramp midpoint, head/tail, sprite cells, tail length,
+    // inherit scale and the spawned-geometry tumble range.
+    public ushort? Bone { get; set; }
+    public int? TextureSlot { get; set; }
+    public uint? ColorStart { get; set; }
+    public uint? ColorMid { get; set; }
+    public uint? ColorEnd { get; set; }
+    public float? MidPoint { get; set; }
+    public byte? HeadOrTail { get; set; }
+    public ushort? TextureRows { get; set; }
+    public ushort? TextureCols { get; set; }
+    public float? TailTime { get; set; }
+    public float? InheritScale { get; set; }
+    public Vector3? AngularMin { get; set; }
+    public Vector3? AngularMax { get; set; }
+
+    /// <summary>Write every key of an edited scalar track instead of only the first: the
+    /// slider becomes a constant that overrides the authored animation.</summary>
+    public bool FlattenTracks { get; set; }
 }
 
 /// <summary>Lightweight behavior summary of an M2 file for catalog purposes.</summary>

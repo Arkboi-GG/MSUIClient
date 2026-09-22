@@ -345,6 +345,100 @@ public sealed partial class CreatureRenderer : IDisposable
         public int Blend;
         public int GeosetId;
         public bool TwoSided;
+        // M2 material flags the reference honours per texture unit. An elemental's fire
+        // body is UNLIT (flag 0x1): it draws at full texture brightness however dark the
+        // room is, which is the "inner light" that was missing in Molten Core.
+        public bool Unlit;
+        public bool Unfogged;
+        // Authored per-batch animation: the colour/alpha track (M2 colors), the
+        // texture-weight (transparency) track and the UV translation track. -1 / null =
+        // unauthored. Sampled at the unit's live clip each draw, so glow layers fade,
+        // pulse and scroll as the file says instead of drawing solid and still.
+        public int ColorIndex;
+        public int TransparencyTrack;
+        public M2TextureTransform? UvTrack;
+    }
+
+    /// <summary>One DrawBatch from an M2 batch: materials, blend and every authored track index.</summary>
+    private static DrawBatch MakeDrawBatch(M2Model m2, M2Batch batch, M2Submesh submesh, Texture? tex)
+    {
+        M2RenderFlag? material = batch.MaterialIndex < m2.RenderFlags.Count
+            ? m2.RenderFlags[batch.MaterialIndex] : null;
+        int transparencyTrack = -1;
+        if (batch.TextureWeightIndex < m2.TransparencyLookup.Count)
+        {
+            int track = m2.TransparencyLookup[batch.TextureWeightIndex];
+            if (track >= 0 && track < m2.TransparencyTracks.Count) transparencyTrack = track;
+        }
+        M2TextureTransform? uvTrack = null;
+        if (batch.TextureTransformIndex < m2.TextureTransformLookup.Count)
+        {
+            int track = m2.TextureTransformLookup[batch.TextureTransformIndex];
+            if (track >= 0 && track < m2.TextureTransforms.Count &&
+                m2.TextureTransforms[track].Translation.Keys.Count > 0)
+                uvTrack = m2.TextureTransforms[track];
+        }
+        return new DrawBatch
+        {
+            Start = submesh.IndexStart,
+            Count = submesh.IndexCount,
+            Tex = tex,
+            Blend = material?.BlendingMode ?? 0,
+            GeosetId = submesh.Id,
+            TwoSided = material?.TwoSided ?? false,
+            Unlit = material?.Unlit ?? false,
+            Unfogged = material?.Unfogged ?? false,
+            ColorIndex = batch.ColorIndex >= 0 && batch.ColorIndex < m2.Colors.Count ? batch.ColorIndex : -1,
+            TransparencyTrack = transparencyTrack,
+            UvTrack = uvTrack,
+        };
+    }
+
+    /// <summary>
+    /// Bind one batch's material state: blend/depth, alpha key, unlit/fog policy, UV scroll
+    /// and the authored colour/alpha of this moment in the unit's clip, multiplied into the
+    /// unit's own body tint/alpha. False when the batch is authored fully transparent right
+    /// now (the caller skips the draw).
+    /// </summary>
+    private bool BindBatchMaterial(in DrawBatch b, M2Model source, int sequence, float seconds,
+        bool bodyTranslucent, float bodyAlpha, Vector3 bodyTint)
+    {
+        Vector3 tint = bodyTint;
+        float alpha = bodyAlpha;
+        // Per-sequence tracks need a real clip: a unit past the animation distance draws in
+        // bind pose with its authored layers as they are, never at a track's first key
+        // (the fire elemental's body track opens on 0, which would blank far units).
+        bool clipKnown = sequence >= 0 && sequence < source.Sequences.Count;
+        if (clipKnown && b.ColorIndex >= 0)
+        {
+            M2ColorAnimation color = source.Colors[b.ColorIndex];
+            tint *= M2TrackSampling.Vector(color.Color, source, sequence, seconds, Vector3.One);
+            alpha *= M2TrackSampling.Fixed16(color.Alpha, source, sequence, seconds);
+        }
+        if (clipKnown && b.TransparencyTrack >= 0)
+            alpha *= M2TrackSampling.Fixed16(source.TransparencyTracks[b.TransparencyTrack],
+                source, sequence, seconds);
+        if (alpha < 1f / 255f) return false;
+        Vector2 uvOffset = Vector2.Zero;
+        if (clipKnown && b.UvTrack is { } uv)
+        {
+            Vector3 offset = M2TrackSampling.Vector(uv.Translation, source, sequence, seconds, Vector3.Zero);
+            if (float.IsFinite(offset.X) && float.IsFinite(offset.Y)) uvOffset = new Vector2(offset.X, offset.Y);
+        }
+        bool additive = b.Blend is 3 or 4;
+        bool alphaKey = b.Blend == 1;
+        bool trackTranslucent = alpha < bodyAlpha - 1f / 255f;
+        if (additive) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); _gl.DepthMask(false); }
+        else if (bodyTranslucent || trackTranslucent || b.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
+        else { _gl.BlendFunc(BlendingFactor.One, BlendingFactor.Zero); _gl.DepthMask(true); }
+        _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0f);
+        _shader.Set("uUnlit", b.Unlit ? 1 : 0);
+        // Additive layers fog toward black (fogging a glow toward grey would brighten it).
+        _shader.Set("uFogMode", b.Unfogged ? 2 : additive ? 1 : 0);
+        _shader.Set("uUvOffset", uvOffset);
+        _shader.Set("uBodyTint", tint);
+        _shader.Set("uBodyAlpha", alpha);
+        return true;
     }
 
     private sealed class PreparedModel
@@ -478,6 +572,7 @@ public sealed partial class CreatureRenderer : IDisposable
         BeginUnitShader(camera);
         _seen.Clear();
         _spellPoses.Clear();
+        _unitModelEffects.Clear();
 
         _orderedUnits.Clear();
         foreach (WorldEntity entity in visibleUnits)
@@ -832,7 +927,12 @@ public sealed partial class CreatureRenderer : IDisposable
                 worldModel, model.Source, poseSkin,
                 GeosetFilter ? appearance.VisibleGeosets : null,
                 pickClip?.BoundsCenter ?? Vector3.Zero,
-                pickClip?.BoundsRadius ?? 0f, modelKey, pickClip?.AnimationId ?? -1);
+                pickClip?.BoundsRadius ?? 0f, modelKey, pickClip?.AnimationId ?? -1,
+                pickClip?.SequenceIndex ?? -1);
+            // The body's own authored particle/ribbon emitters (an elemental's flames, embers
+            // and glow) ride this live pose through the shared effect pipeline.
+            if (model.Source.ParticleEmitters.Count > 0 || model.Source.RibbonEmitters.Count > 0)
+                _unitModelEffects.Add(new UnitModelEffectPlacement(e.Guid, modelKey));
 
             bool filter = GeosetFilter && appearance.VisibleGeosets is not null;
             _gl.BindVertexArray(model.Vao);
@@ -844,12 +944,9 @@ public sealed partial class CreatureRenderer : IDisposable
                 if (filter && !appearance.VisibleGeosets!.Contains(b.GeosetId)) continue;
 
                 ApplyBatchCulling(b, ref cullingOn);
-                bool additive = b.Blend is 3 or 4;
-                bool alphaKey = b.Blend == 1;
-                if (additive) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); _gl.DepthMask(false); }
-                else if (bodyTranslucent || b.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
-                else { _gl.BlendFunc(BlendingFactor.One, BlendingFactor.Zero); _gl.DepthMask(true); }
-                _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0f);
+                if (!BindBatchMaterial(b, model.Source, pickClip?.SequenceIndex ?? -1,
+                        _animTime.GetValueOrDefault(e.Guid), bodyTranslucent, bodyAlpha, bodyTint))
+                    continue;
                 appearance.Textures[batchIndex]?.Bind(0);
                 DrawElements(b.Start, b.Count);
             }
@@ -1176,6 +1273,9 @@ public sealed partial class CreatureRenderer : IDisposable
 
     public IReadOnlyList<ItemGlowPlacement> ItemGlowPlacements =>
         _attachedItems?.GlowPlacements ?? Array.Empty<ItemGlowPlacement>();
+    /// <summary>Units drawn this frame whose own M2 authors particle or ribbon emitters.</summary>
+    public IReadOnlyList<UnitModelEffectPlacement> UnitModelEffectPlacements => _unitModelEffects;
+    private readonly List<UnitModelEffectPlacement> _unitModelEffects = [];
     public IReadOnlyList<CarriedLightPlacement> CarriedLightPlacements =>
         _attachedItems?.CarriedLights ?? Array.Empty<CarriedLightPlacement>();
     public IReadOnlyList<FishingPoleTipPlacement> FishingPoleTips =>
@@ -1340,6 +1440,9 @@ public sealed partial class CreatureRenderer : IDisposable
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uTex", 0);
+        _shader.Set("uUnlit", 0);
+        _shader.Set("uFogMode", 0);
+        _shader.Set("uUvOffset", Vector2.Zero);
         _shader.Set("uHighlight", 0f);
         _shader.Set("uBodyAlpha", 1f);
         _shader.Set("uBodyTint", Vector3.One);
@@ -1349,11 +1452,13 @@ public sealed partial class CreatureRenderer : IDisposable
         ApplyAttachmentAtmosphere();
 
         int boneCount = 0;
+        int portraitSequence = -1;
         if (model.Animator is not null && model.BoneCount > 0)
         {
             // Round portrait callers keep the default fresh Stand instance at t=0. Live
             // PlayerModel-style body panes supply their own clamped Stand-loop time.
             M2Animator.Clip? clip = model.Animator.FindOrBake(0);
+            portraitSequence = clip?.SequenceIndex ?? -1;
             boneCount = Math.Min(model.BoneCount, M2Animator.MaxBones);
             float animationTime = MathF.Max(0f, standAnimationTime);
             model.Animator.Evaluate(clip, animationTime, animationTime, _skin);
@@ -1371,12 +1476,9 @@ public sealed partial class CreatureRenderer : IDisposable
             DrawBatch batch = model.Batches[batchIndex];
             if (filter && !appearance.VisibleGeosets!.Contains(batch.GeosetId)) continue;
             ApplyBatchCulling(batch, ref cullingOn);
-            bool additive = batch.Blend is 3 or 4;
-            bool alphaKey = batch.Blend == 1;
-            if (additive) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); _gl.DepthMask(false); }
-            else if (batch.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
-            else { _gl.BlendFunc(BlendingFactor.One, BlendingFactor.Zero); _gl.DepthMask(true); }
-            _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0f);
+            if (!BindBatchMaterial(batch, model.Source, portraitSequence, MathF.Max(0f, standAnimationTime),
+                    bodyTranslucent: false, 1f, Vector3.One))
+                continue;
             appearance.Textures[batchIndex]?.Bind(0);
             DrawElements(batch.Start, batch.Count);
         }
@@ -1920,18 +2022,7 @@ public sealed partial class CreatureRenderer : IDisposable
         {
             if (batch.SubmeshIndex >= m2.Submeshes.Count) continue;
             var submesh = m2.Submeshes[batch.SubmeshIndex];
-            int blend = batch.MaterialIndex < m2.RenderFlags.Count
-                ? m2.RenderFlags[batch.MaterialIndex].BlendingMode : 0;
-            bool twoSided = batch.MaterialIndex < m2.RenderFlags.Count &&
-                m2.RenderFlags[batch.MaterialIndex].TwoSided;
-            model.Batches.Add(new DrawBatch
-            {
-                Start = submesh.IndexStart,
-                Count = submesh.IndexCount,
-                Blend = blend,
-                GeosetId = submesh.Id,
-                TwoSided = twoSided,
-            });
+            model.Batches.Add(MakeDrawBatch(m2, batch, submesh, null));
         }
         return model;
     }
@@ -2206,19 +2297,7 @@ public sealed partial class CreatureRenderer : IDisposable
                     }
                 }
 
-                int blend = b.MaterialIndex < m2.RenderFlags.Count
-                    ? m2.RenderFlags[b.MaterialIndex].BlendingMode : 0;
-                bool twoSided = b.MaterialIndex < m2.RenderFlags.Count &&
-                    m2.RenderFlags[b.MaterialIndex].TwoSided;
-                lm.Batches.Add(new DrawBatch
-                {
-                    Start = sm.IndexStart,
-                    Count = sm.IndexCount,
-                    Tex = tex,
-                    Blend = blend,
-                    GeosetId = sm.Id,
-                    TwoSided = twoSided,
-                });
+                lm.Batches.Add(MakeDrawBatch(m2, b, sm, tex));
             }
 
             if (_diagLogged < 30)
@@ -2682,6 +2761,7 @@ uniform mat4 uViewProj;
 const int MAX_BONES = 160;
 uniform vec4 uBones[MAX_BONES * 3];
 uniform int uBoneCount;
+uniform vec2 uUvOffset;   // authored texture-transform translation for this batch
 out vec3 vNorm;
 out vec2 vUv;
 out float vDist;
@@ -2712,7 +2792,7 @@ void main(){
     vec4 rel = uModel * vec4(position, 1.0);
     gl_Position = uViewProj * rel;
     vNorm = normalize(mat3(uModel) * normal);
-    vUv = aUv;
+    vUv = aUv + uUvOffset;
     vDist = length(rel.xyz);
     vWorld = rel.xyz;
 }";
@@ -2730,6 +2810,8 @@ uniform vec3 uFogColor;
 uniform float uFogStart;
 uniform float uFogEnd;
 uniform float uAlphaCut;
+uniform int uUnlit;      // M2 material flag 0x1: texture brightness, no scene light
+uniform int uFogMode;    // 0 scene fog, 1 fog toward black (additive layers), 2 unfogged
 uniform float uHighlight;
 uniform float uBodyAlpha;
 uniform vec3 uBodyTint;
@@ -2766,19 +2848,28 @@ void main(){
     if (t.a < uAlphaCut) discard;
     vec3 normal = normalize(vNorm);
     if (!gl_FrontFacing) normal = -normal;
-    float sunResponse = model2SunResponse(dot(normal, normalize(uSunDir)));
-    vec3 light = uAmbientColor * uAmbientIntensity
-        + uSunColor * uSunIntensity * sunResponse;
-    if (uInteriorLight.a > 0.0) {
-        vec3 room = uInteriorLight.rgb * uBakedLightScale
-            * (InteriorFloorFill + InteriorKey * sunResponse);
-        light = mix(light, room, uInteriorLight.a);
+    vec3 light;
+    if (uUnlit == 1) {
+        // Unlit material: the texture IS the light (fire, lava, glow). Only the
+        // selection lift still applies so hover/target feedback survives.
+        light = vec3(1.0 + uHighlight);
+    } else {
+        float sunResponse = model2SunResponse(dot(normal, normalize(uSunDir)));
+        light = uAmbientColor * uAmbientIntensity
+            + uSunColor * uSunIntensity * sunResponse;
+        if (uInteriorLight.a > 0.0) {
+            vec3 room = uInteriorLight.rgb * uBakedLightScale
+                * (InteriorFloorFill + InteriorKey * sunResponse);
+            light = mix(light, room, uInteriorLight.a);
+        }
+        light += vec3(uHighlight);
+        light += vec3(WorldModelSelfFill);
+        light += carriedPointLight(normal, vWorld);
+        light = max(light, vec3(0.0));
     }
-    light += vec3(uHighlight);
-    light += vec3(WorldModelSelfFill);
-    light += carriedPointLight(normal, vWorld);
-    light = max(light, vec3(0.0));
-    float fog = clamp((vDist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
-    frag = vec4(mix(t.rgb * uBodyTint * light, uFogColor, fog), t.a * uBodyAlpha);
+    float fog = uFogMode == 2 ? 0.0
+        : clamp((vDist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
+    vec3 fogColor = uFogMode == 1 ? vec3(0.0) : uFogColor;
+    frag = vec4(mix(t.rgb * uBodyTint * light, fogColor, fog), t.a * uBodyAlpha);
 }";
 }

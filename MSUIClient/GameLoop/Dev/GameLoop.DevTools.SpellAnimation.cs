@@ -27,9 +27,27 @@ public sealed partial class GameLoop
     /// character animation always plays on the local player either way.</summary>
     private bool PresentSpellEffect(uint spellId, string stage, ulong? onGuid = null)
     {
-        if (_spellCatalog?.TryGet(spellId, out SpellInfo info) != true ||
-            _spellVisualCatalog?.TryGetStages(info.VisualId, out SpellVisualStages stages) != true ||
-            _spellEffects is null) return false;
+        if (_spellEffects is null) return false;
+
+        // A spell the creator INVENTED is not in Spell.dbc and has no SpellVisual row, so both
+        // lookups below fail and the whole method used to give up here - before ever reaching
+        // the composed-kit branch that exists precisely to draw a stage nothing authored. That
+        // is why a brand-new spell showed nothing at all. When the creator's own document owns
+        // this id, it IS the catalog.
+        bool creatorOwned = _creatorWorldRequested && _creatorSpell is { } owned &&
+                            owned.Info.Id == spellId;
+        SpellInfo info;
+        SpellVisualStages stages;
+        if (creatorOwned)
+        {
+            info = _creatorSpell!.Info;
+            stages = _creatorSpell.Stages;
+        }
+        else if (_spellCatalog?.TryGet(spellId, out info) != true ||
+                 _spellVisualCatalog?.TryGetStages(info.VisualId, out stages) != true)
+        {
+            return false;
+        }
         uint kitId = stage.ToLowerInvariant() switch
         {
             "precast" => stages.Precast,
@@ -39,13 +57,28 @@ public sealed partial class GameLoop
             "channel" => stages.Channel,
             _ => 0,
         };
-        if (kitId == 0 || !_spellVisualCatalog.TryGetKit(kitId, out SpellVisualKitInfo kit)) return false;
+        SpellVisualKitInfo kit = default;
+        bool haveKit = kitId != 0 && _spellVisualCatalog.TryGetKit(kitId, out kit);
+        // The creator's composed kit replaces the authored one (a stage the source never
+        // authored can be filled from scratch) - GameLoop.Creator.Composition.cs.
+        if (_creatorWorldRequested && _creatorSpell is { } composed && composed.Info.Id == spellId &&
+            Enum.TryParse(stage, ignoreCase: true, out SpellStage composedStage))
+        {
+            kit = CreatorComposedKit(composed, composedStage, haveKit
+                ? kit
+                : new SpellVisualKitInfo(null, null, Array.Empty<SpellVisualKitEffect>(), Array.Empty<SpellVisualCharProc>()));
+            haveKit = kit.Effects.Count > 0;
+        }
+        if (!haveKit) return false;
         ReapPresentedEffect();
         ulong anchor = onGuid ?? LocalPlayerGuid;
         _presentedEffectSpell = spellId;
         _presentedEffectGuid = anchor;
+        // A phase being sketched is held on screen: an editor needs the thing to sit still long
+        // enough to be grabbed, and a half-second cast in a two-second loop does not.
         _spellEffects.SpawnKit(anchor, spellId, kit,
-            persistent: stage is "precast" or "state" or "channel", SpellClockNow, stage.ToUpperInvariant());
+            persistent: stage is "precast" or "state" or "channel" || SketchHoldsStage(stage),
+            SpellClockNow, stage.ToUpperInvariant());
         if (anchor != LocalPlayerGuid)
         {
             // Anchored on another unit (creator-loop impact on the spawned

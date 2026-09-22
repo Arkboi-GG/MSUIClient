@@ -517,9 +517,17 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                 AnimatedAlpha = HasAnimatedAlpha(model, source),
             });
         }
-        if (mesh.Batches.Count == 0)
+        // Safety net for a file with NO batch table: draw the whole index buffer untextured so a
+        // broken model is at least visible. It must not fire for a file whose batches all sit on
+        // zero-triangle submeshes - that is exactly what the creator's "hide every layer" law
+        // produces (M2MeshParser.HideSubmesh), and it drew Cleave's raw planes as flat colour
+        // the moment the last crescent was switched off (owner, 2026-09-10). Authored that way,
+        // the real client draws nothing; so do we.
+        if (mesh.Batches.Count == 0 && model.Batches.Count == 0)
             mesh.Batches.Add(new Batch { Count = (uint)indices.Length, TwoSided = true,
                 Source = new M2Batch() });
+        else if (mesh.Batches.Count == 0)
+            Console.WriteLine($"[mesh-build] {Path.GetFileName(path)}: every batch is on an empty submesh - nothing to draw");
         Console.WriteLine($"[mesh-build] {Path.GetFileName(path)}: " +
             $"tex=[{string.Join(", ", mesh.Batches.Select(b => Path.GetFileName(b.TexturePath ?? "<none>")).Distinct())}]");
         return _meshes[path] = mesh;

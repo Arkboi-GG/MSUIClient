@@ -167,6 +167,10 @@ public sealed class GameSettings
         public bool SpellGizmos { get; set; } = true;
         public bool GizmoReach { get; set; } = true;
         public bool GizmoThroughWalls { get; set; }
+        /// <summary>Draw the selected phase model's skeleton (b&lt;n&gt; labels) in the world.</summary>
+        public bool GizmoBones { get; set; }
+        /// <summary>Where the creator's import picker opens.</summary>
+        public string ImportDirectory { get; set; } = "";
 
         // The top menu bar (Character/Gear/Teleport/Target/Spells/UI) sizes
         // independently of the modals - its own button and caption dials.

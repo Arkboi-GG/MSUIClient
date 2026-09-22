@@ -53,7 +53,8 @@ public readonly record struct SpellVisualStages(
 
 public readonly record struct SpellVisualKitEffect(
     ushort AttachmentId,
-    string ModelPath);
+    string ModelPath,
+    float Scale = 1f);
 
 public readonly record struct SpellVisualCharProc(int Type, float[] Parameters);
 
