@@ -35,6 +35,9 @@ public sealed partial class GameLoop
     private float _wbPortalRadius = 6f, _wbPortalTx, _wbPortalTy, _wbPortalTz, _wbPortalTo;
     private bool _wbMapFormInit, _wbPortalHasTarget;
     private int _wbMapTeam;
+    private Vector3? _wbSubCentre;
+    private int _wbSubCentreMap = -1;
+    private (int Map, Vector3 At)? _wbPortalEntrance;
     private readonly byte[] _wbPortalName = new byte[64];
 
     private void WbInitMapForm()
@@ -62,7 +65,8 @@ public sealed partial class GameLoop
         WbInitMapForm();
         float w = CreatorControlWidth;
         ImGui.TextWrapped("Create a separate dungeon or map from a piece of existing terrain. For land connected to a continent, use Regions. Saved changes appear after publication.");
-        if (ImGui.CollapsingHeader("Create a dungeon or map", ImGuiTreeNodeFlags.DefaultOpen))
+        bool mapFormOpen = ImGui.CollapsingHeader("Create a dungeon or map", ImGuiTreeNodeFlags.DefaultOpen); ObserveWorldBuilderUiItem("Create a dungeon or map");
+        if (mapFormOpen)
         {
             ImGui.SetNextItemWidth(w); ImGui.InputText("Name##wb-map", _wbMapName, (uint)_wbMapName.Length);
             ImGui.SetNextItemWidth(w * 0.6f); ImGui.Combo("Type", ref _wbMapType, "Outdoor map\0Dungeon\0Raid\0");
@@ -94,68 +98,148 @@ public sealed partial class GameLoop
                 WbText(_wbSrcMap), _wbSrcCol, _wbSrcRow, _wbSrcW, _wbSrcH, _wbDstCol, _wbDstRow, _wbStampDoodads, _wbStampWmos, _wbMapTeam * 2));
             ImGui.EndDisabled();
         }
-        if (ImGui.CollapsingHeader("Name a place within your map"))
+        bool namedPlaceOpen = ImGui.CollapsingHeader("Name a place within your map"); ObserveWorldBuilderUiItem("Name a place within your map");
+        if (namedPlaceOpen)
         {
-            ImGui.TextWrapped("Stand in the place you want to name. Its name will appear as a subzone inside the surrounding zone.");
+            int map = _config.Start.Map;
+            bool packMapHere = _wbDocs.OfType<JsonObject>().Any(d => (string?)d["kind"] == "tile" && (int?)d["packId"] == _wbPackId && (int?)d["body"]?["map"] == map);
+            ImGui.TextWrapped("Give a spot inside your own map a name (a subzone): it shows when players walk in.");
+            if (!packMapHere) { ImGui.TextDisabled("Go to one of your own maps first (they appear after publishing)."); }
+            ImGui.BeginDisabled(!packMapHere);
             ImGui.SetNextItemWidth(w); ImGui.InputText("Place name", _wbSubName, (uint)_wbSubName.Length);
-            ImGui.SetNextItemWidth(w * 0.6f); ImGui.InputFloat("Radius (yards)", ref _wbSubRadius);
+            ImGui.SetNextItemWidth(w * 0.6f); ImGui.SliderFloat("Size (yards)", ref _wbSubRadius, 20f, 400f, "%.0f");
+            WbPickButton("Pick the centre on the ground", "the centre of " + (WbText(_wbSubName).Trim() is { Length: > 0 } nm ? nm : "the place"),
+                at => { _wbSubCentre = at; _wbSubCentreMap = _config.Start.Map; }, _wbSubRadius);
+            if (_wbSubCentre is { } c && _wbSubCentreMap == map) WbMarker(c, WbText(_wbSubName).Trim(), 0xFF40FF80u, _wbSubRadius);
             if (ImGui.TreeNode("Advanced subzone ID")) { ImGui.SetNextItemWidth(w * 0.6f); ImGui.InputInt("Area ID", ref _wbSubArea, 0); ImGui.TreePop(); }
-            bool ready = _controller is not null && WbText(_wbSubName).Trim().Length > 0 && _wbSubArea >= 7000 &&
-                !WbIdUsed("dbrow:area_template", "entry", _wbSubArea) && float.IsFinite(_wbSubRadius) && _wbSubRadius > 0;
-            if (!ready) ImGui.TextWrapped("Enter a name and positive radius, and use an unused subzone ID.");
-            ImGui.BeginDisabled(!ready || _wbOps.Count > 0);
-            if (CreatorButton("Save subzone around me")) WbAddSubzone((uint)_wbSubArea, WbText(_wbSubName).Trim(), _controller!.Position, _wbSubRadius);
+            string? why = WbText(_wbSubName).Trim().Length == 0 ? "Name the place." : _wbSubCentre is null || _wbSubCentreMap != map ? "Pick the centre on the ground."
+                : _wbSubArea < 7000 || WbIdUsed("dbrow:area_template", "entry", _wbSubArea) ? "That subzone ID is taken (Advanced)." : null;
+            if (why is not null && packMapHere) ImGui.TextDisabled(why);
+            ImGui.BeginDisabled(why is not null || _wbOps.Count > 0);
+            if (CreatorButton("Save named place")) WbAddSubzone((uint)_wbSubArea, WbText(_wbSubName).Trim(), _wbSubCentre!.Value, _wbSubRadius);
+            ImGui.EndDisabled();
             ImGui.EndDisabled();
         }
-        if (ImGui.CollapsingHeader("Connect two places with a portal"))
+        bool portalOpen = ImGui.CollapsingHeader("Connect two places with a portal"); ObserveWorldBuilderUiItem("Connect two places with a portal");
+        if (portalOpen)
         {
-            ImGui.TextWrapped("First stand at the arrival point and capture it. Then travel to the entrance and save the portal there. Create a second portal for the return journey.");
+            int map = _config.Start.Map;
+            var step = new Vector4(1f, .82f, .3f, 1f);
+            ImGui.TextWrapped("A portal is a glowing spot: walking into the entrance takes the player to the arrival. Make a second portal for the way back.");
             ImGui.SetNextItemWidth(w); ImGui.InputText("Portal name", _wbPortalName, (uint)_wbPortalName.Length);
-            ImGui.BeginDisabled(_controller is null);
-            if (CreatorButton("Use where I stand as the arrival"))
+            ObserveWorldBuilderUiItem("Portal name");
+            ImGui.TextColored(step, "1. Arrival (where players come out)");
+            WbPickButton("Pick the arrival on the ground", "where players arrive", at =>
             {
-                _wbPortalTargetMap = _config.Start.Map;
-                var at = _controller!.Position; _wbPortalTx = at.X; _wbPortalTy = at.Y; _wbPortalTz = at.Z;
-                _wbPortalHasTarget = true;
+                _wbPortalTargetMap = _config.Start.Map; _wbPortalTx = at.X; _wbPortalTy = at.Y; _wbPortalTz = at.Z; _wbPortalHasTarget = true;
+            });
+            if (!_wbPortalHasTarget) ImGui.TextDisabled("Not picked yet. To arrive on another map, go there first (Teleport) and pick it.");
+            else if (_wbPortalTargetMap == map) WbMarker(new Vector3(_wbPortalTx, _wbPortalTy, _wbPortalTz), "Arrival: " + WbText(_wbPortalName).Trim(), 0xFF40FF80u);
+            else ImGui.TextDisabled($"Arrival picked on {WbMapLabel(_wbPortalTargetMap)}.");
+            if (_wbPortalHasTarget)
+            {
+                ImGui.SetNextItemWidth(w * 0.6f); ImGui.SliderFloat("Arrival facing", ref _wbPortalTo, 0f, 6.283f, "%.2f rad");
             }
-            ImGui.EndDisabled();
-            if (_wbPortalHasTarget) ImGui.TextWrapped(Inv($"Arrival: map {_wbPortalTargetMap}, {_wbPortalTx:F1}, {_wbPortalTy:F1}, {_wbPortalTz:F1}"));
-            ImGui.SetNextItemWidth(w * 0.6f); ImGui.InputFloat("Entrance radius (yards)", ref _wbPortalRadius);
+            ImGui.TextColored(step, "2. Entrance (where players step in)");
+            ImGui.SetNextItemWidth(w * 0.6f); ImGui.SliderFloat("Entrance size (yards)", ref _wbPortalRadius, 2f, 30f, "%.0f");
+            WbPickButton("Pick the entrance on the ground", "the portal entrance", at => _wbPortalEntrance = (_config.Start.Map, at), _wbPortalRadius);
+            if (_wbPortalEntrance is { } ent)
+            {
+                if (ent.Map == map) WbMarker(ent.At, "Entrance: " + WbText(_wbPortalName).Trim(), 0xFFFF60E0u, _wbPortalRadius);
+                else ImGui.TextDisabled($"Entrance picked on {WbMapLabel(ent.Map)}.");
+            }
+            else ImGui.TextDisabled("Not picked yet.");
             ImGui.SetNextItemWidth(w * 0.6f); ImGui.InputInt("Minimum player level", ref _wbPortalMinLevel, 0);
-            if (ImGui.TreeNode("Advanced portal coordinates and ID"))
+            _wbPortalMinLevel = Math.Clamp(_wbPortalMinLevel, 0, 63);
+            if (ImGui.TreeNode("Advanced portal ID"))
             {
                 ImGui.SetNextItemWidth(w * 0.6f); ImGui.InputInt("Trigger ID", ref _wbPortalId, 0);
-                ImGui.SetNextItemWidth(w * 0.6f); bool changed = ImGui.InputInt("Arrival map", ref _wbPortalTargetMap, 0);
-                ImGui.SetNextItemWidth(w * 0.6f); changed |= ImGui.InputFloat("Arrival X", ref _wbPortalTx);
-                ImGui.SetNextItemWidth(w * 0.6f); changed |= ImGui.InputFloat("Arrival Y", ref _wbPortalTy);
-                ImGui.SetNextItemWidth(w * 0.6f); changed |= ImGui.InputFloat("Arrival Z", ref _wbPortalTz);
-                ImGui.SetNextItemWidth(w * 0.6f); changed |= ImGui.InputFloat("Arrival facing", ref _wbPortalTo);
-                if (changed) _wbPortalHasTarget = true;
                 ImGui.TreePop();
             }
-            bool ready = _controller is not null && _wbPortalHasTarget && _wbPortalTargetMap >= 0 && _wbPortalId >= 7000 &&
-                !WbIdUsed("dbrow:areatrigger_template", "id", _wbPortalId) && WbText(_wbPortalName).Trim().Length > 0 &&
-                float.IsFinite(_wbPortalRadius) && _wbPortalRadius > 0 && float.IsFinite(_wbPortalTx) && float.IsFinite(_wbPortalTy) &&
-                float.IsFinite(_wbPortalTz) && float.IsFinite(_wbPortalTo) && _wbPortalMinLevel is >= 0 and <= 63;
-            if (!ready) ImGui.TextWrapped("Name the portal, capture an arrival, and use a positive radius with an unused trigger ID.");
-            ImGui.BeginDisabled(!ready || _wbOps.Count > 0);
-            if (CreatorButton("Save entrance where I stand")) WbPost($"portal {WbText(_wbPortalName)}", WbPortalItems((uint)_wbPortalId,
-                WbText(_wbPortalName).Trim(), _config.Start.Map, _controller!.Position, _wbPortalRadius, _wbPortalTargetMap,
-                new Vector3(_wbPortalTx, _wbPortalTy, _wbPortalTz), _wbPortalTo, _wbPortalMinLevel));
+            ImGui.TextColored(step, "3. Save");
+            string? why = WbText(_wbPortalName).Trim().Length == 0 ? "Name the portal." : !_wbPortalHasTarget ? "Pick the arrival (step 1)."
+                : _wbPortalEntrance is null ? "Pick the entrance (step 2)."
+                : _wbPortalId < 7000 || WbIdUsed("dbrow:areatrigger_template", "id", _wbPortalId) ? "That trigger ID is taken (Advanced)." : null;
+            if (why is not null) ImGui.TextDisabled(why);
+            ImGui.BeginDisabled(why is not null || _wbOps.Count > 0);
+            if (CreatorButton("Save portal"))
+            {
+                var e = _wbPortalEntrance!.Value;
+                WbPost($"portal {WbText(_wbPortalName)}", WbPortalItems((uint)_wbPortalId, WbText(_wbPortalName).Trim(), e.Map, e.At,
+                    _wbPortalRadius, _wbPortalTargetMap, new Vector3(_wbPortalTx, _wbPortalTy, _wbPortalTz), _wbPortalTo, _wbPortalMinLevel));
+                _wbPortalEntrance = null; _wbPortalId = (int)Math.Max(WbNextId("dbrow:areatrigger_template", "id", 7000), (uint)_wbPortalId + 1);
+            }
             ImGui.EndDisabled();
+            DrawWbPortalList();
         }
+        DrawWbMapList();
+    }
+
+    private string WbMapLabel(int map) =>
+        WbDocBodies("map").FirstOrDefault(b => WbNum(b["mapId"]) == map)?["name"]?.ToString()
+        ?? map switch { 0 => "Eastern Kingdoms", 1 => "Kalimdor", _ => $"map {map}" };
+
+    /// <summary>This pack's portals: where they are and lead, go to, delete (all three rows of each).</summary>
+    private void DrawWbPortalList()
+    {
+        var portals = WbNpcPackDocs("dbrow:areatrigger_template", _wbPackId).ToList();
+        if (portals.Count == 0) return;
+        ImGui.Separator();
+        ImGui.TextUnformatted("Your portals");
+        int map = _config.Start.Map;
+        foreach (var doc in portals)
+        {
+            var b = doc["body"]!.AsObject();
+            uint id = WbNpcUInt(b["id"]);
+            var at = new Vector3(WbNpcFloat(b["x"]), WbNpcFloat(b["y"]), WbNpcFloat(b["z"]));
+            int pmap = (int)WbNum(b["map_id"]);
+            var tele = WbNpcPackDocs("dbrow:areatrigger_teleport", _wbPackId).FirstOrDefault(d => WbNpcUInt(d["body"]?["id"]) == id);
+            string name = b["name"]?.ToString() ?? "portal";
+            string to = tele is null ? "" : " to " + WbMapLabel((int)WbNum(tele["body"]?["target_map"]));
+            if (pmap == map) WbMarker(at, "Portal: " + name, 0xC0FF60E0u, WbNpcFloat(b["radius"], 3f));
+            ImGui.PushID((int)id);
+            ImGui.TextUnformatted($"{name}: on {WbMapLabel(pmap)}{to}");
+            // Buttons on their own line: a long name would push them past the panel edge.
+            if (pmap == map && _controller is not null) { if (CreatorButton("Go to")) _controller.Teleport(at.X, at.Y, at.Z + 6f); ImGui.SameLine(); }
+            ImGui.BeginDisabled(_wbOps.Count > 0);
+            if (WbConfirmButton("Delete portal", $"Delete the portal \"{name}\"? Undo brings it back."))
+            {
+                var docs = new List<JsonObject> { doc };
+                if (tele is not null) docs.Add(tele);
+                docs.AddRange(WbNpcPackDocs("dbc:AreaTrigger", _wbPackId).Where(d => d["docKey"]?.ToString() == id.ToString(CultureInfo.InvariantCulture)));
+                WbDeleteDocs($"delete portal {name}", docs);
+            }
+            ImGui.EndDisabled();
+            ImGui.PopID();
+        }
+    }
+
+    private void DrawWbMapList()
+    {
+        var maps = WbNpcPackDocs("map", _wbPackId).Select(d => d["body"]!.AsObject()).ToList();
+        if (maps.Count == 0) return;
+        ImGui.Separator();
+        ImGui.TextUnformatted("Your maps");
+        foreach (var b in maps)
+        {
+            string kind = WbNum(b["instanceType"]) switch { 1 => "dungeon", 2 => "raid", _ => "outdoor map" };
+            ImGui.BulletText($"{b["name"]} ({kind})");
+        }
+        ImGui.TextDisabled("Visit a map after publishing and downloading: Teleport tab, or walk through one of your portals.");
     }
 
     private void WbDrawStampSource()
     {
-        ImGui.TextWrapped($"Terrain source: {WbText(_wbSrcMap)}, tile {_wbSrcCol}, {_wbSrcRow}. Start with one tile, then extend the selection if needed.");
-        ImGui.BeginDisabled(_controller is null);
-        if (CreatorButton("Copy terrain from where I stand"))
+        bool sourceHere = string.Equals(WbText(_wbSrcMap), _config.Start.MapName, StringComparison.OrdinalIgnoreCase);
+        ImGui.TextWrapped(sourceHere
+            ? "The terrain to copy is outlined in the world. Start with one tile (about 533 yards), then make it wider or taller if needed."
+            : $"Copying terrain from {WbText(_wbSrcMap)}. Go there to see it outlined.");
+        WbPickButton("Pick the terrain to copy", "the terrain to copy", at =>
         {
-            (_wbSrcCol, _wbSrcRow) = WorldBuilderLaw.TileOf(_controller!.Position.X, _controller.Position.Y);
+            (_wbSrcCol, _wbSrcRow) = WorldBuilderLaw.TileOf(at.X, at.Y);
             WbSetBuf(_wbSrcMap, _config.Start.MapName);
-        }
-        ImGui.EndDisabled();
+        });
+        if (sourceHere) WbTileOutline(_wbSrcCol, _wbSrcRow, _wbSrcW, _wbSrcH, "terrain to copy");
         ImGui.SetNextItemWidth(CreatorControlWidth * 0.6f); ImGui.InputInt("Tiles wide", ref _wbSrcW, 0);
         ImGui.SetNextItemWidth(CreatorControlWidth * 0.6f); ImGui.InputInt("Tiles tall", ref _wbSrcH, 0);
         ImGui.Checkbox("Include trees and small props", ref _wbStampDoodads);

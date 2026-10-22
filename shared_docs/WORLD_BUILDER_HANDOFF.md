@@ -1,5 +1,29 @@
 # World Builder / Gilneas - handoff (updated 2026-09-28: human editor pass)
 
+**2026-10-14 (evening): human usability pass over every page** - pick buttons + world markers instead of typed
+coordinates, confirm dialogs on every delete/remove/publish, NPC auto-place after Create with a cursor ghost, custom
+chest form v2, portals/named places/quest areas picked on the ground. QA clients now run hidden in the background
+(`launch-wb.ps1` default). Verified flows and what is still unclicked: WORLD_BUILDER.md §8 (2026-10-14 evening).
+Then (same day): the docked LEFT sidebar for all Creator panels shipped in the Quest Atlas look (WORLD_BUILDER.md §4);
+fixed with it: five World Builder lists skipped `EndChild` when `BeginChild` returned false (window stack imbalance).
+
+**2026-10-14 (later): road surfaces SHIP** - web app phase 2 done and verified on the owner's LOCAL WSL stack (World
+Builder target from now on: http://localhost:5000, never 192.168.0.2). WSL build #4 succeeded end to end (Core updated by
+the owner with the extractor `-m` patch): verifier 0/0, client renders the road. Details: WORLD_BUILDER.md §8 (2026-10-14).
+
+**2026-10-14 roads:** fly camera, ground grid + snap, Paths as four steps, vanilla texture picker and live painted
+road surfaces (client only, verified in `gui-road-5.log`). Painted roads cannot be SAVED until the web app implements
+the path `surface`/`grade` contract in WORLD_BUILDER.md §8 (2026-10-14) and reports `State.roadSurfaceSupported`; the
+deploy script `tools/deploy-webapp.ps1` is not on this PC (only the box-side `Scripts/deploy-auto.sh`).
+
+**2026-10-07 noggit-lite pass (client only, nothing published):** new **Paths** page (click/drag/insert points, lane drawn
+on the ground, live graded-ground preview, saved paths reopen/rename/delete), new **Chests** page (stock gameobjects via
+`/GameObjects/Search`, click-to-place `dbrow:gameobject` rows with previews, edit/move/remove, custom chests with their
+own loot) and Buildings props tools (Buildings/Props filter, quick words, scatter, X/Y/tilt, live edit preview, Duplicate).
+Real-pointer QA on the disabled `human-tools-qa` pack passed and left it clean (ops 266-269); details and the untested
+parts in WORLD_BUILDER.md §8 (2026-10-07). Next: road texture painting (web ADT MCLY/MCAL writer + client preview),
+then publish a chest/custom chest and loot it live.
+
 **Human editor pass verified.** World now has task navigation, explicit start/cancel, corrected sculpt persistence,
 visible/selectable offline NPCs, scoped editing of existing stock spawns, and data-preserving NPC/quest forms.
 Usage and current import limits are in WORLD_BUILDER.md §4. Dungeon work remains deferred.
@@ -205,7 +229,7 @@ before launching the next one. On this machine Python is bundled at
 
 - **MangosSuperUI**: `Services/WorldPacks/*` (build, audit/verifier incl. G15 `WorldPackNavMesh`, `WorldPackMinimap`,
   relocation, paths), `Controllers/WorldPacksController.cs`, `Scripts/deploy-auto.sh`, `MangosSuperUI.Tests/WorldPack*`.
-- **MSUIClient**: `GameLoop/CreatorMode/GameLoop.Creator.WorldBuilder*.cs`, `Engine/UI/WorldBuilderLaw.cs`,
+- **MSUIClient**: `GameLoop/CreatorMode/GameLoop.Creator.WorldBuilder*.cs` (2026-10-07: new `.Paths.cs`, `.Objects.cs`, `.Props.cs`; 2026-10-14: `.Ground.cs`, `.Common.cs`, `.NpcPlace.cs`, `Engine/UI/TerrainPaintLaw.cs`, `Program.cs` background window, `GameLoop.Control.cs` fly camera), `Engine/UI/WorldBuilderLaw.cs`,
   `Net/WorldPack*.cs`, `GameLoop/Dev/GameLoop.LiveRun*.cs` (pack-trial, patrol-watch/at, boss-trial pull, kill-for-quest),
   `tools/worldpack/*` (generators, navmesh planner, make-group, launch scripts, `worldmap-probe.py`), `tools/interface-wire-check/
   WorldBuilderClinicalChecks.cs`, `shared_docs/WORLD_BUILDER*.md`, AGENTS.md (test-environment section).

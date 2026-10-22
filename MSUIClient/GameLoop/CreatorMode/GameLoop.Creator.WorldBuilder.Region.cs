@@ -39,11 +39,9 @@ public sealed partial class GameLoop
         if (ImGui.CollapsingHeader("Add terrain to this continent"))
         {
             WbDrawStampSource();
-            ImGui.TextWrapped($"Destination: tile {_wbDstCol}, {_wbDstRow} on the current map.");
-            ImGui.BeginDisabled(_controller is null);
-            if (CreatorButton("Place the terrain at my current tile"))
-                (_wbDstCol, _wbDstRow) = WorldBuilderLaw.TileOf(_controller!.Position.X, _controller.Position.Y);
-            ImGui.EndDisabled();
+            ImGui.TextWrapped("Where it goes on this continent is outlined in the world (it replaces those tiles while the pack is enabled).");
+            WbPickButton("Pick where it goes", "where the new terrain goes", at => (_wbDstCol, _wbDstRow) = WorldBuilderLaw.TileOf(at.X, at.Y));
+            WbTileOutline(_wbDstCol, _wbDstRow, _wbSrcW, _wbSrcH, "new terrain goes here", 0xFFFF60E0u);
             ImGui.SetNextItemWidth(w * 0.6f); ImGui.InputFloat("Blend into neighbours (yards)", ref _wbStitchBand);
             ImGui.TextWrapped("The selection replaces those tiles while this pack is enabled. Buildings and terrain can be edited after publication.");
             string? problem = map is not (0 or 1) ? "Connected regions are available on the Eastern Kingdoms and Kalimdor. Use Maps for separate dungeons." :
@@ -57,35 +55,8 @@ public sealed partial class GameLoop
                         _wbStampDoodads, _wbStampWmos, 0, _wbStitchBand));
             ImGui.EndDisabled();
         }
-        if (ImGui.CollapsingHeader("Create a path or mountain pass", ImGuiTreeNodeFlags.DefaultOpen))
-        {
-            ImGui.TextWrapped("Walk along the intended route and add points. Their heights define the road, so place points at the height players should walk. The edges blend into the surrounding ground.");
-            ImGui.SetNextItemWidth(w); ImGui.InputText("Path name", _wbCarveName, (uint)_wbCarveName.Length);
-            ImGui.SetNextItemWidth(w * 0.6f); ImGui.InputFloat("Path width (yards)", ref _wbCarveWidth);
-            ImGui.SetNextItemWidth(w * 0.6f); ImGui.InputFloat("Edge blending (yards)", ref _wbCarveFalloff);
-            ImGui.TextDisabled($"{_wbCarvePoints.Count} points recorded" + (_wbCarveMap >= 0 ? $" on map {_wbCarveMap}" : ""));
-            bool sameMap = _wbCarvePoints.Count == 0 || _wbCarveMap == map;
-            if (!sameMap) ImGui.TextWrapped("Return to the path's map to add points, or clear the points to start a new path here.");
-            ImGui.BeginDisabled(_controller is null || !sameMap);
-            if (CreatorButton("Add point where I stand"))
-            {
-                _wbCarveMap = map;
-                var at = _controller!.Position;
-                if (_wbCarvePoints.Count == 0 || Vector2.Distance(new(at.X, at.Y), new(_wbCarvePoints[^1].X, _wbCarvePoints[^1].Y)) >= 0.1f)
-                    _wbCarvePoints.Add(at);
-                else _wbMessage = "Move away from the previous point before adding another.";
-            }
-            ImGui.EndDisabled();
-            ImGui.BeginDisabled(_wbCarvePoints.Count == 0);
-            if (CreatorButton("Remove last point")) _wbCarvePoints.RemoveAt(_wbCarvePoints.Count - 1);
-            if (CreatorButton("Clear path points")) _wbCarvePoints.Clear();
-            ImGui.EndDisabled();
-            string? problem = WorldMapAuthoringLaw.PathProblem(WbText(_wbCarveName), _wbCarvePoints, _wbCarveWidth, _wbCarveFalloff);
-            if (problem is not null) ImGui.TextWrapped(problem);
-            ImGui.BeginDisabled(problem is not null || !sameMap || _wbOps.Count > 0);
-            if (CreatorButton("Save path")) WbPostPath(WbText(_wbCarveName).Trim(), _wbCarvePoints.ToList(), _wbCarveWidth, _wbCarveFalloff);
-            ImGui.EndDisabled();
-        }
+        ImGui.TextWrapped("Roads, trails and mountain passes have their own page.");
+        if (CreatorButton("Open Paths")) WbOpenPage("paths");
         if (ImGui.CollapsingHeader("Advanced region tools"))
         {
             ImGui.TextWrapped("Move every piece of this pack on the current map: terrain, placements and content. One column or row is about 533 yards. Review the destination before saving.");
@@ -93,7 +64,9 @@ public sealed partial class GameLoop
             ImGui.SetNextItemWidth(w * 0.6f); ImGui.InputInt("Columns to move (+east)", ref _wbRegionDCol, 0);
             ImGui.SetNextItemWidth(w * 0.6f); ImGui.InputInt("Rows to move (+south)", ref _wbRegionDRow, 0);
             ImGui.BeginDisabled(_wbRegionToMap < 0 || (_wbRegionToMap == map && _wbRegionDCol == 0 && _wbRegionDRow == 0) || _wbOps.Count > 0);
-            if (CreatorButton("Move pack region")) WbRelocate(map, _wbRegionToMap, _wbRegionDCol, _wbRegionDRow);
+            if (WbConfirmButton("Move pack region", $"Move EVERYTHING this pack has on this map (terrain, buildings, NPCs, paths) by {_wbRegionDCol} column(s) and {_wbRegionDRow} row(s)" +
+                    (_wbRegionToMap != map ? $" onto {WbMapLabel(_wbRegionToMap)}" : "") + "? Undo moves it back."))
+                WbRelocate(map, _wbRegionToMap, _wbRegionDCol, _wbRegionDRow);
             ImGui.EndDisabled();
             ImGui.Separator();
             ImGui.TextWrapped("Import a traced coastline for the continent map's zone name and hover highlight.");
@@ -114,7 +87,10 @@ public sealed partial class GameLoop
                     ImGui.EndDisabled();
                     ImGui.SetNextItemWidth(w); ImGui.InputText("Building filenames to remove", _wbTileDrop, (uint)_wbTileDrop.Length);
                     ImGui.TextWrapped("Separate exact source filenames with commas. This removes source buildings when the tile is rebuilt.");
-                    if (CreatorButton("Remove named source buildings") && WbText(_wbTileDrop).Length > 0) WbTileSet(map, col, row, "dropWmos", WbText(_wbTileDrop));
+                    ImGui.BeginDisabled(WbText(_wbTileDrop).Length == 0);
+                    if (CreatorButton("Remove named source buildings")) WbTileSet(map, col, row, "dropWmos", WbText(_wbTileDrop));
+                    ImGui.EndDisabled();
+                    if (WbText(_wbTileDrop).Length == 0) ImGui.TextDisabled("Type at least one building file name first.");
                 }
             }
         }

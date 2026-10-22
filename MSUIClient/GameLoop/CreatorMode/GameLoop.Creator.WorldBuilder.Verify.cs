@@ -132,16 +132,19 @@ public sealed partial class GameLoop
     private void DrawWbVerifySection()
     {
         PumpWbVerify();
-        ImGui.TextDisabled("Every publish is verified on the server; the client checks spawns against real collision.");
-        if (CreatorButton(_wbVerifyTask is null ? "Load report" : "loading...")) WbRequestVerify(false);
-        ImGui.SameLine();
-        if (CreatorButton("Pre-flight")) WbRequestPreflight();
-        ImGui.SameLine();
-        if (CreatorButton("Re-run on server")) WbRequestVerify(true);
-        ImGui.SameLine();
-        if (CreatorButton("Check spawns here")) { _wbClientSeen.Clear(); WbVerifySpawnsNear(_controller?.Position ?? Vector3.Zero, 180f); }
-        ImGui.SameLine();
-        if (CreatorButton("Heal all walk-offs")) WbHealAllWalkOffs();
+        var step = new Vector4(1f, .82f, .3f, 1f);
+        ImGui.TextColored(step, "Before publishing");
+        if (CreatorButton("Check drafts")) WbRequestPreflight();
+        ImGui.SameLine(); ImGui.TextDisabled("problems in saved, unpublished content (seconds)");
+        ImGui.TextColored(step, "After publishing");
+        if (CreatorButton(_wbVerifyTask is null ? "Show the last publish report" : "loading...")) WbRequestVerify(false);
+        if (CreatorButton("Check the published world again")) WbRequestVerify(true);
+        ImGui.SameLine(); ImGui.TextDisabled("about a minute");
+        ImGui.TextColored(step, "Here, on real collision");
+        if (CreatorButton("Check NPCs and objects around me")) { _wbClientSeen.Clear(); WbVerifySpawnsNear(_controller?.Position ?? Vector3.Zero, 180f); }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Stands every pack NPC and object within 180 yd on this game's real ground and buildings: anything floating, buried or inside a wall is listed.");
+        if (CreatorButton("Close ground holes NPCs fall through")) WbHealAllWalkOffs();
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Fills the terrain holes the check above found under pack NPCs (one undoable edit).");
         if (_wbVerify is null) { if (_wbVerifyTask is null) WbRequestVerify(false); return; }
 
         ImGui.TextUnformatted($"Build {_wbVerify["buildId"]?.ToString() ?? "(on demand)"}: {_wbVerify["errors"]} error(s), {_wbVerify["warnings"]} warning(s)");
@@ -159,11 +162,11 @@ public sealed partial class GameLoop
                 if (f["x"] is JsonValue && (int?)f["map"] == _config.Start.Map && ImGui.SmallButton("go"))
                     WbGoLook(new Vector3((float)f["x"]!, (float)f["y"]!, (float)f["z"]!));
                 if (f["x"] is JsonValue) ImGui.SameLine();
-                ImGui.TextWrapped($"{(string?)f["check"]} {(string?)f["subject"]}: {(string?)f["message"]}");
+                ImGui.TextWrapped($"{WbFriendlySubject((string?)f["subject"] ?? "")}: {(string?)f["message"]}");
                 ImGui.PopID();
             }
-            ImGui.EndChild();
         }
+        ImGui.EndChild();   // always, whatever BeginChild returned
         if (_wbClientChecked > 0)
         {
             ImGui.TextUnformatted($"Client collision pass: {_wbClientChecked} checked, {_wbClientFindings.Count(f => f.Severity == "error")} error(s)");
@@ -177,7 +180,7 @@ public sealed partial class GameLoop
                     if (ImGui.SmallButton("heal")) WbHealHole(at.X, at.Y);
                     ImGui.SameLine();
                 }
-                ImGui.TextWrapped($"{sev} {subject}: {msg}");
+                ImGui.TextWrapped($"{sev}: {WbFriendlySubject(subject)}: {msg}");
                 ImGui.PopID();
             }
         }
@@ -481,7 +484,7 @@ public sealed partial class GameLoop
         int map = _config.Start.Map;
         JsonObject? all = null;
         try { all = File.Exists(WbHolesPath) ? JsonNode.Parse(File.ReadAllText(WbHolesPath)) as JsonObject : null; } catch { }
-        if (all is null) { _wbMessage = "no hole results yet - run verify-spawns first"; return 0; }
+        if (all is null) { _wbMessage = "no hole results yet - use Check NPCs and objects around me first"; return 0; }
         const float quarter = WorldBuilderLaw.Tile / 64f;   // a hole square = a quarter chunk
         var squares = new Dictionary<(int col, int row), Dictionary<(int, int), (float x, float y)>>();
         foreach (var (_, node) in all)
@@ -654,4 +657,23 @@ public sealed partial class GameLoop
     }
 
     private static string Inv(FormattableString s) => s.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>"creature 1500012 (entry 7000003)" -> the NPC's name; "gameobject N" -> the object's; "quest N" -> its title.</summary>
+    private string WbFriendlySubject(string subject)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(subject, @"^(creature|gameobject|quest)\s+(\d+)");
+        if (!m.Success) return subject;
+        uint id = uint.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+        string rest = subject[m.Length..].Trim();
+        rest = System.Text.RegularExpressions.Regex.Replace(rest, @"^\(entry \d+\)\s*", "");
+        string name = m.Groups[1].Value switch
+        {
+            "creature" => WbNpcPackDocs("dbrow:creature").FirstOrDefault(d => WbNpcUInt(d["body"]?["guid"]) == id) is { } c
+                ? WbNpcName(WbNpcUInt(c["body"]?["id"])) : $"NPC {id}",
+            "gameobject" => WbGoSpawnDocs(null).FirstOrDefault(d => WbNpcUInt(d["body"]?["guid"]) == id) is { } g
+                ? WbGoName(WbNpcUInt(g["body"]?["id"])) : $"object {id}",
+            _ => WbDocBodies("dbrow:quest_template").FirstOrDefault(q => WbNum(q["entry"]) == id)?["Title"]?.ToString() is { } t ? $"quest \"{t}\"" : $"quest {id}",
+        };
+        return rest.Length > 0 ? $"{name} {rest}" : name;
+    }
 }

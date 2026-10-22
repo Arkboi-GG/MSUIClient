@@ -83,6 +83,13 @@ public enum WmoReasonCode
 /// </summary>
 public sealed class WmoRenderer : IDisposable
 {
+    /// <summary>Quest Tabletop view transform (relief + board cut); set only on the tabletop's own instance.</summary>
+    public TabletopViewTransform? Tabletop { get; set; }
+
+    /// <summary>Quest Tabletop: extra height for a placement (its origin, owning WMO instance id) so models ride the
+    /// exaggerated ground at true scale (World/TabletopViewTransform.cs). Null everywhere else.</summary>
+    public Func<Vector3, int, float>? ModelLift { get; set; }
+
     /// <summary>Position(3) + Normal(3) + UV(2) + MOCV colour(4).</summary>
     private const int FloatsPerVertex = 12;
 
@@ -4721,6 +4728,7 @@ public sealed class WmoRenderer : IDisposable
         _shader.Set("uWorldClipPlane", worldClipPlane is { IsValid: true } clip
             ? clip.RelativeEquation(camera.Position)
             : new Vector4(0f, 0f, 0f, 1f));
+        Tabletop?.Apply(_shader, camera.Position, relief: false);
         _shader.Set("uUseInstancing", 0);
         _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uCutActive", ActiveCut is not null ? 1 : 0);
@@ -4786,6 +4794,7 @@ public sealed class WmoRenderer : IDisposable
         foreach (var (_, instance) in _drawOrder)
         {
             var modelTransform = instance.Transform;
+            if (ModelLift is { } lift) modelTransform.M43 += lift(instance.Origin, instance.Id);
             modelTransform.M41 -= cameraPosition.X;
             modelTransform.M42 -= cameraPosition.Y;
             modelTransform.M43 -= cameraPosition.Z;

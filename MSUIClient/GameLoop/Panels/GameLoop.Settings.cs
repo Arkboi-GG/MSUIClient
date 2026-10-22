@@ -169,6 +169,12 @@ public sealed partial class GameLoop
             _escapeKeyDown = escape;
             return;
         }
+        // The Quest Tabletop owns Escape while open: clear the selection and fly back to the overview.
+        if (escape && !_escapeKeyDown && ConsumeTabletopEscape())
+        {
+            _escapeKeyDown = escape;
+            return;
+        }
         // World Builder owns an armed brush/placement before any gameplay menu layer.
         if (escape && !_escapeKeyDown && ConsumeWorldBuilderEscape())
         {

@@ -45,6 +45,49 @@ internal static class WorldBuilderClinicalChecks
         var (b0, b1, b2) = WorldBuilderLaw.EncodeNormal(0f, 0f);
         Check(b0 == 0 && b1 == 0 && b2 == 127, "flat ground normal must encode as (0,0,127)");
 
+        // Path maker: the client preview grades with the build's own rule (web GradedPath.Deltas): full pull in the
+        // lane, smoothstep across the blend, nothing beyond; "even out the slope" keeps the ends and positions.
+        Check(WorldBuilderLaw.PathWeight(3f, 8f, 10f) == 1f && WorldBuilderLaw.PathWeight(14f, 8f, 10f) == 0f &&
+              MathF.Abs(WorldBuilderLaw.PathWeight(9f, 8f, 10f) - 0.5f) < 1e-5f && WorldBuilderLaw.PathWeight(4.5f, 8f, 0f) == 0f,
+            "path weight: 1 within half the width, 0.5 mid-blend, 0 beyond width/2 + falloff");
+        // Ground legs 20 + 10 + 10 yd: the inner points sit halfway and three-quarters up the 10 -> 50 climb.
+        var graded = WorldBuilderLaw.EvenGrade(new[] { new Vector3(0, 0, 10), new Vector3(20, 0, 99), new Vector3(20, 10, -5), new Vector3(20, 20, 50) });
+        Check(graded[0].Z == 10f && graded[3].Z == 50f && MathF.Abs(graded[1].Z - 30f) < 1e-4f && MathF.Abs(graded[2].Z - 40f) < 1e-4f &&
+              graded[2].X == 20f && graded[2].Y == 10f,
+            "even grade: one slope by ground distance, ends and positions unchanged");
+
+        // Road surfaces (TerrainPaintLaw): paint in visible-weight space, at most 4 layers, 4-bit alphas like MCAL.
+        {
+            var tex = new List<int> { 10 };
+            var alphas = new List<byte[]?> { null };
+            bool painted = TerrainPaintLaw.PaintChunk(tex, alphas, 20, (r, c) => c < 32 ? 1f : 0f);
+            var painted0 = TerrainPaintLaw.Weights(alphas);
+            Check(painted && tex.SequenceEqual(new[] { 10, 20 }) && painted0[1][5 * 64 + 3] > 0.999f && painted0[0][5 * 64 + 40] > 0.999f,
+                "painting a base-only chunk adds one layer: full road where painted, untouched ground elsewhere");
+            Check(!TerrainPaintLaw.PaintChunk(tex, alphas, 30, (_, _) => 0f) && tex.Count == 2,
+                "a paint that reaches no pixel leaves the chunk untouched");
+
+            // The painted texture sits UNDER two opaque layers: weight space still makes it fully visible.
+            var full = Enumerable.Repeat((byte)255, TerrainPaintLaw.Pixels).ToArray();
+            var t3 = new List<int> { 1, 2, 3 };
+            var a3 = new List<byte[]?> { null, (byte[])full.Clone(), (byte[])full.Clone() };
+            TerrainPaintLaw.PaintChunk(t3, a3, 1, (_, _) => 1f);
+            Check(TerrainPaintLaw.Weights(a3)[0][100] > 0.999f, "painting a lower layer is not hidden by the layers above it");
+
+            var t4 = new List<int> { 1, 2, 3, 4 };
+            var half = Enumerable.Repeat((byte)136, TerrainPaintLaw.Pixels).ToArray();
+            var a4 = new List<byte[]?> { null, (byte[])half.Clone(), (byte[])half.Clone(), new byte[TerrainPaintLaw.Pixels] };
+            TerrainPaintLaw.PaintChunk(t4, a4, 9, (r, _) => r == 0 ? 1f : 0f);
+            Check(t4.Count == 4 && t4.Contains(9) && !t4.Contains(4) && a4.Skip(1).All(a => a!.All(v => v % 17 == 0)),
+                "a fifth texture replaces the least-visible layer; alphas stay on the 4-bit grid");
+            Check(TerrainPaintLaw.RoadAmount(2f, 6f, 2f, 1f) == 1f && TerrainPaintLaw.RoadAmount(6f, 6f, 2f, 1f) == 0f &&
+                  MathF.Abs(TerrainPaintLaw.RoadAmount(4f, 6f, 2f, 1f) - 0.5f) < 1e-5f,
+                "road amount: full on the road, smoothstep across the soft edge");
+            var p0 = TerrainPaintLaw.PixelWorld(32, 48, 0, 0, 0, 0);
+            Check(MathF.Abs(p0.X - (-16 * WorldBuilderLaw.Tile - TerrainPaintLaw.ChunkSize / 128f)) < 1e-2f,
+                "alpha pixel rows run south along world X from the tile's north edge");
+        }
+
         // Wiring: every edit goes through the web app's audited /WorldPacks API.
         string root = ClientConfig.FindRepoRoot();
         string panel = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "CreatorMode", "GameLoop.Creator.WorldBuilder.cs"));
@@ -55,6 +98,20 @@ internal static class WorldBuilderClinicalChecks
             "the World Builder panel must never write the server directly (web app ops only)");
         Check(panel.Contains("ReadFileExcluding(path, WbPatchName)", StringComparison.Ordinal),
             "terrain preview must be derived from STOCK heights (read past patch-7)");
+        string paths = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "CreatorMode", "GameLoop.Creator.WorldBuilder.Paths.cs"));
+        Check(panel.Contains("_wbPathPreview.TryGetValue(key, out var path)", StringComparison.Ordinal) &&
+              paths.Contains("WorldBuilderLaw.PathWeight(d, _wbCarveWidth, _wbCarveFalloff)", StringComparison.Ordinal) &&
+              paths.Contains("[\"kind\"] = \"path\"", StringComparison.Ordinal) && paths.Contains("_wbPathEditBody?.DeepClone()", StringComparison.Ordinal),
+            "the path editor previews with the build's grading rule as a terrain-preview layer, saves a path doc and keeps unknown fields");
+        // Chests and server objects: one reserved-range dbrow:gameobject row per placement with a yaw quaternion; a custom
+        // chest is a pack template copy whose loot id is its own entry.
+        string objects = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "CreatorMode", "GameLoop.Creator.WorldBuilder.Objects.cs"));
+        Check(objects.Contains("WbNextId(\"dbrow:gameobject\", \"guid\", WbSpawnBase)", StringComparison.Ordinal) &&
+              objects.Contains("row[\"rotation3\"] = Math.Round(MathF.Cos(facing / 2f), 6)", StringComparison.Ordinal) &&
+              objects.Contains("row[\"data1\"] = entry;", StringComparison.Ordinal) &&
+              objects.Contains("\"dbrow:gameobject_loot_template\"", StringComparison.Ordinal) &&
+              !objects.Contains("SendGmCommand", StringComparison.Ordinal),
+            "server objects are pack dbrow:gameobject rows (reserved guid, yaw quaternion); custom chest loot id = its entry");
         string ui = SourceText.Read(Path.Combine(root, "MSUIClient", "GameLoop", "CreatorMode", "GameLoop.Creator.Ui.cs"));
         Check(ui.Contains("RegisterCreatorWorldSections();", StringComparison.Ordinal) &&
               ui.Contains("UpdateWorldBuilder();", StringComparison.Ordinal),

@@ -23,11 +23,22 @@ public sealed partial class GameLoop
     private readonly HashSet<ImGuiKey> _wbUiGuiKeys = new();
     private readonly Dictionary<string, MSUIClient.Net.WorldPackClient.Placement> _wbUiPlacementMarks = new();
     private uint _wbUiQuestExpectedEntry;
+    private Vector2? _wbUiPanelSize;   // ui-panel-size: applied once by BeginCreatorPanel
+    private string? _wbUiScrollTo, _wbUiDeferredClick;   // ui-click: scroll a hidden control into view, then click it
+    private double _wbUiDeferredAt;
+    private int _wbUiDeferredTries;
 
     /// <summary>Read-only observation after a real widget; normal sessions do no work.</summary>
     private void ObserveWorldBuilderUiItem(string label)
     {
-        if (WbScriptPath is null || !ImGui.IsItemVisible()) return;
+        if (WbScriptPath is null) return;
+        // ui-click of a control outside the scrolled view: bring it into view first (a person would scroll to it).
+        if (_wbUiScrollTo is { } target && (label == target || label.Split("##", 2)[0] == target))
+        {
+            ImGui.SetScrollHereY(0.5f);
+            _wbUiScrollTo = null;
+        }
+        if (!ImGui.IsItemVisible()) return;
         var rect = (ImGui.GetItemRectMin(), ImGui.GetItemRectMax(), ImGui.GetFrameCount());
         _wbUiItems[label] = rect;
         string visible = label.Split("##", 2, StringSplitOptions.None)[0];
@@ -37,6 +48,15 @@ public sealed partial class GameLoop
     private bool PumpWorldBuilderUiProbe(double now)
     {
         _wbUiVisitedPublish |= _wbPage == "publish";
+        if (_wbUiDeferredClick is { } pending)
+        {
+            if (now < _wbUiDeferredAt) return true;
+            if (_wbUiItems.TryGetValue(pending, out var seen) && ImGui.GetFrameCount() - seen.Frame <= 2) { WbUiClick(pending, now); return true; }
+            if (++_wbUiDeferredTries < 4) { _wbUiScrollTo = pending; _wbUiDeferredAt = now + 0.35; return true; }
+            _wbUiDeferredClick = null;
+            Console.WriteLine($"[wbscript] ERROR: No visible current button '{pending}' (even after scrolling to it).");
+            return false;
+        }
         if (_wbUiTextPhase != 0)
         {
             if (now < _wbUiNextPhaseAt) return true;
@@ -137,7 +157,16 @@ public sealed partial class GameLoop
     private void WbUiClick(string label, double now)
     {
         if (!_wbUiItems.TryGetValue(label, out var item) || ImGui.GetFrameCount() - item.Frame > 2)
+        {
+            if (_wbUiDeferredClick != label)
+            {
+                // Not in view: scroll it in and try again over the next frames (PumpWorldBuilderUiProbe).
+                _wbUiScrollTo = label; _wbUiDeferredClick = label; _wbUiDeferredAt = now + 0.35; _wbUiDeferredTries = 0;
+                return;
+            }
             throw new InvalidOperationException($"No visible current button '{label}'. Run ui-inspect to list visible buttons.");
+        }
+        _wbUiDeferredClick = null;
         _liveGuiDown = false;
         WbUiPointer((item.Min + item.Max) * 0.5f);
         _wbUiClickPhase = 1;
@@ -171,7 +200,8 @@ public sealed partial class GameLoop
             case "ui-page":
                 WbUiClick(a[1].ToLowerInvariant() switch
                 {
-                    "terrain" => "Terrain", "buildings" => "Buildings", "npcs" => "NPCs",
+                    "terrain" => "Terrain", "paths" => "Paths", "buildings" => "Buildings",
+                    "gameobjects" => "Objects", "npcs" => "NPCs",
                     "quests" => "Quests", "publish" => "Publish", "advanced" => "More", "packs" => "Packs...",
                     _ => throw new ArgumentException("Unknown World Builder page."),
                 }, now);
@@ -187,6 +217,11 @@ public sealed partial class GameLoop
                 Console.WriteLine("[wb-ui] replace focused text through Ctrl+A and UTF-8 input frames");
                 break;
             case "ui-point-npc": WbUiPointNpc(string.Join(' ', a[1..]), now); break;
+            case "ui-panel-size":
+                // Size the World panel as a person would by dragging its corner (script runs only).
+                _wbUiPanelSize = new Vector2(F(1), F(2));
+                _wbScriptWaitUntil = now + 0.3;
+                break;
             case "ui-wheel":
                 ImGui.GetIO().AddMouseWheelEvent(0f, F(1));
                 _wbScriptWaitUntil = now + 0.2;

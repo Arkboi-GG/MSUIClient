@@ -215,6 +215,9 @@ public sealed class TerrainRenderer : IDisposable
     public float FogEnd { get; set; } = 900f;
     public float VisibilityDistance { get; set; } = float.PositiveInfinity;
 
+    /// <summary>Quest Tabletop view transform (relief + board cut); set only on the tabletop's own instance.</summary>
+    public TabletopViewTransform? Tabletop { get; set; }
+
     /// <summary>
     /// Frustum-cull per MCNK inside a tile rather than only per tile.
     ///
@@ -970,6 +973,7 @@ public sealed class TerrainRenderer : IDisposable
         _shader.Set("uWorldClipPlane", worldClipPlane is { IsValid: true } clip
             ? clip.RelativeEquation(camera.Position)
             : new Vector4(0f, 0f, 0f, 1f));
+        Tabletop?.Apply(_shader, camera.Position, relief: true);
         _shader.Set("uCutActive", Cut is not null ? 1 : 0);
         _shader.Set("uCutRect", Cut?.RelativeRect(camera.Position) ?? Vector4.Zero);
         _shader.Set("uCutZ", Cut?.RelativeZ(camera.Position) ?? 0f);

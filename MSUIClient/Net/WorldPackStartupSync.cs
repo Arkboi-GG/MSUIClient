@@ -33,29 +33,75 @@ public static class WorldPackStartupSync
         File.WriteAllText(Path.Combine(dataPath, PatchName + ".json"),
             JsonSerializer.Serialize(new { buildId, sha1, syncedUtc = DateTime.UtcNow }));
 
-    /// <summary>Bring patch-7 + pack collision to the server's latest build. Returns a one-line status.</summary>
-    public static string EnsureCurrent(WorldPackClient client, string baseUrl, string dataPath, string vmapDir, string mmapDir,
-        TimeSpan timeout)
+    /// <summary>What startup learned, plus the collision sync still running behind it (null = nothing to do).</summary>
+    public sealed record StartupResult(string Status, Task<string>? Collision);
+
+    /// <summary>
+    /// Live state of a blocking startup sync, read by the window's progress card from the GL thread while the sync runs
+    /// on a worker (owner, 2026-10-14: a long black window that looks frozen is the worst part of a slow boot).
+    /// </summary>
+    public sealed class Progress
     {
-        if (string.IsNullOrWhiteSpace(baseUrl)) return "world packs: no web app configured - skipped";
+        private volatile string _stage = "Checking for world content updates";
+        private long _done, _total = -1;
+        public string Stage { get => _stage; set => _stage = value; }
+        public long Done => Interlocked.Read(ref _done);
+        /// <summary>Bytes expected, or null while unknown.</summary>
+        public long? Total => Interlocked.Read(ref _total) is var t and >= 0 ? t : null;
+        public void Report(long done, long? total) { Interlocked.Exchange(ref _done, done); Interlocked.Exchange(ref _total, total ?? -1); }
+    }
+
+    /// <summary>
+    /// Bring patch-7 + pack collision to the server's latest build without holding the window hostage.
+    /// Blocking: the version check (<paramref name="checkTimeout"/>, seconds) and, only when the build moved,
+    /// the patch-7 download (<paramref name="downloadTimeout"/>) - the archive must be on disk before the
+    /// mount, and a mounted MPQ cannot be swapped outside the World Builder. The sidecar is written the
+    /// moment patch-7 lands. Collision (vmaps/mmaps, a minute or more on a fresh build) syncs in the
+    /// background; its own per-folder manifests decide whether it is current, so an interrupted sync is
+    /// simply resumed on the next launch instead of re-downloading everything.
+    /// </summary>
+    public static StartupResult EnsureCurrent(WorldPackClient client, string baseUrl, string dataPath, string vmapDir,
+        string mmapDir, TimeSpan checkTimeout, TimeSpan downloadTimeout, Progress? progress = null)
+    {
+        if (string.IsNullOrWhiteSpace(baseUrl)) return new("world packs: no web app configured - skipped", null);
         try
         {
-            using var cts = new CancellationTokenSource(timeout);
-            var server = client.LastBuildAsync(baseUrl).WaitAsync(cts.Token).GetAwaiter().GetResult();
-            if (server is null) return "world packs: the server has published none";
+            WorldPackClient.BuildInfo? server;
+            using (var check = new CancellationTokenSource(checkTimeout))
+                server = client.LastBuildAsync(baseUrl).WaitAsync(check.Token).GetAwaiter().GetResult();
+            if (server is null) return new("world packs: the server has published none", null);
+
+            string patch;
             var local = ReadLocal(dataPath);
             if (local is not null && local.BuildId == server.BuildId && (server.Sha1 is null || local.Sha1 == server.Sha1))
-                return $"world packs: build #{server.BuildId} is current";
-            string dest = Path.Combine(dataPath, PatchName);
-            long size = client.DownloadPatchAsync(baseUrl, dest).WaitAsync(cts.Token).GetAwaiter().GetResult();
-            var sync = WorldPackCollisionSync.SyncAsync(client, baseUrl, server.BuildId, vmapDir, mmapDir, cts.Token)
-                .WaitAsync(cts.Token).GetAwaiter().GetResult();
-            WriteLocal(dataPath, server.BuildId, server.Sha1);
-            return $"world packs: updated to build #{server.BuildId} ({size / 1024} KiB patch-7; {sync.Summary})";
+                patch = $"build #{server.BuildId} is current";
+            else
+            {
+                using var download = new CancellationTokenSource(downloadTimeout);
+                if (progress is not null) progress.Stage = $"Downloading world content (build #{server.BuildId})";
+                long size = client.DownloadPatchAsync(baseUrl, Path.Combine(dataPath, PatchName), download.Token,
+                        progress is null ? null : progress.Report)
+                    .WaitAsync(download.Token).GetAwaiter().GetResult();
+                WriteLocal(dataPath, server.BuildId, server.Sha1);
+                patch = $"patch-7 updated to build #{server.BuildId} ({size / 1024} KiB)";
+            }
+
+            if (WorldPackCollisionSync.SyncedBuild(vmapDir) == server.BuildId &&
+                WorldPackCollisionSync.SyncedBuild(mmapDir) == server.BuildId)
+                return new($"world packs: {patch}; collision current", null);
+
+            int buildId = server.BuildId;
+            var collision = Task.Run(async () =>
+            {
+                var sync = await WorldPackCollisionSync.SyncAsync(client, baseUrl, buildId, vmapDir, mmapDir);
+                return $"world packs: build #{buildId} {sync.Summary}";
+            });
+            return new($"world packs: {patch}; collision syncing in the background", collision);
         }
         catch (Exception ex)
         {
-            return $"world packs: could not sync ({ex.GetBaseException().Message}) - continuing with build #{ReadLocal(dataPath)?.BuildId.ToString() ?? "none"}";
+            string why = ex.GetBaseException() is OperationCanceledException ? "timed out" : ex.GetBaseException().Message;
+            return new($"world packs: could not sync ({why}) - continuing with build #{ReadLocal(dataPath)?.BuildId.ToString() ?? "none"}", null);
         }
     }
 }

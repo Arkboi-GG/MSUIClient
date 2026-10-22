@@ -100,7 +100,7 @@ public sealed partial class GameLoop
         if (_wbNpcEditPack != 0 && _wbNpcEditPack != _wbPackId && !_wbNpcSaving) WbNewNpc();
         if (CreatorButton(_wbNpcBrowserOpen ? "Close NPC finder" : "Find / change NPC")) _wbNpcBrowserOpen = !_wbNpcBrowserOpen;
         ImGui.SameLine();
-        if (CreatorButton("New NPC")) WbNewNpc();
+        if (CreatorButton("New NPC")) WbNpcGuard(WbNewNpc);
         bool viewOpen = ImGui.TreeNode("NPC view options"); ObserveWorldBuilderUiItem("NPC view options");
         if (viewOpen)
         {
@@ -125,7 +125,7 @@ public sealed partial class GameLoop
                     var t = d["body"]!; uint entry = WbNpcUInt(t["entry"]);
                     string name = t["name"]?.ToString() ?? "NPC";
                     if (!Match(name, entry)) continue;
-                    if (ImGui.Selectable($"{name}  — pack##wb-edit-{entry}", _wbNpcEditEntry == entry)) WbLoadPackNpc(entry, 0);
+                    if (ImGui.Selectable($"{name}  — this pack##wb-edit-{entry}", _wbNpcEditEntry == entry)) WbNpcGuard(() => WbLoadPackNpc(entry, 0));
                     ObserveWorldBuilderUiItem(name);
                 }
                 var authoredSpawns = WbNpcPackDocs("dbrow:creature").Select(d => WbNpcUInt(d["body"]?["guid"])).ToHashSet();
@@ -137,7 +137,7 @@ public sealed partial class GameLoop
                     string name = t["name"]?.ToString() ?? "NPC";
                     if (!Match(name, entry)) continue;
                     float distance = _controller is null ? 0 : Vector2.Distance(new(_controller.Position.X, _controller.Position.Y), new(WbNpcFloat(s["position_x"]), WbNpcFloat(s["position_y"])));
-                    if (ImGui.Selectable($"{name}  — {distance:F0} yd##wb-stock-{guid}", _wbNpcEditSpawn == guid)) WbLoadStockNpc(n);
+                    if (ImGui.Selectable($"{name}  — {distance:F0} yd##wb-stock-{guid}", _wbNpcEditSpawn == guid)) WbNpcGuard(() => WbLoadStockNpc(n));
                     ObserveWorldBuilderUiItem(name);
                 }
                 ImGui.EndListBox();
@@ -206,7 +206,7 @@ public sealed partial class GameLoop
         if (pack != _wbPackId) { _wbMessage = WbNpcOtherPackMessage(pack); return; }
         _wbMessage = "";
         _wbNpcBrowserOpen = false;
-        WbCancelNpcPlacement();
+        if (!_wbNpcRefreshing) WbCancelNpcPlacement();   // a refresh of the same NPC keeps placing
         _wbNpcLoadFailed = false; _wbNpcHydrateSource = null;
         _wbNpcCopyBlock = "";
         _wbNpcEditEntry = entry; _wbNpcEditSpawn = spawn; _wbNpcStockSourceEntry = 0; _wbNpcEditPack = pack;
@@ -234,7 +234,7 @@ public sealed partial class GameLoop
             _wbNpcHydrateSource = _wbNpcSource;
             _wbNpcLoadTask = _wbClient.NpcAsync(SuiWebAppUrl, WbNpcUInt(replacement["body"]?["originalEntry"]));
         }
-        WbOpenPage("npcs");
+        if (!_wbNpcRefreshing) WbOpenPage("npcs");
     }
 
     private void WbLoadStockNpc(JsonObject npc)
@@ -312,8 +312,13 @@ public sealed partial class GameLoop
     {
         if (_wbNpcEditEntry != 0 && _wbNpcStockSourceEntry == 0 && !_wbNpcSaving && _wbNpcLoadTask is null &&
             _wbNpcEditPack == _wbPackId && WbNpcFormSignature() == _wbNpcLoadedFormSignature)
-            WbLoadPackNpc(_wbNpcEditEntry, _wbNpcEditSpawn);
+        {
+            _wbNpcRefreshing = true;
+            try { WbLoadPackNpc(_wbNpcEditEntry, _wbNpcEditSpawn); } finally { _wbNpcRefreshing = false; }
+        }
     }
+
+    private bool _wbNpcRefreshing;
 
     private void DrawWbVendorStock(uint item)
     {
@@ -330,28 +335,29 @@ public sealed partial class GameLoop
         if (_wbNpcSpawnBody is null)
         {
             var spawns = WbNpcPackDocs("dbrow:creature", _wbPackId).Where(d => WbNpcUInt(d["body"]?["id"]) == _wbNpcEditEntry).ToList();
-            if (spawns.Count > 0 && ImGui.BeginCombo("Placed NPC", "Choose a spawn to move"))
+            if (spawns.Count == 0) { ImGui.TextWrapped("Not placed yet. Use Place NPCs to put it in the world."); return; }
+            Vector3 me = _controller?.Position ?? Vector3.Zero;
+            if (ImGui.BeginCombo("Placement", "Choose which placement to move"))
             {
-                foreach (var d in spawns)
+                foreach (var d in spawns.OrderBy(d => Vector3.Distance(WbSpawnPosition(d["body"]!.AsObject()), me)))
                 {
                     uint guid = WbNpcUInt(d["body"]?["guid"]);
-                    if (ImGui.Selectable($"#{guid} — map {d["body"]?["map"]}")) WbLoadPackNpc(_wbNpcEditEntry, guid);
+                    var p = WbSpawnPosition(d["body"]!.AsObject());
+                    if (ImGui.Selectable(Inv($"{Vector3.Distance(p, me):F0} yd away##pl{guid}"))) WbLoadPackNpc(_wbNpcEditEntry, guid);
                 }
                 ImGui.EndCombo();
             }
             return;
         }
-        ImGui.TextDisabled($"Spawn #{_wbNpcEditSpawn}");
-        if (_wbNpcStockSourceEntry != 0) { ImGui.TextDisabled("The existing spawn keeps its location and route."); return; }
-        ImGui.InputFloat3("Position", ref _wbNpcSpawnPosition, "%.2f");
-        ImGui.SliderFloat("Facing", ref _wbNpcSpawnFacing, 0, 360, "%.0f degrees");
-        if (CreatorButton(_wbNpcMoveArmed ? "Cancel move" : "Pick a new position"))
-        {
-            bool arm = !_wbNpcMoveArmed; WbSetTool(WorldBuilderTool.Select); _wbSpawnArmed = false; _wbNpcMoveArmed = arm;
-        }
+        if (_wbNpcStockSourceEntry != 0) { ImGui.TextDisabled("An existing world NPC keeps its location and route."); return; }
+        WbMarker(_wbNpcSpawnPosition, WbText(_wbNpcName) + (_wbNpcSpawnPosition != _wbNpcLoadedSpawnPosition ? " (new spot)" : ""), 0xFFFFFFFFu, 1.5f);
+        if (_wbNpcSpawnPosition != _wbNpcLoadedSpawnPosition) WbMarker(_wbNpcLoadedSpawnPosition, "was here", 0x90A0A0A0u);
+        WbPickButton("Pick a new spot", "the new spot for " + WbText(_wbNpcName), to => _wbNpcSpawnPosition = to);
         ImGui.SameLine();
-        if (CreatorButton("Move to me") && _controller is not null) _wbNpcSpawnPosition = _controller.Position;
-        ImGui.TextDisabled("Position is saved together with the NPC changes.");
+        WbPickButton("Face toward...", "where " + WbText(_wbNpcName) + " should look", to =>
+            _wbNpcSpawnFacing = WorldBuilderLaw.PositiveAngle(MathF.Atan2(to.Y - _wbNpcSpawnPosition.Y, to.X - _wbNpcSpawnPosition.X)) * 180f / MathF.PI);
+        ImGui.SliderFloat("Facing", ref _wbNpcSpawnFacing, 0, 360, "%.0f degrees");
+        ImGui.TextDisabled("The new spot and facing are saved with Save NPC changes.");
     }
 
     private bool WbNpcPointerFrame(ImGuiIOPtr io, bool overUi)
@@ -368,14 +374,14 @@ public sealed partial class GameLoop
         if (_wbSpawnPreview.TryGetValue(picked, out uint guid))
         {
             var d = WbNpcPackDocs("dbrow:creature").FirstOrDefault(d => WbNpcUInt(d["body"]?["guid"]) == guid);
-            if (d is not null) WbLoadPackNpc(WbNpcUInt(d["body"]?["id"]), guid);
-            else if (_wbNpcNearby.OfType<JsonObject>().FirstOrDefault(n => WbNpcUInt(n["spawn"]?["guid"]) == guid) is { } npc) WbLoadStockNpc(npc);
+            if (d is not null) WbNpcGuard(() => WbLoadPackNpc(WbNpcUInt(d["body"]?["id"]), guid));
+            else if (_wbNpcNearby.OfType<JsonObject>().FirstOrDefault(n => WbNpcUInt(n["spawn"]?["guid"]) == guid) is { } npc) WbNpcGuard(() => WbLoadStockNpc(npc));
             return true;
         }
         if (_entities.TryGet(picked, out var unit) && unit.IsCreature)
         {
             uint low = (uint)(picked & 0xFFFFFF);
-            if (_wbNpcNearby.OfType<JsonObject>().FirstOrDefault(n => WbNpcUInt(n["spawn"]?["guid"]) == low) is { } npc) { WbLoadStockNpc(npc); return true; }
+            if (_wbNpcNearby.OfType<JsonObject>().FirstOrDefault(n => WbNpcUInt(n["spawn"]?["guid"]) == low) is { } npc) { WbNpcGuard(() => WbLoadStockNpc(npc)); return true; }
         }
         return false;
     }
@@ -392,11 +398,14 @@ public sealed partial class GameLoop
         var active = _wbState?.Packs.Where(p => p.Enabled || p.Id == _wbPackId).Select(p => p.Id).ToHashSet() ?? new HashSet<int> { _wbPackId };
         var templates = WbNpcPackDocs("dbrow:creature_template").GroupBy(d => WbNpcUInt(d["body"]?["entry"]))
             .ToDictionary(g => g.Key, g => g.First()["body"]!.AsObject());
-        bool preview = _wbNpcShowPreviews && _net?.IsInWorld != true;
+        // Online the published spawns are real creatures; unpublished drafts still need a preview (no live creature with that spawn).
+        bool online = _net?.IsInWorld == true;
+        bool preview = _wbNpcShowPreviews;
         void Add(JsonObject spawn, JsonObject template)
         {
             if (!preview || _controller is null || (int?)spawn["map"] != _config.Start.Map) return;
             uint guid = WbNpcUInt(spawn["guid"]), entry = WbNpcUInt(template["entry"]);
+            if (online && _entities.Entities.Values.Any(e => e.IsCreature && (uint)(e.Guid & 0xFFFFFF) == guid)) return;
             var position = new Vector3(WbNpcFloat(spawn["position_x"]), WbNpcFloat(spawn["position_y"]), WbNpcFloat(spawn["position_z"]));
             if (Vector3.DistanceSquared(position, _controller.Position) > 400 * 400) return;
             uint display = WbNpcUInt(spawn["modelid"]);

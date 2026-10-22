@@ -191,6 +191,37 @@ public static class WorldBuilderLaw
         return (best, z);
     }
 
+    /// <summary>
+    /// How strongly a graded path pulls ground at <paramref name="distance"/> from its centre line to the path's
+    /// height: 1 within half the width, then a smoothstep to 0 across the falloff. The same rule as the web app's
+    /// GradedPath.Deltas, so the client's path preview matches what publishing builds.
+    /// </summary>
+    public static float PathWeight(float distance, float width, float falloff)
+    {
+        float half = width / 2f;
+        if (distance <= half) return 1f;
+        if (distance >= half + falloff) return 0f;
+        float t = (distance - half) / MathF.Max(falloff, 0.001f);
+        return 1f - t * t * (3f - 2f * t);
+    }
+
+    /// <summary>Waypoint heights re-spread as one even slope from the first point to the last, by ground distance
+    /// (a pass or ramp without bumps). Positions are unchanged.</summary>
+    public static List<Vector3> EvenGrade(IReadOnlyList<Vector3> points)
+    {
+        var result = points.ToList();
+        if (result.Count < 3) return result;
+        float total = 0f;
+        var along = new float[result.Count];
+        for (int i = 1; i < result.Count; i++)
+            along[i] = total += Vector2.Distance(new(result[i].X, result[i].Y), new(result[i - 1].X, result[i - 1].Y));
+        if (total < 1e-3f) return result;
+        float z0 = result[0].Z, z1 = result[^1].Z;
+        for (int i = 1; i < result.Count - 1; i++)
+            result[i] = result[i] with { Z = z0 + (z1 - z0) * along[i] / total };
+        return result;
+    }
+
     /// <summary>An angle in [0, 2pi): world-DB angle columns such as creature_groups.angle are FLOAT UNSIGNED.</summary>
     public static float PositiveAngle(float radians)
     {

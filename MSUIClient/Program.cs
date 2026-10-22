@@ -313,7 +313,10 @@ public static partial class Program
             config.Window.VSync = false;
         }
 
-        using var window = new ClientWindow(config, background: liveRun?.Background == true || variantBatch?.Axis == "equipment")
+        // MSUI_WB_BACKGROUND=1: World Builder script runs (tools/worldpack/launch-wb.ps1) render off-screen like a background
+        // live protocol, so QA never takes over the owner's desktop or keyboard focus.
+        bool wbBackground = Environment.GetEnvironmentVariable("MSUI_WB_BACKGROUND") == "1";
+        using var window = new ClientWindow(config, background: liveRun?.Background == true || variantBatch?.Axis == "equipment" || wbBackground)
         {
             UiFontPath = uiFontPath,
             UiFontSize = MSUIClient.Engine.UI.UiFont.SizeFor(config.Window.UiScale),
@@ -715,11 +718,56 @@ public sealed partial class GameLoop : IDisposable
         _window.Camera.Target = new Vector3(_config.Start.X, _config.Start.Y, _config.Start.Z);
         _window.Camera.Yaw = _config.Start.Orientation;
 
-        // World Content Packs: mirror the server's published build (patch-7 + pack collision) BEFORE
-        // mounting - a stale client renders the wrong terrain and falls through pack buildings.
-        Console.WriteLine("[worldpacks] " + WorldPackStartupSync.EnsureCurrent(new WorldPackClient(), SuiWebAppUrl,
-            _config.ClientDataPath, WbServerDataDir(_config.VmapPath, "vmaps"), WbServerDataDir(_config.MmapPath, "mmaps"),
-            TimeSpan.FromSeconds(90)));
+        // World Content Packs: mirror the server's published patch-7 BEFORE mounting - a stale client
+        // renders the wrong terrain. Only the version check (and a download when the build moved) blocks;
+        // pack collision syncs in the background. Reported after InitHitchRecorder so it reaches the log.
+        // MSUI_WORLDPACK_SYNC=off: scripted QA clients (tools/worldpack/launch-wb.ps1, tools/tabletop/launch-tabletop.ps1)
+        // share this GameData folder with the owner's client but talk to another web app (the WSL one); syncing would
+        // swap the owner's patch-7 and collision for that app's build and cost the owner a full re-sync on the next
+        // launch (2026-10-14: a tabletop probe replaced build #59 with WSL's #4). Skipped, GameData is left as it is.
+        // The sync runs on a worker while the window keeps presenting frames with a progress card (and the title bar
+        // says what it is doing), so a check or download never shows as a black, frozen-looking window.
+        // MSUI_STARTUP_PROGRESS_DEMO=<png>: run a simulated 6 s download through the same progress card and save one
+        // frame of it (verifies the card without a real sync rewriting GameData). Dev only; no-op when unset.
+        if (Environment.GetEnvironmentVariable("MSUI_STARTUP_PROGRESS_DEMO") is { Length: > 0 } demoPng)
+        {
+            var demo = new WorldPackStartupSync.Progress { Stage = "Downloading world content (build #59) [demo]" };
+            var demoTask = Task.Run(async () =>
+            {
+                for (int i = 0; i <= 60; i++) { demo.Report(i * 21979597L / 60, 21979597L); await Task.Delay(100); }
+            });
+            bool saved = false;
+            _window.PresentWhileWaiting(demoTask, () => (demo.Stage, demo.Done, demo.Total), seconds =>
+            {
+                if (saved || seconds < 3.0) return;
+                saved = true;
+                var fb = _window.FramebufferSize;
+                int w = Math.Max(1, (int)fb.X), h = Math.Max(1, (int)fb.Y);
+                var bottomUp = new byte[w * h * 4];
+                unsafe { fixed (byte* px = bottomUp) gl.ReadPixels(0, 0, (uint)w, (uint)h, PixelFormat.Rgba, PixelType.UnsignedByte, px); }
+                var topDown = new byte[bottomUp.Length];
+                for (int y = 0; y < h; y++) System.Buffer.BlockCopy(bottomUp, y * w * 4, topDown, (h - 1 - y) * w * 4, w * 4);
+                for (int i = 3; i < topDown.Length; i += 4) topDown[i] = 255;
+                PortraitRenderTarget.SaveRgbaPng(demoPng, w, h, topDown);
+                Console.WriteLine($"[startup] progress demo frame saved: {demoPng}");
+            });
+        }
+
+        var packSyncTimer = Stopwatch.StartNew();
+        WorldPackStartupSync.StartupResult packSync;
+        if (Environment.GetEnvironmentVariable("MSUI_WORLDPACK_SYNC") == "off")
+            packSync = new WorldPackStartupSync.StartupResult("world packs: sync skipped (MSUI_WORLDPACK_SYNC=off) - GameData left as it is", null);
+        else
+        {
+            var packProgress = new WorldPackStartupSync.Progress();
+            string webApp = SuiWebAppUrl, dataPath = _config.ClientDataPath;
+            string vmapDir = WbServerDataDir(_config.VmapPath, "vmaps"), mmapDir = WbServerDataDir(_config.MmapPath, "mmaps");
+            var packTask = Task.Run(() => WorldPackStartupSync.EnsureCurrent(new WorldPackClient(), webApp, dataPath, vmapDir, mmapDir,
+                checkTimeout: TimeSpan.FromSeconds(5), downloadTimeout: TimeSpan.FromSeconds(60), progress: packProgress));
+            _window.PresentWhileWaiting(packTask, () => (packProgress.Stage, packProgress.Done, packProgress.Total));
+            packSync = packTask.GetAwaiter().GetResult();
+        }
+        double packSyncSeconds = packSyncTimer.Elapsed.TotalSeconds;
 
         // Mount the archives once and point AdtTerrainReader's extractor hook at
         // them. Without this every file read reopens up to fifteen MPQs.
@@ -744,6 +792,10 @@ public sealed partial class GameLoop : IDisposable
         _adts = new AdtCache(_config.ClientDataPath, _config.Start.MapName);
         if (_config.DevTools) _vantages = VantageStore.Load(_config.RepoRoot);
         InitHitchRecorder();
+        Console.WriteLine($"[worldpacks] {packSync.Status} ({packSyncSeconds:F2}s)");
+        packSync.Collision?.ContinueWith(t => Console.WriteLine("[worldpacks] " + (t.IsFaulted
+            ? $"collision sync failed ({t.Exception?.GetBaseException().Message}) - resumes next launch"
+            : t.Result + " - applies to collision tiles loaded from now on")));
 
         _residentCentre = TerrainRenderer.TileAt(_config.Start.X, _config.Start.Y);
 
@@ -1577,6 +1629,11 @@ public sealed partial class GameLoop : IDisposable
         // Scripted offline interior unit-light proof (MSUI_INTERIORLIGHT_PROBE).
         UpdateInteriorLightProbe();
 
+        // Quest Tabletop: open/close (snapshot + restore) follows the Creator panel.
+        UpdateTabletopLifecycle();
+        // Scripted offline Quest Tabletop capture (MSUI_TABLETOP_PROBE).
+        UpdateTabletopProbe();
+
         // Cart-kit charges, cooldowns and the slows they applied.
         UpdateMountKit(NowSeconds());
 
@@ -2003,6 +2060,9 @@ public sealed partial class GameLoop : IDisposable
         ApplyTaxiInputLockout(ref forward, ref strafe, ref turn, ref scriptedJump);
         ApplyVanillaControlLockout(ref forward, ref strafe, ref turn, ref scriptedJump);
         bool vanillaControlLocked = VanillaSelfControlLocksMover;
+        // Quest Tabletop open: the view has its own camera; the body holds exactly where it was (QUEST_TABLETOP.md §4).
+        bool tabletopLocked = TabletopActive;
+        if (tabletopLocked) { forward = 0f; strafe = 0f; turn = 0f; scriptedJump = false; }
         // Body status can keep changing while Ctrl+F is detached. Root, Ice Block, drunkenness,
         // and cast interruption belong to that streamed body; none may seize the observer rig.
         bool controllerRooted = ControllerOwnsControlledBodyPose && _movementRooted;
@@ -2086,7 +2146,7 @@ public sealed partial class GameLoop : IDisposable
         _moveForward = forward;
         _moveStrafe = strafe;
         _steering = !controllerIceBlockFrozen && !controllerTacticalFrozen &&
-            !vanillaControlLocked &&
+            !vanillaControlLocked && !tabletopLocked &&
             (turn != 0f || mouseSteering);
 
         // Cam confirmed from 1.12 play: a seated character only stands back up on
@@ -2115,15 +2175,15 @@ public sealed partial class GameLoop : IDisposable
         {
             Forward = forward,
             Strafe = strafe,
-            Up = typing || controllerRooted || controllerIceBlockFrozen || controllerTacticalFrozen || vanillaControlLocked ? 0f : ((scriptedInput ? scriptedJump : BindingDown(GameBinding.Jump)) ? 1f : 0f) -
+            Up = typing || controllerRooted || controllerIceBlockFrozen || controllerTacticalFrozen || vanillaControlLocked || tabletopLocked ? 0f : ((scriptedInput ? scriptedJump : BindingDown(GameBinding.Jump)) ? 1f : 0f) -
                                 (InputKeyDown(Key.CapsLock) ? 1f : 0f),
             Yaw = controllerIceBlockFrozen ? _iceBlockFacing :
                 controllerTacticalFrozen ? _controller.Yaw :
-                vanillaControlLocked ? _controller.Yaw : _window.Camera.Yaw,
+                vanillaControlLocked || tabletopLocked ? _controller.Yaw : _window.Camera.Yaw,
             Pitch = -_window.Camera.Pitch + DrunkMovementLaw.SwimPitchWobble(
                 drunkWobble, _controller.Swimming, translating),
             Jump = !controllerRooted && !controllerIceBlockFrozen && !controllerTacticalFrozen &&
-                !vanillaControlLocked && (scriptedInput
+                !vanillaControlLocked && !tabletopLocked && (scriptedInput
                 ? scriptedJump : !typing && BindingDown(GameBinding.Jump)),
             Walking = (_walkToggled || shift) && !_controller.Flying,
             Boost = shift && _controller.Flying,
@@ -2179,7 +2239,7 @@ public sealed partial class GameLoop : IDisposable
             UpdateServerRideTacticalFreeze(tacticalLiveAuthorshipBlocked);
         bool serverRideActive = serverRideHeldByTacticalFreeze ||
             (!tacticalLiveAuthorshipBlocked && UpdateServerRide());
-        if (!serverRideActive && !controllerTacticalFrozen && !vanillaControlLocked)
+        if (!serverRideActive && !controllerTacticalFrozen && !vanillaControlLocked && !tabletopLocked)
             _controller.Update(_window.MovementDeltaSeconds, input);
         UpdatePredictedBreath();
         ReconcileControlledTransportRider();
@@ -2767,6 +2827,13 @@ public sealed partial class GameLoop : IDisposable
             _liquidRenderMilliseconds = 0;
             _debugRenderMilliseconds = 0;
             DrawLoadingScreen();
+            _renderSpanMilliseconds = Stopwatch.GetElapsedTime(renderSpanStarted).TotalMilliseconds;
+            return;
+        }
+
+        // Quest Tabletop: a swap view with its own camera and scene; the world is not drawn (QUEST_TABLETOP.md §4).
+        if (TabletopActive && RenderTabletop())
+        {
             _renderSpanMilliseconds = Stopwatch.GetElapsedTime(renderSpanStarted).TotalMilliseconds;
             return;
         }

@@ -1874,7 +1874,7 @@ public sealed partial class GameLoop
             _window.LookPitchLocked = pitchLocked;
             if (pitchLocked)
                 _window.Camera.Pitch = CommandViewLaw.PitchRadians(
-                    Settings.Controls.CommandViewPitchDegrees);
+                    WbFlyPitchOverride ?? Settings.Controls.CommandViewPitchDegrees);
             // The round-15 floating-body camera (walls/ceilings stop the rig) is OFF:
             // detaching under any WMO geometry — indoors, gate arches, city overhangs —
             // hit an invisible "fake ceiling" (owner, 2026-08-11 evening). The rig is a
@@ -2010,8 +2010,9 @@ public sealed partial class GameLoop
         if (rightDown && IsMoving()) _freecamRightPanned = true;
         _freecamRightWasDown = rightDown;
 
+        // A World Builder tool owns the left button (path points, sculpt drags, placement): no box-selection.
         if (leftDown && _freecamDragOrigin is null && !_commanderMapOpen && !_hudEditMode &&
-            _rtsUnitCastSpellId == 0 &&
+            _rtsUnitCastSpellId == 0 && !WbOwnsLeftClick &&
             !_window.MouseCaptured && !ImGui.GetIO().WantCaptureMouse)
             _freecamDragOrigin = mouse;
 

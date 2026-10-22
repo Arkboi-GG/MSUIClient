@@ -703,6 +703,13 @@ public sealed partial class DoodadRenderer : IDisposable
     public bool UseInstancing { get; set; } = true;
 
     public float DrawDistance { get; set; } = 300f;
+
+    /// <summary>Quest Tabletop view transform (relief + board cut); set only on the tabletop's own instance.</summary>
+    public TabletopViewTransform? Tabletop { get; set; }
+
+    /// <summary>Quest Tabletop: extra height for a placement (its origin, owning WMO instance id) so models ride the
+    /// exaggerated ground at true scale (World/TabletopViewTransform.cs). Null everywhere else.</summary>
+    public Func<Vector3, int, float>? ModelLift { get; set; }
     public float VisibilityDistance { get; set; } = float.PositiveInfinity;
 
     /// <summary>
@@ -3021,6 +3028,7 @@ public sealed partial class DoodadRenderer : IDisposable
         _shader.Set("uWorldClipPlane", worldClipPlane is { IsValid: true } clip
             ? clip.RelativeEquation(camera.Position)
             : new Vector4(0f, 0f, 0f, 1f));
+        Tabletop?.Apply(_shader, camera.Position, relief: false);
         _shader.Set("uCutActive", Cut is not null ? 1 : 0);
         _shader.Set("uCutRect", Cut?.RelativeRect(camera.Position) ?? Vector4.Zero);
         _shader.Set("uCutZ", Cut?.RelativeZ(camera.Position) ?? 0f);
@@ -3163,6 +3171,7 @@ public sealed partial class DoodadRenderer : IDisposable
                 }
 
                 var modelTransform = instance.Transform;
+                if (ModelLift is { } lift) modelTransform.M43 += lift(instance.Transform.Translation, instance.WmoInstanceId);
                 modelTransform.M41 -= eye.X;
                 modelTransform.M42 -= eye.Y;
                 modelTransform.M43 -= eye.Z;
@@ -3262,6 +3271,7 @@ public sealed partial class DoodadRenderer : IDisposable
             }
 
             var modelTransform = instance.Transform;
+            if (ModelLift is { } lift) modelTransform.M43 += lift(instance.Transform.Translation, instance.WmoInstanceId);
             modelTransform.M41 -= eye.X;
             modelTransform.M42 -= eye.Y;
             modelTransform.M43 -= eye.Z;
@@ -3482,6 +3492,7 @@ public sealed partial class DoodadRenderer : IDisposable
                         PortalVisibility is not null &&
                         !PortalVisibility(instance.WmoInstanceId, instance.OwnerGroups)) continue;
                     var transform = instance.Transform;
+                    if (ModelLift is { } lift) transform.M43 += lift(instance.Transform.Translation, instance.WmoInstanceId);
                     transform.M41 -= eye.X;
                     transform.M42 -= eye.Y;
                     transform.M43 -= eye.Z;
@@ -3512,6 +3523,7 @@ public sealed partial class DoodadRenderer : IDisposable
                             instance.WorldMax - eye)) { FrustumCulledLastFrame++; continue; }
 
                     var transform = instance.Transform;
+                    if (ModelLift is { } lift) transform.M43 += lift(instance.Transform.Translation, instance.WmoInstanceId);
                     transform.M41 -= eye.X;
                     transform.M42 -= eye.Y;
                     transform.M43 -= eye.Z;

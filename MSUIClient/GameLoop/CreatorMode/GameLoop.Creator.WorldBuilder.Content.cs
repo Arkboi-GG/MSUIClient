@@ -57,7 +57,7 @@ public sealed partial class GameLoop
     private int _wbNpcTrainerType, _wbNpcTrainerClass, _wbNpcCopyTrainer, _wbNpcMainHand, _wbNpcOffHand;
     private float _wbNpcScale = 1f;
     private readonly List<(uint Item, string Name)> _wbNpcVendor = new();
-    private bool _wbNpcSpawnHere = true;
+    private bool _wbNpcSpawnHere;   // scripts only; the panel places new NPCs by clicking (Place NPCs)
 
     // spawn tool (single / linked pack / patrol - the panel and the script commands share WbPackItems/WbPatrolItems)
     private uint _wbSpawnEntry, _wbSpawnMemberEntry;
@@ -89,6 +89,7 @@ public sealed partial class GameLoop
 
     private void DrawWbNpcSection()
     {
+        DrawWbNpcGuardPrompt();
         DrawWbNpcBrowser();
         ImGui.BeginDisabled(_wbNpcSaving || _wbNpcLoadTask is not null);
         EnsureCreatorCreatures();
@@ -99,8 +100,8 @@ public sealed partial class GameLoop
         ImGui.InputText("Title##wb-npc", _wbNpcSub, (uint)_wbNpcSub.Length);
         ObserveWorldBuilderUiItem("NPC title");
         DrawWbNpcSaveButton();
-        if (_wbNpcEditEntry == 0) ImGui.Checkbox("Also place it where I stand", ref _wbNpcSpawnHere);
-        else if (WbNpcFormSection("Position and facing")) DrawWbNpcSpawnEditor();
+        if (_wbNpcEditEntry == 0) ImGui.TextDisabled("After creating it you place it by clicking the ground (Place NPCs).");
+        else if (WbNpcFormSection("Where it stands")) DrawWbNpcSpawnEditor();
         if (WbNpcFormSection("Appearance and level")) DrawWbNpcAppearance();
         if (WbNpcFormSection("Roles and services", ImGuiTreeNodeFlags.DefaultOpen)) DrawWbNpcServices();
         if (WbNpcFormSection("Equipment and greeting")) DrawWbNpcEquipment();
@@ -198,12 +199,20 @@ public sealed partial class GameLoop
         _wbNpcSaveTask = copyFrom == 0
             ? _wbClient.ContentAsync(SuiWebAppUrl, _wbPackId, label, items.ToJsonString())
             : WbWithTrainerCopy(entry, copyFrom, items, label);
+        bool placeNext = !_wbNpcSpawnHere;
         WbOp(label, _wbNpcSaveTask, _ =>
         {
             _wbSpawnEntry = _wbNpcEditEntry = entry; _wbNpcEditPack = packId; _wbNpcStockSourceEntry = 0;
             _wbNpcSpawnBody = items.OfType<JsonObject>().FirstOrDefault(d => d["kind"]?.ToString() == "dbrow:creature")?["body"]?.DeepClone().AsObject();
             _wbNpcEditSpawn = WbNpcUInt(_wbNpcSpawnBody?["guid"]); _wbNpcBrowserOpen = false;
             WbLoadNpcForm(items); _wbDocsTask = null; WbRequestDocs();
+            if (placeNext)
+            {
+                // A new NPC goes straight to placing: click the ground where it should stand.
+                _wbNpcPage = 1; _wbSpawnMode = 0; _wbSpawnPack = packId;
+                WbSetTool(WorldBuilderTool.Select); _wbMoveArmed = _wbNpcMoveArmed = false; _wbSpawnArmed = true;
+                _wbMessage = $"{name} created. Click the ground where it should stand; Escape when done.";
+            }
         });
     }
 
@@ -250,14 +259,14 @@ public sealed partial class GameLoop
     private void DrawWbSpawnSection()
     {
         bool busy = _wbOps.Count > 0 || _wbNpcSaving;
-        ImGui.BeginDisabled(_wbPackId == 0 || busy);
-        if (CreatorButton("Undo last pack edit")) WbUndo();
-        ImGui.EndDisabled();
+        var step = new Vector4(1f, .82f, .3f, 1f);
         if (_wbDocs is null) { if (_wbDocsTask is null) WbRequestDocs(); ImGui.TextDisabled("Loading pack NPCs..."); return; }
         WbValidateSpawnSelection();
         var templates = WbNpcPackDocs("dbrow:creature_template", _wbPackId)
             .GroupBy(d => WbNpcUInt(d["body"]?["entry"])).Select(g => g.First()).ToList();
-        if (templates.Count == 0) ImGui.TextWrapped("This pack has no NPCs yet. Create an NPC in the editor, then return here to place it.");
+
+        ImGui.TextColored(step, "1. Choose the NPC");
+        if (templates.Count == 0) ImGui.TextWrapped("This pack has no NPCs yet. Create one under Edit / create NPC first.");
         string current = templates.FirstOrDefault(t => WbNpcUInt(t["body"]?["entry"]) == _wbSpawnEntry)?["body"]?["name"]?.ToString() ?? "Choose an NPC";
         ImGui.BeginDisabled(busy);
         ImGui.SetNextItemWidth(CreatorControlWidth);
@@ -272,22 +281,31 @@ public sealed partial class GameLoop
             }
             ImGui.EndCombo();
         }
-        foreach (var (mode, name) in new[] { (0, "Single NPC"), (1, "Linked group"), (2, "Patrol route") })
+        ImGui.EndDisabled();
+
+        ImGui.Separator();
+        ImGui.TextColored(step, "2. How to place it");
+        ImGui.BeginDisabled(busy);
+        foreach (var (mode, name) in new[] { (0, "One NPC"), (1, "A group that fights together"), (2, "A patrol route") })
         {
             if (ImGui.RadioButton(name + "##wb-sm", _wbSpawnMode == mode)) { WbCancelNpcPlacement(); _wbSpawnMode = mode; }
             ObserveWorldBuilderUiItem(name);
         }
         ImGui.TextWrapped(_wbSpawnMode switch
         {
-            1 => "Place a leader and nearby companions together. The group fights, retreats and respawns together.",
-            2 => "Draw a looping route for a leader and optional followers. Add at least two ground points, then save the patrol.",
-            _ => "Place one NPC at each ground click. It faces toward you. You can move or edit it afterward.",
+            1 => "Each click places a leader with companions around it. They fight, retreat and respawn together.",
+            2 => "Click the ground to lay out a looping route, then save it. The leader walks it; followers walk behind.",
+            _ => "Each click places one NPC. Its model shows under the pointer; [ and ] turn it.",
         });
-        if (_wbSpawnMode != 0)
+        if (_wbSpawnMode == 0)
+        {
+            ImGui.SetNextItemWidth(CreatorControlWidth); ImGui.SliderFloat("Facing##wb-spawn", ref _wbSpawnYaw, 0f, 360f, "%.0f deg");
+        }
+        else
         {
             string member = _wbSpawnMemberEntry == 0 ? "Same as leader" : templates.FirstOrDefault(t => WbNpcUInt(t["body"]?["entry"]) == _wbSpawnMemberEntry)?["body"]?["name"]?.ToString() ?? "Same as leader";
             ImGui.SetNextItemWidth(CreatorControlWidth);
-            bool membersOpen = ImGui.BeginCombo(_wbSpawnMode == 1 ? "Members##wb-spawn" : "Followers##wb-spawn", member);
+            bool membersOpen = ImGui.BeginCombo(_wbSpawnMode == 1 ? "Companions##wb-spawn" : "Followers##wb-spawn", member);
             ObserveWorldBuilderUiItem("NPC placement member picker");
             if (membersOpen)
             {
@@ -304,7 +322,7 @@ public sealed partial class GameLoop
         }
         if (_wbSpawnMode == 1)
         {
-            ImGui.SetNextItemWidth(CreatorControlWidth); ImGui.SliderInt("Size##wb-pack", ref _wbPackCount, 2, 6);
+            ImGui.SetNextItemWidth(CreatorControlWidth); ImGui.SliderInt("Group size##wb-pack", ref _wbPackCount, 2, 6);
             ObserveWorldBuilderUiItem("NPC group size");
             ImGui.SetNextItemWidth(CreatorControlWidth); ImGui.SliderFloat("Spread##wb-pack", ref _wbPackRadius, 2f, 12f, "%.0f yd");
             ObserveWorldBuilderUiItem("NPC group spread");
@@ -313,23 +331,11 @@ public sealed partial class GameLoop
         {
             ImGui.SetNextItemWidth(CreatorControlWidth); ImGui.SliderInt("Followers##wb-patrol", ref _wbPatrolFollowers, 0, 4);
             ObserveWorldBuilderUiItem("NPC patrol followers");
-            ImGui.TextWrapped($"{_wbPatrolPoints.Count} route point(s). Save creates the whole patrol as one edit. Stop or Escape discards the unsaved route.");
-            ImGui.BeginDisabled(_wbPatrolPoints.Count < 2 || _wbSpawnEntry == 0);
-            if (CreatorButton("Save patrol"))
-            {
-                if (WbPatrolItems(_wbSpawnEntry, _wbSpawnMemberEntry == 0 ? _wbSpawnEntry : _wbSpawnMemberEntry, _wbPatrolFollowers,
-                        _wbPatrolPoints.Select(p => new Vector2(p.X, p.Y)).ToList()) is { } patrol)
-                    WbSaveNpcPlacement($"patrol {_wbSpawnEntry}", patrol, true);
-                else _wbMessage = "The route needs open ground at every point. Adjust its points and try again.";
-            }
-            ImGui.EndDisabled();
-            ImGui.SameLine();
-            ImGui.BeginDisabled(_wbPatrolPoints.Count == 0);
-            if (CreatorButton("Undo point")) _wbPatrolPoints.RemoveAt(_wbPatrolPoints.Count - 1);
-            ImGui.SameLine();
-            if (CreatorButton("Clear route")) _wbPatrolPoints.Clear();
-            ImGui.EndDisabled();
         }
+        ImGui.EndDisabled();
+
+        ImGui.Separator();
+        ImGui.TextColored(step, _wbSpawnMode == 2 ? "3. Click the route, then save it" : "3. Click the ground to place");
         ImGui.BeginDisabled(_wbSpawnEntry == 0 || _wbPackId == 0);
         if (CreatorButton(_wbSpawnArmed ? "Stop (Esc)" : _wbSpawnMode == 2 ? "Start route" : "Start placing"))
         {
@@ -337,14 +343,38 @@ public sealed partial class GameLoop
             else { WbSetTool(WorldBuilderTool.Select); _wbMoveArmed = _wbNpcMoveArmed = false; _wbSpawnArmed = true; }
         }
         ImGui.EndDisabled();
-        ImGui.EndDisabled();
-        if (_wbSpawnArmed) ImGui.TextWrapped(_wbSpawnMode == 2 ? "Click the ground to add route points. Escape cancels this route." : "Click the ground to place. Choose Stop or press Escape when finished.");
-        int spawns = WbNpcPackDocs("dbrow:creature", _wbPackId).Count();
-        ImGui.TextWrapped($"{spawns} spawn(s) in this pack. Saved placements appear here and go live after publishing. Undo reverses the pack's most recent edit, including edits made on other pages.");
+        if (_wbSpawnEntry == 0) ImGui.TextDisabled("Choose the NPC first (step 1).");
+        if (_wbSpawnMode == 2)
+        {
+            ImGui.TextWrapped($"{_wbPatrolPoints.Count} route point(s). Escape or Stop discards an unsaved route.");
+            ImGui.BeginDisabled(_wbPatrolPoints.Count < 2 || _wbSpawnEntry == 0 || busy);
+            if (CreatorButton("Save patrol"))
+            {
+                if (WbPatrolItems(_wbSpawnEntry, _wbSpawnMemberEntry == 0 ? _wbSpawnEntry : _wbSpawnMemberEntry, _wbPatrolFollowers,
+                        _wbPatrolPoints.Select(p => new Vector2(p.X, p.Y)).ToList()) is { } patrol)
+                    WbSaveNpcPlacement($"patrol {WbNpcName(_wbSpawnEntry)}", patrol, true);
+                else _wbMessage = "The route needs open ground at every point. Move the points off buildings and water, then save again.";
+            }
+            ImGui.EndDisabled();
+            if (_wbPatrolPoints.Count < 2) { ImGui.SameLine(); ImGui.TextDisabled("needs 2+ points"); }
+            ImGui.BeginDisabled(_wbPatrolPoints.Count == 0);
+            if (CreatorButton("Remove last point")) _wbPatrolPoints.RemoveAt(_wbPatrolPoints.Count - 1);
+            ImGui.SameLine();
+            if (CreatorButton("Clear route")) _wbPatrolPoints.Clear();
+            ImGui.EndDisabled();
+        }
+
+        ImGui.Separator();
+        ImGui.TextColored(step, "Placed NPCs in this pack");
+        ImGui.TextDisabled("Placements are drafts until you publish. Saved patrol routes are drawn in the world.");
+        DrawWbSpawnList();
+        WbUndoButton();
     }
 
     private bool WbValidateSpawnSelection()
     {
+        // Pack data is reloading (e.g. right after Create NPC): keep the selection until it arrives.
+        if (_wbDocsTask is not null) return _wbPackId != 0 && _wbSpawnEntry != 0;
         if (_wbSpawnPack != _wbPackId) { WbCancelNpcPlacement(); _wbSpawnPack = _wbPackId; }
         bool Owns(uint entry) => entry != 0 && WbNpcPackDocs("dbrow:creature_template", _wbPackId).Any(d => WbNpcUInt(d["body"]?["entry"]) == entry);
         if (!Owns(_wbSpawnEntry)) { _wbSpawnEntry = 0; WbCancelNpcPlacement(); }
@@ -366,8 +396,8 @@ public sealed partial class GameLoop
     private bool WbTrySpawnClick(Vector3 at)
     {
         if (!_wbSpawnArmed) return false;
-        if (!WbValidateSpawnSelection() || !_wbSpawnArmed) return true;
-        if (_wbOps.Count > 0 || _wbNpcSaving || _controller is null) return true;
+        if (!WbValidateSpawnSelection() || !_wbSpawnArmed) { _wbMessage = "Choose the NPC to place first."; return true; }
+        if (_wbOps.Count > 0 || _wbNpcSaving || _controller is null) { _wbMessage = "Saving the previous placement; click again in a moment."; return true; }
         if (_wbSpawnMode == 2) { _wbPatrolPoints.Add(at); return true; }
         if (_wbSpawnMode == 1)
         {
@@ -376,7 +406,7 @@ public sealed partial class GameLoop
             else _wbMessage = "This group needs more open ground. Choose a clearer spot or reduce its spread.";
             return true;
         }
-        float facing = MathF.Atan2(_controller.Position.Y - at.Y, _controller.Position.X - at.X);
+        float facing = MSUIClient.Engine.UI.WorldBuilderLaw.PositiveAngle(_wbSpawnYaw * MathF.PI / 180f);
         var items = new JsonArray { WbSpawnRow(_wbSpawnEntry, at, facing) };
         WbSaveNpcPlacement($"spawn NPC {_wbSpawnEntry}", items);
         return true;
@@ -413,7 +443,12 @@ public sealed partial class GameLoop
             float ang = i * MathF.Tau / Math.Max(1, count - 1) + (float)rng.NextDouble() * 0.5f;
             float r = i == 0 ? 0f : radius * (0.6f + 0.4f * (float)rng.NextDouble());
             var want = centre + new Vector2(MathF.Cos(ang), MathF.Sin(ang)) * r;
-            if (WbOpenGround(want.X, want.Y, 8f) is not { } spot) { Console.WriteLine($"[wbscript] ERROR pack: no open ground near ({want.X:F0}, {want.Y:F0}), member skipped"); continue; }
+            if (WbOpenGround(want.X, want.Y, 8f) is not { } spot)
+            {
+                Console.WriteLine($"[wbscript] ERROR pack: no open ground near ({want.X:F0}, {want.Y:F0}), member skipped");
+                _wbMessage = "One group member found no open ground and was left out; place the group on clearer ground for the full size.";
+                continue;
+            }
             float facing = i == 0 ? (float)(rng.NextDouble() * MathF.Tau) : MathF.Atan2(centre.Y - spot.Y, centre.X - spot.X) + MathF.PI;
             var row = WbSpawnRow(entries[i % entries.Count], spot, facing);
             placed.Add(((uint)row["body"]!["guid"]!, spot));
@@ -503,22 +538,23 @@ public sealed partial class GameLoop
         var mine = _wbDocs.OfType<JsonObject>().Where(d => (int?)d["packId"] == _wbPackId).ToList();
         ImGui.TextDisabled($"{mine.Count} content doc(s) in this pack");
         if (!ImGui.BeginChild("##wb-docs", new Vector2(-1f, 220f * CreatorUiScale), true)) { ImGui.EndChild(); return; }
-        foreach (var group in mine.GroupBy(d => (string?)d["kind"] ?? ""))
+        ImGui.TextWrapped("Everything this pack stores, grouped by kind. Prefer the pages (NPCs, Quests, Objects...) to change things; deleting here removes just that one record.");
+        foreach (var group in mine.GroupBy(d => (string?)d["kind"] ?? "").OrderBy(g => WbKindLabel(g.Key)))
         {
-            if (!ImGui.TreeNode($"{group.Key} ({group.Count()})##docs-{group.Key}")) continue;
+            if (!ImGui.TreeNode($"{WbKindLabel(group.Key)} ({group.Count()})##docs-{group.Key}")) continue;
             foreach (var d in group)
             {
                 string key = (string?)d["docKey"] ?? "";
                 string name = d["body"]?["name"]?.ToString() ?? d["body"]?["Title"]?.ToString() ?? "";
                 ImGui.PushID(group.Key + key);
-                if (ImGui.SmallButton("x"))
+                if (WbConfirmButton("Delete##" + group.Key + key, $"Delete this one {WbKindLabel(group.Key).ToLowerInvariant()} record ({(name.Length > 0 ? name : key)})? Things that refer to it are not removed. Undo brings it back."))
                 {
                     var items = new JsonArray { new JsonObject { ["kind"] = group.Key, ["key"] = key, ["body"] = null } };
-                    WbOp($"delete {group.Key} {key}", _wbClient.ContentAsync(SuiWebAppUrl, _wbPackId, $"delete {group.Key} {key}", items.ToJsonString()),
+                    WbOp($"delete {WbKindLabel(group.Key)} {(name.Length > 0 ? name : key)}", _wbClient.ContentAsync(SuiWebAppUrl, _wbPackId, $"delete {group.Key} {key}", items.ToJsonString()),
                         _ => WbRequestDocs());
                 }
                 ImGui.SameLine();
-                ImGui.TextUnformatted($"{key}  {name}");
+                ImGui.TextUnformatted(name.Length > 0 ? name : key);
                 ImGui.PopID();
             }
             ImGui.TreePop();
@@ -532,4 +568,17 @@ public sealed partial class GameLoop
     {
         WbSyncNpcPreviews();
     }
+
+    private static string WbKindLabel(string kind) => kind switch
+    {
+        "dbrow:creature_template" => "NPCs", "dbrow:creature" => "NPC placements", "dbrow:creature_movement" => "Patrol route points",
+        "dbrow:creature_groups" => "NPC group links", "dbrow:npc_vendor" => "Vendor items", "dbrow:npc_trainer" => "Trainer spells",
+        "dbrow:gameobject" => "Placed objects", "dbrow:gameobject_template" => "Custom objects and chests",
+        "dbrow:gameobject_loot_template" => "Chest loot", "dbrow:quest_template" => "Quests",
+        "dbrow:creature_questrelation" or "dbrow:gameobject_questrelation" => "Quest givers",
+        "dbrow:creature_involvedrelation" or "dbrow:gameobject_involvedrelation" => "Quest turn-ins",
+        "path" => "Paths and roads", "tile" => "Terrain tiles", "map" => "Maps", "worldmap" => "World-map outlines",
+        "dbrow:areatrigger_template" => "Portals", "npc-replacement" => "Changed world NPCs",
+        _ => kind.StartsWith("dbc:", StringComparison.Ordinal) ? "Game data: " + kind[4..] : kind.StartsWith("dbrow:", StringComparison.Ordinal) ? "Server data: " + kind[6..] : kind,
+    };
 }

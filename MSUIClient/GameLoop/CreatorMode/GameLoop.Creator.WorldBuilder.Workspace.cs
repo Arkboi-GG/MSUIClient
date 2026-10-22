@@ -6,6 +6,11 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private string _wbPage = "terrain";
+    private static readonly (string Key, string Label)[] WbPages =
+    {
+        ("terrain", "Terrain"), ("paths", "Paths"), ("buildings", "Buildings"), ("gameobjects", "Objects"),
+        ("npcs", "NPCs"), ("quests", "Quests"), ("publish", "Publish"), ("advanced", "More"),
+    };
     private int _wbNpcPage;
     private int _wbAdvancedPage;
     private bool _wbShowHistory;
@@ -15,9 +20,10 @@ public sealed partial class GameLoop
 
     private void WbOpenPage(string page)
     {
-        if (_wbPage != page) WbSetTool(WorldBuilderTool.None);
+        bool arriving = _wbPage != page;
+        if (arriving) WbSetTool(WorldBuilderTool.None);
         _wbPage = page;
-        if (page == "npcs") _wbNpcPage = 0;
+        if (page == "npcs" && arriving) _wbNpcPage = 0;   // re-opening the NPC page keeps its sub-tab (Place NPCs after Create)
         _creatorPanel = CreatorPanel.World;
     }
 
@@ -36,7 +42,7 @@ public sealed partial class GameLoop
         if (ImGui.BeginCombo("##wb-active-pack", selected))
         {
             foreach (var pack in packs ?? new())
-                if (ImGui.Selectable(pack.Name + (pack.Enabled ? "" : " (draft only)"), pack.Id == _wbPackId))
+                if (ImGui.Selectable(pack.Name + (pack.Enabled ? "" : " (draft only)") + "##wbpack" + pack.Id, pack.Id == _wbPackId))
                 {
                     WbSetTool(WorldBuilderTool.None);
                     _wbPackId = pack.Id;
@@ -47,38 +53,46 @@ public sealed partial class GameLoop
         }
         ImGui.SameLine();
         if (CreatorButton("Packs...")) WbOpenPage("packs");
+        DrawWbViewControls();
 
         if (_wbTool != WorldBuilderTool.None || WbNpcHasActiveAction || _wbMoveArmed)
         {
             if (CreatorButton("Cancel tool (Esc)")) ConsumeWorldBuilderEscape();
             ImGui.SameLine();
-            ImGui.TextWrapped(_wbNpcMoveArmed ? "Moving NPC" : _wbSpawnArmed ? "Placing NPCs" : _wbMoveArmed ? "Moving selection" : _wbTool.ToString());
+            ImGui.TextWrapped(_wbNpcMoveArmed ? "Moving NPC" : _wbSpawnArmed ? "Placing NPCs" : _wbMoveArmed || _wbGoMoveArmed ? "Moving selection"
+                : _wbGoPicking ? "Selecting an object" : _wbTool switch
+                {
+                    WorldBuilderTool.Sculpt => "Sculpting", WorldBuilderTool.Place => "Placing a model",
+                    WorldBuilderTool.Path => "Drawing a path", WorldBuilderTool.GameObject => "Placing objects",
+                    WorldBuilderTool.Pick => "Picking: " + _wbPickWhat,
+                    _ => "Selecting",
+                });
         }
-        else ImGui.TextWrapped("Choose a task. Edits stay drafts until published.");
 
-        var pages = new (string Key, string Label)[]
+        // Page chips: one text line tall, wrapping onto a second line when narrow, all always visible. The old three rows
+        // of big buttons filled a default-size panel; a tab strip hid half the pages off its edge (2026-10-14 tours).
+        float right = ImGui.GetWindowPos().X + ImGui.GetWindowContentRegionMax().X;
+        var pad = ImGui.GetStyle().FramePadding;
+        bool firstPage = true;
+        foreach (var (key, label) in WbPages)
         {
-            ("terrain", "Terrain"), ("buildings", "Buildings"), ("npcs", "NPCs"),
-            ("quests", "Quests"), ("publish", "Publish"), ("advanced", "More")
-        };
-        float right = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X;
-        bool first = true;
-        foreach (var (key, label) in pages)
-        {
-            float width = ImGui.CalcTextSize(label).X + 36f * CreatorUiScale * CreatorButtonMul;
-            if (!first && ImGui.GetItemRectMax().X - ImGui.GetWindowPos().X + ImGui.GetStyle().ItemSpacing.X + width < right)
-                ImGui.SameLine();
+            var size = ImGui.CalcTextSize(label) + new Vector2(18f * CreatorUiScale, 6f * CreatorUiScale);
+            if (!firstPage && ImGui.GetItemRectMax().X + ImGui.GetStyle().ItemSpacing.X + size.X < right) ImGui.SameLine();
             bool active = _wbPage == key;
-            if (CreatorButton(label)) WbOpenPage(key);
-            if (active) ImGui.GetWindowDrawList().AddRect(ImGui.GetItemRectMin() - Vector2.One,
-                ImGui.GetItemRectMax() + Vector2.One, 0xff33ddee, 3f, ImDrawFlags.None, 2f);
-            first = false;
+            // Atlas look: the open page is a gold tint with gold text (.qa-seg button.on); classic: the red plate.
+            int pushed = 0;
+            if (active && CreatorAtlasLook) { ImGui.PushStyleColor(ImGuiCol.Header, AtlasA(AtlasGold, 0.16f)); ImGui.PushStyleColor(ImGuiCol.Text, AtlasGold); pushed = 2; }
+            else if (active) { ImGui.PushStyleColor(ImGuiCol.Header, new Vector4(0.62f, 0.12f, 0.08f, 1f)); pushed = 1; }
+            if (ImGui.Selectable(label + "##wb-page-" + key, active, ImGuiSelectableFlags.None, size)) WbOpenPage(key);
+            if (pushed > 0) ImGui.PopStyleColor(pushed);
+            ObserveWorldBuilderUiItem(label);
+            firstPage = false;
         }
         ImGui.Separator();
         if (_wbOps.Count > 0) ImGui.TextColored(new Vector4(1f, .82f, .3f, 1f), "Saving changes...");
         else if (_wbMessage.Length > 0)
         {
-            int saved = _wbMessage.IndexOf(": saved as op", StringComparison.Ordinal);
+            int saved = _wbMessage.IndexOf(": saved as op", StringComparison.Ordinal);   // "...: saved as op #N, audit #M" -> no numbers
             ImGui.TextWrapped(saved >= 0 ? _wbMessage[..saved] + " saved. Publish to apply in game." : _wbMessage);
         }
     }
@@ -98,6 +112,8 @@ public sealed partial class GameLoop
         switch (_wbPage)
         {
             case "terrain": DrawWbSculptSection(); break;
+            case "paths": DrawWbPathSection(); break;
+            case "gameobjects": DrawWbGameObjectSection(); break;
             case "buildings":
                 if (ImGui.BeginTabBar("##wb-buildings-tabs"))
                 {
@@ -124,7 +140,7 @@ public sealed partial class GameLoop
             case "advanced":
                 ImGui.TextWrapped("Tools for larger areas and checking your work.");
                 ImGui.SetNextItemWidth(CreatorControlWidth);
-                ImGui.Combo("Tool", ref _wbAdvancedPage, new[] { "Maps and dungeons", "Regions and paths", "Check world content", "Pack data" }, 4);
+                ImGui.Combo("Tool", ref _wbAdvancedPage, new[] { "Maps and dungeons", "Regions and continents", "Check world content", "Pack data" }, 4);
                 ImGui.Separator();
                 // Reuse registered bodies so there is one implementation for each tool.
                 string id = new[] { "wb-maps", "wb-region", "wb-verify", "wb-docs" }[_wbAdvancedPage];

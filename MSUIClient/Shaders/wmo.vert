@@ -30,6 +30,11 @@ uniform mat4 uModel;
 uniform mat4 uModelViewProjection;
 uniform int uUseInstancing;
 uniform vec4 uWorldClipPlane;
+// Quest Tabletop board cut, planes 1-3 (World/TabletopViewTransform.cs); ignored unless the
+// tabletop enables GL_CLIP_DISTANCE1..3.
+uniform vec4 uBoardClip1;
+uniform vec4 uBoardClip2;
+uniform vec4 uBoardClip3;
 
 out vec3 vWorldPos;
 out vec3 vNormal;
@@ -57,6 +62,9 @@ void main()
     vColor = aColor;
 
     gl_ClipDistance[0] = dot(uWorldClipPlane, world);
+    gl_ClipDistance[1] = dot(uBoardClip1, world);
+    gl_ClipDistance[2] = dot(uBoardClip2, world);
+    gl_ClipDistance[3] = dot(uBoardClip3, world);
     gl_Position = uUseInstancing == 1
         ? uViewProjection * world
         : uModelViewProjection * vec4(aPosition, 1.0);

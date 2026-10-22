@@ -63,6 +63,7 @@ touching the code:
   permanent public Real Portals, an Azeroth circuit with bot racers and MK64 items, all in the opt-in `wow-karting`
   World Content Pack: decisions, architecture, phases and the as-built log.
 - `shared_docs/EQUIPMENT_CAPTURE.md` — deterministic weapon/armor capture with the production character renderer, body/view/pose matrix, asset hashes and offline-vs-live acceptance limits (added 2026-09-28).
+- `shared_docs/QUEST_TABLETOP.md` — SPEC (unbuilt, 2026-10-14): Creator Mode's raised-relief quest view, the client port of the web Quest Atlas: visual law, the `/QuestAtlas/Zone` data contract, the far/near rendering split, overlay semantics, phases and acceptance.
 - `CODE_STRUCTURE_LAW.md` (repo root) — where a `.cs` file goes and how it is named.
 
 `interface-wire-check --shared-docs-only` fails when a file in `shared_docs/` is not

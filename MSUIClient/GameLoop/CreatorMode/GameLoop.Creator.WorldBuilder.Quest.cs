@@ -37,7 +37,7 @@ public sealed partial class GameLoop
     private bool _wbQuestItemsAttempted;
     private int _wbQuestCheckPack;
     private int _wbQuestSavingPack;
-    private static readonly string[] WbObjectiveKinds = { "(none)", "Kill creature", "Collect item", "Use object", "Explore here" };
+    private static readonly string[] WbObjectiveKinds = { "(none)", "Kill creature", "Collect item", "Use object", "Discover a place" };
 
     private void DrawWbQuestSection()
     {
@@ -74,6 +74,19 @@ public sealed partial class GameLoop
                 ObserveWorldBuilderUiItem($"Quest: {q["Title"]}");
             }
             ImGui.EndCombo();
+        }
+        if (_wbQuestEditing != 0 && quests.FirstOrDefault(q => WbNum(q["entry"]) == _wbQuestEditing) is { } openQuest)
+        {
+            ImGui.BeginDisabled(_wbOps.Count > 0);
+            if (WbConfirmButton("Delete this quest", $"Delete the quest \"{openQuest["Title"]}\" from this pack, with its giver/ender links and discovery trigger? Undo brings it back."))
+            {
+                uint entry = (uint)_wbQuestEditing;
+                WbDeleteDocs($"delete quest {openQuest["Title"]}", WbQuestDocs(entry), () =>
+                {
+                    _wbQuest = new QuestAuthoringLaw.Draft(); _wbQuestEditing = 0; _wbQuestFindings.Clear(); _wbQuestSaveStatus = "Quest deleted.";
+                });
+            }
+            ImGui.EndDisabled();
         }
         var d = _wbQuest; // A selection above changes the draft in this same frame.
 
@@ -138,9 +151,9 @@ public sealed partial class GameLoop
                     break;
                 }
                 case QuestAuthoringLaw.ObjectiveKind.Collect:
-                    ImGui.TextUnformatted(g.Item == 0 ? "item: (none)" : $"item: {WbItemName(g.Item)} ({g.Item})");
+                    ImGui.TextUnformatted(g.Item == 0 ? "Item: none chosen" : $"Item: {WbItemName(g.Item)}");
                     if (ImGui.SmallButton("Choose item")) _wbQuestItemTarget = i;
-                    g.DropFrom = WbNpcPicker("Drops from (pack creature)", g.DropFrom, $"wbq-drop{i}");
+                    g.DropFrom = WbNpcPicker("Dropped by", g.DropFrom, $"wbq-drop{i}");
                     if (g.DropFrom != 0)
                     {
                         float chance = g.DropChance; ImGui.SetNextItemWidth(w * 0.6f);
@@ -148,14 +161,26 @@ public sealed partial class GameLoop
                     }
                     break;
                 case QuestAuthoringLaw.ObjectiveKind.Explore:
-                    if (ImGui.SmallButton("Use my current position") && _controller is not null)
-                    { g.ExploreMap = _config.Start.Map; g.ExploreX = _controller.Position.X; g.ExploreY = _controller.Position.Y; g.ExploreZ = _controller.Position.Z; }
-                    ObserveWorldBuilderUiItem("Use my current position");
-                    ImGui.SameLine();
-                    ImGui.TextUnformatted(Inv($"map {g.ExploreMap} ({g.ExploreX:F0}, {g.ExploreY:F0}, {g.ExploreZ:F0})"));
+                {
+                    var goal = g;
+                    WbPickButton("Pick the place on the ground", $"the place to discover (objective {i + 1})", at =>
+                    { goal.ExploreMap = _config.Start.Map; goal.ExploreX = at.X; goal.ExploreY = at.Y; goal.ExploreZ = at.Z; }, g.ExploreRadius);
+                    bool placed = g.ExploreX != 0 || g.ExploreY != 0;
+                    var spot = new Vector3(g.ExploreX, g.ExploreY, g.ExploreZ);
+                    if (!placed) ImGui.TextDisabled("Not picked yet.");
+                    else if (g.ExploreMap != _config.Start.Map) ImGui.TextDisabled("The place is on another map.");
+                    else
+                    {
+                        WbMarker(spot, $"Discover: {(d.Title.Length > 0 ? d.Title : "quest")}", 0xFF40FF80u, g.ExploreRadius);
+                        float away = _controller is null ? 0f : Vector3.Distance(_controller.Position, spot);
+                        ImGui.TextDisabled(Inv($"Marked in the world, {away:F0} yd away."));
+                        ImGui.SameLine();
+                        if (_controller is not null && ImGui.SmallButton("Go there")) _controller.Teleport(spot.X, spot.Y, spot.Z + 8f);
+                    }
                     float r = g.ExploreRadius; ImGui.SetNextItemWidth(w * 0.6f);
-                    if (ImGui.InputFloat("radius", ref r, 0f, 0f, "%.1f")) g.ExploreRadius = Math.Clamp(r, 2f, 100f);
+                    if (ImGui.SliderFloat("Area size (yd)", ref r, 2f, 60f, "%.0f")) g.ExploreRadius = Math.Clamp(r, 2f, 100f);
                     break;
+                }
             }
             if (g.Kind is QuestAuthoringLaw.ObjectiveKind.Kill or QuestAuthoringLaw.ObjectiveKind.UseObject)
             { string t = g.Text; ImGui.SetNextItemWidth(w); if (ImGui.InputText("quest log line (optional)", ref t, 200)) g.Text = t; }
@@ -297,7 +322,8 @@ public sealed partial class GameLoop
     {
         float w = CreatorControlWidth;
         var npcs = WbDocBodies("dbrow:creature_template").ToList();
-        string shown = value == 0 ? "Choose an NPC" : npcs.FirstOrDefault(n => WbNum(n["entry"]) == value) is { } t ? (string?)t["name"] ?? "Unnamed NPC" : $"Other creature ({value})";
+        string shown = value == 0 ? "Choose an NPC" : npcs.FirstOrDefault(n => WbNum(n["entry"]) == value) is { } t ? (string?)t["name"] ?? "Unnamed NPC"
+            : _creatorCreatures?.Search(value.ToString(CultureInfo.InvariantCulture), 1) is { Count: > 0 } stock ? stock[0].Name + " (game creature)" : $"Creature {value}";
         ImGui.SetNextItemWidth(w);
         bool expanded = ImGui.BeginCombo($"{label}##{id}", shown);
         ObserveWorldBuilderUiItem(label);
@@ -307,16 +333,28 @@ public sealed partial class GameLoop
             string search = _wbQuestNpcSearch.GetValueOrDefault(id, "");
             ImGui.SetNextItemWidth(w);
             if (ImGui.InputText($"Search by name##{id}", ref search, 80)) _wbQuestNpcSearch[id] = search;
+            if (npcs.Count > 0) ImGui.TextDisabled("This pack's NPCs");
             foreach (var n in npcs.Where(n => ((string?)n["name"] ?? "").Contains(search, StringComparison.OrdinalIgnoreCase)).OrderBy(n => (string?)n["name"]))
             {
                 if (ImGui.Selectable($"{(string?)n["name"]}##{id}{WbNum(n["entry"])}", WbNum(n["entry"]) == value)) value = (uint)WbNum(n["entry"]);
                 ObserveWorldBuilderUiItem($"{label}: {n["name"]}");
             }
+            EnsureCreatorCreatures();
+            if (search.Length >= 2 && _creatorCreatures?.Search(search, 25) is { Count: > 0 } world)
+            {
+                ImGui.TextDisabled("Creatures in the game");
+                foreach (var c in world)
+                {
+                    if (ImGui.Selectable($"{c.Name}{(c.SubName.Length > 0 ? " <" + c.SubName + ">" : "")}##{id}w{c.Entry}", c.Entry == value)) value = c.Entry;
+                    ObserveWorldBuilderUiItem($"{label}: {c.Name}");
+                }
+            }
+            else if (search.Length < 2) ImGui.TextDisabled("Type 2+ letters to search every creature in the game.");
             ImGui.EndCombo();
         }
         uint selected = _wbNpcEditEntry;
         if (selected == 0 && _entities.TryGet(_selectionGuid, out var sel) && sel.IsCreature) selected = sel.Entry;
-        if (selected != 0 && ImGui.SmallButton($"Use selected NPC##{id}")) value = selected;
+        if (selected != 0 && ImGui.SmallButton($"Use the NPC I have selected##{id}")) value = selected;
         if (ImGui.TreeNode($"Advanced NPC entry##{id}"))
         { int manual = (int)value; ImGui.SetNextItemWidth(w * 0.6f); if (ImGui.InputInt($"Entry##{id}", ref manual, 0)) value = (uint)Math.Max(manual, 0); ImGui.TreePop(); }
         return value;
@@ -341,16 +379,19 @@ public sealed partial class GameLoop
 
     private uint WbQuestObjectPicker(uint value)
     {
-        var objects = WbDocBodies("dbrow:gameobject_template").OrderBy(o => (string?)o["name"]).ToList();
-        string name = objects.FirstOrDefault(o => WbNum(o["entry"]) == value)?["name"]?.ToString() ?? $"Object {value}";
+        // Custom objects of this pack, plus every object kind this pack has placed (stock chests, nodes, campfires...).
+        var choices = WbDocBodies("dbrow:gameobject_template").Select(o => ((uint)WbNum(o["entry"]), o["name"]?.ToString() ?? "object"))
+            .Concat(WbNpcPackDocs("dbrow:gameobject", _wbPackId).Select(d => WbNpcUInt(d["body"]?["id"])).Distinct().Select(e => (e, WbGoName(e))))
+            .GroupBy(c => c.Item1).Select(g => g.First()).OrderBy(c => c.Item2).ToList();
+        string name = choices.FirstOrDefault(c => c.Item1 == value).Item2 ?? WbGoName(value);
         ImGui.SetNextItemWidth(CreatorControlWidth);
         if (ImGui.BeginCombo("Object##wbq", value == 0 ? "Choose an object" : name))
         {
             if (ImGui.Selectable("(none)", value == 0)) value = 0;
-            foreach (var o in objects) if (ImGui.Selectable($"{o["name"]}##wbq-object{o["entry"]}", WbNum(o["entry"]) == value)) value = (uint)WbNum(o["entry"]);
+            foreach (var (entry, label) in choices) if (ImGui.Selectable($"{label}##wbq-object{entry}", entry == value)) value = entry;
             ImGui.EndCombo();
         }
-        if (objects.Count == 0) ImGui.TextWrapped("No objects are authored in this pack yet. Advanced entry can reference an existing world object.");
+        if (choices.Count == 0) ImGui.TextWrapped("Place the object first (Chests page); it then appears here.");
         if (ImGui.TreeNode("Advanced object entry##wbq"))
         { int entry = (int)value; ImGui.SetNextItemWidth(CreatorControlWidth * .6f); if (ImGui.InputInt("Entry##wbq-object", ref entry, 0)) value = (uint)Math.Max(0, entry); ImGui.TreePop(); }
         return value;
@@ -378,12 +419,14 @@ public sealed partial class GameLoop
             if (slots[i].Item == 0 && Array.FindIndex(slots, s => s.Item == 0) != i) continue;
             ImGui.PushID($"{label}{i}");
             ImGui.TextUnformatted(slots[i].Item == 0 ? $"  {i + 1}: -" : $"  {i + 1}: {WbItemName(slots[i].Item)} x{Math.Max(1, slots[i].Count)}");
-            ImGui.SameLine(); if (ImGui.SmallButton("set")) _wbQuestItemTarget = targetBase + i;
+            // Buttons on their own (indented) line: a long item name would push them past the panel edge.
+            ImGui.Indent(); if (ImGui.SmallButton(slots[i].Item == 0 ? "Choose item" : "Change")) _wbQuestItemTarget = targetBase + i;
             if (slots[i].Item != 0)
             {
                 ImGui.SameLine(); if (ImGui.SmallButton("Remove")) slots[i] = (0, 0);
                 if (slots[i].Item != 0) { int count = slots[i].Count; ImGui.SetNextItemWidth(CreatorControlWidth * .6f); if (ImGui.InputInt("Quantity", ref count, 0)) slots[i] = (slots[i].Item, Math.Clamp(count, 1, 255)); }
             }
+            ImGui.Unindent();
             ImGui.PopID();
         }
     }
@@ -490,7 +533,7 @@ public sealed partial class GameLoop
         try
         {
             var report = JsonNode.Parse(t.Result)?["report"] as JsonObject;
-            if (report?["findings"] is not JsonArray findings) { _wbQuestFindings.Add("Quest saved, but the server did not return a validation report. Run Validate on the Publish page."); return; }
+            if (report?["findings"] is not JsonArray findings) { _wbQuestFindings.Add("Quest saved, but the server did not return a validation report. Use 1. Check drafts on the Publish page."); return; }
             string tag = $"quest {_wbQuestCheckEntry}";
             foreach (var f in findings.OfType<JsonObject>())
             {
@@ -517,5 +560,22 @@ public sealed partial class GameLoop
         _wbQuest = d;
         _wbQuestEditing = d.Entry;
         WbSaveQuest();
+    }
+
+    /// <summary>A quest's own pack docs: the template, giver/ender links (creature and object) and its discovery trigger.</summary>
+    private List<JsonObject> WbQuestDocs(uint entry)
+    {
+        var all = (_wbDocs ?? new()).OfType<JsonObject>().Where(d => (int?)d["packId"] == _wbPackId && d["body"] is JsonObject).ToList();
+        var triggers = all.Where(d => (d["kind"]?.ToString() ?? "").Contains("areatrigger", StringComparison.OrdinalIgnoreCase) &&
+                                      WbNpcUInt(d["body"]?["quest"]) == entry).Select(d => WbNpcUInt(d["body"]?["id"])).ToHashSet();
+        return all.Where(d =>
+        {
+            string kind = d["kind"]?.ToString() ?? "";
+            var b = d["body"]!;
+            return kind == "dbrow:quest_template" ? WbNpcUInt(b["entry"]) == entry
+                : kind.EndsWith("relation", StringComparison.OrdinalIgnoreCase) ? WbNpcUInt(b["quest"]) == entry
+                : kind.Equals("dbc:AreaTrigger", StringComparison.OrdinalIgnoreCase) ? triggers.Contains(WbNpcUInt(d["docKey"]))
+                : kind.Contains("areatrigger", StringComparison.OrdinalIgnoreCase) && triggers.Contains(WbNpcUInt(b["id"]));
+        }).ToList();
     }
 }

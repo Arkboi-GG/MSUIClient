@@ -84,8 +84,19 @@ conversion to ADT placement space happens once, in the web app's ADT writer.
 
 ## 4. Client (Creator Mode → World Builder)
 
-- Panel `CreatorPanel.World` has task pages: Terrain, Buildings, NPCs, Quests, Publish and More.
-  The pack selector, active action and save status stay above the scrollable form.
+- Creator layout (2026-10-14, owner's choice): the classic top buttons stay; the open panel docks to the LEFT edge as a
+  full-height sidebar that scrolls inside itself (`GameLoop.Creator.Sidebar.cs`, `Settings.Creator.Sidebar`, default on;
+  UI options can switch back to floating windows). Right edge drags the width (remembered per panel), the chevron folds
+  it to a tab. Look = the web app's Quest Atlas (`MangosSuperUI/wwwroot/css/questatlas.css`): warm dark glass, hairline
+  borders, cream ink, one gold accent; flat buttons replace the red panel-button art inside Creator windows.
+- Panel `CreatorPanel.World` has task pages: Terrain, Paths, Buildings, Objects, NPCs, Quests, Publish and More,
+  shown as wrapping page chips (not tabs). The pack selector, Fly camera / Grid / Snap, active action and save status
+  stay above the scrollable form.
+- Shared building blocks (`GameLoop.Creator.WorldBuilder.Common.cs`) - every page uses them, no page asks for raw
+  coordinates: **pick tool** (`WbPickButton`: the button arms a one-shot ground click with a ring under the cursor;
+  Escape cancels), **world markers** (`WbMarker`, `WbTileOutline`: what a form refers to is drawn in the world with a
+  label), **confirm dialog** (`WbConfirmButton` + one top-level `WbDrawConfirmDialog`: every delete/remove/move-region/
+  publish asks first and says that Undo restores it), **Undo** (`WbUndoButton`: "Undid: <label>").
 - Sculpt: raise/lower/smooth/flatten brushes on the V9 grid; the live preview mutates the cached
   ADT heights, rebuilds that tile's mesh and height grid; strokes are sent as ops on mouse-up.
 - Place: WMO/M2 catalogue from the MPQ listfiles; ghost via `AddDynamic`; click to place/move,
@@ -100,16 +111,19 @@ in the next server-wide publish; disabling it also needs a publish to restore th
 
 | Task | How to use it |
 |---|---|
-| Terrain | Choose Raise, Lower, Smooth or Flatten, then **Start sculpting**. Drag on the ground; releasing saves one stroke. Shift reverses Raise/Lower; brackets resize the brush. Flatten takes the starting height. The readiness message explains missing terrain or server support. |
-| Buildings | Search for a model, select it and choose **Place selected model**. Click the ground; brackets rotate the preview. **Edit placed objects** opens the selected object's move, height, heading, scale and remove controls. Save fields explicitly. |
-| Existing town NPC | Open **NPCs** and click its visible model, or use **Find / change NPC**. Edit name/title, appearance, services or equipment/greeting. **Save this NPC in pack** makes a version for that spawn only; later **Save NPC changes** edits that same version. The stock shared template stays intact. |
-| New NPC / placer | **New NPC**, name/look/roles, then **Create NPC**. **Also place it where I stand** is optional. Under **Place NPCs**, select a pack NPC and Single NPC, Linked group or Patrol route. Choose **Start placing** (or **Start route** for patrols), then click ground. A patrol needs at least two points and **Save patrol**. |
-| Quests | Select or create a quest; fill Story and level, Quest giver and return, Objectives and optional Rewards/chain. Pick NPCs/items by name. Save, read the quest's check results and reopen it to continue editing. Unsaved quest drafts survive switching quests/packs within the session. |
-| Publish | Save open forms, check the listed enabled packs, choose **1. Check drafts**, then **2. Publish enabled packs**. After success choose **3. Download build** to update this client's terrain and collision. |
-| Larger areas | **More** contains Maps and dungeons, Regions and paths, Check world content and Pack data. Region relocation moves paths and continent outlines with the terrain; regions containing NPC patrol routes currently refuse relocation explicitly. |
+| Terrain | Numbered steps. Choose Raise, Lower, Smooth or Flatten, then **Start sculpting**. Drag on the ground; releasing saves one stroke. Shift reverses Raise/Lower; brackets resize the brush. Flatten takes the stroke's starting height, or **Pick the level height** on the ground (then **Use stroke start** to go back). The readiness message explains missing terrain or server support; the last step links to Publish (step 3: Download). |
+| Paths | Optional **Fly camera** (panel top): the camera detaches, rises above trees and looks down at the World Builder's own **View angle**; W A S D fly, Space/Caps Lock up/down, right mouse turns; the pointer stays free and clicks go to the tool (no box-selection). **Ground grid** shows the terrain's cells, chunk borders, the picked cell and tile/chunk/cell/height; **Snap to grid** puts points on cell corners. The page is four steps: **1. Draw the route** (Start drawing, click points; drag moves, Ctrl+click inserts, Delete removes); **2. Road surface** (tick Paint a road surface, choose one of the game's own `Tileset` textures from the thumbnail picker - search, zone filter, quick words - set width, soft edge, strength; the road is painted on the loaded ground immediately); **3. Shape the ground** (optional Level the ground: graded pass/ramp with height preview, Even out the slope, point heights); **4. Name and save**. Saved paths reopen from the list. |
+| Buildings | Choose Buildings or Props and small objects, search (or click a quick word: crate, barrel, tree...) and choose **Place selected model**. Click the ground; brackets rotate the preview. Random heading / Random size re-roll after each click, and the cursor preview already shows the next roll, for scattering props; several placements may save at once. **Edit placed objects**: heading, north/south and west/east position, height (**Put on the ground**), tilt and scale, previewed live before **Save object changes** (exact numbers sit under **Exact position**); **Level the ground under it** (a small terrain pad, one stroke), **Move** (keeps its lift above the ground), **Duplicate** (a copy armed to move), **Go to**, **Remove** (confirm). Selecting another object with unsaved edits asks Discard / Keep editing. List rows show model names, not ids. |
+| Objects | Server objects players click or loot: chests, herb/ore nodes, campfires, chairs, mailboxes, signs, doors. Pick a Kind, search, select, **Place selected object**, click the ground (keep clicking to place more; brackets or the **Facing** slider turn it; respawn seconds). Objects with no model cannot be placed (the reason is shown). **Edit placed server objects** lists this pack's objects (or **Select an object in the world**): facing, height, respawn, Move, Go to, Remove (confirm); unsaved edits preview live. **Custom chests** (steps 1-4): choose a look from the game's chest models, name it, money as gold/silver/copper, item loot (chance, min/max), **Create chest** (or **Save chest changes**); **Your chests** reopens, edits or deletes them. Saved objects draw as model previews until the live server shows the published object. |
+| Existing town NPC | Open **NPCs** and click its visible model, or use **Find / change NPC**. Edit name/title, appearance, services or equipment/greeting. **Save this NPC in pack** makes a version for that spawn only; later **Save NPC changes** edits that same version. The stock shared template stays intact. A disabled Save button says why. **Delete this NPC** / **Restore the original NPC** (confirm) also remove its placements and patrols. Switching NPCs with unsaved edits asks first. |
+| New NPC / placer | **New NPC**, name/look/roles, then **Create NPC**: the page switches to **Place NPCs** with placing already armed and a see-through copy of the NPC under the cursor - click the ground. Place NPCs is three steps: 1. who and how (**One NPC / A group that fights together / A patrol route**), 2. **Facing** slider and Start placing / Start route, 3. click the ground (patrols: click points, **Save patrol**, at least two points). Clicks that cannot place say why. **Placed NPCs in this pack** lists each spawn: Go to, Edit this NPC, Move it (**Pick a new spot**, **Face toward...**), Remove placement (confirm). Saved patrols draw as lines. |
+| Quests | Select or create a quest; fill Story and level, Quest giver and return (stock NPCs searchable by name as well as pack NPCs), Objectives and optional Rewards/chain. Pick NPCs, items and objects (placed pack objects included) by name. **Discover a place** objectives: **Pick the place on the ground**, an **Area size** slider and a ring marker, **Go there**. Save, read the quest's check results and reopen it to continue editing; **Delete this quest** (confirm). Unsaved quest drafts survive switching quests/packs within the session. |
+| Publish | Save open forms, check the listed enabled packs, choose **1. Check drafts**, then **2. Publish** - a confirm lists the packs that go in and warns that the game server restarts; busy buttons say why they wait. After success choose **3. Download build** to update this client's terrain and collision. |
+| Larger areas | **More** contains Maps and dungeons, Regions and paths, Check world content and Pack data (deletes confirm). **Name a place within your map**: **Pick the centre on the ground**, ring marker, **Save named place**. **Connect two places with a portal**: name, **1. Pick the arrival on the ground**, **2. Pick the entrance on the ground** (size, minimum level), **3. Save portal**; both ends draw as markers; **Your portals**: Go to, Delete portal (confirm). New maps copy terrain via **Pick the terrain to copy** (tile outline in the world). Region relocation: **Pick where it goes** (outline) and **Move pack region** (confirm); regions containing NPC patrol routes refuse relocation explicitly. |
 
 **Escape cancels the active tool before opening the menu**, including while a model search has focus.
-An unfinished stroke or patrol route is discarded; already saved edits remain. **Ctrl+Z** and the Undo buttons
+An unfinished stroke or patrol route is discarded; already saved edits remain. Unsaved path points stay in the
+Paths editor (Clear points or New path discards them). **Ctrl+Z** and the Undo buttons
 reverse the selected pack's last saved operation, including an edit from another task page. Text-field Undo remains
 with the text field. Cancelling an object move leaves its saved position intact.
 
@@ -392,6 +406,22 @@ Lessons that created checks (2026-09-26, Gilneas build #7):
   (19349 KiB patch-7; collision synced: 990 file(s))" and the sha1 matched the server's. `/WorldPacks/
   Installed` now lists a sha1 per file (cached by path+size+mtime) and the sync skips files already
   byte-identical, so a new build moves only what changed.
+  2026-10-14: the blocking part is now only the version check (5 s) and, when the build moved, the patch-7
+  download (60 s); the sidecar is written as soon as patch-7 lands. Collision syncs in the background and
+  is "current" when both `worldpack-sync.json` manifests (vmaps, mmaps) carry the server's build id, so an
+  interrupted sync resumes next launch. Before this, the whole sync blocked `Load()` under a 90 s timeout
+  and a timed-out sync never wrote the sidecar, so every launch redid it (owner saw minute-long F5 starts).
+  The `[worldpacks]` line is printed after the console tee, so it now reaches `msui-console.log`.
+  2026-10-14 (later): **why the slow boot came back, and the two fixes.** The scripted QA clients
+  (`tools/worldpack/launch-wb.ps1`, `tools/tabletop/launch-tabletop.ps1`) share `GameData` with the owner's client
+  but point at the WSL web app; their startup sync swapped the owner's patch-7 build #59 for WSL's #4 (18:58) and
+  restarted the collision sync, so the owner's next launch re-downloaded everything. (1) `MSUI_WORLDPACK_SYNC=off`
+  skips the startup sync ("sync skipped ... GameData left as it is"); both launchers set it, and the World
+  Builder's in-game Download then saves to `scratch/worldpack-qa/` and touches neither the sidecar nor collision.
+  (2) **No more black, frozen-looking window**: the sync runs on a worker while `ClientWindow.PresentWhileWaiting`
+  keeps polling events and presenting a progress card ("Updating world content", stage, MB of MB, bar; a sweep
+  while the size is unknown; nothing for the first 0.25 s) and the title bar says the same. Verified with
+  `MSUI_STARTUP_PROGRESS_DEMO=<png>` (a simulated 21 MB download through the same card, frame saved at 3 s).
 - 2026-09-27: **world map for pack maps.** No WorldMapArea row, no painted art → the world map of a pack map
   (id 800+) is the mosaic of its own minimap tiles (`WorldMapUiLaw.TryMinimapMosaicBounds`, 3:2, west left,
   north up); stock maps and instances are untouched. It emits `world-map/mosaic/DRAWN` (map, tiles, bounds);
@@ -696,6 +726,84 @@ Lessons that created checks (2026-09-26, Gilneas build #7):
   Evidence: `scratch/worldbuilder/logs/human-tools-{initial,round2,round3,round4,vendor-published}.log`,
   `build38-human-status.json`, `surface-{zero,stroke}-proof-comparison.json`, and `npc-roundtrip/*-report.json`.
   **The continent highlight's bright border is still pending the owner's requested subtle-fill refinement.**
+
+- **2026-10-07 - noggit-lite pass: Paths, Chests and props (client only; no web change, no publish).** The owner
+  found the manual tools unusable for a human ("the tooling exists ... but it's not functional for a human using the
+  manual tool"). Paths moved out of More to their own page: click-placed, draggable, insertable points instead of
+  "add point where I stand"; centre/lane/blend lines drawn on the ground; a live terrain-preview layer computed with
+  `WorldBuilderLaw.PathWeight` (the web GradedPath rule, wire-checked); saved paths listed, reopened, renamed (old key
+  deleted in the same op) and deleted; unknown body fields such as `approach` are kept. New Chests page: stock
+  templates from the read-only `/GameObjects/Search`, one reserved-range `dbrow:gameobject` row per click with a yaw
+  quaternion (rotation2/3), model previews with the live renderer's transforms, edit/move/remove, and custom chests
+  (`gameobject_template` copy from `/GameObjects/FullRow` with `data1` = its own entry as loot id, `data3` consumable,
+  copper, `gameobject_loot_template` rows). Buildings: Buildings/Props filter, quick words, scatter rolls, up to four
+  placements saving at once, X/Y/tilt fields, live draft preview, Duplicate, selection ring. Probe additions:
+  `ui-page paths|gameobjects` and `ui-panel-size W H`. Real-pointer QA on the disabled `human-tools-qa` pack: path
+  tool armed, three clicked points, drag, Escape, Save path (op 267), Delete path (269); Battered Chest placed by click
+  (op 266, at the click with the expected quaternion), its saved preview rendered on the ground, selected from the
+  list with the ring, removed (268). The pack ends with no path or gameobject docs. Not yet exercised live: the
+  ground-preview layer (the QA client had no build mounted, so it correctly reported "terrain not loaded"), a
+  published chest/custom chest on the live server, and road texture painting, which does not exist yet (paths only
+  regrade the ground). Logs: `scratch/worldbuilder/logs/gui-{paths-6,paths-8,chest-1,cleanup-1,cleanup-2}.log`.
+
+- **2026-10-14 - roads the human way: fly camera, ground grid, painted surfaces (client; web step pending).** The owner
+  had run a pre-change client (the old "Add point where I stand" box) and asked for a fly mode, a visible grid
+  selector and roads made from the game's own textures. Built: World Builder fly camera on top of Free view (own view
+  angle `WbFlyPitchOverride`, starts 40 yd up, Free view box-selection suppressed while a World Builder action owns the
+  left button, tools pick terrain to 900 yd); ground grid overlay + snap; the Paths page as four steps; a vanilla ground
+  texture picker (`Tileset\<Zone>\*.blp`, thumbnails); road painting with `TerrainPaintLaw` (visible-weight paint,
+  at most 4 layers - a fifth replaces the least visible - 4-bit alphas like MCAL), applied to the loaded tile and
+  restored per tile when the road changes, the page closes or the tile re-streams. Grading is now optional per path
+  (`grade`; old docs without it still grade). Real-pointer QA (`gui-road-5.log`): fly camera on, four clicked points,
+  ElwynnCobbleStoneBase chosen in the picker, 6 chunks painted, screenshot shows the cobble road exactly between the
+  lane lines (alpha orientation confirmed). **Saving a painted road is blocked by design** until the web app reports
+  `State.roadSurfaceSupported`: today's build would grade every path doc and ignore the paint. Web contract (phase 2):
+  path body `grade` (default true) and `surface {texture, width, softEdge, strength}`; after `ApplySurface` and before
+  Write, paint every touched chunk with the TerrainPaintLaw algorithm (port it verbatim: weights, replacement,
+  4-bit quantization, pixel centres from `PixelWorld`), append MTEX names, rebuild MCLY/MCAL, fix nLayers/sizeAlpha and
+  the MCNK offsets after each splice; a no-op paint must keep the byte-identical round trip. Ground effects (grass) are
+  not rebuilt by the client preview.
+
+- **2026-10-14 (later) - road surfaces ship: web app phase 2, verified on the owner's LOCAL WSL stack.** Owner rule: World
+  Builder deploys and QA use the local WSL instance (`mangossuperui.service`, http://localhost:5000), never 192.168.0.2.
+  Web app (MangosSuperUI, uncommitted): `Services/WorldPacks/TerrainPaint.cs` (verbatim port of the client law),
+  `AdtDocument.PaintTexture` + `ReplaceSubchunk` (MCLY/MCAL rewrite, nLayers, sizeAlpha = payload + 8 as stock files have
+  it, MTEX append, offsets after each splice shifted), `GradedPath` `Grade`/`Surface`/`TouchedTiles`/`PaintSurface`, build
+  step after `ApplySurface`, controller validation (Tileset\...\*.blp, grade:false needs a surface) and
+  `State.roadSurfaceSupported = true`. Tests: `WorldPackPaintTests` 7 (law parity; no-op paint byte-identical; a strip on
+  Azeroth_32_48 reads back at full weight while far chunks, heights, water, holes and props are unchanged; MTEX reused) and
+  the full WorldPack/GradedPath suite 128/128. Deployed into WSL `/opt/mangossuperui` (backup
+  `/home/wowvmangos/deploy/backups/auto-20261014T064227`). Real-pointer e2e on WSL pack `road-qa` (id 1): road drawn in the
+  fly camera, ElwynnCobbleStoneBase picked, saved through Save path (`grade:false` + `surface`); the build logged
+  `tile 0:32,48 painted ... (6 chunk(s))` - the same 6 chunks the preview painted - and the client, after downloading that
+  patch-7, rendered the cobble road from the published ADT with no preview layer (`road-baked` shot). WSL setup done for
+  this: the 14 stock MPQs copied to `~/worldpacks/work/Data`, `~/worldpacks/tools` -> `run/bin/Extractors`. **Open: WSL
+  publishes stop at server extraction** - the WSL Core's MapExtractor has no `-m <maps>` option (a SuperUI patch present
+  only on the box), so builds #2/#3 failed after building patch-7 and installed nothing server-side. Road surfaces need no
+  server data (heights/collision/navmesh unchanged), but any other publish on WSL needs those extractor patches.
+  **Resolved the same day:** the owner updated the WSL Core (`0453e1201 Various hooks for packs`; extractors rebuilt with
+  the `-m` map filter). WSL build #4 then succeeded end to end: road painted (6 chunks), patch-7 sha1 2fa16fcf...,
+  MapExtractor/VMapExtractor `-m 0`, VMapAssembler, navmesh for 25 tiles, 14 server files installed, scoped mangosd
+  restart ("World initialized"), verifier 0 errors / 0 warnings (G13: 27 samples, steepest 14 degrees). The client's
+  startup sync fetched build #4 and renders the road (`road-build4` shot).
+
+- **2026-10-14 (evening) - human usability pass over every World Builder tool** (owner: "make sure that they are human
+  usable in the form that we see here" - the Paths page as the model). Rule applied everywhere: nothing asks for typed
+  coordinates or ids; a ground point is chosen with a pick button and shown as a world marker; destructive actions
+  confirm; disabled buttons say why; long rows put their buttons on their own line (a long name pushed "Delete portal"
+  past the panel edge). §4 lists the result per page. New shared file `GameLoop.Creator.WorldBuilder.Common.cs` (pick
+  tool, markers, tile outline, confirm dialog, undo button); `...NpcPlace.cs` (cursor ghost, unsaved-changes guard,
+  placement list, delete/restore NPC with dependents); custom chest form v2 in `...Objects.cs`. Bugs found by real-pointer
+  runs: auto-placing after Create NPC was cancelled three ways (a script-only guard, the docs reload racing
+  `WbValidateSpawnSelection`, and the post-save refresh of the same NPC resetting the page - `_wbNpcRefreshing`); a
+  confirm modal drawn inside the page lost its clicks (now one top-level dialog with a fixed width). QA runs in the
+  background: `MSUI_WB_BACKGROUND=1` (default in `launch-wb.ps1`, `-Visible` to opt out) creates the window hidden but
+  still rendering, so test clients never take the screen or keyboard; the UI probe scrolls to an off-screen button and
+  retries (`ERROR` after 4 tries). Verified on WSL pack `road-qa` by real pointer frames (scripts in
+  `scratch/worldbuilder/pass-*.txt`): NPC create -> armed placement -> click -> list -> Remove placement -> Delete NPC;
+  object place -> select in world -> Remove; portal arrival/entrance picks -> Save -> list -> Delete portal (ops #28/#29);
+  Publish confirm -> Cancel (no build). Pack left with only the earlier `qa-cobble-road` path. Not yet clicked through by
+  a script: quest Discover-a-place pick, building Level-the-ground, terrain flatten pick, region move.
 
 ## 9. Building a zone — the playbook (humans AND agents)
 

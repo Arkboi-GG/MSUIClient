@@ -30,11 +30,14 @@ public sealed partial class GameLoop
 
     private void DrawWbNpcSaveButton()
     {
-        bool ready = _wbPackId != 0 && WbText(_wbNpcName).Length > 0 && !_wbNpcSaving && _wbNpcLoadTask is null && !_wbNpcLoadFailed && _wbNpcCopyBlock.Length == 0;
-        ImGui.BeginDisabled(!ready);
+        string why = _wbPackId == 0 ? "Choose a pack first." : WbText(_wbNpcName).Length == 0 ? "Give the NPC a name."
+            : _wbNpcSaving ? "Saving..." : _wbNpcLoadTask is not null ? "Loading the NPC's services..."
+            : _wbNpcLoadFailed ? "Its services did not load; select it again." : _wbNpcCopyBlock.Length > 0 ? "This NPC cannot be imported (see above)." : "";
+        ImGui.BeginDisabled(why.Length > 0);
         if (CreatorButton(_wbNpcStockSourceEntry != 0 ? "Save this NPC in pack" : _wbNpcEditEntry != 0 ? "Save NPC changes" : "Create NPC")) WbCreateNpc();
         ImGui.EndDisabled();
-        ImGui.SameLine(); ImGui.TextDisabled(_wbNpcSaving ? "Saving..." : "Goes live after publishing");
+        ImGui.SameLine(); ImGui.TextDisabled(why.Length > 0 ? why : "Goes live after publishing");
+        DrawWbNpcDeleteButtons();
     }
 
     private void DrawWbNpcAppearance()

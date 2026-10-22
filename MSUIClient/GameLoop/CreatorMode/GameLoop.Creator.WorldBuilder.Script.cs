@@ -183,7 +183,8 @@ public sealed partial class GameLoop
                 _wbScriptWaitFor = "idle";
                 break;
             case "panel":
-                _creatorPanel = a[1] == "world" ? CreatorPanel.World : CreatorPanel.None;
+                // Any Creator panel by name (world, character, gear, teleport, target, spells, xray); anything else closes.
+                _creatorPanel = Enum.TryParse<CreatorPanel>(a[1], true, out var panel) ? panel : CreatorPanel.None;
                 break;
             case "refresh":
                 WbRequestState();

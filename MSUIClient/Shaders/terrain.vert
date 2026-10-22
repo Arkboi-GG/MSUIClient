@@ -32,6 +32,14 @@ uniform vec3 uCameraOrigin;
 // Camera-relative equation of an optional world cut. It is ignored unless the
 // caller enables GL_CLIP_DISTANCE0.
 uniform vec4 uWorldClipPlane;
+// Quest Tabletop view transform (World/TabletopViewTransform.cs). Only the tabletop's own renderer
+// instances set these; the game's programs keep the defaults (relief off, clip distances 1-3 disabled).
+uniform int uReliefOn;
+uniform float uReliefK;
+uniform float uReliefBase;
+uniform vec4 uBoardClip1;
+uniform vec4 uBoardClip2;
+uniform vec4 uBoardClip3;
 
 out vec3 vWorldPos;
 out vec3 vNormal;
@@ -42,13 +50,23 @@ flat out float vAlphaLayer;
 void main()
 {
     vec3 relativePosition = aPosition - uCameraOrigin;
+    vec3 normal = aNormal;
+    if (uReliefOn == 1)
+    {
+        // z' = z + (k - 1)(z - base); normals take the inverse-transpose of that z scale.
+        relativePosition.z += (uReliefK - 1.0) * (aPosition.z - uReliefBase);
+        normal = vec3(aNormal.xy, aNormal.z / uReliefK);
+    }
 
     vWorldPos   = relativePosition;
-    vNormal     = normalize(aNormal);
+    vNormal     = normalize(normal);
     vChunkUV    = aChunkUV;
     vLayers     = aLayers;
     vAlphaLayer = aAlphaLayer;
 
     gl_ClipDistance[0] = dot(uWorldClipPlane, vec4(relativePosition, 1.0));
+    gl_ClipDistance[1] = dot(uBoardClip1, vec4(relativePosition, 1.0));
+    gl_ClipDistance[2] = dot(uBoardClip2, vec4(relativePosition, 1.0));
+    gl_ClipDistance[3] = dot(uBoardClip3, vec4(relativePosition, 1.0));
     gl_Position = uViewProjection * vec4(relativePosition, 1.0);
 }

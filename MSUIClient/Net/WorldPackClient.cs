@@ -25,8 +25,22 @@ public sealed class WorldPackClient
     public Task<string> NpcsNearAsync(string baseUrl, int mapId, float x, float y, float radius = 180f) =>
         _http.GetStringAsync(U(baseUrl, FormattableString.Invariant($"NpcsNear?mapId={mapId}&x={x}&y={y}&radius={radius}")));
 
+    /// <summary>The pack's recent ops, newest first (label, kind, undoneBy) - for "Undo: what". Raw JSON.</summary>
+    public Task<string> OpsAsync(string baseUrl, int packId, int limit) => _http.GetStringAsync(U(baseUrl, $"Ops?packId={packId}&limit={limit}"));
+
     public Task<string> NpcAsync(string baseUrl, uint entry) =>
         _http.GetStringAsync(U(baseUrl, $"Npc?entry={entry}"));
+
+    /// <summary>Read-only stock gameobject template search (chests, nodes, decorations): the web app's
+    /// /GameObjects/Search. <paramref name="type"/> null = every type. Raw JSON {objects:[{entry,type,displayId,name,size,...}]}.</summary>
+    public Task<string> GameObjectSearchAsync(string baseUrl, string query, int? type, int pageSize = 40) =>
+        _http.GetStringAsync($"{baseUrl.TrimEnd('/')}/GameObjects/Search?q={Uri.EscapeDataString(query)}" +
+                             (type is { } t ? $"&typeFilter={t}" : "") + $"&pageSize={pageSize}");
+
+    /// <summary>Every column of one stock gameobject template (/GameObjects/FullRow) - the source a pack copy
+    /// (custom chest) starts from. Raw JSON {found, obj:{...}}.</summary>
+    public Task<string> GameObjectRowAsync(string baseUrl, uint entry) =>
+        _http.GetStringAsync($"{baseUrl.TrimEnd('/')}/GameObjects/FullRow?entry={entry}");
 
     // ── DTOs (camelCase on the wire) ─────────────────────────────────────────
 
@@ -83,6 +97,9 @@ public sealed class WorldPackClient
         public int MapId { get; set; }
         public List<Pack> Packs { get; set; } = new();
         public bool SurfaceSculptSupported { get; set; }
+        /// <summary>The web app builds path "surface" textures and honours "grade": false (road painting). Until it says so,
+        /// painted roads are preview-only: an older build would grade every path doc and ignore the paint.</summary>
+        public bool RoadSurfaceSupported { get; set; }
         public List<Placement> Placements { get; set; } = new();
         public List<SculptTile> Sculpt { get; set; } = new();
         public List<SculptTile> PublishedSculpt { get; set; } = new();
@@ -218,14 +235,28 @@ public sealed class WorldPackClient
         _http.GetStringAsync($"{baseUrl.TrimEnd('/')}/Database/Export/mangos/{table}?filterCol={Uri.EscapeDataString(filterCol)}&filterVal={Uri.EscapeDataString(filterVal)}");
 
     /// <summary>Download the published archive to <paramref name="destination"/> (atomic: temp + move).</summary>
-    public async Task<long> DownloadPatchAsync(string baseUrl, string destination)
+    public async Task<long> DownloadPatchAsync(string baseUrl, string destination, CancellationToken ct = default,
+        Action<long, long?>? progress = null)
     {
-        using var res = await _download.GetAsync(U(baseUrl, "Patch"), HttpCompletionOption.ResponseHeadersRead);
+        using var res = await _download.GetAsync(U(baseUrl, "Patch"), HttpCompletionOption.ResponseHeadersRead, ct);
         if (!res.IsSuccessStatusCode)
-            throw new InvalidOperationException($"HTTP {(int)res.StatusCode}: {Trim(await res.Content.ReadAsStringAsync())}");
+            throw new InvalidOperationException($"HTTP {(int)res.StatusCode}: {Trim(await res.Content.ReadAsStringAsync(ct))}");
         string temp = destination + ".download";
         await using (var file = File.Create(temp))
-            await res.Content.CopyToAsync(file);
+        {
+            // Copied in chunks so a caller can show bytes received (the startup progress card).
+            long? total = res.Content.Headers.ContentLength;
+            await using var body = await res.Content.ReadAsStreamAsync(ct);
+            var buffer = new byte[81920];
+            long done = 0;
+            int read;
+            while ((read = await body.ReadAsync(buffer, ct)) > 0)
+            {
+                await file.WriteAsync(buffer.AsMemory(0, read), ct);
+                done += read;
+                progress?.Invoke(done, total);
+            }
+        }
         long size = new FileInfo(temp).Length;
         File.Move(temp, destination, overwrite: true);
         return size;

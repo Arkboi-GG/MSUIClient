@@ -764,6 +764,79 @@ public sealed class ClientWindow : IDisposable
         }
     }
 
+    /// <summary>
+    /// Keep the window alive while a startup step blocks Load: poll window events and present frames - a dark screen
+    /// with a small progress card (stage, bytes, bar; an indeterminate sweep while the size is unknown) - until
+    /// <paramref name="work"/> completes, and say the same in the title bar. Nothing is drawn for the first quarter
+    /// second, so an ordinary fast check never flashes a card. Draw-list primitives only (no ImGui widgets); the game's
+    /// art is not mounted yet at this point.
+    /// </summary>
+    public void PresentWhileWaiting(Task work, Func<(string Stage, long Done, long? Total)> status,
+        Action<double>? beforeSwap = null)
+    {
+        if (_imgui is null || _gl is null) { work.Wait(); return; }
+        string baseTitle = _window.Title;
+        var clock = Stopwatch.StartNew();
+        double last = 0;
+        try
+        {
+            while (!work.IsCompleted)
+            {
+                _window.DoEvents();
+                if (_window.IsClosing) { work.Wait(TimeSpan.FromSeconds(1)); break; }
+                double now = clock.Elapsed.TotalSeconds;
+                if (now < 0.25) { Thread.Sleep(10); continue; }
+                float dt = (float)Math.Clamp(now - last, 1.0 / 240.0, 0.25);
+                last = now;
+                var (stage, done, total) = status();
+                string amount = total is > 0 ? $"{done / 1048576.0:0.0} of {total.Value / 1048576.0:0.0} MB"
+                    : done > 0 ? $"{done / 1048576.0:0.0} MB" : $"{now:0} s";
+                _window.Title = $"{baseTitle} - {stage}... {amount}";
+
+                var fb = _window.FramebufferSize;
+                _gl.Viewport(0, 0, (uint)Math.Max(fb.X, 1), (uint)Math.Max(fb.Y, 1));
+                _gl.ClearColor(0.035f, 0.03f, 0.025f, 1f);
+                _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+                _imgui.Update(dt);
+                DrawStartupCard(stage, amount, total is > 0 ? Math.Clamp(done / (float)total.Value, 0f, 1f) : null, (float)now);
+                _imgui.Render();
+                beforeSwap?.Invoke(now);
+                _window.SwapBuffers();
+                Thread.Sleep(15);
+            }
+        }
+        finally { _window.Title = baseTitle; }
+    }
+
+    private static void DrawStartupCard(string stage, string amount, float? fraction, float seconds)
+    {
+        var io = ImGui.GetIO();
+        var dl = ImGui.GetBackgroundDrawList();
+        float s = MathF.Max(io.DisplaySize.Y / 768f, 0.75f);
+        var size = new Vector2(460f, 118f) * s;
+        var min = (io.DisplaySize - size) * 0.5f;
+        var max = min + size;
+        dl.AddRectFilled(min, max, 0xF0121619u, 10f * s);          // warm dark glass (ABGR)
+        dl.AddRect(min, max, 0x1FD2E6EFu, 10f * s, ImDrawFlags.None, 1f);
+        var font = ImGui.GetFont();
+        float title = 20f * s, small = 14.5f * s;
+        dl.AddText(font, title, min + new Vector2(22f, 18f) * s, 0xFF4EC1F2u, "Updating world content");
+        dl.AddText(font, small, min + new Vector2(22f, 48f) * s, 0xFFD2E6EFu, stage);
+        var barMin = min + new Vector2(22f, 76f) * s;
+        var barMax = new Vector2(max.X - 22f * s, barMin.Y + 8f * s);
+        dl.AddRectFilled(barMin, barMax, 0x33D2E6EFu, 4f * s);
+        float w = barMax.X - barMin.X;
+        if (fraction is { } f)
+            dl.AddRectFilled(barMin, new Vector2(barMin.X + w * f, barMax.Y), 0xFF4EC1F2u, 4f * s);
+        else
+        {
+            // Unknown size: a sweep, so the card visibly moves even when no bytes are counted yet.
+            float t = seconds * 0.6f % 1f, a = barMin.X + w * MathF.Max(0f, t - 0.25f), b = barMin.X + w * MathF.Min(1f, t + 0.05f);
+            dl.AddRectFilled(new Vector2(a, barMin.Y), new Vector2(b, barMax.Y), 0xFF4EC1F2u, 4f * s);
+        }
+        dl.AddText(font, small, new Vector2(barMin.X, barMax.Y + 8f * s), 0xFF90ACB9u, amount);
+    }
+
     private void HandleLoad()
     {
         var startup = Stopwatch.StartNew();
