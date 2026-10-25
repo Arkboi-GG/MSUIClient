@@ -445,7 +445,7 @@ public sealed partial class GameLoop
         if (item is not null && _gameplayArt?.Handle(item.IconPath) is uint icon and not 0)
             draw.AddImage((nint)icon, layout.ItemIconMin, layout.ItemIconMax);
         uint titleColor = item is null ? VanillaGold
-            : ImGui.ColorConvertFloat4ToU32(GroupLootFrameUiLaw.QualityColor(item.Quality));
+            : ImGui.ColorConvertFloat4ToU32(ItemQualityLaw.Color(item.Quality));
         draw.PushClipRect(layout.TitleTextMin,
             layout.TitleTextMin + new Vector2(layout.TitleWidth, 32 * s), true);
         GameText.Draw(draw, "GameFontNormal", item?.Name ?? "Give loot", layout.TitleTextMin, s, titleColor);
