@@ -42,6 +42,9 @@ namespace MSUIClient.World;
 /// </summary>
 public sealed class LiquidRenderer : IDisposable
 {
+    /// <summary>Quest Tabletop view transform (relief + board cut); set only on the tabletop's own instance.</summary>
+    public TabletopViewTransform? Tabletop { get; set; }
+
     private readonly bool _diagnosticTrace = Environment.GetEnvironmentVariable("MSUI_LIQUID_PROBE") == "1";
     private float _nextDiagnosticTrace;
     private const int FloatsPerVertex = 5;   // ADT path: position(3) + type(1) + depth(1)
@@ -1268,6 +1271,7 @@ public sealed class LiquidRenderer : IDisposable
         _shader.Set("uWorldClipPlane", worldClipPlane is { IsValid: true } clip
             ? clip.RelativeEquation(camera.Position)
             : new Vector4(0f, 0f, 0f, 1f));
+        Tabletop?.Apply(_shader, camera.Position, relief: true);
         _shader.Set("uSunDirection", SunDirection);
         _shader.Set("uSunColor", SunColor);
         _shader.Set("uSunIntensity", SunIntensity);

@@ -355,6 +355,12 @@ public sealed partial class NetworkClient : IDisposable
 
     public bool SuiGiverQuests(ulong giver) => InWorld(s => s.SuiGiverQuests(giver));
 
+    public bool SuiThreat(ulong creature, int rows) =>
+        InWorld(s => s.SuiThreat(creature, rows));
+
+    public bool SuiKart(KartingWire.Action action, uint param = 0) =>
+        InWorld(s => s.SuiKart(action, param));
+
     public bool SuiPartyLead(byte action, ulong subject) =>
         InWorld(s => s.SuiPartyLead(action, subject));
     public bool SuiPartyQuest(byte action, uint questId, ulong npcGuid,

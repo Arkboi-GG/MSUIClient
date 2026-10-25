@@ -703,6 +703,13 @@ public sealed partial class DoodadRenderer : IDisposable
     public bool UseInstancing { get; set; } = true;
 
     public float DrawDistance { get; set; } = 300f;
+
+    /// <summary>Quest Tabletop view transform (relief + board cut); set only on the tabletop's own instance.</summary>
+    public TabletopViewTransform? Tabletop { get; set; }
+
+    /// <summary>Quest Tabletop: extra height for a placement (its origin, owning WMO instance id) so models ride the
+    /// exaggerated ground at true scale (World/TabletopViewTransform.cs). Null everywhere else.</summary>
+    public Func<Vector3, int, float>? ModelLift { get; set; }
     public float VisibilityDistance { get; set; } = float.PositiveInfinity;
 
     /// <summary>
@@ -793,6 +800,18 @@ public sealed partial class DoodadRenderer : IDisposable
     /// clear them so historic active-world timestamps cannot hold candidate
     /// doodads permanently transparent.
     /// </summary>
+    /// <summary>
+    /// Record every placement already resident as opaque. A Real Portals prepared world is built with
+    /// AppearFade off, so it remembers none of its keys; switched on at promotion, the first tile crossing
+    /// (a full ring rebuild) then saw the whole visible world as new and faded it all in from nothing - every
+    /// tree vanishing seconds after a crossing (WoW Karting frame bursts, 2026-10-04).
+    /// </summary>
+    public void MarkPlacedOpaque()
+    {
+        foreach (string key in _placed)
+            if (_appearStartByKey.Count < AppearKeyCap) _appearStartByKey.TryAdd(key, 0f);
+    }
+
     public void BeginOpaqueWorldEpoch(float nowSeconds = 0f)
     {
         _appearStartByKey.Clear();
@@ -1917,6 +1936,15 @@ public sealed partial class DoodadRenderer : IDisposable
 
     // ── placement ────────────────────────────────────────────────────────────
 
+    /// <summary>World Builder ghost (shared_docs/WORLD_BUILDER.md §4): the exact transform an MDDF
+    /// entry with these placement-space fields gets once published, for <see cref="AddDynamic"/>.</summary>
+    public static Matrix4x4 MddfTransform(Vector3 placementPos, Vector3 rotDeg, float scale)
+        => BuildPlacement(new AdtTerrainReader.DoodadPlacement
+        {
+            PosX = placementPos.X, PosY = placementPos.Y, PosZ = placementPos.Z,
+            RotX = rotDeg.X, RotY = rotDeg.Y, RotZ = rotDeg.Z, Scale = scale,
+        });
+
     private static Matrix4x4 BuildPlacement(AdtTerrainReader.DoodadPlacement d)
     {
         const float deg = MathF.PI / 180f;
@@ -3000,11 +3028,13 @@ public sealed partial class DoodadRenderer : IDisposable
         _shader.Set("uWorldClipPlane", worldClipPlane is { IsValid: true } clip
             ? clip.RelativeEquation(camera.Position)
             : new Vector4(0f, 0f, 0f, 1f));
+        Tabletop?.Apply(_shader, camera.Position, relief: false);
         _shader.Set("uCutActive", Cut is not null ? 1 : 0);
         _shader.Set("uCutRect", Cut?.RelativeRect(camera.Position) ?? Vector4.Zero);
         _shader.Set("uCutZ", Cut?.RelativeZ(camera.Position) ?? 0f);
         SetSightUniforms(camera.Position);
-        PartySight?.Apply(_shader, camera.Position);
+        if (PartySight is { } partySight) partySight.Apply(_shader, camera.Position);
+        else PartySightPass.BindInactive(_shader);
         // uUseInstancing is set per pass below (1 for RenderInstanced, 0 for the
         // per-instance GameObject-pose pass), not once for the whole frame.
         _shader.Set("uCameraPos", Vector3.Zero);
@@ -3141,6 +3171,7 @@ public sealed partial class DoodadRenderer : IDisposable
                 }
 
                 var modelTransform = instance.Transform;
+                if (ModelLift is { } lift) modelTransform.M43 += lift(instance.Transform.Translation, instance.WmoInstanceId);
                 modelTransform.M41 -= eye.X;
                 modelTransform.M42 -= eye.Y;
                 modelTransform.M43 -= eye.Z;
@@ -3240,6 +3271,7 @@ public sealed partial class DoodadRenderer : IDisposable
             }
 
             var modelTransform = instance.Transform;
+            if (ModelLift is { } lift) modelTransform.M43 += lift(instance.Transform.Translation, instance.WmoInstanceId);
             modelTransform.M41 -= eye.X;
             modelTransform.M42 -= eye.Y;
             modelTransform.M43 -= eye.Z;
@@ -3460,6 +3492,7 @@ public sealed partial class DoodadRenderer : IDisposable
                         PortalVisibility is not null &&
                         !PortalVisibility(instance.WmoInstanceId, instance.OwnerGroups)) continue;
                     var transform = instance.Transform;
+                    if (ModelLift is { } lift) transform.M43 += lift(instance.Transform.Translation, instance.WmoInstanceId);
                     transform.M41 -= eye.X;
                     transform.M42 -= eye.Y;
                     transform.M43 -= eye.Z;
@@ -3490,6 +3523,7 @@ public sealed partial class DoodadRenderer : IDisposable
                             instance.WorldMax - eye)) { FrustumCulledLastFrame++; continue; }
 
                     var transform = instance.Transform;
+                    if (ModelLift is { } lift) transform.M43 += lift(instance.Transform.Translation, instance.WmoInstanceId);
                     transform.M41 -= eye.X;
                     transform.M42 -= eye.Y;
                     transform.M43 -= eye.Z;

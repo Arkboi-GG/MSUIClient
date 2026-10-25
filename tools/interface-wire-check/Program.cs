@@ -857,6 +857,13 @@ if (args.Contains("--npc-session-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--threat-meter-only", StringComparer.Ordinal))
+{
+    ThreatMeterClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: ThreatMeter PASS");
+    return;
+}
+
 if (args.Contains("--loot-frame-only", StringComparer.Ordinal))
 {
     LootFrameClinicalChecks.Run();
@@ -1571,6 +1578,13 @@ if (args.Contains("--world-map-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--world-builder-only", StringComparer.Ordinal))
+{
+    WorldBuilderClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: WorldBuilder PASS");
+    return;
+}
+
 if (args.Contains("--shared-docs-only", StringComparer.Ordinal))
 {
     SharedDocsClinicalChecks.Run();
@@ -1819,6 +1833,24 @@ if (args.Contains("--tactical-freeze-only", StringComparer.Ordinal))
 if (args.Contains("--character-model-reset-only", StringComparer.Ordinal))
 {
     CharacterModelResetClinicalChecks.Run();
+    return;
+}
+
+if (args.Contains("--equipment-mount-identity-only", StringComparer.Ordinal))
+{
+    EquipmentMountIdentityClinicalChecks.Run();
+    return;
+}
+
+if (args.Contains("--character-skin-extra-only", StringComparer.Ordinal))
+{
+    CharacterSkinExtraClinicalChecks.Run(args.Length > 1 ? args[1] : null);
+    return;
+}
+
+if (args.Contains("--equipment-readiness-only", StringComparer.Ordinal))
+{
+    EquipmentReadinessClinicalChecks.Run();
     return;
 }
 
@@ -3508,7 +3540,7 @@ var tabardPaths = new List<string>();
 tabardEquipment.Composite(new byte[256 * 256 * 4], 256, 256, path =>
 {
     tabardPaths.Add(path); return (new byte[128 * 64 * 4], 128, 64);
-});
+}, bareFeet: false);
 Check(tabardPaths.SequenceEqual(new[]
 {
     @"Textures\GuildEmblems\Background_11_TU_U.blp",
@@ -4828,6 +4860,8 @@ Console.WriteLine("interface-wire-check: Hovercast PASS");
 CompanionClinicalChecks.Run();
 PartyTaxiClinicalChecks.Run();
 TacticalFreezeClinicalChecks.Run();
+EquipmentReadinessClinicalChecks.Run();
+EquipmentMountIdentityClinicalChecks.Run();
 PossessLawClinicalChecks.Run();
 SwingTimerClinicalChecks.Run();
 EquipBindingClinicalChecks.Run();
@@ -4842,6 +4876,7 @@ MacroBookClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: MacroBook PASS");
 SpellClassificationClinicalChecks.Run();
 SharedDocsClinicalChecks.Run();
+WorldBuilderClinicalChecks.Run();
 Console.WriteLine("interface-wire-check: SharedDocs PASS");
 
 Console.WriteLine("interface wire checks passed: minimap projection/area/zone + action icons + gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + social + trade + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding + gameplay-text fence");

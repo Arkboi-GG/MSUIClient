@@ -1458,12 +1458,13 @@ public static class AdtTerrainReader
 
         int nLayers = (int)BitConverter.ToUInt32(data, mcnkDataStart + 0x0C);
 
-        // Chunk world origin, MCNK header offsets 0x68/0x6C/0x70.
-        // NOTE the field order in the file is (Y, X, Z) — position[0] is the
-        // NORTH-SOUTH coordinate in WoW's axis convention, not "X" in the
-        // usual sense. MCVT heights are stored relative to BaseZ.
-        chunk.BaseY = BitConverter.ToSingle(data, mcnkDataStart + 0x68);
-        chunk.BaseX = BitConverter.ToSingle(data, mcnkDataStart + 0x6C);
+        // Chunk world origin, MCNK header offsets 0x68/0x6C/0x70: 0x68 is world X (NORTH), 0x6C is
+        // world Y (WEST), 0x70 is Z. Checked on Azeroth_29_51.adt: the first chunk reads
+        // (-10133.3, 1600.0), that tile's north-west corner (shared_docs/QUEST_TABLETOP.md §8). These
+        // were assigned swapped until 2026-10-14; nothing read them then (the terrain mesh places
+        // chunks by IndexX/IndexY). MCVT heights are stored relative to BaseZ.
+        chunk.BaseX = BitConverter.ToSingle(data, mcnkDataStart + 0x68);
+        chunk.BaseY = BitConverter.ToSingle(data, mcnkDataStart + 0x6C);
         chunk.BaseZ = BitConverter.ToSingle(data, mcnkDataStart + 0x70);
 
         // Sub-chunk offsets are relative to mcnkBase (chunk start including IFF header)
@@ -1933,9 +1934,10 @@ public static class AdtTerrainReader
         public MclyLayer[] Layers { get; set; } = Array.Empty<MclyLayer>();
 
         /// <summary>
-        /// Chunk origin in world space, from MCNK header 0x68/0x6C/0x70.
-        /// The file stores them in (Y, X, Z) order; these properties are
-        /// already untangled into WoW's convention (X north, Y west, Z up).
+        /// Chunk origin in world space, from MCNK header 0x68 (X, north) / 0x6C (Y, west) / 0x70 (Z),
+        /// WoW's convention (X north, Y west, Z up): the chunk's north-west corner. For chunk
+        /// (IndexX col, IndexY row) of tile (col, row): BaseX = (32 - row) * 533.33 - IndexY * 33.33,
+        /// BaseY = (32 - col) * 533.33 - IndexX * 33.33 (verified by the Quest Tabletop relief compiler).
         /// </summary>
         public float BaseX { get; set; }
         public float BaseY { get; set; }

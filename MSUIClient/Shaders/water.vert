@@ -33,6 +33,14 @@ uniform float uTime;             // seconds, for wave motion
 uniform float uWaveAmp;          // Water Tuning: 0 = flat plane; >0 = Gerstner waves
 uniform float uWaveSpeed;        // Water Tuning: wave scroll-speed multiplier
 uniform vec4  uWorldClipPlane;   // camera-relative; active with GL_CLIP_DISTANCE0
+// Quest Tabletop view transform (World/TabletopViewTransform.cs). Only the tabletop's own renderer
+// instances set these; the game's programs keep the defaults (relief off, clip distances 1-3 disabled).
+uniform int uReliefOn;
+uniform float uReliefK;
+uniform float uReliefBase;
+uniform vec4 uBoardClip1;
+uniform vec4 uBoardClip2;
+uniform vec4 uBoardClip3;
 
 out vec3  vRelPos;    // camera-relative position (length = view distance, for fog)
 out vec2  vAbsXY;     // undisplaced absolute world XY, for stable ripple/foam noise
@@ -150,6 +158,7 @@ void main()
     world.y += wv.disp.y * shore * uWaveAmp;
     world.z += wv.disp.z * shore * uWaveAmp;
     vNormal = vec3(0.0, 0.0, 1.0);
+    if (uReliefOn == 1) world.z += (uReliefK - 1.0) * (aPosition.z - uReliefBase);
 
     vec3 rel = world - uCameraOrigin;
     vRelPos = rel;
@@ -160,5 +169,8 @@ void main()
     vLiquidUv = aLiquidUv;
 
     gl_ClipDistance[0] = dot(uWorldClipPlane, vec4(rel, 1.0));
+    gl_ClipDistance[1] = dot(uBoardClip1, vec4(rel, 1.0));
+    gl_ClipDistance[2] = dot(uBoardClip2, vec4(rel, 1.0));
+    gl_ClipDistance[3] = dot(uBoardClip3, vec4(rel, 1.0));
     gl_Position = uViewProjection * vec4(rel, 1.0);
 }

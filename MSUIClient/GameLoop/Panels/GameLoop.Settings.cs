@@ -169,6 +169,18 @@ public sealed partial class GameLoop
             _escapeKeyDown = escape;
             return;
         }
+        // The Quest Tabletop owns Escape while open: clear the selection and fly back to the overview.
+        if (escape && !_escapeKeyDown && ConsumeTabletopEscape())
+        {
+            _escapeKeyDown = escape;
+            return;
+        }
+        // World Builder owns an armed brush/placement before any gameplay menu layer.
+        if (escape && !_escapeKeyDown && ConsumeWorldBuilderEscape())
+        {
+            _escapeKeyDown = escape;
+            return;
+        }
         // An armed Patrol route draft unwinds before every menu layer — the
         // documented Escape order puts an unfinished route draft second, right
         // after targeting (CRPG_RTS_MMO_PARTY_COMMAND_UI.md "Escape behavior").
@@ -2477,6 +2489,24 @@ public sealed partial class GameLoop
             }
             EndBox();
 
+            BeginBox("auto-attack", "Auto Attack");
+            {
+                Check("Attack abilities start auto-attack", () => addOns.AbilitiesStartAttack,
+                    value => addOns.AbilitiesStartAttack = value,
+                    "Pressing a melee ability (Heroic Strike, Sunder Armor, Sinister Strike, " +
+                    "Raptor Strike...) also starts your swing; a hunter's shot starts Auto Shot. " +
+                    "It happens even when the ability is refused for rage, energy, cooldown or " +
+                    "range, like a built-in /startattack.");
+                ImGui.TextWrapped(
+                    "Off gives the stock 1.12 behaviour: a refused ability does nothing, and " +
+                    "you start swinging with Attack or a right-click.");
+                ImGui.Spacing();
+                ImGui.TextDisabled(
+                    "Shouts, stances and abilities centred on yourself never start a fight. A " +
+                    "melee swing replaces a running Auto Shot or wand, so your weapons come out.");
+            }
+            EndBox();
+
             BeginBox("hovercast", "Hovercast");
             {
                 Check("Enable Hovercast", () => addOns.Hovercast,
@@ -2504,6 +2534,51 @@ public sealed partial class GameLoop
                 ImGui.TextDisabled(
                     "Item and macro slots are never redirected, and an armed ground or " +
                     "targeting cursor keeps the next click.");
+            }
+            EndBox();
+
+            var threat = addOns.ThreatMeter ??= new GameSettings.ThreatMeterSettings();
+            BeginBox("threat-meter", "Threat Meter");
+            {
+                Check("Enable Threat Meter", () => threat.Enabled,
+                    value => threat.Enabled = value,
+                    "Threat on your target: the top holders and where you stand. Target a " +
+                    "friend to watch their target instead (a healer watching the tank's mob).");
+                ImGui.TextWrapped(
+                    "Bars run to the point where a ranged attacker pulls aggro (130% of the " +
+                    "holder); the thin tick is the melee pull point (110%). The gold edge marks " +
+                    "who holds aggro, the white outline is you, and a bar turns amber at 80% " +
+                    "and red past 110%.");
+                ImGui.Spacing();
+
+                bool on = threat.Enabled;
+                if (!on) ImGui.BeginDisabled();
+                Check("Unlock meter (drag to move)", () => threat.Unlocked,
+                    value => threat.Unlocked = value,
+                    "Lets you drag the meter and keeps it visible without a target.");
+                if (threat.OffsetX != 0f || threat.OffsetY != 0f)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("Reset position##threat-meter"))
+                    {
+                        threat.OffsetX = 0f;
+                        threat.OffsetY = 0f;
+                    }
+                }
+                Check("Hide out of combat", () => threat.HideWhenIdle,
+                    value => threat.HideWhenIdle = value,
+                    "Hide the meter while your target has no threat list.");
+                Slider("threat-meter-rows", "Rows", () => ThreatMeterLaw.ClampRows(threat.Rows),
+                    v => threat.Rows = ThreatMeterLaw.ClampRows((int)MathF.Round(v)),
+                    ThreatMeterLaw.MinimumRows, ThreatMeterLaw.MaximumRows, "{0:0}",
+                    "How many of the top threat holders to list. You are always shown.");
+                if (!on) ImGui.EndDisabled();
+
+                ImGui.Spacing();
+                ImGui.TextDisabled(
+                    "Needs a server that sends threat (SuperUI core with threat-meter-v1); the " +
+                    "1.12 protocol itself never does. You are always listed, with your real " +
+                    "rank, even outside the top rows.");
             }
             EndBox();
 

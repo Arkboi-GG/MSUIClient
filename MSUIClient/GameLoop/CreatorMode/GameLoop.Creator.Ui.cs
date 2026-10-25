@@ -26,7 +26,7 @@ namespace MSUIClient;
 // ─────────────────────────────────────────────────────────────────────────────
 public sealed partial class GameLoop
 {
-    private enum CreatorPanel { None, Character, Gear, Teleport, Target, Spells, XRay }
+    private enum CreatorPanel { None, Character, Gear, Teleport, Target, Spells, XRay, World, Tabletop }
     private CreatorPanel _creatorPanel;
 
     // Character look state (defaults mirror the offline test character).
@@ -145,6 +145,7 @@ public sealed partial class GameLoop
     private void DrawCreatorHud()
     {
         _creatorSectionDefs.Clear();
+        _creatorSidebarRight = 0f;
         _creatorGizmoHover = null;
         _creatorGizmoHoverLabel = null;
         RegisterCreatorCharacterSections();
@@ -153,8 +154,15 @@ public sealed partial class GameLoop
         RegisterCreatorTargetSections();
         RegisterCreatorSpellsSections();
         RegisterCreatorXraySections();
+        RegisterCreatorWorldSections();
 
-        if (Settings.Creator.Workspace)
+        if (TabletopActive)
+        {
+            // Quest Tabletop swap (QUEST_TABLETOP.md): the top bar stays (to leave), the table owns the rest.
+            DrawCreatorMenuBar();
+            DrawTabletopUi();
+        }
+        else if (Settings.Creator.Workspace)
         {
             // The docked layout: rails + bottom deck instead of floating panels.
             DrawCreatorWorkspace();
@@ -171,8 +179,10 @@ public sealed partial class GameLoop
                 case CreatorPanel.Target: DrawCreatorSectionPanel("Target", "Target", 430f, 560f); break;
                 case CreatorPanel.Spells: DrawCreatorSectionPanel("Spells", "Spell Workshop", 500f, 640f); break;
                 case CreatorPanel.XRay: DrawCreatorSectionPanel("XRay", "Collision X-Ray", 460f, 560f); break;
+                case CreatorPanel.World: DrawCreatorSectionPanel("World", "World Builder", 560f, 820f); break;
             }
         }
+        UpdateWorldBuilder();
         DrawCreatorGizmoLabels();
         DrawPoppedCreatorSections();
         DrawMountToolkit();
@@ -391,6 +401,10 @@ public sealed partial class GameLoop
         CreatorBarButton("Spells", CreatorPanel.Spells, size, captionPx);
         ImGui.SameLine();
         CreatorBarButton("X-Ray", CreatorPanel.XRay, size, captionPx);
+        ImGui.SameLine();
+        CreatorBarButton("World", CreatorPanel.World, size, captionPx);
+        ImGui.SameLine();
+        CreatorBarButton("Tabletop", CreatorPanel.Tabletop, size, captionPx);
 
         // The Encounter Lab has its own lifetime (Ctrl+E, draws in live mode
         // too), so its button toggles the Lab directly instead of being a panel.
@@ -408,6 +422,7 @@ public sealed partial class GameLoop
             _creatorUiOptionsOpen = !_creatorUiOptionsOpen;
 
         if (_skin is not null) _skin.Scale = savedScale;
+        _creatorBarBottom = ImGui.GetWindowPos().Y + ImGui.GetWindowSize().Y;
         ImGui.End();
 
         DrawCreatorFreeViewButton();
@@ -532,7 +547,21 @@ public sealed partial class GameLoop
             }
             ImGui.TextDisabled(workspace
                 ? "Panels dock into the bottom deck; the right rail's Wins button also returns here."
-                : "Classic floating windows. Check to try the docked layout.");
+                : "Top buttons open the panels. Check to try the rails + deck layout.");
+
+            if (!workspace)
+            {
+                bool sidebar = creator.Sidebar;
+                if (ImGui.Checkbox("Left sidebar (full height, scrolls inside, Atlas look)", ref sidebar))
+                {
+                    creator.Sidebar = sidebar;
+                    if (sidebar) creator.SidebarCollapsed = false;
+                    save = true;
+                }
+                ImGui.TextDisabled(sidebar
+                    ? "Drag the sidebar's right edge to resize it (remembered per panel); the chevron folds it away."
+                    : "Classic floating windows with the vanilla dialog art.");
+            }
 
             if (workspace)
             {
@@ -566,7 +595,11 @@ public sealed partial class GameLoop
         if (_creatorPanel == panel)   // the open panel's button wears the gold rim
             ImGui.GetWindowDrawList().AddRect(ImGui.GetItemRectMin(), ImGui.GetItemRectMax(),
                 VanillaGold, 3f, ImDrawFlags.None, 2f);
-        if (clicked) _creatorPanel = _creatorPanel == panel ? CreatorPanel.None : panel;
+        if (clicked)
+        {
+            _creatorPanel = _creatorPanel == panel ? CreatorPanel.None : panel;
+            if (_creatorPanel != CreatorPanel.None && Settings.Creator.SidebarCollapsed) { Settings.Creator.SidebarCollapsed = false; SettingsFile?.Save(); }
+        }
     }
 
     // ── panel chrome ─────────────────────────────────────────────────────────
@@ -581,6 +614,8 @@ public sealed partial class GameLoop
 
     private void PushCreatorStyle()
     {
+        if (CreatorAtlasLook) { PushCreatorAtlasStyle(); return; }
+        _creatorStyleAtlas = false;
         _skin?.PushStyle();
         _creatorStyleColors = 0;
         _creatorStyleVars = 0;
@@ -607,6 +642,7 @@ public sealed partial class GameLoop
     {
         if (_creatorStyleVars > 0) { ImGui.PopStyleVar(_creatorStyleVars); _creatorStyleVars = 0; }
         if (_creatorStyleColors > 0) { ImGui.PopStyleColor(_creatorStyleColors); _creatorStyleColors = 0; }
+        if (_creatorStyleAtlas) { _creatorStyleAtlas = false; return; }
         _skin?.PopStyle();
     }
 
@@ -619,6 +655,7 @@ public sealed partial class GameLoop
     /// </summary>
     private bool DrawCreatorPanelChrome(string title, string? tuneId = null)
     {
+        if (CreatorAtlasLook) return DrawCreatorAtlasChrome(title, tuneId, sidebar: false, out _);
         var dl = ImGui.GetWindowDrawList();
         Vector2 min = ImGui.GetWindowPos();
         Vector2 max = min + ImGui.GetWindowSize();
@@ -741,13 +778,17 @@ public sealed partial class GameLoop
 
     private bool BeginCreatorPanel(string title, string tuneId, float defaultW, float defaultH)
     {
+        if (CreatorSidebarOn) return BeginCreatorSidebar(title, tuneId, defaultW);
         _activePanelTune = tuneId;
         float cs = CreatorUiScale;
         float s = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * cs;
         var cond = _creatorLayoutResetFrames > 0 ? ImGuiCond.Always : ImGuiCond.FirstUseEver;
         ImGui.SetNextWindowPos(new Vector2(8f * s, 64f * s), cond);
         ImGui.SetNextWindowSize(new Vector2(defaultW * cs, defaultH * cs), cond);
-        ImGui.SetNextWindowSizeConstraints(new Vector2(250f * cs, 170f * cs),
+        if (tuneId == "World" && _wbUiPanelSize is { } scripted) { ImGui.SetNextWindowSize(scripted, ImGuiCond.Always); _wbUiPanelSize = null; }
+        // The World Builder needs room for its page under the pack/view/tab header: never shorter than ~760 (screen permitting).
+        float worldMinHeight = MathF.Min(760f * cs, MathF.Max(520f * cs, ImGui.GetIO().DisplaySize.Y - 140f));
+        ImGui.SetNextWindowSizeConstraints(tuneId == "World" ? new Vector2(450f * cs, worldMinHeight) : new Vector2(250f * cs, 170f * cs),
             new Vector2(float.MaxValue, float.MaxValue));
         PushCreatorStyle();
         if (!ImGui.Begin($"###creator-{title}", CreatorChromeFlags))
@@ -766,8 +807,10 @@ public sealed partial class GameLoop
     private void EndCreatorPanel()
     {
         ImGui.SetWindowFontScale(1f);
+        if (_creatorSidebarDrawing) DrawCreatorSidebarResizeGrip();
         ImGui.End();
         PopCreatorStyle();
+        _creatorSidebarDrawing = false;
         _activePanelTune = null;
     }
 
@@ -781,6 +824,7 @@ public sealed partial class GameLoop
         "Teleport" => _travelStatus ?? "",
         "Spells" => _creatorSpell is { } doc ? $"{doc.Info.Id}  {doc.Info.Name}" : "no spell selected",
         "Target" => _creatorSpawns.Count > 0 ? $"{_creatorSpawns.Count} spawned" : "",
+        "World" => WorldBuilderStatus(),
         "XRay" => _xrayActive
             ? (_xrayWorld is { } w ? $"active, {w.TriangleCount:N0} triangles" : "active, building...")
             : "off",
@@ -801,8 +845,9 @@ public sealed partial class GameLoop
     {
         float cs = CreatorUiScale;
         float avail = ImGui.GetContentRegionAvail().X;
-        float expandW = ImGui.CalcTextSize("Expand all").X + 14f * cs;
-        float collapseW = ImGui.CalcTextSize("Collapse all").X + 14f * cs;
+        float framePad = MathF.Max(ImGui.GetStyle().FramePadding.X * 2f, 14f * cs);
+        float expandW = ImGui.CalcTextSize("Expand all").X + framePad;
+        float collapseW = ImGui.CalcTextSize("Collapse all").X + framePad;
         float buttons = expandW + collapseW + 10f * cs;
 
         string status = CreatorPanelStatus(panelId);
@@ -830,12 +875,31 @@ public sealed partial class GameLoop
     {
         if (!BeginCreatorPanel(title, panelId, defaultW, defaultH)) return;
         float cs = CreatorUiScale;
+        if (panelId == "World" && !CreatorSidebarOn && !GetSectionOpen("World/task-layout-v2", false))
+        {
+            // Migrate the old compact accordion window once. Later manual resizing is retained.
+            var display = ImGui.GetIO().DisplaySize;
+            var size = ImGui.GetWindowSize();
+            ImGui.SetWindowSize(new Vector2(MathF.Max(size.X, MathF.Min(560f * cs, display.X * .45f)),
+                MathF.Max(size.Y, MathF.Min(1000f * cs, display.Y - 120f * cs))));
+            ClampCreatorWindowOnScreen();
+            SetSectionOpen("World/task-layout-v2", true);   // v2 (2026-10-14): taller again for the tools' step layouts
+        }
 
         if (_creatorEditLayoutPanel == panelId)
             ImGui.TextColored(new Vector4(0.35f, 0.9f, 0.35f, 1f),
                 "MOVE MODE - drag any outlined button to place it");
-        DrawCreatorPanelToolbar(panelId);
+        if (panelId == "World") DrawWbWorkspaceHeader();
+        else DrawCreatorPanelToolbar(panelId);
         BeginCreatorContent();
+
+        if (panelId == "World")
+        {
+            DrawWbWorkspaceBody();
+            EndCreatorContent();
+            EndCreatorPanel();
+            return;
+        }
 
         foreach (string id in OrderedSectionIds(panelId))
         {
@@ -871,6 +935,7 @@ public sealed partial class GameLoop
         int slot = 0;
         foreach (var def in _creatorSectionDefs.ToList())
         {
+            if (def.Panel == "World") continue; // World uses one task page in either layout.
             if (!IsSectionPopped(def.Panel, def.Id)) continue;
             // The Spell Workshop's IDE layout IS the home for every one of its
             // sections and offers no tear-off corner, so a section popped in another
@@ -883,7 +948,7 @@ public sealed partial class GameLoop
             var cond = _creatorLayoutResetFrames > 0 ? ImGuiCond.Always : ImGuiCond.FirstUseEver;
             // Cascade clear of whatever owns the left edge - the classic 340*s lands
             // UNDER the IDE's outliner.
-            float popLeft = SpellFocusActive ? SpellIdeLeftInset + 20f * cs : 340f * s;
+            float popLeft = SpellFocusActive ? SpellIdeLeftInset + 20f * cs : MathF.Max(340f * s, _creatorSidebarRight + 20f * cs);
             ImGui.SetNextWindowPos(
                 new Vector2(popLeft + 30f * slot * s, (100f + 30f * slot) * s), cond);
             ImGui.SetNextWindowSize(new Vector2(400f * cs, 340f * cs), cond);
@@ -980,32 +1045,23 @@ public sealed partial class GameLoop
         }
         bool hovered = ImGui.IsItemHovered();
 
+        if (CreatorAtlasLook)
+        {
+            DrawAtlasSectionHeaderVisual(dl, pos, avail, h, def.Label, open, hovered, nested: false);
+            CreatorSectionDragDrop(def);
+            ImGui.SameLine(0f, 8f * cs);
+            if (CreatorPopButton($"##pop-{key}", popW, h))
+                TogglePoppedSection(def.Panel, def.Id, true);
+            return open;
+        }
+
         // A full-width header band: warm plate behind the label so sections read
         // as one bar (hover brightens it), with a shadow line separating rows.
         dl.AddRectFilled(pos, pos + new Vector2(avail, h),
             ImGui.ColorConvertFloat4ToU32(new Vector4(0.36f, 0.28f, 0.12f, hovered ? 0.55f : 0.30f)),
             3f * cs);
         dl.AddLine(pos + new Vector2(0f, h), pos + new Vector2(avail, h), 0x55000000, 1f);
-
-        if (ImGui.BeginDragDropSource(ImGuiDragDropFlags.SourceNoDisableHover))
-        {
-            _dragSectionPanel = def.Panel;
-            _dragSectionId = def.Id;
-            ImGui.SetDragDropPayload("CREATOR_SECTION", IntPtr.Zero, 0);
-            ImGui.TextUnformatted(def.Label);
-            ImGui.EndDragDropSource();
-        }
-        if (ImGui.BeginDragDropTarget())
-        {
-            ImGui.AcceptDragDropPayload("CREATOR_SECTION");
-            if (ImGui.IsMouseReleased(ImGuiMouseButton.Left) &&
-                _dragSectionPanel == def.Panel && _dragSectionId is { } dragged && dragged != def.Id)
-            {
-                MoveSectionBefore(def.Panel, dragged, def.Id);
-                _dragSectionPanel = _dragSectionId = null;
-            }
-            ImGui.EndDragDropTarget();
-        }
+        CreatorSectionDragDrop(def);
 
         var iconMin = pos + new Vector2(0f, (h - icon) * 0.5f);
         uint plusMinus = _gameplayArt?.Handle(open
@@ -1027,6 +1083,30 @@ public sealed partial class GameLoop
         return open;
     }
 
+    /// <summary>Section headers are drag sources and drop targets: drop one on another to reorder.</summary>
+    private void CreatorSectionDragDrop(in CreatorSectionDef def)
+    {
+        if (ImGui.BeginDragDropSource(ImGuiDragDropFlags.SourceNoDisableHover))
+        {
+            _dragSectionPanel = def.Panel;
+            _dragSectionId = def.Id;
+            ImGui.SetDragDropPayload("CREATOR_SECTION", IntPtr.Zero, 0);
+            ImGui.TextUnformatted(def.Label);
+            ImGui.EndDragDropSource();
+        }
+        if (ImGui.BeginDragDropTarget())
+        {
+            ImGui.AcceptDragDropPayload("CREATOR_SECTION");
+            if (ImGui.IsMouseReleased(ImGuiMouseButton.Left) &&
+                _dragSectionPanel == def.Panel && _dragSectionId is { } dragged && dragged != def.Id)
+            {
+                MoveSectionBefore(def.Panel, dragged, def.Id);
+                _dragSectionPanel = _dragSectionId = null;
+            }
+            ImGui.EndDragDropTarget();
+        }
+    }
+
     /// <summary>The small corner button on a section header that tears it off.</summary>
     private bool CreatorPopButton(string id, float w, float h)
     {
@@ -1036,7 +1116,7 @@ public sealed partial class GameLoop
         bool hovered = ImGui.IsItemHovered();
         float box = MathF.Min(w, h);
         var boxMin = pos + new Vector2(0f, (h - box) * 0.5f);
-        uint col = hovered ? 0xffffffff : VanillaGold;
+        uint col = CreatorAtlasLook ? AtlasU(hovered ? AtlasGold : AtlasInkFaint) : hovered ? 0xffffffff : VanillaGold;
         // A window glyph: outer frame + a bold "title bar" line, drawn by hand so
         // no font/art dependency can leave the button invisible.
         dl.AddRect(boxMin + new Vector2(2f, 2f), boxMin + new Vector2(box - 2f, box - 2f), col, 2f);
@@ -1071,7 +1151,7 @@ public sealed partial class GameLoop
     // combination of the two dials ever clips a label.
 
     /// <summary>Control height that always fits the current text scale.</summary>
-    private float CreatorRowHeight => ImGui.GetTextLineHeight() + 8f * CreatorUiScale;
+    private float CreatorRowHeight => CreatorAtlasLook ? ImGui.GetFrameHeight() : ImGui.GetTextLineHeight() + 8f * CreatorUiScale;
 
     // ── movable buttons (the gear popup's "Move buttons" edit mode) ──────────
     // In edit mode every red button in the window grows a green outline and can
@@ -1108,7 +1188,9 @@ public sealed partial class GameLoop
         bool displaced = offset != Vector2.Zero;
         if (displaced) ImGui.SetCursorScreenPos(basePos + offset);
 
-        bool clicked = _skin?.PanelButton(label, size) ?? ImGui.Button(label, size);
+        // The Atlas look uses flat hairline buttons; the classic look the vanilla UI-Panel-Button art.
+        bool clicked = CreatorAtlasLook || _skin is null ? ImGui.Button(label, size) : _skin.PanelButton(label, size);
+        ObserveWorldBuilderUiItem(label);
         if (edit)
         {
             clicked = false;   // edit mode: buttons move, they do not fire
@@ -1186,6 +1268,17 @@ public sealed partial class GameLoop
         }
         bool hovered = ImGui.IsItemHovered();
         _creatorCategoryHovered = hovered;
+        if (CreatorAtlasLook)
+        {
+            DrawAtlasSectionHeaderVisual(dl, pos, avail, h, label, open, hovered, nested: true);
+            if (marker is { } mark)
+            {
+                float sq = MathF.Min(h * 0.4f, 10f * cs);
+                var sqMin = new Vector2(pos.X + avail - sq - 4f * cs, pos.Y + (h - sq) * 0.5f);
+                dl.AddRectFilled(sqMin, sqMin + new Vector2(sq, sq), ImGui.ColorConvertFloat4ToU32(mark), 2f * cs);
+            }
+            return open;
+        }
 
         // A dimmer band than top-level sections: nested groups read as sub-rows.
         dl.AddRectFilled(pos, pos + new Vector2(avail, h),

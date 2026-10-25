@@ -19,6 +19,19 @@ public sealed class AreaTableCatalog
         uint IntroSoundId)> _rows = new();
     public int Count => _rows.Count;
     private readonly Dictionary<uint, uint> _singleZoneByMap = new();
+    private readonly Dictionary<uint, uint> _mapById = new();
+
+    /// <summary>The map (Map.dbc id) an area belongs to, or null for an unknown id.</summary>
+    public uint? MapOf(uint areaId) => _mapById.TryGetValue(areaId, out uint m) ? m : null;
+
+    /// <summary>A top-level zone and every area whose parent chain leads to it (its subzones).</summary>
+    public HashSet<uint> ZoneMembers(uint zoneId)
+    {
+        var set = new HashSet<uint> { zoneId };
+        foreach (uint id in _rows.Keys)
+            if (ParentZoneId(id) == zoneId) set.Add(id);
+        return set;
+    }
 
     /// <summary>Fallback for maps whose WMO rooms have no area ID. Ambiguous
     /// maps (including continents) return zero; never pick an arbitrary zone.</summary>
@@ -42,6 +55,7 @@ public sealed class AreaTableCatalog
             uint factionGroupMask = dbc.FieldCount > 20 ? dbc.GetUInt(r, 20) : 0;
             t._rows[id] = (parent, name, exploreFlag, flags, factionGroupMask,
                 ambience, zoneMusic, introSound);
+            t._mapById[id] = dbc.GetUInt(r, 1);
             if (parent == 0)
             {
                 uint mapId = dbc.GetUInt(r, 1);

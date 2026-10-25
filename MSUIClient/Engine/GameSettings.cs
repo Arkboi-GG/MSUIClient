@@ -142,6 +142,35 @@ public sealed class GameSettings
     /// The look (race/sex/dials/equipment) is sticky: whatever was worn when a
     /// creator session ended comes back in the next one.
     /// </summary>
+    /// <summary>Quest Tabletop choices (QUEST_TABLETOP.md §2/§5/§6), persisted like every Creator setting.</summary>
+    public sealed class TabletopSettings
+    {
+        /// <summary>Relief exaggeration k (1 = true heights; the web sketch's default 2.2; slider 1-5).</summary>
+        public float Exaggeration { get; set; } = 2.2f;
+        /// <summary>Miniature lens: tilt-shift blur at the top and bottom of the screen.</summary>
+        public bool Miniature { get; set; } = true;
+        public bool Water { get; set; } = true;
+        /// <summary>The real world near the camera's ground target: terrain detail, buildings, props, water (P2 near layer).</summary>
+        public bool World { get; set; } = true;
+        /// <summary>The real creature models standing on the board (true scale).</summary>
+        public bool Creatures { get; set; } = true;
+
+        // P3 layers (§5), web defaults: givers/turn-ins/chains/journey/explore on, the rest off.
+        public bool Givers { get; set; } = true;
+        public bool Enders { get; set; } = true;
+        public bool Labels { get; set; }
+        public bool Chains { get; set; } = true;
+        public bool Journey { get; set; } = true;
+        public bool Kill { get; set; }
+        public bool Collect { get; set; }
+        public bool Objects { get; set; }
+        public bool Explore { get; set; } = true;
+        public bool LevelTint { get; set; }
+        public bool LevelLift { get; set; }
+        /// <summary>The zone (AreaTable id) last opened on the table; Westfall by default.</summary>
+        public uint AreaId { get; set; } = 40;
+    }
+
     public sealed class CreatorSettings
     {
         public float UiScale { get; set; } = 1f;     // live - MODAL widget/panel sizes
@@ -181,6 +210,20 @@ public sealed class GameSettings
         /// rails of square buttons plus a bottom control deck, instead of
         /// floating windows. Off = the classic floating-window layout.</summary>
         public bool Workspace { get; set; } = true;
+
+        /// <summary>Classic layout (Workspace off): the open panel docks to the left edge under the top bar as a
+        /// full-height sidebar that scrolls inside itself, in the web app's Quest Atlas look (owner, 2026-10-14).
+        /// Off = the floating windows with the vanilla dialog art.</summary>
+        public bool Sidebar { get; set; } = true;
+
+        /// <summary>The sidebar is folded to a tab at the left edge (opening a panel unfolds it).</summary>
+        public bool SidebarCollapsed { get; set; }
+
+        /// <summary>Sidebar width per panel id, in UI-scale units (drag the sidebar's right edge).</summary>
+        public Dictionary<string, float> SidebarWidths { get; set; } = new();
+
+        /// <summary>The Quest Tabletop view (shared_docs/QUEST_TABLETOP.md): its layer choices and last zone.</summary>
+        public TabletopSettings Tabletop { get; set; } = new();
 
         /// <summary>Bottom deck height as a fraction of the display (drag the
         /// deck's top edge to change it).</summary>
@@ -307,8 +350,39 @@ public sealed class GameSettings
         /// while the camera turns, so frames-only is the predictable half.</summary>
         public bool HovercastWorldUnits { get; set; }
 
+        /// <summary>Pressing an attack ability also starts the swing (melee) or Auto Shot (a
+        /// hunter's shot), even when the ability itself is refused for rage, energy, cooldown or
+        /// range - an implicit /startattack. On by default (owner 2026-09-22); the stock 1.12
+        /// behaviour, where a refused ability does nothing, is one switch away.</summary>
+        public bool AbilitiesStartAttack { get; set; } = true;
+
         /// <summary>The melee/ranged auto-attack swing rail.</summary>
         public SwingTimerSettings SwingTimer { get; set; } = new();
+
+        /// <summary>Threat on your target: the top few and where you stand.</summary>
+        public ThreatMeterSettings ThreatMeter { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Threat Meter (owner 2026-09-22). Needs a server advertising threat-meter-v1; 1.12 itself
+    /// never sends threat. Offsets are logical UI units, like the swing timer.
+    /// </summary>
+    public sealed class ThreatMeterSettings
+    {
+        /// <summary>Off by default: furniture nobody asked for stays off the screen.</summary>
+        public bool Enabled { get; set; }
+
+        /// <summary>Drag the meter to move it. Unlocked also keeps it on screen out of combat.</summary>
+        public bool Unlocked { get; set; }
+
+        public float OffsetX { get; set; }
+        public float OffsetY { get; set; }
+
+        /// <summary>How many of the top threat holders to list (3..10). You are always shown.</summary>
+        public int Rows { get; set; } = 5;
+
+        /// <summary>Hide the meter when your target has no threat list (out of combat).</summary>
+        public bool HideWhenIdle { get; set; } = true;
     }
 
     /// <summary>

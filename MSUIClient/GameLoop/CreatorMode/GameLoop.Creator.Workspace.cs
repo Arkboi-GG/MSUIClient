@@ -187,6 +187,7 @@ public sealed partial class GameLoop
                 "Target - creatures and spawns");
             Panel("Spell", "INV_Misc_Book_09", CreatorPanel.Spells, "Spell Workshop");
             Panel("X-Ray", "Spell_Holy_MindVision", CreatorPanel.XRay, "Collision X-Ray");
+            Panel("World", "INV_Misc_Map_01", CreatorPanel.World, "World Builder - sculpt, place, publish");
             ImGui.Separator();
             // No gold rim here: the rim means "this is the view you are in", and
             // in the root view it never is - the Lab can stay OPEN (simulating)
@@ -432,6 +433,7 @@ public sealed partial class GameLoop
                     CreatorPanel.Target => ("Target", "Target"),
                     CreatorPanel.Spells => ("Spells", "Spell Workshop"),
                     CreatorPanel.XRay => ("XRay", "Collision X-Ray"),
+                    CreatorPanel.World => ("World", "World Builder"),
                     _ => ("", ""),
                 };
         if (panelId.Length == 0) return;
@@ -698,6 +700,14 @@ public sealed partial class GameLoop
     private void DrawWorkspacePanelDeck(string panelId)
     {
         float cs = CreatorUiScale;
+        if (panelId == "World")
+        {
+            DrawWbWorkspaceHeader();
+            ImGui.BeginChild("##wb-task-body", new Vector2(0f, 0f));
+            DrawWbWorkspaceBody();
+            ImGui.EndChild();
+            return;
+        }
         float colW = 420f * cs;
         ImGui.BeginChild("##deck-panel", new Vector2(0f, 0f),
             false, ImGuiWindowFlags.HorizontalScrollbar);

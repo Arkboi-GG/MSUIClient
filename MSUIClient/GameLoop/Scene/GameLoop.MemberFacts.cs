@@ -46,6 +46,8 @@ public sealed partial class GameLoop
         ApplyPartyQuestActsCapability(capabilities);
         ApplyPartyGiverStatusCapability(capabilities);
         ApplyPartyLeadCapability(capabilities);
+        ApplyThreatMeterCapability(capabilities);
+        ApplyKartingCapability(capabilities);
         ApplyCompanionsCapability(capabilities);
         ApplyPartyGiverQuestsCapability(capabilities);
     }

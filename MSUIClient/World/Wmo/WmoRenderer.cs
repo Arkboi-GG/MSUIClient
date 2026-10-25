@@ -83,6 +83,13 @@ public enum WmoReasonCode
 /// </summary>
 public sealed class WmoRenderer : IDisposable
 {
+    /// <summary>Quest Tabletop view transform (relief + board cut); set only on the tabletop's own instance.</summary>
+    public TabletopViewTransform? Tabletop { get; set; }
+
+    /// <summary>Quest Tabletop: extra height for a placement (its origin, owning WMO instance id) so models ride the
+    /// exaggerated ground at true scale (World/TabletopViewTransform.cs). Null everywhere else.</summary>
+    public Func<Vector3, int, float>? ModelLift { get; set; }
+
     /// <summary>Position(3) + Normal(3) + UV(2) + MOCV colour(4).</summary>
     private const int FloatsPerVertex = 12;
 
@@ -151,6 +158,8 @@ public sealed class WmoRenderer : IDisposable
         // group picker (the GPU copy can't be read back cheaply). Positions only.
         public Vector3[] PickPositions = [];
         public int[] PickIndices = [];
+        // PickIndices minus the collision-only faces (MOPY material 0xFF): what is actually drawn.
+        public int[] RenderedPickIndices = [];
 
         // The exact walking-collision face set for this group (MOPY DETAIL
         // excluded), retained for the camera's current-room down ray. AABBs are
@@ -538,6 +547,18 @@ public sealed class WmoRenderer : IDisposable
     /// timestamps paired with a reset/frozen preview clock make every new WMO
     /// remain at alpha zero forever.
     /// </summary>
+    /// <summary>
+    /// Record every placement already resident as opaque. A Real Portals prepared world is built with
+    /// AppearFade off, so it remembers none of its keys; switched on at promotion, the first tile crossing
+    /// (a full ring rebuild) then saw the whole visible world as new and faded it all in from nothing - every
+    /// tree vanishing seconds after a crossing (WoW Karting frame bursts, 2026-10-04).
+    /// </summary>
+    public void MarkPlacedOpaque()
+    {
+        foreach (string key in _placed)
+            if (_appearStartByKey.Count < AppearKeyCap) _appearStartByKey.TryAdd(key, 0f);
+    }
+
     public void BeginOpaqueWorldEpoch(float nowSeconds = 0f)
     {
         _appearStartByKey.Clear();
@@ -2846,6 +2867,15 @@ public sealed class WmoRenderer : IDisposable
     private static Matrix4x4 BuildPlacement(AdtTerrainReader.WmoInstance w)
         => BuildPlacement(w, PlacementToWorld);
 
+    /// <summary>World Builder ghost (shared_docs/WORLD_BUILDER.md §4): the exact transform a MODF
+    /// entry with these placement-space fields gets once published, for <see cref="AddDynamic"/>.</summary>
+    public static Matrix4x4 ModfTransform(Vector3 placementPos, Vector3 rotDeg)
+        => BuildPlacement(new AdtTerrainReader.WmoInstance
+        {
+            PosX = placementPos.X, PosY = placementPos.Y, PosZ = placementPos.Z,
+            RotX = rotDeg.X, RotY = rotDeg.Y, RotZ = rotDeg.Z,
+        });
+
     private static Matrix4x4 BuildGlobalPlacement(AdtTerrainReader.WmoInstance w)
         => BuildPlacement(w, GlobalPlacementToWorld);
 
@@ -3723,6 +3753,66 @@ public sealed class WmoRenderer : IDisposable
     }
 
     /// <summary>
+    /// Dev probe for "fell through the world here": every authored face of every resident WMO
+    /// instance whose footprint contains the world XY, top to bottom, with its height at that
+    /// point, MOPY flags, material and whether walking collision keeps it (DETAIL 0x04 = dropped).
+    /// Re-reads the group files: this is what the DATA offers a falling body at that column.
+    /// </summary>
+    public void DumpFacesUnder(float x, float y)
+    {
+        foreach (Instance instance in _instances)
+        {
+            if (x < instance.WorldMin.X || x > instance.WorldMax.X || y < instance.WorldMin.Y || y > instance.WorldMax.Y) continue;
+            Console.WriteLine($"[wmo-column] ({x:F1}, {y:F1}) inside {instance.Path} id={instance.Id} z {instance.WorldMin.Z:F0}..{instance.WorldMax.Z:F0}");
+            byte[]? rootBytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, instance.Path);
+            WmoRootData? root = rootBytes is null ? null : WmoReader.ParseRoot(rootBytes);
+            if (root is null) { Console.WriteLine("[wmo-column]   root unreadable"); continue; }
+            string stem = instance.Path[..^4];
+            var rows = new List<(float Z, string Line)>();
+            // Whole-instance census of walkable-facing faces (n.z > 0.5) per group and MOPY flag:
+            // where a stair's rendered treads are DETAIL, is there a solid ramp anywhere at all?
+            var floors = new SortedDictionary<string, (int N, float Lo, float Hi)>();
+            for (int g = 0; g < (int)root.NGroups; g++)
+            {
+                byte[]? groupBytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, $"{stem}_{g:D3}.wmo");
+                if (groupBytes is null) { Console.WriteLine($"[wmo-column]   g{g} unreadable"); continue; }
+                WmoGroupData group;
+                try { group = WmoReader.ParseGroup(groupBytes, root.Flags); } catch (Exception e) { Console.WriteLine($"[wmo-column]   g{g} parse failed: {e.Message}"); continue; }
+                for (int t = 0; t < group.Indices.Count / 3; t++)
+                {
+                    int i0 = group.Indices[t * 3], i1 = group.Indices[t * 3 + 1], i2 = group.Indices[t * 3 + 2];
+                    if (i0 >= group.Vertices.Count || i1 >= group.Vertices.Count || i2 >= group.Vertices.Count) continue;
+                    var (ax, ay, az) = group.Vertices[i0]; var (bx, by, bz) = group.Vertices[i1]; var (cx, cy, cz) = group.Vertices[i2];
+                    Vector3 a = Vector3.Transform(new Vector3(ax, ay, az), instance.Transform);
+                    Vector3 b = Vector3.Transform(new Vector3(bx, by, bz), instance.Transform);
+                    Vector3 c = Vector3.Transform(new Vector3(cx, cy, cz), instance.Transform);
+                    float d = (b.Y - c.Y) * (a.X - c.X) + (c.X - b.X) * (a.Y - c.Y);
+                    (byte fl0, byte mat0) = t < group.TriMaterials.Count ? group.TriMaterials[t] : ((byte)0, (byte)0);
+                    if (Vector3.Normalize(Vector3.Cross(b - a, c - a)).Z > 0.5f)
+                    {
+                        string key = $"g{g} mopy=0x{fl0:X2}{(mat0 == 0xFF ? " mat=0xFF" : "")}";
+                        float lo = MathF.Min(a.Z, MathF.Min(b.Z, c.Z)), hi = MathF.Max(a.Z, MathF.Max(b.Z, c.Z));
+                        floors[key] = floors.TryGetValue(key, out var f) ? (f.N + 1, MathF.Min(f.Lo, lo), MathF.Max(f.Hi, hi)) : (1, lo, hi);
+                    }
+                    if (MathF.Abs(d) < 1e-6f) continue;   // vertical face: no floor at a column
+                    float l1 = ((b.Y - c.Y) * (x - c.X) + (c.X - b.X) * (y - c.Y)) / d;
+                    float l2 = ((c.Y - a.Y) * (x - c.X) + (a.X - c.X) * (y - c.Y)) / d;
+                    float l3 = 1f - l1 - l2;
+                    if (l1 < -1e-4f || l2 < -1e-4f || l3 < -1e-4f) continue;
+                    float z = l1 * a.Z + l2 * b.Z + l3 * c.Z;
+                    (byte flags, byte material) = t < group.TriMaterials.Count ? group.TriMaterials[t] : ((byte)0, (byte)0);
+                    Vector3 n = Vector3.Normalize(Vector3.Cross(b - a, c - a));
+                    rows.Add((z, $"[wmo-column]   z {z,7:F2}  g{g} gflags=0x{group.GroupFlags:X} tri{t} mopy=0x{flags:X2} mat={material} n.z={n.Z:F2} walk={((flags & 0x04) == 0 ? "KEPT" : "dropped(detail)")}"));
+                }
+            }
+            foreach (var (_, line) in rows.OrderByDescending(r => r.Z)) Console.WriteLine(line);
+            Console.WriteLine($"[wmo-column]   {rows.Count} face(s) over this column");
+            foreach (var (key, f) in floors)
+                Console.WriteLine($"[wmo-floors]   {key,-24} {f.N,5} upward face(s), z {f.Lo:F1}..{f.Hi:F1}");
+        }
+    }
+
+    /// <summary>
     /// Dev probe: every authored group face of every resident WMO instance within
     /// <paramref name="radius"/> of a world point, with its MOPY flags and material id, plus how
     /// many of that instance's faces reached the walking collision. Re-reads the group files, so
@@ -3924,6 +4014,7 @@ public sealed class WmoRenderer : IDisposable
             VertexCount = group.Vertices.Count,
             PickPositions = BuildPickPositions(group),
             PickIndices = [.. group.Indices.Select(i => (int)i)],
+            RenderedPickIndices = BuildRenderedIndices(group),
         };
         mesh.Attach(_gl);
 
@@ -4637,6 +4728,7 @@ public sealed class WmoRenderer : IDisposable
         _shader.Set("uWorldClipPlane", worldClipPlane is { IsValid: true } clip
             ? clip.RelativeEquation(camera.Position)
             : new Vector4(0f, 0f, 0f, 1f));
+        Tabletop?.Apply(_shader, camera.Position, relief: false);
         _shader.Set("uUseInstancing", 0);
         _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uCutActive", ActiveCut is not null ? 1 : 0);
@@ -4647,7 +4739,8 @@ public sealed class WmoRenderer : IDisposable
         _shader.Set("uStageRadius", Stage?.Radius ?? 0f);
         _shader.Set("uStageHalfHeight", Stage?.HalfHeight ?? 0f);
         SetSightUniforms(camera.Position);
-        PartySight?.Apply(_shader, camera.Position);
+        if (PartySight is { } partySight) partySight.Apply(_shader, camera.Position);
+        else PartySightPass.BindInactive(_shader);
         _shader.Set("uSunDirection", SunDirection);
         _shader.Set("uSunColor", SunColor);
         _shader.Set("uSunIntensity", SunIntensity);
@@ -4701,6 +4794,7 @@ public sealed class WmoRenderer : IDisposable
         foreach (var (_, instance) in _drawOrder)
         {
             var modelTransform = instance.Transform;
+            if (ModelLift is { } lift) modelTransform.M43 += lift(instance.Origin, instance.Id);
             modelTransform.M41 -= cameraPosition.X;
             modelTransform.M42 -= cameraPosition.Y;
             modelTransform.M43 -= cameraPosition.Z;
@@ -5058,6 +5152,17 @@ public sealed class WmoRenderer : IDisposable
     public readonly record struct InstanceSummary(
         string Root, float Distance, int Groups, int Drawn, int Shells, bool CameraInside);
 
+    private static int[] BuildRenderedIndices(WmoGroupData group)
+    {
+        var list = new List<int>(group.Indices.Count);
+        for (int t = 0; t * 3 + 2 < group.Indices.Count; t++)
+        {
+            if (t < group.TriMaterials.Count && group.TriMaterials[t].materialId == 0xFF) continue;
+            list.Add(group.Indices[t * 3]); list.Add(group.Indices[t * 3 + 1]); list.Add(group.Indices[t * 3 + 2]);
+        }
+        return list.ToArray();
+    }
+
     private static Vector3[] BuildPickPositions(WmoGroupData group)
     {
         var arr = new Vector3[group.Vertices.Count];
@@ -5106,6 +5211,31 @@ public sealed class WmoRenderer : IDisposable
             }
         }
         return tris;
+    }
+
+    /// <summary>
+    /// Nearest hit on the RENDERED WMO triangles (what is on screen), or null. The collision world is the
+    /// server's vmaps and carries invisible collision-only surfaces - e.g. the planes Blizzard laid over
+    /// Stormwind's roofs - so a roof survey must ask the render mesh too (WoW Karting rooftops, 2026-10-04).
+    /// </summary>
+    public float? RaycastRendered(Vector3 rayOrigin, Vector3 rayDir, float maxDistance)
+    {
+        float best = maxDistance;
+        bool hit = false;
+        foreach (var instance in _instances)
+        {
+            if (!Matrix4x4.Invert(instance.Transform, out var inv)) continue;
+            var lo = Vector3.Transform(rayOrigin, inv);
+            var ld = Vector3.TransformNormal(rayDir, inv);
+            foreach (var g in instance.Model.Groups)
+            {
+                if (!RayHitsBox(lo, ld, g.LocalMin, g.LocalMax, out _)) continue;
+                if (!NearestTriangle(lo, ld, g.PickPositions, g.RenderedPickIndices, out float t) || t >= best) continue;
+                best = t;
+                hit = true;
+            }
+        }
+        return hit ? best : null;
     }
 
     public List<GroupHit> PickGroups(Camera camera, Vector3 rayOrigin, Vector3 rayDir, int max = 14)

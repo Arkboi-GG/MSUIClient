@@ -14,7 +14,15 @@ public sealed class CreatorCreatureTable
         int LevelMin, int LevelMax, byte Rank, byte Type, uint DisplayId, float Scale);
 
     private readonly List<Creature> _creatures;
+    private Dictionary<uint, Creature>? _byEntry;
     public int Count => _creatures.Count;
+
+    /// <summary>One creature by entry (the Quest Tabletop maps census spawns to display ids this way).</summary>
+    public bool TryGet(uint entry, out Creature creature)
+    {
+        _byEntry ??= _creatures.GroupBy(c => c.Entry).ToDictionary(g => g.Key, g => g.First());
+        return _byEntry.TryGetValue(entry, out creature);
+    }
 
     private CreatorCreatureTable(List<Creature> creatures) => _creatures = creatures;
 

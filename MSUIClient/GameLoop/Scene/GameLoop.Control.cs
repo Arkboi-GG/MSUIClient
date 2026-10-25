@@ -326,6 +326,8 @@ public sealed partial class GameLoop
         ResetPartyGiverStatus();
         ResetPartyGiverQuests();
         ResetPartyLead();
+        ResetThreatMeter();
+        ResetKarting();
         ResetCompanions();
         ResetPartyQuestActs();
         PurgeSuiSnapshot();
@@ -887,6 +889,13 @@ public sealed partial class GameLoop
             // loot state is session-wide (one window), keyed by the corpse guid.
             case Op.SMSG_LOOT_RESPONSE:
                 ApplyLootResponse(inner);
+                break;
+            // Group::MasterLoot answers the LOOTER's session, which is the driven bot's, so the
+            // candidate list arrives here exactly like the loot window itself. Without this the
+            // master looter saw the items and had nobody to assign them to.
+            // Pair: SuiPossess.cpp MirrorOwnerPacket must whitelist SMSG_LOOT_MASTER_LIST.
+            case Op.SMSG_LOOT_MASTER_LIST:
+                ApplyLootMasterList(inner);
                 break;
             case Op.SMSG_LOOT_RELEASE_RESPONSE:
                 ApplyLootReleaseResponse(inner);
@@ -1865,7 +1874,7 @@ public sealed partial class GameLoop
             _window.LookPitchLocked = pitchLocked;
             if (pitchLocked)
                 _window.Camera.Pitch = CommandViewLaw.PitchRadians(
-                    Settings.Controls.CommandViewPitchDegrees);
+                    WbFlyPitchOverride ?? Settings.Controls.CommandViewPitchDegrees);
             // The round-15 floating-body camera (walls/ceilings stop the rig) is OFF:
             // detaching under any WMO geometry — indoors, gate arches, city overhangs —
             // hit an invisible "fake ceiling" (owner, 2026-08-11 evening). The rig is a
@@ -2001,8 +2010,9 @@ public sealed partial class GameLoop
         if (rightDown && IsMoving()) _freecamRightPanned = true;
         _freecamRightWasDown = rightDown;
 
+        // A World Builder tool owns the left button (path points, sculpt drags, placement): no box-selection.
         if (leftDown && _freecamDragOrigin is null && !_commanderMapOpen && !_hudEditMode &&
-            _rtsUnitCastSpellId == 0 &&
+            _rtsUnitCastSpellId == 0 && !WbOwnsLeftClick &&
             !_window.MouseCaptured && !ImGui.GetIO().WantCaptureMouse)
             _freecamDragOrigin = mouse;
 

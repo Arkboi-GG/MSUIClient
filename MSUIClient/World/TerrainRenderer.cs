@@ -112,6 +112,15 @@ public sealed class TerrainRenderer : IDisposable
     public const float GridSize = 533.33333f;
 
     public int TileCount => _tiles.Count;
+
+    /// <summary>Frame-recorder probe: is this renderer still drawing with live GL objects?</summary>
+    public string GlProbe()
+    {
+        uint program = _shader?.Handle ?? 0;
+        uint tex = _tiles.Values.FirstOrDefault()?.Textures?.TilesetHandle ?? 0;
+        return $"prog={program}/{(program != 0 && _gl.IsProgram(program) ? "ok" : "DEAD")} " +
+               $"tex={tex}/{(tex != 0 && _gl.IsTexture(tex) ? "ok" : "DEAD")} id={GetHashCode():X}";
+    }
     public int PendingPreloads => _preloads.Count;
     /// <summary>
     /// True when <see cref="UnloadAll"/> can reclaim every queued terrain
@@ -205,6 +214,9 @@ public sealed class TerrainRenderer : IDisposable
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
     public float VisibilityDistance { get; set; } = float.PositiveInfinity;
+
+    /// <summary>Quest Tabletop view transform (relief + board cut); set only on the tabletop's own instance.</summary>
+    public TabletopViewTransform? Tabletop { get; set; }
 
     /// <summary>
     /// Frustum-cull per MCNK inside a tile rather than only per tile.
@@ -330,6 +342,28 @@ public sealed class TerrainRenderer : IDisposable
 
         return changed;
     }
+
+    /// <summary>
+    /// World Builder live sculpt (shared_docs/WORLD_BUILDER.md §4): rebuild one RESIDENT tile's
+    /// mesh and every CPU grid from an edited ADT (its chunk heights/normals already changed), so
+    /// what is drawn, walked on and picked all agree. Render thread only. False when the tile is
+    /// not resident (it will pick the edit up from the shared AdtCache instance when it streams).
+    /// </summary>
+    public bool RebuildTile((int col, int row) key, AdtTerrainReader.AdtResult adt)
+    {
+        if (!_tiles.TryGetValue(key, out var old)) return false;
+        var tile = TerrainTile.Load(_gl, adt, _config.ClientDataPath, key.col, key.row);
+        if (tile is null) return false;
+        old.Dispose();
+        _tiles[key] = tile;
+        _heights[key] = BuildHeightGrid(adt);
+        _innerHeights[key] = BuildInnerHeightGrid(adt);
+        _chunkMinimumHeights[key] = BuildChunkMinimumHeightGrid(adt);
+        return true;
+    }
+
+    /// <summary>Is this tile's mesh on the GPU right now?</summary>
+    public bool IsResident((int col, int row) key) => _tiles.ContainsKey(key);
 
     /// <summary>
     /// Prepare the lead ring off the render thread and upload it through the
@@ -718,7 +752,18 @@ public sealed class TerrainRenderer : IDisposable
     /// safer answer. Vanilla draws the same line between INVALID_HEIGHT and
     /// VMAP_INVALID_HEIGHT_VALUE.
     /// </summary>
-    public float? SampleHeight(float worldX, float worldY, out bool hole)
+    public float? SampleHeight(float worldX, float worldY, out bool hole) =>
+        SampleHeightCore(worldX, worldY, ApplyHoles, out hole);
+
+    /// <summary>
+    /// The height field as authored, IGNORING the MCNK holes: what the terrain would be had the
+    /// artist not cut the square. Only for the controller's hole void guard - a hole with nothing
+    /// under it (the building leaves a corner open) holds the body here instead of the void.
+    /// </summary>
+    public float? SampleHeightThroughHoles(float worldX, float worldY) =>
+        SampleHeightCore(worldX, worldY, false, out _);
+
+    private float? SampleHeightCore(float worldX, float worldY, bool applyHoles, out bool hole)
     {
         hole = false;
 
@@ -740,7 +785,7 @@ public sealed class TerrainRenderer : IDisposable
         // same quads here is the whole fix: otherwise the height grid keeps
         // answering with terrain that is neither drawn nor there, and the
         // player walks up an invisible hillside instead of into the mine.
-        if (ApplyHoles &&
+        if (applyHoles &&
             _holes.TryGetValue(key, out var holeGrid) &&
             holeGrid.Length == QuadGridSide * QuadGridSide &&
             holeGrid[r0 * QuadGridSide + c0] != 0)
@@ -928,6 +973,7 @@ public sealed class TerrainRenderer : IDisposable
         _shader.Set("uWorldClipPlane", worldClipPlane is { IsValid: true } clip
             ? clip.RelativeEquation(camera.Position)
             : new Vector4(0f, 0f, 0f, 1f));
+        Tabletop?.Apply(_shader, camera.Position, relief: true);
         _shader.Set("uCutActive", Cut is not null ? 1 : 0);
         _shader.Set("uCutRect", Cut?.RelativeRect(camera.Position) ?? Vector4.Zero);
         _shader.Set("uCutZ", Cut?.RelativeZ(camera.Position) ?? 0f);
@@ -936,7 +982,8 @@ public sealed class TerrainRenderer : IDisposable
         _shader.Set("uStageCentre", Stage is { } stage ? stage.Centre - camera.Position : Vector3.Zero);
         _shader.Set("uStageRadius", Stage?.Radius ?? 0f);
         _shader.Set("uStageHalfHeight", Stage?.HalfHeight ?? 0f);
-        PartySight?.Apply(_shader, camera.Position);
+        if (PartySight is { } partySight) partySight.Apply(_shader, camera.Position);
+        else PartySightPass.BindInactive(_shader);
         _shader.Set("uCameraPos", Vector3.Zero);
         // Normalised HERE, not per pixel. The shader used to call normalize() on
         // this every fragment — on a uniform, over a surface that covers most of
